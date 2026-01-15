@@ -1,0 +1,7 @@
+# BMAD Memory Module - Streamlit Dashboard
+# Last audited: 2026-01-14
+# All versions pinned per ACT-003
+
+streamlit==1.52.2
+qdrant-client==1.16.2
+httpx==0.28.1

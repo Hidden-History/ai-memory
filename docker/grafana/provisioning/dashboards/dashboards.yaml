@@ -1,0 +1,16 @@
+# Grafana Dashboard Provisioning Configuration
+# Auto-loads dashboards from /var/lib/grafana/dashboards
+# 2026 Best Practices: disableDeletion prevents UI modifications, updateIntervalSeconds enables hot-reload
+
+apiVersion: 1
+
+providers:
+  - name: 'BMAD Memory'
+    orgId: 1
+    folder: 'BMAD Memory Module'
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

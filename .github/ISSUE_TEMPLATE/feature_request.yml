@@ -1,0 +1,112 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for BMAD Memory Module
+title: "[Feature]: "
+labels: ["type: feature", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! We value community input and want to understand your use case.
+
+  - type: dropdown
+    id: feature-type
+    attributes:
+      label: Feature Type
+      description: What type of feature is this?
+      options:
+        - New Capability
+        - Enhancement to Existing Feature
+        - Integration with Another Tool
+        - Performance Improvement
+        - Developer Experience
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Description
+      description: What problem does this feature solve? Describe the use case.
+      placeholder: |
+        I'm frustrated when... OR I need to...
+
+        Example: "When working on large projects, I find it difficult to search through thousands of memories. I need a way to filter memories by date range or specific files."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How would you like this feature to work?
+      placeholder: |
+        I would like...
+
+        Example: "Add CLI flags to the search functionality:
+        - `--after YYYY-MM-DD` - only show memories created after this date
+        - `--file PATH` - only show memories related to this file
+        - `--type implementation|best_practice` - filter by memory type"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other solutions have you considered?
+      placeholder: |
+        Example: "I considered using Qdrant's filtering directly, but that requires understanding the payload structure. A CLI interface would be more user-friendly."
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Example Usage
+      description: Show how you would use this feature (optional but helpful)
+      placeholder: |
+        ```bash
+        # Search for memories from the last week related to authentication
+        python3 scripts/memory/query_session_logs.py --after 2026-01-07 --file src/auth.py
+        ```
+      render: shell
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: How Important Is This Feature?
+      description: Help us prioritize
+      options:
+        - Critical - Blocking my work
+        - High - Would significantly improve my workflow
+        - Medium - Nice to have
+        - Low - Minor improvement
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any other context, screenshots, or mockups
+      placeholder: "This would be especially useful for..."
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Would you be willing to contribute to this feature?
+      options:
+        - label: I would be willing to submit a PR for this feature
+        - label: I can help with design/specification
+        - label: I can help with testing
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have searched existing issues and feature requests to avoid duplicates
+          required: true
+        - label: This feature aligns with the project's goals (memory management for Claude Code)
+          required: true

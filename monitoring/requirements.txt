@@ -1,0 +1,11 @@
+# BMAD Memory Module - Monitoring API
+# Last audited: 2026-01-14
+# All versions pinned per ACT-003
+
+fastapi==0.128.0
+uvicorn==0.40.0
+qdrant-client==1.16.2
+httpx==0.28.1
+pydantic==2.12.5
+pydantic-settings==2.7.1
+prometheus-client==0.23.1

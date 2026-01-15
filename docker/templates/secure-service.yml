@@ -1,0 +1,79 @@
+# BMAD Memory Module - Docker Service Security Template
+# Version: 1.0.0
+# Source: Epic 6 Story 6.3 security hardening patterns
+# Reference: DEC-012, Epic 6 Retrospective ACT-005
+#
+# Usage: Include these settings in all new Docker services.
+# See: docker/templates/README.md for detailed documentation
+
+# Required Settings for ALL Services
+# ====================================
+
+security_opt:
+  - no-new-privileges:true
+
+cap_drop:
+  - ALL
+
+# Recommended Settings
+# ====================
+
+# Read-only root filesystem (where applicable)
+# Use for services that don't need to write to root filesystem
+read_only: true
+
+# Temporary filesystem for services needing temp storage
+# Use with read_only: true for services needing /tmp writes
+tmpfs:
+  - /tmp:rw,noexec,nosuid
+
+# Non-root user (adjust UID:GID based on service requirements)
+# Default: 1000:1000 (standard user)
+user: "1000:1000"
+
+# Web UI Specific - CSRF Protection
+# ==================================
+
+# Uncomment and adjust based on service framework:
+
+# Grafana:
+# environment:
+#   - GF_SECURITY_CSRF_ALWAYS_CHECK=true
+#   - GF_SNAPSHOTS_EXTERNAL_ENABLED=false
+
+# Generic web services:
+# environment:
+#   - CSRF_PROTECTION=true
+
+# Complete Service Example
+# ========================
+
+# my-service:
+#   image: myimage:latest
+#   container_name: my-service
+#
+#   # Required security hardening
+#   security_opt:
+#     - no-new-privileges:true
+#   cap_drop:
+#     - ALL
+#
+#   # Recommended settings
+#   read_only: true
+#   tmpfs:
+#     - /tmp:rw,noexec,nosuid
+#   user: "1000:1000"
+#
+#   # Standard service configuration
+#   ports:
+#     - "127.0.0.1:28000:8000"
+#   environment:
+#     - SERVICE_CONFIG=production
+#   restart: unless-stopped
+#
+#   healthcheck:
+#     test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+#     interval: 30s
+#     timeout: 10s
+#     retries: 3
+#     start_period: 10s

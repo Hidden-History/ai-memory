@@ -1,0 +1,182 @@
+name: Installation Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  test-ubuntu:
+    name: Test Installation (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker.io docker-compose-plugin lsof
+
+      - name: Start Docker service
+        run: |
+          sudo systemctl start docker
+          sudo systemctl enable docker
+          sudo usermod -aG docker $USER
+
+      - name: Verify Docker is running
+        run: |
+          docker info
+          docker compose version
+
+      - name: Install Python test dependencies
+        run: |
+          pip install pytest httpx
+
+      - name: Run installer
+        env:
+          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+          BMAD_QDRANT_PORT: 26350
+          BMAD_EMBEDDING_PORT: 28080
+        run: |
+          chmod +x scripts/install.sh
+          ./scripts/install.sh
+
+      - name: Verify installation
+        env:
+          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+        run: |
+          ls -la $BMAD_INSTALL_DIR
+          ls -la $BMAD_INSTALL_DIR/docker
+          ls -la $BMAD_INSTALL_DIR/src/memory
+
+      - name: Run health check
+        env:
+          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+        run: |
+          python3 $BMAD_INSTALL_DIR/scripts/health-check.py
+
+      - name: Run integration tests
+        env:
+          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+          BMAD_QDRANT_PORT: 26350
+          BMAD_EMBEDDING_PORT: 28080
+        run: |
+          pytest tests/integration/test_installation.py -v --tb=short
+          pytest tests/integration/test_platform.py -v --tb=short
+
+      - name: Show Docker logs on failure
+        if: failure()
+        env:
+          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+        run: |
+          docker compose -f $BMAD_INSTALL_DIR/docker/docker-compose.yml logs
+
+      - name: Cleanup
+        if: always()
+        env:
+          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+        run: |
+          docker compose -f $BMAD_INSTALL_DIR/docker/docker-compose.yml down -v || true
+          rm -rf $BMAD_INSTALL_DIR
+
+  test-macos:
+    name: Test Installation (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Docker Desktop
+        run: |
+          brew install --cask docker
+
+      - name: Start Docker Desktop
+        run: |
+          open -a Docker
+          # Wait for Docker to start
+          echo "Waiting for Docker to start..."
+          for i in {1..60}; do
+            if docker info > /dev/null 2>&1; then
+              echo "Docker started successfully"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "Docker failed to start in time"
+              exit 1
+            fi
+            echo "Waiting... ($i/60)"
+            sleep 2
+          done
+
+      - name: Verify Docker is running
+        run: |
+          docker info
+          docker compose version
+
+      - name: Install Python test dependencies
+        run: |
+          pip install pytest httpx
+
+      - name: Run installer
+        env:
+          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+          BMAD_QDRANT_PORT: 26350
+          BMAD_EMBEDDING_PORT: 28080
+        run: |
+          chmod +x scripts/install.sh
+          ./scripts/install.sh
+
+      - name: Verify installation
+        env:
+          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+        run: |
+          ls -la $BMAD_INSTALL_DIR
+          ls -la $BMAD_INSTALL_DIR/docker
+          ls -la $BMAD_INSTALL_DIR/src/memory
+
+      - name: Run health check
+        env:
+          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+        run: |
+          python3 $BMAD_INSTALL_DIR/scripts/health-check.py
+
+      - name: Run integration tests
+        env:
+          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+          BMAD_QDRANT_PORT: 26350
+          BMAD_EMBEDDING_PORT: 28080
+        run: |
+          pytest tests/integration/test_installation.py -v --tb=short
+          pytest tests/integration/test_platform.py -v --tb=short
+
+      - name: Show Docker logs on failure
+        if: failure()
+        env:
+          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+        run: |
+          docker compose -f $BMAD_INSTALL_DIR/docker/docker-compose.yml logs
+
+      - name: Cleanup
+        if: always()
+        env:
+          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+        run: |
+          docker compose -f $BMAD_INSTALL_DIR/docker/docker-compose.yml down -v || true
+          rm -rf $BMAD_INSTALL_DIR

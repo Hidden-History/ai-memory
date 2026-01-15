@@ -1,0 +1,76 @@
+"""Payload validation for memory storage.
+
+Validates memory payloads before storage in Qdrant.
+Implements Story 1.3 AC 1.3.3.
+"""
+
+import hashlib
+
+__all__ = ["ValidationError", "validate_payload", "compute_content_hash"]
+
+
+class ValidationError(Exception):
+    """Raised when payload validation fails.
+
+    Design Note: This exception is provided for callers who prefer exception-based
+    flow control. The validate_payload() function returns a list of errors instead
+    of raising, allowing callers to collect all validation errors at once. Callers
+    can raise ValidationError manually if desired:
+
+        errors = validate_payload(payload)
+        if errors:
+            raise ValidationError(f"Validation failed: {errors}")
+    """
+
+    pass
+
+
+def validate_payload(payload: dict) -> list[str]:
+    """Validate memory payload, return list of errors.
+
+    Args:
+        payload: Dictionary containing memory payload fields
+
+    Returns:
+        List of error messages (empty if valid)
+    """
+    errors = []
+
+    # Required fields
+    required = ["content", "group_id", "type", "source_hook"]
+    for field_name in required:
+        if field_name not in payload or not payload[field_name]:
+            errors.append(f"Missing required field: {field_name}")
+
+    # Content constraints
+    if "content" in payload:
+        content_len = len(payload["content"])
+        if content_len > 100000:
+            errors.append("Content exceeds maximum length (100,000 chars)")
+        if content_len < 10:
+            errors.append("Content too short (minimum 10 chars)")
+
+    # Type validation (only if field is present and non-empty)
+    valid_types = ["implementation", "session_summary", "decision", "pattern"]
+    if "type" in payload and payload["type"] and payload.get("type") not in valid_types:
+        errors.append(f"Invalid type. Must be one of: {valid_types}")
+
+    # Hook validation (only if field is present and non-empty)
+    # Story 4.3: Added "manual" for skill-based best practice storage
+    valid_hooks = ["PostToolUse", "Stop", "SessionStart", "seed_script", "manual"]
+    if "source_hook" in payload and payload["source_hook"] and payload.get("source_hook") not in valid_hooks:
+        errors.append(f"Invalid source_hook. Must be one of: {valid_hooks}")
+
+    return errors
+
+
+def compute_content_hash(content: str) -> str:
+    """Compute SHA256 hash of content for deduplication.
+
+    Args:
+        content: The content string to hash
+
+    Returns:
+        SHA256 hash as 64-character hex string
+    """
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()

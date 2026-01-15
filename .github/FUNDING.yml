@@ -1,0 +1,12 @@
+# GitHub Sponsors configuration
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button
+
+# GitHub Sponsors
+github: [wbsolutions-ca]
+
+# Other platforms (uncomment and configure if applicable)
+# patreon: your_patreon_username
+# open_collective: your_opencollective_username
+# ko_fi: your_kofi_username
+# tidelift: npm/package-name
+# custom: ['https://wbsolutions.ca/sponsor', 'https://paypal.me/wbsolutions']

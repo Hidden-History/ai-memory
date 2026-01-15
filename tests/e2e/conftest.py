@@ -1,0 +1,35 @@
+"""Pytest configuration for E2E tests."""
+import pytest
+from typing import Generator
+from playwright.sync_api import Page, BrowserContext, Browser
+
+
+@pytest.fixture(scope="session")
+def browser_context_args():
+    """Configure browser context for all E2E tests."""
+    return {
+        "viewport": {"width": 1920, "height": 1080},
+        "ignore_https_errors": True,
+        "record_video_dir": "tests/e2e/videos",
+        "record_video_size": {"width": 1920, "height": 1080},
+    }
+
+
+@pytest.fixture(scope="function")
+def grafana_page(page: Page) -> Generator[Page, None, None]:
+    """
+    Provide a page navigated to Grafana home.
+
+    Grafana should be accessible at http://localhost:23000 with anonymous access enabled.
+    """
+    page.goto("http://localhost:23000", wait_until="networkidle", timeout=15000)
+
+    # Wait for Grafana to be fully loaded - look for common Grafana UI elements
+    # Try multiple selectors as Grafana UI can vary by version
+    try:
+        page.wait_for_selector('nav, [role="navigation"], .sidemenu', timeout=10000)
+    except Exception:
+        # If navigation isn't found, just wait for page load
+        page.wait_for_load_state("domcontentloaded")
+
+    yield page

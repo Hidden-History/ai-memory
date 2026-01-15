@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: GitHub Discussions
+    url: https://github.com/wbsolutions-ca/bmad-memory/discussions
+    about: Ask questions, share ideas, and connect with the community
+  - name: Documentation
+    url: https://github.com/wbsolutions-ca/bmad-memory/blob/main/README.md
+    about: Read the official documentation, installation guide, and troubleshooting tips
+  - name: WB Solutions Support
+    url: https://wbsolutions.ca/support
+    about: Professional support and consulting services

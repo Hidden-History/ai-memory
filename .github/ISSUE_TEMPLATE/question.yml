@@ -1,0 +1,82 @@
+name: Question / Support
+description: Ask a question about installation, usage, or troubleshooting
+title: "[Question]: "
+labels: ["question", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reaching out! We're here to help.
+
+        **Note:** For general discussions and community Q&A, consider using [GitHub Discussions](https://github.com/wbsolutions-ca/bmad-memory/discussions) instead.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Question Category
+      description: What is your question about?
+      options:
+        - Installation & Setup
+        - Usage & Configuration
+        - Troubleshooting
+        - Best Practices
+        - Integration with Claude Code
+        - Docker & Services
+        - Performance & Optimization
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: "How do I...? OR Why does...?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What Have You Tried?
+      description: What steps have you already taken to solve this?
+      placeholder: |
+        - Read INSTALL.md
+        - Checked Docker containers with `docker ps`
+        - Reviewed logs in...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: BMAD Memory Module Version
+      description: What version are you using?
+      placeholder: "v1.0.0"
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      description: What OS are you running?
+      placeholder: "macOS 14.2, Ubuntu 22.04, Windows 11 (WSL2), etc."
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any additional information that might be helpful
+      placeholder: "Error messages, configuration files, screenshots, etc."
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have checked the documentation (README.md, INSTALL.md, TROUBLESHOOTING.md)
+          required: true
+        - label: I have searched existing issues for similar questions
+          required: true
+        - label: This is a question, not a bug report or feature request
+          required: true

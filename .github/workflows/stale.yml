@@ -1,0 +1,99 @@
+name: Stale Issues and PRs
+
+on:
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allow manual triggering
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark stale issues and PRs
+        uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+          # Issues configuration
+          days-before-issue-stale: 60
+          days-before-issue-close: 14
+          stale-issue-label: 'status: stale'
+          exempt-issue-labels: 'priority: critical,priority: high,status: in-progress,status: blocked'
+          stale-issue-message: |
+            👋 This issue has been automatically marked as stale because it has not had recent activity for 60 days.
+
+            **What happens next:**
+            - If no activity occurs within 14 days, this issue will be automatically closed
+            - Adding a comment will remove the stale label and keep it open
+            - Maintainers can remove the `status: stale` label to keep it open indefinitely
+
+            If this issue is still relevant, please:
+            - Add a comment with an update on your progress or questions
+            - Provide additional context if the problem persists
+            - Let us know if you're still interested in working on this
+
+            If you've found a workaround or solution, please share it to help others! 🙏
+
+            Thank you for your contribution! ✨
+
+          close-issue-message: |
+            🔒 This issue has been automatically closed due to inactivity (no activity for 74 days total).
+
+            **Why was this closed?**
+            We close stale issues to keep our issue tracker focused and manageable. This doesn't mean the issue isn't valid.
+
+            **Want to reopen this?**
+            - If the issue is still relevant, feel free to reopen it or create a new issue
+            - Reference this issue in your new submission
+            - Provide updated information if the situation has changed
+
+            Thank you for your understanding! 🙏
+
+          # Pull Requests configuration
+          days-before-pr-stale: 45
+          days-before-pr-close: 14
+          stale-pr-label: 'status: stale'
+          exempt-pr-labels: 'priority: critical,priority: high,status: in-progress,status: blocked'
+          stale-pr-message: |
+            👋 This pull request has been automatically marked as stale because it has not had recent activity for 45 days.
+
+            **What happens next:**
+            - If no activity occurs within 14 days, this PR will be automatically closed
+            - Pushing new commits or adding comments will remove the stale label
+            - Maintainers can remove the `status: stale` label to keep it open
+
+            If you're still working on this:
+            - Push your latest changes
+            - Rebase on the latest `main` if needed
+            - Respond to any review comments
+            - Let us know if you need help
+
+            If you're no longer able to work on this, that's okay! Someone else may be able to pick it up.
+
+            Thank you for your contribution! ✨
+
+          close-pr-message: |
+            🔒 This pull request has been automatically closed due to inactivity (no activity for 59 days total).
+
+            **Why was this closed?**
+            We close stale PRs to keep the queue manageable. This doesn't diminish the value of your contribution.
+
+            **Want to revive this?**
+            - You can reopen this PR if you want to continue working on it
+            - Or create a fresh PR with updated changes
+            - Reference this PR in your new submission
+
+            Thank you for your contribution! We appreciate the effort you put into this. 🙏
+
+          # General settings
+          operations-per-run: 50
+          remove-stale-when-updated: true
+          ascending: true # Process oldest first
+
+          # Debugging (set to true for testing)
+          debug-only: false

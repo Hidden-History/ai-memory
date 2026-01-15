@@ -1,0 +1,18 @@
+# Grafana Datasource Provisioning Configuration
+# Auto-configures Prometheus datasource on Grafana startup
+# 2026 Best Practice: editable: false for infrastructure-as-code immutability
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    uid: prometheus
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+    version: 2

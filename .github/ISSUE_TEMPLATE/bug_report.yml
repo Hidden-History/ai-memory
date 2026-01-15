@@ -1,0 +1,130 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in BMAD Memory Module
+title: "[Bug]: "
+labels: ["type: bug", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the information below to help us diagnose and fix the issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: BMAD Memory Module Version
+      description: Run `git describe --tags` or check your installation
+      placeholder: "v1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python Version
+      description: Run `python3 --version`
+      placeholder: "Python 3.11.5"
+    validations:
+      required: true
+
+  - type: input
+    id: docker-version
+    attributes:
+      label: Docker Version
+      description: Run `docker --version`
+      placeholder: "Docker version 24.0.7"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System & Platform
+      description: What OS and platform are you running?
+      placeholder: "Ubuntu 22.04 LTS (WSL2 on Windows 11)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is
+      placeholder: "When I run the session_start hook, it fails with..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Run installation: `./scripts/install.sh`
+        2. Start Claude Code session
+        3. Observe error in hook output
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: "Session should start and load relevant memories from Qdrant"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+      placeholder: "Hook script exits with error code 1 and no memories are loaded"
+    validations:
+      required: true
+
+  - type: textarea
+    id: health-check
+    attributes:
+      label: Health Check Output
+      description: Run `python3 scripts/health-check.py` and paste the output
+      placeholder: |
+        === BMAD Memory Module - Health Check ===
+        ...
+      render: shell
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: |
+        Paste any relevant log output from:
+        - Hook scripts (.claude/hooks/scripts/)
+        - Docker containers (docker logs <container>)
+        - Python application logs
+      placeholder: |
+        [ERROR] Failed to connect to Qdrant at localhost:26350
+        ...
+      render: shell
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any other context about the problem here
+      placeholder: "This started happening after upgrading to Docker Desktop 4.26"
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please verify you've completed these steps
+      options:
+        - label: I have searched existing issues to avoid duplicates
+          required: true
+        - label: I have run the health check script and included the output
+          required: true
+        - label: I have included all relevant logs and error messages
+          required: true
+        - label: I am using a supported Python version (3.9+)
+          required: false

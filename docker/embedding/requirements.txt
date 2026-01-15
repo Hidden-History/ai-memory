@@ -1,0 +1,20 @@
+# BMAD Memory Module - Embedding Service
+# Last audited: 2026-01-14
+# All versions pinned per ACT-003
+
+# Core FastAPI dependencies
+fastapi[standard]==0.128.0
+pydantic==2.12.5
+pydantic-settings==2.7.1
+
+# FastEmbed - ONNX optimized embeddings (replaces sentence-transformers)
+fastembed==0.7.4
+
+# HTTP client for health checks
+httpx==0.28.1
+
+# Prometheus metrics export (Story 6.1)
+prometheus-client==0.23.1
+
+# Qdrant client (required by memory.metrics import chain)
+qdrant-client==1.16.2

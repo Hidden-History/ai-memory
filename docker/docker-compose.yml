@@ -1,0 +1,185 @@
+name: ai-memory
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.16.3
+    container_name: memory-qdrant
+    ports:
+      - "127.0.0.1:${QDRANT_PORT:-26350}:6333"
+      - "127.0.0.1:${QDRANT_GRPC_PORT:-26351}:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__LOG_LEVEL=${QDRANT_LOG_LEVEL:-INFO}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  embedding:
+    build:
+      context: ..
+      dockerfile: docker/embedding/Dockerfile
+    container_name: memory-embedding
+    ports:
+      - "127.0.0.1:${EMBEDDING_PORT:-28080}:8080"
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+    environment:
+      - MODEL_NAME=jinaai/jina-embeddings-v2-base-code
+      - VECTOR_DIMENSIONS=768
+      - LOG_LEVEL=${BMAD_LOG_LEVEL:-INFO}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  monitoring-api:
+    build:
+      context: ..
+      dockerfile: monitoring/Dockerfile
+    container_name: memory-monitoring-api
+    profiles: ["testing", "monitoring"]
+    ports:
+      - "127.0.0.1:28000:8000"
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - VECTOR_DIMENSIONS=768
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+    # Security hardening (2026 best practices)
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; exit(0 if httpx.get('http://localhost:8000/health', timeout=5).status_code == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: memory-prometheus
+    profiles: ["monitoring"]
+    ports:
+      - "127.0.0.1:29090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    restart: unless-stopped
+    # Security hardening (2026 best practices)
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  grafana:
+    image: grafana/grafana:12.0.0
+    container_name: memory-grafana
+    profiles: ["monitoring"]
+    ports:
+      - "127.0.0.1:23000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_SERVER_ROOT_URL=http://localhost:23000
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      # Security hardening (2026 best practices)
+      - GF_SECURITY_CSRF_ALWAYS_CHECK=true
+      - GF_SNAPSHOTS_EXTERNAL_ENABLED=false
+    # Security hardening (2026 best practices)
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  streamlit:
+    build:
+      context: ./streamlit
+      dockerfile: Dockerfile
+    container_name: memory-streamlit
+    profiles: ["monitoring"]
+    ports:
+      - "127.0.0.1:28501:8501"
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - EMBEDDING_SERVICE_URL=http://embedding:8080
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      embedding:
+        condition: service_healthy
+    restart: unless-stopped
+    # Security hardening (2026 best practices)
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  qdrant_storage:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  huggingface_cache:
+    driver: local

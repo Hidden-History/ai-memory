@@ -1,0 +1,163 @@
+name: Release Management
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name for the release (e.g., v1.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: read
+  issues: read
+
+jobs:
+  generate-release-notes:
+    name: Generate Release Notes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for changelog generation
+
+      - name: Generate changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v4
+        with:
+          configuration: '.github/release-notes-config.json'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          toTag: ${{ github.event.release.tag_name }}
+
+      - name: Update release notes
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const releaseId = context.payload.release.id;
+            const changelog = process.env.CHANGELOG;
+
+            // Get current release
+            const release = await github.rest.repos.getRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId
+            });
+
+            // Prepend generated changelog to existing body
+            const newBody = `${changelog}\n\n---\n\n${release.data.body || ''}`;
+
+            // Update release
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId,
+              body: newBody
+            });
+
+            console.log('✅ Release notes updated successfully!');
+        env:
+          CHANGELOG: ${{ steps.changelog.outputs.changelog }}
+
+  notify-release:
+    name: Notify on New Release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    needs: generate-release-notes
+    steps:
+      - name: Create announcement comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = context.payload.release.tag_name;
+            const releaseUrl = context.payload.release.html_url;
+
+            // Post to discussions (if enabled)
+            console.log(`🎉 Release ${tag} published!`);
+            console.log(`Release URL: ${releaseUrl}`);
+
+            // Could also:
+            // - Send Slack notification
+            // - Tweet announcement
+            // - Update documentation site
+            // - Trigger Docker image build
+
+  validate-release:
+    name: Validate Release Assets
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout code at release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: |
+          pytest tests/ -v
+
+      - name: Verify Docker stack
+        run: |
+          # Just validate docker-compose.yml syntax
+          docker compose -f docker/docker-compose.yml config
+
+      - name: Check version consistency
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION_FILE="src/memory/__version__.py"
+
+          # Extract version from __version__.py
+          PYTHON_VERSION=$(grep -oP '__version__\s*=\s*"\K[^"]+' $VERSION_FILE)
+
+          echo "Release tag: $TAG"
+          echo "Python __version__: $PYTHON_VERSION"
+
+          # Strip 'v' prefix from tag if present
+          TAG_VERSION="${TAG#v}"
+
+          if [ "$TAG_VERSION" != "$PYTHON_VERSION" ]; then
+            echo "❌ Version mismatch!"
+            echo "Release tag $TAG does not match __version__.py ($PYTHON_VERSION)"
+            exit 1
+          fi
+
+          echo "✅ Version consistency verified!"
+
+      - name: Comment validation result
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const releaseId = context.payload.release.id;
+            const conclusion = '${{ job.status }}';
+
+            let emoji = conclusion === 'success' ? '✅' : '❌';
+            let message = conclusion === 'success'
+              ? 'Release validation passed! All tests and checks successful.'
+              : 'Release validation failed. Please review the workflow logs.';
+
+            await github.rest.repos.createReleaseDiscussion({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId,
+              body: `${emoji} **Release Validation**\n\n${message}\n\nWorkflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            }).catch(err => {
+              // If discussions not enabled, just log
+              console.log('Could not create discussion:', err.message);
+            });

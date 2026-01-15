@@ -1,0 +1,43 @@
+# OS generated files
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+
+# Editor directories and files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Node modules (if applicable)
+node_modules/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Python virtual environment
+.venv/
+.venv-test/
+venv/
+__pycache__/
+*.pyc
+
+# Test coverage
+.coverage
+htmlcov/
+
+# Memory queue (local runtime)
+.memory_queue/

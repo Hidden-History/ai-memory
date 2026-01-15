@@ -1,0 +1,42 @@
+[
+  {
+    "content": "Always use type hints in Python function signatures for better IDE support and documentation. Example: def process_data(items: list[dict]) -> dict:",
+    "type": "pattern",
+    "domain": "python",
+    "importance": "high",
+    "tags": ["python", "type-hints", "best-practice", "pep484"],
+    "source": "https://docs.python.org/3/library/typing.html"
+  },
+  {
+    "content": "Use dataclasses for data containers instead of plain dictionaries. They provide type safety, auto-generated __init__, and better IDE support.",
+    "type": "pattern",
+    "domain": "python",
+    "importance": "high",
+    "tags": ["python", "dataclass", "best-practice"],
+    "source": "https://docs.python.org/3/library/dataclasses.html"
+  },
+  {
+    "content": "Prefer pathlib.Path over os.path for file operations. It provides a cleaner, more Pythonic API and better cross-platform compatibility.",
+    "type": "pattern",
+    "domain": "python",
+    "importance": "medium",
+    "tags": ["python", "pathlib", "best-practice"],
+    "source": "https://docs.python.org/3/library/pathlib.html"
+  },
+  {
+    "content": "Never use eval() to parse JSON data. Always use json.loads() to prevent remote code execution vulnerabilities.",
+    "type": "security",
+    "domain": "python",
+    "importance": "high",
+    "tags": ["python", "security", "json", "antipattern"],
+    "source": "https://www.invicti.com/learn/json-injection"
+  },
+  {
+    "content": "Use httpx with explicit timeouts (connect, read, write, pool) to prevent hanging requests. Default 5s timeout may be insufficient for slow services.",
+    "type": "pattern",
+    "domain": "python",
+    "importance": "high",
+    "tags": ["python", "httpx", "timeout", "reliability"],
+    "source": "https://www.python-httpx.org/advanced/timeouts/"
+  }
+]

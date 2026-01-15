@@ -1,0 +1,46 @@
+# Code Owners for BMAD Memory Module
+# These users/teams will be automatically requested for review when someone opens a PR that modifies code they own.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything in the repo
+# This will be the fallback if no specific owner is matched
+* @wbsolutions-ca/bmad-maintainers
+
+# Docker services and infrastructure
+/docker/ @wbsolutions-ca/docker-experts @wbsolutions-ca/bmad-maintainers
+docker-compose.yml @wbsolutions-ca/docker-experts
+docker-compose.*.yml @wbsolutions-ca/docker-experts
+
+# Python core modules (storage, search, embeddings, etc.)
+/src/memory/ @wbsolutions-ca/python-core @wbsolutions-ca/bmad-maintainers
+
+# Hook scripts (critical for Claude Code integration)
+/.claude/hooks/ @wbsolutions-ca/bmad-maintainers
+
+# Installation and setup scripts
+/scripts/install.sh @wbsolutions-ca/bmad-maintainers
+/scripts/rollback.sh @wbsolutions-ca/bmad-maintainers
+/scripts/generate_settings.py @wbsolutions-ca/bmad-maintainers
+/scripts/merge_settings.py @wbsolutions-ca/bmad-maintainers
+
+# Monitoring configuration
+/docker/grafana/ @wbsolutions-ca/monitoring-team
+/docker/prometheus/ @wbsolutions-ca/monitoring-team
+/monitoring/ @wbsolutions-ca/monitoring-team
+
+# Documentation (requires careful review for accuracy)
+*.md @wbsolutions-ca/bmad-maintainers
+/docs/ @wbsolutions-ca/bmad-maintainers
+
+# GitHub workflows and actions
+/.github/workflows/ @wbsolutions-ca/bmad-maintainers
+
+# Test files (test experts should review)
+/tests/ @wbsolutions-ca/python-core
+
+# Release and version management (requires maintainer approval)
+CHANGELOG.md @wbsolutions-ca/bmad-maintainers
+
+# Security-sensitive files (requires security review)
+/scripts/health-check.py @wbsolutions-ca/security-team @wbsolutions-ca/bmad-maintainers
+/.github/workflows/ @wbsolutions-ca/security-team @wbsolutions-ca/bmad-maintainers

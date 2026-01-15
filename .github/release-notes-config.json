@@ -1,0 +1,95 @@
+{
+  "categories": [
+    {
+      "title": "## 🚀 Features",
+      "labels": ["type: feature"]
+    },
+    {
+      "title": "## 🐛 Bug Fixes",
+      "labels": ["type: bug"]
+    },
+    {
+      "title": "## ⚡ Performance Improvements",
+      "labels": ["type: performance"]
+    },
+    {
+      "title": "## 📚 Documentation",
+      "labels": ["type: docs", "component: documentation"]
+    },
+    {
+      "title": "## 🔒 Security",
+      "labels": ["type: security"]
+    },
+    {
+      "title": "## 🏗️ Refactoring",
+      "labels": ["type: refactor"]
+    },
+    {
+      "title": "## 🧪 Tests",
+      "labels": ["type: test"]
+    },
+    {
+      "title": "## 🔧 Enhancements",
+      "labels": ["type: enhancement"]
+    },
+    {
+      "title": "## 🐳 Docker",
+      "labels": ["component: docker"]
+    },
+    {
+      "title": "## 🪝 Hooks",
+      "labels": ["component: hooks"]
+    },
+    {
+      "title": "## 📊 Monitoring",
+      "labels": ["component: monitoring"]
+    },
+    {
+      "title": "## ⚙️ Other Changes",
+      "labels": []
+    }
+  ],
+  "ignore_labels": [
+    "duplicate",
+    "invalid",
+    "wontfix",
+    "status: stale"
+  ],
+  "sort": {
+    "order": "ASC",
+    "on_property": "mergedAt"
+  },
+  "template": "#{{CHANGELOG}}\n\n## 📝 Full Changelog\n\n**Full Changelog**: #{{RELEASE_DIFF}}\n\n## 🙏 Contributors\n\nThank you to all contributors who made this release possible!\n\n#{{CONTRIBUTORS}}",
+  "pr_template": "- #{{TITLE}} by @#{{AUTHOR}} in ##{{NUMBER}}",
+  "empty_template": "- No changes in this release",
+  "label_extractor": [
+    {
+      "pattern": "(.) (.+)",
+      "target": "$1",
+      "flags": "gu"
+    }
+  ],
+  "transformers": [
+    {
+      "pattern": "[\\-\\*] (\\[(...|TEST|CI|SKIP)\\])( )?(.+)",
+      "target": "- $4"
+    }
+  ],
+  "max_tags_to_fetch": 200,
+  "max_pull_requests": 200,
+  "max_back_track_time_days": 365,
+  "exclude_merge_branches": [
+    "dependabot/**"
+  ],
+  "tag_resolver": {
+    "method": "semver",
+    "filter": {
+      "pattern": "v?[0-9]+\\.[0-9]+\\.[0-9]+",
+      "flags": ""
+    }
+  },
+  "base_branches": [
+    "main",
+    "master"
+  ]
+}

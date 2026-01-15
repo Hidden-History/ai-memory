@@ -1,0 +1,54 @@
+# Labeler configuration for automatic component labeling
+# Based on file paths changed in PRs
+
+'component: hooks':
+  - changed-files:
+    - any-glob-to-any-file: '.claude/hooks/**/*'
+
+'component: docker':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'docker/**/*'
+      - 'docker-compose.yml'
+      - 'docker-compose.*.yml'
+
+'component: python-core':
+  - changed-files:
+    - any-glob-to-any-file: 'src/memory/**/*.py'
+
+'component: installer':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'scripts/install.sh'
+      - 'scripts/rollback.sh'
+      - 'scripts/generate_settings.py'
+      - 'scripts/merge_settings.py'
+
+'component: monitoring':
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'docker/grafana/**/*'
+      - 'docker/prometheus/**/*'
+      - 'monitoring/**/*'
+      - 'src/memory/metrics.py'
+
+'component: documentation':
+  - changed-files:
+    - any-glob-to-any-file:
+      - '*.md'
+      - 'docs/**/*'
+      - '.github/**/*.md'
+
+'component: cli':
+  - changed-files:
+    - any-glob-to-any-file: 'scripts/**/*.py'
+
+'type: test':
+  - changed-files:
+    - any-glob-to-any-file: 'tests/**/*'
+
+'type: docs':
+  - changed-files:
+    - any-glob-to-any-file:
+      - '**/*.md'
+      - 'docs/**/*'
