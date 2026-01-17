@@ -164,6 +164,67 @@ Next steps:
   4. Access Grafana: http://localhost:23000 (user: admin, pass: admin)
 ```
 
+### Adding Additional Projects
+
+AI Memory uses a **single Docker stack** for all projects. Memories are isolated using `group_id` (project name) in Qdrant.
+
+**Adding a second (or third, etc.) project:**
+
+```bash
+# Run installer on a new project directory
+./scripts/install.sh ~/projects/my-second-app
+
+# The installer auto-detects existing installation and:
+# - Skips Docker setup (already running)
+# - Skips port checks (services are expected to be running)
+# - Prompts for project name
+# - Copies hooks to the new project
+```
+
+**Project Name Prompt:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Project Configuration                                      │
+└─────────────────────────────────────────────────────────────┘
+
+📁 Project directory: /home/user/projects/my-second-app
+
+   The project name is used to isolate memories in Qdrant.
+   Each project gets its own memory space (group_id).
+
+   Project name [my-second-app]: _
+```
+
+**Custom Project Name via CLI:**
+
+```bash
+# Skip interactive prompt by providing project name as argument
+./scripts/install.sh ~/projects/my-app my-custom-project-id
+```
+
+**How Multi-Project Isolation Works:**
+
+1. Each project gets unique `BMAD_PROJECT_ID` in `.claude/settings.json`
+2. Hooks use this ID as `group_id` when storing memories
+3. SessionStart retrieves only memories matching the current project
+4. One Qdrant instance, multiple isolated memory spaces
+
+**Example Multi-Project Setup:**
+
+```bash
+# Project A - e-commerce app
+./scripts/install.sh ~/projects/ecommerce-app
+
+# Project B - API service (add-project mode auto-detected)
+./scripts/install.sh ~/projects/api-service
+
+# Project C - with custom ID
+./scripts/install.sh ~/projects/frontend frontend-dashboard
+```
+
+Each project has completely isolated memories while sharing the same Docker infrastructure.
+
 ### Method 2: Manual Installation (Advanced)
 
 For advanced users who want full control:

@@ -120,6 +120,54 @@ export BMAD_INSTALL_DIR=/opt/bmad-memory
 
 ---
 
+#### BMAD_PROJECT_ID
+**Purpose:** Project identifier for memory isolation (group_id in Qdrant)
+
+**Default:** Directory name of the project
+
+**Format:** String (alphanumeric, hyphens, underscores)
+
+**Example:**
+```bash
+# Set in .claude/settings.json env section
+export BMAD_PROJECT_ID=my-awesome-project
+
+# Or via installer CLI
+./install.sh ~/projects/my-app my-awesome-project
+```
+
+**When to change:**
+- **Multi-project setups**: Each project needs a unique identifier
+- **Custom naming**: Use descriptive names instead of directory names
+- **Migration**: When moving projects between directories
+
+**Behavior:**
+- All memories stored with this `group_id` in Qdrant
+- SessionStart retrieves only memories matching this project
+- Prevents cross-project memory pollution
+
+**Set Automatically By:**
+- Installer prompts for project name during installation
+- Defaults to directory name if not provided
+- Stored in project's `.claude/settings.json`
+
+**Example Configuration** (`.claude/settings.json`):
+```json
+{
+  "hooks": { ... },
+  "env": {
+    "BMAD_PROJECT_ID": "my-awesome-project",
+    "BMAD_INSTALL_DIR": "/home/user/.bmad-memory"
+  }
+}
+```
+
+**Related:**
+- `QDRANT_COLLECTION_PREFIX` - Collection-level isolation
+- `group_id` payload field - Record-level isolation
+
+---
+
 #### MEMORY_LOG_LEVEL
 **Purpose:** Logging verbosity
 
