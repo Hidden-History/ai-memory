@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # install.sh - BMAD Memory Module Installer
-# Version: 1.0.0
+# Version: 1.0.1
 # Description: Single-command installer for complete memory system
-# Usage: ./install.sh or curl -fsSL https://raw.githubusercontent.com/.../install.sh | bash
+# Usage: ./install.sh [PROJECT_PATH] [PROJECT_NAME]
+#        ./install.sh ~/projects/my-app           # Uses directory name as project ID
+#        ./install.sh ~/projects/my-app my-custom-id  # Custom project ID
 #
 # Exit codes:
 #   0 = Success
@@ -26,10 +28,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Project path handling - accept target project as argument
-# Usage: ./install.sh [PROJECT_PATH]
+# Usage: ./install.sh [PROJECT_PATH] [PROJECT_NAME]
 PROJECT_PATH="${1:-.}"
 PROJECT_PATH=$(cd "$PROJECT_PATH" 2>/dev/null && pwd || pwd)
-PROJECT_NAME=$(basename "$PROJECT_PATH")
+PROJECT_NAME="${2:-$(basename "$PROJECT_PATH")}"  # Optional second arg or derived from path
 
 # Cleanup handler for interrupts (SIGINT/SIGTERM)
 # Per https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
@@ -93,6 +95,33 @@ log_error() {
 INSTALL_MONITORING="${INSTALL_MONITORING:-}"
 SEED_BEST_PRACTICES="${SEED_BEST_PRACTICES:-}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
+INSTALL_MODE="${INSTALL_MODE:-full}"  # full or add-project (set by check_existing_installation)
+
+# Prompt for project name (group_id for Qdrant isolation)
+configure_project_name() {
+    # Skip if non-interactive or already set via command line arg
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        log_info "Using project name: $PROJECT_NAME"
+        return 0
+    fi
+
+    echo ""
+    echo "┌─────────────────────────────────────────────────────────────┐"
+    echo "│  Project Configuration                                      │"
+    echo "└─────────────────────────────────────────────────────────────┘"
+    echo ""
+    echo "📁 Project directory: $PROJECT_PATH"
+    echo ""
+    echo "   The project name is used to isolate memories in Qdrant."
+    echo "   Each project gets its own memory space (group_id)."
+    echo ""
+    read -p "   Project name [$PROJECT_NAME]: " custom_name
+    if [[ -n "$custom_name" ]]; then
+        PROJECT_NAME="$custom_name"
+    fi
+    echo ""
+    log_info "Project name set to: $PROJECT_NAME"
+}
 
 # Interactive configuration prompts
 configure_options() {
@@ -188,7 +217,11 @@ main() {
 
     # NFR-I5: Idempotent installation - safe to run multiple times
     # Now supports add-project mode for multi-project installations
+    # IMPORTANT: Must run BEFORE check_prerequisites to skip port checks in add-project mode
     check_existing_installation
+
+    # Prompt for project name (allows custom group_id for Qdrant isolation)
+    configure_project_name
 
     check_prerequisites
     detect_platform
@@ -374,10 +407,15 @@ check_prerequisites() {
 
     # Check port availability using ss (primary) or lsof (fallback)
     # Per 2025/2026 best practices: ss is faster and more universally available
-    check_port_available "$QDRANT_PORT" "Qdrant"
-    check_port_available "$EMBEDDING_PORT" "Embedding Service"
-    check_port_available "$MONITORING_PORT" "Monitoring API"
-    check_port_available "$STREAMLIT_PORT" "Streamlit Dashboard"
+    # SKIP in add-project mode - ports are expected to be in use by existing services
+    if [[ "${INSTALL_MODE:-full}" == "full" ]]; then
+        check_port_available "$QDRANT_PORT" "Qdrant"
+        check_port_available "$EMBEDDING_PORT" "Embedding Service"
+        check_port_available "$MONITORING_PORT" "Monitoring API"
+        check_port_available "$STREAMLIT_PORT" "Streamlit Dashboard"
+    else
+        log_info "Skipping port checks (add-project mode - reusing existing services)"
+    fi
 
     # Check disk space (requires ~10GB: Qdrant 1GB, Nomic model 7GB, Docker images 2GB)
     check_disk_space
