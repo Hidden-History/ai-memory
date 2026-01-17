@@ -17,30 +17,64 @@ import sys
 from pathlib import Path
 
 
-def generate_hook_config(hooks_dir: str) -> dict:
-    """Generate hook configuration with absolute paths.
+def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
+    """Generate hook configuration with dynamic BMAD_INSTALL_DIR paths.
 
     Args:
         hooks_dir: Absolute path to hooks scripts directory
+                   Expected format: /path/to/install/.claude/hooks/scripts
+        project_name: Name of the project for BMAD_PROJECT_ID
 
     Returns:
-        Dict with 'hooks' key containing SessionStart, PostToolUse, Stop config
+        Dict with 'hooks' key containing SessionStart, PostToolUse, PreCompact config
+        Also includes 'env' section with BMAD_INSTALL_DIR, BMAD_PROJECT_ID, and service ports
 
     2026 Best Practice: Correct Claude Code hook structure
-    - SessionStart/Stop: Direct hook array (no matcher needed)
+    - SessionStart: Requires 'matcher' (startup|resume|compact) per docs
     - PostToolUse: Wrapper with 'matcher' + nested 'hooks' array
-    Source: https://code.claude.com/docs/en/settings, AC 7.2.2
+    - PreCompact: Wrapper with 'matcher' for auto|manual triggers
+    - TECH-DEBT-012: Stop hook removed (placeholder only)
+    - Uses $BMAD_INSTALL_DIR for portability across installations
+    Source: https://code.claude.com/docs/en/hooks, AC 7.2.2
     """
+    # Extract install directory from hooks_dir
+    # hooks_dir format: /path/to/install/.claude/hooks/scripts
+    # install_dir should be: /path/to/install
+    # .parent chain: scripts -> hooks -> .claude -> install_dir (3 levels up)
+    hooks_path = Path(hooks_dir)
+    install_dir = str(hooks_path.parent.parent.parent)
+
+    # Use environment variable reference for portability
+    # Quotes go around the full path including script name
+    hooks_base = '$BMAD_INSTALL_DIR/.claude/hooks/scripts'
+
+    session_start_hook = {
+        "type": "command",
+        "command": f'python3 "{hooks_base}/session_start.py"',
+        "timeout": 30000
+    }
     return {
+        "env": {
+            # BMAD Memory Module installation directory (dynamic)
+            "BMAD_INSTALL_DIR": install_dir,
+            # Project identification for multi-tenancy
+            "BMAD_PROJECT_ID": project_name,
+            # Service configuration - ports per CLAUDE.md
+            "QDRANT_HOST": "localhost",
+            "QDRANT_PORT": "26350",
+            "EMBEDDING_HOST": "localhost",
+            "EMBEDDING_PORT": "28080",
+            # TECH-DEBT-002: Lower threshold for NL query → code content matching
+            "SIMILARITY_THRESHOLD": "0.4",
+            "LOG_LEVEL": "INFO",
+            # Agent token budgets (TECH-DEBT-012)
+            "AGENT_TOKEN_BUDGETS": "architect:1500,scrum-master:800,default:1000"
+        },
         "hooks": {
             "SessionStart": [
                 {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f"python3 {hooks_dir}/session_start.py"
-                        }
-                    ]
+                    "matcher": "startup|resume|compact",
+                    "hooks": [session_start_hook]
                 }
             ],
             "PostToolUse": [
@@ -49,17 +83,19 @@ def generate_hook_config(hooks_dir: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f"python3 {hooks_dir}/post_tool_capture.py"
+                            "command": f'python3 "{hooks_base}/post_tool_capture.py"'
                         }
                     ]
                 }
             ],
-            "Stop": [
+            "PreCompact": [
                 {
+                    "matcher": "auto|manual",
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f"python3 {hooks_dir}/session_stop.py"
+                            "command": f'python3 "{hooks_base}/pre_compact_save.py"',
+                            "timeout": 10000
                         }
                     ]
                 }
@@ -70,15 +106,16 @@ def generate_hook_config(hooks_dir: str) -> dict:
 
 def main():
     """Main entry point for CLI invocation."""
-    if len(sys.argv) != 3:
-        print("Usage: generate_settings.py <output_path> <hooks_dir>")
+    if len(sys.argv) != 4:
+        print("Usage: generate_settings.py <output_path> <hooks_dir> <project_name>")
         sys.exit(1)
 
     output_path = Path(sys.argv[1])
     hooks_dir = sys.argv[2]
+    project_name = sys.argv[3]
 
     # Generate configuration
-    config = generate_hook_config(hooks_dir)
+    config = generate_hook_config(hooks_dir, project_name)
 
     # Write to file
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -86,6 +123,7 @@ def main():
         json.dump(config, f, indent=2)
 
     print(f"Generated settings.json at {output_path}")
+    print(f"Project ID: {project_name}")
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ Sources:
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -26,9 +27,9 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 # Add src to path for imports
-script_dir = Path(__file__).parent
-project_root = script_dir.parent.parent.parent
-sys.path.insert(0, str(project_root / "src"))
+# Use INSTALL_DIR to find installed module (fixes path calculation bug)
+INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Configure structured logging (Story 6.2)
 from memory.logging_config import StructuredFormatter
@@ -45,21 +46,92 @@ try:
 except ImportError:
     hook_duration_seconds = None
 
+# Import activity logging (TECH-DEBT-014)
+from memory.activity_log import log_implementation_capture
+
+
+def _log_to_activity(message: str) -> None:
+    """Log to activity file for Streamlit visibility.
+
+    Activity log provides user-visible feedback about memory operations.
+    Located at $BMAD_INSTALL_DIR/logs/activity.log
+
+    Args:
+        message: Message to log (can be multi-line)
+    """
+    from datetime import datetime
+    log_dir = Path(INSTALL_DIR) / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "activity.log"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Escape newlines for single-line output (Streamlit parses line-by-line)
+    safe_message = message.replace('\n', '\\n')
+    try:
+        with open(log_file, "a") as f:
+            f.write(f"[{timestamp}] {safe_message}\n")
+    except Exception:
+        pass  # Graceful degradation
+
+
+def detect_language(file_path: str) -> str:
+    """Detect programming language from file extension.
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        Language name (e.g., "python", "typescript", "javascript")
+    """
+    ext = Path(file_path).suffix.lower()
+    language_map = {
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".jsx": "react",
+        ".tsx": "react-typescript",
+        ".go": "go",
+        ".rs": "rust",
+        ".java": "java",
+        ".rb": "ruby",
+        ".php": "php",
+        ".c": "c",
+        ".cpp": "cpp",
+        ".cs": "csharp",
+        ".swift": "swift",
+        ".kt": "kotlin",
+        ".sql": "sql",
+        ".sh": "bash",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".json": "json",
+        ".html": "html",
+        ".css": "css",
+        ".md": "markdown",
+    }
+    return language_map.get(ext, "unknown")
+
 
 def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
     """Validate hook input against expected schema.
 
     AC 2.1.3: Input schema validation
-    AC 2.1.1: Validate tool_name and tool_status
+    AC 2.1.1: Validate tool_name and tool_response.success
 
     Args:
         data: Parsed JSON input from Claude Code
 
     Returns:
         Error message if validation fails, None if valid
+
+    Claude Code PostToolUse payload schema:
+        - session_id: Unique session identifier
+        - cwd: Current working directory
+        - tool_name: Name of the tool (Edit, Write, etc.)
+        - tool_input: Input parameters for the tool
+        - tool_response: Response object with success boolean
     """
-    # Check required fields
-    required_fields = ["tool_name", "tool_status", "tool_input", "cwd", "session_id"]
+    # Check required fields (per Claude Code hook schema)
+    required_fields = ["tool_name", "tool_input", "cwd", "session_id"]
     for field in required_fields:
         if field not in data:
             return f"missing_required_field_{field}"
@@ -69,9 +141,18 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
     if data["tool_name"] not in valid_tools:
         return "invalid_tool_name"
 
-    # AC 2.1.1: Validate tool_status == success
-    if data["tool_status"] != "success":
-        return "tool_not_successful"
+    # AC 2.1.1: Validate tool completed successfully
+    # Claude Code doesn't send "success: true" - presence of filePath indicates success
+    tool_response = data.get("tool_response", {})
+    if not isinstance(tool_response, dict):
+        return "invalid_tool_response_format"
+
+    # Success is indicated by presence of filePath (for Write/Edit) or content in response
+    # Error responses would have "error" field or be a string message
+    if "error" in tool_response:
+        return "tool_had_error"
+    if not tool_response.get("filePath") and not tool_response.get("content"):
+        return "tool_response_missing_result"
 
     return None
 
@@ -188,8 +269,45 @@ def main() -> int:
             )
             return 0  # Non-blocking - graceful handling
 
+        # TECH-DEBT-010: Extract content and log to activity before fork
+        tool_name = hook_input.get("tool_name", "")
+        tool_input = hook_input.get("tool_input", {})
+        tool_response = hook_input.get("tool_response", {})
+
+        # Extract file path (F3: tool-specific path extraction)
+        if tool_name == "NotebookEdit":
+            file_path = tool_input.get("notebook_path", "")
+        else:
+            file_path = tool_response.get("filePath") or tool_input.get("file_path", "")
+
+        # Extract content based on tool type
+        content = ""
+        if tool_name == "Edit":
+            content = tool_input.get("new_string", "")
+        elif tool_name == "Write":
+            content = tool_input.get("content", "")
+        elif tool_name == "NotebookEdit":
+            content = tool_input.get("new_source", "")
+
+        # TECH-DEBT-014: Comprehensive logging with full implementation content
+        if file_path and content:
+            language = detect_language(file_path)
+            content_lines = len(content.split('\n'))
+            log_implementation_capture(file_path, tool_name, language, content, content_lines)
+
         # AC 2.1.1: Fork to background for <500ms performance
         fork_to_background(hook_input)
+
+        # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
+        file_path = hook_input.get("tool_response", {}).get("filePath", "")
+        file_name = file_path.split("/")[-1] if file_path else "file"
+        tool_name = hook_input.get("tool_name", "Edit")
+        message = f"📥 BMAD Memory: Capturing {file_name} (via {tool_name})"
+        print(json.dumps({"systemMessage": message}))
+        sys.stdout.flush()  # Ensure output is flushed before exit
+
+        # Activity log handled by _log_to_activity() above (TECH-DEBT-010)
+        # Old log_capture() call removed - full content logging now in place
 
         # Metrics: Record hook duration (Story 6.1, AC 6.1.3)
         if hook_duration_seconds:

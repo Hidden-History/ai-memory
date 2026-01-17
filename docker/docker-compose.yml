@@ -3,7 +3,7 @@ name: ai-memory
 services:
   qdrant:
     image: qdrant/qdrant:v1.16.3
-    container_name: memory-qdrant
+    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-qdrant
     ports:
       - "127.0.0.1:${QDRANT_PORT:-26350}:6333"
       - "127.0.0.1:${QDRANT_GRPC_PORT:-26351}:6334"
@@ -23,13 +23,13 @@ services:
     build:
       context: ..
       dockerfile: docker/embedding/Dockerfile
-    container_name: memory-embedding
+    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-embedding
     ports:
       - "127.0.0.1:${EMBEDDING_PORT:-28080}:8080"
     volumes:
       - huggingface_cache:/root/.cache/huggingface
     environment:
-      - MODEL_NAME=jinaai/jina-embeddings-v2-base-code
+      - MODEL_NAME=jinaai/jina-embeddings-v2-base-en
       - VECTOR_DIMENSIONS=768
       - LOG_LEVEL=${BMAD_LOG_LEVEL:-INFO}
     restart: unless-stopped
@@ -48,7 +48,7 @@ services:
     build:
       context: ..
       dockerfile: monitoring/Dockerfile
-    container_name: memory-monitoring-api
+    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-monitoring-api
     profiles: ["testing", "monitoring"]
     ports:
       - "127.0.0.1:28000:8000"
@@ -77,7 +77,7 @@ services:
 
   prometheus:
     image: prom/prometheus:v2.55.1
-    container_name: memory-prometheus
+    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-prometheus
     profiles: ["monitoring"]
     ports:
       - "127.0.0.1:29090:9090"
@@ -107,7 +107,7 @@ services:
 
   grafana:
     image: grafana/grafana:12.0.0
-    container_name: memory-grafana
+    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-grafana
     profiles: ["monitoring"]
     ports:
       - "127.0.0.1:23000:3000"
@@ -146,14 +146,21 @@ services:
     build:
       context: ./streamlit
       dockerfile: Dockerfile
-    container_name: memory-streamlit
+    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-streamlit
     profiles: ["monitoring"]
     ports:
       - "127.0.0.1:28501:8501"
+    volumes:
+      # Use BMAD_INSTALL_DIR for project-specific logs (multi-project support)
+      - ${BMAD_INSTALL_DIR:-${HOME}/.bmad-memory}/logs:/app/logs:ro
+      - ${BMAD_INSTALL_DIR:-${HOME}/.bmad-memory}/queue:/app/queue:ro
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - QDRANT_EXTERNAL_PORT=26350
       - EMBEDDING_SERVICE_URL=http://embedding:8080
+      # Pass install dir for activity log path
+      - BMAD_INSTALL_DIR=/app
     depends_on:
       qdrant:
         condition: service_healthy

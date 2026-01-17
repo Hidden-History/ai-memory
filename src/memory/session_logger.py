@@ -28,8 +28,9 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
-# Session log configuration (defaults)
-SESSION_LOG_PATH = os.path.expanduser("~/.claude-memory/sessions.jsonl")
+# Session log configuration (defaults) - uses BMAD_INSTALL_DIR for multi-project support
+INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+SESSION_LOG_PATH = os.path.join(INSTALL_DIR, "logs", "sessions.jsonl")
 SESSION_LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB per file
 SESSION_LOG_BACKUP_COUNT = 90  # Keep 90 rotated files (90 days if daily rotation)
 

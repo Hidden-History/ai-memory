@@ -38,6 +38,30 @@ __all__ = ["MemoryStorage", "store_best_practice"]
 logger = logging.getLogger("bmad.memory.storage")
 
 
+def _enforce_content_limit(content: str, memory_type: MemoryType) -> str:
+    """Truncate content to respect token limits by memory type.
+
+    Limits (approximate tokens, ~4 chars/token):
+    - session_summary (agent-memory): 400 tokens = 1600 chars
+    - implementation: 300 tokens = 1200 chars
+    - best_practice/pattern: 150 tokens = 600 chars
+
+    Returns truncated content with [TRUNCATED] marker if cut.
+    """
+    LIMITS = {
+        MemoryType.SESSION_SUMMARY: 1600,  # 400 tokens
+        MemoryType.IMPLEMENTATION: 1200,   # 300 tokens
+        MemoryType.PATTERN: 600,           # 150 tokens
+        MemoryType.ERROR_PATTERN: 1200,    # 300 tokens
+    }
+    limit = LIMITS.get(memory_type, 1200)  # default 300 tokens
+
+    if len(content) <= limit:
+        return content
+
+    return content[:limit - 12] + " [TRUNCATED]"
+
+
 class MemoryStorage:
     """Handles memory storage operations with validation and graceful degradation.
 
@@ -161,6 +185,26 @@ class MemoryStorage:
                     },
                 )
                 group_id = "unknown-project"
+
+        # TECH-DEBT-012 Round 3: Handle created_at timestamp
+        created_at = extra_fields.pop("created_at", None)
+        if created_at is None:
+            created_at = datetime.now(timezone.utc).isoformat()
+
+        # TECH-DEBT-012 Round 3: Enforce content size limits
+        original_length = len(content)
+        content = _enforce_content_limit(content, memory_type)
+
+        if len(content) < original_length:
+            logger.info(
+                "content_truncated",
+                extra={
+                    "original_length": original_length,
+                    "truncated_length": len(content),
+                    "memory_type": memory_type.value,
+                },
+            )
+
         # Build payload with computed hash
         content_hash = compute_content_hash(content)
         payload = MemoryPayload(
@@ -171,6 +215,7 @@ class MemoryStorage:
             source_hook=source_hook,
             session_id=session_id,
             timestamp=datetime.now(timezone.utc).isoformat(),
+            created_at=created_at,
             **extra_fields,
         )
 
@@ -417,16 +462,38 @@ class MemoryStorage:
         # Build points for batch upsert
         for memory, embedding in zip(memories, embeddings):
             memory_id = str(uuid.uuid4())
-            content_hash = compute_content_hash(memory["content"])
+
+            # TECH-DEBT-012 Round 3: Handle created_at timestamp
+            created_at = memory.pop("created_at", None)
+            if created_at is None:
+                created_at = datetime.now(timezone.utc).isoformat()
+
+            # TECH-DEBT-012 Round 3: Enforce content size limits
+            memory_type = MemoryType(memory["type"]) if isinstance(memory["type"], str) else memory["type"]
+            original_length = len(memory["content"])
+            content = _enforce_content_limit(memory["content"], memory_type)
+
+            if len(content) < original_length:
+                logger.info(
+                    "batch_content_truncated",
+                    extra={
+                        "original_length": original_length,
+                        "truncated_length": len(content),
+                        "memory_type": memory_type.value,
+                    },
+                )
+
+            content_hash = compute_content_hash(content)
 
             payload = MemoryPayload(
-                content=memory["content"],
+                content=content,
                 content_hash=content_hash,
                 group_id=memory["group_id"],
                 type=memory["type"],  # Already a string from dict
                 source_hook=memory["source_hook"],
                 session_id=memory["session_id"],
                 timestamp=datetime.now(timezone.utc).isoformat(),
+                created_at=created_at,
                 embedding_status=embedding_status,
             )
 

@@ -25,6 +25,12 @@ set -euo pipefail
 # Script directory for relative path resolution
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Project path handling - accept target project as argument
+# Usage: ./install.sh [PROJECT_PATH]
+PROJECT_PATH="${1:-.}"
+PROJECT_PATH=$(cd "$PROJECT_PATH" 2>/dev/null && pwd || pwd)
+PROJECT_NAME=$(basename "$PROJECT_PATH")
+
 # Cleanup handler for interrupts (SIGINT/SIGTERM)
 # Per https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
 INSTALL_STARTED=false
@@ -33,14 +39,20 @@ cleanup() {
     if [[ "$INSTALL_STARTED" = true && $exit_code -ne 0 ]]; then
         echo ""
         log_warning "Installation interrupted (exit code: $exit_code)"
+
+        # Stop Docker services if they were started
+        if [[ -f "$INSTALL_DIR/docker/docker-compose.yml" ]]; then
+            echo ""
+            echo "[INFO] Stopping Docker services..."
+            cd "$INSTALL_DIR/docker" && docker compose down --timeout 5 2>/dev/null || true
+            echo "[INFO] Docker services stopped"
+        fi
+
         echo ""
-        echo "Partial installation may exist at: $INSTALL_DIR"
+        echo "Partial installation exists at: $INSTALL_DIR"
         echo "To clean up and retry:"
         echo "  rm -rf $INSTALL_DIR"
         echo "  ./install.sh"
-        echo ""
-        echo "If services were started, stop them with:"
-        echo "  cd $INSTALL_DIR/docker && docker compose down"
     fi
 }
 trap cleanup EXIT
@@ -58,6 +70,7 @@ QDRANT_PORT="${BMAD_QDRANT_PORT:-26350}"
 EMBEDDING_PORT="${BMAD_EMBEDDING_PORT:-28080}"
 MONITORING_PORT="${BMAD_MONITORING_PORT:-28000}"
 STREAMLIT_PORT="${BMAD_STREAMLIT_PORT:-28501}"
+CONTAINER_PREFIX="${BMAD_CONTAINER_PREFIX:-memory}"
 
 # Logging functions
 log_info() {
@@ -76,6 +89,87 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Configuration flags (set by interactive prompts or environment)
+INSTALL_MONITORING="${INSTALL_MONITORING:-}"
+SEED_BEST_PRACTICES="${SEED_BEST_PRACTICES:-}"
+NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
+
+# Interactive configuration prompts
+configure_options() {
+    # Skip prompts if running non-interactively or if all options pre-set
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        log_info "Non-interactive mode - using defaults/environment variables"
+        INSTALL_MONITORING="${INSTALL_MONITORING:-false}"
+        SEED_BEST_PRACTICES="${SEED_BEST_PRACTICES:-true}"
+        return 0
+    fi
+
+    echo ""
+    echo "┌─────────────────────────────────────────────────────────────┐"
+    echo "│  Optional Components                                        │"
+    echo "└─────────────────────────────────────────────────────────────┘"
+    echo ""
+
+    # Monitoring Dashboard
+    if [[ -z "$INSTALL_MONITORING" ]]; then
+        echo "📊 Monitoring Dashboard"
+        echo "   Includes: Streamlit browser, Grafana dashboards, Prometheus metrics"
+        echo "   Ports: 28501 (Streamlit), 23000 (Grafana), 29090 (Prometheus)"
+        echo "   Adds ~500MB disk usage, ~200MB RAM when running"
+        echo ""
+        read -p "   Install monitoring dashboard? [y/N]: " monitoring_choice
+        if [[ "$monitoring_choice" =~ ^[Yy]$ ]]; then
+            INSTALL_MONITORING="true"
+        else
+            INSTALL_MONITORING="false"
+        fi
+        echo ""
+    fi
+
+    # Best Practices Seeding
+    if [[ -z "$SEED_BEST_PRACTICES" ]]; then
+        echo "📚 Best Practices Seeding"
+        echo "   Pre-populates database with coding patterns (Python, Docker, Git)"
+        echo "   Claude will retrieve these during sessions to give better advice"
+        echo "   Adds ~50 pattern entries to the best_practices collection"
+        echo ""
+        read -p "   Seed best practices? [Y/n]: " seed_choice
+        if [[ "$seed_choice" =~ ^[Nn]$ ]]; then
+            SEED_BEST_PRACTICES="false"
+        else
+            SEED_BEST_PRACTICES="true"
+        fi
+        echo ""
+    fi
+
+    # Summary
+    echo "┌─────────────────────────────────────────────────────────────┐"
+    echo "│  Installation Summary                                       │"
+    echo "├─────────────────────────────────────────────────────────────┤"
+    echo "│  Core Services (always installed):                          │"
+    echo "│    ✓ Qdrant vector database (port $QDRANT_PORT)                   │"
+    echo "│    ✓ Embedding service (port $EMBEDDING_PORT)                     │"
+    echo "│    ✓ Claude Code hooks (session_start, post_tool, stop)     │"
+    echo "│                                                             │"
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+        echo "│  Optional Components:                                       │"
+        echo "│    ✓ Monitoring dashboard (Streamlit, Grafana, Prometheus)  │"
+    fi
+    if [[ "$SEED_BEST_PRACTICES" == "true" ]]; then
+        echo "│    ✓ Best practices patterns (Python, Docker, Git)          │"
+    fi
+    echo "└─────────────────────────────────────────────────────────────┘"
+    echo ""
+
+    read -p "Proceed with installation? [Y/n]: " proceed_choice
+    if [[ "$proceed_choice" =~ ^[Nn]$ ]]; then
+        echo ""
+        log_info "Installation cancelled by user"
+        exit 0
+    fi
+    echo ""
+}
+
 # Main orchestration function
 main() {
     INSTALL_STARTED=true  # Enable cleanup handler
@@ -85,38 +179,58 @@ main() {
     echo "  BMAD Memory Module Installer"
     echo "========================================"
     echo ""
-    echo "Installation directory: $INSTALL_DIR"
+    echo "Target project: $PROJECT_PATH"
+    echo "Project name: $PROJECT_NAME"
+    echo "Shared installation: $INSTALL_DIR"
     echo "Qdrant port: $QDRANT_PORT"
     echo "Embedding port: $EMBEDDING_PORT"
     echo ""
 
     # NFR-I5: Idempotent installation - safe to run multiple times
+    # Now supports add-project mode for multi-project installations
     check_existing_installation
 
     check_prerequisites
     detect_platform
-    create_directories
-    copy_files
-    configure_environment
-    start_services
-    wait_for_services
-    configure_hooks
-    copy_env_template
-    verify_hooks
-    run_health_check
-    seed_best_practices
+
+    # Full install steps - create shared infrastructure
+    if [[ "$INSTALL_MODE" == "full" ]]; then
+        # Interactive configuration (unless non-interactive mode)
+        configure_options
+
+        create_directories
+        copy_files
+        configure_environment
+        start_services
+        wait_for_services
+        setup_collections
+        copy_env_template
+        run_health_check
+        seed_best_practices
+    else
+        log_info "Skipping shared infrastructure setup (add-project mode)"
+        # Verify services are running in add-project mode
+        verify_services_running
+    fi
+
+    # Project-level setup - runs for both modes
+    create_project_symlinks
+    configure_project_hooks
+    verify_project_hooks
+
     show_success_message
 }
 
 # Idempotency check - detect existing installation (NFR-I5)
+# Now supports both full install and add-project mode (TECH-DEBT-013)
 check_existing_installation() {
     local existing=false
     local services_running=false
 
-    # Check if installation directory exists with key files
+    # Check if shared installation directory exists with key files
     if [[ -d "$INSTALL_DIR" && -f "$INSTALL_DIR/docker/docker-compose.yml" ]]; then
         existing=true
-        log_info "Existing installation detected at $INSTALL_DIR"
+        log_info "Existing BMAD Memory installation detected at $INSTALL_DIR"
     fi
 
     # Check if Docker services are already running
@@ -127,34 +241,52 @@ check_existing_installation() {
         fi
     fi
 
-    # Handle existing installation
-    if [[ "$existing" = true || "$services_running" = true ]]; then
+    # Handle existing installation - offer add-project mode
+    if [[ "$existing" = true ]]; then
         echo ""
-        log_warning "Previous installation detected."
+        log_info "Found existing BMAD Memory installation"
         echo ""
         echo "Options:"
-        echo "  1. Reinstall (stop services, update files, restart)"
-        echo "  2. Abort installation"
+        echo "  1. Add project to existing installation (recommended)"
+        echo "     - Reuses shared Docker services"
+        echo "     - Creates project-level hooks via symlinks"
+        echo "  2. Reinstall shared infrastructure (stop services, update files, restart)"
+        echo "  3. Abort installation"
         echo ""
 
-        # Check for BMAD_FORCE_REINSTALL env var for non-interactive mode
-        if [[ "${BMAD_FORCE_REINSTALL:-}" = "true" ]]; then
-            log_info "BMAD_FORCE_REINSTALL=true - proceeding with reinstall"
+        # Check for non-interactive mode
+        if [[ "${BMAD_ADD_PROJECT_MODE:-}" = "true" ]]; then
+            log_info "BMAD_ADD_PROJECT_MODE=true - using add-project mode"
+            INSTALL_MODE="add-project"
+            return 0
+        elif [[ "${BMAD_FORCE_REINSTALL:-}" = "true" ]]; then
+            log_info "BMAD_FORCE_REINSTALL=true - proceeding with full reinstall"
+            INSTALL_MODE="full"
             handle_reinstall "$services_running"
             return 0
         fi
 
         # Interactive prompt
-        read -r -p "Choose [1/2]: " choice
+        read -r -p "Choose [1/2/3]: " choice
         case "$choice" in
             1)
+                log_info "Adding project to existing installation..."
+                INSTALL_MODE="add-project"
+                ;;
+            2)
+                log_info "Reinstalling shared infrastructure..."
+                INSTALL_MODE="full"
                 handle_reinstall "$services_running"
                 ;;
-            2|*)
+            3|*)
                 log_info "Installation aborted by user"
                 exit 0
                 ;;
         esac
+    else
+        # No existing installation - do full install
+        INSTALL_MODE="full"
+        log_info "No existing installation found - will perform full install"
     fi
 }
 
@@ -418,6 +550,13 @@ copy_files() {
     log_info "Copying Claude Code hooks..."
     cp -r "$SOURCE_DIR/.claude/hooks/"* "$INSTALL_DIR/.claude/hooks/"
 
+    # Copy templates for best practices seeding
+    if [[ -d "$SOURCE_DIR/templates" ]]; then
+        log_info "Copying templates..."
+        mkdir -p "$INSTALL_DIR/templates"
+        cp -r "$SOURCE_DIR/templates/"* "$INSTALL_DIR/templates/"
+    fi
+
     # Make scripts executable (both .py and .sh files)
     log_info "Making scripts executable..."
     chmod +x "$INSTALL_DIR/scripts/"*.{py,sh} 2>/dev/null || true
@@ -435,6 +574,9 @@ configure_environment() {
 # BMAD Memory Module Configuration
 # Generated by install.sh on $(date)
 
+# Container Configuration
+BMAD_CONTAINER_PREFIX=$CONTAINER_PREFIX
+
 # Port Configuration
 QDRANT_PORT=$QDRANT_PORT
 EMBEDDING_PORT=$EMBEDDING_PORT
@@ -448,6 +590,10 @@ QUEUE_DIR=$HOME/.claude-memory
 # Platform Information
 PLATFORM=$PLATFORM
 ARCH=$ARCH
+
+# Search Configuration (TECH-DEBT-002: semantic mismatch workaround)
+# Lower threshold needed for NL query → code content matching
+SIMILARITY_THRESHOLD=0.4
 EOF
 
     log_success "Environment configured at $INSTALL_DIR/.env"
@@ -465,7 +611,11 @@ start_services() {
 
     # Pull images first (show progress)
     log_info "Pulling Docker images (this may take a few minutes)..."
-    docker compose pull
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+        docker compose --profile monitoring pull
+    else
+        docker compose pull
+    fi
 
     # Start core services with 2026 security best practices:
     # - Localhost-only bindings (127.0.0.1)
@@ -473,7 +623,12 @@ start_services() {
     # - Security opts: no-new-privileges:true
     # - Non-root user execution where possible
     log_info "Starting services with security hardening..."
-    docker compose up -d
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+        log_info "Including monitoring dashboard (Streamlit, Grafana, Prometheus)..."
+        docker compose --profile monitoring up -d
+    else
+        docker compose up -d
+    fi
 
     log_success "Docker services started"
 }
@@ -493,9 +648,14 @@ wait_for_services() {
             echo -e "${GREEN}ready${NC}"
             break
         fi
-        echo -n "."
+        # Show elapsed time every 5 seconds
+        if [[ $((attempt % 5)) -eq 0 && $attempt -gt 0 ]]; then
+            echo -n "${attempt}s "
+        else
+            echo -n "."
+        fi
         sleep 1
-        ((attempt++))
+        ((attempt++)) || true
     done
 
     if [[ $attempt -eq $max_attempts ]]; then
@@ -509,36 +669,53 @@ wait_for_services() {
         exit 1
     fi
 
-    # Wait for Embedding Service
+    # Wait for Embedding Service (with live progress)
     attempt=0
     echo -n "  Embedding ($EMBEDDING_PORT): "
-    while [[ $attempt -lt $max_attempts ]]; do
-        if curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:$EMBEDDING_PORT/health" &> /dev/null; then
-            echo -e "${GREEN}ready${NC}"
-            break
-        fi
-        # Show progress every 30 seconds
-        if [[ $((attempt % 30)) -eq 0 && $attempt -gt 0 ]]; then
-            echo -n " [${attempt}s/${max_attempts}s] "
-        fi
-        echo -n "."
-        sleep 1
-        ((attempt++))
-    done
 
-    if [[ $attempt -eq $max_attempts ]]; then
-        echo -e "${RED}timeout${NC}"
-        log_error "Embedding service failed to start within ${max_attempts} seconds."
+    # Check if already ready (cached model)
+    if curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:$EMBEDDING_PORT/health" &> /dev/null; then
+        echo -e "${GREEN}ready${NC} (cached)"
+    else
+        echo "downloading model..."
         echo ""
-        echo "Check logs for details:"
-        echo "  cd $INSTALL_DIR/docker && docker compose logs embedding"
-        echo ""
-        echo "NOTE: First start downloads ~500MB model from HuggingFace (may take 1-2 min)."
-        echo "      Subsequent starts load from cache (~5 seconds)."
-        echo "      If this persists, check network connection and available disk space."
-        echo ""
-        echo "NO FALLBACK: Service health is required for installation."
-        exit 1
+
+        # Start background log tail - filter to only show progress bars and key events
+        # Run in subshell so we can kill entire process group
+        (docker logs -f memory-embedding 2>&1 | grep --line-buffered -E "Fetching|Downloading|%\||model_load|ERROR|error" | sed 's/^/    /') &
+        LOG_PID=$!
+
+        while [[ $attempt -lt $max_attempts ]]; do
+            if curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:$EMBEDDING_PORT/health" &> /dev/null; then
+                # Kill the entire log tail process group
+                pkill -P $LOG_PID 2>/dev/null || true
+                kill $LOG_PID 2>/dev/null || true
+                echo ""
+                echo -e "  Embedding ($EMBEDDING_PORT): ${GREEN}ready${NC}"
+                break
+            fi
+            sleep 2
+            ((attempt+=2)) || true
+        done
+
+        # Cleanup log tail if still running (timeout case)
+        pkill -P $LOG_PID 2>/dev/null || true
+        kill $LOG_PID 2>/dev/null || true
+
+        if [[ $attempt -ge $max_attempts ]]; then
+            echo -e "${RED}timeout${NC}"
+            log_error "Embedding service failed to start within ${max_attempts} seconds."
+            echo ""
+            echo "Check logs for details:"
+            echo "  cd $INSTALL_DIR/docker && docker compose logs embedding"
+            echo ""
+            echo "NOTE: First start downloads ~500MB model from HuggingFace (may take 1-2 min)."
+            echo "      Subsequent starts load from cache (~5 seconds)."
+            echo "      If this persists, check network connection and available disk space."
+            echo ""
+            echo "NO FALLBACK: Service health is required for installation."
+            exit 1
+        fi
     fi
 
     # Optional: Wait for Monitoring API (non-critical, just info)
@@ -551,7 +728,7 @@ wait_for_services() {
         fi
         echo -n "."
         sleep 1
-        ((attempt++))
+        ((attempt++)) || true
     done
 
     if [[ $attempt -eq 30 ]]; then
@@ -559,7 +736,56 @@ wait_for_services() {
         log_warning "Monitoring API did not start (this is optional)"
     fi
 
+    # If monitoring profile was requested, wait for those services too
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+        # Wait for Streamlit
+        attempt=0
+        echo -n "  Streamlit ($STREAMLIT_PORT): "
+        while [[ $attempt -lt 60 ]]; do
+            if curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:$STREAMLIT_PORT/" &> /dev/null; then
+                echo -e "${GREEN}ready${NC}"
+                break
+            fi
+            echo -n "."
+            sleep 1
+            ((attempt++)) || true
+        done
+        if [[ $attempt -eq 60 ]]; then
+            echo -e "${YELLOW}timeout (non-critical)${NC}"
+            log_warning "Streamlit dashboard did not start within 60s"
+        fi
+
+        # Wait for Grafana
+        attempt=0
+        echo -n "  Grafana (23000): "
+        while [[ $attempt -lt 60 ]]; do
+            if curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:23000/api/health" &> /dev/null; then
+                echo -e "${GREEN}ready${NC}"
+                break
+            fi
+            echo -n "."
+            sleep 1
+            ((attempt++)) || true
+        done
+        if [[ $attempt -eq 60 ]]; then
+            echo -e "${YELLOW}timeout (non-critical)${NC}"
+            log_warning "Grafana dashboard did not start within 60s"
+        fi
+    fi
+
     log_success "All critical services ready"
+}
+
+# Initialize Qdrant collections
+setup_collections() {
+    log_info "Setting up Qdrant collections..."
+
+    # Run the setup script
+    if python3 "$INSTALL_DIR/scripts/setup-collections.py" 2>/dev/null; then
+        log_success "Qdrant collections created (implementations, best_practices)"
+    else
+        log_warning "Collection setup had issues - will be created on first use"
+    fi
 }
 
 configure_hooks() {
@@ -621,7 +847,9 @@ verify_hooks() {
 
     # Check hook scripts exist and are executable
     local hooks_missing=0
-    for hook in session_start.py post_tool_capture.py session_stop.py; do
+    # TECH-DEBT-012: Removed session_stop.py (now placeholder only)
+    # Updated to verify 5 hooks: session_start, post_tool_capture, pre_compact_save, error_context, memory_search
+    for hook in session_start.py post_tool_capture.py pre_compact_save.py error_context.py memory_search.py; do
         if [[ ! -x "$HOOKS_DIR/$hook" ]]; then
             log_error "Hook script missing or not executable: $hook"
             hooks_missing=1
@@ -656,6 +884,124 @@ print('✓ All hooks configured correctly')
     fi
 
     log_success "Hooks verified"
+}
+
+# Verify services are running (for add-project mode)
+verify_services_running() {
+    log_info "Verifying BMAD Memory services are running..."
+
+    # Check Qdrant
+    if ! curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:$QDRANT_PORT/" &> /dev/null; then
+        log_error "Qdrant is not running at port $QDRANT_PORT"
+        echo ""
+        echo "Start services from shared installation:"
+        echo "  cd $INSTALL_DIR/docker && docker compose up -d"
+        exit 1
+    fi
+
+    # Check Embedding Service
+    if ! curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:$EMBEDDING_PORT/health" &> /dev/null; then
+        log_error "Embedding service is not running at port $EMBEDDING_PORT"
+        echo ""
+        echo "Start services from shared installation:"
+        echo "  cd $INSTALL_DIR/docker && docker compose up -d"
+        exit 1
+    fi
+
+    log_success "All services are running"
+}
+
+# Create project-level symlinks to shared installation
+create_project_symlinks() {
+    log_info "Creating project-level symlinks..."
+
+    # Create project .claude directory structure
+    mkdir -p "$PROJECT_PATH/.claude/hooks/scripts"
+
+    # Symlink hook scripts from shared install
+    local symlink_count=0
+    for script in "$INSTALL_DIR/.claude/hooks/scripts"/*.py; do
+        if [[ -f "$script" ]]; then
+            script_name=$(basename "$script")
+            ln -sf "$script" "$PROJECT_PATH/.claude/hooks/scripts/$script_name"
+            ((symlink_count++)) || true
+        fi
+    done
+
+    # Verify symlinks work
+    local verification_failed=0
+    for script in "$PROJECT_PATH/.claude/hooks/scripts"/*.py; do
+        if [[ ! -L "$script" ]]; then
+            log_error "Not a symlink: $script"
+            verification_failed=1
+        elif [[ ! -e "$script" ]]; then
+            log_error "Broken symlink: $script"
+            verification_failed=1
+        fi
+    done
+
+    if [[ $verification_failed -eq 1 ]]; then
+        log_error "Symlink verification failed"
+        exit 1
+    fi
+
+    log_success "Created $symlink_count symlinks in $PROJECT_PATH/.claude/hooks/scripts/"
+}
+
+# Configure hooks for project (project-level settings.json)
+configure_project_hooks() {
+    log_info "Configuring project-level hooks..."
+
+    PROJECT_SETTINGS="$PROJECT_PATH/.claude/settings.json"
+    HOOKS_DIR="$INSTALL_DIR/.claude/hooks/scripts"
+
+    # Check if project already has settings.json
+    if [[ -f "$PROJECT_SETTINGS" ]]; then
+        log_info "Existing project settings found - merging hooks..."
+        python3 "$INSTALL_DIR/scripts/merge_settings.py" "$PROJECT_SETTINGS" "$HOOKS_DIR" "$PROJECT_NAME"
+    else
+        # Generate new project-level settings.json
+        log_info "Creating new project settings at $PROJECT_SETTINGS..."
+        python3 "$INSTALL_DIR/scripts/generate_settings.py" "$PROJECT_SETTINGS" "$HOOKS_DIR" "$PROJECT_NAME"
+    fi
+
+    log_success "Project hooks configured in $PROJECT_SETTINGS"
+}
+
+# Verify project hooks configuration
+verify_project_hooks() {
+    log_info "Verifying project hook configuration..."
+
+    PROJECT_SETTINGS="$PROJECT_PATH/.claude/settings.json"
+
+    # Check settings.json exists and is valid JSON
+    if ! python3 -c "import json; json.load(open('$PROJECT_SETTINGS'))" 2>/dev/null; then
+        log_error "Invalid JSON in $PROJECT_SETTINGS"
+        exit 1
+    fi
+
+    # Verify BMAD_PROJECT_ID is set
+    if ! python3 -c "
+import json
+import sys
+
+settings = json.load(open('$PROJECT_SETTINGS'))
+if 'env' not in settings or 'BMAD_PROJECT_ID' not in settings['env']:
+    print('ERROR: BMAD_PROJECT_ID not found in settings.json')
+    sys.exit(1)
+
+project_id = settings['env']['BMAD_PROJECT_ID']
+if project_id != '$PROJECT_NAME':
+    print(f'ERROR: BMAD_PROJECT_ID mismatch: {project_id} != $PROJECT_NAME')
+    sys.exit(1)
+
+print(f'✓ BMAD_PROJECT_ID set to: {project_id}')
+" 2>/dev/null; then
+        log_error "BMAD_PROJECT_ID verification failed"
+        exit 1
+    fi
+
+    log_success "Project hooks verified"
 }
 
 run_health_check() {
@@ -713,14 +1059,8 @@ seed_best_practices() {
             log_info "You can seed manually later with:"
             log_info "  python3 $INSTALL_DIR/scripts/memory/seed_best_practices.py --templates-dir $INSTALL_DIR/templates/best_practices"
         fi
-    else
-        echo ""
-        echo "💡 Tip: To seed best practices collection with example templates:"
-        echo "   python3 $INSTALL_DIR/scripts/memory/seed_best_practices.py --templates-dir $INSTALL_DIR/templates/best_practices"
-        echo ""
-        echo "   Or reinstall with seeding enabled:"
-        echo "   SEED_BEST_PRACTICES=true ./install.sh"
     fi
+    # No tip shown if user explicitly declined during interactive prompt
 }
 
 show_success_message() {
@@ -728,6 +1068,19 @@ show_success_message() {
     echo "┌─────────────────────────────────────────────────────────────┐"
     echo "│                                                             │"
     echo "│   \033[92m✓ BMAD Memory Module installed successfully!\033[0m            │"
+    echo "│                                                             │"
+    echo "├─────────────────────────────────────────────────────────────┤"
+    echo "│                                                             │"
+    echo "│   Installed components:                                     │"
+    echo "│     ✓ Qdrant vector database (port $QDRANT_PORT)                   │"
+    echo "│     ✓ Embedding service (port $EMBEDDING_PORT)                     │"
+    echo "│     ✓ Claude Code hooks (session_start, post_tool, stop)    │"
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+    echo "│     ✓ Monitoring dashboard (Streamlit, Grafana, Prometheus) │"
+    fi
+    if [[ "$SEED_BEST_PRACTICES" == "true" ]]; then
+    echo "│     ✓ Best practices patterns seeded                        │"
+    fi
     echo "│                                                             │"
     echo "├─────────────────────────────────────────────────────────────┤"
     echo "│                                                             │"
@@ -743,21 +1096,26 @@ show_success_message() {
     echo "│                                                             │"
     echo "│   Useful commands:                                          │"
     echo "│                                                             │"
-    echo "│   Health check (run anytime):                               │"
+    echo "│   Health check:                                             │"
     echo "│     python3 $INSTALL_DIR/scripts/health-check.py            │"
     echo "│                                                             │"
-    echo "│   View Docker logs:                                         │"
-    echo "│     docker compose -f $INSTALL_DIR/docker/docker-compose.yml logs -f"
+    echo "│   View logs:                                                │"
+    echo "│     cd $INSTALL_DIR/docker && docker compose logs -f        │"
     echo "│                                                             │"
     echo "│   Stop services:                                            │"
-    echo "│     docker compose -f $INSTALL_DIR/docker/docker-compose.yml down"
+    echo "│     cd $INSTALL_DIR/docker && docker compose down           │"
     echo "│                                                             │"
-    echo "│   Start monitoring dashboard (optional):                    │"
-    echo "│     docker compose -f $INSTALL_DIR/docker/docker-compose.yml \\"
-    echo "│       --profile monitoring up -d                            │"
-    echo "│     Then visit: http://localhost:28501 (Streamlit)          │"
-    echo "│                 http://localhost:23000 (Grafana)            │"
+    if [[ "$INSTALL_MONITORING" == "true" ]]; then
+    echo "│   Monitoring dashboards:                                    │"
+    echo "│     Streamlit: http://localhost:28501                       │"
+    echo "│     Grafana:   http://localhost:23000                       │"
     echo "│                                                             │"
+    else
+    echo "│   Add monitoring later:                                     │"
+    echo "│     cd $INSTALL_DIR/docker                                  │"
+    echo "│     docker compose --profile monitoring up -d               │"
+    echo "│                                                             │"
+    fi
     echo "└─────────────────────────────────────────────────────────────┘"
     echo ""
 }

@@ -136,12 +136,13 @@ def backup_file(path: Path) -> Path:
     return backup_path
 
 
-def merge_settings(settings_path: str, hooks_dir: str) -> None:
+def merge_settings(settings_path: str, hooks_dir: str, project_name: str = "default") -> None:
     """Merge new hook configuration into existing settings file.
 
     Args:
         settings_path: Path to settings.json
         hooks_dir: Absolute path to hooks scripts directory
+        project_name: Name of the project for BMAD_PROJECT_ID (default: "default")
 
     Side effects:
         - Creates backup of existing settings.json
@@ -163,7 +164,7 @@ def merge_settings(settings_path: str, hooks_dir: str) -> None:
     # Generate new hook config with error handling (Issue 5: graceful degradation)
     try:
         from generate_settings import generate_hook_config
-        new_config = generate_hook_config(hooks_dir)
+        new_config = generate_hook_config(hooks_dir, project_name)
     except ImportError as e:
         print(f"ERROR: Failed to import generate_settings: {e}")
         print("Ensure generate_settings.py exists in the scripts directory.")
@@ -204,13 +205,14 @@ def merge_settings(settings_path: str, hooks_dir: str) -> None:
 
 def main():
     """Main entry point for CLI invocation."""
-    if len(sys.argv) != 3:
-        print("Usage: merge_settings.py <settings_path> <hooks_dir>")
+    if len(sys.argv) < 3 or len(sys.argv) > 4:
+        print("Usage: merge_settings.py <settings_path> <hooks_dir> [project_name]")
         sys.exit(1)
 
     settings_path = sys.argv[1]
     hooks_dir = sys.argv[2]
-    merge_settings(settings_path, hooks_dir)
+    project_name = sys.argv[3] if len(sys.argv) == 4 else "default"
+    merge_settings(settings_path, hooks_dir, project_name)
 
 
 if __name__ == "__main__":

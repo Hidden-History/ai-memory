@@ -16,28 +16,24 @@ import json
 import os
 import logging
 import time
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 from typing import Optional
 
 # Add src to path for system python3 execution
-# Check for development mode (local src/ directory) first
-script_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(script_dir)))
-local_src = os.path.join(project_root, "src")
+# Use INSTALL_DIR to find installed module (fixes path calculation bug)
+INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+local_src = os.path.join(INSTALL_DIR, "src")
 
-if os.path.exists(local_src):
-    # Development mode: use local src/
-    sys.path.insert(0, local_src)
-else:
-    # Installed mode: use installed src/
-    sys.path.insert(0, os.path.expanduser("~/.bmad-memory/src"))
+# Always use INSTALL_DIR for src path (multi-project support)
+sys.path.insert(0, local_src)
 
 from memory.search import MemorySearch
-from memory.config import get_config
+from memory.config import get_config, get_agent_token_budget
 from memory.qdrant_client import get_qdrant_client
 from memory.health import check_qdrant_health
 from memory.project import detect_project
 from memory.logging_config import configure_logging
+from memory.activity_log import log_session_start, log_error
 
 # Configure structured logging (Story 6.2)
 # Log to stderr since stdout is reserved for context injection
@@ -60,6 +56,55 @@ except ImportError:
     hook_duration_seconds = None
 
 
+def _detect_agent(hook_input: dict) -> str:
+    """Detect current agent from hook input or environment.
+
+    Checks (in order):
+    1. BMAD_AGENT env var
+    2. agent field in hook input
+    3. Falls back to 'default'
+    """
+    # Check env var first (set by BMAD workflows)
+    agent = os.environ.get("BMAD_AGENT", "")
+    if agent:
+        return agent
+
+    # Check hook input
+    agent = hook_input.get("agent", "")
+    if agent:
+        return agent
+
+    return "default"
+
+
+def _enforce_token_budget(memories: list, budget: int) -> list:
+    """Limit memories to fit within token budget.
+
+    Estimates ~4 chars per token. Iterates through memories
+    (already sorted by relevance) and includes as many as fit.
+
+    Returns list of memories that fit within budget.
+    """
+    CHARS_PER_TOKEN = 4
+    char_budget = budget * CHARS_PER_TOKEN
+
+    result = []
+    used = 0
+
+    for memory in memories:
+        content = memory.get("content", "")
+        content_len = len(content)
+
+        if used + content_len <= char_budget:
+            result.append(memory)
+            used += content_len
+        else:
+            # Can't fit more
+            break
+
+    return result
+
+
 def main():
     """Retrieve and output relevant memories for Claude context.
 
@@ -75,6 +120,7 @@ def main():
         # Extract context
         cwd = hook_input.get("cwd", os.getcwd())
         session_id = hook_input.get("session_id", "unknown")
+        trigger = hook_input.get("source", "startup")  # startup, resume, compact, clear
         project_name = detect_project(cwd)  # FR13 - automatic project detection
 
         # Check Qdrant health (graceful degradation if down)
@@ -88,39 +134,76 @@ def main():
             )
 
             # Metrics: Retrieval failed due to Qdrant unavailable (Story 6.1, AC 6.1.3)
+            # TECH-DEBT-012: Changed from "combined" to "agent-memory"
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection="combined", status="failed").inc()
+                memory_retrievals_total.labels(collection="agent-memory", status="failed").inc()
 
-            print("")  # Empty context - Claude continues without memories
+            # Empty context JSON - Claude continues without memories
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}}))
             sys.exit(0)
 
         # Build query from project context
         query = build_session_query(project_name, cwd)
 
-        # Search both collections (FR10, FR11)
+        # Search agent-memory for session summaries (the "aha moment")
         search = MemorySearch(config)
 
         try:
-            # Search implementations (project-filtered, FR10)
-            implementations = search.search(
+            # Search agent-memory for previous session summaries (project-filtered)
+            # TECH-DEBT-012 Phase 2: Query ONLY agent-memory collection
+            # NOTE: best_practices collection removed from SessionStart hook to reduce noise.
+            # Best practices are now retrieved on-demand via other hooks when relevant.
+            session_memories = search.search(
                 query=query,
-                collection="implementations",
+                collection="agent-memory",
                 group_id=project_name,  # Filter by project
                 limit=config.max_retrievals,
                 score_threshold=config.similarity_threshold
             )
 
-            # Search best_practices (shared, FR11)
-            best_practices = search.search(
-                query=query,
-                collection="best_practices",
-                group_id=None,  # Shared across all projects
-                limit=3,  # Fewer best practices to not overwhelm
-                score_threshold=config.similarity_threshold
+            # Filter to last 48 hours and limit to 5 memories (TECH-DEBT-012)
+            cutoff_time = datetime.now(UTC) - timedelta(hours=48)
+
+            # Filter by timestamp if available (graceful handling of legacy data)
+            recent_memories = []
+            for mem in session_memories:
+                created_at_str = mem.get("created_at")
+                if created_at_str:
+                    try:
+                        created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                        if created_at >= cutoff_time:
+                            recent_memories.append(mem)
+                    except (ValueError, AttributeError) as e:
+                        # Graceful: include memories with malformed timestamps (TECH-DEBT-012 AC: legacy support)
+                        logger.warning("malformed_timestamp", extra={
+                            "memory_id": mem.get("id", "unknown"),
+                            "timestamp": created_at_str,
+                            "error": str(e)
+                        })
+                        recent_memories.append(mem)
+                else:
+                    # Graceful: include legacy memories without timestamps
+                    recent_memories.append(mem)
+
+            # Sort by created_at descending (newest first)
+            recent_memories.sort(
+                key=lambda m: m.get("created_at", ""),
+                reverse=True
             )
 
-            # Combine results
-            all_results = implementations + best_practices
+            # Limit to 5 memories
+            all_results = recent_memories[:5]
+
+            # TECH-DEBT-012 Round 4: Apply token budget per agent
+            agent = _detect_agent(hook_input)
+            budget = get_agent_token_budget(agent)
+            all_results = _enforce_token_budget(all_results, budget)
+
+            logger.info("token_budget_applied", extra={
+                "agent": agent,
+                "budget": budget,
+                "memories_after_budget": len(all_results)
+            })
 
             if not all_results:
                 duration_ms = (time.perf_counter() - start_time) * 1000
@@ -133,10 +216,18 @@ def main():
                 )
 
                 # Metrics: Retrieval returned empty results (Story 6.1, AC 6.1.3)
+                # TECH-DEBT-012: Changed from "combined" to "agent-memory"
                 if memory_retrievals_total:
-                    memory_retrievals_total.labels(collection="combined", status="empty").inc()
+                    memory_retrievals_total.labels(collection="agent-memory", status="empty").inc()
 
-                print("")  # Empty context
+                # User notification - no memories found
+                print(f"🧠 BMAD Memory: No relevant memories for {project_name} [{duration_ms:.0f}ms]", file=sys.stderr)
+
+                # Activity log (reliable visibility)
+                log_retrieval(project_name, 0, duration_ms)
+
+                # Empty context JSON
+                print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}}))
                 sys.exit(0)
 
             # Format for Claude context (FR12, tiered injection)
@@ -153,16 +244,32 @@ def main():
                 duration_ms=duration_ms
             )
 
+            # User notification via stderr (visible to user, not Claude)
+            # See: https://code.claude.com/docs/en/hooks - stderr shown to user
+            notify_user_retrieval(all_results, project_name, duration_ms)
+
+            # Activity log (reliable visibility via tail -f ~/.bmad-memory/logs/activity.log)
+            # TECH-DEBT-014: Comprehensive logging with full memory content
+            log_session_start(project_name, trigger, all_results, duration_ms)
+
             # Metrics: Successful retrieval (Story 6.1, AC 6.1.3)
+            # TECH-DEBT-012: Changed from "combined" to "agent-memory"
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection="combined", status="success").inc()
+                memory_retrievals_total.labels(collection="agent-memory", status="success").inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_seconds)
             if hook_duration_seconds:
                 hook_duration_seconds.labels(hook_type="SessionStart").observe(duration_seconds)
 
-            # Output to stdout (becomes Claude's context)
-            print(formatted)
+            # Output to stdout in JSON format (becomes Claude's context)
+            # See: https://code.claude.com/docs/en/hooks#json-output-example
+            output = {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": formatted
+                }
+            }
+            print(json.dumps(output))
             sys.exit(0)
 
         finally:
@@ -173,13 +280,16 @@ def main():
         logger.error("retrieval_failed", extra={"error": str(e)})
 
         # Metrics: Retrieval failed with exception (Story 6.1, AC 6.1.3)
+        # TECH-DEBT-012: Changed from "combined" to "agent-memory"
         if memory_retrievals_total:
-            memory_retrievals_total.labels(collection="combined", status="failed").inc()
+            memory_retrievals_total.labels(collection="agent-memory", status="failed").inc()
         if hook_duration_seconds:
-            duration_seconds = (time.perf_counter() - start_time) / 1000.0
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            duration_seconds = duration_ms / 1000.0
             hook_duration_seconds.labels(hook_type="SessionStart").observe(duration_seconds)
 
-        print("")  # Empty context on error
+        # Empty context JSON on error
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}}))
         sys.exit(0)  # Always exit 0
 
 
@@ -237,6 +347,95 @@ def build_session_query(project_name: str, cwd: str) -> str:
             break
 
     return " ".join(query_parts)
+
+
+def notify_user_retrieval(results: list[dict], project_name: str, duration_ms: float) -> None:
+    """Output user-visible notification to stderr.
+
+    Shows memory retrieval summary with icons for visual feedback.
+    stderr is shown to user but NOT sent to Claude's context.
+
+    Icons:
+        🧠 SessionStart (memory retrieval)
+        📥 PostToolUse (memory capture) - used in post_tool_capture.py
+        📤 Stop (session summary) - used in session_stop.py
+    """
+    if not results:
+        print("🧠 BMAD Memory: No relevant memories found", file=sys.stderr)
+        return
+
+    # Count by relevance tier
+    high = sum(1 for r in results if r.get("score", 0) >= 0.9)
+    medium = sum(1 for r in results if 0.5 <= r.get("score", 0) < 0.9)
+    low = sum(1 for r in results if 0.2 <= r.get("score", 0) < 0.5)
+
+    # Build summary line (TECH-DEBT-012: Include time window)
+    parts = [f"🧠 BMAD Memory: {len(results)} memories loaded for {project_name} (last 48h)"]
+
+    tier_info = []
+    if high:
+        tier_info.append(f"{high} high")
+    if medium:
+        tier_info.append(f"{medium} medium")
+    if low:
+        tier_info.append(f"{low} low")
+
+    if tier_info:
+        parts.append(f"({', '.join(tier_info)} relevance)")
+
+    parts.append(f"[{duration_ms:.0f}ms]")
+
+    print(" ".join(parts), file=sys.stderr)
+
+    # Show top 3 memory previews
+    for i, r in enumerate(results[:3]):
+        score = r.get("score", 0)
+        content = r.get("content", "")
+        file_path = r.get("file_path", "")
+
+        # Extract title from content or file path
+        title = ""
+        lines = content.strip().split("\n")
+
+        # Try to get meaningful title
+        for line in lines[:10]:
+            line = line.strip()
+            if not line:
+                continue
+            # Skip language tags like [python], [markdown]
+            if line.startswith("[") and "]" in line and len(line) < 30:
+                continue
+            # Skip file paths
+            if line.startswith("/") or "projects/" in line:
+                continue
+            # Skip def/class definitions - use filename instead
+            if line.startswith("def ") or line.startswith("class "):
+                break
+            # Use markdown headers
+            if line.startswith("#"):
+                title = line.lstrip("# ")[:50]
+                break
+            # Use first non-empty meaningful line
+            if len(line) > 5 and not line.startswith("import ") and not line.startswith("from "):
+                title = line[:50]
+                break
+
+        # Fallback to file path (extract filename)
+        if not title and file_path:
+            title = file_path.split("/")[-1]
+        elif not title:
+            # Try to get filename from content lines
+            for line in lines[:3]:
+                if "/" in line and not line.startswith("#"):
+                    parts = line.split("/")
+                    if parts:
+                        title = parts[-1].strip()[:50]
+                        break
+
+        if not title:
+            title = "Memory item"
+
+        print(f"   {i+1}. [{score:.0%}] {title}", file=sys.stderr)
 
 
 def format_context(
@@ -335,29 +534,30 @@ def format_memory_entry(
 ) -> str:
     """Format a single memory entry for context injection.
 
-    Includes source collection attribution per AC 3.2.4.
+    Includes timestamp and collection attribution per TECH-DEBT-012 Phase 2.
 
     Args:
-        memory: Memory dict with type, score, content, source_hook, collection
+        memory: Memory dict with type, score, content, created_at, collection
         truncate: Whether to truncate long content
         max_chars: Maximum characters if truncating
 
     Returns:
-        Formatted markdown string for single memory with collection attribution
+        Formatted markdown string for single memory with timestamp and collection
     """
     memory_type = memory.get("type", "unknown")
     score = memory.get("score") or 0  # Handle None gracefully, default to 0
     content = memory.get("content", "")
-    source = memory.get("source_hook", "unknown")
+    created_at = memory.get("created_at", "")  # TECH-DEBT-012: Include timestamp
     collection = memory.get("collection", "unknown")  # AC 3.2.4: Collection attribution
 
     # Truncate if needed (medium relevance)
     if truncate and len(content) > max_chars:
         content = content[:max_chars] + "..."
 
-    # Format with collection attribution (AC 3.2.4)
+    # Format with timestamp and collection (TECH-DEBT-012 Phase 2)
+    timestamp_str = f" - {created_at}" if created_at else ""
     return f"""
-**{memory_type}** ({score:.0%}) - via {source} [{collection}]
+**{memory_type}** ({score:.0%}){timestamp_str} [{collection}]
 ```
 {content}
 ```
@@ -431,8 +631,8 @@ def log_session_retrieval(
         "type_distribution": type_counts,
         "source_distribution": source_counts,
 
-        # Collections searched
-        "collections_searched": ["implementations", "best_practices"],
+        # Collections searched (TECH-DEBT-012: Only agent-memory)
+        "collections_searched": ["agent-memory"],
 
         # Performance tracking
         "duration_ms": round(duration_ms, 2),

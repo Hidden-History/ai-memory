@@ -1,0 +1,33 @@
+{
+  "name": "bmad-memory-module",
+  "version": "1.0.0",
+  "description": "[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/wbsolutions-ca/bmad-memory/releases) [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![Docker](https://img.shields.io/badge/docker-20.10+-blue.svg)](https://www.docker.com/)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:report": "playwright show-report",
+    "test:debug": "playwright test --debug"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wbsolutions-ca/bmad-memory-module.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/wbsolutions-ca/bmad-memory-module/issues"
+  },
+  "homepage": "https://github.com/wbsolutions-ca/bmad-memory-module#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^25.0.9",
+    "typescript": "^5.9.3"
+  }
+}

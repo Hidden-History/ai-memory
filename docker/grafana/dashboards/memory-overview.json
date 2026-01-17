@@ -4,10 +4,10 @@
   "tags": ["bmad", "memory", "overview"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
-    "from": "now-24h",
+    "from": "now-30m",
     "to": "now"
   },
   "timepicker": {
@@ -17,24 +17,24 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Capture Rate (last 1h)",
+      "title": "Total Memories Stored",
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 6,
-        "h": 4
+        "w": 8,
+        "h": 6
       },
       "targets": [
         {
-          "expr": "sum(rate(bmad_memory_captures_total[1h]))",
+          "expr": "sum(bmad_collection_size{project=\"all\"})",
           "refId": "A",
-          "legendFormat": "Captures/sec"
+          "legendFormat": "Total"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ops",
-          "decimals": 2,
+          "unit": "short",
+          "decimals": 0,
           "color": {
             "mode": "thresholds"
           },
@@ -46,11 +46,11 @@
                 "color": "green"
               },
               {
-                "value": 10,
+                "value": 1000,
                 "color": "yellow"
               },
               {
-                "value": 50,
+                "value": 5000,
                 "color": "red"
               }
             ]
@@ -63,7 +63,7 @@
           "calcs": ["lastNotNull"]
         },
         "orientation": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto"
@@ -76,24 +76,24 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Retrieval Rate (last 1h)",
+      "title": "Embedding Rate (Last 30m)",
       "gridPos": {
-        "x": 6,
+        "x": 8,
         "y": 0,
-        "w": 6,
-        "h": 4
+        "w": 8,
+        "h": 6
       },
       "targets": [
         {
-          "expr": "sum(rate(bmad_memory_retrievals_total[1h]))",
+          "expr": "rate(bmad_embedding_requests_total[30m])",
           "refId": "A",
-          "legendFormat": "Retrievals/sec"
+          "legendFormat": "{{status}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "ops",
-          "decimals": 2,
+          "decimals": 3,
           "color": {
             "mode": "thresholds"
           },
@@ -122,7 +122,7 @@
           "calcs": ["lastNotNull"]
         },
         "orientation": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto"
@@ -134,82 +134,25 @@
     },
     {
       "id": 3,
-      "type": "gauge",
-      "title": "Collection Sizes",
-      "gridPos": {
-        "x": 12,
-        "y": 0,
-        "w": 6,
-        "h": 4
-      },
-      "targets": [
-        {
-          "expr": "bmad_collection_size",
-          "refId": "A",
-          "legendFormat": "{{collection}} - {{project}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "green"
-              },
-              {
-                "value": 8000,
-                "color": "yellow"
-              },
-              {
-                "value": 10000,
-                "color": "red"
-              }
-            ]
-          },
-          "max": 12000,
-          "min": 0
-        }
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"]
-        },
-        "orientation": "auto",
-        "showThresholdLabels": true,
-        "showThresholdMarkers": true
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      }
-    },
-    {
-      "id": 4,
       "type": "stat",
-      "title": "Queue Status (Pending Items)",
+      "title": "Unique Projects",
       "gridPos": {
-        "x": 18,
+        "x": 16,
         "y": 0,
-        "w": 6,
-        "h": 4
+        "w": 8,
+        "h": 6
       },
       "targets": [
         {
-          "expr": "bmad_queue_size{status='pending'}",
+          "expr": "count(count by (project) (bmad_collection_size{project!=\"all\",project!=\"shared\"}))",
           "refId": "A",
-          "legendFormat": "Pending"
+          "legendFormat": "Projects"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
+          "decimals": 0,
           "color": {
             "mode": "thresholds"
           },
@@ -240,8 +183,139 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Collection Sizes by Project",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "bmad_collection_size{project!=\"all\"}",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto",
+            "filterable": true
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1000,
+                "color": "yellow"
+              },
+              {
+                "value": 5000,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Size"
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collection"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Collection"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "project"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Project"
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "__name__": true,
+              "Time": true,
+              "instance": true,
+              "job": true
+            },
+            "indexByName": {
+              "project": 0,
+              "collection": 1,
+              "Value": 2
+            },
+            "renameByName": {}
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "reducer": ["sum"],
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Size",
+            "desc": true
+          }
+        ]
       },
       "datasource": {
         "type": "prometheus",
@@ -251,28 +325,92 @@
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Capture/Retrieval Timeline",
+      "title": "Embedding Activity (Last 30m)",
       "gridPos": {
-        "x": 0,
-        "y": 4,
+        "x": 12,
+        "y": 6,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "sum by (project) (rate(bmad_memory_captures_total[5m]))",
+          "expr": "rate(bmad_embedding_requests_total[5m])",
           "refId": "A",
-          "legendFormat": "Captures - {{project}}"
-        },
-        {
-          "expr": "sum by (collection) (rate(bmad_memory_retrievals_total[5m]))",
-          "refId": "B",
-          "legendFormat": "Retrievals - {{collection}}"
+          "legendFormat": "{{status}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ops",
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "barAlignment": 0,
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "gradientMode": "opacity",
+            "spanNulls": false,
+            "showPoints": "auto",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "Requests/sec",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max", "last"]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Collection Growth Over Time",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "bmad_collection_size{project=\"all\"}",
+          "refId": "A",
+          "legendFormat": "{{collection}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
@@ -288,7 +426,7 @@
               "group": "A"
             },
             "axisPlacement": "auto",
-            "axisLabel": "",
+            "axisLabel": "Memories",
             "scaleDistribution": {
               "type": "linear"
             },
@@ -314,7 +452,7 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["mean", "max"]
+          "calcs": ["mean", "max", "last"]
         }
       },
       "datasource": {
@@ -323,72 +461,18 @@
       }
     },
     {
-      "id": 6,
-      "type": "timeseries",
-      "title": "Failure Events",
+      "id": 7,
+      "type": "text",
+      "title": "Note: SessionStart Retrieval Metrics",
       "gridPos": {
-        "x": 12,
-        "y": 4,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "expr": "sum by (component, error_code) (rate(bmad_failure_events_total[5m]))",
-          "refId": "A",
-          "legendFormat": "{{component}} - {{error_code}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ops",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "barAlignment": 0,
-            "lineWidth": 2,
-            "fillOpacity": 20,
-            "gradientMode": "opacity",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        }
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 3
       },
       "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max", "sum"]
-        }
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "mode": "markdown",
+        "content": "**ℹ️ Retrieval metrics from SessionStart hook require Prometheus Pushgateway**\n\nSessionStart runs as a one-off process and can't export metrics. Retrieval data is logged to `~/.bmad-memory/logs/activity.log`.\n\n*Track implementation progress in Story 6.7 (Pushgateway integration)*"
       }
     }
   ],

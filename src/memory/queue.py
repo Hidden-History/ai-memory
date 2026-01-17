@@ -2,7 +2,7 @@
 
 This module provides a persistent queue for memory operations that fail due to
 service unavailability (Qdrant down, embedding timeout). Operations are queued
-to ~/.claude-memory/pending_queue.jsonl and retried with exponential backoff.
+to $BMAD_INSTALL_DIR/queue/pending_queue.jsonl and retried with exponential backoff.
 
 Key Features:
 - JSONL format (one JSON object per line)
@@ -52,9 +52,10 @@ except ImportError:
 # Default lock timeout per AC 5.1.4
 LOCK_TIMEOUT_SECONDS = 5.0
 
-# Default queue file path (for backwards compatibility with tests)
+# Default queue file path - uses BMAD_INSTALL_DIR for multi-project support
 # Use MemoryQueue(queue_path=...) or MEMORY_QUEUE_PATH env var for custom paths
-QUEUE_FILE = Path(os.path.expanduser("~/.claude-memory/pending_queue.jsonl"))
+INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+QUEUE_FILE = Path(INSTALL_DIR) / "queue" / "pending_queue.jsonl"
 
 
 def _acquire_lock_with_timeout(fd: int, timeout_seconds: float = LOCK_TIMEOUT_SECONDS) -> bool:
@@ -180,13 +181,13 @@ class MemoryQueue:
 
         Args:
             queue_path: Custom queue file path. Falls back to MEMORY_QUEUE_PATH
-                        env var, then ~/.claude-memory/pending_queue.jsonl
+                        env var, then $BMAD_INSTALL_DIR/queue/pending_queue.jsonl
         """
-        # Priority: explicit arg > env var > default
+        # Priority: explicit arg > env var > default (uses BMAD_INSTALL_DIR)
         resolved_path = (
             queue_path
             or os.environ.get("MEMORY_QUEUE_PATH")
-            or os.path.expanduser("~/.claude-memory/pending_queue.jsonl")
+            or str(QUEUE_FILE)  # Uses BMAD_INSTALL_DIR-based default
         )
         self.queue_path = Path(resolved_path)
         self._ensure_directory()

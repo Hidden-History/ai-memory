@@ -144,14 +144,19 @@ def test_format_context_token_budget():
 
 
 def test_format_memory_entry_full():
-    """Test formatting single memory entry without truncation."""
+    """Test formatting single memory entry without truncation.
+
+    Updated for TECH-DEBT-012 Phase 2: Format now includes optional timestamp
+    and collection attribution, but no longer includes source_hook.
+    """
     from session_start_test_helpers import format_memory_entry
 
     memory = {
         "type": "implementation",
         "score": 0.95,
         "content": "Test content",
-        "source_hook": "PostToolUse"
+        "created_at": "2026-01-17T16:43:22Z",
+        "collection": "agent-memory"
     }
 
     entry = format_memory_entry(memory, truncate=False)
@@ -159,7 +164,8 @@ def test_format_memory_entry_full():
     assert "implementation" in entry
     assert "95%" in entry
     assert "Test content" in entry
-    assert "PostToolUse" in entry
+    assert "2026-01-17T16:43:22Z" in entry  # Timestamp included
+    assert "[agent-memory]" in entry  # Collection attribution
 
 
 def test_format_memory_entry_truncated():

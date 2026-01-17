@@ -1,0 +1,423 @@
+#!/usr/bin/env python3
+"""PostToolUse Hook - Capture error patterns from failed Bash commands.
+
+Triggered by: PostToolUse with matcher "Bash"
+
+Requirements:
+- Parse tool_output JSON from Claude Code hook
+- Detect error indicators (exit code != 0, error strings)
+- Extract error context (command, error message, stack trace)
+- Store to implementations collection with type="error_pattern"
+- Use fork pattern for non-blocking storage
+- Include file:line references if present
+- Exit 0 immediately after forking
+
+Exit Codes:
+- 0: Success (normal completion)
+- 1: Non-blocking error (Claude continues, graceful degradation)
+
+Performance: Must complete in <500ms (NFR-P1)
+Pattern: Fork to background using subprocess.Popen + start_new_session=True
+"""
+
+import json
+import logging
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+# Add src to path for imports
+INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
+
+# Configure structured logging
+from memory.logging_config import StructuredFormatter
+from memory.activity_log import log_error_capture
+
+handler = logging.StreamHandler()
+handler.setFormatter(StructuredFormatter())
+logger = logging.getLogger("bmad.memory.hooks")
+logger.setLevel(logging.INFO)
+logger.addHandler(handler)
+logger.propagate = False
+
+# Import metrics for Prometheus instrumentation
+try:
+    from memory.metrics import hook_duration_seconds
+except ImportError:
+    hook_duration_seconds = None
+
+
+def detect_error_indicators(output: str, exit_code: Optional[int]) -> bool:
+    """Detect if output contains error indicators.
+
+    Args:
+        output: Tool output text
+        exit_code: Command exit code (None if not available)
+
+    Returns:
+        True if error detected, False otherwise
+    """
+    # Exit code check (most reliable)
+    if exit_code is not None and exit_code != 0:
+        return True
+
+    # Common error patterns (case-insensitive)
+    error_patterns = [
+        r'\berror\b',
+        r'\bfailed\b',
+        r'\bfailure\b',
+        r'\bexception\b',
+        r'\btraceback\b',
+        r'\bfatal\b',
+        r'\bpanic\b',
+        r'\bwarning\b',
+        r'\bcannot\b',
+        r'\bunable to\b',
+        r'\bpermission denied\b',
+        r'\bno such file\b',
+        r'\bcommand not found\b',
+        r'\bsyntax error\b',
+        r'\bsegmentation fault\b',
+        r'\bcore dumped\b'
+    ]
+
+    output_lower = output.lower()
+    for pattern in error_patterns:
+        if re.search(pattern, output_lower):
+            return True
+
+    return False
+
+
+def extract_file_line_references(output: str) -> List[Dict[str, Any]]:
+    """Extract file:line references from error output.
+
+    Common patterns:
+    - file.py:42
+    - /path/to/file.py:42
+    - file.py:42:10 (with column)
+    - File "file.py", line 42
+    - at file.py:42
+
+    Args:
+        output: Error output text
+
+    Returns:
+        List of dicts with 'file', 'line', and optional 'column' keys
+    """
+    references = []
+
+    # Pattern 1: file.py:42 or file.py:42:10
+    pattern1 = r'([a-zA-Z0-9_./\-]+\.py):(\d+)(?::(\d+))?'
+    for match in re.finditer(pattern1, output):
+        ref = {
+            'file': match.group(1),
+            'line': int(match.group(2))
+        }
+        if match.group(3):
+            ref['column'] = int(match.group(3))
+        references.append(ref)
+
+    # Pattern 2: File "file.py", line 42
+    pattern2 = r'File "([^"]+)", line (\d+)'
+    for match in re.finditer(pattern2, output):
+        references.append({
+            'file': match.group(1),
+            'line': int(match.group(2))
+        })
+
+    # Pattern 3: at file.py:42
+    pattern3 = r'at ([a-zA-Z0-9_./\-]+\.py):(\d+)'
+    for match in re.finditer(pattern3, output):
+        references.append({
+            'file': match.group(1),
+            'line': int(match.group(2))
+        })
+
+    return references
+
+
+def extract_stack_trace(output: str) -> Optional[str]:
+    """Extract stack trace from error output.
+
+    Args:
+        output: Error output text
+
+    Returns:
+        Stack trace string if found, None otherwise
+    """
+    # Python traceback pattern
+    if 'Traceback (most recent call last):' in output:
+        lines = output.split('\n')
+        trace_lines = []
+        in_trace = False
+
+        for line in lines:
+            if 'Traceback (most recent call last):' in line:
+                in_trace = True
+                trace_lines.append(line)
+            elif in_trace:
+                trace_lines.append(line)
+                # Stop at first non-indented line after traceback
+                if line and not line.startswith((' ', '\t')):
+                    break
+
+        if trace_lines:
+            return '\n'.join(trace_lines)
+
+    # Generic stack trace pattern (multiple "at" lines)
+    at_lines = [line for line in output.split('\n') if re.match(r'\s*at\s+', line)]
+    if len(at_lines) >= 2:
+        return '\n'.join(at_lines)
+
+    return None
+
+
+def extract_error_message(output: str) -> str:
+    """Extract concise error message from output.
+
+    Args:
+        output: Error output text
+
+    Returns:
+        Extracted error message
+    """
+    lines = output.strip().split('\n')
+
+    # Look for lines containing error keywords
+    error_keywords = ['error', 'exception', 'failed', 'failure', 'fatal']
+
+    for line in lines:
+        line_lower = line.lower()
+        if any(keyword in line_lower for keyword in error_keywords):
+            # Return first error line, truncated if too long
+            return line.strip()[:200]
+
+    # Fallback: return last non-empty line (often the error)
+    for line in reversed(lines):
+        if line.strip():
+            return line.strip()[:200]
+
+    return "Error detected in command output"
+
+
+def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
+    """Validate hook input for Bash tool.
+
+    Args:
+        data: Parsed JSON input from Claude Code
+
+    Returns:
+        Error message if validation fails, None if valid
+    """
+    # Check required fields
+    required_fields = ["tool_name", "tool_input", "tool_response", "cwd", "session_id"]
+    for field in required_fields:
+        if field not in data:
+            return f"missing_required_field_{field}"
+
+    # Validate tool_name is Bash
+    if data["tool_name"] != "Bash":
+        return "not_bash_tool"
+
+    # Validate tool_response structure
+    tool_response = data.get("tool_response", {})
+    if not isinstance(tool_response, dict):
+        return "invalid_tool_response_format"
+
+    return None
+
+
+def extract_error_context(hook_input: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Extract error context from Bash tool output.
+
+    Args:
+        hook_input: Validated hook input
+
+    Returns:
+        Error context dict if error detected, None otherwise
+    """
+    tool_input = hook_input.get("tool_input", {})
+    tool_response = hook_input.get("tool_response", {})
+
+    # Get command and output
+    command = tool_input.get("command", "")
+    output = tool_response.get("output", "")
+    exit_code = tool_response.get("exitCode")
+
+    # Detect if this is an error
+    if not detect_error_indicators(output, exit_code):
+        return None
+
+    # Extract error details
+    file_references = extract_file_line_references(output)
+    stack_trace = extract_stack_trace(output)
+    error_message = extract_error_message(output)
+
+    # Build error context
+    context = {
+        "command": command,
+        "exit_code": exit_code,
+        "error_message": error_message,
+        "output": output[:1000],  # Truncate long output
+        "file_references": file_references,
+        "stack_trace": stack_trace,
+        "cwd": hook_input.get("cwd", ""),
+        "session_id": hook_input.get("session_id", "")
+    }
+
+    return context
+
+
+def fork_to_background(error_context: Dict[str, Any]) -> None:
+    """Fork error storage to background process.
+
+    Args:
+        error_context: Error context to store
+    """
+    try:
+        # Path to background storage script
+        script_dir = Path(__file__).parent
+        error_store_script = script_dir / "error_store_async.py"
+
+        # Serialize error context
+        input_json = json.dumps(error_context)
+
+        # Fork to background
+        process = subprocess.Popen(
+            [sys.executable, str(error_store_script)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
+        )
+
+        # Write input and close stdin
+        if process.stdin:
+            process.stdin.write(input_json.encode('utf-8'))
+            process.stdin.close()
+
+        logger.info(
+            "error_pattern_forked",
+            extra={
+                "command": error_context["command"][:50],
+                "session_id": error_context["session_id"]
+            }
+        )
+
+    except Exception as e:
+        logger.error(
+            "fork_failed",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__
+            }
+        )
+
+
+def main() -> int:
+    """PostToolUse hook entry point for error pattern capture.
+
+    Returns:
+        Exit code: 0 (success) or 1 (non-blocking error)
+    """
+    global hook_duration_seconds
+    start_time = time.perf_counter()
+
+    # Late import of metrics
+    try:
+        script_dir = Path(__file__).parent
+        project_root = script_dir.parent.parent.parent
+        local_src = project_root / "src"
+        if local_src.exists():
+            sys.path.insert(0, str(local_src))
+        from memory.metrics import hook_duration_seconds as _hook_metric
+        hook_duration_seconds = _hook_metric
+    except ImportError:
+        logger.warning("metrics_module_unavailable")
+        hook_duration_seconds = None
+
+    try:
+        # Read hook input from stdin
+        raw_input = sys.stdin.read()
+
+        # Parse JSON
+        try:
+            hook_input = json.loads(raw_input)
+        except json.JSONDecodeError as e:
+            logger.error(
+                "malformed_json",
+                extra={
+                    "error": str(e),
+                    "input_preview": raw_input[:100]
+                }
+            )
+            return 0  # Non-blocking
+
+        # Validate schema
+        validation_error = validate_hook_input(hook_input)
+        if validation_error:
+            logger.info(
+                "validation_failed",
+                extra={
+                    "reason": validation_error,
+                    "tool_name": hook_input.get("tool_name")
+                }
+            )
+            return 0  # Non-blocking
+
+        # Extract error context
+        error_context = extract_error_context(hook_input)
+
+        if error_context is None:
+            # No error detected - normal completion
+            return 0
+
+        # Fork to background
+        fork_to_background(error_context)
+
+        # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
+        error_msg = error_context["error_message"][:50]
+        message = f"🔴 BMAD Memory: Captured error pattern: {error_msg}"
+        print(json.dumps({"systemMessage": message}))
+        sys.stdout.flush()  # Ensure output is flushed before exit
+
+        # TECH-DEBT-014: Comprehensive error logging with full context
+        log_error_capture(
+            error_context["command"],
+            error_context["error_message"],
+            error_context["exit_code"],
+            error_context.get("output")
+        )
+
+        # Metrics: Record hook duration
+        if hook_duration_seconds:
+            duration_seconds = time.perf_counter() - start_time
+            hook_duration_seconds.labels(hook_type="PostToolUse_Error").observe(duration_seconds)
+
+        return 0
+
+    except Exception as e:
+        logger.error(
+            "hook_failed",
+            extra={
+                "error": str(e),
+                "error_type": type(e).__name__
+            }
+        )
+
+        # Metrics: Record hook duration even on error
+        if hook_duration_seconds:
+            duration_seconds = time.perf_counter() - start_time
+            hook_duration_seconds.labels(hook_type="PostToolUse_Error").observe(duration_seconds)
+
+        return 1  # Non-blocking error
+
+
+if __name__ == "__main__":
+    sys.exit(main())

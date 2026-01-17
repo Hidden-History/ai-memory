@@ -21,7 +21,7 @@ from typing import Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-__all__ = ["MemoryConfig", "get_config", "reset_config"]
+__all__ = ["MemoryConfig", "get_config", "reset_config", "AGENT_TOKEN_BUDGETS", "get_agent_token_budget"]
 
 
 class MemoryConfig(BaseSettings):
@@ -62,6 +62,7 @@ class MemoryConfig(BaseSettings):
         case_sensitive=False,  # SIMILARITY_THRESHOLD = similarity_threshold
         validate_default=True,  # Validate default values
         frozen=True,  # Immutable after creation (thread-safe)
+        extra="ignore",  # Allow extra env vars (STREAMLIT_PORT, PLATFORM, etc.)
     )
 
     # Core thresholds (FR42)
@@ -195,6 +196,43 @@ class MemoryConfig(BaseSettings):
     def get_monitoring_url(self) -> str:
         """Get full monitoring API URL."""
         return f"http://{self.monitoring_host}:{self.monitoring_port}"
+
+
+# Agent-specific token budgets for memory injection (TECH-DEBT-012 Phase 6)
+# Higher budgets for agents that need more context (architects, analysts)
+# Lower budgets for focused agents (scrum-master, qa)
+AGENT_TOKEN_BUDGETS = {
+    "architect": 1500,
+    "analyst": 1200,
+    "pm": 1200,
+    "developer": 1200,
+    "dev": 1200,
+    "solo-dev": 1500,
+    "quick-flow-solo-dev": 1500,
+    "ux-designer": 1000,
+    "qa": 1000,
+    "tea": 1000,
+    "code-review": 1200,
+    "code-reviewer": 1200,
+    "scrum-master": 800,
+    "sm": 800,
+    "tech-writer": 800,
+    "default": 1000,
+}
+
+
+def get_agent_token_budget(agent_name: str) -> int:
+    """Get token budget for an agent.
+
+    Args:
+        agent_name: Agent identifier (e.g., "architect", "dev")
+
+    Returns:
+        Token budget for the agent, or default if not found.
+    """
+    # Normalize: lowercase, strip whitespace
+    normalized = agent_name.lower().strip() if agent_name else "default"
+    return AGENT_TOKEN_BUDGETS.get(normalized, AGENT_TOKEN_BUDGETS["default"])
 
 
 # Module-level singleton with lru_cache for thread-safety

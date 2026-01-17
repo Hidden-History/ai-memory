@@ -218,6 +218,98 @@ docker ps  # Should not require sudo
    # Expected: {"embeddings": [[0.123, -0.456, ...]]}
    ```
 
+## Context Injection Issues (NOT YET VERIFIED SOLUTION)
+
+### Symptom: Hooks Execute But Claude Doesn't Use Context
+
+⚠️ **WARNING**: This is an active investigation. The solution described below is **NOT YET VERIFIED** in production.
+
+**Signs:**
+
+- SessionStart hooks execute successfully (proven via debug logs)
+- Manual tests show memory search retrieves correct results
+- JSON output is valid
+- But Claude searches for files/code instead of using provided context
+- No errors in hook logs
+- `/hooks` command shows hooks registered correctly
+
+**Example Behavior:**
+
+User asks: "Fix the Grafana dashboards showing no data"
+
+Expected: Claude uses Grafana Dashboard Fix Guide from memory (42% relevance)
+
+Actual: Claude searches for `docker/grafana/*.json` files instead
+
+**Root Cause (INVESTIGATION IN PROGRESS):**
+
+SessionStart hooks with JSON `additionalContext` output appear to not inject context into Claude's reasoning process in Claude Code v2.1.9. The hooks execute, the JSON is valid, but Claude doesn't see or use the context.
+
+**Evidence:**
+```bash
+# Manual test shows hooks work and retrieve correct memories
+echo '{"session_id":"test","cwd":"/mnt/e/projects/ai-memory-test","source":"startup"}' | \
+  python3 /home/parzival/.bmad-memory/.claude/hooks/scripts/session_start.py
+
+# Output: Valid JSON with 4 memories including Grafana guides at 42% relevance
+```
+
+But in live Claude Code session, Claude ignores this and searches files.
+
+**Potential Solution (NOT YET VERIFIED):**
+
+Based on working reference architecture (`bmad-qdrant-knowledge-management`), use **PreToolUse hooks with STDERR output** instead of SessionStart with JSON:
+
+1. **Create PreToolUse hook** that outputs to STDERR before tool execution:
+   ```python
+   # Output formatted text to STDERR (NOT JSON)
+   print(f"\n{'='*70}", file=sys.stderr)
+   print(f"🧠 RELEVANT CONTEXT FOR {tool_name.upper()}", file=sys.stderr)
+   print(f"{'='*70}", file=sys.stderr)
+
+   for i, result in enumerate(results, 1):
+       print(f"\n{i}. [{result['type']}] (Relevance: {result['score']:.0%})", file=sys.stderr)
+       print(f"{result['content'][:600]}...", file=sys.stderr)
+
+   print(f"\n{'='*70}\n", file=sys.stderr)
+   sys.exit(0)
+   ```
+
+2. **Configure in settings.json**:
+   ```json
+   {
+     "hooks": {
+       "PreToolUse": [
+         {
+           "matcher": "Read|Search|Bash|Edit|Write",
+           "hooks": [{
+             "type": "command",
+             "command": "python3 /tmp/memory_context_pretool_stderr.py",
+             "timeout": 5000
+           }]
+         }
+       ]
+     }
+   }
+   ```
+
+**Status**: Hook implemented at `/tmp/memory_context_pretool_stderr.py` but **NOT YET VERIFIED** in live Claude Code session.
+
+**Testing Plan**:
+
+1. Restart Claude Code in test project: `cd /mnt/e/projects/ai-memory-test && claude`
+2. Use test prompt: "The Grafana dashboards at docker/grafana/dashboards/ are showing 'No data' for most panels. Please fix the dashboard JSON files so they use metrics that actually exist in Prometheus."
+3. Watch for formatted box with "🧠 RELEVANT CONTEXT" in terminal
+4. Verify Claude mentions "Grafana Dashboard Fix Guide" in response
+5. Confirm Claude uses metrics from memory instead of blindly searching files
+
+**See Also:**
+- `oversight/TESTING_QUICK_REFERENCE.md` - Step-by-step testing instructions
+- `oversight/session-logs/SESSION_HANDOFF_2026-01-16_HOOKS_CONTEXT_INJECTION.md` - Complete investigation details
+- `oversight/tracking/blockers-log.md` (BLK-002) - Current status
+
+---
+
 ## Memory Capture Issues
 
 ### Symptom: PostToolUse Hook Not Triggering

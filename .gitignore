@@ -41,3 +41,8 @@ htmlcov/
 
 # Memory queue (local runtime)
 .memory_queue/
+
+# Playwright test artifacts
+playwright-report/
+test-results/
+screenshots/
