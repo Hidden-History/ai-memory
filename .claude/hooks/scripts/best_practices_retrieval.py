@@ -289,7 +289,8 @@ def main() -> int:
         if not explicit_mode:
             # Check for review agent context
             agent_type = os.environ.get("BMAD_AGENT_TYPE", "").lower()
-            review_agents = ["code-review", "adversarial-review", "security-auditor", "code-reviewer"]
+            # TEA + review agents always check best practices (TECH-DEBT-015 pending: full redesign)
+            review_agents = ["code-review", "adversarial-review", "security-auditor", "code-reviewer", "tea", "tech-writer"]
             if agent_type not in review_agents:
                 logger.debug("best_practices_skipped_no_trigger", extra={"agent_type": agent_type})
                 return 0  # Silent exit - no injection

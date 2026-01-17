@@ -1,28 +1,30 @@
-# BMAD Memory Module
+# 🧠 AI Memory Module
 
-[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/wbsolutions-ca/bmad-memory/releases)
+[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/Hidden-History/ai-memory/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Docker](https://img.shields.io/badge/docker-20.10+-blue.svg)](https://www.docker.com/)
 
-> Persistent semantic memory for Claude Code - capture implementations, recall patterns, build faster.
+> 🚀 Persistent semantic memory for Claude Code - capture implementations, recall patterns, build faster.
 
-## Features
+## ✨ Features
 
-- **Automatic Capture**: PostToolUse hook captures implementations in background (<500ms overhead)
-- **Semantic Search**: Qdrant + Nomic Embed Code finds relevant memories
-- **Zero Configuration**: Environment variables with sensible defaults
-- **Multi-Tenancy**: `group_id` filtering for project isolation
-- **Monitoring**: Prometheus metrics + Grafana dashboards
-- **Graceful Degradation**: Works even when services are temporarily unavailable
+- 📥 **Automatic Capture**: PostToolUse hook captures implementations in background (<500ms overhead)
+- 🔍 **Semantic Search**: Qdrant + Nomic Embed Code finds relevant memories
+- ⚙️ **Zero Configuration**: Environment variables with sensible defaults
+- 👥 **Multi-Project Isolation**: `group_id` filtering keeps projects separate
+- 📊 **Monitoring**: Prometheus metrics + Grafana dashboards
+- 🛡️ **Graceful Degradation**: Works even when services are temporarily unavailable
+- 💾 **Session Continuity**: PreCompact hook saves context before compaction
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 Claude Code Session
     ├── SessionStart Hook → Load relevant memories → Inject context
     ├── PostToolUse Hook → Capture implementations (fork background)
-    └── Stop Hook → Store session summary
+    ├── PreCompact Hook → Save session summary before compaction
+    └── Stop Hook → Optional cleanup
 
 Python Core (src/memory/)
     ├── config.py         → Environment-based configuration
@@ -38,12 +40,12 @@ Docker Services
     └── Prometheus/Grafana (--profile monitoring, ports 29090/23000)
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/your-org/bmad-memory-module.git
-cd bmad-memory-module
+git clone https://github.com/Hidden-History/ai-memory.git
+cd ai-memory
 ./scripts/install.sh /path/to/target-project
 
 # 2. Start services
@@ -74,7 +76,7 @@ python scripts/health-check.py
 ═══════════════════════════════════════════════════════════
 ```
 
-## Installation
+## 📦 Installation
 
 ### Prerequisites
 
@@ -93,9 +95,9 @@ See [INSTALL.md](INSTALL.md) for detailed installation instructions including:
 - Configuration options
 - Uninstallation procedures
 
-## Configuration
+## ⚙️ Configuration
 
-### Service Ports
+### 🔌 Service Ports
 
 All services use `2XXXX` prefix to avoid conflicts:
 
@@ -126,33 +128,41 @@ export QDRANT_PORT=16333  # Use custom port
 export MEMORY_LOG_LEVEL=DEBUG  # Enable verbose logging
 ```
 
-## Usage
+## 💡 Usage
 
-### Automatic Memory Capture
+### 🔧 Automatic Memory Capture
 
 Memory capture happens automatically via Claude Code hooks:
 
-1. **SessionStart**: Loads relevant memories and injects as context
-2. **PostToolUse**: Captures implementations (Write/Edit tools) in background
-3. **Stop**: Stores session summary
+1. **SessionStart**: Loads relevant memories from previous sessions and injects as context
+2. **PostToolUse**: Captures implementations (Write/Edit/NotebookEdit tools) in background (<500ms)
+3. **PreCompact**: Saves session summary before context compaction (auto or manual `/compact`)
+4. **Stop**: Optional per-response cleanup
 
 No manual intervention required - hooks handle everything.
 
-### Manual Memory Operations
+> **The "Aha Moment"**: Claude remembers your previous sessions automatically. Start a new session and Claude will say "Welcome back! Last session we worked on..." without you reminding it.
 
-Use skills for manual search/store:
+### 🎯 Manual Memory Operations
+
+Use slash commands for manual control:
 
 ```bash
-# Search for memories
-/bmad-memory:search <query>
+# Check system status
+/memory-status
 
-# Store a memory
-/bmad-memory:store <content>
+# Manually save current session
+/save-memory
+
+# Search across all memories
+/search-memory <query>
 ```
 
-### Project Isolation
+See [docs/HOOKS.md](docs/HOOKS.md) for comprehensive hook documentation and [docs/COMMANDS.md](docs/COMMANDS.md) for all available commands.
 
-Memories are isolated by `group_id` (derived from project directory):
+### 👥 Multi-Project Support
+
+Memories are automatically isolated by `group_id` (derived from project directory):
 
 ```python
 # Project A: group_id = "project-a"
@@ -160,7 +170,12 @@ Memories are isolated by `group_id` (derived from project directory):
 # Searches only return memories from current project
 ```
 
-## Troubleshooting
+**Three Memory Collections:**
+- **agent-memory**: Session summaries and decisions (per-project)
+- **implementations**: Code patterns with file:line references (per-project)
+- **best_practices**: Universal patterns shared across all projects
+
+## 🔧 Troubleshooting
 
 ### Common Issues
 
@@ -267,9 +282,9 @@ lsof -i :28000  # Monitoring API
 
 For more detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
-## Monitoring
+## 📊 Monitoring
 
-### Streamlit Dashboard
+### 🎨 Streamlit Dashboard
 
 Access the interactive memory browser:
 
@@ -285,7 +300,7 @@ Features:
 - View memory statistics
 - Inspect embeddings
 
-### Grafana Dashboards
+### 📈 Grafana Dashboards
 
 Access monitoring dashboards:
 
@@ -305,7 +320,7 @@ Pre-built dashboards include:
 - Qdrant collection statistics
 - Hook execution times
 
-### Prometheus Metrics
+### 📡 Prometheus Metrics
 
 Direct access to metrics:
 
@@ -321,9 +336,9 @@ Custom metrics include:
 - `bmad_embedding_duration_seconds` - Embedding generation time
 - `bmad_hook_execution_seconds` - Hook execution duration
 
-## Performance
+## 📈 Performance
 
-### Benchmarks
+### ⚡ Benchmarks
 
 - **Hook overhead**: <500ms (PostToolUse forks to background)
 - **Embedding generation**: <2s (pre-warmed Docker service)
@@ -347,9 +362,9 @@ Custom metrics include:
    export MEMORY_CACHE_TTL=3600  # Default: 1800 seconds
    ```
 
-## Development
+## 🛠️ Development
 
-### Running Tests
+### 🧪 Running Tests
 
 ```bash
 # Run all tests
@@ -365,7 +380,7 @@ pytest tests/integration/ -v
 ### Project Structure
 
 ```
-bmad-memory-module/
+ai-memory/
 ├── src/memory/          # Core Python modules
 ├── .claude/
 │   ├── hooks/scripts/   # Hook implementations
@@ -386,7 +401,7 @@ bmad-memory-module/
 
 See [project-context.md](_bmad-output/project-context.md) for complete coding standards.
 
-## Contributing
+## 🤝 Contributing
 
 We welcome contributions! To contribute:
 
@@ -399,9 +414,9 @@ We welcome contributions! To contribute:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development setup and pull request process.
 
-## License
+## 📄 License
 
-[Add license information here - e.g., MIT, Apache 2.0, etc.]
+MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 

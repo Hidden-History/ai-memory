@@ -1,6 +1,10 @@
-# Installation Guide
+# 📦 Installation Guide
 
-## System Requirements
+## ⚠️ Before You Begin
+
+> **First-Run Model Download:** On first startup, the embedding service downloads the Jina embeddings model (~500MB). This takes **2-5 minutes** depending on your connection. The service will appear unhealthy during this time - this is normal. Wait for it to complete before testing.
+
+## 💻 System Requirements
 
 | Requirement | Minimum Version | Recommended | Notes |
 |-------------|----------------|-------------|-------|
@@ -10,7 +14,7 @@
 | **RAM**     | 4GB            | 8GB+        | For Docker services |
 | **Disk**    | 2GB free       | 5GB+        | For Docker images + data |
 
-## Python Dependencies
+## 🐍 Python Dependencies
 
 The module requires Python packages for core functionality. These are automatically installed by the Docker services, but if you're developing or debugging locally:
 
@@ -24,9 +28,9 @@ pip install -r requirements-dev.txt
 
 **Note:** Docker installation handles all dependencies automatically.
 
-## Prerequisites
+## 📋 Prerequisites
 
-### 1. Install Python 3.10+
+### 1. 🐍 Install Python 3.10+
 
 **macOS (Homebrew):**
 
@@ -51,7 +55,7 @@ sudo apt update
 sudo apt install python3.11 python3.11-venv python3-pip
 ```
 
-### 2. Install Docker
+### 2. 🐳 Install Docker
 
 **macOS:**
 
@@ -80,11 +84,11 @@ docker ps  # Should not error
 - Install Docker Desktop for Windows
 - Enable WSL2 integration in Docker Desktop settings
 
-### 3. Install Claude Code
+### 3. 🤖 Install Claude Code
 
 Follow official Claude Code installation: [claude.ai/code](https://claude.ai/code)
 
-## Installation
+## 🚀 Installation
 
 ### Method 1: Automated Installer (Recommended)
 
@@ -92,8 +96,8 @@ The installer handles all setup automatically:
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/your-org/bmad-memory-module.git
-cd bmad-memory-module
+git clone https://github.com/Hidden-History/ai-memory.git
+cd ai-memory
 
 # 2. Run installer
 ./scripts/install.sh /path/to/target-project
@@ -167,8 +171,8 @@ For advanced users who want full control:
 **Step 1: Clone repository**
 
 ```bash
-git clone https://github.com/your-org/bmad-memory-module.git
-cd bmad-memory-module
+git clone https://github.com/Hidden-History/ai-memory.git
+cd ai-memory
 ```
 
 **Step 2: Copy files to target project**
@@ -191,18 +195,28 @@ Add hook configuration to `$TARGET_PROJECT/.claude/settings.json`:
 {
   "hooks": {
     "SessionStart": [
-      {"type": "command", "command": ".claude/hooks/scripts/session_start.py"}
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/session_start.py"}
+        ]
+      }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|NotebookEdit",
         "hooks": [
           {"type": "command", "command": ".claude/hooks/scripts/post_tool_capture.py"}
         ]
       }
     ],
-    "Stop": [
-      {"type": "command", "command": ".claude/hooks/scripts/stop_hook.py"}
+    "PreCompact": [
+      {
+        "matcher": "auto|manual",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/pre_compact_save.py", "timeout": 10000}
+        ]
+      }
     ]
   }
 }
@@ -232,7 +246,7 @@ docker compose -f docker/docker-compose.yml up -d
 python scripts/health-check.py
 ```
 
-## Upgrading
+## ⬆️ Upgrading
 
 ### Upgrading from v1.0.0 to v1.0.1
 
@@ -268,9 +282,9 @@ git describe --tags
 cat CHANGELOG.md | head -20
 ```
 
-## Post-Installation Verification
+## ✅ Post-Installation Verification
 
-### 1. Check Docker Services
+### 1. 🐳 Check Docker Services
 
 ```bash
 docker compose -f docker/docker-compose.yml ps
@@ -285,7 +299,7 @@ bmad-embedding        running             0.0.0.0:28080->8080/tcp
 bmad-monitoring-api   running             0.0.0.0:28000->8000/tcp
 ```
 
-### 2. Run Health Check
+### 2. 🏥 Run Health Check
 
 ```bash
 python scripts/health-check.py
@@ -315,7 +329,7 @@ python scripts/health-check.py
 ═══════════════════════════════════════════════════════════
 ```
 
-### 3. Test Memory Capture
+### 3. 🧪 Test Memory Capture
 
 In your target project, start Claude Code and run a simple command:
 
@@ -331,15 +345,15 @@ Verify memory was stored:
 curl http://localhost:26350/collections/memories/points/scroll | jq
 ```
 
-### 4. Access Dashboards
+### 4. 📊 Access Dashboards
 
 - **Streamlit Dashboard:** http://localhost:28501
 - **Grafana:** http://localhost:23000 (user: `admin`, pass: `admin`)
 - **Prometheus:** http://localhost:29090
 
-## Configuration
+## ⚙️ Configuration
 
-### Environment Variables
+### 🌍 Environment Variables
 
 Create `~/.bmad-memory/.env` to override defaults:
 
@@ -361,13 +375,21 @@ MEMORY_BATCH_SIZE=100
 MEMORY_CACHE_TTL=3600
 ```
 
-### Hook Configuration
+### 🔧 Hook Configuration
 
 Edit `.claude/settings.json` in your target project to customize hook behavior:
 
 ```json
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/session_start.py"}
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit|NotebookEdit",
@@ -375,12 +397,24 @@ Edit `.claude/settings.json` in your target project to customize hook behavior:
           {"type": "command", "command": ".claude/hooks/scripts/post_tool_capture.py"}
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto|manual",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/pre_compact_save.py", "timeout": 10000}
+        ]
+      }
     ]
   }
 }
 ```
 
-## Uninstallation
+> **Note:** The PreCompact hook is critical for session continuity. It saves your session summary before context compaction, enabling the "aha moment" when Claude remembers previous sessions.
+
+See [docs/HOOKS.md](docs/HOOKS.md) for comprehensive hook documentation.
+
+## 🗑️ Uninstallation
 
 ### Complete Removal
 
@@ -411,9 +445,53 @@ To remove data but keep services:
 docker compose -f docker/docker-compose.yml down -v
 ```
 
-## Troubleshooting
+## 🔧 Troubleshooting
 
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues and solutions.
+### Common Installation Issues
+
+<details>
+<summary><strong>Installation fails with "Python not found"</strong></summary>
+
+**Solution:**
+```bash
+# Verify Python 3.10+ is installed
+python3 --version
+
+# If not installed, see Prerequisites section above
+```
+</details>
+
+<details>
+<summary><strong>Docker services won't start</strong></summary>
+
+**Solution:**
+```bash
+# Check if Docker daemon is running
+docker ps
+
+# Check for port conflicts
+lsof -i :26350  # Qdrant
+lsof -i :28080  # Embedding
+
+# View detailed logs
+docker compose -f docker/docker-compose.yml logs
+```
+</details>
+
+<details>
+<summary><strong>Hooks not triggering in Claude Code</strong></summary>
+
+**Solution:**
+1. Verify `.claude/settings.json` was updated correctly
+2. Restart Claude Code session
+3. Check hook scripts are executable:
+   ```bash
+   chmod +x .claude/hooks/scripts/*.py
+   ```
+4. Check hook logs for errors (if logging enabled)
+</details>
+
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for comprehensive troubleshooting guide.
 
 ---
 

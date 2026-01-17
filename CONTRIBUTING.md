@@ -14,8 +14,8 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 ```bash
 # 1. Fork and clone the repository
-git clone https://github.com/YOUR_USERNAME/bmad-memory-module.git
-cd bmad-memory-module
+git clone https://github.com/YOUR_USERNAME/ai-memory.git
+cd ai-memory
 
 # 2. Create a virtual environment
 python3 -m venv venv
@@ -126,7 +126,7 @@ pytest tests/ --cov=src/memory
 ## Project Structure
 
 ```
-bmad-memory-module/
+ai-memory/
 ├── src/memory/          # Core Python modules
 ├── .claude/
 │   ├── hooks/scripts/   # Hook implementations
@@ -139,7 +139,7 @@ bmad-memory-module/
 
 ## Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/your-org/bmad-memory-module/issues)
+- **Issues**: [GitHub Issues](https://github.com/Hidden-History/ai-memory/issues)
 - **Documentation**: See [README.md](README.md), [INSTALL.md](INSTALL.md), [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 
 ## License

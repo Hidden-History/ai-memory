@@ -161,7 +161,7 @@ This roadmap outlines the planned development direction for BMAD Memory Module. 
 
 ## Community Requests
 
-Features requested by the community will be tracked here. Submit feature requests via [GitHub Issues](https://github.com/wbsolutions-ca/bmad-memory/issues/new?template=feature_request.yml).
+Features requested by the community will be tracked here. Submit feature requests via [GitHub Issues](https://github.com/Hidden-History/ai-memory/issues/new?template=feature_request.yml).
 
 ### Under Consideration
 _No community requests yet - be the first to suggest a feature!_
@@ -176,18 +176,18 @@ _Features from community feedback that made it into releases will be listed here
 We welcome contributions! Here's how you can help shape the roadmap:
 
 ### Submit Feature Requests
-Use our [Feature Request template](https://github.com/wbsolutions-ca/bmad-memory/issues/new?template=feature_request.yml) to propose new features.
+Use our [Feature Request template](https://github.com/Hidden-History/ai-memory/issues/new?template=feature_request.yml) to propose new features.
 
 ### Vote on Existing Proposals
 React with 👍 on issues you'd like to see prioritized.
 
 ### Contribute Code
-1. Check issues labeled [`help wanted`](https://github.com/wbsolutions-ca/bmad-memory/labels/help%20wanted)
+1. Check issues labeled [`help wanted`](https://github.com/Hidden-History/ai-memory/labels/help%20wanted)
 2. Read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
 3. Submit a PR linked to the relevant issue
 
 ### Join Discussions
-Participate in [GitHub Discussions](https://github.com/wbsolutions-ca/bmad-memory/discussions) to share ideas and provide feedback.
+Participate in [GitHub Discussions](https://github.com/Hidden-History/ai-memory/discussions) to share ideas and provide feedback.
 
 ---
 
@@ -205,12 +205,12 @@ Participate in [GitHub Discussions](https://github.com/wbsolutions-ca/bmad-memor
 
 - **When will feature X be released?** Check the milestone and target dates above. These are estimates and may shift based on priorities.
 - **Can I contribute to a roadmap item?** Absolutely! Comment on the related issue or create one if it doesn't exist.
-- **How do I request a feature?** Use the [Feature Request template](https://github.com/wbsolutions-ca/bmad-memory/issues/new?template=feature_request.yml).
+- **How do I request a feature?** Use the [Feature Request template](https://github.com/Hidden-History/ai-memory/issues/new?template=feature_request.yml).
 - **Will my feature request be implemented?** We review all requests, but can't guarantee implementation. Upvote features you want to see!
 
 ---
 
 **Last Updated:** 2026-01-14
-**Maintainer:** [@wbsolutions-ca](https://github.com/wbsolutions-ca)
+**Maintainer:** [@Hidden-History](https://github.com/Hidden-History)
 
 _This roadmap is a living document and will evolve based on community feedback and project needs._

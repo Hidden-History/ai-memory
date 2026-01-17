@@ -406,11 +406,9 @@ def display_logs_page():
                     if entry['has_content'] and entry['full_content']:
                         # Show full content in code block
                         st.code(entry['full_content'], language=None)
-                    else:
-                        # No detailed content - show helpful message
-                        st.caption("ℹ️ No detailed content for this entry (logged before TECH-DEBT-014)")
-                        if len(summary) > 100:
-                            st.text(summary)  # Show full text if it was truncated
+                    elif len(summary) > 100:
+                        # Show full summary text if it was truncated in title
+                        st.text(summary)
 
             if displayed == 0:
                 st.info("ℹ️ No log entries match your filters")

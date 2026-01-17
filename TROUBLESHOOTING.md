@@ -1,6 +1,26 @@
-# Troubleshooting Guide
+# 🔧 Troubleshooting Guide
 
-## Quick Diagnostic Commands
+> Comprehensive troubleshooting for common issues and advanced diagnostics
+
+## 📋 Table of Contents
+
+- [Quick Diagnostic Commands](#quick-diagnostic-commands)
+- [Known Issues](#known-issues-in-v100)
+- [Services Won't Start](#services-wont-start)
+- [Hook Issues](#hook-issues) ⭐ NEW
+- [Memory & Search Issues](#memory--search-issues) ⭐ NEW
+- [Command Issues](#command-issues) ⭐ NEW
+- [Performance Issues](#performance-issues) ⭐ NEW
+- [Configuration Issues](#configuration-issues) ⭐ NEW
+
+See also:
+- [HOOKS.md](docs/HOOKS.md) - Hook-specific troubleshooting
+- [COMMANDS.md](docs/COMMANDS.md) - Command-specific troubleshooting
+- [CONFIGURATION.md](docs/CONFIGURATION.md) - Configuration troubleshooting
+
+---
+
+## 🚀 Quick Diagnostic Commands
 
 Run these first to gather information:
 
@@ -559,6 +579,302 @@ sudo chown -R 472:472 docker/grafana_data  # Grafana user ID
 # Restart services
 docker compose -f docker/docker-compose.yml up -d
 ```
+
+## 🔧 Hook Issues
+
+For comprehensive hook troubleshooting, see [docs/HOOKS.md](docs/HOOKS.md).
+
+### SessionStart Hook Not Firing
+
+**Diagnosis:**
+```bash
+# Check if matcher is present in .claude/settings.json
+grep -A 5 "SessionStart" .claude/settings.json
+```
+
+**Solution:**
+SessionStart hooks **REQUIRE** a `matcher` field:
+```json
+{
+  "SessionStart": [{
+    "matcher": "startup|resume|compact",  // REQUIRED
+    "hooks": [...]
+  }]
+}
+```
+
+See [HOOKS.md - SessionStart Troubleshooting](docs/HOOKS.md#sessionstart) for complete details.
+
+---
+
+### PostToolUse Not Capturing Memories
+
+**Diagnosis:**
+```bash
+# Check if background process is forking
+grep "background_forked" ~/.bmad-memory/logs/hooks.log
+
+# Check if memories are being stored
+grep "memory_stored" ~/.bmad-memory/logs/hooks.log
+```
+
+**Common Causes:**
+1. **Duplicate content** - Hash already exists
+2. **Qdrant unavailable** - Cannot connect
+3. **Tool matcher mismatch** - Hook not triggered for tool type
+
+**Solution:**
+```bash
+# Verify matcher includes your tool
+# In .claude/settings.json:
+"matcher": "Write|Edit|NotebookEdit"  // All tools that modify files
+```
+
+See [HOOKS.md - PostToolUse Troubleshooting](docs/HOOKS.md#posttooluse) for complete details.
+
+---
+
+### PreCompact Session Summaries Missing
+
+**Diagnosis:**
+```bash
+# Check if summaries are stored
+curl http://localhost:26350/collections/agent-memory/points/scroll \
+  | jq '.result.points[] | select(.payload.type == "session_summary")'
+```
+
+**Common Causes:**
+1. **Hook timeout** - Timeout too short (<10s)
+2. **Wrong collection** - Stored in implementations instead of agent-memory
+3. **Older than 48 hours** - SessionStart filters recent only
+
+**Solution:**
+```json
+{
+  "PreCompact": [{
+    "matcher": "auto|manual",
+    "hooks": [{
+      "command": ".claude/hooks/scripts/pre_compact_save.py",
+      "timeout": 10000  // 10 seconds minimum
+    }]
+  }]
+}
+```
+
+See [HOOKS.md - PreCompact Troubleshooting](docs/HOOKS.md#precompact) for complete details.
+
+---
+
+## 🔍 Memory & Search Issues
+
+### No Memories Appearing in SessionStart
+
+**Diagnosis:**
+```bash
+# Check if memories exist for this project
+PROJECT_NAME=$(basename $(pwd))
+curl http://localhost:26350/collections/agent-memory/points/scroll \
+  | jq ".result.points[] | select(.payload.group_id == \"$PROJECT_NAME\")"
+```
+
+**Common Causes:**
+1. **First session** - No memories captured yet
+2. **Wrong project detection** - group_id mismatch
+3. **Similarity threshold too high** - Memories don't match query
+4. **Older than 48 hours** - Filtered by time window
+
+**Solutions:**
+```bash
+# Check project detection
+python3 -c "from memory.project import detect_project; print(detect_project('.'))"
+
+# Lower similarity threshold temporarily
+export MEMORY_SIMILARITY_THRESHOLD=0.3
+
+# Extend time window
+export MEMORY_SESSION_WINDOW_HOURS=168  # 1 week
+```
+
+See [CONFIGURATION.md](docs/CONFIGURATION.md) for all configuration options.
+
+---
+
+### Search Returns No Results
+
+**Diagnosis:**
+```bash
+# Test embedding service
+curl -X POST http://localhost:28080/embed \
+  -H "Content-Type: application/json" \
+  -d '{"texts": ["test query"]}' \
+  --max-time 5
+
+# Should return 768-dimensional vector
+```
+
+**Common Causes:**
+1. **Embedding service down** - Cannot generate query embedding
+2. **Semantic mismatch** - Query doesn't match memory meaning
+3. **Collection filtering** - Searching wrong collection
+4. **Empty collection** - No memories stored yet
+
+**Solutions:**
+```bash
+# Try broader query
+/search-memory auth  # instead of "JWT HS256 asymmetric token validation"
+
+# Search all collections
+/search-memory your-query --collection all
+
+# Check collection sizes
+curl http://localhost:26350/collections
+```
+
+See [COMMANDS.md - /search-memory Troubleshooting](docs/COMMANDS.md#search-memory) for complete details.
+
+---
+
+## 💬 Command Issues
+
+For comprehensive command troubleshooting, see [docs/COMMANDS.md](docs/COMMANDS.md).
+
+### /memory-status Shows Service Unavailable
+
+**Quick Fix:**
+```bash
+# Restart all services
+docker compose -f docker/docker-compose.yml restart
+
+# Verify services running
+docker compose -f docker/docker-compose.yml ps
+```
+
+See [COMMANDS.md - /memory-status](docs/COMMANDS.md#memory-status) for detailed troubleshooting.
+
+---
+
+### /save-memory Succeeds But Summary Not in SessionStart
+
+**Diagnosis:**
+```bash
+# Check if summary was stored with recent timestamp
+curl http://localhost:26350/collections/agent-memory/points/scroll \
+  | jq '.result.points[] | select(.payload.type == "session_summary") | .payload.timestamp'
+```
+
+**Common Causes:**
+1. **Time window filter** - Summary older than 48 hours
+2. **Wrong collection** - Stored in wrong collection
+3. **Low similarity** - Doesn't match next session's query
+
+See [COMMANDS.md - /save-memory](docs/COMMANDS.md#save-memory) for complete details.
+
+---
+
+## ⚡ Performance Issues
+
+### SessionStart Too Slow (>5 seconds)
+
+**Performance Targets:**
+- Embedding: <2s
+- Search: <500ms
+- Total: <3s
+
+**Quick Optimizations:**
+```bash
+# Reduce retrievals (fewer memories = faster)
+export MEMORY_MAX_RETRIEVALS=3
+
+# Increase threshold (fewer low-relevance results)
+export MEMORY_SIMILARITY_THRESHOLD=0.7
+
+# Shorter time window
+export MEMORY_SESSION_WINDOW_HOURS=24
+```
+
+**Diagnosis:**
+```bash
+# Check hook duration
+grep "hook_duration" ~/.bmad-memory/logs/hooks.log | tail -20
+```
+
+See [CONFIGURATION.md - Performance Tuning](docs/CONFIGURATION.md#performance-tuning) for complete guide.
+
+---
+
+### PostToolUse Blocking (>500ms)
+
+**Should Never Happen** - PostToolUse uses fork pattern to return immediately.
+
+**Diagnosis:**
+```bash
+# Check if fork is working
+grep "background_forked" ~/.bmad-memory/logs/hooks.log
+
+# If missing, fork failed - check logs
+grep "ERROR" ~/.bmad-memory/logs/hooks.log
+```
+
+**Solution:**
+Verify `post_tool_capture.py` uses subprocess.Popen:
+```python
+subprocess.Popen([...], start_new_session=True)
+sys.exit(0)  # Returns immediately
+```
+
+---
+
+## ⚙️ Configuration Issues
+
+For comprehensive configuration troubleshooting, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
+### Environment Variables Not Taking Effect
+
+**Diagnosis:**
+```bash
+# Check if .env exists
+ls -la ~/.bmad-memory/.env
+
+# Verify variable is loaded
+python3 -c "from memory.config import get_config; print(get_config().qdrant_url)"
+```
+
+**Common Mistakes:**
+```bash
+# WRONG - Don't use quotes
+QDRANT_URL="http://localhost:26350"
+
+# CORRECT
+QDRANT_URL=http://localhost:26350
+```
+
+**File Location:** Must be `~/.bmad-memory/.env` (absolute path)
+
+---
+
+### Port Conflicts
+
+**Error:**
+```
+Bind for 0.0.0.0:26350 failed: port is already allocated
+```
+
+**Quick Fix:**
+```bash
+# Find what's using the port
+lsof -i :26350
+
+# Option 1: Kill process
+kill <PID>
+
+# Option 2: Change port
+echo "QDRANT_EXTERNAL_PORT=16333" >> docker/.env
+docker compose -f docker/docker-compose.yml up -d
+```
+
+See [CONFIGURATION.md - Port Mapping](docs/CONFIGURATION.md#docker-configuration) for details.
+
+---
 
 ## Still Having Issues?
 
