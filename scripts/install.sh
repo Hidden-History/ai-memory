@@ -369,13 +369,39 @@ update_shared_scripts() {
     # This ensures projects get the latest hooks when added
     local hooks_source="$SCRIPT_DIR/../.claude/hooks/scripts"
     local hooks_count=0
+    local archived_count=0
     if [[ -d "$hooks_source" ]]; then
+        # Build list of source hook names for stale detection
+        local source_hooks=()
         for hook in "$hooks_source"/*.py; do
             if [[ -f "$hook" ]]; then
+                source_hooks+=("$(basename "$hook")")
                 cp "$hook" "$INSTALL_DIR/.claude/hooks/scripts/"
                 ((hooks_count++)) || true
             fi
         done
+
+        # Archive stale hooks not in source (BUG-034 cleanup)
+        local hooks_dest="$INSTALL_DIR/.claude/hooks/scripts"
+        local archive_dir="$INSTALL_DIR/.claude/hooks/scripts/.archived"
+        for existing in "$hooks_dest"/*.py; do
+            if [[ -f "$existing" ]]; then
+                local basename_hook=$(basename "$existing")
+                local is_source=false
+                for src in "${source_hooks[@]}"; do
+                    if [[ "$src" == "$basename_hook" ]]; then
+                        is_source=true
+                        break
+                    fi
+                done
+                if [[ "$is_source" == false ]]; then
+                    mkdir -p "$archive_dir"
+                    mv "$existing" "$archive_dir/"
+                    ((archived_count++)) || true
+                fi
+            fi
+        done
+
         # Also sync src/memory modules
         if [[ -d "$SCRIPT_DIR/../src/memory" ]]; then
             cp -r "$SCRIPT_DIR/../src/memory" "$INSTALL_DIR/src/" 2>/dev/null || true
@@ -384,6 +410,9 @@ update_shared_scripts() {
 
     if [[ $updated_count -gt 0 || $hooks_count -gt 0 ]]; then
         log_success "Updated $updated_count shared scripts, $hooks_count hook scripts"
+        if [[ $archived_count -gt 0 ]]; then
+            log_info "Archived $archived_count stale hook scripts to .archived/"
+        fi
     else
         log_warning "No scripts found to update"
     fi
