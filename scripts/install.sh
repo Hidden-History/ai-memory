@@ -1044,6 +1044,26 @@ create_project_symlinks() {
         exit 1
     fi
 
+    # BUG-035: Archive stale hooks in project directory (WSL copy mode)
+    if [[ "$link_method" == "copy" ]]; then
+        local archived_count=0
+        local archive_dir="$PROJECT_PATH/.claude/hooks/scripts/.archived"
+        for existing in "$PROJECT_PATH/.claude/hooks/scripts"/*.py; do
+            if [[ -f "$existing" ]]; then
+                local basename_hook=$(basename "$existing")
+                # Check if this file exists in the shared install (source of truth)
+                if [[ ! -f "$INSTALL_DIR/.claude/hooks/scripts/$basename_hook" ]]; then
+                    mkdir -p "$archive_dir"
+                    mv "$existing" "$archive_dir/"
+                    ((archived_count++)) || true
+                fi
+            fi
+        done
+        if [[ $archived_count -gt 0 ]]; then
+            log_info "Archived $archived_count stale project hooks to .archived/"
+        fi
+    fi
+
     # Verify files exist and are accessible
     local verification_failed=0
     for script in "$PROJECT_PATH/.claude/hooks/scripts"/*.py; do
