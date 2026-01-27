@@ -210,6 +210,87 @@ def inject_with_priority(
             }
         )
 
+        # BUG-026 FIX: Extract rich context from most recent summary
+        # V2.1 Architecture stores first_user_prompt, last_user_prompts, last_agent_responses
+        if session_summaries:
+            most_recent = session_summaries[0]
+
+            # Add recent user messages from rich summary
+            last_user_prompts = most_recent.get("last_user_prompts", [])
+            if last_user_prompts and tokens_used < summary_budget:
+                user_header = "\n## Recent User Messages\n"
+                result.append(user_header)
+                tokens_used += estimate_tokens(user_header)
+
+                for prompt_data in last_user_prompts:
+                    if tokens_used >= summary_budget:
+                        break
+                    content = prompt_data.get("content", "") if isinstance(prompt_data, dict) else str(prompt_data)
+                    if not content or not content.strip():
+                        continue
+
+                    # Filter and truncate
+                    try:
+                        filtered_content = filter_low_value_content(content)
+                    except Exception:
+                        filtered_content = content
+                    if not filtered_content.strip():
+                        continue
+                    if len(filtered_content) > 1000:
+                        try:
+                            filtered_content = smart_truncate(filtered_content, 1000)
+                        except Exception:
+                            filtered_content = filtered_content[:1000] + "..."
+
+                    formatted_prompt = f"**User:** {filtered_content}\n"
+                    prompt_tokens = estimate_tokens(formatted_prompt)
+                    if tokens_used + prompt_tokens <= summary_budget:
+                        result.append(formatted_prompt)
+                        tokens_used += prompt_tokens
+
+            # Add recent agent responses from rich summary
+            last_agent_responses = most_recent.get("last_agent_responses", [])
+            if last_agent_responses and tokens_used < summary_budget:
+                agent_header = "\n## Agent Context Summary\n"
+                result.append(agent_header)
+                tokens_used += estimate_tokens(agent_header)
+
+                for response_data in last_agent_responses:
+                    if tokens_used >= summary_budget:
+                        break
+                    content = response_data.get("content", "") if isinstance(response_data, dict) else str(response_data)
+                    if not content or not content.strip():
+                        continue
+
+                    # Filter and truncate more aggressively for agent responses
+                    try:
+                        filtered_content = filter_low_value_content(content)
+                    except Exception:
+                        filtered_content = content
+                    if not filtered_content.strip():
+                        continue
+                    if len(filtered_content) > 500:
+                        try:
+                            filtered_content = smart_truncate(filtered_content, 500)
+                        except Exception:
+                            filtered_content = filtered_content[:500] + "..."
+
+                    formatted_response = f"**Agent:** {filtered_content}\n"
+                    response_tokens = estimate_tokens(formatted_response)
+                    if tokens_used + response_tokens <= summary_budget:
+                        result.append(formatted_response)
+                        tokens_used += response_tokens
+
+            logger.info(
+                "priority_injection_rich_context_added",
+                extra={
+                    "user_prompts_available": len(last_user_prompts),
+                    "agent_responses_available": len(last_agent_responses),
+                    "tokens_used_after_rich": tokens_used,
+                    "summary_budget": summary_budget
+                }
+            )
+
     # Phase 2: Other memories (fixed 40% allocation)
     # Fixed 40% allocation for other memories (Phase 2)
     fixed_other_budget = int(token_budget * 0.4)
