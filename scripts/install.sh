@@ -346,14 +346,15 @@ handle_reinstall() {
     log_info "Proceeding with reinstallation..."
 }
 
-# Update shared scripts for add-project mode compatibility (BUG-028)
+# Update shared scripts for add-project mode compatibility (BUG-028, BUG-034)
 # When adding a project to an existing installation, ensure the shared
-# scripts are compatible with the installer version being used.
+# scripts AND hook scripts are compatible with the installer version being used.
 update_shared_scripts() {
     log_info "Updating shared scripts for compatibility..."
 
-    # Ensure scripts directory exists
+    # Ensure directories exist
     mkdir -p "$INSTALL_DIR/scripts"
+    mkdir -p "$INSTALL_DIR/.claude/hooks/scripts"
 
     # Copy all Python scripts from repo to shared installation
     local updated_count=0
@@ -364,8 +365,25 @@ update_shared_scripts() {
         fi
     done
 
-    if [[ $updated_count -gt 0 ]]; then
-        log_success "Updated $updated_count shared scripts"
+    # BUG-034: Also update hook scripts in shared installation
+    # This ensures projects get the latest hooks when added
+    local hooks_source="$SCRIPT_DIR/../.claude/hooks/scripts"
+    local hooks_count=0
+    if [[ -d "$hooks_source" ]]; then
+        for hook in "$hooks_source"/*.py; do
+            if [[ -f "$hook" ]]; then
+                cp "$hook" "$INSTALL_DIR/.claude/hooks/scripts/"
+                ((hooks_count++)) || true
+            fi
+        done
+        # Also sync src/memory modules
+        if [[ -d "$SCRIPT_DIR/../src/memory" ]]; then
+            cp -r "$SCRIPT_DIR/../src/memory" "$INSTALL_DIR/src/" 2>/dev/null || true
+        fi
+    fi
+
+    if [[ $updated_count -gt 0 || $hooks_count -gt 0 ]]; then
+        log_success "Updated $updated_count shared scripts, $hooks_count hook scripts"
     else
         log_warning "No scripts found to update"
     fi
