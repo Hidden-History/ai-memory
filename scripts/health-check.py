@@ -35,6 +35,8 @@ except ImportError:
 # Configuration from environment (DEC-010: Jina Embeddings v2 Base Code = 768 dimensions)
 EXPECTED_EMBEDDING_DIMENSIONS = int(os.environ.get("VECTOR_DIMENSIONS", "768"))
 MONITORING_PORT = int(os.environ.get("BMAD_MONITORING_PORT", "28000"))
+# BUG-033: API key for Qdrant authentication
+QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
 
 
 @dataclass
@@ -60,9 +62,15 @@ def check_qdrant(
     """
     # Granular timeout: fast connect, reasonable read time
     timeout_config = httpx.Timeout(connect=3.0, read=float(timeout), write=5.0, pool=3.0)
+
+    # BUG-033: Include API key authentication if configured
+    headers = {}
+    if QDRANT_API_KEY:
+        headers["api-key"] = QDRANT_API_KEY
+
     start = time.perf_counter()
     try:
-        # Check Qdrant health endpoint
+        # Check Qdrant health endpoint (no auth required)
         response = httpx.get(
             f"http://{host}:{port}/healthz",
             timeout=timeout_config
@@ -70,10 +78,11 @@ def check_qdrant(
         latency = (time.perf_counter() - start) * 1000
 
         if response.status_code == 200:
-            # Verify collections exist
+            # Verify collections exist (requires auth)
             collections_response = httpx.get(
                 f"http://{host}:{port}/collections",
-                timeout=timeout_config
+                timeout=timeout_config,
+                headers=headers
             )
 
             if collections_response.status_code != 200:
@@ -334,7 +343,8 @@ def check_hook_scripts() -> HealthCheckResult:
     install_dir = os.environ.get("BMAD_INSTALL_DIR", os.path.expanduser("~/.bmad-memory"))
     hooks_dir = os.path.join(install_dir, ".claude/hooks/scripts")
 
-    required_scripts = ["session_start.py", "post_tool_capture.py", "session_stop.py"]
+    # Note: session_stop.py is archived - using agent_response_capture.py instead
+    required_scripts = ["session_start.py", "post_tool_capture.py", "agent_response_capture.py"]
     missing = []
     not_executable = []
 
