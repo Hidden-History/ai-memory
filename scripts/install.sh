@@ -370,9 +370,25 @@ handle_reinstall() {
         fi
 
         log_info "Stopping existing services..."
-        if [[ -f "$INSTALL_DIR/docker/docker-compose.yml" ]]; then
-            (cd "$INSTALL_DIR/docker" && docker compose down 2>/dev/null) || true
+
+        # BUG-036: Stop services from BOTH locations:
+        # 1. Current repo (where install.sh is being run from) - user may have started services here
+        # 2. Shared installation - services may also be running from here
+        local script_dir
+        script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+        # Stop from current repo first (with monitoring profile to catch all services)
+        if [[ -f "$script_dir/docker/docker-compose.yml" ]]; then
+            log_info "Stopping services from $script_dir/docker..."
+            (cd "$script_dir/docker" && docker compose --profile monitoring down 2>/dev/null) || true
         fi
+
+        # Also stop from shared installation if different location
+        if [[ -f "$INSTALL_DIR/docker/docker-compose.yml" && "$INSTALL_DIR" != "$script_dir" ]]; then
+            log_info "Stopping services from $INSTALL_DIR/docker..."
+            (cd "$INSTALL_DIR/docker" && docker compose --profile monitoring down 2>/dev/null) || true
+        fi
+
         log_success "Services stopped"
     fi
 
