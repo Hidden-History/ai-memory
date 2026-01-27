@@ -249,7 +249,8 @@ main() {
     fi
 
     # Project-level setup - runs for both modes
-    create_project_symlinks
+    # BUG-032: Copy files instead of symlinks for Windows/WSL compatibility
+    create_project_hooks
     configure_project_hooks
     verify_project_hooks
 
@@ -1003,16 +1004,18 @@ verify_services_running() {
     log_success "All services are running"
 }
 
-# Create project-level symlinks to shared installation
-create_project_symlinks() {
-    log_info "Creating project-level symlinks..."
+# Copy hook scripts to project directory
+# BUG-032: Changed from symlinks to copies for Windows/WSL compatibility
+# WSL symlinks don't work from Windows - Claude Code can't see them
+create_project_hooks() {
+    log_info "Copying hook scripts to project..."
 
     # Skip confirmation in non-interactive mode
     if [[ "$NON_INTERACTIVE" != "true" && ! -d "$PROJECT_PATH/.claude" ]]; then
         echo ""
         echo "The installer will create the following in your project:"
         echo "  📁 $PROJECT_PATH/.claude/"
-        echo "     └── hooks/scripts/       (Symlinks to shared hooks)"
+        echo "     └── hooks/scripts/       (Hook scripts for memory system)"
         echo ""
         echo "This allows Claude Code to use the memory system in your project."
         echo ""
@@ -1028,34 +1031,31 @@ create_project_symlinks() {
     # Create project .claude directory structure
     mkdir -p "$PROJECT_PATH/.claude/hooks/scripts"
 
-    # Symlink hook scripts from shared install
-    local symlink_count=0
+    # Copy hook scripts from shared install (not symlink - for Windows compatibility)
+    local copy_count=0
     for script in "$INSTALL_DIR/.claude/hooks/scripts"/*.py; do
         if [[ -f "$script" ]]; then
             script_name=$(basename "$script")
-            ln -sf "$script" "$PROJECT_PATH/.claude/hooks/scripts/$script_name"
-            ((symlink_count++)) || true
+            cp "$script" "$PROJECT_PATH/.claude/hooks/scripts/$script_name"
+            ((copy_count++)) || true
         fi
     done
 
-    # Verify symlinks work
+    # Verify files were copied
     local verification_failed=0
     for script in "$PROJECT_PATH/.claude/hooks/scripts"/*.py; do
-        if [[ ! -L "$script" ]]; then
-            log_error "Not a symlink: $script"
-            verification_failed=1
-        elif [[ ! -e "$script" ]]; then
-            log_error "Broken symlink: $script"
+        if [[ ! -f "$script" ]]; then
+            log_error "Missing script: $script"
             verification_failed=1
         fi
     done
 
     if [[ $verification_failed -eq 1 ]]; then
-        log_error "Symlink verification failed"
+        log_error "Hook script copy verification failed"
         exit 1
     fi
 
-    log_success "Created $symlink_count symlinks in $PROJECT_PATH/.claude/hooks/scripts/"
+    log_success "Copied $copy_count hook scripts to $PROJECT_PATH/.claude/hooks/scripts/"
 }
 
 # Configure hooks for project (project-level settings.json)
@@ -1063,16 +1063,20 @@ configure_project_hooks() {
     log_info "Configuring project-level hooks..."
 
     PROJECT_SETTINGS="$PROJECT_PATH/.claude/settings.json"
-    HOOKS_DIR="$INSTALL_DIR/.claude/hooks/scripts"
+    # BUG-032: Use project-local hooks path (files were copied, not symlinked)
+    # This path is used in settings.json for hook command paths
+    PROJECT_HOOKS_DIR="$PROJECT_PATH/.claude/hooks/scripts"
 
     # Check if project already has settings.json
     if [[ -f "$PROJECT_SETTINGS" ]]; then
         log_info "Existing project settings found - merging hooks..."
-        python3 "$INSTALL_DIR/scripts/merge_settings.py" "$PROJECT_SETTINGS" "$HOOKS_DIR" "$PROJECT_NAME"
+        # BUG-032: Pass both hooks_dir (for command paths) and install_dir (for env vars)
+        python3 "$INSTALL_DIR/scripts/merge_settings.py" "$PROJECT_SETTINGS" "$PROJECT_HOOKS_DIR" "$PROJECT_NAME" "$INSTALL_DIR"
     else
         # Generate new project-level settings.json
         log_info "Creating new project settings at $PROJECT_SETTINGS..."
-        python3 "$INSTALL_DIR/scripts/generate_settings.py" "$PROJECT_SETTINGS" "$HOOKS_DIR" "$PROJECT_NAME"
+        # BUG-032: Pass both hooks_dir (for command paths) and install_dir (for env vars)
+        python3 "$INSTALL_DIR/scripts/generate_settings.py" "$PROJECT_SETTINGS" "$PROJECT_HOOKS_DIR" "$PROJECT_NAME" "$INSTALL_DIR"
     fi
 
     log_success "Project hooks configured in $PROJECT_SETTINGS"
