@@ -74,6 +74,51 @@ Traditional knowledge bases require upfront schema design and manual curation. A
 - 🛡️ **Graceful Degradation**: Works even when services are temporarily unavailable
 - 👥 **Multi-Project Isolation**: `group_id` filtering keeps projects separate
 
+---
+
+## 🛡️ Complete Your AI Stack: Parzival Oversight Agent
+
+<table>
+<tr>
+<td width="55%">
+
+**Memory is only half the equation. Quality is the other half.**
+
+AI-Memory gives your agents institutional knowledge. **Parzival** ensures they use it wisely.
+
+> 🎯 **Quality Gatekeeper** — Never ship bugs, always verify before approval
+> 🔄 **Review Cycles** — Automated review → fix → verify loops
+> 🚫 **Drift Prevention** — Behavioral constraints keep agents on track
+> 📋 **Structured Oversight** — Templates for bugs, decisions, specs, tracking
+> 📊 **Observability Built-In** — Metrics, logging, Grafana dashboards from day one
+
+**Parzival recommends. You decide.**
+
+</td>
+<td width="45%">
+
+| Component | Purpose |
+|-----------|---------|
+| 🧠 **AI-Memory** | *Remembers* — Context persistence |
+| 🛡️ **Parzival** | *Validates* — Quality assurance |
+| 🔗 **Together** | Agents that learn AND verify |
+
+<br>
+
+```
+Memory + Oversight = Reliable AI
+```
+
+**[→ Get Parzival](https://github.com/Hidden-History/pov-oversight-agent)**
+
+</td>
+</tr>
+</table>
+
+> **Part of the [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD) ecosystem** — Multi-agent workflows with persistent memory and quality gates.
+
+---
+
 ## 🏗️ Architecture
 
 ### V2.0 Memory System
