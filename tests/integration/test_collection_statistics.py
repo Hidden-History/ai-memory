@@ -64,7 +64,7 @@ class TestStatisticsPerformance:
 
         start_time = time.perf_counter()
         try:
-            stats = get_collection_stats(qdrant_client, "implementations")
+            stats = get_collection_stats(qdrant_client, "code-patterns")
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
             # NFR-M4: Statistics queries MUST complete <100ms
@@ -84,7 +84,7 @@ class TestMetricsIntegration:
         pytest.importorskip("qdrant_client")
 
         try:
-            stats = get_collection_stats(qdrant_client, "implementations")
+            stats = get_collection_stats(qdrant_client, "code-patterns")
             update_collection_metrics(stats)
 
             # Verify gauge was set (can't easily check value without prometheus registry access)
@@ -104,7 +104,7 @@ class TestWarningsIntegration:
         pytest.importorskip("qdrant_client")
 
         try:
-            stats = get_collection_stats(qdrant_client, "implementations")
+            stats = get_collection_stats(qdrant_client, "code-patterns")
             warnings = check_collection_thresholds(stats)
 
             # Warnings should be a list (empty or with warnings)

@@ -46,3 +46,4 @@ htmlcov/
 playwright-report/
 test-results/
 screenshots/
+queue/*.jsonl

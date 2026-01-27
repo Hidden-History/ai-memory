@@ -8,6 +8,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, List
 
+# Import VALID_AGENTS from config to avoid duplication (CR-4.27)
+from .config import VALID_AGENTS
+
 __all__ = [
     "MemoryType",
     "EmbeddingStatus",
@@ -17,55 +20,42 @@ __all__ = [
 ]
 
 
-# Valid BMAD agents
-VALID_AGENTS = [
-    "architect",
-    "analyst",
-    "pm",
-    "dev",
-    "tea",
-    "tech-writer",
-    "ux-designer",
-    "quick-flow-solo-dev",
-    "sm",
-]
-
-
 class MemoryType(str, Enum):
-    """Types of memories that can be stored.
+    """Types of memories that can be stored (Memory System v2.0).
+
+    Total: 15 types (4 code-patterns + 5 conventions + 6 discussions)
+    Spec: oversight/specs/MEMORY-SYSTEM-REDESIGN-v2.md Section 5
 
     Note: Uses (str, Enum) pattern for Python 3.10 compatibility (AMD ROCm images).
     StrEnum requires Python 3.11+. When formatting, use .value explicitly:
         f"{MemoryType.IMPLEMENTATION.value}"  # "implementation"
 
-    Collections:
-        implementations: IMPLEMENTATION, ARCHITECTURE_DECISION, STORY_OUTCOME,
-                        ERROR_PATTERN, DATABASE_SCHEMA, CONFIG_PATTERN,
-                        INTEGRATION_EXAMPLE
-        best_practices: BEST_PRACTICE
-        agent-memory: SESSION_SUMMARY, CHAT_MEMORY, AGENT_DECISION
+    Collections (v2.0):
+        code-patterns: IMPLEMENTATION, ERROR_FIX, REFACTOR, FILE_PATTERN
+        conventions: RULE, GUIDELINE, PORT, NAMING, STRUCTURE
+        discussions: DECISION, SESSION, BLOCKER, PREFERENCE, USER_MESSAGE, AGENT_RESPONSE
     """
 
-    # implementations collection
-    IMPLEMENTATION = "implementation"
-    ARCHITECTURE_DECISION = "architecture_decision"
-    STORY_OUTCOME = "story_outcome"
-    ERROR_PATTERN = "error_pattern"
-    DATABASE_SCHEMA = "database_schema"
-    CONFIG_PATTERN = "config_pattern"
-    INTEGRATION_EXAMPLE = "integration_example"
+    # === code-patterns collection (HOW things are built) ===
+    IMPLEMENTATION = "implementation"  # How a feature/component was built
+    ERROR_FIX = "error_fix"  # Error encountered + what fixed it
+    REFACTOR = "refactor"  # Code refactoring patterns applied
+    FILE_PATTERN = "file_pattern"  # Patterns specific to a file or module
 
-    # best_practices collection
-    BEST_PRACTICE = "best_practice"
+    # === conventions collection (WHAT rules to follow) ===
+    RULE = "rule"  # Hard rules that MUST be followed
+    GUIDELINE = "guideline"  # Soft guidelines that SHOULD be followed
+    PORT = "port"  # Port configuration rules
+    NAMING = "naming"  # Naming conventions for files, functions, etc.
+    STRUCTURE = "structure"  # File and folder structure conventions
 
-    # agent-memory collection
-    SESSION_SUMMARY = "session_summary"
-    CHAT_MEMORY = "chat_memory"
-    AGENT_DECISION = "agent_decision"
-
-    # Legacy compatibility
-    DECISION = "decision"
-    PATTERN = "pattern"
+    # === discussions collection (WHY things were decided) ===
+    DECISION = "decision"  # Architectural/design decisions (DEC-xxx)
+    SESSION = "session"  # Session summaries
+    BLOCKER = "blocker"  # Blockers and their resolutions (BLK-xxx)
+    PREFERENCE = "preference"  # User preferences and working style
+    USER_MESSAGE = "user_message"  # User messages from conversation
+    AGENT_RESPONSE = "agent_response"  # Agent responses from conversation
 
 
 class ImportanceLevel(str, Enum):
@@ -96,19 +86,22 @@ class MemoryPayload:
         content: The actual memory content (10-100,000 chars)
         content_hash: SHA256 hash for deduplication
         group_id: Project identifier for multi-tenancy
-        type: Type of memory (implementation, session_summary, etc.)
+        type: Type of memory (implementation, session, decision, etc.)
         source_hook: Which Claude Code hook captured this (PostToolUse, Stop, SessionStart)
         session_id: Claude session identifier
         timestamp: ISO 8601 timestamp of capture
         domain: Optional domain classification (default: "general")
         importance: Importance level: critical, high, medium, low (default: "medium")
         embedding_status: Status of embedding generation
-        embedding_model: Model used for embeddings (default: "nomic-embed-code")
+        embedding_model: Model used for embeddings (default: "jina-embeddings-v2-base-en")
         relationships: List of related memory IDs
         tags: List of tags for categorization
         agent: BMAD agent that created/captured this (dev, architect, pm, etc.)
         component: System component this relates to (auth, database, api, etc.)
         story_id: Story identifier for traceability (AUTH-12, DB-05, etc.)
+        source: URL or reference for researched content (BUG-006)
+        source_date: ISO 8601 date of source publication (BUG-006)
+        auto_seeded: True if auto-captured by research agent, False if template-seeded (BUG-006)
     """
 
     # Required fields
@@ -127,7 +120,7 @@ class MemoryPayload:
     domain: str = "general"
     importance: str = "medium"  # critical, high, medium, low
     embedding_status: EmbeddingStatus = EmbeddingStatus.COMPLETE
-    embedding_model: str = "nomic-embed-code"
+    embedding_model: str = "jina-embeddings-v2-base-en"
 
     # Relationships and tags
     relationships: List[str] = field(default_factory=list)
@@ -138,12 +131,22 @@ class MemoryPayload:
     component: Optional[str] = None  # auth, database, api, etc.
     story_id: Optional[str] = None  # AUTH-12, DB-05, etc.
 
+    # Research provenance fields (BUG-006)
+    # WHY: Enables best-practices-researcher agent to store web-sourced guidelines
+    # with full attribution (source URL, publication date, capture method).
+    # WHEN TO USE: Set these when storing researched best practices from external sources.
+    # Template-seeded practices (from templates/conventions/) should omit or use defaults.
+    source: Optional[str] = None  # URL or reference (web link, DOI, book citation, file path)
+    source_date: Optional[str] = None  # ISO 8601 date when source was published/updated
+    auto_seeded: bool = False  # True = auto-captured by agent, False = manually seeded
+
     def to_dict(self) -> dict:
         """Convert to dictionary for Qdrant storage.
 
         Converts enum values to strings and returns a dict suitable for
-        Qdrant payload storage. Optional fields (agent, component, story_id)
-        are only included if set to avoid cluttering the payload.
+        Qdrant payload storage. Optional fields (agent, component, story_id,
+        source, source_date) are only included if set to avoid cluttering
+        the payload. The auto_seeded field is always included (defaults to False).
 
         Returns:
             Dictionary with all fields in snake_case
@@ -179,6 +182,13 @@ class MemoryPayload:
             result["component"] = self.component
         if self.story_id is not None:
             result["story_id"] = self.story_id
+
+        # Include research provenance fields (BUG-006)
+        if self.source is not None:
+            result["source"] = self.source
+        if self.source_date is not None:
+            result["source_date"] = self.source_date
+        result["auto_seeded"] = self.auto_seeded  # Always include (bool has default)
 
         # Include created_at if set (TECH-DEBT-012 Round 3)
         if self.created_at is not None:

@@ -8,13 +8,45 @@ Comprehensive guide to Prometheus queries for BMAD Memory Module monitoring. Thi
 
 ## Table of Contents
 
-1. [Overview](#overview)
-2. [Histogram Queries (CRITICAL)](#histogram-queries-critical)
-3. [Rate vs Increase](#rate-vs-increase)
-4. [Aggregation Patterns](#aggregation-patterns)
-5. [Label Cardinality](#label-cardinality)
-6. [Project-Specific Queries](#project-specific-queries)
-7. [Dashboard Query Examples](#dashboard-query-examples)
+1. [Authenticated Queries](#authenticated-queries)
+2. [Overview](#overview)
+3. [Histogram Queries (CRITICAL)](#histogram-queries-critical)
+4. [Rate vs Increase](#rate-vs-increase)
+5. [Aggregation Patterns](#aggregation-patterns)
+6. [Label Cardinality](#label-cardinality)
+7. [Project-Specific Queries](#project-specific-queries)
+8. [Token Metrics](#token-metrics)
+9. [Multi-Embedding Metrics](#multi-embedding-metrics)
+10. [V2 Trigger Metrics](#v2-trigger-metrics)
+11. [Queue Metrics](#queue-metrics)
+12. [Dashboard Query Examples](#dashboard-query-examples)
+
+---
+
+## Authenticated Queries
+
+Prometheus requires basic auth. Use the helper script:
+
+```bash
+# Instant query
+python3 scripts/monitoring/prometheus_query.py "bmad_collection_size"
+
+# Range query (last hour)
+python3 scripts/monitoring/prometheus_query.py --range --start 1h "bmad_hook_duration_seconds_sum"
+
+# Raw JSON output
+python3 scripts/monitoring/prometheus_query.py --raw "up"
+
+# Manual curl (if needed)
+curl -u admin:5HCf9v5laO0jxxLcXtnyYj7G "http://localhost:29090/api/v1/query?query=up"
+```
+
+**Environment variables for custom credentials:**
+- `PROMETHEUS_URL` (default: http://localhost:29090)
+- `PROMETHEUS_USER` (default: admin)
+- `PROMETHEUS_PASSWORD` (default from web.yml)
+
+**Helper Script:** `scripts/monitoring/prometheus_query.py`
 
 ---
 
@@ -30,15 +62,19 @@ BMAD Memory Module exposes metrics on port **28000** at `/metrics` endpoint. All
 |------|-------------|-------------|--------|
 | **Counter** | `bmad_memory_captures_total` | Memory capture attempts | `hook_type`, `status`, `project` |
 | **Counter** | `bmad_memory_retrievals_total` | Memory retrieval attempts | `collection`, `status` |
-| **Counter** | `bmad_embedding_requests_total` | Embedding generation requests | `status` |
+| **Counter** | `bmad_embedding_requests_total` | Embedding generation requests | `status`, `embedding_type` |
 | **Counter** | `bmad_deduplication_events_total` | Deduplicated memories | `project` |
 | **Counter** | `bmad_failure_events_total` | Failure events for alerting | `component`, `error_code` |
+| **Counter** | `bmad_tokens_consumed_total` | Token consumption tracking | `operation`, `direction`, `project` |
+| **Counter** | `bmad_trigger_fires_total` | Trigger activations | `trigger_type`, `status`, `project` |
 | **Gauge** | `bmad_collection_size` | Points in collection | `collection`, `project` |
 | **Gauge** | `bmad_queue_size` | Pending retry queue items | `status` |
 | **Histogram** | `bmad_hook_duration_seconds` | Hook execution time | `hook_type` |
-| **Histogram** | `bmad_embedding_duration_seconds` | Embedding generation time | None |
+| **Histogram** | `bmad_embedding_duration_seconds` | Embedding generation time | `embedding_type` |
 | **Histogram** | `bmad_retrieval_duration_seconds` | Memory retrieval time | None |
-| **Info** | `bmad_memory_system_info` | Static system metadata | `version`, `embedding_model`, `vector_dimensions` |
+| **Histogram** | `bmad_context_injection_tokens` | Context injection token counts | `hook_type`, `collection` |
+| **Histogram** | `bmad_trigger_results_returned` | Results returned per trigger | `trigger_type` |
+| **Info** | `bmad_memory_system_info` | Static system metadata | `version`, `embedding_model`, `vector_dimensions`, `collections` |
 
 **Performance NFRs:**
 - Hook overhead: <500ms (NFR-P1)
@@ -257,9 +293,9 @@ These are **safe** to use as labels:
 
 | Label | Cardinality | Examples |
 |-------|-------------|----------|
-| `hook_type` | ~3 | `PostToolUse`, `SessionStart`, `Stop` |
+| `hook_type` | ~5 | `PostToolUse`, `SessionStart`, `PreToolUse`, `PreCompact`, `Stop` |
 | `status` | ~3 | `success`, `failed`, `queued` |
-| `collection` | ~2 | `implementations`, `best_practices` |
+| `collection` | ~3 | `code-patterns`, `conventions`, `discussions` |
 | `component` | ~4 | `qdrant`, `embedding`, `queue`, `hook` |
 | `error_code` | ~5 | `QDRANT_UNAVAILABLE`, `EMBEDDING_TIMEOUT`, etc. |
 | `project` | <100 | Project names (acceptable if bounded) |
@@ -299,7 +335,7 @@ The `project` label is used for multi-tenancy:
 
 ```promql
 # Safe - project count is bounded to active projects
-bmad_collection_size{collection="implementations", project="my-project"}
+bmad_collection_size{collection="code-patterns", project="my-project"}
 ```
 
 **Why it works:**
@@ -381,7 +417,7 @@ bmad_collection_size
 bmad_collection_size{project="my-project"}
 
 # Total points across all collections
-sum(bmad_collection_size{project="all"})
+sum(bmad_collection_size)
 
 # Queue size (pending items)
 bmad_queue_size{status="pending"}
@@ -411,6 +447,338 @@ max(bmad_collection_size) > 8000
 # Queue backlog growing (>10 pending)
 bmad_queue_size{status="pending"} > 10
 ```
+
+---
+
+---
+
+## V2.0 Metrics
+
+### Trigger Metrics
+
+```promql
+# Trigger fires by type (last hour)
+sum by (trigger_type) (
+  increase(bmad_trigger_fires_total[1h])
+)
+
+# Trigger success rate
+sum(bmad_trigger_fires_total{status="success"}) /
+sum(bmad_trigger_fires_total) * 100
+
+# Average results per trigger type
+histogram_quantile(0.5,
+  sum by (trigger_type, le) (
+    rate(bmad_trigger_results_returned_bucket[5m])
+  )
+)
+```
+
+### Token Consumption
+
+```promql
+# Total tokens by operation (last 24h)
+sum by (operation) (
+  increase(bmad_tokens_consumed_total[24h])
+)
+
+# Input vs output tokens
+sum by (direction) (
+  increase(bmad_tokens_consumed_total[1h])
+)
+
+# Tokens per project
+sum by (project) (
+  increase(bmad_tokens_consumed_total[24h])
+)
+```
+
+### Collection Health
+
+```promql
+# Collection sizes by project
+bmad_collection_size{project!="all"}
+
+# Total memories across all collections
+sum(bmad_collection_size{project="all"})
+
+# Deduplication rate (last hour)
+sum(increase(bmad_deduplication_events_total[1h])) /
+sum(increase(bmad_memory_captures_total[1h])) * 100
+```
+
+### Failure Monitoring
+
+```promql
+# Failures by component
+sum by (component) (
+  increase(bmad_failure_events_total[1h])
+)
+
+# Alert: High failure rate
+increase(bmad_failure_events_total[5m]) > 5
+```
+
+---
+
+## Token Metrics
+
+**TECH-DEBT-067:** V2.0 token usage tracking for context injection and memory operations.
+
+### Total Tokens Consumed
+
+```promql
+# Total tokens consumed in last 1 hour
+sum(increase(bmad_tokens_consumed_total[1h]))
+
+# By direction (input vs output)
+sum by (direction) (rate(bmad_tokens_consumed_total[5m]))
+
+# By operation type
+sum by (operation) (rate(bmad_tokens_consumed_total[5m]))
+
+# By project
+sum by (project) (rate(bmad_tokens_consumed_total[5m]))
+```
+
+**Labels:**
+- `operation`: `capture`, `retrieval`, `trigger`, `injection`, `classification` (TECH-DEBT-071)
+- `direction`: `input` (TO system), `output` (FROM system), `stored` (persisted to memory) (TECH-DEBT-071)
+- `project`: Project name (from group_id) or `"classifier"` for system-level operations
+
+**Direction Semantics (TECH-DEBT-071):**
+- `input` - Data flowing INTO an operation (e.g., prompt to classifier, query to search)
+- `output` - Data flowing OUT of an operation (e.g., LLM response, search results)
+- `stored` - Data persisted to Qdrant collections (e.g., captured code, user messages)
+
+### Context Injection Size
+
+```promql
+# Median tokens injected per hook
+histogram_quantile(0.50, sum by (le, hook_type) (rate(bmad_context_injection_tokens_bucket[5m])))
+
+# p95 tokens injected
+histogram_quantile(0.95, sum by (le, hook_type) (rate(bmad_context_injection_tokens_bucket[5m])))
+
+# By collection
+histogram_quantile(0.95, sum by (le, collection) (rate(bmad_context_injection_tokens_bucket[5m])))
+```
+
+**Use Cases:**
+- Monitor context window usage (target: 70-80% of available tokens)
+- Track token consumption patterns by operation type
+- Alert on excessive token usage
+
+---
+
+## Multi-Embedding Metrics
+
+**TECH-DEBT-067:** V2.0 multi-embedding support for dense, BM25, and SPLADE embeddings.
+
+> **NOTE:** Panels show "No data" for disabled embedding types. This is expected behavior.
+
+### Request Rate by Embedding Type
+
+```promql
+# Overall request rate by type
+sum by (embedding_type) (rate(bmad_embedding_requests_total[5m]))
+
+# Success rate by embedding type
+sum by (embedding_type) (rate(bmad_embedding_requests_total{status="success"}[5m]))
+
+# Failure rate by type
+sum by (embedding_type) (rate(bmad_embedding_requests_total{status="failed"}[5m]))
+```
+
+**Expected Behavior:**
+- If only dense embeddings enabled: Only `embedding_type="dense"` shows data
+- BM25/SPLADE series show "No data" until respective services are enabled
+
+### Latency by Embedding Type
+
+```promql
+# p95 latency by embedding type (CRITICAL: use sum by (le, embedding_type))
+histogram_quantile(0.95,
+  sum by (le, embedding_type) (rate(bmad_embedding_duration_seconds_bucket[5m]))
+)
+
+# p50 latency by type
+histogram_quantile(0.50,
+  sum by (le, embedding_type) (rate(bmad_embedding_duration_seconds_bucket[5m]))
+)
+
+# p99 latency by type
+histogram_quantile(0.99,
+  sum by (le, embedding_type) (rate(bmad_embedding_duration_seconds_bucket[5m]))
+)
+```
+
+**NFR Targets:**
+- Dense: <2s (NFR-P2)
+- BM25: <500ms (expected)
+- SPLADE: <1s (expected)
+
+### Success Rate by Embedding Type
+
+```promql
+# Success rate percentage by type
+sum by (embedding_type) (rate(bmad_embedding_requests_total{status="success"}[5m]))
+  / sum by (embedding_type) (rate(bmad_embedding_requests_total[5m])) * 100
+```
+
+**Panel Config:** Unit: `percent`, Range: 0-100, Thresholds: 90→red, 95→yellow, 98→green
+
+### Embedding Type Distribution
+
+```promql
+# Total requests by type (for pie chart)
+sum by (embedding_type) (increase(bmad_embedding_requests_total[1h]))
+```
+
+**Use Cases:**
+- Monitor which embedding types are in use
+- Compare latency across embedding services
+- Alert on embedding service failures
+
+---
+
+## V2 Trigger Metrics
+
+**TECH-DEBT-067:** V2.0 automatic trigger system for decision keywords, best practices, and session history.
+
+### Trigger Fire Rate
+
+```promql
+# Overall trigger fire rate
+sum(rate(bmad_trigger_fires_total[5m]))
+
+# By trigger type
+sum by (trigger_type) (rate(bmad_trigger_fires_total[5m]))
+
+# By status (success, empty, failed)
+sum by (status) (rate(bmad_trigger_fires_total[5m]))
+
+# By project
+sum by (project) (rate(bmad_trigger_fires_total[5m]))
+```
+
+**Trigger Types:**
+- `decision_keywords`: "why did we...", "what was decided"
+- `best_practices_keywords`: "best practice", "how should I"
+- `session_history_keywords`: "what have we done", "project status"
+- `error_detection`: Automatic on Bash errors
+- `new_file`: Automatic on Write tool
+- `first_edit`: Automatic on first Edit to file
+
+### Trigger Success Rate
+
+```promql
+# Overall success rate (percentage)
+sum(rate(bmad_trigger_fires_total{status="success"}[5m]))
+  / sum(rate(bmad_trigger_fires_total[5m])) * 100
+
+# Success rate by trigger type
+sum by (trigger_type) (rate(bmad_trigger_fires_total{status="success"}[5m]))
+  / sum by (trigger_type) (rate(bmad_trigger_fires_total[5m])) * 100
+```
+
+**Statuses:**
+- `success`: Trigger fired and returned results
+- `empty`: Trigger fired but no relevant memories found
+- `failed`: Trigger failed (Qdrant unavailable, etc.)
+
+### Results per Trigger
+
+```promql
+# Median results returned per trigger type
+histogram_quantile(0.50, sum by (le, trigger_type) (rate(bmad_trigger_results_returned_bucket[5m])))
+
+# p95 results returned
+histogram_quantile(0.95, sum by (le, trigger_type) (rate(bmad_trigger_results_returned_bucket[5m])))
+```
+
+**Expected Values:**
+- Decision triggers: Typically 1-2 results
+- Best practices triggers: Typically 2-3 results
+- Session history triggers: Typically 1-3 results
+- 0 results indicates `status="empty"`
+
+### Trigger Activity by Project
+
+```promql
+# Trigger fire rate by project
+sum by (project, trigger_type) (rate(bmad_trigger_fires_total[5m]))
+
+# Most active trigger types per project
+topk(3, sum by (project, trigger_type) (rate(bmad_trigger_fires_total[5m])))
+```
+
+**Use Cases:**
+- Monitor which triggers are most active
+- Identify projects with high trigger activity
+- Alert on trigger failures
+- Validate trigger configuration changes
+
+---
+
+## Queue Metrics
+
+**QUEUE-UNIFY:** Unified retry queue for all memory storage failures with exponential backoff.
+
+### Queue Size by Status
+
+```promql
+# Current queue size by status
+bmad_queue_size
+
+# Ready for retry (can be processed now)
+bmad_queue_size{status="ready"}
+
+# Pending (awaiting backoff timer)
+bmad_queue_size{status="pending"}
+
+# Exhausted (exceeded max retries)
+bmad_queue_size{status="exhausted"}
+```
+
+**Statuses:**
+- `ready`: Items where `next_retry_at <= now`, can be processed immediately
+- `pending`: Items awaiting backoff timer (`next_retry_at > now`)
+- `exhausted`: Items that exceeded `max_retries` (default: 3)
+
+### Total Queue Health
+
+```promql
+# Total items in queue (should be 0 in healthy system)
+sum(bmad_queue_size)
+
+# Alert threshold: Any exhausted items is a problem
+bmad_queue_size{status="exhausted"} > 0
+```
+
+### Queue Trend Over Time
+
+```promql
+# Queue size over time (for trend analysis)
+# Note: This is a gauge, not a counter - no rate() needed
+bmad_queue_size
+
+# Max queue size in last hour
+max_over_time(bmad_queue_size[1h])
+```
+
+**Backoff Schedule:**
+- Retry 1: 1 minute
+- Retry 2: 5 minutes
+- Retry 3+: 15 minutes (capped)
+
+**Use Cases:**
+- Monitor queue health (all values should be 0)
+- Alert on exhausted items (indicates persistent failures)
+- Track retry patterns over time
+- Validate Qdrant/embedding service availability
+
+**Dashboard:** Memory Overview → "Retry Queue" row
 
 ---
 
@@ -615,7 +983,6 @@ rate(metric[5m])
 - **Dashboards:** `docker/grafana/dashboards/*.json`
 - **Port Configuration:** DEC-012 (Prometheus: 29090, Grafana: 23000)
 - **Performance NFRs:** NFR-P1 (<500ms hooks), NFR-P2 (<2s embedding), NFR-P3 (<3s retrieval)
-- **Architecture:** `_bmad-output/planning-artifacts/architecture.md`
 
 ---
 

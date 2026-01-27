@@ -15,6 +15,7 @@ References:
 """
 
 import os
+import socket
 import sys
 import time
 from pathlib import Path
@@ -35,6 +36,56 @@ from src.memory.models import MemoryPayload, MemoryType, EmbeddingStatus
 tests_dir = Path(__file__).parent
 if str(tests_dir) not in sys.path:
     sys.path.insert(0, str(tests_dir))
+
+
+# =============================================================================
+# Service Availability Check (TECH-DEBT-019)
+# =============================================================================
+
+
+def _is_port_open(port: int, host: str = "localhost") -> bool:
+    """Check if a port is accepting connections.
+
+    Args:
+        port: Port number to check
+        host: Hostname to check (default: localhost)
+
+    Returns:
+        bool: True if port is open and accepting connections, False otherwise
+    """
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        return False
+
+
+@pytest.fixture(autouse=True)
+def skip_without_services(request):
+    """Auto-skip tests when required services are unavailable.
+
+    TECH-DEBT-019: Skip tests that require Docker services when services are down.
+
+    Checks pytest markers:
+    - requires_qdrant: Skips if Qdrant (port 26350) is unavailable
+    - requires_embedding: Skips if Embedding service (port 28080) is unavailable
+    - requires_docker_stack: Skips if either service is unavailable
+
+    Example:
+        @pytest.mark.requires_qdrant
+        def test_storage():
+            # Will skip if Qdrant not available on port 26350
+            pass
+    """
+    if request.node.get_closest_marker('requires_qdrant'):
+        if not _is_port_open(26350):
+            pytest.skip("Qdrant not available on port 26350")
+    if request.node.get_closest_marker('requires_embedding'):
+        if not _is_port_open(28080):
+            pytest.skip("Embedding service not available on port 28080")
+    if request.node.get_closest_marker('requires_docker_stack'):
+        if not (_is_port_open(26350) and _is_port_open(28080)):
+            pytest.skip("Docker stack not fully available")
 
 
 # =============================================================================
@@ -250,7 +301,7 @@ def sample_memory_payload():
         "source_hook": "PostToolUse",
         "session_id": "test-session-123",
         "embedding_status": EmbeddingStatus.COMPLETE.value,
-        "embedding_model": "nomic-embed-code",
+        "embedding_model": "jina-embeddings-v2-base-en",
         "timestamp": "2026-01-11T00:00:00Z",
         "metadata": {
             "tags": ["python", "backend", "testing"],
@@ -271,11 +322,11 @@ def sample_best_practice_payload():
         "content": "Use structured logging with extras dict for consistent log format",
         "content_hash": "sha256:def456",
         "group_id": "best-practices",
-        "type": MemoryType.PATTERN.value,
+        "type": MemoryType.GUIDELINE.value,
         "source_hook": "manual",
         "session_id": "seed-session",
         "embedding_status": EmbeddingStatus.COMPLETE.value,
-        "embedding_model": "nomic-embed-code",
+        "embedding_model": "jina-embeddings-v2-base-en",
         "timestamp": "2026-01-11T00:00:00Z",
         "metadata": {
             "tags": ["logging", "python", "best-practice"],
@@ -377,7 +428,7 @@ def qdrant_client(qdrant_base_url: str) -> Generator:
         QdrantClient: Configured Qdrant client with index ready
 
     Note:
-        Index is created once per test and reused for "implementations" collection.
+        Index is created once per test and reused for "code-patterns" collection.
     """
     # Parse host and port from URL
     import re
@@ -392,31 +443,31 @@ def qdrant_client(qdrant_base_url: str) -> Generator:
 
     client = QdrantSDKClient(host=host, port=int(port), timeout=30.0)
 
-    # Ensure both collections exist (implementations + best_practices)
+    # Ensure all v2.0 collections exist (code-patterns + conventions + discussions)
     try:
         collections = client.get_collections()
         collection_names = [c.name for c in collections.collections]
 
         from qdrant_client.models import Distance, VectorParams
 
-        if "implementations" not in collection_names:
-            # Create implementations collection (DEC-010: 768d)
+        if "code-patterns" not in collection_names:
+            # Create code-patterns collection (DEC-010: 768d)
             client.create_collection(
-                collection_name="implementations",
+                collection_name="code-patterns",
                 vectors_config=VectorParams(size=768, distance=Distance.COSINE),
             )
 
-        # Create best_practices collection for cross-project sharing (Story 4.3, AC 4.4.4)
-        if "best_practices" not in collection_names:
+        # Create conventions collection for cross-project sharing (Story 4.3, AC 4.4.4)
+        if "conventions" not in collection_names:
             client.create_collection(
-                collection_name="best_practices",
+                collection_name="conventions",
                 vectors_config=VectorParams(size=768, distance=Distance.COSINE),
             )
 
         # Create group_id index with is_tenant=True for both collections (AC 4.2.3)
         from src.memory.qdrant_client import create_group_id_index
 
-        for collection in ["implementations", "best_practices"]:
+        for collection in ["code-patterns", "conventions"]:
             try:
                 create_group_id_index(client, collection)
             except Exception as e:
@@ -492,6 +543,71 @@ def docker_services_available():
         yield services_running
     except Exception:
         yield False
+
+
+def _check_service_available(host: str, port: int, timeout: float = 2.0) -> bool:
+    """Check if a service is available on host:port.
+
+    Args:
+        host: Service hostname
+        port: Service port
+        timeout: Connection timeout in seconds
+
+    Returns:
+        bool: True if service is reachable, False otherwise
+    """
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
+@pytest.fixture(autouse=True)
+def skip_if_service_unavailable(request):
+    """Auto-skip tests marked with service requirements if services not available.
+
+    Checks for pytest markers and skips tests if required services aren't running:
+    - @pytest.mark.requires_qdrant: Skips if Qdrant (port 26350) unavailable
+    - @pytest.mark.requires_embedding: Skips if Embedding service (port 28080) unavailable
+    - @pytest.mark.requires_docker_stack: Skips if either service unavailable
+
+    This fixture runs automatically (autouse=True) before each test.
+
+    Example:
+        @pytest.mark.requires_qdrant
+        def test_qdrant_integration():
+            # Test automatically skipped if Qdrant not running
+            pass
+
+    Best Practice (2026): Declarative marker-based skipping prevents test pollution
+    and provides clear test requirements in test signatures.
+    Source: https://docs.pytest.org/en/stable/how-to/skipping.html
+    """
+    # Get marker from test
+    requires_qdrant = request.node.get_closest_marker("requires_qdrant")
+    requires_embedding = request.node.get_closest_marker("requires_embedding")
+    requires_docker_stack = request.node.get_closest_marker("requires_docker_stack")
+
+    # Check if any service marker is present
+    if not (requires_qdrant or requires_embedding or requires_docker_stack):
+        return  # No service requirements, continue test
+
+    # Get configured ports from environment
+    qdrant_port = int(os.environ.get("QDRANT_PORT", "26350"))
+    embedding_port = int(os.environ.get("EMBEDDING_SERVICE_PORT", "28080"))
+
+    # Check service availability based on markers
+    if requires_qdrant or requires_docker_stack:
+        if not _check_service_available("localhost", qdrant_port):
+            pytest.skip(f"Qdrant service not available on port {qdrant_port}")
+
+    if requires_embedding or requires_docker_stack:
+        if not _check_service_available("localhost", embedding_port):
+            pytest.skip(f"Embedding service not available on port {embedding_port}")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -594,13 +710,17 @@ def wait_for_qdrant_healthy(timeout: int = 60) -> None:
     )
 
 
-# Edge case test group IDs for cleanup (Story 5.4 - Issue 5/6 fix)
-EDGE_CASE_TEST_GROUP_IDS = [
-    "concurrent-test",
-    "malformed-test",
-    "metadata-test",
-    "outage-test",
-    "timeout-test",
+# Edge case test content patterns for cleanup (TECH-DEBT-024 fix)
+# Tests create dynamic group_ids (e.g., "concurrent-test-edge-{timestamp}")
+# but we need to match by CONTENT patterns since group_ids are unpredictable.
+# Qdrant 2026 best practice: scroll + content filter + delete by IDs
+EDGE_CASE_TEST_CONTENT_PATTERNS = [
+    "Concurrent test memory",
+    "test implementation",
+    "Malformed test",
+    "Timeout test",
+    "edge-case-test",
+    "test-memory-content",
 ]
 
 
@@ -609,6 +729,11 @@ def cleanup_edge_case_memories():
     """Fixture to cleanup edge case test memories after test completion.
 
     Story 5.4 Code Review - Issue 6 fix: Add cleanup fixture like test_persistence.py.
+    TECH-DEBT-024 Fix: Changed from static group_id matching to content-based
+    pattern matching since tests create dynamic group_ids.
+
+    Qdrant 2026 Best Practice: Scroll + filter in Python + delete by IDs.
+    This handles dynamic group_ids like "concurrent-test-edge-{timestamp}".
 
     Removes all test memories created during edge case tests to prevent
     data pollution across test runs.
@@ -630,18 +755,47 @@ def cleanup_edge_case_memories():
     try:
         cleanup_client = QdrantClient(url=qdrant_url, timeout=10.0)
 
-        # Cleanup: Delete test memories by group_id
-        for group_id in EDGE_CASE_TEST_GROUP_IDS:
-            try:
-                cleanup_client.delete(
-                    collection_name="implementations",
-                    points_selector=Filter(
-                        must=[FieldCondition(key="group_id", match=MatchValue(value=group_id))]
-                    )
+        # Qdrant 2026 Best Practice: Scroll all points, filter by content, delete by IDs
+        # This handles dynamic group_ids that can't be predicted at fixture definition time
+        try:
+            results, _ = cleanup_client.scroll(
+                collection_name="code-patterns",
+                limit=500,  # Reasonable limit for test data
+                with_payload=True,
+                with_vectors=False  # Optimization: don't fetch vectors
+            )
+
+            # Filter points by content patterns (test data has recognizable patterns)
+            test_point_ids = []
+            for point in results:
+                content = point.payload.get("content", "")
+                group_id = point.payload.get("group_id", "")
+
+                # Match by content patterns
+                content_match = any(
+                    pattern.lower() in content.lower()
+                    for pattern in EDGE_CASE_TEST_CONTENT_PATTERNS
                 )
-            except Exception:
-                # Best effort cleanup - don't fail test if cleanup fails
-                pass
+
+                # Also match by group_id prefix (handles dynamic timestamps)
+                group_id_match = any(
+                    group_id.startswith(prefix)
+                    for prefix in ["concurrent-test-", "malformed-test-", "metadata-test-",
+                                   "outage-test-", "timeout-test-", "edge-case-"]
+                )
+
+                if content_match or group_id_match:
+                    test_point_ids.append(point.id)
+
+            # Delete identified test points
+            if test_point_ids:
+                cleanup_client.delete(
+                    collection_name="code-patterns",
+                    points_selector=test_point_ids
+                )
+        except Exception:
+            # Best effort cleanup - don't fail test if cleanup fails
+            pass
     except Exception:
         # Silently fail cleanup if Qdrant unreachable
         pass

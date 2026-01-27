@@ -1,0 +1,537 @@
+{
+  "uid": "bmad-memory-performance",
+  "title": "BMAD Memory Performance",
+  "tags": ["bmad", "memory", "performance", "latency"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 4,
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "# BMAD Memory Performance Dashboard\n\n**Purpose:** Deep-dive performance monitoring for latency-sensitive operations (hooks, embeddings, context injection).\n\n**Key Metrics:** Hook duration percentiles | Embedding latency | Context injection token counts | Trigger response times\n\n**SLA Targets:** Hooks p95 <500ms | Embeddings p95 <2s | Retrievals p95 <3s\n\n**Documentation:** `/docs/prometheus-queries.md` - See \"Hook Performance Metrics\" and \"Latency Monitoring\" sections"
+      }
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Memories (with Embeddings)",
+      "description": "Total memory entries with embeddings across all V2.0 collections. All memories have dense embeddings (required). If 0, check Qdrant collections exist and contain data.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(bmad_collection_size)",
+          "refId": "A",
+          "legendFormat": "Total Memories"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 10000,
+                "color": "yellow"
+              },
+              {
+                "value": 100000,
+                "color": "orange"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"]
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Embedding Duration (Avg)",
+      "description": "Average embedding generation time. Target: <2s. High values indicate network issues or embedding service overload. Check http://localhost:28080/health if >2s.",
+      "gridPos": {
+        "x": 8,
+        "y": 4,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(bmad_embedding_duration_seconds_sum) / sum(bmad_embedding_duration_seconds_count)",
+          "refId": "A",
+          "legendFormat": "Average"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1.0,
+                "color": "yellow"
+              },
+              {
+                "value": 2.0,
+                "color": "red"
+              }
+            ]
+          },
+          "mappings": []
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"]
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Embedding Duration Over Time",
+      "description": "Embedding latency trends by type. Helps identify performance degradation patterns. Spikes indicate temporary network/service issues.",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (embedding_type) (bmad_embedding_duration_seconds_sum) / sum by (embedding_type) (bmad_embedding_duration_seconds_count)",
+          "refId": "A",
+          "legendFormat": "avg - {{embedding_type}}"
+        },
+        {
+          "expr": "sum(bmad_embedding_duration_seconds_sum) / sum(bmad_embedding_duration_seconds_count)",
+          "refId": "B",
+          "legendFormat": "avg - all types"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "barAlignment": 0,
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": true,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "Duration",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1.0,
+                "color": "yellow"
+              },
+              {
+                "value": 2.0,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max", "last"]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Embedding Request Activity",
+      "description": "Cumulative embedding requests over time (Pushgateway sparse data). Shows total count - steps indicate new requests. Not a per-second rate due to sparse metric updates.",
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (embedding_type, status) (bmad_embedding_requests_total)",
+          "refId": "A",
+          "legendFormat": "{{embedding_type}} - {{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "barAlignment": 0,
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "gradientMode": "opacity",
+            "spanNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "Total Requests",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max"]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Hook Duration (by hook type)",
+      "description": "Average hook execution time per hook type. Target: <500ms (SLA). High values block Claude's workflow. Check Qdrant latency if SessionStart >3s.",
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (hook) (bmad_hook_duration_seconds_sum{hook!=\"\"}) / sum by (hook) (bmad_hook_duration_seconds_count{hook!=\"\"})",
+          "refId": "A",
+          "legendFormat": "{{hook}} (avg)"
+        },
+        {
+          "expr": "max by (hook) (bmad_hook_duration_seconds_sum{hook!=\"\"} / bmad_hook_duration_seconds_count{hook!=\"\"})",
+          "refId": "B",
+          "legendFormat": "{{hook}} (last)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "noValue": "No data",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 0.5,
+                "color": "yellow"
+              },
+              {
+                "value": 1.0,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "mean"]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Context Injection Tokens",
+      "description": "Cumulative tokens injected into SessionStart context from memory retrievals. Shows memory system value - higher counts = more context being provided to Claude.",
+      "gridPos": {
+        "x": 12,
+        "y": 18,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (hook_type, collection) (bmad_context_injection_tokens_sum)",
+          "refId": "A",
+          "legendFormat": "{{hook_type}} - {{collection}}"
+        },
+        {
+          "expr": "sum(bmad_context_injection_tokens_sum)",
+          "refId": "B",
+          "legendFormat": "Total Tokens"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max", "last"]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Trigger Activity (V2)",
+      "description": "Automatic trigger fires by type (error_detection, new_file, first_edit, decision_keywords, best_practices). Cumulative counts - steps show when triggers activated.",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (trigger_type) (bmad_trigger_fires_total)",
+          "refId": "A",
+          "legendFormat": "{{trigger_type}}"
+        },
+        {
+          "expr": "sum by (trigger_type, status) (bmad_trigger_fires_total)",
+          "refId": "B",
+          "legendFormat": "{{trigger_type}} - {{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max", "last"]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 101,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 24,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "---\n\n**Performance Thresholds:** Hook p95 <500ms is critical for user experience - hooks block Claude's workflow. Embedding p95 <2s ensures responsive memory capture. Context injection tokens should stay under 3000 to avoid latency.\n\n**Troubleshooting:** If panels show \"No data\", the system may be idle or newly installed. Trigger activity by using Claude Code normally - hooks will fire and metrics will populate. Check monitoring API health: `curl http://localhost:28000/health`\n\n**Optimization:** High embedding latency? Check network connectivity to embedding service (port 28080). High hook latency? Check Qdrant response times. High token counts? Review memory retrieval relevance scoring."
+      }
+    }
+  ],
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "liveNow": false,
+  "style": "dark"
+}

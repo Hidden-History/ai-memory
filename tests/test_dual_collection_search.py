@@ -49,13 +49,13 @@ def test_search_adds_collection_attribution():
         search = MemorySearch()
         results = search.search(
             query="test query",
-            collection="implementations",
+            collection="code-patterns",
             group_id="test-project"
         )
 
         # Verify collection field is added to results
         assert len(results) == 1
-        assert results[0]["collection"] == "implementations"
+        assert results[0]["collection"] == "code-patterns"
         assert results[0]["score"] == 0.95
         assert results[0]["content"] == "Test implementation"
 
@@ -80,7 +80,7 @@ def test_implementations_filtered_by_group_id():
         search = MemorySearch()
         search.search(
             query="test query",
-            collection="implementations",
+            collection="code-patterns",
             group_id="my-project"
         )
 
@@ -114,7 +114,7 @@ def test_best_practices_no_group_id_filter():
         search = MemorySearch()
         search.search(
             query="test query",
-            collection="best_practices",
+            collection="conventions",
             group_id=None  # No filter - shared across projects
         )
 
@@ -128,13 +128,13 @@ def test_best_practices_no_group_id_filter():
 def test_combined_results_sorted_by_score():
     """AC 3.2.3: Combined results sorted by relevance score (highest first)."""
     implementations = [
-        {"score": 0.88, "content": "impl1", "collection": "implementations"},
-        {"score": 0.92, "content": "impl2", "collection": "implementations"}
+        {"score": 0.88, "content": "impl1", "collection": "code-patterns"},
+        {"score": 0.92, "content": "impl2", "collection": "code-patterns"}
     ]
 
     best_practices = [
-        {"score": 0.95, "content": "bp1", "collection": "best_practices"},
-        {"score": 0.85, "content": "bp2", "collection": "best_practices"}
+        {"score": 0.95, "content": "bp1", "collection": "conventions"},
+        {"score": 0.85, "content": "bp2", "collection": "conventions"}
     ]
 
     # Combine and sort (as done in session_start.py)
@@ -160,13 +160,13 @@ def test_format_memory_entry_includes_collection():
         "score": 0.95,
         "content": "Test implementation code",
         "source_hook": "PostToolUse",
-        "collection": "implementations"
+        "collection": "code-patterns"
     }
 
     formatted = format_memory_entry(memory, truncate=False)
 
     # Verify collection is shown in formatted output
-    assert "[implementations]" in formatted or "implementations" in formatted.lower()
+    assert "[implementations]" in formatted or "code-patterns" in formatted.lower()
     assert "95%" in formatted
     assert "PostToolUse" in formatted
 
@@ -198,14 +198,14 @@ def test_dual_collection_search_performance_budget():
         # Implementations search
         search.search(
             query="test query",
-            collection="implementations",
+            collection="code-patterns",
             group_id="test-project"
         )
 
         # Best practices search
         search.search(
             query="test query",
-            collection="best_practices",
+            collection="conventions",
             group_id=None
         )
 
@@ -232,11 +232,11 @@ def test_session_start_dual_collection_logic():
     source = inspect.getsource(session_start.main)
 
     # Check for implementations search with group_id
-    assert 'collection="implementations"' in source
+    assert 'collection="code-patterns"' in source
     assert 'group_id=project_name' in source
 
     # Check for best_practices search without group_id
-    assert 'collection="best_practices"' in source
+    assert 'collection="conventions"' in source
     assert 'group_id=None' in source
 
     # Check for result combination

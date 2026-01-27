@@ -71,7 +71,7 @@ def get_collection_stats(
         >>> from qdrant_client import QdrantClient
         >>> config = get_config()
         >>> client = QdrantClient(host=config.qdrant_host, port=config.qdrant_port)
-        >>> stats = get_collection_stats(client, "implementations")
+        >>> stats = get_collection_stats(client, "code-patterns")
         >>> print(f"Total memories: {stats.total_points}")
     """
     # Get collection info (O(1) - cached in memory)
@@ -124,7 +124,7 @@ def get_unique_field_values(
         Sorted list of unique field values (empty list if no points)
 
     Example:
-        >>> projects = get_unique_field_values(client, "implementations", "group_id")
+        >>> projects = get_unique_field_values(client, "code-patterns", "group_id")
         >>> print(projects)
         ['proj-a', 'proj-b', 'proj-c']
     """
@@ -159,7 +159,7 @@ def calculate_disk_size(info) -> int:
         Total disk size in bytes (0 - not available via this API)
 
     Example:
-        >>> info = client.get_collection("implementations")
+        >>> info = client.get_collection("code-patterns")
         >>> size_bytes = calculate_disk_size(info)
         >>> size_mb = size_bytes / (1024 * 1024)
         >>> print(f"Collection size: {size_mb:.2f} MB")
@@ -186,7 +186,7 @@ def get_last_updated(
         ISO 8601 timestamp string of latest update, or None if unavailable
 
     Example:
-        >>> last_updated = get_last_updated(client, "implementations")
+        >>> last_updated = get_last_updated(client, "code-patterns")
         >>> print(f"Last updated: {last_updated or 'N/A'}")
     """
     try:

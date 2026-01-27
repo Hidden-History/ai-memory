@@ -22,6 +22,29 @@ import httpx
 import pytest
 
 
+def check_services_running(docker_compose_path: str) -> bool:
+    """Check if Docker Compose services are already running.
+
+    Used by the docker_stack fixture to determine if services were
+    pre-existing (e.g., production services) so we don't tear them down.
+
+    Args:
+        docker_compose_path: Path to docker-compose.yml
+
+    Returns:
+        True if at least one service is running, False otherwise
+    """
+    cwd = os.path.dirname(docker_compose_path)
+    result = subprocess.run(
+        ["docker", "compose", "-f", docker_compose_path, "ps", "--status", "running", "-q"],
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+    )
+    # If we get any container IDs, services are running
+    return bool(result.stdout.strip())
+
+
 def wait_for_services_healthy(
     docker_compose_path: str,
     max_wait: int = 120,
@@ -74,39 +97,50 @@ def docker_stack(docker_compose_path: str) -> Generator[None, None, None]:
 
     Uses --wait flag per 2025/2026 best practices to respect healthchecks.
     Falls back to manual health polling if --wait not available.
+
+    IMPORTANT: If services were already running (e.g., production services),
+    this fixture will NOT tear them down. Only services started by this
+    fixture will be stopped on teardown.
     """
     cwd = os.path.dirname(docker_compose_path)
 
-    # Start stack with --wait flag (Docker Compose v2.1+)
-    # This waits for healthchecks to pass before returning
-    result = subprocess.run(
-        ["docker", "compose", "-f", docker_compose_path, "up", "-d", "--wait"],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    )
+    # Check if services were already running before we start
+    services_were_running = check_services_running(docker_compose_path)
 
-    # If --wait failed or not supported, fall back to manual polling
-    if result.returncode != 0:
-        subprocess.run(
-            ["docker", "compose", "-f", docker_compose_path, "up", "-d"],
-            check=True,
+    if not services_were_running:
+        # Start stack with --wait flag (Docker Compose v2.1+)
+        # This waits for healthchecks to pass before returning
+        result = subprocess.run(
+            ["docker", "compose", "-f", docker_compose_path, "up", "-d", "--wait"],
             cwd=cwd,
+            capture_output=True,
+            text=True,
         )
-        if not wait_for_services_healthy(docker_compose_path, max_wait=120):
-            raise TimeoutError("Services failed to become healthy within 120s")
+
+        # If --wait failed or not supported, fall back to manual polling
+        if result.returncode != 0:
+            subprocess.run(
+                ["docker", "compose", "-f", docker_compose_path, "up", "-d"],
+                check=True,
+                cwd=cwd,
+            )
+            if not wait_for_services_healthy(docker_compose_path, max_wait=120):
+                raise TimeoutError("Services failed to become healthy within 120s")
 
     yield
 
-    # Teardown: stop stack (don't remove volumes to preserve data for persistence tests)
-    subprocess.run(
-        ["docker", "compose", "-f", docker_compose_path, "down"],
-        check=True,
-        cwd=cwd,
-    )
+    # Teardown: only stop stack if WE started it
+    # This prevents killing production services that were already running
+    if not services_were_running:
+        subprocess.run(
+            ["docker", "compose", "-f", docker_compose_path, "down"],
+            check=True,
+            cwd=cwd,
+        )
 
 
 @pytest.mark.integration
+@pytest.mark.requires_docker_stack
 class TestPersistentStorage:
     """AC 1.1.2 - Persistent Storage Verification"""
 
@@ -118,9 +152,18 @@ class TestPersistentStorage:
         When I store data in Qdrant
         And I run `docker compose down && docker compose up -d`
         Then the data is still present in Qdrant
+
+        IMPORTANT: This test restarts Docker services. It will be SKIPPED if
+        services were already running (e.g., production services) to prevent
+        disrupting active services.
         """
         collection_name = "test_persistence"
         cwd = os.path.dirname(docker_compose_path)
+
+        # CRITICAL: Skip if production services are running
+        # This test requires restarting services, which would disrupt production
+        if check_services_running(docker_compose_path):
+            pytest.skip("Skipping restart test - production services are running")
 
         try:
             with httpx.Client(base_url=qdrant_base_url, timeout=30.0) as client:
@@ -243,6 +286,7 @@ class TestPersistentStorage:
 
 
 @pytest.mark.integration
+@pytest.mark.requires_docker_stack
 class TestPortConfiguration:
     """AC 1.1.3 - Port Configuration"""
 
@@ -271,6 +315,7 @@ class TestPortConfiguration:
 
 
 @pytest.mark.integration
+@pytest.mark.requires_docker_stack
 class TestHealthcheck:
     """Verify Qdrant service is accessible"""
 

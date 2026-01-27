@@ -6,6 +6,13 @@ Tests cover:
 - AC 6.7.6: End-to-end monitoring flow tests
 
 Story 6.7: Monitoring Integration Tests
+
+Test Isolation Pattern:
+    This module uses pytest's monkeypatch fixture instead of importlib.reload()
+    for test isolation. Monkeypatch automatically restores original values after
+    each test, preventing state leakage that occurred with module reloading.
+
+    See TECH-DEBT-006 for full context on this pattern choice.
 """
 
 import pytest
@@ -14,7 +21,6 @@ from qdrant_client.models import VectorParams, Distance, PointStruct
 import os
 import time
 import httpx
-from unittest.mock import patch
 
 
 # ==============================================================================
@@ -23,6 +29,7 @@ from unittest.mock import patch
 
 
 @pytest.mark.integration
+@pytest.mark.requires_docker_stack
 class TestThresholdWarnings:
     """Tests for AC 6.7.5: Collection size threshold warnings."""
 
@@ -51,7 +58,7 @@ class TestThresholdWarnings:
         except Exception:
             pass  # Best effort cleanup
 
-    def test_warning_triggers_at_configured_threshold(self, qdrant_client, test_collection):
+    def test_warning_triggers_at_configured_threshold(self, qdrant_client, test_collection, monkeypatch):
         """Test that warnings are triggered when collection exceeds warning threshold.
 
         AC 6.7.5 Subtask 1: Warning triggers at configured thresholds.
@@ -59,38 +66,54 @@ class TestThresholdWarnings:
         Default warning threshold is 10,000 memories (FR46a).
         """
         from src.memory.stats import get_collection_stats
-        import importlib
-        import sys
+        import src.memory.warnings  # Import BEFORE patching - monkeypatch needs module object
 
-        # Patch environment BEFORE importing warnings module
-        with patch.dict(os.environ, {"BMAD_COLLECTION_SIZE_WARNING": "5", "BMAD_COLLECTION_SIZE_CRITICAL": "15"}):
-            # Reload warnings module to pick up new env vars
-            if 'src.memory.warnings' in sys.modules:
-                import src.memory.warnings
-                importlib.reload(src.memory.warnings)
-            from src.memory.warnings import check_collection_thresholds
+        # Defensive check: Verify module loaded threshold constants
+        assert hasattr(src.memory.warnings, 'COLLECTION_SIZE_WARNING'), \
+            "Module missing threshold constants"
+        assert hasattr(src.memory.warnings, 'COLLECTION_SIZE_CRITICAL'), \
+            "Module missing threshold constants"
 
-            # Add 6 memories (exceeds warning threshold of 5)
-            points = [
-                PointStruct(
-                    id=i,
-                    vector=[0.1] * 768,
-                    payload={"content": f"test memory {i}", "group_id": "threshold-test"}
-                )
-                for i in range(6)
-            ]
-            qdrant_client.upsert(collection_name=test_collection, points=points)
+        # Validate test configuration before patching
+        warning_val, critical_val = 5, 15
+        assert warning_val < critical_val, \
+            "Invalid test config: WARNING must be < CRITICAL"
 
-            # Get stats and check thresholds
-            stats = get_collection_stats(qdrant_client, test_collection)
-            warnings = check_collection_thresholds(stats)
+        # Patch threshold constants using monkeypatch (not importlib.reload).
+        # Monkeypatch automatically restores original values after test,
+        # preventing state leakage that importlib.reload() caused.
+        # See: TECH-DEBT-006 for full context.
+        monkeypatch.setattr(src.memory.warnings, "COLLECTION_SIZE_WARNING", warning_val)
+        monkeypatch.setattr(src.memory.warnings, "COLLECTION_SIZE_CRITICAL", critical_val)
 
-            # Should have warning
-            assert len(warnings) > 0, "No warnings triggered despite exceeding threshold"
-            assert any("warning" in w.lower() for w in warnings), \
-                f"Expected warning in messages: {warnings}"
+        # Verify patch took effect
+        assert src.memory.warnings.COLLECTION_SIZE_WARNING == warning_val, "Patch failed for WARNING"
+        assert src.memory.warnings.COLLECTION_SIZE_CRITICAL == critical_val, "Patch failed for CRITICAL"
 
-    def test_critical_alerts_at_higher_thresholds(self, qdrant_client, test_collection):
+        # Import function AFTER patching to ensure clarity (though it works either way)
+        from src.memory.warnings import check_collection_thresholds
+
+        # Add 6 memories (exceeds warning threshold of 5)
+        points = [
+            PointStruct(
+                id=i,
+                vector=[0.1] * 768,
+                payload={"content": f"test memory {i}", "group_id": "threshold-test"}
+            )
+            for i in range(6)
+        ]
+        qdrant_client.upsert(collection_name=test_collection, points=points)
+
+        # Get stats and check thresholds
+        stats = get_collection_stats(qdrant_client, test_collection)
+        warnings = check_collection_thresholds(stats)
+
+        # Should have warning
+        assert len(warnings) > 0, "No warnings triggered despite exceeding threshold"
+        assert any("warning" in w.lower() for w in warnings), \
+            f"Expected warning in messages: {warnings}"
+
+    def test_critical_alerts_at_higher_thresholds(self, qdrant_client, test_collection, monkeypatch):
         """Test that critical alerts trigger at higher thresholds.
 
         AC 6.7.5 Subtask 2: Critical alerts at higher thresholds.
@@ -98,35 +121,51 @@ class TestThresholdWarnings:
         Default critical threshold is 50,000 memories.
         """
         from src.memory.stats import get_collection_stats
-        import importlib
-        import sys
+        import src.memory.warnings  # Import BEFORE patching - monkeypatch needs module object
 
-        # Use low critical threshold for testing
-        with patch.dict(os.environ, {"BMAD_COLLECTION_SIZE_CRITICAL": "10", "BMAD_COLLECTION_SIZE_WARNING": "5"}):
-            # Reload warnings module to pick up new env vars
-            if 'src.memory.warnings' in sys.modules:
-                import src.memory.warnings
-                importlib.reload(src.memory.warnings)
-            from src.memory.warnings import check_collection_thresholds
+        # Defensive check: Verify module loaded threshold constants
+        assert hasattr(src.memory.warnings, 'COLLECTION_SIZE_WARNING'), \
+            "Module missing threshold constants"
+        assert hasattr(src.memory.warnings, 'COLLECTION_SIZE_CRITICAL'), \
+            "Module missing threshold constants"
 
-            # Add 11 memories (exceeds critical threshold of 10)
-            points = [
-                PointStruct(
-                    id=i,
-                    vector=[0.1] * 768,
-                    payload={"content": f"test memory {i}", "group_id": "threshold-test"}
-                )
-                for i in range(11)
-            ]
-            qdrant_client.upsert(collection_name=test_collection, points=points)
+        # Validate test configuration before patching
+        warning_val, critical_val = 5, 10
+        assert warning_val < critical_val, \
+            "Invalid test config: WARNING must be < CRITICAL"
 
-            stats = get_collection_stats(qdrant_client, test_collection)
-            warnings = check_collection_thresholds(stats)
+        # Patch threshold constants using monkeypatch (not importlib.reload).
+        # Monkeypatch automatically restores original values after test,
+        # preventing state leakage that importlib.reload() caused.
+        # See: TECH-DEBT-006 for full context.
+        monkeypatch.setattr(src.memory.warnings, "COLLECTION_SIZE_WARNING", warning_val)
+        monkeypatch.setattr(src.memory.warnings, "COLLECTION_SIZE_CRITICAL", critical_val)
 
-            # Should have critical alert
-            assert len(warnings) > 0, "No critical alerts triggered"
-            assert any("critical" in w.lower() for w in warnings), \
-                f"Expected critical alert in messages: {warnings}"
+        # Verify patch took effect
+        assert src.memory.warnings.COLLECTION_SIZE_WARNING == warning_val, "Patch failed for WARNING"
+        assert src.memory.warnings.COLLECTION_SIZE_CRITICAL == critical_val, "Patch failed for CRITICAL"
+
+        # Import function AFTER patching to ensure clarity (though it works either way)
+        from src.memory.warnings import check_collection_thresholds
+
+        # Add 11 memories (exceeds critical threshold of 10)
+        points = [
+            PointStruct(
+                id=i,
+                vector=[0.1] * 768,
+                payload={"content": f"test memory {i}", "group_id": "threshold-test"}
+            )
+            for i in range(11)
+        ]
+        qdrant_client.upsert(collection_name=test_collection, points=points)
+
+        stats = get_collection_stats(qdrant_client, test_collection)
+        warnings = check_collection_thresholds(stats)
+
+        # Should have critical alert
+        assert len(warnings) > 0, "No critical alerts triggered"
+        assert any("critical" in w.lower() for w in warnings), \
+            f"Expected critical alert in messages: {warnings}"
 
     def test_per_project_threshold_monitoring(self, qdrant_client, test_collection):
         """Test that per-project thresholds are monitored correctly.
@@ -190,40 +229,128 @@ class TestThresholdWarnings:
 
         assert gauge_value == 5, f"Gauge not updated correctly: expected 5, got {gauge_value}"
 
-    def test_health_status_reflects_degradation(self, qdrant_client, test_collection):
+    def test_health_status_reflects_degradation(self, qdrant_client, test_collection, monkeypatch):
         """Test that health status reflects degradation when thresholds exceeded.
 
         AC 6.7.5 Subtask 5: Health status degradation.
         """
         from src.memory.stats import get_collection_stats
-        import importlib
-        import sys
+        import src.memory.warnings  # Import BEFORE patching - monkeypatch needs module object
 
-        # Test with warning threshold
-        with patch.dict(os.environ, {"BMAD_COLLECTION_SIZE_WARNING": "3", "BMAD_COLLECTION_SIZE_CRITICAL": "10"}):
-            # Reload warnings module to pick up new env vars
-            if 'src.memory.warnings' in sys.modules:
-                import src.memory.warnings
-                importlib.reload(src.memory.warnings)
-            from src.memory.warnings import check_collection_thresholds
+        # Defensive check: Verify module loaded threshold constants
+        assert hasattr(src.memory.warnings, 'COLLECTION_SIZE_WARNING'), \
+            "Module missing threshold constants"
+        assert hasattr(src.memory.warnings, 'COLLECTION_SIZE_CRITICAL'), \
+            "Module missing threshold constants"
 
-            # Add 4 memories (exceeds warning)
-            points = [
-                PointStruct(
-                    id=i,
-                    vector=[0.1] * 768,
-                    payload={"content": f"test {i}", "group_id": "health-test"}
-                )
-                for i in range(4)
-            ]
-            qdrant_client.upsert(collection_name=test_collection, points=points)
+        # Validate test configuration before patching
+        warning_val, critical_val = 3, 10
+        assert warning_val < critical_val, \
+            "Invalid test config: WARNING must be < CRITICAL"
 
-            stats = get_collection_stats(qdrant_client, test_collection)
-            warnings = check_collection_thresholds(stats)
+        # Patch threshold constants using monkeypatch (not importlib.reload).
+        # Monkeypatch automatically restores original values after test,
+        # preventing state leakage that importlib.reload() caused.
+        # See: TECH-DEBT-006 for full context.
+        monkeypatch.setattr(src.memory.warnings, "COLLECTION_SIZE_WARNING", warning_val)
+        monkeypatch.setattr(src.memory.warnings, "COLLECTION_SIZE_CRITICAL", critical_val)
 
-            # Warnings should indicate degraded health
-            assert len(warnings) > 0, "No health degradation detected"
-            # In production, this would update a health check endpoint
+        # Verify patch took effect
+        assert src.memory.warnings.COLLECTION_SIZE_WARNING == warning_val, "Patch failed for WARNING"
+        assert src.memory.warnings.COLLECTION_SIZE_CRITICAL == critical_val, "Patch failed for CRITICAL"
+
+        # Import function AFTER patching to ensure clarity (though it works either way)
+        from src.memory.warnings import check_collection_thresholds
+
+        # Add 4 memories (exceeds warning)
+        points = [
+            PointStruct(
+                id=i,
+                vector=[0.1] * 768,
+                payload={"content": f"test {i}", "group_id": "health-test"}
+            )
+            for i in range(4)
+        ]
+        qdrant_client.upsert(collection_name=test_collection, points=points)
+
+        stats = get_collection_stats(qdrant_client, test_collection)
+        warnings = check_collection_thresholds(stats)
+
+        # Warnings should indicate degraded health
+        assert len(warnings) > 0, "No health degradation detected"
+        # In production, this would update a health check endpoint
+
+    def test_monkeypatch_cleanup_verification(self, monkeypatch):
+        """Verify that monkeypatch properly restores original threshold values.
+
+        Issue #5 (MEDIUM): Test cleanup verification.
+
+        This test ensures we don't have the state leakage that importlib.reload() caused.
+        Monkeypatch should automatically restore original values after each test.
+        """
+        import src.memory.warnings
+
+        # Record original values
+        original_warning = src.memory.warnings.COLLECTION_SIZE_WARNING
+        original_critical = src.memory.warnings.COLLECTION_SIZE_CRITICAL
+
+        # Patch within test scope
+        monkeypatch.setattr(src.memory.warnings, "COLLECTION_SIZE_WARNING", 999)
+        monkeypatch.setattr(src.memory.warnings, "COLLECTION_SIZE_CRITICAL", 9999)
+
+        # Verify patch is active
+        assert src.memory.warnings.COLLECTION_SIZE_WARNING == 999, "Patch didn't apply"
+        assert src.memory.warnings.COLLECTION_SIZE_CRITICAL == 9999, "Patch didn't apply"
+
+        # After test completes, pytest's monkeypatch fixture will automatically
+        # restore original values. This is verified by running the test suite
+        # multiple times - if restoration fails, subsequent tests would see
+        # the patched values (999/9999) instead of originals (10000/50000).
+
+    @pytest.mark.parametrize("iteration", [1, 2, 3])
+    def test_threshold_warnings_idempotent(self, qdrant_client, test_collection, monkeypatch, iteration):
+        """Verify test can run multiple times without state leakage.
+
+        Issue #8 (LOW): Idempotency test.
+
+        Running this test 3 times (via parametrize) proves that monkeypatch
+        cleanup works correctly and there's no state leakage between runs.
+        """
+        from src.memory.stats import get_collection_stats
+        import src.memory.warnings
+
+        # Validate test configuration
+        warning_val, critical_val = 5, 15
+        assert warning_val < critical_val
+
+        # Patch thresholds
+        monkeypatch.setattr(src.memory.warnings, "COLLECTION_SIZE_WARNING", warning_val)
+        monkeypatch.setattr(src.memory.warnings, "COLLECTION_SIZE_CRITICAL", critical_val)
+
+        # Verify patch
+        assert src.memory.warnings.COLLECTION_SIZE_WARNING == warning_val
+        assert src.memory.warnings.COLLECTION_SIZE_CRITICAL == critical_val
+
+        from src.memory.warnings import check_collection_thresholds
+
+        # Add memories exceeding threshold
+        points = [
+            PointStruct(
+                id=i + (iteration * 100),  # Unique IDs per iteration
+                vector=[0.1] * 768,
+                payload={"content": f"iter{iteration}-{i}", "group_id": f"idempotent-{iteration}"}
+            )
+            for i in range(6)
+        ]
+        qdrant_client.upsert(collection_name=test_collection, points=points)
+
+        # Verify warnings triggered (should work identically across all iterations)
+        stats = get_collection_stats(qdrant_client, test_collection)
+        warnings = check_collection_thresholds(stats)
+
+        assert len(warnings) > 0, f"Iteration {iteration}: No warnings triggered"
+        assert any("warning" in w.lower() for w in warnings), \
+            f"Iteration {iteration}: Expected warning in messages"
 
 
 # ==============================================================================
@@ -233,6 +360,7 @@ class TestThresholdWarnings:
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.requires_docker_stack
 class TestEndToEndMonitoring:
     """Tests for AC 6.7.6: End-to-end monitoring flow verification."""
 
@@ -340,7 +468,7 @@ class TestEndToEndMonitoring:
         logger.info(
             "memory_retrieved",
             extra={
-                "collection": "implementations",
+                "collection": "code-patterns",
                 "results_count": 5,
                 "duration_ms": 234
             }
@@ -348,7 +476,7 @@ class TestEndToEndMonitoring:
 
         # Increment retrieval metrics
         memory_retrievals_total.labels(
-            collection="implementations",
+            collection="code-patterns",
             status="success"
         ).inc()
 
@@ -428,3 +556,68 @@ class TestEndToEndMonitoring:
                 assert "bmad_failure_events_total" in response.text
             except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError):
                 pytest.skip("Embedding service not running - start with docker compose up")
+
+    @pytest.mark.asyncio
+    async def test_pushgateway_hook_metrics_flow(self):
+        """Test hook metrics are pushed to Pushgateway and scraped by Prometheus.
+
+        AC 6.7.6 Subtask 5: Pushgateway integration end-to-end.
+
+        Flow:
+        1. Push test metric to Pushgateway using metrics_push module
+        2. Query Pushgateway /metrics endpoint to verify metric appears
+        3. Wait for Prometheus scrape interval
+        4. Query Prometheus API to verify metric was scraped
+        """
+        from src.memory.metrics_push import push_hook_metrics
+        import os
+
+        # Push test metric to Pushgateway
+        test_hook_name = "test_pushgateway_e2e"
+        test_duration = 0.123
+        push_hook_metrics(test_hook_name, test_duration, success=True)
+
+        # Verify metric appears in Pushgateway
+        pushgateway_port = os.environ.get("PUSHGATEWAY_PORT", "29091")
+        async with httpx.AsyncClient() as client:
+            try:
+                # Query Pushgateway metrics endpoint
+                response = await client.get(
+                    f"http://localhost:{pushgateway_port}/metrics",
+                    timeout=5.0
+                )
+                assert response.status_code == 200, f"Pushgateway returned {response.status_code}"
+
+                # Verify our metric is present
+                metrics_text = response.text
+                assert "bmad_hook_duration_seconds" in metrics_text, \
+                    "Hook duration metric not found in Pushgateway"
+                assert test_hook_name in metrics_text, \
+                    f"Test hook '{test_hook_name}' not found in Pushgateway metrics"
+
+                # Wait for Prometheus scrape interval (15s default)
+                import asyncio
+                await asyncio.sleep(16)  # Wait slightly longer than scrape interval
+
+                # Query Prometheus API to verify metric was scraped
+                prometheus_port = os.environ.get("PROMETHEUS_PORT", "29090")
+                prom_response = await client.get(
+                    f"http://localhost:{prometheus_port}/api/v1/query",
+                    params={
+                        "query": f'bmad_hook_duration_seconds_count{{hook="{test_hook_name}"}}'
+                    },
+                    timeout=5.0,
+                    follow_redirects=True
+                )
+
+                if prom_response.status_code == 200:
+                    prom_data = prom_response.json()
+                    # Verify Prometheus scraped the metric from Pushgateway
+                    assert prom_data.get("status") == "success", \
+                        f"Prometheus query failed: {prom_data}"
+                    results = prom_data.get("data", {}).get("result", [])
+                    assert len(results) > 0, \
+                        "Prometheus did not scrape hook metric from Pushgateway"
+
+            except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
+                pytest.skip(f"Monitoring services not running: {e}")

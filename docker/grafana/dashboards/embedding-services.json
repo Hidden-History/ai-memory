@@ -1,0 +1,478 @@
+{
+  "uid": "bmad-embedding-services",
+  "title": "BMAD Embedding Services",
+  "tags": ["bmad", "embedding", "performance", "v2"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": ["10s", "30s", "1m", "5m", "15m"]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "# BMAD Embedding Services Dashboard\n\n**Purpose:** Monitor multi-embedding system performance, latency, and request distribution.\n\n**Embedding Types:** Dense (Jina v2 - required) | BM25 (optional - lexical) | SPLADE (optional - learned sparse)\n\n**SLA Targets:** p95 latency <2s | Success rate >95% | Dense always enabled\n\n**Documentation:** `/docs/prometheus-queries.md` - See \"Multi-Embedding Metrics\" section"
+      }
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Dense (Jina v2)",
+      "description": "Total memories with dense embeddings (jinaai/jina-embeddings-v2-base-en). Required for all memory captures. All memories in V2.0 collections have dense embeddings. If 0, check Qdrant collections exist.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(bmad_collection_size)",
+          "refId": "A",
+          "legendFormat": "Total Memories"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 100,
+                "color": "yellow"
+              },
+              {
+                "value": 500,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"]
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "BM25 (Optional)",
+      "description": "Lexical sparse embeddings (BM25 algorithm). Optional enhancement for improved recall. 'Not Enabled' is expected unless explicitly configured in embedding service.",
+      "gridPos": {
+        "x": 8,
+        "y": 4,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(bmad_embedding_requests_total{embedding_type=\"sparse_bm25\"})",
+          "refId": "A",
+          "legendFormat": "BM25 Total"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 100,
+                "color": "yellow"
+              },
+              {
+                "value": 500,
+                "color": "red"
+              }
+            ]
+          },
+          "noValue": "Not Enabled"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"]
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "SPLADE (Optional)",
+      "description": "Learned sparse embeddings (SPLADE model). Optional enhancement. Slower than BM25 (500ms-1s). 'Not Enabled' is expected unless explicitly configured.",
+      "gridPos": {
+        "x": 16,
+        "y": 4,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(bmad_embedding_requests_total{embedding_type=\"sparse_splade\"})",
+          "refId": "A",
+          "legendFormat": "SPLADE Total"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 100,
+                "color": "yellow"
+              },
+              {
+                "value": 500,
+                "color": "red"
+              }
+            ]
+          },
+          "noValue": "Not Enabled"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"]
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 11,
+      "type": "text",
+      "title": "Embedding Status Note",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Note on Indexed Vectors:** `indexed_vectors_count=0` is **expected behavior** with m=0 multi-tenancy configuration (TECH-DEBT-064). BMAD uses payload filtering (`group_id`) for multi-tenancy, not HNSW indexing. All embeddings are stored and searchable via scroll API.\n\n**Embedding Status:** Dense embeddings (required) = 100% of successful captures. BM25 and SPLADE are optional enhancements, typically disabled unless explicitly configured."
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Embedding Requests by Type",
+      "description": "Cumulative embedding requests over time by type and status. Shows counter values (not rate) - steps indicate new requests. Sparse data from Pushgateway hooks.",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (embedding_type, status) (bmad_embedding_requests_total)",
+          "refId": "A",
+          "legendFormat": "{{embedding_type}} - {{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max", "last"]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Embedding Duration by Type",
+      "description": "Average embedding latency per type. Dense target <2s. BM25 fast <100ms. SPLADE slower 500ms-1s. Spikes indicate network/service issues.",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (embedding_type) (bmad_embedding_duration_seconds_sum) / sum by (embedding_type) (bmad_embedding_duration_seconds_count)",
+          "refId": "A",
+          "legendFormat": "avg - {{embedding_type}}"
+        },
+        {
+          "expr": "sum(bmad_embedding_duration_seconds_sum) / sum(bmad_embedding_duration_seconds_count)",
+          "refId": "B",
+          "legendFormat": "avg - all types"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1.0,
+                "color": "yellow"
+              },
+              {
+                "value": 2.0,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max", "last"]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Avg Embedding Duration",
+      "description": "Overall average embedding generation time across all types. Target <2s. Green <1s, Yellow 1-2s, Red >2s. Check embedding service if consistently red.",
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(bmad_embedding_duration_seconds_sum) / sum(bmad_embedding_duration_seconds_count)",
+          "refId": "A",
+          "legendFormat": "Average Duration"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1.0,
+                "color": "yellow"
+              },
+              {
+                "value": 2.0,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"]
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 7,
+      "type": "bargauge",
+      "title": "Success Rate by Embedding Type",
+      "description": "Success percentage per embedding type. Target >95%. Red <90%. Low success rate indicates embedding service issues or network problems.",
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum by (embedding_type) (bmad_embedding_requests_total{status=\"success\", embedding_type!=\"\"}) / sum by (embedding_type) (bmad_embedding_requests_total{embedding_type!=\"\"}) * 100",
+          "refId": "A",
+          "legendFormat": "{{embedding_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 90,
+                "color": "yellow"
+              },
+              {
+                "value": 95,
+                "color": "green"
+              }
+            ]
+          },
+          "min": 0,
+          "max": 100
+        }
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 101,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 24,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "---\n\n**Multi-Embedding Architecture:** BMAD supports hybrid retrieval with dense (semantic) + sparse (lexical/learned) embeddings. Dense (Jina v2) is required and always enabled. BM25 and SPLADE are optional enhancements for improved recall.\n\n**Troubleshooting:** If BM25/SPLADE show \"Not Enabled\", this is expected unless you've explicitly configured sparse embeddings in your deployment. Dense embeddings alone provide excellent semantic search.\n\n**Performance Notes:** Dense p95 latency <2s is critical for hook performance. BM25 is fast (<100ms) but SPLADE may be slower (500ms-1s). Monitor request rates to ensure embedding service can handle load."
+      }
+    }
+  ],
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "liveNow": false,
+  "style": "dark"
+}

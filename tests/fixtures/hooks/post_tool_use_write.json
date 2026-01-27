@@ -1,0 +1,13 @@
+{
+  "session_id": "sess_post_tool_write_005",
+  "transcript_path": "/tmp/test_transcript_write.jsonl",
+  "event_type": "post_tool_use",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/mnt/e/projects/bmad-memory-module/src/memory/deduplication.py",
+    "content": "import hashlib\n\ndef compute_hash(content: str) -> str:\n    \"\"\"Compute SHA-256 hash of content.\"\"\"\n    return hashlib.sha256(content.encode('utf-8')).hexdigest()"
+  },
+  "tool_output": "File created successfully",
+  "cwd": "/mnt/e/projects/bmad-memory-module",
+  "turn_number": 12
+}

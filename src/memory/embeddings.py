@@ -15,6 +15,7 @@ from typing import Optional
 import httpx
 
 from .config import MemoryConfig, get_config
+from .metrics_push import push_embedding_metrics_async, push_failure_metrics_async
 
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
 try:
@@ -133,11 +134,19 @@ class EmbeddingClient:
             embeddings = response.json()["embeddings"]
 
             # Metrics: Embedding request success (Story 6.1, AC 6.1.3)
+            # TECH-DEBT-067: Add embedding_type label (always "dense" for now)
+            duration_seconds = time.perf_counter() - start_time
             if embedding_requests_total:
-                embedding_requests_total.labels(status="success").inc()
+                embedding_requests_total.labels(status="success", embedding_type="dense").inc()
             if embedding_duration_seconds:
-                duration_seconds = time.perf_counter() - start_time
-                embedding_duration_seconds.observe(duration_seconds)
+                embedding_duration_seconds.labels(embedding_type="dense").observe(duration_seconds)
+
+            # Push to Pushgateway for hook subprocess visibility
+            push_embedding_metrics_async(
+                status="success",
+                embedding_type="dense",
+                duration_seconds=duration_seconds
+            )
 
             return embeddings
 
@@ -152,17 +161,29 @@ class EmbeddingClient:
             )
 
             # Metrics: Embedding request timeout (Story 6.1, AC 6.1.3)
+            # TECH-DEBT-067: Add embedding_type label (always "dense" for now)
+            duration_seconds = time.perf_counter() - start_time
             if embedding_requests_total:
-                embedding_requests_total.labels(status="timeout").inc()
+                embedding_requests_total.labels(status="timeout", embedding_type="dense").inc()
             if embedding_duration_seconds:
-                duration_seconds = time.perf_counter() - start_time
-                embedding_duration_seconds.observe(duration_seconds)
+                embedding_duration_seconds.labels(embedding_type="dense").observe(duration_seconds)
 
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
                 failure_events_total.labels(
                     component="embedding", error_code="EMBEDDING_TIMEOUT"
                 ).inc()
+
+            # Push to Pushgateway for hook subprocess visibility
+            push_embedding_metrics_async(
+                status="timeout",
+                embedding_type="dense",
+                duration_seconds=duration_seconds
+            )
+            push_failure_metrics_async(
+                component="embedding",
+                error_code="EMBEDDING_TIMEOUT"
+            )
 
             raise EmbeddingError("EMBEDDING_TIMEOUT") from e
 
@@ -177,17 +198,29 @@ class EmbeddingClient:
             )
 
             # Metrics: Embedding request failed (Story 6.1, AC 6.1.3)
+            # TECH-DEBT-067: Add embedding_type label (always "dense" for now)
+            duration_seconds = time.perf_counter() - start_time
             if embedding_requests_total:
-                embedding_requests_total.labels(status="failed").inc()
+                embedding_requests_total.labels(status="failed", embedding_type="dense").inc()
             if embedding_duration_seconds:
-                duration_seconds = time.perf_counter() - start_time
-                embedding_duration_seconds.observe(duration_seconds)
+                embedding_duration_seconds.labels(embedding_type="dense").observe(duration_seconds)
 
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
                 failure_events_total.labels(
                     component="embedding", error_code="EMBEDDING_ERROR"
                 ).inc()
+
+            # Push to Pushgateway for hook subprocess visibility
+            push_embedding_metrics_async(
+                status="failed",
+                embedding_type="dense",
+                duration_seconds=duration_seconds
+            )
+            push_failure_metrics_async(
+                component="embedding",
+                error_code="EMBEDDING_ERROR"
+            )
 
             raise EmbeddingError(f"EMBEDDING_ERROR: {e}") from e
 

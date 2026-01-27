@@ -31,7 +31,7 @@ class TestCheckCollectionThresholds:
     def test_no_warnings_below_threshold(self, caplog):
         """check_collection_thresholds() returns no warnings below WARNING threshold."""
         stats = CollectionStats(
-            collection_name="implementations",
+            collection_name="code-patterns",
             total_points=5000,  # Below 10K WARNING
             indexed_points=5000,
             segments_count=1,
@@ -49,7 +49,7 @@ class TestCheckCollectionThresholds:
     def test_warning_at_threshold(self, caplog):
         """check_collection_thresholds() logs WARNING at 10K default."""
         stats = CollectionStats(
-            collection_name="implementations",
+            collection_name="code-patterns",
             total_points=10000,  # Exactly at WARNING
             indexed_points=10000,
             segments_count=2,
@@ -64,19 +64,19 @@ class TestCheckCollectionThresholds:
 
             # Verify warnings returned (collection + per-project)
             assert len(warnings) == 2
-            assert any("WARNING" in w and "implementations" in w and "10000" in w for w in warnings)
+            assert any("WARNING" in w and "code-patterns" in w and "10000" in w for w in warnings)
             assert any("proj-a" in w for w in warnings)
 
             # Verify structured logging (2 calls: collection + project)
             assert mock_logger.warning.call_count == 2
             calls = mock_logger.warning.call_args_list
             assert calls[0][0][0] == "collection_size_warning"
-            assert calls[0][1]["extra"]["collection"] == "implementations"
+            assert calls[0][1]["extra"]["collection"] == "code-patterns"
 
     def test_critical_at_threshold(self, caplog):
         """check_collection_thresholds() logs CRITICAL at 50K default."""
         stats = CollectionStats(
-            collection_name="best_practices",
+            collection_name="conventions",
             total_points=50000,  # At CRITICAL
             indexed_points=50000,
             segments_count=5,
@@ -91,14 +91,14 @@ class TestCheckCollectionThresholds:
 
             # Verify warnings returned (CRITICAL + per-project WARNING)
             assert len(warnings) == 2
-            assert any("CRITICAL" in w and "best_practices" in w for w in warnings)
+            assert any("CRITICAL" in w and "conventions" in w for w in warnings)
             assert any("global" in w for w in warnings)
 
             # Verify structured logging with ERROR level for collection
             mock_logger.error.assert_called_once_with(
                 "collection_size_critical",
                 extra={
-                    "collection": "best_practices",
+                    "collection": "conventions",
                     "size": 50000,
                     "threshold": 50000,
                 },
@@ -109,7 +109,7 @@ class TestCheckCollectionThresholds:
     def test_critical_takes_precedence_over_warning(self):
         """check_collection_thresholds() returns CRITICAL not WARNING if both apply."""
         stats = CollectionStats(
-            collection_name="implementations",
+            collection_name="code-patterns",
             total_points=55000,  # Above both WARNING and CRITICAL
             indexed_points=55000,
             segments_count=6,
@@ -124,7 +124,7 @@ class TestCheckCollectionThresholds:
 
             # CRITICAL for collection + WARNING for project
             assert len(warnings) == 2
-            assert any("CRITICAL" in w and "implementations" in w for w in warnings)
+            assert any("CRITICAL" in w and "code-patterns" in w for w in warnings)
             assert any("WARNING" in w and "proj-a" in w for w in warnings)
 
             # Error logged for collection, warning for project
@@ -134,7 +134,7 @@ class TestCheckCollectionThresholds:
     def test_per_project_warnings(self):
         """check_collection_thresholds() warns about individual projects over threshold."""
         stats = CollectionStats(
-            collection_name="implementations",
+            collection_name="code-patterns",
             total_points=15000,  # Above WARNING
             indexed_points=15000,
             segments_count=3,
@@ -153,7 +153,7 @@ class TestCheckCollectionThresholds:
 
             # Collection WARNING + per-project WARNING for proj-a
             assert len(warnings) == 2
-            assert any("implementations" in w and "15000" in w for w in warnings)
+            assert any("code-patterns" in w and "15000" in w for w in warnings)
             assert any("proj-a" in w and "12000" in w for w in warnings)
 
             # Verify both structured logs
@@ -162,7 +162,7 @@ class TestCheckCollectionThresholds:
     def test_empty_collection_no_warnings(self):
         """check_collection_thresholds() returns no warnings for empty collection."""
         stats = CollectionStats(
-            collection_name="implementations",
+            collection_name="code-patterns",
             total_points=0,
             indexed_points=0,
             segments_count=0,
@@ -197,7 +197,7 @@ class TestStructuredLoggingFormat:
     def test_warning_uses_extra_dict_not_fstring(self):
         """Warnings use structured logging with extra dict, not f-strings."""
         stats = CollectionStats(
-            collection_name="implementations",
+            collection_name="code-patterns",
             total_points=10000,
             indexed_points=10000,
             segments_count=1,
@@ -227,7 +227,7 @@ class TestStructuredLoggingFormat:
     def test_critical_uses_logger_error(self):
         """CRITICAL warnings use logger.error, not logger.warning."""
         stats = CollectionStats(
-            collection_name="implementations",
+            collection_name="code-patterns",
             total_points=50000,
             indexed_points=50000,
             segments_count=5,

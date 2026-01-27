@@ -156,7 +156,7 @@ def test_format_memory_entry_full():
         "score": 0.95,
         "content": "Test content",
         "created_at": "2026-01-17T16:43:22Z",
-        "collection": "agent-memory"
+        "collection": "discussions"
     }
 
     entry = format_memory_entry(memory, truncate=False)

@@ -40,19 +40,29 @@ sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Try to import from installed location first, fall back to relative
 try:
-    from memory.config import get_config
+    from memory.config import (
+        get_config,
+        COLLECTION_CODE_PATTERNS,
+        COLLECTION_CONVENTIONS,
+        COLLECTION_DISCUSSIONS,
+    )
     from memory.qdrant_client import get_qdrant_client, QdrantUnavailable
 except ImportError:
     # Running from dev repo
     sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
-    from memory.config import get_config
+    from memory.config import (
+        get_config,
+        COLLECTION_CODE_PATTERNS,
+        COLLECTION_CONVENTIONS,
+        COLLECTION_DISCUSSIONS,
+    )
     from memory.qdrant_client import get_qdrant_client, QdrantUnavailable
 
-# Collection names
+# V2.0 Collection names (Memory System Spec v2.0, 2026-01-17)
 COLLECTIONS_TO_CHECK = [
-    "implementations",
-    "best_practices",
-    "agent-memory",
+    COLLECTION_CODE_PATTERNS,  # code-patterns
+    COLLECTION_CONVENTIONS,    # conventions
+    COLLECTION_DISCUSSIONS,    # discussions
 ]
 
 # Required metadata fields for ALL memory types
@@ -61,22 +71,25 @@ REQUIRED_FIELDS = ["type", "group_id", "source_hook"]
 # Optional but recommended fields
 RECOMMENDED_FIELDS = ["agent", "component", "story_id", "importance"]
 
-# All valid memory types
+# All valid memory types (v2.0)
 VALID_TYPES = [
-    # implementations collection
+    # code-patterns collection (HOW)
     "implementation",
-    "architecture_decision",
-    "story_outcome",
-    "error_pattern",
-    "database_schema",
-    "config_pattern",
-    "integration_example",
-    # best_practices collection
-    "best_practice",
-    # agent-memory collection
-    "session_summary",
-    "chat_memory",
-    "agent_decision",
+    "error_fix",
+    "refactor",
+    "file_pattern",
+    # conventions collection (WHAT)
+    "guideline",
+    "anti_pattern",
+    "decision",
+    # discussions collection (WHY)
+    "session",
+    "conversation",
+    "analysis",
+    "reflection",
+    "context",
+    "decision_record",
+    "lesson_learned",
 ]
 
 VALID_IMPORTANCE = ["critical", "high", "medium", "low"]

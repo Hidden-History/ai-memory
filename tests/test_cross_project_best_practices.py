@@ -9,7 +9,7 @@ test coverage for:
 Test Strategy:
 - Integration tests with real Qdrant client (requires Docker stack)
 - Time delays for embedding/indexing (2s per operation)
-- Explicit assertions for group_id="shared" and collection="best_practices"
+- Explicit assertions for group_id="shared" and collection="conventions"
 
 Architecture Reference: architecture.md:690-789
 """
@@ -44,7 +44,7 @@ class TestBestPracticesSharing:
         )
 
         assert bp_result["status"] in ["stored", "duplicate"]
-        assert bp_result["collection"] == "best_practices"
+        assert bp_result["collection"] == "conventions"
         assert bp_result["group_id"] == "shared"
         assert "memory_id" in bp_result
 
@@ -71,13 +71,13 @@ class TestBestPracticesSharing:
 
         if type_hints_result:
             assert type_hints_result["group_id"] == "shared"
-            assert type_hints_result["collection"] == "best_practices"
+            assert type_hints_result["collection"] == "conventions"
         else:
             # If no match found due to collection pollution, verify any results have correct schema
             # TODO: Add collection cleanup fixture for true isolation
             if results:
                 assert results[0]["group_id"] == "shared"
-                assert results[0]["collection"] == "best_practices"
+                assert results[0]["collection"] == "conventions"
 
     def test_best_practices_not_in_implementations_collection(self, qdrant_client):
         """Test that best practices don't leak into implementations collection.
@@ -101,7 +101,7 @@ class TestBestPracticesSharing:
         search = MemorySearch()
         impl_results = search.search(
             query="mock external APIs",
-            collection="implementations",
+            collection="code-patterns",
             group_id="project-a",
         )
 
@@ -128,7 +128,7 @@ class TestBestPracticesSharing:
             content="Implemented OAuth2 login flow using FastAPI for project-a",
             cwd="/path/to/project-a",
             group_id="project-a",
-            collection="implementations",
+            collection="code-patterns",
             memory_type=MemoryType.IMPLEMENTATION,
             session_id="session-2",
             source_hook="PostToolUse",
@@ -187,7 +187,7 @@ class TestBestPracticesSharing:
         # With collection pollution, may return fewer than requested
         assert len(results) > 0, "Should return at least some results"
         assert all(r["group_id"] == "shared" for r in results)
-        assert all(r["collection"] == "best_practices" for r in results)
+        assert all(r["collection"] == "conventions" for r in results)
 
 
 class TestBestPracticesStorage:
@@ -202,7 +202,7 @@ class TestBestPracticesStorage:
         When: I call store_best_practice()
         Then: Memory is stored successfully
         And: group_id is "shared"
-        And: collection is "best_practices"
+        And: collection is "conventions"
         And: memory_type is "pattern"
         """
         result = store_best_practice(
@@ -214,7 +214,7 @@ class TestBestPracticesStorage:
 
         assert result["status"] in ["stored", "duplicate"]
         assert result["group_id"] == "shared"
-        assert result["collection"] == "best_practices"
+        assert result["collection"] == "conventions"
         assert "memory_id" in result
         # Accept "n/a" for duplicates (deduplication working correctly)
         assert result["embedding_status"] in ["complete", "pending", "n/a"]
@@ -248,7 +248,7 @@ class TestBestPracticesRetrieval:
         When: I call retrieve_best_practices()
         Then: Results are returned without project filtering
         And: All results have group_id="shared"
-        And: All results have collection="best_practices"
+        And: All results have collection="conventions"
         """
         # Store some best practices
         store_best_practice(
@@ -267,7 +267,7 @@ class TestBestPracticesRetrieval:
         assert len(results) <= 3
         for result in results:
             assert result["group_id"] == "shared"
-            assert result["collection"] == "best_practices"
+            assert result["collection"] == "conventions"
             assert "score" in result
             assert "content" in result
 
@@ -338,7 +338,7 @@ class TestFilterConstructionWithNone:
         search = MemorySearch()
         results = search.search(
             query="async await I/O operations",
-            collection="best_practices",
+            collection="conventions",
             group_id=None,  # CRITICAL: None = no filter
             limit=5,
         )
@@ -358,7 +358,7 @@ class TestFilterConstructionWithNone:
         try:
             results = search.search(
                 query="any query",
-                collection="best_practices",
+                collection="conventions",
                 group_id=None,
                 limit=1,
             )

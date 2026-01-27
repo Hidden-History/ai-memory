@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""UserPromptSubmit Hook - Retrieve session history when user asks about past work.
+
+Memory System V2.0 Phase 3: Trigger System
+Automatically retrieves session summaries when user asks about project status or history.
+
+Signal Detection:
+    - UserPromptSubmit hook
+    - Keywords: "what have we done", "project status", "where were we", etc.
+    - Uses detect_session_history_keywords() for detection
+
+Action:
+    - Search discussions collection
+    - Filter by type="session"
+    - Query based on extracted topic
+    - Inject up to 3 session summaries to stdout
+
+Configuration:
+    - Hook: UserPromptSubmit
+    - Collection: discussions
+    - Type filter: "session"
+    - Max results: 3
+
+Architecture:
+    UserPromptSubmit -> Extract prompt -> detect_session_history_keywords() -> Extract topic
+    -> Search discussions -> Format results -> Output to stdout -> Claude sees context
+
+Exit Codes:
+    - 0: Success (or graceful degradation)
+"""
+
+import json
+import logging
+import os
+import sys
+import time
+from pathlib import Path
+
+# Add src to path for imports
+INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
+
+# Configure structured logging using shared utility
+from memory.config import COLLECTION_DISCUSSIONS
+from memory.hooks_common import setup_hook_logging, log_to_activity, get_metrics, get_trigger_metrics
+
+logger = setup_hook_logging()
+
+# CR-2 FIX: Use consolidated metrics import
+memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = get_metrics()
+
+# TECH-DEBT-067: V2.0 trigger metrics
+trigger_fires_total, trigger_results_returned = get_trigger_metrics()
+
+# Display formatting constants
+MAX_CONTENT_CHARS = 500  # Maximum characters to show in context output (standardized LOW-1)
+SESSION_ID_DISPLAY_LEN = 8  # Standard truncation for session IDs
+
+
+def format_session_summary(summary: dict, index: int) -> str:
+    """Format a single session summary for display.
+
+    Args:
+        summary: Summary dict with content, score, session_id
+        index: 1-based index for numbering
+
+    Returns:
+        Formatted string for stdout display
+    """
+    content = summary.get("content", "")
+    score = summary.get("score", 0)
+    summary_type = summary.get("type", "session")
+    created_at = summary.get("created_at", "")
+
+    # Extract date from timestamp
+    date_str = created_at[:10] if created_at else "unknown"
+
+    # Build header with relevance
+    header = f"{index}. **{summary_type}** ({score:.0%}) [discussions] - {date_str}"
+
+    # Truncate content if too long
+    if len(content) > MAX_CONTENT_CHARS:
+        content = content[:MAX_CONTENT_CHARS] + "..."
+
+    return f"{header}\n{content}\n"
+
+
+def main() -> int:
+    """UserPromptSubmit hook entry point.
+
+    Reads hook input from stdin, detects session history keywords in user prompt,
+    searches discussions collection for session summaries, and outputs to stdout.
+
+    Returns:
+        Exit code: Always 0 (graceful degradation)
+    """
+    start_time = time.perf_counter()
+
+    try:
+        # Parse hook input from stdin
+        try:
+            hook_input = json.load(sys.stdin)
+        except json.JSONDecodeError:
+            logger.warning("malformed_hook_input")
+            return 0
+
+        # Extract context
+        cwd = hook_input.get("cwd", os.getcwd())
+        user_input = hook_input.get("prompt", "")
+
+        if not user_input:
+            logger.debug("no_user_input")
+            return 0
+
+        # Detect session history keywords (trigger condition)
+        from memory.triggers import detect_session_history_keywords, TRIGGER_CONFIG
+
+        topic = detect_session_history_keywords(user_input)
+        if not topic:
+            # No session history keywords detected
+            logger.debug("no_session_history_keywords", extra={"user_input": user_input[:50]})
+            return 0
+
+        # Session history keywords detected - retrieve session summaries
+        config = TRIGGER_CONFIG.get("session_history_keywords", {})
+        if not config.get("enabled", False):
+            logger.debug("session_history_trigger_disabled")
+            return 0
+
+        # Build query from extracted topic
+        query = f"Session summary {topic}"
+
+        # Search discussions collection
+        from memory.search import MemorySearch
+        from memory.config import get_config
+        from memory.health import check_qdrant_health
+        from memory.qdrant_client import get_qdrant_client
+        from memory.project import detect_project
+
+        mem_config = get_config()
+        client = get_qdrant_client(mem_config)
+
+        # Check Qdrant health
+        if not check_qdrant_health(client):
+            logger.warning("qdrant_unavailable")
+            if memory_retrievals_total:
+                memory_retrievals_total.labels(collection=COLLECTION_DISCUSSIONS, status="failed").inc()
+            return 0
+
+        # Detect project for filtering
+        project_name = detect_project(cwd)
+
+        # Search for relevant session summaries
+        search = MemorySearch(mem_config)
+        try:
+            results = search.search(
+                query=query,
+                collection=COLLECTION_DISCUSSIONS,
+                group_id=project_name,  # Project-specific sessions
+                limit=config.get("max_results", 3),
+                score_threshold=mem_config.similarity_threshold,
+                memory_type=config.get("type_filter", "session")
+            )
+
+            if not results:
+                # No relevant session summaries found
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                log_to_activity(f"📋 SessionHistory: No summaries found for '{topic[:50]}'", INSTALL_DIR)
+                logger.debug("no_session_summaries_found", extra={
+                    "topic": topic[:50],
+                    "query": query[:50],
+                    "duration_ms": round(duration_ms, 2)
+                })
+                if memory_retrievals_total:
+                    memory_retrievals_total.labels(collection=COLLECTION_DISCUSSIONS, status="empty").inc()
+                # TECH-DEBT-067: Track trigger fires with status="empty"
+                if trigger_fires_total:
+                    trigger_fires_total.labels(trigger_type="session_history_keywords", status="empty", project=project_name).inc()
+                if trigger_results_returned:
+                    trigger_results_returned.labels(trigger_type="session_history_keywords").observe(0)
+
+                # TECH-DEBT-067 Part 2: Push metrics to Pushgateway
+                from memory.metrics_push import push_trigger_metrics
+                push_trigger_metrics(
+                    trigger_type="session_history_keywords",
+                    status="empty",
+                    project=project_name,
+                    results_count=0,
+                    duration_seconds=(time.perf_counter() - start_time)
+                )
+                return 0
+
+            # Format for stdout display
+            output_parts = []
+            output_parts.append("\n" + "="*70)
+            output_parts.append("📋 SESSION HISTORY")
+            output_parts.append("="*70)
+            output_parts.append(f"Question: {user_input[:100]}")
+            output_parts.append(f"Topic: {topic[:80]}")
+            output_parts.append("")
+
+            for i, summary in enumerate(results, 1):
+                output_parts.append(format_session_summary(summary, i))
+
+            output_parts.append("="*70 + "\n")
+
+            # Output to stdout (Claude sees this with the prompt)
+            print("\n".join(output_parts))
+
+            # Log success
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            log_to_activity(f"📋 SessionHistory retrieved for '{topic[:50]}' [{duration_ms:.0f}ms]", INSTALL_DIR)
+            logger.info("session_history_retrieved", extra={
+                "topic": topic[:50],
+                "results_count": len(results),
+                "duration_ms": round(duration_ms, 2),
+                "project": project_name
+            })
+
+            # Metrics
+            if memory_retrievals_total:
+                memory_retrievals_total.labels(collection=COLLECTION_DISCUSSIONS, status="success").inc()
+            if retrieval_duration_seconds:
+                retrieval_duration_seconds.observe(duration_ms / 1000.0)
+            if hook_duration_seconds:
+                hook_duration_seconds.labels(hook_type="UserPromptSubmit_SessionHistory").observe(duration_ms / 1000.0)
+            # TECH-DEBT-067: Track trigger fires and results
+            if trigger_fires_total:
+                trigger_fires_total.labels(trigger_type="session_history_keywords", status="success", project=project_name).inc()
+            if trigger_results_returned:
+                trigger_results_returned.labels(trigger_type="session_history_keywords").observe(len(results))
+
+            # TECH-DEBT-067 Part 2: Push metrics to Pushgateway
+            from memory.metrics_push import push_trigger_metrics
+            push_trigger_metrics(
+                trigger_type="session_history_keywords",
+                status="success",
+                project=project_name,
+                results_count=len(results),
+                duration_seconds=duration_seconds
+            )
+
+        finally:
+            search.close()
+
+        return 0
+
+    except Exception as e:
+        # Catch-all error handler - always gracefully degrade
+        logger.error("hook_failed", extra={
+            "error": str(e),
+            "error_type": type(e).__name__
+        })
+
+        # Metrics
+        if memory_retrievals_total:
+            memory_retrievals_total.labels(collection=COLLECTION_DISCUSSIONS, status="failed").inc()
+        if hook_duration_seconds:
+            duration_seconds = time.perf_counter() - start_time
+            hook_duration_seconds.labels(hook_type="UserPromptSubmit_SessionHistory").observe(duration_seconds)
+
+        return 0  # Always exit 0 - graceful degradation
+
+
+if __name__ == "__main__":
+    sys.exit(main())

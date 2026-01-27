@@ -13,6 +13,7 @@ from src.memory.search import MemorySearch
 from src.memory.storage import MemoryStorage
 
 
+@pytest.mark.requires_qdrant
 class TestSearchIntegration:
     """Test search module with running Docker stack."""
 
@@ -43,7 +44,7 @@ class TestSearchIntegration:
             {
                 "content": f"Test pattern for database connection pooling with SQLAlchemy [{unique_suffix}]",
                 "group_id": self.test_group_id,
-                "memory_type": MemoryType.PATTERN,
+                "memory_type": MemoryType.GUIDELINE,
             },
             {
                 "content": f"Test decision to use Redis for caching layer [{unique_suffix}]",
@@ -77,7 +78,7 @@ class TestSearchIntegration:
             from qdrant_client.models import PointIdsList
             for mem_id in self.mem_ids:
                 storage.client.delete(
-                    collection_name="implementations",
+                    collection_name="code-patterns",
                     points_selector=PointIdsList(points=[mem_id]),
                 )
         except Exception:
@@ -91,7 +92,7 @@ class TestSearchIntegration:
         # similarity scores of 0.3-0.6 for related content, not 0.7+ like some models
         results = search.search(
             query="Python async implementation",
-            collection="implementations",
+            collection="code-patterns",
             group_id=self.test_group_id,
             limit=5,
             score_threshold=0.3,  # Lower threshold for test content
@@ -113,7 +114,7 @@ class TestSearchIntegration:
         # Search with both filters
         results = search.search(
             query="test",
-            collection="implementations",
+            collection="code-patterns",
             group_id=self.test_group_id,
             memory_type="implementation",
         )
@@ -130,14 +131,14 @@ class TestSearchIntegration:
         # Search implementations
         impl_results = search.search(
             query="implementation",
-            collection="implementations",
+            collection="code-patterns",
             group_id=self.test_group_id,
         )
 
         # Search best_practices (likely empty for test project)
         bp_results = search.search(
             query="implementation",
-            collection="best_practices",
+            collection="conventions",
             # No group_id filter - best_practices are shared
         )
 
@@ -156,10 +157,10 @@ class TestSearchIntegration:
         )
 
         # Should return both collections
-        assert "implementations" in results
-        assert "best_practices" in results
-        assert isinstance(results["implementations"], list)
-        assert isinstance(results["best_practices"], list)
+        assert "code-patterns" in results
+        assert "conventions" in results
+        assert isinstance(results["code-patterns"], list)
+        assert isinstance(results["conventions"], list)
 
     def test_tiered_formatting_with_real_data(self):
         """Test tiered results formatting with real search data."""
@@ -168,7 +169,7 @@ class TestSearchIntegration:
         # Search for something likely to match
         results = search.search(
             query="test implementation",
-            collection="implementations",
+            collection="code-patterns",
             group_id=self.test_group_id,
             limit=5,
         )
@@ -203,7 +204,7 @@ class TestSearchIntegration:
         # Search with high threshold
         high_threshold_results = search.search(
             query="test",
-            collection="implementations",
+            collection="code-patterns",
             group_id=self.test_group_id,
             score_threshold=0.95,
         )
@@ -211,7 +212,7 @@ class TestSearchIntegration:
         # Search with low threshold
         low_threshold_results = search.search(
             query="test",
-            collection="implementations",
+            collection="code-patterns",
             group_id=self.test_group_id,
             score_threshold=0.5,
         )
@@ -230,7 +231,7 @@ class TestSearchIntegration:
         # Search with limit=2
         results = search.search(
             query="test",
-            collection="implementations",
+            collection="code-patterns",
             group_id=self.test_group_id,
             limit=2,
         )
@@ -239,13 +240,19 @@ class TestSearchIntegration:
         assert len(results) <= 2
 
     def test_search_empty_results(self):
-        """Test search with query unlikely to match."""
+        """Test search with query unlikely to match.
+
+        Note: Uses high score_threshold (0.8) to filter out low-quality matches.
+        conftest.py sets global SIMILARITY_THRESHOLD=0.4 for test coverage,
+        but this test verifies empty result handling with strict matching.
+        """
         search = MemorySearch()
 
         results = search.search(
             query="xyzabc123nonexistent",
-            collection="implementations",
+            collection="code-patterns",
             group_id=self.test_group_id,
+            score_threshold=0.8,  # High threshold to ensure nonsense query returns empty
         )
 
         # Should return empty list (not an error)
@@ -258,7 +265,7 @@ class TestSearchIntegration:
 
         results = search.search(
             query="Python async implementation",
-            collection="implementations",
+            collection="code-patterns",
             group_id=self.test_group_id,
             limit=5,
         )

@@ -2,7 +2,7 @@
 
 **Purpose:** This document defines the complete architecture of the BMAD Memory Module. It explains WHAT we're building, WHY each component exists, and HOW they work together. This is the authoritative reference to prevent implementation mistakes.
 
-**Last Updated:** 2026-01-17
+**Last Updated:** 2026-01-26 (V2.0 collection names)
 
 ---
 
@@ -51,7 +51,9 @@ bmad-memory-module/
       scripts/             # Claude Code lifecycle hooks
         session_start.py
         post_tool_capture.py
-        session_stop.py
+        agent_response_capture.py
+        archived/          # Deprecated hooks
+          session_stop.py
   src/
     memory/                # Core Python memory system
   docker/                  # Qdrant + monitoring stack
@@ -79,15 +81,15 @@ Every BMAD agent can leverage the memory system. The memory hooks integrate at s
 
 | Agent | Memory Read | Memory Write | Primary Collection |
 |-------|-------------|--------------|-------------------|
-| **Analyst (Mary)** | Load previous research | Store analysis decisions | agent-memory |
-| **PM (John)** | Load PRD patterns | Store requirement decisions | agent-memory |
-| **Architect (Winston)** | Load architecture patterns | Store architecture decisions | implementations + agent-memory |
-| **SM (Bob)** | Load story outcomes | Store sprint decisions | agent-memory |
-| **DEV (Amelia)** | Load implementation patterns | Store code patterns | implementations |
-| **Barry (Quick Flow)** | Load all relevant context | Store outcomes | implementations + agent-memory |
-| **TEA (Murat)** | Load test strategies | Store test patterns | implementations |
-| **Sally (UX)** | Load UX patterns | Store design decisions | agent-memory |
-| **Paige (Tech Writer)** | Load documentation patterns | Store doc patterns | best_practices |
+| **Analyst (Mary)** | Load previous research | Store analysis decisions | discussions |
+| **PM (John)** | Load PRD patterns | Store requirement decisions | discussions |
+| **Architect (Winston)** | Load architecture patterns | Store architecture decisions | code-patterns + discussions |
+| **SM (Bob)** | Load story outcomes | Store sprint decisions | discussions |
+| **DEV (Amelia)** | Load implementation patterns | Store code patterns | code-patterns |
+| **Barry (Quick Flow)** | Load all relevant context | Store outcomes | code-patterns + discussions |
+| **TEA (Murat)** | Load test strategies | Store test patterns | code-patterns |
+| **Sally (UX)** | Load UX patterns | Store design decisions | discussions |
+| **Paige (Tech Writer)** | Load documentation patterns | Store doc patterns | conventions |
 
 ### Workflow Integration Points
 
@@ -96,8 +98,8 @@ Memory hooks are injected at standard workflow steps:
 ```
 Workflow Step 1:    Load story/task
 Workflow Step 1.5:  PRE-WORK MEMORY SEARCH (blocking)
-                    ├── Search implementations for feature patterns
-                    └── Search agent-memory for previous decisions
+                    ├── Search code-patterns for feature patterns
+                    └── Search discussions for previous decisions
 
 Workflow Steps 2-6: Execute work (with memory context)
 
@@ -161,7 +163,7 @@ This module works in TWO modes:
 - store-chat-memory preserves agent decisions
 - load-chat-context retrieves previous agent reasoning
 
-Both modes use the same three collections (`agent-memory`, `implementations`, `best_practices`) and the same Qdrant infrastructure.
+Both modes use the same three collections (`discussions`, `code-patterns`, `conventions`) and the same Qdrant infrastructure.
 
 ---
 
@@ -224,8 +226,8 @@ where we left off?"
 ### How It Works
 
 1. **Session 1 ends** → Stop hook captures session summary
-2. Summary stored in `agent-memory` collection with project ID
-3. **Session 2 starts** → SessionStart hook searches `agent-memory`
+2. Summary stored in `discussions` collection with project ID
+3. **Session 2 starts** → SessionStart hook searches `discussions`
 4. Previous session summaries retrieved and injected into Claude's context
 5. Claude can reference previous work without being told
 
@@ -233,7 +235,7 @@ where we left off?"
 
 Session summaries are **fundamentally different** from implementation patterns:
 
-| Session Summaries (agent-memory) | Implementation Patterns (implementations) |
+| Session Summaries (discussions) | Implementation Patterns (code-patterns) |
 |----------------------------------|------------------------------------------|
 | "What we did last time" | "How we built feature X" |
 | High-level narrative | Specific code with file:line references |
@@ -249,7 +251,7 @@ Session summaries are **fundamentally different** from implementation patterns:
 
 ## Three-Collection Architecture
 
-### Collection 1: `agent-memory`
+### Collection 1: `discussions`
 
 **Purpose:** Store session memories, chat decisions, and workflow context for continuity across sessions.
 
@@ -279,7 +281,7 @@ Session summaries are **fundamentally different** from implementation patterns:
 
 ---
 
-### Collection 2: `implementations` (bmad-knowledge)
+### Collection 2: `code-patterns` (bmad-knowledge)
 
 **Purpose:** Store implementation patterns, code snippets, architecture decisions with specific file:line references.
 
@@ -313,7 +315,7 @@ Session summaries are **fundamentally different** from implementation patterns:
 
 ---
 
-### Collection 3: `best_practices`
+### Collection 3: `conventions`
 
 **Purpose:** Store universal patterns that apply across ALL projects. Shared learning.
 
@@ -347,7 +349,7 @@ Session summaries are **fundamentally different** from implementation patterns:
 
 ### Collection Comparison Summary
 
-| Aspect | agent-memory | implementations | best_practices |
+| Aspect | discussions | code-patterns | conventions |
 |--------|--------------|-----------------|----------------|
 | **Purpose** | Session continuity | Code patterns | Universal patterns |
 | **Scope** | Per-project | Per-project | All projects |
@@ -399,13 +401,13 @@ These hooks are triggered by BMAD workflows during structured work:
 
 **What It Does:**
 1. Detects current project from working directory
-2. Searches `agent-memory` collection for this project's previous sessions
+2. Searches `discussions` collection for this project's previous sessions
 3. Formats session summaries for Claude's context
 4. Outputs JSON with `additionalContext` field
 
-**What It Searches:** `agent-memory` collection ONLY
+**What It Searches:** `discussions` collection ONLY
 
-**Why Not implementations?** Session start needs high-level "what did we do" context, not specific code patterns. Code patterns are for when you know what feature you're working on.
+**Why Not code-patterns?** Session start needs high-level "what did we do" context, not specific code patterns. Code patterns are for when you know what feature you're working on.
 
 **Output Format:**
 ```json
@@ -433,9 +435,9 @@ These hooks are triggered by BMAD workflows during structured work:
 1. Validates tool completed successfully (has filePath, no error)
 2. Extracts file path, content, and context
 3. Forks to background process (must return in <500ms)
-4. Background process stores to `implementations` collection
+4. Background process stores to `code-patterns` collection
 
-**What It Stores To:** `implementations` collection
+**What It Stores To:** `code-patterns` collection
 
 **Why Background Fork?** PostToolUse must not slow down Claude's tool execution. The 500ms limit is critical for user experience.
 
@@ -451,23 +453,30 @@ These hooks are triggered by BMAD workflows during structured work:
 
 ### Stop Hook
 
-**File:** `session_stop.py`
+**Files:** `activity_logger.py`, `agent_response_capture.py`
 
 **Trigger:** Claude Code finishes generating a response (NOT session end!)
 
-**Purpose:** Optional "continue working" logic
+**Purpose:** Agent response capture and activity logging
+
+**DEPRECATED:** `session_stop.py` (archived 2026-01-21)
+- Original purpose: Session storage at Stop hook
+- Reason for deprecation: Duplicated PreCompact functionality, created noise
+- Replacement: PreCompact hook for session storage, SDK wrapper for agent responses
+- Location: `.claude/hooks/scripts/archived/session_stop.py`
 
 **IMPORTANT DISCOVERY (2026-01-17):** The Stop hook fires when Claude finishes responding to a message, NOT when the session actually ends. This makes it unsuitable for reliable session storage because:
 - It fires multiple times per session (once per response)
 - Session may end abruptly without triggering
 - Race condition with process termination
 
-**Current Usage:** Kept for potential "continue working" logic, but NOT used for session storage. See PreCompact hook for session storage.
+**Current Usage:** Agent response capture via SDK wrapper, activity logging. See PreCompact hook for session storage.
 
 **What It Does:**
 1. Fires after each Claude response completes
-2. Can be used for per-response logic (if needed)
-3. NO LONGER used for session storage (use PreCompact instead)
+2. Captures agent responses via `agent_response_capture.py` (SDK wrapper)
+3. Logs activity via `activity_logger.py`
+4. NOT used for session storage (use PreCompact instead)
 
 **Critical Rule:** Must complete quickly. Session continues after this hook.
 
@@ -479,7 +488,7 @@ These hooks are triggered by BMAD workflows during structured work:
 
 **Trigger:** Before context compaction (manual `/compact` or automatic)
 
-**Purpose:** Store session summary to agent-memory - the CORRECT solution for session storage
+**Purpose:** Store session summary to discussions - the CORRECT solution for session storage
 
 **Why PreCompact?**
 1. Fires BEFORE compaction with full transcript access
@@ -490,10 +499,10 @@ These hooks are triggered by BMAD workflows during structured work:
 **What It Does:**
 1. Reads session transcript from stdin
 2. Generates summary of accomplishments, decisions, files modified
-3. Stores to `agent-memory` collection with project group_id
+3. Stores to `discussions` collection with project group_id
 4. Logs activity for debugging
 
-**What It Stores To:** `agent-memory` collection
+**What It Stores To:** `discussions` collection
 
 **Configuration:**
 ```json
@@ -521,7 +530,7 @@ In addition to automatic hooks, three manual commands are available:
 
 #### /save-memory
 
-**Purpose:** Manually save current session context to agent-memory
+**Purpose:** Manually save current session context to discussions
 
 **When to Use:**
 - Before ending a session early (without compaction)
@@ -571,7 +580,7 @@ These hooks integrate with BMAD Method workflows (dev-story, create-architecture
 - `--story-id` - Story identifier
 - `--limit` - Max results (default: 3)
 
-**What It Searches:** `implementations` collection (+ optionally `best_practices`)
+**What It Searches:** `code-patterns` collection (+ optionally `conventions`)
 
 **Query:** The `--feature` parameter - specific, not generic
 
@@ -597,7 +606,7 @@ These hooks integrate with BMAD Method workflows (dev-story, create-architecture
 - `--common-errors` - Errors encountered
 - `--testing` - Test information
 
-**What It Stores To:** `implementations` collection
+**What It Stores To:** `code-patterns` collection
 
 **Validation:**
 - MUST include file:line references
@@ -620,9 +629,9 @@ These hooks integrate with BMAD Method workflows (dev-story, create-architecture
 - `decision` - Decision text
 - `--importance` - critical/high/medium/low
 
-**What It Stores To:** `agent-memory` collection
+**What It Stores To:** `discussions` collection
 
-**Why agent-memory?** Decisions are about continuity ("why did we choose PostgreSQL?"), not code patterns.
+**Why discussions?** Decisions are about continuity ("why did we choose PostgreSQL?"), not code patterns.
 
 ---
 
@@ -637,7 +646,7 @@ These hooks integrate with BMAD Method workflows (dev-story, create-architecture
 - `topic` - What to search for
 - `--limit` - Max memories
 
-**What It Searches:** `agent-memory` collection
+**What It Searches:** `discussions` collection
 
 ---
 
@@ -659,7 +668,7 @@ Each BMAD agent has specific memory patterns based on their role. Understanding 
 - Project classification decisions (greenfield/brownfield)
 - Discovery workflow selections
 
-**Primary Collection:** `agent-memory`
+**Primary Collection:** `discussions`
 
 **Workflow Integration:**
 ```
@@ -682,7 +691,7 @@ workflow-init Step 9.5: store-chat-memory analyst "workflow-classification" "<de
 - Requirements clarifications
 - Epic breakdown rationale
 
-**Primary Collection:** `agent-memory`
+**Primary Collection:** `discussions`
 
 **Workflow Integration:**
 ```
@@ -697,7 +706,7 @@ create-prd Step P.5: store-chat-memory pm "prd-decisions" "<summary>"
 **Role:** Technical system design
 
 **Memory Reads:**
-- Architecture patterns from implementations
+- Architecture patterns from code-patterns
 - Database schema designs
 - Integration patterns
 - Previous architecture decisions
@@ -707,7 +716,7 @@ create-prd Step P.5: store-chat-memory pm "prd-decisions" "<summary>"
 - Architecture decision rationale
 - Technical trade-off decisions
 
-**Primary Collections:** `implementations` + `agent-memory`
+**Primary Collections:** `code-patterns` + `discussions`
 
 **Workflow Integration:**
 ```
@@ -716,8 +725,8 @@ create-architecture Step 5.5: store-architecture-patterns (stores 5 patterns + d
 ```
 
 **Special:** Architect stores to BOTH collections:
-- Technical patterns → `implementations`
-- Decision rationale → `agent-memory`
+- Technical patterns → `code-patterns`
+- Decision rationale → `discussions`
 
 ---
 
@@ -735,7 +744,7 @@ create-architecture Step 5.5: store-architecture-patterns (stores 5 patterns + d
 - Story specification decisions
 - Retrospective learnings
 
-**Primary Collection:** `agent-memory`
+**Primary Collection:** `discussions`
 
 **Token Budget:** 800 (lowest - needs only story outcomes)
 
@@ -764,7 +773,7 @@ create-story Step A.1: load-project-context sm create-story <story-id>
 - Integration examples created
 - Testing approaches used
 
-**Primary Collection:** `implementations`
+**Primary Collection:** `code-patterns`
 
 **Token Budget:** 1000
 
@@ -793,7 +802,7 @@ dev-story Step 6.5: post-work-store <story-id> <component> "<what-built>"
 - Quick decisions made
 - Patterns discovered
 
-**Primary Collections:** `implementations` + `agent-memory`
+**Primary Collections:** `code-patterns` + `discussions`
 
 **Token Budget:** 1000
 
@@ -816,7 +825,7 @@ dev-story Step 6.5: post-work-store <story-id> <component> "<what-built>"
 - Automation patterns created
 - Quality gate configurations
 
-**Primary Collection:** `implementations`
+**Primary Collection:** `code-patterns`
 
 **Token Budget:** 1000
 
@@ -836,7 +845,7 @@ dev-story Step 6.5: post-work-store <story-id> <component> "<what-built>"
 - User flow patterns
 - Component specifications
 
-**Primary Collection:** `agent-memory`
+**Primary Collection:** `discussions`
 
 **Token Budget:** 1000
 
@@ -855,7 +864,7 @@ dev-story Step 6.5: post-work-store <story-id> <component> "<what-built>"
 - Documentation patterns (if universal)
 - Standards compliance findings
 
-**Primary Collection:** `best_practices` (reads), `agent-memory` (writes)
+**Primary Collection:** `conventions` (reads), `discussions` (writes)
 
 **Token Budget:** 1000
 
@@ -865,15 +874,15 @@ dev-story Step 6.5: post-work-store <story-id> <component> "<what-built>"
 
 | Agent | Reads From | Writes To | Token Budget | file:line Required |
 |-------|------------|-----------|--------------|-------------------|
-| Analyst | agent-memory | agent-memory | 1200 | No |
-| PM | agent-memory | agent-memory | 1200 | No |
-| Architect | implementations, agent-memory | implementations, agent-memory | 1500 | Yes (for implementations) |
-| SM | agent-memory | agent-memory | 800 | No |
-| Developer | implementations | implementations | 1000 | Yes |
-| Quick Flow | implementations, agent-memory | implementations, agent-memory | 1000 | Yes (for implementations) |
-| TEA | implementations | implementations | 1000 | Yes |
-| UX Designer | agent-memory | agent-memory | 1000 | No |
-| Tech Writer | best_practices, agent-memory | agent-memory, best_practices | 1000 | No |
+| Analyst | discussions | discussions | 1200 | No |
+| PM | discussions | discussions | 1200 | No |
+| Architect | code-patterns, discussions | code-patterns, discussions | 1500 | Yes (for code-patterns) |
+| SM | discussions | discussions | 800 | No |
+| Developer | code-patterns | code-patterns | 1000 | Yes |
+| Quick Flow | code-patterns, discussions | code-patterns, discussions | 1000 | Yes (for code-patterns) |
+| TEA | code-patterns | code-patterns | 1000 | Yes |
+| UX Designer | discussions | discussions | 1000 | No |
+| Tech Writer | conventions, discussions | discussions, conventions | 1000 | No |
 
 ---
 
@@ -921,7 +930,7 @@ Different agents need different amounts of context:
 
 ## Validation Requirements
 
-### For `implementations` Collection
+### For `code-patterns` Collection
 
 **File:Line References (REQUIRED)**
 
@@ -971,7 +980,7 @@ All memories must include required metadata fields:
 │                                                              │
 │  SESSION START                                               │
 │  ┌──────────────────┐                                       │
-│  │ SessionStart     │──→ Search agent-memory                │
+│  │ SessionStart     │──→ Search discussions                │
 │  │ Hook             │──→ Get previous session summaries     │
 │  └──────────────────┘──→ Inject "aha moment" context        │
 │           │                                                  │
@@ -979,7 +988,7 @@ All memories must include required metadata fields:
 │  DURING SESSION                                              │
 │  ┌──────────────────┐                                       │
 │  │ PostToolUse      │──→ Capture code patterns              │
-│  │ Hook             │──→ Store to implementations           │
+│  │ Hook             │──→ Store to code-patterns           │
 │  └──────────────────┘──→ (background, non-blocking)         │
 │           │                                                  │
 │           ▼                                                  │
@@ -987,7 +996,7 @@ All memories must include required metadata fields:
 │  ┌──────────────────┐                                       │
 │  │ PreCompact       │──→ Read session transcript            │
 │  │ Hook             │──→ Generate session summary           │
-│  └──────────────────┘──→ Store to agent-memory              │
+│  └──────────────────┘──→ Store to discussions              │
 │           │                                                  │
 │           ▼                                                  │
 │  ON RESPONSE COMPLETE                                        │
@@ -1012,7 +1021,7 @@ All memories must include required metadata fields:
 │  Step 1.5: PRE-WORK SEARCH (blocking)                       │
 │  ┌──────────────────┐                                       │
 │  │ pre-work-search  │──→ Query: "JWT authentication"        │
-│  │                  │──→ Search: implementations            │
+│  │                  │──→ Search: code-patterns            │
 │  │                  │──→ Return: Relevant code patterns     │
 │  └──────────────────┘                                       │
 │           │                                                  │
@@ -1025,7 +1034,7 @@ All memories must include required metadata fields:
 │  ┌──────────────────┐                                       │
 │  │ post-work-store  │──→ Store: What was built              │
 │  │                  │──→ Include: file:line references      │
-│  │                  │──→ Collection: implementations        │
+│  │                  │──→ Collection: code-patterns        │
 │  └──────────────────┘                                       │
 │           │                                                  │
 │           ▼                                                  │
@@ -1041,29 +1050,29 @@ All memories must include required metadata fields:
 │                  COLLECTION DATA FLOW                        │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
-│  WRITES TO agent-memory:                                    │
+│  WRITES TO discussions:                                    │
 │  ├── Stop hook (session summaries)                          │
 │  └── store-chat-memory (workflow decisions)                 │
 │                                                              │
-│  READS FROM agent-memory:                                   │
+│  READS FROM discussions:                                   │
 │  ├── SessionStart hook (aha moment)                         │
 │  └── load-chat-context (workflow history)                   │
 │                                                              │
 │  ─────────────────────────────────────────────────────────  │
 │                                                              │
-│  WRITES TO implementations:                                  │
+│  WRITES TO code-patterns:                                  │
 │  ├── PostToolUse hook (automatic code capture)              │
 │  └── post-work-store (workflow outcomes)                    │
 │                                                              │
-│  READS FROM implementations:                                 │
+│  READS FROM code-patterns:                                 │
 │  └── pre-work-search (before implementing features)         │
 │                                                              │
 │  ─────────────────────────────────────────────────────────  │
 │                                                              │
-│  WRITES TO best_practices:                                   │
+│  WRITES TO conventions:                                   │
 │  └── Manual curation / post-work-store (universal patterns) │
 │                                                              │
-│  READS FROM best_practices:                                  │
+│  READS FROM conventions:                                  │
 │  ├── search-best-practices (on-demand)                      │
 │  └── pre-work-search (supplemental)                         │
 │                                                              │
@@ -1074,17 +1083,17 @@ All memories must include required metadata fields:
 
 ## Common Mistakes to Avoid
 
-### Mistake 1: SessionStart Searching implementations
+### Mistake 1: SessionStart Searching code-patterns
 
-**Wrong:** SessionStart searches `implementations` collection
+**Wrong:** SessionStart searches `code-patterns` collection
 **Result:** Generic query returns random code patterns (low relevance)
-**Correct:** SessionStart searches `agent-memory` for session summaries
+**Correct:** SessionStart searches `discussions` for session summaries
 
-### Mistake 2: Stop Hook Storing to implementations
+### Mistake 2: Stop Hook Storing to code-patterns
 
-**Wrong:** Stop hook stores session summary to `implementations`
+**Wrong:** Stop hook stores session summary to `code-patterns`
 **Result:** Session summaries mixed with code patterns, wrong retrieval
-**Correct:** Stop hook stores to `agent-memory`
+**Correct:** Stop hook stores to `discussions`
 
 ### Mistake 3: Generic Queries for Feature Search
 
@@ -1118,9 +1127,9 @@ All memories must include required metadata fields:
 
 ### Mistake 8: Mixing Universal and Project Patterns
 
-**Wrong:** Storing project-specific code in `best_practices`
+**Wrong:** Storing project-specific code in `conventions`
 **Result:** Irrelevant patterns appear in other projects
-**Correct:** Only universal, proven patterns go in `best_practices`
+**Correct:** Only universal, proven patterns go in `conventions`
 
 ### Mistake 9: Using Stop Hook for Session Storage
 
@@ -1136,17 +1145,17 @@ All memories must include required metadata fields:
 
 A three-tier memory system:
 
-1. **Session Memory (agent-memory)** - "What did we do last time?"
-2. **Implementation Patterns (implementations)** - "How did we build similar features?"
-3. **Universal Patterns (best_practices)** - "What works across all projects?"
+1. **Session Memory (discussions)** - "What did we do last time?"
+2. **Implementation Patterns (code-patterns)** - "How did we build similar features?"
+3. **Universal Patterns (conventions)** - "What works across all projects?"
 
 ### Why Each Piece Exists
 
 | Component | Why It Exists |
 |-----------|---------------|
-| agent-memory collection | Session continuity - the "aha moment" |
-| implementations collection | Feature-specific code patterns |
-| best_practices collection | Cross-project learning |
+| discussions collection | Session continuity - the "aha moment" |
+| code-patterns collection | Feature-specific code patterns |
+| conventions collection | Cross-project learning |
 | SessionStart hook | Load previous session context |
 | PostToolUse hook | Auto-capture code as you work |
 | Stop hook | Save session for next time |
@@ -1170,6 +1179,6 @@ A three-tier memory system:
 ---
 
 **Document Version:** 1.1.0
-**Last Updated:** 2026-01-17
+**Last Updated:** 2026-01-26 (V2.0 collection names)
 **Changes:** Added PreCompact hook, slash commands, fixed Stop hook description
 **Author:** Architecture documentation from BMAD Memory Module development

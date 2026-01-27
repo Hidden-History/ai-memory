@@ -206,7 +206,7 @@ def wait_for_background_storage(timeout: float = 60.0) -> None:
 def search_memory_by_content(
     monitoring_api: requests.Session,
     query: str,
-    collection: str = "implementations",
+    collection: str = "code-patterns",
     limit: int = 10
 ) -> List[Dict[str, Any]]:
     """Search for memories using monitoring API.
@@ -314,7 +314,7 @@ class TestPostToolUseIntegration:
         results = search_memory_by_content(
             monitoring_api,
             query=query_marker,
-            collection="implementations"
+            collection="code-patterns"
         )
 
         assert len(results) > 0, "Memory not found via semantic search"
@@ -365,7 +365,7 @@ class TestPostToolUseIntegration:
         results = search_memory_by_content(
             monitoring_api,
             query=query_marker,
-            collection="implementations"
+            collection="code-patterns"
         )
 
         assert len(results) > 0, "Memory not found via semantic search"
@@ -428,7 +428,7 @@ class TestStopHookIntegration:
         results = search_memory_by_content(
             monitoring_api,
             query=sample_stop_input["session_id"],
-            collection="implementations"  # Assuming summaries in same collection
+            collection="code-patterns"  # Assuming summaries in same collection
         )
 
         assert len(results) > 0, "Session summary not found via semantic search"
@@ -678,7 +678,7 @@ class TestDeduplicationVerification:
         results = search_memory_by_content(
             monitoring_api,
             query=new_string,
-            collection="implementations"
+            collection="code-patterns"
         )
 
         # AC 2.5.5: Only ONE memory exists (deduplication worked)
@@ -833,7 +833,7 @@ class TestPatternExtractionIntegration:
         results = search_memory_by_content(
             monitoring_api,
             query=unique_marker,
-            collection="implementations"
+            collection="code-patterns"
         )
         assert len(results) > 0, "Memory not found"
 

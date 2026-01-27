@@ -52,14 +52,19 @@ def main():
     try:
         # Initialize Qdrant client
         config = get_config()
-        client = QdrantClient(host=config.qdrant_host, port=config.qdrant_port)
+        client = QdrantClient(
+            host=config.qdrant_host,
+            port=config.qdrant_port,
+            api_key=config.qdrant_api_key,
+            https=config.qdrant_use_https  # BP-040
+        )
 
         print("=" * 60)
         print("BMAD Memory Collection Statistics")
         print("=" * 60)
 
-        # Analyze both collections
-        for collection_name in ["implementations", "best_practices"]:
+        # Analyze all V2.0 collections
+        for collection_name in ["code-patterns", "conventions", "discussions"]:
             try:
                 stats = get_collection_stats(client, collection_name)
 

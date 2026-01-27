@@ -46,9 +46,6 @@ try:
 except ImportError:
     hook_duration_seconds = None
 
-# Import activity logging (TECH-DEBT-014)
-from memory.activity_log import log_implementation_capture
-
 
 def _log_to_activity(message: str) -> None:
     """Log to activity file for Streamlit visibility.
@@ -289,11 +286,27 @@ def main() -> int:
         elif tool_name == "NotebookEdit":
             content = tool_input.get("new_source", "")
 
-        # TECH-DEBT-014: Comprehensive logging with full implementation content
+        # Log full content with metadata if we have both file path and content
         if file_path and content:
             language = detect_language(file_path)
             content_lines = len(content.split('\n'))
-            log_implementation_capture(file_path, tool_name, language, content, content_lines)
+
+            # Build multi-line activity log entry
+            log_message = f"📥 PostToolUse captured implementation:\n"
+            log_message += f"  File: {file_path}\n"
+            log_message += f"  Tool: {tool_name} | Language: {language}\n"
+            log_message += f"  Lines: {content_lines}\n"
+            log_message += f"  Content:\n"
+
+            # F1: Limit to first 100 lines to prevent disk exhaustion
+            MAX_LINES = 100
+            for line in content.split('\n')[:MAX_LINES]:
+                log_message += f"    {line}\n"
+
+            if content_lines > MAX_LINES:
+                log_message += f"    ... [TRUNCATED: {content_lines - MAX_LINES} more lines]\n"
+
+            _log_to_activity(log_message)
 
         # AC 2.1.1: Fork to background for <500ms performance
         fork_to_background(hook_input)

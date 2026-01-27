@@ -22,7 +22,7 @@ Pattern: Sync storage with zero vector, background embedding generation
 - Proper exception handling: ResponseHandlingException, UnexpectedResponse
 - Graceful degradation: queue to file on any failure
 - All Qdrant payload fields: snake_case
-- Store to agent-memory collection for session continuity
+- Store to discussions collection (Memory System v2.0) for session continuity
 
 Sources:
 - Qdrant Python client: https://python-client.qdrant.tech/
@@ -41,27 +41,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Add src to path for imports
+# Add src to path for imports (must be inline before importing from memory)
 INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
-from memory.config import get_config
+# CR-3.3: Use consolidated logging and transcript reading
+from memory.hooks_common import setup_hook_logging, read_transcript, log_to_activity
+logger = setup_hook_logging()
+
+from memory.config import get_config, COLLECTION_DISCUSSIONS
 from memory.graceful import graceful_hook
 from memory.queue import queue_operation
 from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 from memory.project import detect_project
-from memory.logging_config import StructuredFormatter
 from memory.activity_log import log_session_end, log_precompact
 from memory.embeddings import EmbeddingClient, EmbeddingError
 from memory.validation import compute_content_hash
-
-# Configure structured logging
-handler = logging.StreamHandler()
-handler.setFormatter(StructuredFormatter())
-logger = logging.getLogger("bmad.memory.hooks")
-logger.setLevel(logging.INFO)
-logger.addHandler(handler)
-logger.propagate = False
 
 # Import metrics for Prometheus instrumentation
 try:
@@ -120,122 +115,142 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def read_transcript(transcript_path: str) -> List[Dict[str, Any]]:
-    """Read JSONL transcript file from Claude Code.
-
-    Args:
-        transcript_path: Path to .jsonl transcript file
-
-    Returns:
-        List of transcript entries (dicts)
-    """
-    transcript_entries = []
-
-    # Expand ~ in path
-    expanded_path = os.path.expanduser(transcript_path)
-
-    if not os.path.exists(expanded_path):
-        logger.warning(
-            "transcript_not_found",
-            extra={"path": transcript_path, "expanded": expanded_path}
-        )
-        return []
-
-    try:
-        with open(expanded_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                if line.strip():
-                    try:
-                        entry = json.loads(line)
-                        transcript_entries.append(entry)
-                    except json.JSONDecodeError:
-                        # Skip malformed lines
-                        continue
-    except Exception as e:
-        logger.warning(
-            "transcript_read_error",
-            extra={"error": str(e), "path": expanded_path}
-        )
-        return []
-
-    return transcript_entries
+# CR-3.3: read_transcript() moved to hooks_common.py
 
 
 def analyze_transcript(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Analyze transcript to extract key activities.
+    """Analyze transcript to extract key activities and conversation context.
+
+    V2.1 Enhancement: Rich summary for post-compact injection.
+    Extracts first prompt (task requirements), last 3-5 user prompts,
+    and last 2 agent responses for conversation continuity.
 
     Args:
         entries: List of transcript entries
 
     Returns:
-        Dict with analysis results (tools, files, key moments)
+        Dict with analysis results including:
+        - tools_used: List of tool names used
+        - files_modified: List of file paths modified
+        - user_prompts_count: Total user prompt count
+        - first_user_prompt: First user prompt (task requirements)
+        - last_user_prompts: Last 3-5 user prompts (recent context)
+        - last_agent_responses: Last 2 agent responses (recent work)
+        - total_entries: Total transcript entries
     """
     tools_used = set()
     files_modified = set()
-    user_prompts = []
-    assistant_responses = []
+    user_prompts = []  # Will store (turn_index, content) tuples
+    assistant_responses = []  # Will store (turn_index, content) tuples
 
-    for entry in entries:
-        # Extract role-based content
-        role = entry.get("role", "")
-        content = entry.get("content", [])
+    for turn_index, entry in enumerate(entries):
+        # Extract entry type and message content
+        # Transcript format: entry.type = "user"/"assistant", content in entry.message.content
+        entry_type = entry.get("type", "")
+        message = entry.get("message", {})
+        content = message.get("content", []) if isinstance(message, dict) else []
 
-        if role == "user":
-            # Extract text from user prompts
-            for item in content:
-                if isinstance(item, dict) and item.get("type") == "text":
-                    text = item.get("text", "")
-                    if text and len(text) > 20:  # Skip very short prompts
-                        user_prompts.append(text[:500])  # Truncate long prompts
-
-        elif role == "assistant":
-            # Extract tool uses and text responses
-            for item in content:
-                if isinstance(item, dict):
-                    item_type = item.get("type", "")
-
-                    if item_type == "tool_use":
-                        tool_name = item.get("name", "")
-                        if tool_name:
-                            tools_used.add(tool_name)
-
-                        # Extract file paths from Write/Edit tools
-                        tool_input = item.get("input", {})
-                        if tool_name in ["Write", "Edit", "NotebookEdit"]:
-                            file_path = tool_input.get("file_path", "")
-                            if file_path:
-                                files_modified.add(file_path)
-
-                    elif item_type == "text":
+        if entry_type == "user":
+            # User message content can be string or list
+            prompt_text = ""
+            if isinstance(content, str):
+                prompt_text = content
+            elif isinstance(content, list):
+                # List of content items - concatenate text items
+                text_parts = []
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
                         text = item.get("text", "")
-                        if text and len(text) > 20:
-                            assistant_responses.append(text[:500])
+                        if text:
+                            text_parts.append(text)
+                prompt_text = "\n".join(text_parts)
 
-    # Build summary of key moments
-    key_moments = []
-    if user_prompts:
-        key_moments.append(f"User goals: {user_prompts[0]}")  # First prompt often sets context
-    if user_prompts and len(user_prompts) > 1:
-        key_moments.append(f"Follow-up work: {user_prompts[-1]}")  # Last prompt shows final direction
+            # Store non-trivial prompts (>20 chars, not just commands)
+            if prompt_text and len(prompt_text.strip()) > 20:
+                # Truncate very long prompts but keep more context than before
+                truncated = prompt_text[:3000] if len(prompt_text) > 3000 else prompt_text
+                user_prompts.append((turn_index, truncated))
+
+        elif entry_type == "assistant":
+            # Assistant content is always a list
+            response_text_parts = []
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict):
+                        item_type = item.get("type", "")
+
+                        if item_type == "tool_use":
+                            tool_name = item.get("name", "")
+                            if tool_name:
+                                tools_used.add(tool_name)
+
+                            # Extract file paths from Write/Edit tools
+                            tool_input = item.get("input", {})
+                            if tool_name in ["Write", "Edit", "NotebookEdit"]:
+                                file_path = tool_input.get("file_path", "")
+                                if file_path:
+                                    files_modified.add(file_path)
+
+                        elif item_type == "text":
+                            text = item.get("text", "")
+                            if text:
+                                response_text_parts.append(text)
+
+            # Store non-trivial responses
+            response_text = "\n".join(response_text_parts)
+            if response_text and len(response_text.strip()) > 50:
+                # Truncate very long responses but keep meaningful context
+                truncated = response_text[:2000] if len(response_text) > 2000 else response_text
+                assistant_responses.append((turn_index, truncated))
+
+    # Extract key prompts for rich summary
+    # First prompt: Task requirements (often sets the goal)
+    first_user_prompt = user_prompts[0][1] if user_prompts else ""
+
+    # Last 3-5 user prompts: Recent context before compaction
+    # Take last 5, but if first prompt is in there, we already have it separately
+    last_user_prompts = []
+    if len(user_prompts) > 1:
+        # Get last 5, excluding first if it would be duplicated
+        recent_prompts = user_prompts[-5:] if len(user_prompts) >= 5 else user_prompts[1:]
+        last_user_prompts = [{"turn": idx, "content": content} for idx, content in recent_prompts]
+    elif len(user_prompts) == 1:
+        # Only one prompt - it's both first and last
+        last_user_prompts = []
+
+    # Last 2 agent responses: Recent work/explanations
+    last_agent_responses = []
+    if assistant_responses:
+        recent_responses = assistant_responses[-2:]
+        last_agent_responses = [{"turn": idx, "content": content} for idx, content in recent_responses]
 
     return {
         "tools_used": sorted(list(tools_used)),
         "files_modified": sorted(list(files_modified)),
         "user_prompts_count": len(user_prompts),
-        "key_moments": key_moments,
+        "first_user_prompt": first_user_prompt,
+        "last_user_prompts": last_user_prompts,
+        "last_agent_responses": last_agent_responses,
         "total_entries": len(entries)
     }
 
 
 def build_session_summary(hook_input: Dict[str, Any], transcript_analysis: Dict[str, Any]) -> Dict[str, Any]:
-    """Build session summary from transcript analysis.
+    """Build rich session summary from transcript analysis.
+
+    V2.1 Enhancement: Rich summary includes conversation context for post-compact injection.
+    This eliminates the need for session_start.py to query individual messages.
 
     Args:
         hook_input: Validated hook input with metadata
         transcript_analysis: Analysis results from analyze_transcript()
 
     Returns:
-        Dictionary with formatted session summary and metadata
+        Dictionary with formatted session summary including:
+        - First user prompt (task requirements)
+        - Last 3-5 user prompts (recent context)
+        - Last 2 agent responses (recent work)
+        - Structured metadata
     """
     session_id = hook_input["session_id"]
     cwd = hook_input["cwd"]
@@ -245,43 +260,56 @@ def build_session_summary(hook_input: Dict[str, Any], transcript_analysis: Dict[
     # Extract project name from cwd path
     project_name = detect_project(cwd)
 
-    # Build summary content optimized for semantic search
+    # Build rich summary content optimized for post-compact context injection
     summary_parts = [
         f"Session Summary: {project_name}",
         f"Session ID: {session_id}",
         f"Compaction Trigger: {trigger}",
+        "",
+        f"Tools Used: {', '.join(transcript_analysis['tools_used']) if transcript_analysis['tools_used'] else 'None'}",
+        f"Files Modified ({len(transcript_analysis['files_modified'])}): {', '.join(transcript_analysis['files_modified'][:10])}",
+        f"User Interactions: {transcript_analysis['user_prompts_count']} prompts",
     ]
 
     if custom_instructions:
-        summary_parts.append(f"User Instructions: {custom_instructions}")
+        summary_parts.append(f"\nUser Instructions: {custom_instructions}")
 
-    summary_parts.extend([
-        "",
-        f"Tools Used: {', '.join(transcript_analysis['tools_used']) if transcript_analysis['tools_used'] else 'None'}",
-        f"Files Modified ({len(transcript_analysis['files_modified'])}): {', '.join(transcript_analysis['files_modified'][:10])}",  # First 10 files
-        f"User Interactions: {transcript_analysis['user_prompts_count']} prompts",
-        "",
-        "Key Activities:"
-    ])
+    # V2.1: Include first user prompt (task requirements)
+    first_prompt = transcript_analysis.get("first_user_prompt", "")
+    if first_prompt:
+        summary_parts.extend([
+            "",
+            "Key Activities:",
+            f"- User goals: {first_prompt}"
+        ])
 
-    # Add key moments from transcript
-    for moment in transcript_analysis["key_moments"]:
-        summary_parts.append(f"- {moment}")
+    # V2.1: Include last user prompts for follow-up context
+    last_prompts = transcript_analysis.get("last_user_prompts", [])
+    if last_prompts:
+        # Add last prompt as "follow-up work" in key activities
+        last_prompt_content = last_prompts[-1].get("content", "") if last_prompts else ""
+        if last_prompt_content and last_prompt_content != first_prompt:
+            summary_parts.append(f"- Follow-up work: {last_prompt_content}")
 
     summary_content = "\n".join(summary_parts)
 
-    # Return structured data for storage
+    # Return structured data for storage with rich context
     return {
         "content": summary_content,
         "group_id": project_name,
-        "memory_type": "session_summary",
+        "memory_type": "session",
         "source_hook": "PreCompact",
         "session_id": session_id,
         "importance": "high" if trigger == "auto" else "normal",  # Auto-compact = long session = high importance
+        # V2.1: Rich conversation context for post-compact injection
+        "first_user_prompt": first_prompt,
+        "last_user_prompts": transcript_analysis.get("last_user_prompts", []),
+        "last_agent_responses": transcript_analysis.get("last_agent_responses", []),
         "session_metadata": {
             "trigger": trigger,
             "tools_used": transcript_analysis["tools_used"],
             "files_modified": len(transcript_analysis["files_modified"]),
+            "files_list": transcript_analysis["files_modified"][:20],  # Store first 20 file paths
             "user_interactions": transcript_analysis["user_prompts_count"],
             "transcript_entries": transcript_analysis["total_entries"]
         }
@@ -289,7 +317,7 @@ def build_session_summary(hook_input: Dict[str, Any], transcript_analysis: Dict[
 
 
 def store_session_summary(summary_data: Dict[str, Any]) -> bool:
-    """Store session summary to agent-memory collection.
+    """Store session summary to discussions collection.
 
     Args:
         summary_data: Session summary data to store
@@ -340,16 +368,21 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             "source_hook": summary_data["source_hook"],
             "session_id": summary_data["session_id"],
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),  # V2.1: Explicit created_at
             "embedding_status": embedding_status,
-            "embedding_model": "nomic-embed-code",
+            "embedding_model": "jina-embeddings-v2-base-en",
             "importance": summary_data.get("importance", "normal"),
+            # V2.1: Rich conversation context for post-compact injection
+            "first_user_prompt": summary_data.get("first_user_prompt", ""),
+            "last_user_prompts": summary_data.get("last_user_prompts", []),
+            "last_agent_responses": summary_data.get("last_agent_responses", []),
             "session_metadata": summary_data.get("session_metadata", {})
         }
 
-        # Store to agent-memory collection
+        # Store to discussions collection (v2.0)
         client = get_qdrant_client()
         client.upsert(
-            collection_name="agent-memory",
+            collection_name=COLLECTION_DISCUSSIONS,
             points=[
                 PointStruct(
                     id=memory_id,
@@ -511,28 +544,6 @@ def timeout_handler(signum, frame):
     raise TimeoutError("Storage timeout exceeded")
 
 
-def _log_to_activity(message: str) -> None:
-    """Log message to activity log for user visibility.
-
-    Activity log provides user-visible feedback about memory operations.
-    Located at $BMAD_INSTALL_DIR/logs/activity.log
-    """
-    from datetime import datetime
-    log_dir = Path(INSTALL_DIR) / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "activity.log"
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    # Escape newlines for single-line output (Streamlit parses line-by-line)
-    safe_message = message.replace('\n', '\\n')
-    line = f"[{timestamp}] {safe_message}\n"
-    try:
-        with open(log_file, "a") as f:
-            f.write(line)
-    except Exception:
-        # Never fail - this is just for user visibility
-        pass
-
-
 def should_store_summary(summary_data: Dict[str, Any]) -> bool:
     """Validate if summary has meaningful content worth storing.
 
@@ -584,7 +595,7 @@ def check_duplicate_hash(content_hash: str, group_id: str, client) -> Optional[s
     try:
         # Only check recent memories (limit 100) to avoid slow queries
         results, _ = client.scroll(
-            collection_name="agent-memory",
+            collection_name=COLLECTION_DISCUSSIONS,
             scroll_filter=Filter(
                 must=[
                     FieldCondition(
@@ -685,7 +696,7 @@ def main() -> int:
 
         # Validation 1: Check if summary has meaningful content
         if not should_store_summary(summary_data):
-            _log_to_activity("⏭️  PreCompact skipped: Empty session (no activity)")
+            log_to_activity("⏭️  PreCompact skipped: Empty session (no activity)")
             logger.info(
                 "summary_skipped_empty",
                 extra={
@@ -705,7 +716,7 @@ def main() -> int:
             duplicate_id = check_duplicate_hash(content_hash, project, client)
 
             if duplicate_id:
-                _log_to_activity(f"⏭️  PreCompact skipped: Duplicate content (hash: {content_hash[:16]})")
+                log_to_activity(f"⏭️  PreCompact skipped: Duplicate content (hash: {content_hash[:16]})")
                 logger.info(
                     "summary_skipped_duplicate",
                     extra={

@@ -210,7 +210,7 @@ def test_check_duplicate_found(mock_config, mock_qdrant_client, mock_embedding_c
     mock_qdrant_client.scroll.return_value = ([existing_point], None)
 
     storage = MemoryStorage()
-    existing_id = storage._check_duplicate("hash123", "implementations", "test-project")
+    existing_id = storage._check_duplicate("hash123", "code-patterns", "test-project")
 
     assert existing_id == "found-memory-uuid"
 
@@ -220,7 +220,7 @@ def test_check_duplicate_not_found(mock_config, mock_qdrant_client, mock_embeddi
     mock_qdrant_client.scroll.return_value = ([], None)
 
     storage = MemoryStorage()
-    existing_id = storage._check_duplicate("hash456", "implementations", "test-project")
+    existing_id = storage._check_duplicate("hash456", "code-patterns", "test-project")
 
     assert existing_id is None
 
@@ -230,7 +230,7 @@ def test_check_duplicate_query_failure(mock_config, mock_qdrant_client, mock_emb
     mock_qdrant_client.scroll.side_effect = Exception("Query error")
 
     storage = MemoryStorage()
-    existing_id = storage._check_duplicate("hash789", "implementations", "test-project")
+    existing_id = storage._check_duplicate("hash789", "code-patterns", "test-project")
 
     # Should fail open - allow storage if check fails (returns None)
     assert existing_id is None

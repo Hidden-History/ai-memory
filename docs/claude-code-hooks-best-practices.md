@@ -242,7 +242,15 @@ Stop hooks do NOT require a matcher:
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /path/to/session_stop.py"
+            "command": "python3 /path/to/activity_logger.py"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /path/to/agent_response_capture.py"
           }
         ]
       }
@@ -839,7 +847,15 @@ Here's a complete, tested settings.json configuration:
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /absolute/path/to/.claude/hooks/scripts/session_stop.py"
+            "command": "python3 /absolute/path/to/.claude/hooks/scripts/activity_logger.py"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /absolute/path/to/.claude/hooks/scripts/agent_response_capture.py"
           }
         ]
       }

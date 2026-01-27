@@ -23,6 +23,8 @@ def mock_config(monkeypatch):
     mock_cfg = Mock()
     mock_cfg.max_retrievals = 5
     mock_cfg.similarity_threshold = 0.7
+    mock_cfg.hnsw_ef_fast = 64  # TECH-DEBT-066
+    mock_cfg.hnsw_ef_accurate = 128  # TECH-DEBT-066
     monkeypatch.setattr("src.memory.search.get_config", lambda: mock_cfg)
     return mock_cfg
 
@@ -92,7 +94,7 @@ class TestMemorySearchBasic:
 
         results = search.search(
             query="test query",
-            collection="implementations",
+            collection="code-patterns",
             group_id="test-project",
         )
 
@@ -162,7 +164,7 @@ class TestMemorySearchFiltering:
         """Test search applies memory_type filter."""
         search = MemorySearch()
 
-        search.search(query="test", memory_type="implementation")
+        search.search(query="test", memory_type=["implementation"])
 
         call_args = mock_qdrant_client.query_points.call_args
         query_filter = call_args.kwargs["query_filter"]
@@ -215,10 +217,10 @@ class TestMemorySearchDualCollection:
         )
 
         # Verify structure
-        assert "implementations" in results
-        assert "best_practices" in results
-        assert isinstance(results["implementations"], list)
-        assert isinstance(results["best_practices"], list)
+        assert "code-patterns" in results
+        assert "conventions" in results
+        assert isinstance(results["code-patterns"], list)
+        assert isinstance(results["conventions"], list)
 
         # Should call search twice (once per collection)
         assert mock_qdrant_client.query_points.call_count == 2
@@ -245,12 +247,12 @@ class TestMemorySearchDualCollection:
 
         # First call should be implementations with group_id
         impl_call = search_calls[0]
-        assert impl_call["collection_name"] == "implementations"
+        assert impl_call["collection_name"] == "code-patterns"
         assert impl_call["query_filter"] is not None
 
         # Second call should be best_practices without group_id
         bp_call = search_calls[1]
-        assert bp_call["collection_name"] == "best_practices"
+        assert bp_call["collection_name"] == "conventions"
         assert bp_call["query_filter"] is None
 
 
@@ -372,7 +374,7 @@ class TestMemorySearchErrorHandling:
         caplog.set_level(logging.INFO)  # Required for caplog to capture INFO level
         search = MemorySearch()
 
-        search.search(query="test", collection="implementations", group_id="proj")
+        search.search(query="test", collection="code-patterns", group_id="proj")
 
         # Verify structured logging occurred
         assert any("search_completed" in record.message for record in caplog.records)
@@ -407,3 +409,299 @@ class TestMemorySearchIntegration:
         assert "score" in results[0]
         assert results[0]["id"] == "mem-123"
         assert results[0]["score"] == 0.95
+
+
+class TestFormatAttribution:
+    """Tests for format_attribution() function."""
+
+    def test_format_attribution_with_score(self):
+        """Attribution includes score when provided."""
+        from src.memory.search import format_attribution
+
+        result = format_attribution("code-patterns", "implementation", 0.85)
+        assert "code-patterns" in result
+        assert "implementation" in result
+        assert "85%" in result
+
+    def test_format_attribution_without_score(self):
+        """Attribution works without score."""
+        from src.memory.search import format_attribution
+
+        result = format_attribution("conventions", "naming", None)
+        assert "conventions" in result
+        assert "naming" in result
+        assert "%" not in result
+
+
+class TestCascadingSearch:
+    """Tests for cascading_search() method."""
+
+    def test_cascading_search_returns_list(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """Cascading search returns a list."""
+        from src.memory.config import (
+            COLLECTION_CODE_PATTERNS,
+            COLLECTION_CONVENTIONS,
+            COLLECTION_DISCUSSIONS,
+        )
+
+        search = MemorySearch()
+        results = search.cascading_search(
+            query="test query",
+            group_id=None,
+            primary_collection=COLLECTION_CODE_PATTERNS,
+            secondary_collections=[COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS],
+        )
+        assert isinstance(results, list)
+
+    def test_cascading_search_respects_limit(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """Cascading search respects limit parameter."""
+        from src.memory.config import (
+            COLLECTION_CODE_PATTERNS,
+            COLLECTION_CONVENTIONS,
+        )
+
+        search = MemorySearch()
+        results = search.cascading_search(
+            query="test query",
+            group_id=None,
+            primary_collection=COLLECTION_CODE_PATTERNS,
+            secondary_collections=[COLLECTION_CONVENTIONS],
+            limit=2,
+        )
+        assert len(results) <= 2
+
+    def test_cascading_search_with_memory_type_filter(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """Cascading search accepts memory_type parameter."""
+        from src.memory.config import (
+            COLLECTION_CODE_PATTERNS,
+            COLLECTION_CONVENTIONS,
+        )
+
+        search = MemorySearch()
+        results = search.cascading_search(
+            query="test query",
+            group_id=None,
+            primary_collection=COLLECTION_CODE_PATTERNS,
+            secondary_collections=[COLLECTION_CONVENTIONS],
+            memory_type="implementation",
+        )
+        assert isinstance(results, list)
+
+
+class TestSearchMemories:
+    """Tests for search_memories() standalone function."""
+
+    def test_search_memories_basic(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_memories() returns results."""
+        from src.memory.search import search_memories
+
+        results = search_memories("how to implement authentication")
+        assert isinstance(results, list)
+
+    def test_search_memories_with_memory_type_string(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_memories() accepts memory_type as string."""
+        from src.memory.search import search_memories
+
+        results = search_memories(
+            "test query",
+            memory_type="implementation",
+        )
+        assert isinstance(results, list)
+
+    def test_search_memories_with_memory_type_list(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_memories() accepts memory_type as list."""
+        from src.memory.search import search_memories
+
+        results = search_memories(
+            "test query",
+            memory_type=["implementation", "error_fix"],
+        )
+        assert isinstance(results, list)
+
+    def test_search_memories_with_group_id(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_memories() accepts group_id filter."""
+        from src.memory.search import search_memories
+
+        results = search_memories(
+            "test query",
+            group_id="test-project",
+        )
+        assert isinstance(results, list)
+
+    def test_search_memories_with_explicit_collection(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_memories() works with explicit collection (backward compatible)."""
+        from src.memory.search import search_memories
+        from src.memory.config import COLLECTION_CODE_PATTERNS
+
+        results = search_memories(
+            "test query",
+            collection=COLLECTION_CODE_PATTERNS,
+        )
+        assert isinstance(results, list)
+
+    def test_search_memories_cascading_mode(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_memories() works with cascading enabled."""
+        from src.memory.search import search_memories
+
+        results = search_memories(
+            "how to implement caching",
+            use_cascading=True,
+        )
+        assert isinstance(results, list)
+
+
+class TestSearchParams:
+    """Tests for hnsw_ef parameter tuning (TECH-DEBT-066)."""
+
+    def test_search_default_mode_uses_hnsw_ef_128(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """Default search uses hnsw_ef=128 for accuracy."""
+        search = MemorySearch()
+        search.search(query="test query", collection="code-patterns")
+
+        # Verify query_points was called with hnsw_ef=128
+        call_kwargs = mock_qdrant_client.query_points.call_args.kwargs
+        assert call_kwargs["search_params"].hnsw_ef == 128
+
+    def test_search_fast_mode_uses_hnsw_ef_64(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """Fast mode search uses hnsw_ef=64 for speed."""
+        search = MemorySearch()
+        search.search(
+            query="test query",
+            collection="code-patterns",
+            fast_mode=True,
+        )
+
+        # Verify query_points was called with hnsw_ef=64
+        call_kwargs = mock_qdrant_client.query_points.call_args.kwargs
+        assert call_kwargs["search_params"].hnsw_ef == 64
+
+    def test_cascading_search_passes_fast_mode(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """Cascading search respects fast_mode parameter."""
+        from src.memory.config import COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS
+
+        search = MemorySearch()
+        search.cascading_search(
+            query="test query",
+            group_id="test-project",
+            primary_collection=COLLECTION_CODE_PATTERNS,
+            secondary_collections=[COLLECTION_CONVENTIONS],
+            fast_mode=True,
+        )
+
+        # All search calls should use hnsw_ef=64
+        for call in mock_qdrant_client.query_points.call_args_list:
+            assert call.kwargs["search_params"].hnsw_ef == 64
+
+    def test_search_both_collections_fast_mode(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_both_collections() respects fast_mode parameter."""
+        search = MemorySearch()
+        search.search_both_collections(
+            query="test query",
+            group_id="test-project",
+            fast_mode=True,
+        )
+
+        # Verify BOTH collection searches use hnsw_ef=64
+        assert mock_qdrant_client.query_points.call_count == 2
+        for call in mock_qdrant_client.query_points.call_args_list:
+            assert call.kwargs["search_params"].hnsw_ef == 64
+
+    def test_search_both_collections_default_accurate(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_both_collections() defaults to accurate mode."""
+        search = MemorySearch()
+        search.search_both_collections(
+            query="test query",
+            group_id="test-project",
+            # fast_mode not specified - should default to False
+        )
+
+        # Verify both searches use hnsw_ef=128
+        for call in mock_qdrant_client.query_points.call_args_list:
+            assert call.kwargs["search_params"].hnsw_ef == 128
+
+    def test_search_memories_fast_mode(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_memories() respects fast_mode parameter."""
+        from src.memory.search import search_memories
+
+        search_memories(
+            query="test query",
+            collection="code-patterns",
+            fast_mode=True,
+        )
+
+        call_kwargs = mock_qdrant_client.query_points.call_args.kwargs
+        assert call_kwargs["search_params"].hnsw_ef == 64
+
+    def test_search_memories_cascading_fast_mode(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_memories() with cascading respects fast_mode."""
+        from src.memory.search import search_memories
+
+        search_memories(
+            query="how do I implement auth",
+            use_cascading=True,
+            fast_mode=True,
+        )
+
+        # All cascading searches should use fast mode
+        for call in mock_qdrant_client.query_points.call_args_list:
+            assert call.kwargs["search_params"].hnsw_ef == 64
+
+    def test_retrieve_best_practices_fast_mode(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """retrieve_best_practices() respects fast_mode parameter."""
+        from src.memory.search import retrieve_best_practices
+
+        retrieve_best_practices(
+            query="python naming conventions",
+            fast_mode=True,
+        )
+
+        call_kwargs = mock_qdrant_client.query_points.call_args.kwargs
+        assert call_kwargs["search_params"].hnsw_ef == 64
+
+    def test_retrieve_best_practices_default_accurate(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """retrieve_best_practices() defaults to accurate mode."""
+        from src.memory.search import retrieve_best_practices
+
+        retrieve_best_practices(
+            query="python naming conventions",
+            # fast_mode not specified
+        )
+
+        call_kwargs = mock_qdrant_client.query_points.call_args.kwargs
+        assert call_kwargs["search_params"].hnsw_ef == 128

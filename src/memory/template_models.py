@@ -11,6 +11,7 @@ Sources:
 - JSON Security: https://www.invicti.com/learn/json-injection
 """
 
+from datetime import datetime
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -24,19 +25,24 @@ class BestPracticeTemplate(BaseModel):
 
     Attributes:
         content: The actual best practice text (max 2000 chars)
-        type: Category of best practice (pattern, antipattern, tip, security, performance)
+        type: Category of best practice (V2.0 spec: rule, guideline, port, naming, structure)
         domain: Technology domain (python, docker, git, etc.)
         importance: Priority level for this practice
         tags: List of searchable tags (max 10 tags, each max 50 chars)
         source: Optional reference to documentation/article
+        source_date: When the source was published (ISO 8601, e.g. 2026-01-15)
+        last_verified: When this practice was last verified as accurate
 
     Example:
         >>> template = BestPracticeTemplate(
         ...     content="Always use type hints in function signatures",
-        ...     type="pattern",
+        ...     type="guideline",
         ...     domain="python",
         ...     importance="high",
-        ...     tags=["python", "type-hints", "best-practice"]
+        ...     tags=["python", "type-hints", "best-practice"],
+        ...     source="https://peps.python.org/pep-0484/",
+        ...     source_date="2014-09-29",  # TECH-DEBT-028: When published
+        ...     last_verified="2026-01-15"  # TECH-DEBT-028: When verified
         ... )
     """
 
@@ -47,9 +53,9 @@ class BestPracticeTemplate(BaseModel):
         description="Best practice text content",
     )
 
-    type: Literal["pattern", "antipattern", "tip", "security", "performance"] = Field(
-        default="pattern",
-        description="Category of best practice",
+    type: Literal["rule", "guideline", "port", "naming", "structure"] = Field(
+        default="guideline",
+        description="Category of best practice (V2.0 conventions types)",
     )
 
     domain: str = Field(
@@ -75,6 +81,43 @@ class BestPracticeTemplate(BaseModel):
         max_length=500,
         description="Optional reference URL or citation",
     )
+
+    # Timestamp fields (TECH-DEBT-028)
+    source_date: Optional[datetime] = Field(
+        default=None,
+        description="When the source was published (ISO 8601, e.g. 2026-01-15)",
+    )
+
+    last_verified: Optional[datetime] = Field(
+        default=None,
+        description="When this practice was last verified as accurate",
+    )
+
+    @field_validator("source_date", "last_verified", mode="before")
+    @classmethod
+    def parse_datetime_field(cls, v):
+        """Parse datetime fields from strings or datetime objects.
+
+        2026 Pattern: Use datetime.fromisoformat() for parsing
+        Supports: YYYY-MM-DD, YYYY-MM-DDTHH:MM:SS, YYYY-MM-DDTHH:MM:SSZ
+
+        Args:
+            v: datetime object, ISO string, or None
+
+        Returns:
+            datetime object or None
+
+        Raises:
+            ValueError: If date format is invalid
+        """
+        if v is None:
+            return None
+        if isinstance(v, datetime):
+            return v
+        if isinstance(v, str):
+            # Support YYYY-MM-DD format and ISO datetime with Z suffix
+            return datetime.fromisoformat(v.replace("Z", "+00:00"))
+        raise ValueError(f"Invalid date format: {v}")
 
     @field_validator("content")
     @classmethod

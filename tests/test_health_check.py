@@ -91,8 +91,8 @@ class TestCheckQdrant:
         collections_response.json.return_value = {
             "result": {
                 "collections": [
-                    {"name": "implementations"},
-                    {"name": "best_practices"}
+                    {"name": "code-patterns"},
+                    {"name": "conventions"}
                 ]
             }
         }
@@ -187,7 +187,7 @@ class TestCheckEmbeddingService:
         response.status_code = 200
         response.json.return_value = {
             "model_loaded": True,
-            "model_name": "nomic-embed-code"
+            "model_name": "jina-embeddings-v2-base-en"
         }
         mock_get.return_value = response
 
@@ -195,7 +195,7 @@ class TestCheckEmbeddingService:
 
         assert result.component == "embedding"
         assert result.status == "healthy"
-        assert "nomic-embed-code" in result.message
+        assert "jina-embeddings-v2-base-en" in result.message
         assert result.latency_ms is not None
 
     @patch('health_check.httpx.get')

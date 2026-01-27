@@ -51,7 +51,7 @@ class TestProjectScopedStorage:
             memory_type=MemoryType.IMPLEMENTATION,
             source_hook="PostToolUse",
             session_id="test-session",
-            collection="implementations",
+            collection="code-patterns",
         )
 
         # Verify storage succeeded
@@ -136,7 +136,7 @@ class TestProjectScopedRetrieval:
         search = MemorySearch()
         results = search.search(
             query="Search test",
-            collection="implementations",
+            collection="code-patterns",
             cwd=str(project_dir),  # NEW: cwd for auto-detection
             limit=5,
         )
@@ -174,7 +174,7 @@ class TestProjectScopedRetrieval:
         results = search.search(
             query="Type-safe",
             cwd=str(project_dir),
-            collection="implementations",
+            collection="code-patterns",
         )
 
         assert isinstance(results, list)
@@ -191,7 +191,7 @@ class TestPayloadIndexCreation:
         for optimal filtering performance.
         """
         # Check if index exists (will be created during initialization)
-        collection_info = qdrant_client.get_collection("implementations")
+        collection_info = qdrant_client.get_collection("code-patterns")
 
         # Qdrant 1.16+ returns payload_schema as dict of PayloadIndexInfo
         payload_schema = collection_info.payload_schema
@@ -298,14 +298,14 @@ class TestMultiProjectIsolation:
         # Search from project A
         results_a = search.search(
             query=f"implementation pattern {unique_id}",
-            collection="implementations",
+            collection="code-patterns",
             cwd=str(project_a),
         )
 
         # Search from project B
         results_b = search.search(
             query=f"implementation pattern {unique_id}",
-            collection="implementations",
+            collection="code-patterns",
             cwd=str(project_b),
         )
 
@@ -354,7 +354,7 @@ class TestMultiProjectIsolation:
             results = search.search(
                 query=f"Memory from {unique_id}",
                 cwd=str(proj),
-                collection="implementations",
+                collection="code-patterns",
                 limit=10,
             )
 
@@ -407,7 +407,7 @@ class TestMultiProjectIsolation:
         # Search without cwd (no group_id filter)
         results = search.search(
             query=f"Global search test {unique_id}",
-            collection="implementations",
+            collection="code-patterns",
             cwd=None,  # No project filter
             limit=10,
         )

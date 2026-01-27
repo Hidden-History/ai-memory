@@ -121,7 +121,7 @@ SessionStart Hook
 2. Detect project from cwd → group_id
 3. Check Qdrant health (graceful degradation if down)
 4. Build semantic query from project context
-5. Search agent-memory collection (last 48 hours)
+5. Search discussions collection (last 48 hours)
 6. Apply token budget per agent type
 7. Format results with tiered relevance
 8. Inject as context via stdout
@@ -136,7 +136,7 @@ Claude sees memories as part of initial context
 
 ### High Relevance (>90%)
 
-**session_summary** (95%) [agent-memory]
+**session** (95%) [discussions]
 Session Summary: Implementing user authentication with JWT tokens
 - Created login endpoint with email/password validation
 - Implemented token refresh mechanism
@@ -144,7 +144,7 @@ Session Summary: Implementing user authentication with JWT tokens
 
 ### Medium Relevance (50-90%)
 
-**implementation** (78%) [implementations]
+**implementation** (78%) [code-patterns]
 ```python
 # src/auth/middleware.py
 def require_auth(request):
@@ -181,7 +181,7 @@ SessionStart hooks **require** a `matcher` field:
 **Diagnosis:**
 ```bash
 # Check if memories exist for this project
-curl http://localhost:26350/collections/agent-memory/points/scroll | jq '.result.points[] | select(.payload.group_id == "my-project")'
+curl http://localhost:26350/collections/discussions/points/scroll | jq '.result.points[] | select(.payload.group_id == "my-project")'
 ```
 
 **Possible Causes:**
@@ -293,7 +293,7 @@ Background Process (async)
 3. Compute content_hash for deduplication
 4. Check if duplicate (hash + group_id)
 5. Generate embedding (graceful degradation if fails)
-6. Store in implementations collection
+6. Store in code-patterns collection
 7. Log activity for Streamlit visibility
 ```
 
@@ -364,7 +364,7 @@ grep "duplicate_memory_skipped" ~/.bmad-memory/logs/hooks.log
 curl http://localhost:26350/health
 
 # Check Qdrant for duplicate hash
-curl http://localhost:26350/collections/implementations/points/scroll \
+curl http://localhost:26350/collections/code-patterns/points/scroll \
   | jq '.result.points[] | select(.payload.content_hash == "sha256:...")'
 ```
 </details>
@@ -405,7 +405,7 @@ vmstat 1
 **💾 Session Continuity - Saves summary before compaction**
 
 #### Purpose
-Saves session summary to agent-memory collection before Claude Code compacts context. This enables the "aha moment" when starting a new session - Claude remembers what you worked on.
+Saves session summary to discussions collection before Claude Code compacts context. This enables the "aha moment" when starting a new session - Claude remembers what you worked on.
 
 #### Trigger
 - **auto**: Automatic compaction (context limit reached)
@@ -470,7 +470,7 @@ PreCompact Hook (<10s)
    - Files modified
    - Decisions made
    - Errors encountered
-4. Store in agent-memory collection
+4. Store in discussions collection
 5. Return success/failure
     ↓
 Claude compacts context (hook blocks until done)
@@ -549,14 +549,14 @@ grep "pre_compact_duration" ~/.bmad-memory/logs/hooks.log
 **Diagnosis:**
 ```bash
 # Check if summary was stored
-curl http://localhost:26350/collections/agent-memory/points/scroll \
-  | jq '.result.points[] | select(.payload.type == "session_summary")'
+curl http://localhost:26350/collections/discussions/points/scroll \
+  | jq '.result.points[] | select(.payload.type == "session")'
 
 # Check timestamp (must be within 48 hours)
 ```
 
 **Possible Causes:**
-1. **Stored in wrong collection** - Should be `agent-memory`, not `implementations`
+1. **Stored in wrong collection** - Should be `discussions`, not `code-patterns`
 2. **Wrong group_id** - Project detection mismatch
 3. **Older than 48 hours** - SessionStart filters to recent sessions
 
@@ -764,7 +764,7 @@ Activity logging hooks track session events for analytics and debugging. They wr
 
 **Hook:** `best_practices_retrieval.py`
 
-**Collection:** `best_practices` (group_id="shared")
+**Collection:** `conventions` (group_id="shared")
 
 **Example:**
 ```markdown

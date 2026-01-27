@@ -1,12 +1,23 @@
 """Pytest configuration for E2E tests."""
 import pytest
 from typing import Generator
-from playwright.sync_api import Page, BrowserContext, Browser
+
+# Optional playwright imports for Grafana E2E tests
+try:
+    from playwright.sync_api import Page, BrowserContext, Browser
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    Page = None  # type: ignore
+    BrowserContext = None  # type: ignore
+    Browser = None  # type: ignore
 
 
 @pytest.fixture(scope="session")
 def browser_context_args():
     """Configure browser context for all E2E tests."""
+    if not PLAYWRIGHT_AVAILABLE:
+        pytest.skip("Playwright not installed")
     return {
         "viewport": {"width": 1920, "height": 1080},
         "ignore_https_errors": True,

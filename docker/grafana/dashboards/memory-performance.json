@@ -1,161 +1,201 @@
 {
-  "uid": "bmad-memory-performance",
+  "uid": "bmad-memory-performance-v2",
   "title": "BMAD Memory Performance",
-  "tags": ["bmad", "memory", "performance"],
+  "tags": [
+    "bmad",
+    "memory",
+    "performance",
+    "v2"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 2,
-  "refresh": "10s",
+  "version": 6,
+  "refresh": "30s",
   "time": {
     "from": "now-1h",
     "to": "now"
   },
   "timepicker": {
-    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"]
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "hook",
+        "type": "custom",
+        "options": [
+          {
+            "text": "user_prompt_capture",
+            "value": "user_prompt_capture"
+          },
+          {
+            "text": "agent_response_capture",
+            "value": "agent_response_capture"
+          },
+          {
+            "text": "post_tool_capture",
+            "value": "post_tool_capture"
+          },
+          {
+            "text": "error_pattern_capture",
+            "value": "error_pattern_capture"
+          },
+          {
+            "text": "pre_compact_save",
+            "value": "pre_compact_save"
+          },
+          {
+            "text": "error_detection",
+            "value": "error_detection"
+          },
+          {
+            "text": "new_file_trigger",
+            "value": "new_file_trigger"
+          },
+          {
+            "text": "first_edit_trigger",
+            "value": "first_edit_trigger"
+          },
+          {
+            "text": "decision_keyword_trigger",
+            "value": "decision_keyword_trigger"
+          },
+          {
+            "text": "best_practices_keyword_trigger",
+            "value": "best_practices_keyword_trigger"
+          },
+          {
+            "text": "session_start",
+            "value": "session_start"
+          }
+        ],
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "trigger",
+        "type": "custom",
+        "options": [
+          {
+            "text": "error_detection",
+            "value": "error_detection"
+          },
+          {
+            "text": "new_file",
+            "value": "new_file"
+          },
+          {
+            "text": "first_edit",
+            "value": "first_edit"
+          },
+          {
+            "text": "decision_keywords",
+            "value": "decision_keywords"
+          },
+          {
+            "text": "best_practices_keywords",
+            "value": "best_practices_keywords"
+          },
+          {
+            "text": "session_start_context",
+            "value": "session_start_context"
+          }
+        ],
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "quantile",
+        "type": "custom",
+        "options": [
+          {
+            "text": "p50",
+            "value": "0.50"
+          },
+          {
+            "text": "p95",
+            "value": "0.95"
+          },
+          {
+            "text": "p99",
+            "value": "0.99"
+          }
+        ],
+        "current": {
+          "text": "p95",
+          "value": "0.95"
+        }
+      }
+    ]
   },
   "panels": [
     {
-      "id": 1,
-      "type": "stat",
-      "title": "Embedding Requests (Total)",
+      "id": 100,
+      "type": "text",
+      "title": "",
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 8,
+        "w": 24,
         "h": 6
       },
-      "targets": [
-        {
-          "expr": "bmad_embedding_requests_total",
-          "refId": "A",
-          "legendFormat": "{{status}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "green"
-              },
-              {
-                "value": 100,
-                "color": "yellow"
-              },
-              {
-                "value": 1000,
-                "color": "red"
-              }
-            ]
-          }
-        }
-      },
       "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"]
-        },
-        "orientation": "auto",
-        "textMode": "value_and_name",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "mode": "markdown",
+        "content": "# BMAD Memory Performance Dashboard\n\n**Purpose:** Performance debugging - answering \"Which hooks are slow?\", \"Are we meeting NFRs?\", \"Where are bottlenecks?\"\n\n**Audience:** Engineers, Performance Debugging\n\n**NFR Thresholds:** Hook duration <500ms | Embedding <2s | Retrieval <3s | Success rate >95%\n\n\n**Template Variables:** Use dropdowns above to filter by hook or change quantile (p50/p95/p99)\n\n**Template Variables:** Use dropdowns above to filter by hook type or trigger type"
       }
     },
     {
-      "id": 2,
-      "type": "stat",
-      "title": "Embedding Duration (p95)",
+      "id": 1,
+      "type": "timeseries",
+      "title": "Hook Latency (p95)",
+      "description": "**Metric:** `bmad_hook_duration_seconds_bucket`\n**Measures:** 95th percentile hook execution time by hook\n**Formula:** `histogram_quantile(0.95, sum by (le, hook_type) (rate(bmad_hook_duration_seconds_bucket{hook_type=~\"$hook\"}[5m])))`\n**NFR:** <500ms per BP-022 (NFR-P2)\n**Thresholds:** Green <500ms | Yellow 500-750ms | Red >750ms\n**Note:** Uses histogram_quantile with sum by (le) per BP-041\n**See:** BP-022 (NFR-P2), BP-041 (Histogram Quantiles), docs/prometheus-queries.md",
       "gridPos": {
-        "x": 8,
-        "y": 0,
-        "w": 8,
-        "h": 6
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 10
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(bmad_embedding_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, hook_type) (rate(bmad_hook_duration_seconds_bucket{hook_type=~\"$hook\"}[5m])))",
           "refId": "A",
-          "legendFormat": "p95"
+          "legendFormat": "{{hook_type}}"
+        },
+        {
+          "expr": "vector(0.5)",
+          "refId": "B",
+          "legendFormat": "NFR Threshold (500ms)"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "decimals": 3,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "green"
-              },
-              {
-                "value": 1.0,
-                "color": "yellow"
-              },
-              {
-                "value": 2.0,
-                "color": "red"
-              }
-            ]
-          },
-          "mappings": []
-        }
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"]
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      }
-    },
-    {
-      "id": 3,
-      "type": "stat",
-      "title": "Avg Embedding Duration",
-      "gridPos": {
-        "x": 16,
-        "y": 0,
-        "w": 8,
-        "h": 6
-      },
-      "targets": [
-        {
-          "expr": "rate(bmad_embedding_duration_seconds_sum[5m]) / rate(bmad_embedding_duration_seconds_count[5m])",
-          "refId": "A",
-          "legendFormat": "Average"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "decimals": 3,
-          "color": {
-            "mode": "thresholds"
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
           },
           "thresholds": {
             "mode": "absolute",
@@ -169,23 +209,62 @@
                 "color": "yellow"
               },
               {
-                "value": 1.0,
+                "value": 0.75,
                 "color": "red"
               }
             ]
           }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "NFR Threshold (500ms)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          }
+        ]
       },
       "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"]
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        }
       },
       "datasource": {
         "type": "prometheus",
@@ -193,30 +272,26 @@
       }
     },
     {
-      "id": 4,
+      "id": 2,
       "type": "timeseries",
-      "title": "Embedding Duration Over Time",
+      "title": "Embedding Duration (p95)",
+      "description": "**Metric:** `bmad_embedding_duration_seconds_bucket`\n**Measures:** 95th percentile embedding generation time by type\n**Formula:** `histogram_quantile(0.95, sum by (le, embedding_type) (rate(bmad_embedding_duration_seconds_bucket[5m])))`\n**NFR:** <2s per BP-022 (NFR-P2)\n**Thresholds:** Green <2s | Yellow 2-3s | Red >3s\n**Embedding Types:** dense (required, Jina v2) | sparse_bm25 (optional, fast <100ms) | sparse_splade (optional, slower 500ms-1s)\n**See:** BP-022 (NFR-P2), BP-041 (Histogram Quantiles), BP-017 (Multi-Embedding)",
       "gridPos": {
         "x": 0,
-        "y": 6,
-        "w": 12,
-        "h": 8
+        "y": 16,
+        "w": 24,
+        "h": 10
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(bmad_embedding_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, embedding_type) (rate(bmad_embedding_duration_seconds_bucket[5m])))",
           "refId": "A",
-          "legendFormat": "p50"
+          "legendFormat": "{{embedding_type}}"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(bmad_embedding_duration_seconds_bucket[5m])))",
+          "expr": "vector(2.0)",
           "refId": "B",
-          "legendFormat": "p95"
-        },
-        {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(bmad_embedding_duration_seconds_bucket[5m])))",
-          "refId": "C",
-          "legendFormat": "p99"
+          "legendFormat": "NFR Threshold (2s)"
         }
       ],
       "fieldConfig": {
@@ -225,33 +300,9 @@
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
-            "barAlignment": 0,
             "lineWidth": 2,
             "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": true,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "Duration",
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "line"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
+            "showPoints": "never"
           },
           "thresholds": {
             "mode": "absolute",
@@ -261,16 +312,51 @@
                 "color": "green"
               },
               {
-                "value": 1.0,
+                "value": 2.0,
                 "color": "yellow"
               },
               {
-                "value": 2.0,
+                "value": 3.0,
                 "color": "red"
               }
             ]
           }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "NFR Threshold (2s)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "tooltip": {
@@ -280,8 +366,134 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["mean", "max", "last"]
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
         }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Slowest Hook (p95)",
+      "description": "**Metric:** `bmad_hook_duration_seconds_bucket`\n**Measures:** Hook with highest p95 latency\n**Formula:** `topk(1, histogram_quantile(0.95, sum by (le, hook_type) (rate(bmad_hook_duration_seconds_bucket[5m]))))`\n**NFR:** <500ms per BP-022\n**Thresholds:** Green <500ms | Yellow 500-750ms | Red >750ms\n**Action:** If red, investigate hook bottlenecks\n**See:** BP-022 (NFR-P2)",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "topk(1, histogram_quantile(0.95, sum by (le, hook_type) (rate(bmad_hook_duration_seconds_bucket[5m]))))",
+          "refId": "A",
+          "legendFormat": "{{hook_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 0.5,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 0.75,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Slowest Embedding (p95)",
+      "description": "**Metric:** `bmad_embedding_duration_seconds_bucket`\n**Measures:** Embedding type with highest p95 latency\n**Formula:** `topk(1, histogram_quantile(0.95, sum by (le, embedding_type) (rate(bmad_embedding_duration_seconds_bucket[5m]))))`\n**NFR:** <2s per BP-022\n**Thresholds:** Green <2s | Yellow 2-3s | Red >3s\n**Action:** If red, check embedding service health\n**See:** BP-022 (NFR-P2), BP-017 (Multi-Embedding)",
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "topk(1, histogram_quantile(0.95, sum by (le, embedding_type) (rate(bmad_embedding_duration_seconds_bucket[5m]))))",
+          "refId": "A",
+          "legendFormat": "{{embedding_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 2.0,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 3.0,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
       },
       "datasource": {
         "type": "prometheus",
@@ -291,50 +503,137 @@
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Embedding Request Rate",
+      "title": "Trigger Latency (Retrieval Operations)",
+      "description": "**Metric:** `bmad_hook_duration_seconds_bucket` (for retrieval hooks)\n**Measures:** 95th percentile latency for retrieval triggers\n**Formula:** `histogram_quantile($quantile, sum by (le, hook_type) (rate(bmad_hook_duration_seconds_bucket{hook_type=~\"error_detection|new_file_trigger|first_edit_trigger|decision_keyword_trigger|best_practices_keyword_trigger|session_start\"}[5m])))`\n**NFR:** <3s for full retrieval operation per BP-022 (NFR-P2)\n**Thresholds:** Green <3s | Yellow 3-4.5s | Red >4.5s\n**Note:** Retrieval triggers include search + context injection\n**See:** BP-022 (NFR-P2), Core-Architecture-Principle-V2.md",
       "gridPos": {
-        "x": 12,
-        "y": 6,
-        "w": 12,
-        "h": 8
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 10
       },
       "targets": [
         {
-          "expr": "rate(bmad_embedding_requests_total[5m])",
+          "expr": "histogram_quantile($quantile, sum by (le, hook_type) (rate(bmad_hook_duration_seconds_bucket{hook_type=~\"error_detection|new_file_trigger|first_edit_trigger|decision_keyword_trigger|best_practices_keyword_trigger|session_start\"}[5m])))",
           "refId": "A",
-          "legendFormat": "{{status}}"
+          "legendFormat": "{{hook_type}}"
+        },
+        {
+          "expr": "vector(3.0)",
+          "refId": "B",
+          "legendFormat": "NFR Threshold (3s)"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
+          "unit": "s",
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
-            "barAlignment": 0,
             "lineWidth": 2,
-            "fillOpacity": 20,
-            "gradientMode": "opacity",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 3.0,
+                "color": "yellow"
+              },
+              {
+                "value": 4.5,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "NFR Threshold (3s)"
             },
-            "axisPlacement": "auto",
-            "axisLabel": "Requests/sec",
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Classifier Latency by Provider",
+      "description": "**Metric:** `memory_classifier_latency_seconds_bucket`\n**Measures:** 95th percentile classification latency by provider\n**Formula:** `histogram_quantile($quantile, sum by (le, provider) (rate(memory_classifier_latency_seconds_bucket[5m])))`\n**Providers:** ollama (local), openrouter (API), openai (API), claude (API)\n**Expected:** Ollama fastest (local), API providers slower (network latency)\n**Note:** Classification latency impacts hook performance if classification is synchronous\n**See:** src/memory/classifier.py, BP-041 (Histogram Quantiles)",
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile($quantile, sum by (le, provider) (rate(memory_classifier_latency_seconds_bucket[5m])))",
+          "refId": "A",
+          "legendFormat": "{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
           },
           "color": {
             "mode": "palette-classic"
@@ -349,27 +648,16 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["mean", "max"]
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
         }
       },
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
-      }
-    },
-    {
-      "id": 6,
-      "type": "text",
-      "title": "Note: Hook Metrics",
-      "gridPos": {
-        "x": 0,
-        "y": 14,
-        "w": 24,
-        "h": 3
-      },
-      "options": {
-        "mode": "markdown",
-        "content": "**ℹ️ Hook Performance Metrics (SessionStart, PostToolUse, Stop) require Prometheus Pushgateway**\n\nHooks run as one-off processes and can't export metrics directly. Current workaround: Check `~/.bmad-memory/logs/activity.log` for hook timing data.\n\n*Pushgateway implementation tracked in Story 6.7*"
       }
     }
   ],

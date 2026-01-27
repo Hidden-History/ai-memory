@@ -88,11 +88,11 @@ curl http://localhost:28000/stats/implementations
 - Retries: 3
 - Start period: 10s
 
-### Embedding Service (Nomic Embed Code)
+### Embedding Service (Jina AI Embeddings)
 
 **Architecture:**
 - Multi-stage Docker build (Python 3.12)
-- Pre-warmed model: Nomic Embed Code 7B (3584 dimensions)
+- Pre-warmed model: Jina AI jina-embeddings-v2-base-en (768 dimensions)
 - FastAPI application with Pydantic v2
 - Non-root user security (UID 1000)
 - Virtual environment isolation
@@ -101,11 +101,11 @@ curl http://localhost:28000/stats/implementations
 - HTTP API: `28080` (default, configurable via `EMBEDDING_PORT`)
 
 **Model Details:**
-- Model: `nomic-ai/nomic-embed-code`
-- Dimensions: 3584
-- Parameter count: 7B
-- Specialization: Code embeddings
-- Load time: ~10-30s (varies by hardware)
+- Model: `jinaai/jina-embeddings-v2-base-en`
+- Dimensions: 768
+- Parameter count: 137M
+- Specialization: General purpose embeddings with code support
+- Load time: ~5-15s (varies by hardware)
 
 **Health Check:**
 - Endpoint: `http://localhost:8080/health`
@@ -158,7 +158,7 @@ The Qdrant service uses a named Docker volume (`qdrant_storage`) for data persis
 # Create test collection
 curl -X PUT http://localhost:26350/collections/test \
   -H "Content-Type: application/json" \
-  -d '{"vectors": {"size": 3584, "distance": "Cosine"}}'
+  -d '{"vectors": {"size": 768, "distance": "Cosine"}}'
 
 # Restart stack
 docker compose down && docker compose up -d
@@ -368,7 +368,7 @@ Future stories will add:
 - [Qdrant v1.16.3 Release Notes](https://github.com/qdrant/qdrant/releases/tag/v1.16.3)
 
 ### Embedding Service
-- [Nomic Embed Code Model](https://huggingface.co/nomic-ai/nomic-embed-code)
+- [Jina AI Embeddings v2 Base EN](https://huggingface.co/jinaai/jina-embeddings-v2-base-en)
 - [Sentence Transformers Documentation](https://www.sbert.net/)
 - [Sentence Transformers v5.2.0+ (Sparse Embeddings)](https://github.com/UKPLab/sentence-transformers/releases)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)

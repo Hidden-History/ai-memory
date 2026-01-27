@@ -12,11 +12,14 @@ Tests verify:
 import sys
 sys.path.insert(0, '.')
 
+import pytest
+
 from src.memory.config import get_config
 from src.memory.embeddings import EmbeddingClient
 from src.memory.qdrant_client import get_qdrant_client, check_qdrant_health
 
 
+@pytest.mark.requires_docker_stack
 class TestCoreModulesIntegration:
     """Integration tests for core modules."""
 
@@ -97,7 +100,7 @@ class TestCoreModulesIntegration:
         collection_names = [c.name for c in collections.collections]
 
         # Collections from Story 1.3
-        expected = ["implementations", "best_practices"]
+        expected = ["code-patterns", "conventions"]
         for expected_name in expected:
             if expected_name not in collection_names:
                 print(f"  ⚠ WARNING: Collection '{expected_name}' not found")

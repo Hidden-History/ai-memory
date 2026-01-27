@@ -254,7 +254,7 @@ export QDRANT_API_KEY=your-api-key-here
 #### QDRANT_COLLECTION_PREFIX
 **Purpose:** Prefix for collection names (multi-tenancy)
 
-**Default:** `bmad_` (results in `bmad_implementations`, `bmad_agent-memory`, etc.)
+**Default:** `bmad_` (results in `bmad_code-patterns`, `bmad_discussions`, etc.)
 
 **Format:** String (alphanumeric + underscore)
 
@@ -276,7 +276,7 @@ export QDRANT_COLLECTION_PREFIX=user_alice_
 - **Multi-environment**: dev/staging/prod isolation
 
 **Impact:**
-- Collections created: `{prefix}implementations`, `{prefix}agent-memory`, `{prefix}best_practices`
+- Collections created: `{prefix}code-patterns`, `{prefix}discussions`, `{prefix}conventions`
 
 ---
 
@@ -311,20 +311,19 @@ export EMBEDDING_URL=https://api.jina.ai/v1/embeddings
 #### EMBEDDING_MODEL
 **Purpose:** Embedding model identifier
 
-**Default:** `nomic-embed-text-v1.5` (768 dimensions)
+**Default:** `jinaai/jina-embeddings-v2-base-en` (768 dimensions)
 
 **Options:**
-- `nomic-embed-text-v1.5` - General purpose (768d) ✅ Recommended
-- `nomic-embed-code` - Code-specific (768d)
-- `jina-embeddings-v2-base-code` - Jina code model (768d)
+- `jinaai/jina-embeddings-v2-base-en` - General purpose with code support (768d) ✅ Recommended
+- `jinaai/jina-embeddings-v2-base-code` - Code-specific variant (768d)
 
 **Example:**
 ```bash
-export EMBEDDING_MODEL=nomic-embed-text-v1.5
+export EMBEDDING_MODEL=jinaai/jina-embeddings-v2-base-en
 ```
 
 **When to change:**
-- **Code-heavy projects**: Use `nomic-embed-code`
+- **Specialized needs**: Use code-specific variant for pure code embeddings
 - **Testing**: Compare model performance
 
 ⚠️ **Warning:** Changing models invalidates existing embeddings. You must:
@@ -602,7 +601,7 @@ services:
 
   bmad-embedding:
     environment:
-      - EMBEDDING_MODEL=nomic-embed-text-v1.5
+      - EMBEDDING_MODEL=jinaai/jina-embeddings-v2-base-en
       - MAX_BATCH_SIZE=32
     mem_limit: 1g
     cpus: 0.5

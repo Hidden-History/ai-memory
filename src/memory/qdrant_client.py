@@ -51,7 +51,7 @@ def get_qdrant_client(config: Optional[MemoryConfig] = None) -> QdrantClient:
         >>> client = get_qdrant_client()
         >>> collections = client.get_collections()
         >>> print([c.name for c in collections.collections])
-        ['implementations', 'best_practices']
+        ['code-patterns', 'conventions', 'discussions']
 
     Note:
         For FastAPI applications, consider registering client in lifespan function
@@ -62,10 +62,13 @@ def get_qdrant_client(config: Optional[MemoryConfig] = None) -> QdrantClient:
 
     # Create client with timeout configuration
     # Timeout prevents indefinite hangs if Qdrant is unresponsive
+    # BP-040: API key + HTTPS configurable via environment variables
     client = QdrantClient(
         host=config.qdrant_host,
         port=config.qdrant_port,
-        timeout=10,  # 10 second timeout for operations
+        api_key=config.qdrant_api_key,
+        https=config.qdrant_use_https,
+        timeout=10,
     )
 
     return client
@@ -109,7 +112,7 @@ def check_qdrant_health(client: QdrantClient) -> bool:
 
 
 def create_group_id_index(
-    client: QdrantClient, collection_name: str = "implementations"
+    client: QdrantClient, collection_name: str = "code-patterns"
 ) -> None:
     """Create payload index for group_id field with is_tenant=True optimization.
 
@@ -122,14 +125,14 @@ def create_group_id_index(
 
     Args:
         client: QdrantClient instance
-        collection_name: Collection to create index on (default: "implementations")
+        collection_name: Collection to create index on (default: "code-patterns")
 
     Raises:
         Exception: If index creation fails (critical error - do not proceed)
 
     Example:
         >>> client = get_qdrant_client()
-        >>> create_group_id_index(client, "implementations")
+        >>> create_group_id_index(client, "code-patterns")
         >>> # Index now enables fast filtering by group_id
 
     References:

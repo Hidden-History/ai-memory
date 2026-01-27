@@ -33,7 +33,7 @@ except ImportError:
     failure_events_total = None
     deduplication_events_total = None
 
-__all__ = ["MemoryStorage", "store_best_practice"]
+__all__ = ["MemoryStorage", "store_best_practice", "update_point_payload"]
 
 logger = logging.getLogger("bmad.memory.storage")
 
@@ -42,17 +42,17 @@ def _enforce_content_limit(content: str, memory_type: MemoryType) -> str:
     """Truncate content to respect token limits by memory type.
 
     Limits (approximate tokens, ~4 chars/token):
-    - session_summary (agent-memory): 400 tokens = 1600 chars
-    - implementation: 300 tokens = 1200 chars
-    - best_practice/pattern: 150 tokens = 600 chars
+    - session (discussions): 400 tokens = 1600 chars
+    - implementation (code-patterns): 300 tokens = 1200 chars
+    - guideline (conventions): 150 tokens = 600 chars
 
     Returns truncated content with [TRUNCATED] marker if cut.
     """
     LIMITS = {
-        MemoryType.SESSION_SUMMARY: 1600,  # 400 tokens
+        MemoryType.SESSION: 1600,  # 400 tokens
         MemoryType.IMPLEMENTATION: 1200,   # 300 tokens
-        MemoryType.PATTERN: 600,           # 150 tokens
-        MemoryType.ERROR_PATTERN: 1200,    # 300 tokens
+        MemoryType.GUIDELINE: 600,         # 150 tokens
+        MemoryType.ERROR_FIX: 1200,        # 300 tokens
     }
     limit = LIMITS.get(memory_type, 1200)  # default 300 tokens
 
@@ -108,7 +108,7 @@ class MemoryStorage:
         memory_type: MemoryType,
         source_hook: str,
         session_id: str,
-        collection: str = "implementations",
+        collection: str = "code-patterns",
         group_id: Optional[str] = None,
         **extra_fields,
     ) -> dict:
@@ -134,7 +134,7 @@ class MemoryStorage:
             memory_type: Type of memory (MemoryType enum)
             source_hook: Hook that captured this (PostToolUse, Stop, SessionStart)
             session_id: Claude session identifier
-            collection: Qdrant collection name (default: "implementations")
+            collection: Qdrant collection name (default: "code-patterns")
             group_id: Optional explicit project identifier (overrides auto-detection)
             **extra_fields: Additional payload fields (domain, importance, tags, etc.)
 
@@ -345,7 +345,7 @@ class MemoryStorage:
         self,
         memories: list[dict],
         cwd: Optional[str] = None,
-        collection: str = "implementations",
+        collection: str = "code-patterns",
     ) -> list[dict]:
         """Store multiple memories in batch for efficiency.
 
@@ -370,7 +370,7 @@ class MemoryStorage:
                 - session_id: str
             cwd: Optional working directory for auto project detection.
                  Used when individual memory lacks group_id.
-            collection: Qdrant collection name (default: "implementations")
+            collection: Qdrant collection name (default: "code-patterns")
 
         Returns:
             List of result dictionaries, one per input memory, with:
@@ -567,7 +567,7 @@ class MemoryStorage:
 
         Example:
             >>> storage = MemoryStorage()
-            >>> storage._check_duplicate("abc123...", "implementations", "my-project")
+            >>> storage._check_duplicate("abc123...", "code-patterns", "my-project")
             None
         """
         try:
@@ -642,11 +642,11 @@ def store_best_practice(
     Implements AC 4.3.1 (Best Practices Storage) and FR16 (Cross-Project Sharing).
 
     Best practices use a special 'shared' group_id marker and are stored
-    in the 'best_practices' collection for cross-project accessibility.
+    in the 'conventions' collection for cross-project accessibility.
 
-    Unlike implementations (Story 4.2), best practices:
+    Unlike code-patterns (Story 4.2), best practices:
     - Use group_id="shared" (not project-specific)
-    - Stored in 'best_practices' collection (not 'implementations')
+    - Stored in 'conventions' collection (not 'code-patterns')
     - NO cwd parameter required (intentionally global)
     - Accessible from ALL projects without filtering
 
@@ -665,7 +665,7 @@ def store_best_practice(
             - status: "stored" or "duplicate"
             - embedding_status: "complete", "pending", or "failed"
             - group_id: Always "shared"
-            - collection: Always "best_practices"
+            - collection: Always "conventions"
 
     Raises:
         ValueError: If content validation fails
@@ -683,10 +683,10 @@ def store_best_practice(
         >>> result["group_id"]
         'shared'
         >>> result["collection"]
-        'best_practices'
+        'conventions'
 
     Note:
-        Unlike implementations, best practices don't require 'cwd' parameter
+        Unlike code-patterns, best practices don't require 'cwd' parameter
         since they're intentionally shared across all projects.
 
     2026 Best Practice Rationale:
@@ -695,7 +695,7 @@ def store_best_practice(
         tenants. However, when data is not homogenous (different semantics,
         different retrieval patterns), separate collections are appropriate.
 
-        - CORRECT: implementations (project-specific) vs best_practices (shared)
+        - CORRECT: code-patterns (project-specific) vs conventions (shared)
           = different semantics → separate collections
         - WRONG: Multiple collections per project (homogenous data)
           = resource waste
@@ -718,8 +718,8 @@ def store_best_practice(
             content=content,
             cwd="/__best_practices__",  # Sentinel path for best practices (no real filesystem path)
             group_id="shared",  # CRITICAL: Special marker for cross-project access
-            collection="best_practices",  # CRITICAL: Separate from implementations
-            memory_type=MemoryType.PATTERN,  # Differentiates from implementations
+            collection="conventions",  # CRITICAL: Separate from code-patterns
+            memory_type=MemoryType.GUIDELINE,  # Differentiates from code-patterns
             session_id=session_id,
             source_hook=source_hook,
             **kwargs,
@@ -727,7 +727,7 @@ def store_best_practice(
 
         # Enhance result with explicit markers
         result["group_id"] = "shared"
-        result["collection"] = "best_practices"
+        result["collection"] = "conventions"
 
         logger.info(
             "best_practice_stored",
@@ -754,3 +754,86 @@ def store_best_practice(
         )
         # Re-raise for caller to handle (explicit error per user requirements)
         raise
+
+
+def update_point_payload(
+    collection: str,
+    point_id: str,
+    payload_updates: dict,
+    config: Optional[MemoryConfig] = None,
+) -> bool:
+    """Update payload fields on an existing Qdrant point.
+
+    Used by TECH-DEBT-069 classification worker to persist classification results.
+
+    Args:
+        collection: Collection name (code-patterns, conventions, discussions)
+        point_id: Point UUID to update
+        payload_updates: Dictionary of payload fields to update/add
+        config: Optional config (uses default if not provided)
+
+    Returns:
+        True if successful, False otherwise
+
+    Raises:
+        ValueError: If collection or point_id is invalid
+
+    Example:
+        >>> update_point_payload(
+        ...     collection="code-patterns",
+        ...     point_id="abc-123",
+        ...     payload_updates={
+        ...         "type": "error_fix",
+        ...         "classification_confidence": 0.92,
+        ...         "classified_at": "2026-01-24T10:00:00Z"
+        ...     }
+        ... )
+        True
+    """
+    if not collection or not point_id:
+        raise ValueError("collection and point_id are required")
+
+    if config is None:
+        config = get_config()
+
+    try:
+        client = get_qdrant_client(config)
+
+        client.set_payload(
+            collection_name=collection,
+            payload=payload_updates,
+            points=[point_id],
+        )
+
+        logger.info(
+            "point_payload_updated",
+            extra={
+                "collection": collection,
+                "point_id": point_id,
+                "fields_updated": list(payload_updates.keys()),
+            }
+        )
+        return True
+
+    except QdrantUnavailable as e:
+        logger.error(
+            "qdrant_unavailable_during_update",
+            extra={
+                "collection": collection,
+                "point_id": point_id,
+                "error": str(e)
+            }
+        )
+        return False
+
+    except Exception as e:
+        logger.error(
+            "point_payload_update_failed",
+            extra={
+                "collection": collection,
+                "point_id": point_id,
+                "error": str(e),
+                "error_type": type(e).__name__
+            }
+        )
+        return False

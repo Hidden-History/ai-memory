@@ -75,7 +75,7 @@ def test_collection_stats(monitoring_api_url):
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
-    assert data["collection"] == "implementations"
+    assert data["collection"] == "code-patterns"
     assert "points_count" in data
     assert "vectors_count" in data
     assert "indexed_vectors_count" in data
@@ -95,7 +95,7 @@ def test_memory_endpoint_not_found(monitoring_api_url):
     # Use valid UUID format - Qdrant requires UUID or integer IDs
     response = httpx.get(
         f"{monitoring_api_url}/memory/550e8400-e29b-41d4-a716-446655440000",
-        params={"collection": "implementations"},
+        params={"collection": "code-patterns"},
         timeout=10
     )
 
@@ -113,7 +113,7 @@ def test_memory_endpoint_structure(monitoring_api_url):
     # Use valid UUID format - Qdrant requires UUID or integer IDs
     response = httpx.get(
         f"{monitoring_api_url}/memory/00000000-0000-0000-0000-000000000001",
-        params={"collection": "implementations"},
+        params={"collection": "code-patterns"},
         timeout=10
     )
 

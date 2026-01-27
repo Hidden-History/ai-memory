@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """Create Qdrant collections for BMAD Memory Module.
 
-Creates two collections:
-- implementations: Project-specific memory (isolated by group_id)
-- best_practices: Shared knowledge across projects
+Creates three v2.0 collections:
+- code-patterns: HOW things are built (implementation, error_fix, refactor, file_pattern)
+- conventions: WHAT rules to follow (guideline, anti_pattern, decision)
+- discussions: WHY things were decided (session, conversation, analysis, reflection)
 
 Implements Story 1.3 AC 1.3.1.
 """
 
-from qdrant_client import QdrantClient
+import sys
+from pathlib import Path
+
+# Add src to path to import config
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
 from qdrant_client.models import (
     VectorParams,
     Distance,
@@ -17,28 +23,51 @@ from qdrant_client.models import (
     TextIndexParams,
     TokenizerType,
 )
+from memory.config import (
+    get_config,
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+    COLLECTION_DISCUSSIONS,
+)
+from memory.qdrant_client import get_qdrant_client
 
 
-def create_collections(host: str = "localhost", port: int = 26350) -> None:
+def create_collections(dry_run: bool = False) -> None:
     """Create Qdrant collections with proper schema.
 
     Args:
-        host: Qdrant host
-        port: Qdrant port
+        dry_run: If True, preview what would be created without making changes
 
     Raises:
         Exception: If connection to Qdrant fails
     """
-    client = QdrantClient(host=host, port=port)
+    config = get_config()
+    client = get_qdrant_client(config)
+
+    if dry_run:
+        print(f"DRY RUN: Would connect to Qdrant at {config.qdrant_host}:{config.qdrant_port}")
+        print(f"DRY RUN: API key configured: {'Yes' if config.qdrant_api_key else 'No'}")
+        print(f"DRY RUN: HTTPS enabled: {config.qdrant_use_https}")
 
     # Vector configuration (DEC-010: 768 dimensions from jina-embeddings-v2-base-code)
     vector_config = VectorParams(size=768, distance=Distance.COSINE)
 
-    collection_names = ["implementations", "best_practices"]
+    # V2.0 Collections (Memory System Spec v2.0, 2026-01-17)
+    collection_names = [
+        COLLECTION_CODE_PATTERNS,  # code-patterns
+        COLLECTION_CONVENTIONS,    # conventions
+        COLLECTION_DISCUSSIONS,    # discussions
+    ]
 
     for collection_name in collection_names:
         # Create collection (delete first if exists)
         # Note: recreate_collection is deprecated in qdrant-client 1.8+
+        if dry_run:
+            exists = client.collection_exists(collection_name)
+            print(f"DRY RUN: Collection '{collection_name}' exists: {exists}")
+            print(f"DRY RUN: Would {'recreate' if exists else 'create'} collection '{collection_name}'")
+            continue
+
         if client.collection_exists(collection_name):
             client.delete_collection(collection_name)
         client.create_collection(
@@ -86,4 +115,15 @@ def create_collections(host: str = "localhost", port: int = 26350) -> None:
 
 
 if __name__ == "__main__":
-    create_collections()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Create Qdrant collections for BMAD Memory Module (V2.0)"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview what would be created without making changes"
+    )
+    args = parser.parse_args()
+    create_collections(dry_run=args.dry_run)

@@ -8,7 +8,7 @@
 
 | Requirement | Minimum Version | Recommended | Notes |
 |-------------|----------------|-------------|-------|
-| **Python**  | 3.10           | 3.11+       | Required for async + match statements |
+| **Python**  | 3.10           | 3.11+       | Required for async + match statements. **AsyncSDKWrapper requires 3.11+** |
 | **Docker**  | 20.10          | Latest      | For Qdrant + embedding service |
 | **OS**      | Linux, macOS, WSL2 | Linux   | Windows requires WSL2 |
 | **RAM**     | 4GB            | 8GB+        | For Docker services |
@@ -26,7 +26,36 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 ```
 
-**Note:** Docker installation handles all dependencies automatically.
+**Core Dependencies:**
+
+- `qdrant-client` - Vector database client
+- `httpx` - HTTP client for embedding service
+- `pydantic` - Data validation
+- `anthropic` - Anthropic API client (for AsyncSDKWrapper)
+- `tenacity` - Retry logic with exponential backoff (for AsyncSDKWrapper)
+- `prometheus-client` - Metrics collection
+
+**Note:** Docker installation handles all dependencies automatically. The `tenacity` package provides the exponential backoff retry logic used by AsyncSDKWrapper.
+
+### AsyncSDKWrapper Troubleshooting
+
+If you encounter errors when using AsyncSDKWrapper:
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `QueueTimeoutError` | Request queued longer than 60s | Increase `queue_timeout` parameter or reduce request rate |
+| `QueueDepthExceededError` | More than 100 requests queued | Reduce request rate or increase `max_queue_depth` parameter |
+| `RateLimitError` after retries | API rate limits exceeded | Wait for rate limit window to reset (1 minute) or upgrade API tier |
+
+**Example with custom limits:**
+```python
+async with AsyncSDKWrapper(
+    cwd="/path/to/project",
+    queue_timeout=120.0,      # 2 minute timeout
+    max_queue_depth=200       # Allow 200 queued requests
+) as wrapper:
+    result = await wrapper.send_message("Hello")
+```
 
 ## 📋 Prerequisites
 
@@ -286,7 +315,7 @@ Add hook configuration to `$TARGET_PROJECT/.claude/settings.json`:
 **Step 4: Create installation directory**
 
 ```bash
-mkdir -p ~/.bmad-memory/{logs,cache,templates/best_practices}
+mkdir -p ~/.bmad-memory/{logs,cache,templates/conventions}
 ```
 
 **Step 5: Install Python dependencies**
@@ -309,9 +338,9 @@ python scripts/health-check.py
 
 ## ⬆️ Upgrading
 
-### Upgrading from v1.0.0 to v1.0.1
+### Upgrading to V2.0
 
-If you already have v1.0.0 installed, upgrade by re-running the installer:
+If you already have v1.x installed, upgrade by re-running the installer:
 
 ```bash
 # 1. Navigate to installation directory
@@ -326,8 +355,16 @@ git pull origin main
 
 **What gets upgraded:**
 - Docker services restart with new configurations
-- Hook scripts update to latest versions
+- Hook scripts update to latest versions (including V2.0 automatic triggers)
 - Docker volumes persist automatically (your data is safe)
+- Collections automatically migrate from v1.x names to v2.0 names
+
+**V2.0 Migration Notes:**
+- Old collection names (`implementations`, `best_practices`, `agent-memory`) automatically renamed
+- New collections: `code-patterns`, `conventions`, `discussions`
+- Memory types updated to V2.0 schema (15 types)
+- Automatic triggers enabled (error detection, new file, first edit, decision keywords, best practices)
+- No data loss - all existing memories preserved
 
 **No manual migration needed** - The installer handles all updates automatically.
 
@@ -375,11 +412,11 @@ python scripts/health-check.py
 
 [1/3] Checking Qdrant (localhost:26350)...
   ✅ Qdrant is healthy
-  📊 Collections: memories, best_practices
+  📊 Collections: code-patterns, conventions, discussions
 
 [2/3] Checking Embedding Service (localhost:28080)...
   ✅ Embedding service is healthy
-  📊 Model: nomic-embed-code
+  📊 Model: jinaai/jina-embeddings-v2-base-en
 
 [3/3] Checking Monitoring API (localhost:28000)...
   ✅ Monitoring API is healthy
@@ -403,14 +440,171 @@ cd /path/to/target/project
 Verify memory was stored:
 
 ```bash
-curl http://localhost:26350/collections/memories/points/scroll | jq
+curl http://localhost:26350/collections/code-patterns/points/scroll | jq
 ```
 
 ### 4. 📊 Access Dashboards
 
-- **Streamlit Dashboard:** http://localhost:28501
-- **Grafana:** http://localhost:23000 (user: `admin`, pass: `admin`)
-- **Prometheus:** http://localhost:29090
+- **Streamlit Dashboard:** http://localhost:28501 - Memory browser and statistics
+- **Grafana:** http://localhost:23000 (user: `admin`, pass: `admin`) - Performance dashboards
+- **Prometheus:** http://localhost:29090 - Raw metrics explorer
+- **Pushgateway:** http://localhost:29091 - Hook metrics collection (requires `--profile monitoring`)
+
+### 5. 📈 Monitoring Profile Services
+
+The module includes comprehensive monitoring via the `--profile monitoring` flag:
+
+```bash
+docker compose -f docker/docker-compose.yml --profile monitoring up -d
+```
+
+**Monitoring Stack:**
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| **Prometheus** | 29090 | Metrics collection and storage |
+| **Pushgateway** | 29091 | Metrics from short-lived processes (hooks) |
+| **Grafana** | 23000 | Pre-configured dashboards and visualization |
+
+**Key Features:**
+- Pre-built dashboards for memory performance, hook latency, and system health
+- Hook execution metrics pushed from session_start, post_tool_capture, and other hooks
+- Collection size warnings and threshold alerts
+- Embedding service performance tracking
+
+## Monitoring Setup (Optional)
+
+### Enable Monitoring Profile
+
+```bash
+docker compose -f docker/docker-compose.yml --profile monitoring up -d
+```
+
+This starts:
+- Prometheus (port 29090): Metrics collection
+- Pushgateway (port 29091): Hook metrics ingestion
+- Grafana (port 23000): Dashboards and visualization
+
+### Access Grafana
+
+1. Open http://localhost:23000
+2. Login: admin / admin
+3. Navigate to Dashboards → BMAD Memory
+
+### Verify Metrics Flow
+
+```bash
+# Check Pushgateway has metrics
+curl http://localhost:29091/metrics | grep bmad_
+
+# Check Prometheus targets
+open http://localhost:29090/targets
+```
+
+## Seed Best Practices (Recommended)
+
+Seed the conventions collection with common best practices:
+
+```bash
+# Preview what will be seeded
+python3 scripts/memory/seed_best_practices.py --dry-run
+
+# Seed from default templates
+python3 scripts/memory/seed_best_practices.py
+
+# Seed from custom directory
+python3 scripts/memory/seed_best_practices.py --templates-dir ./my-conventions
+```
+
+Or enable during installation:
+
+```bash
+SEED_BEST_PRACTICES=true ./scripts/install.sh /path/to/project
+```
+
+## 🔄 Managing the Stack
+
+### Starting Services
+
+```bash
+# Start core services (Qdrant, Embedding, Monitoring API)
+docker compose -f docker/docker-compose.yml up -d
+
+# Start with full monitoring (adds Prometheus, Grafana, Pushgateway)
+docker compose -f docker/docker-compose.yml --profile monitoring up -d
+```
+
+### Stopping Services
+
+```bash
+# Stop core services (preserves data)
+docker compose -f docker/docker-compose.yml down
+
+# Stop core + monitoring services (if started with --profile monitoring)
+docker compose -f docker/docker-compose.yml --profile monitoring down
+
+# Stop services AND delete data volumes (DESTRUCTIVE)
+docker compose -f docker/docker-compose.yml down -v
+
+# Stop ALL including monitoring AND delete volumes (DESTRUCTIVE)
+docker compose -f docker/docker-compose.yml --profile monitoring down -v
+```
+
+> **Important:** If you started with `--profile monitoring`, you must stop with the same flag to properly shut down Prometheus, Grafana, and Pushgateway.
+
+### Restarting Services
+
+```bash
+# Restart core services
+docker compose -f docker/docker-compose.yml restart
+
+# Restart core + monitoring services
+docker compose -f docker/docker-compose.yml --profile monitoring restart
+
+# Restart a specific service
+docker compose -f docker/docker-compose.yml restart bmad-qdrant
+docker compose -f docker/docker-compose.yml restart bmad-embedding
+docker compose -f docker/docker-compose.yml restart bmad-prometheus  # monitoring profile only
+```
+
+### Checking Status
+
+```bash
+# View running services
+docker compose -f docker/docker-compose.yml ps
+
+# Quick health check
+curl -s http://localhost:26350/health | head -1  # Qdrant
+curl -s http://localhost:28080/health             # Embedding
+
+# Full health check
+python scripts/health-check.py
+```
+
+### Viewing Logs
+
+```bash
+# All services
+docker compose -f docker/docker-compose.yml logs
+
+# Follow logs in real-time
+docker compose -f docker/docker-compose.yml logs -f
+
+# Specific service logs
+docker compose -f docker/docker-compose.yml logs bmad-qdrant
+docker compose -f docker/docker-compose.yml logs bmad-embedding
+```
+
+### After System Restart
+
+If your computer restarts, the Docker services need to be started manually:
+
+```bash
+cd /path/to/ai-memory  # or wherever you cloned the repo
+docker compose -f docker/docker-compose.yml up -d
+```
+
+To enable auto-start on boot, configure Docker Desktop (macOS/Windows) or systemd (Linux) to start the Docker daemon automatically.
 
 ## ⚙️ Configuration
 

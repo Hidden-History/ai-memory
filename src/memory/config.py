@@ -21,7 +21,45 @@ from typing import Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-__all__ = ["MemoryConfig", "get_config", "reset_config", "AGENT_TOKEN_BUDGETS", "get_agent_token_budget"]
+__all__ = [
+    "MemoryConfig",
+    "get_config",
+    "reset_config",
+    "AGENTS",
+    "VALID_AGENTS",
+    "AGENT_TOKEN_BUDGETS",
+    "get_agent_token_budget",
+    "COLLECTION_NAMES",
+    "COLLECTION_CODE_PATTERNS",
+    "COLLECTION_CONVENTIONS",
+    "COLLECTION_DISCUSSIONS",
+    "TYPE_USER_MESSAGE",
+    "TYPE_AGENT_RESPONSE",
+    "TYPE_SESSION",
+    "EMBEDDING_DIMENSIONS",
+    "EMBEDDING_MODEL",
+]
+
+# Memory System v2.0 Collection Names (MEMORY-SYSTEM-REDESIGN-v2.md Section 4)
+COLLECTION_CODE_PATTERNS = "code-patterns"  # HOW things are built
+COLLECTION_CONVENTIONS = "conventions"  # WHAT rules to follow
+COLLECTION_DISCUSSIONS = "discussions"  # WHY things were decided
+
+# All collection names for iteration/validation
+COLLECTION_NAMES = [
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+    COLLECTION_DISCUSSIONS,
+]
+
+# Memory types for conversations (V2.0)
+TYPE_USER_MESSAGE = "user_message"
+TYPE_AGENT_RESPONSE = "agent_response"
+TYPE_SESSION = "session"  # Session summaries from PreCompact hook
+
+# Embedding configuration (DEC-010: Jina Embeddings v2 Base Code)
+EMBEDDING_DIMENSIONS = 768
+EMBEDDING_MODEL = "jina-embeddings-v2-base-en"
 
 
 class MemoryConfig(BaseSettings):
@@ -94,6 +132,21 @@ class MemoryConfig(BaseSettings):
         description="Token budget for context injection. Controls how much context is sent to Claude."
     )
 
+    # Search performance tuning (TECH-DEBT-066)
+    hnsw_ef_fast: int = Field(
+        default=64,
+        ge=16,
+        le=512,
+        description="HNSW ef parameter for trigger mode (speed priority). Lower = faster search."
+    )
+
+    hnsw_ef_accurate: int = Field(
+        default=128,
+        ge=16,
+        le=512,
+        description="HNSW ef parameter for user search mode (accuracy priority). Higher = more accurate."
+    )
+
     # Service configuration
     qdrant_host: str = Field(
         default="localhost",
@@ -109,7 +162,12 @@ class MemoryConfig(BaseSettings):
 
     qdrant_api_key: Optional[str] = Field(
         default=None,
-        description="Optional API key for Qdrant authentication (future use)"
+        description="Optional API key for Qdrant authentication (BP-040)"
+    )
+
+    qdrant_use_https: bool = Field(
+        default=False,
+        description="Use HTTPS for Qdrant connections (BP-040: required for production with API keys)"
     )
 
     embedding_host: str = Field(
@@ -134,6 +192,13 @@ class MemoryConfig(BaseSettings):
         ge=1024,
         le=65535,
         description="Monitoring API port for health checks and metrics"
+    )
+
+    embedding_dimension: int = Field(
+        default=768,
+        ge=128,
+        le=4096,
+        description="Embedding vector dimension (default 768 for jina-embeddings-v2-base-en)"
     )
 
     # Logging & Monitoring
@@ -198,27 +263,34 @@ class MemoryConfig(BaseSettings):
         return f"http://{self.monitoring_host}:{self.monitoring_port}"
 
 
-# Agent-specific token budgets for memory injection (TECH-DEBT-012 Phase 6)
+# Agent configuration - SINGLE SOURCE OF TRUTH (CR-4.27)
+# Consolidates agent names (previously duplicated in models.py) with token budgets
 # Higher budgets for agents that need more context (architects, analysts)
 # Lower budgets for focused agents (scrum-master, qa)
-AGENT_TOKEN_BUDGETS = {
-    "architect": 1500,
-    "analyst": 1200,
-    "pm": 1200,
-    "developer": 1200,
-    "dev": 1200,
-    "solo-dev": 1500,
-    "quick-flow-solo-dev": 1500,
-    "ux-designer": 1000,
-    "qa": 1000,
-    "tea": 1000,
-    "code-review": 1200,
-    "code-reviewer": 1200,
-    "scrum-master": 800,
-    "sm": 800,
-    "tech-writer": 800,
-    "default": 1000,
+AGENTS = {
+    "architect": {"budget": 1500},
+    "analyst": {"budget": 1200},
+    "pm": {"budget": 1200},
+    "developer": {"budget": 1200},
+    "dev": {"budget": 1200},
+    "solo-dev": {"budget": 1500},
+    "quick-flow-solo-dev": {"budget": 1500},
+    "ux-designer": {"budget": 1000},
+    "qa": {"budget": 1000},
+    "tea": {"budget": 1000},
+    "code-review": {"budget": 1200},
+    "code-reviewer": {"budget": 1200},
+    "scrum-master": {"budget": 800},
+    "sm": {"budget": 800},
+    "tech-writer": {"budget": 800},
+    "default": {"budget": 1000},
 }
+
+# Valid agent names for validation (exported for models.py)
+VALID_AGENTS = [k for k in AGENTS.keys() if k != "default"]
+
+# Backward compatibility - deprecated, use AGENTS dict directly
+AGENT_TOKEN_BUDGETS = {k: v["budget"] for k, v in AGENTS.items()}
 
 
 def get_agent_token_budget(agent_name: str) -> int:
@@ -232,7 +304,8 @@ def get_agent_token_budget(agent_name: str) -> int:
     """
     # Normalize: lowercase, strip whitespace
     normalized = agent_name.lower().strip() if agent_name else "default"
-    return AGENT_TOKEN_BUDGETS.get(normalized, AGENT_TOKEN_BUDGETS["default"])
+    agent_config = AGENTS.get(normalized, AGENTS["default"])
+    return agent_config["budget"]
 
 
 # Module-level singleton with lru_cache for thread-safety

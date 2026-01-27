@@ -17,13 +17,14 @@ from src.memory.config import get_config
 from src.memory.qdrant_client import get_qdrant_client
 
 
+@pytest.mark.requires_qdrant
 class TestStorageIntegration:
     """Integration tests with running Docker stack.
 
     Prerequisites:
         - Qdrant running on localhost:26350
         - Embedding service running on localhost:28080
-        - Collections 'implementations' and 'best_practices' exist
+        - Collections 'code-patterns' and 'conventions' exist
 
     Run with: pytest tests/integration/test_storage.py -v
     """
@@ -40,7 +41,7 @@ class TestStorageIntegration:
 
         # Clear test data before running test
         # Scroll to find all test-* session_id points and delete them
-        for collection in ["implementations", "best_practices"]:
+        for collection in ["code-patterns", "conventions"]:
             try:
                 # Scroll with filter to find test points
                 scroll_result = client.scroll(
@@ -69,7 +70,7 @@ class TestStorageIntegration:
         yield
 
         # Cleanup: Same as setup - delete test data after test
-        for collection in ["implementations", "best_practices"]:
+        for collection in ["code-patterns", "conventions"]:
             try:
                 scroll_result = client.scroll(
                     collection_name=collection,
@@ -115,7 +116,7 @@ class TestStorageIntegration:
         config = get_config()
         client = get_qdrant_client(config)
         retrieved = client.retrieve(
-            collection_name="implementations", ids=[result["memory_id"]]
+            collection_name="code-patterns", ids=[result["memory_id"]]
         )
 
         assert len(retrieved) == 1
@@ -127,7 +128,7 @@ class TestStorageIntegration:
         assert retrieved[0].payload["type"] == "implementation"
         # Accept either complete or pending status
         assert retrieved[0].payload["embedding_status"] in ["complete", "pending"]
-        assert retrieved[0].payload["embedding_model"] == "jina-embeddings-v2-base-code"
+        assert retrieved[0].payload["embedding_model"] == "jina-embeddings-v2-base-en"
 
         # Verify vector dimensions (DEC-010)
         # If embedding succeeded, verify proper dimensions; if pending, verify zero vector
@@ -168,7 +169,7 @@ class TestStorageIntegration:
 
         for i, result in enumerate(results):
             retrieved = client.retrieve(
-                collection_name="implementations", ids=[result["memory_id"]]
+                collection_name="code-patterns", ids=[result["memory_id"]]
             )
             assert len(retrieved) == 1
             assert (
@@ -213,9 +214,9 @@ class TestStorageIntegration:
 
         memory_types = [
             MemoryType.IMPLEMENTATION,
-            MemoryType.SESSION_SUMMARY,
+            MemoryType.SESSION,
             MemoryType.DECISION,
-            MemoryType.PATTERN,
+            MemoryType.GUIDELINE,
         ]
 
         for mem_type in memory_types:
@@ -235,7 +236,7 @@ class TestStorageIntegration:
             config = get_config()
             client = get_qdrant_client(config)
             retrieved = client.retrieve(
-                collection_name="implementations", ids=[result["memory_id"]]
+                collection_name="code-patterns", ids=[result["memory_id"]]
             )
             assert retrieved[0].payload["type"] == mem_type.value
 
@@ -261,7 +262,7 @@ class TestStorageIntegration:
         config = get_config()
         client = get_qdrant_client(config)
         retrieved = client.retrieve(
-            collection_name="implementations", ids=[result["memory_id"]]
+            collection_name="code-patterns", ids=[result["memory_id"]]
         )
 
         assert retrieved[0].payload["domain"] == "backend"
@@ -276,10 +277,10 @@ class TestStorageIntegration:
             content="Always use structured logging with extras dict for production systems",
             cwd="/test/integration",
             group_id="general",
-            memory_type=MemoryType.PATTERN,
+            memory_type=MemoryType.GUIDELINE,
             source_hook="seed_script",
             session_id="test-integration-bp",
-            collection="best_practices",
+            collection="conventions",
             importance="high",
         )
 
@@ -289,7 +290,7 @@ class TestStorageIntegration:
         config = get_config()
         client = get_qdrant_client(config)
         retrieved = client.retrieve(
-            collection_name="best_practices", ids=[result["memory_id"]]
+            collection_name="conventions", ids=[result["memory_id"]]
         )
 
         assert len(retrieved) == 1

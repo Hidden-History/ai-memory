@@ -127,7 +127,7 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
             memory_type=MemoryType.IMPLEMENTATION,
             source_hook="PostToolUse",
             session_id=f"session-{index}",
-            collection="implementations",
+            collection="code-patterns",
         )
         return {
             "index": index,
@@ -183,7 +183,7 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
         search_results = search.search(
             query="Concurrent test memory",
             cwd=f"/tmp/{test_group_id}",
-            collection="implementations",
+            collection="code-patterns",
             limit=25,
         )
 
@@ -256,7 +256,7 @@ def test_malformed_input_handled_gracefully(malformed_input, error_pattern):
 
     # Query for test data that should NOT exist
     results = client.scroll(
-        collection_name="implementations",
+        collection_name="code-patterns",
         scroll_filter=Filter(
             must=[
                 FieldCondition(key="group_id", match=MatchValue(value="malformed-test"))
@@ -329,7 +329,8 @@ def test_invalid_metadata_fields(invalid_field, value, error_pattern):
         storage.store_memory(**kwargs)
 
 
-@pytest.mark.timeout(120)  # 2 minutes (includes Docker operations)
+@pytest.mark.skip(reason="DANGEROUS: Stops real Qdrant container. Run manually with --no-skip flag")
+@pytest.mark.timeout(60)
 def test_qdrant_unavailable_queues_memory(cleanup_edge_case_memories):
     """Verify Qdrant unavailable results in queue, not crash (FR30, FR34, NFR-R5).
 
@@ -394,7 +395,7 @@ def test_qdrant_unavailable_queues_memory(cleanup_edge_case_memories):
                 memory_type=MemoryType.IMPLEMENTATION,
                 source_hook="PostToolUse",
                 session_id="outage-session",
-                collection="implementations",
+                collection="code-patterns",
             )
             # If it succeeds, check if it was queued
             if result.get("status") == "queued":
@@ -468,7 +469,7 @@ def test_embedding_timeout_queues_with_pending_status(cleanup_edge_case_memories
             memory_type=MemoryType.IMPLEMENTATION,
             source_hook="PostToolUse",
             session_id="timeout-session",
-            collection="implementations",
+            collection="code-patterns",
         )
 
         assert result["status"] in ["stored", "pending"], (
@@ -481,7 +482,7 @@ def test_embedding_timeout_queues_with_pending_status(cleanup_edge_case_memories
     client = QdrantClient(url=QDRANT_URL, timeout=5.0)
 
     results = client.scroll(
-        collection_name="implementations",
+        collection_name="code-patterns",
         scroll_filter=Filter(
             must=[FieldCondition(key="group_id", match=MatchValue(value=test_group_id))]
         ),

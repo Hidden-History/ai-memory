@@ -8,6 +8,7 @@ import httpx
 import time
 
 
+@pytest.mark.requires_embedding
 class TestEmbeddingService:
     """Test embedding service endpoints and performance."""
 
@@ -187,6 +188,7 @@ class TestEmbeddingService:
         assert data["dimensions"] == 768
 
 
+@pytest.mark.requires_docker_stack
 class TestEmbeddingServiceIntegration:
     """Test embedding service integration with Docker stack."""
 

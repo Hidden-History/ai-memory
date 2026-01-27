@@ -3,9 +3,9 @@
 Comprehensive Memory System Test for BMAD Memory Module
 
 Tests all 3 memory collections with validation patterns:
-- implementations
-- best_practices
-- agent-memory
+- code-patterns
+- conventions
+- discussions
 
 Usage:
     python test_memory.py                    # Run all tests
@@ -276,7 +276,7 @@ def test_memory_types():
 
     memory_types = [
         MemoryType.IMPLEMENTATION,
-        MemoryType.SESSION_SUMMARY,
+        MemoryType.SESSION,
         MemoryType.DECISION,
         MemoryType.PATTERN,
     ]
@@ -309,23 +309,31 @@ def test_collection_routing():
     print("=" * 60)
 
     def route_to_collection(memory_type: str) -> str:
-        """Route to correct collection based on type."""
-        if memory_type == "best_practice":
-            return "best_practices"
-        elif memory_type in ["session_summary", "chat_memory", "agent_decision"]:
-            return "agent-memory"
+        """Route to correct collection based on type (v2.0)."""
+        # code-patterns collection (HOW)
+        if memory_type in ["implementation", "error_fix", "refactor", "file_pattern"]:
+            return "code-patterns"
+        # conventions collection (WHAT)
+        elif memory_type in ["guideline", "anti_pattern", "decision"]:
+            return "conventions"
+        # discussions collection (WHY)
+        elif memory_type in ["session", "conversation", "analysis", "reflection", "context", "decision_record", "lesson_learned"]:
+            return "discussions"
         else:
-            return "implementations"
+            return "code-patterns"  # Default fallback
 
-    # Test routing
+    # Test routing (v2.0)
     test_cases = [
-        ("implementation", "implementations"),
-        ("architecture_decision", "implementations"),
-        ("story_outcome", "implementations"),
-        ("error_pattern", "implementations"),
-        ("best_practice", "best_practices"),
-        ("session_summary", "agent-memory"),
-        ("chat_memory", "agent-memory"),
+        ("implementation", "code-patterns"),
+        ("error_fix", "code-patterns"),
+        ("refactor", "code-patterns"),
+        ("file_pattern", "code-patterns"),
+        ("guideline", "conventions"),
+        ("anti_pattern", "conventions"),
+        ("decision", "conventions"),
+        ("session", "discussions"),
+        ("conversation", "discussions"),
+        ("analysis", "discussions"),
     ]
 
     all_passed = True
@@ -351,8 +359,8 @@ def test_qdrant_connection():
         config = get_config()
         print(f"[PASS] Connected to Qdrant at {config.qdrant_host}:{config.qdrant_port}")
 
-        # Check collections
-        collections = ["implementations", "best_practices", "agent-memory"]
+        # Check v2.0 collections
+        collections = ["code-patterns", "conventions", "discussions"]
 
         for coll_name in collections:
             try:

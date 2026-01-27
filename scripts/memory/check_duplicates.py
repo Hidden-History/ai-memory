@@ -7,9 +7,9 @@ Implements two-stage duplicate detection:
 - Stage 2: Semantic duplicate (similarity >0.85)
 
 Checks across all 3 collections:
-- implementations
-- best_practices
-- agent-memory
+- code-patterns
+- conventions
+- discussions
 
 Usage:
     # As module
@@ -50,9 +50,9 @@ except ImportError:
 
 # Collection names
 COLLECTIONS_TO_CHECK = [
-    "implementations",
-    "best_practices",
-    "agent-memory",
+    "code-patterns",
+    "conventions",
+    "discussions",
 ]
 
 # Similarity threshold for semantic duplicates

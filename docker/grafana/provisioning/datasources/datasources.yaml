@@ -1,6 +1,8 @@
 # Grafana Datasource Provisioning Configuration
 # Auto-configures Prometheus datasource on Grafana startup
-# 2026 Best Practice: editable: false for infrastructure-as-code immutability
+# BP-040: Environment variable substitution in secureJsonData (Grafana 10+)
+# Note: Use $VAR syntax, NOT ${VAR} to avoid double expansion issues
+# Reference: https://github.com/grafana/grafana/pull/63085
 
 apiVersion: 1
 
@@ -12,7 +14,10 @@ datasources:
     uid: prometheus
     isDefault: true
     editable: false
+    basicAuth: true
+    basicAuthUser: admin
+    secureJsonData:
+      basicAuthPassword: $PROMETHEUS_ADMIN_PASSWORD
     jsonData:
       httpMethod: POST
       timeInterval: 15s
-    version: 2

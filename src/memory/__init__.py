@@ -40,6 +40,15 @@ from .storage import MemoryStorage
 # Search (Story 1.6)
 from .search import MemorySearch
 
+# Async SDK Wrapper (TECH-DEBT-035 Phase 2)
+from .async_sdk_wrapper import (
+    AsyncSDKWrapper,
+    AsyncConversationCapture,
+    RateLimitQueue,
+    QueueTimeoutError,
+    QueueDepthExceededError,
+)
+
 # Graceful Degradation (Story 1.7)
 from .graceful import (
     graceful_hook,
@@ -95,6 +104,12 @@ __all__ = [
     "MemoryStorage",
     # Search (Story 1.6)
     "MemorySearch",
+    # Async SDK Wrapper (TECH-DEBT-035 Phase 2)
+    "AsyncSDKWrapper",
+    "AsyncConversationCapture",
+    "RateLimitQueue",
+    "QueueTimeoutError",
+    "QueueDepthExceededError",
     # Graceful Degradation (Story 1.7)
     "graceful_hook",
     "exit_success",

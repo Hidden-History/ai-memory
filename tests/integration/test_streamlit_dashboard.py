@@ -75,9 +75,9 @@ class TestStreamlitQdrantConnectivity:
         collections_response = client.get_collections()
         collection_names = [c.name for c in collections_response.collections]
 
-        assert "implementations" in collection_names, \
+        assert "code-patterns" in collection_names, \
             "implementations collection not found"
-        assert "best_practices" in collection_names, \
+        assert "conventions" in collection_names, \
             "best_practices collection not found"
 
 
@@ -103,7 +103,7 @@ class TestStreamlitSearchFunctionality:
         3. Score threshold filtering applies
         """
         # Skip if no data available
-        info = qdrant_client.get_collection("implementations")
+        info = qdrant_client.get_collection("code-patterns")
         if info.points_count == 0:
             pytest.skip("No data in implementations collection for search test")
 
@@ -116,13 +116,13 @@ class TestStreamlitSearchFunctionality:
         # 3. Display results
 
         # For now, verify Qdrant search works with threshold
-        # Use a dummy vector (768d for nomic-embed-code)
+        # Use a dummy vector (768d for jina-embeddings-v2-base-en)
         dummy_vector = [0.1] * 768
 
         from qdrant_client.models import SearchRequest
 
         results = qdrant_client.query_points(
-            collection_name="implementations",
+            collection_name="code-patterns",
             query=dummy_vector,
             limit=20,
             score_threshold=0.70,
@@ -147,8 +147,8 @@ class TestStreamlitStatisticsDisplay:
         )
 
         # Get both collection counts (simulating stats panel)
-        impl_info = client.get_collection("implementations")
-        bp_info = client.get_collection("best_practices")
+        impl_info = client.get_collection("code-patterns")
+        bp_info = client.get_collection("conventions")
 
         # Verify structure
         assert hasattr(impl_info, "points_count"), \

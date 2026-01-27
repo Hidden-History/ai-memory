@@ -1,58 +1,197 @@
-# 🧠 AI Memory Module
+# 🧠 AI-Memory
 
-[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/Hidden-History/ai-memory/releases)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Docker](https://img.shields.io/badge/docker-20.10+-blue.svg)](https://www.docker.com/)
+<p align="center">
+  <img src="assets/ai-memory-banner.png" alt="AI-Memory Banner" width="100%">
+</p>
 
-> 🚀 Persistent semantic memory for Claude Code - capture implementations, recall patterns, build faster.
+<p align="center">
+  <a href="https://github.com/Hidden-History/ai-memory/stargazers"><img src="https://img.shields.io/github/stars/Hidden-History/ai-memory?color=blue&style=flat-square" alt="Stars"></a>
+  <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
+  <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
+  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome">
+</p>
 
-## ✨ Features
+---
 
-- 📥 **Automatic Capture**: PostToolUse hook captures implementations in background (<500ms overhead)
-- 🔍 **Semantic Search**: Qdrant + Nomic Embed Code finds relevant memories
-- ⚙️ **Zero Configuration**: Environment variables with sensible defaults
-- 👥 **Multi-Project Isolation**: `group_id` filtering keeps projects separate
+### **Cure AI Amnesia.**
+**AI-Memory** is a persistent context layer designed to give your agents institutional memory. By bridging LLMs with a high-performance vector database (Qdrant), this framework ensures your agents remember architectural decisions, project rules, and past interactions across every session.
+
+[**Explore the Docs**](#-usage) | [**Report a Bug**](https://github.com/Hidden-History/ai-memory/issues) | [**Request a Feature**](https://github.com/Hidden-History/ai-memory/issues)
+
+---
+
+## 🚀 Key Features
+
+* **💾 Long-Term Persistence:** Stop re-explaining your codebase. Agents retrieve past context automatically.
+* **📂 Structured BMAD Integration:** Purpose-built for BMAD workflows and multi-agent "Party Mode."
+* **🔍 Semantic Retrieval:** Uses vector embeddings to find relevant memories based on intent, not just keywords.
+* **⚖️ Decision Tracking:** Automatically captures "lessons learned" and integration rules during the dev cycle.
+
+---
+
+## ✨ V2.0 Memory System
+
+- 🗂️ **Three Specialized Collections**: code-patterns (HOW), conventions (WHAT), discussions (WHY)
+- 🎯 **15 Memory Types**: Precise categorization for implementation, errors, decisions, and more
+- ⚡ **5 Automatic Triggers**: Smart context injection when you need it most
+- 🔍 **Intent Detection**: Automatically routes queries to the right collection
+- 💬 **Conversation Memory**: Turn-by-turn capture with post-compaction context continuity
+- 🔁 **Cascading Search**: Falls back across collections for comprehensive results
 - 📊 **Monitoring**: Prometheus metrics + Grafana dashboards
 - 🛡️ **Graceful Degradation**: Works even when services are temporarily unavailable
-- 💾 **Session Continuity**: PreCompact hook saves context before compaction
+- 👥 **Multi-Project Isolation**: `group_id` filtering keeps projects separate
 
 ## 🏗️ Architecture
 
+### V2.0 Memory System
+
 ```
 Claude Code Session
-    ├── SessionStart Hook → Load relevant memories → Inject context
-    ├── PostToolUse Hook → Capture implementations (fork background)
-    ├── PreCompact Hook → Save session summary before compaction
-    └── Stop Hook → Optional cleanup
+    ├── SessionStart Hook → Context injection after compaction
+    ├── UserPromptSubmit Hook → Keyword triggers (decision/best practices)
+    ├── PreToolUse Hooks → Smart triggers (new file/first edit)
+    ├── PostToolUse Hook → Capture code patterns + error detection
+    ├── PreCompact Hook → Save conversation before compaction
+    └── Stop Hook → Capture agent responses
 
 Python Core (src/memory/)
-    ├── config.py         → Environment-based configuration
+    ├── config.py         → Environment configuration
     ├── storage.py        → Qdrant CRUD operations
-    ├── search.py         → Semantic search
-    ├── embeddings.py     → Nomic Embed Code client
+    ├── search.py         → Semantic search + cascading
+    ├── intent.py         → Intent detection + routing
+    ├── triggers.py       → Automatic trigger configuration
+    ├── embeddings.py     → Jina AI embeddings (768d)
     └── deduplication.py  → Hash + similarity dedup
 
 Docker Services
     ├── Qdrant (port 26350)
     ├── Embedding Service (port 28080)
+    ├── Classifier Worker (LLM reclassification)
     ├── Streamlit Dashboard (port 28501)
-    └── Prometheus/Grafana (--profile monitoring, ports 29090/23000)
+    └── Monitoring Stack (--profile monitoring)
+        ├── Prometheus (port 29090)
+        ├── Pushgateway (port 29091)
+        └── Grafana (port 23000)
 ```
+
+### Three-Collection Structure
+
+| Collection | Purpose | Example Types |
+|------------|---------|---------------|
+| **code-patterns** | HOW things are built | implementation, error_fix, refactor |
+| **conventions** | WHAT rules to follow | rule, guideline, naming, structure |
+| **discussions** | WHY things were decided | decision, session, preference |
+
+### Automatic Triggers
+
+The memory system automatically retrieves relevant context:
+
+- **Error Detection**: When a command fails, retrieves past error fixes
+- **New File Creation**: Retrieves naming conventions and structure patterns
+- **First Edit**: Retrieves file-specific patterns on first modification
+- **Decision Keywords**: "Why did we..." triggers decision memory retrieval
+- **Best Practices**: "How should I..." triggers convention retrieval
+
+### Trigger Keyword Reference
+
+The following keywords automatically activate memory retrieval when detected in your prompts:
+
+<details>
+<summary><b>Decision Keywords</b> (20 patterns) → Searches <code>discussions</code> for past decisions</summary>
+
+| Category | Keywords |
+|----------|----------|
+| Decision recall | `why did we`, `why do we`, `what was decided`, `what did we decide` |
+| Memory recall | `remember when`, `remember the decision`, `remember what`, `remember how`, `do you remember`, `recall when`, `recall the`, `recall how` |
+| Session references | `last session`, `previous session`, `earlier we`, `before we`, `previously`, `last time we`, `what did we do`, `where did we leave off` |
+
+</details>
+
+<details>
+<summary><b>Session History Keywords</b> (16 patterns) → Searches <code>discussions</code> for session summaries</summary>
+
+| Category | Keywords |
+|----------|----------|
+| Project status | `what have we done`, `what did we work on`, `project status`, `where were we`, `what's the status` |
+| Continuation | `continue from`, `pick up where`, `continue where` |
+| Remaining work | `what's left to do`, `remaining work`, `what's next for`, `what's next on`, `what's next in the`, `next steps`, `todo`, `tasks remaining` |
+
+</details>
+
+<details>
+<summary><b>Best Practices Keywords</b> (27 patterns) → Searches <code>conventions</code> for guidelines</summary>
+
+| Category | Keywords |
+|----------|----------|
+| Standards | `best practice`, `best practices`, `coding standard`, `coding standards`, `convention`, `conventions for` |
+| Patterns | `what's the pattern`, `what is the pattern`, `naming convention`, `style guide` |
+| Guidance | `how should i`, `how do i`, `what's the right way`, `what is the right way` |
+| Research | `research the pattern`, `research best practice`, `look up`, `find out about`, `what do the docs say` |
+| Recommendations | `should i use`, `what's recommended`, `what is recommended`, `recommended approach`, `preferred approach`, `preferred way`, `industry standard`, `common pattern` |
+
+</details>
+
+> **Note**: Keywords are case-insensitive. Only structured patterns trigger retrieval to avoid false positives on casual conversation.
+
+### LLM Memory Classifier
+
+The optional LLM Classifier automatically reclassifies captured memories into more precise types:
+
+- **Rule-based first**: Fast pattern matching (free, <10ms)
+- **LLM fallback**: AI classification when rules don't match
+- **Provider chain**: Primary provider with automatic fallback
+
+**Quick Setup:**
+
+```bash
+# Configure in docker/.env
+MEMORY_CLASSIFIER_ENABLED=true
+MEMORY_CLASSIFIER_PRIMARY_PROVIDER=ollama    # or: openrouter, claude, openai
+MEMORY_CLASSIFIER_FALLBACK_PROVIDERS=openrouter
+
+# For Ollama (free, local)
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+OLLAMA_MODEL=sam860/LFM2:2.6b
+
+# For OpenRouter (free tier available)
+OPENROUTER_API_KEY=sk-or-v1-your-key
+OPENROUTER_MODEL=google/gemma-2-9b-it:free
+```
+
+See [docs/llm-classifier.md](docs/llm-classifier.md) for complete setup guide, provider options, and troubleshooting.
 
 ## 🚀 Quick Start
 
-```bash
-# 1. Clone and install
-git clone https://github.com/Hidden-History/ai-memory.git
-cd ai-memory
-./scripts/install.sh /path/to/target-project
+### 1. Start Services
 
-# 2. Start services
+```bash
+# Core services (Qdrant + Embedding)
 docker compose -f docker/docker-compose.yml up -d
 
-# 3. Verify health
-python scripts/health-check.py
+# With monitoring (adds Prometheus, Grafana, Pushgateway)
+docker compose -f docker/docker-compose.yml --profile monitoring up -d
+```
+
+### 2. Verify Services
+
+```bash
+# Check Qdrant (port 26350)
+curl http://localhost:26350/health
+
+# Check Embedding Service (port 28080)
+curl http://localhost:28080/health
+
+# Check Grafana (port 23000) - if monitoring enabled
+open http://localhost:23000  # admin/admin
+```
+
+### 3. Install to Project
+
+```bash
+./scripts/install.sh /path/to/your-project
+
+# With convention seeding (recommended)
+SEED_BEST_PRACTICES=true ./scripts/install.sh /path/to/your-project
 ```
 
 **Expected Output:**
@@ -108,7 +247,8 @@ All services use `2XXXX` prefix to avoid conflicts:
 | Monitoring API   | 28000    | 8000     | `localhost:28000/health`    |
 | Streamlit        | 28501    | 8501     | `localhost:28501`           |
 | Grafana          | 23000    | 3000     | `localhost:23000`           |
-| Prometheus       | 29090    | 9090     | `localhost:29090`           |
+| Prometheus       | 29090    | 9090     | `localhost:29090` (--profile monitoring) |
+| Pushgateway      | 29091    | 9091     | `localhost:29091` (--profile monitoring) |
 
 ### Environment Variables
 
@@ -135,7 +275,7 @@ export MEMORY_LOG_LEVEL=DEBUG  # Enable verbose logging
 Memory capture happens automatically via Claude Code hooks:
 
 1. **SessionStart**: Loads relevant memories from previous sessions and injects as context
-2. **PostToolUse**: Captures implementations (Write/Edit/NotebookEdit tools) in background (<500ms)
+2. **PostToolUse**: Captures code patterns (Write/Edit/NotebookEdit tools) in background (<500ms)
 3. **PreCompact**: Saves session summary before context compaction (auto or manual `/compact`)
 4. **Stop**: Optional per-response cleanup
 
@@ -158,7 +298,117 @@ Use slash commands for manual control:
 /search-memory <query>
 ```
 
-See [docs/HOOKS.md](docs/HOOKS.md) for comprehensive hook documentation and [docs/COMMANDS.md](docs/COMMANDS.md) for all available commands.
+See [docs/HOOKS.md](docs/HOOKS.md) for hook documentation, [docs/COMMANDS.md](docs/COMMANDS.md) for commands, and [docs/llm-classifier.md](docs/llm-classifier.md) for LLM classifier setup.
+
+### 🤖 AsyncSDKWrapper (Agent SDK Integration)
+
+The AsyncSDKWrapper provides full async/await support for building custom Agent SDK agents with persistent memory.
+
+**Features:**
+
+- Full async/await support compatible with Agent SDK
+- Rate limiting with token bucket algorithm (Tier 1: 50 RPM, 30K TPM)
+- Exponential backoff retry with jitter (3 retries: 1s, 2s, 4s ±20%)
+- Automatic conversation capture to discussions collection
+- Background storage (fire-and-forget pattern)
+- Prometheus metrics integration
+
+**Basic Usage:**
+
+```python
+import asyncio
+from src.memory import AsyncSDKWrapper
+
+async def main():
+    async with AsyncSDKWrapper(cwd="/path/to/project") as wrapper:
+        # Send message with automatic rate limiting and retry
+        result = await wrapper.send_message(
+            prompt="What is async/await?",
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=500
+        )
+
+        print(f"Response: {result['content']}")
+        print(f"Session ID: {result['session_id']}")
+
+asyncio.run(main())
+```
+
+**Streaming Responses (Buffered):**
+
+> **Note**: Current implementation buffers the full response for retry reliability. True progressive streaming planned for future release.
+
+```python
+async with AsyncSDKWrapper(cwd="/path/to/project") as wrapper:
+    async for chunk in wrapper.send_message_streaming(
+        prompt="Explain Python async",
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=800
+    ):
+        print(chunk, end='', flush=True)
+```
+
+**Custom Rate Limits:**
+
+```python
+async with AsyncSDKWrapper(
+    cwd="/path/to/project",
+    requests_per_minute=100,   # Tier 2
+    tokens_per_minute=100000   # Tier 2
+) as wrapper:
+    result = await wrapper.send_message("Hello!")
+```
+
+**Examples:**
+
+- `examples/async_sdk_basic.py` - Basic async/await usage, context manager pattern, session ID logging, rate limiting demonstration
+- `examples/async_sdk_streaming.py` - Streaming response handling (buffered), progressive chunk processing, retry behavior
+- `examples/async_sdk_rate_limiting.py` - Custom rate limit configuration, queue depth/timeout settings, error handling for different API tiers
+
+**Configuration:**
+
+Set `ANTHROPIC_API_KEY` environment variable before using AsyncSDKWrapper:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-api03-...
+```
+
+**Rate Limiting:**
+
+The wrapper implements token bucket algorithm matching Anthropic's rate limits:
+
+| Tier | Requests/Min | Tokens/Min |
+|------|-------------|------------|
+| Free | 5           | 10,000     |
+| Tier 1 | 50 (default) | 30,000 (default) |
+| Tier 2 | 100         | 100,000    |
+| Tier 3+ | 1,000+      | 400,000+   |
+
+Circuit breaker protections:
+- Max queue depth: 100 requests
+- Queue timeout: 60 seconds
+- Raises `QueueTimeoutError` or `QueueDepthExceededError` if exceeded
+
+**Retry Strategy:**
+
+Automatic exponential backoff retry (DEC-029):
+- Max retries: 3
+- Delays: 1s, 2s, 4s (with ±20% jitter)
+- Retries on: 429 (rate limit), 529 (overload), network errors
+- No retry on: 4xx client errors (except 429), auth failures
+- Respects `retry-after` header when provided
+
+**Memory Capture:**
+
+All messages are automatically captured to the `discussions` collection:
+- User messages → `user_message` type
+- Agent responses → `agent_response` type
+- Background storage (non-blocking)
+- Session-based grouping with turn numbers
+
+See `src/memory/async_sdk_wrapper.py` for complete API documentation.
+
+For complete design rationale, see `oversight/specs/tech-debt-035/phase-2-design.md`.
 
 ### 👥 Multi-Project Support
 
@@ -170,10 +420,10 @@ Memories are automatically isolated by `group_id` (derived from project director
 # Searches only return memories from current project
 ```
 
-**Three Memory Collections:**
-- **agent-memory**: Session summaries and decisions (per-project)
-- **implementations**: Code patterns with file:line references (per-project)
-- **best_practices**: Universal patterns shared across all projects
+**V2.0 Collection Isolation:**
+- **code-patterns**: Implementation patterns (per-project isolation)
+- **conventions**: Coding standards and rules (shared across projects by default)
+- **discussions**: Decisions, sessions, conversations (per-project isolation)
 
 ## 🔧 Troubleshooting
 
@@ -284,57 +534,25 @@ For more detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ## 📊 Monitoring
 
-### 🎨 Streamlit Dashboard
+### Grafana Dashboards
 
-Access the interactive memory browser:
+Access Grafana at `http://localhost:23000` (admin/admin):
 
-```bash
-# Open in browser
-http://localhost:28501
-```
+- **Memory Overview**: Captures, retrievals, collection sizes
+- **Trigger Performance**: Trigger fires, response times, results
+- **Collection Health**: Per-collection metrics, deduplication
+- **Embedding Metrics**: Generation times, success rates
 
-Features:
+### Key Metrics
 
-- Browse all captured memories
-- Search by content or metadata
-- View memory statistics
-- Inspect embeddings
+| Metric | Description |
+|--------|-------------|
+| `bmad_memory_captures_total` | Total memory capture attempts |
+| `bmad_trigger_fires_total` | Automatic trigger activations |
+| `bmad_retrieval_duration_seconds` | Search response times |
+| `bmad_tokens_consumed_total` | Token usage by operation |
 
-### 📈 Grafana Dashboards
-
-Access monitoring dashboards:
-
-```bash
-# Open in browser
-http://localhost:23000
-
-# Default credentials
-Username: admin
-Password: admin
-```
-
-Pre-built dashboards include:
-
-- Memory capture metrics
-- Embedding performance
-- Qdrant collection statistics
-- Hook execution times
-
-### 📡 Prometheus Metrics
-
-Direct access to metrics:
-
-```bash
-# Open in browser
-http://localhost:29090
-```
-
-Custom metrics include:
-
-- `bmad_memory_stored_total` - Total memories stored
-- `bmad_memory_retrieved_total` - Total memories retrieved
-- `bmad_embedding_duration_seconds` - Embedding generation time
-- `bmad_hook_execution_seconds` - Hook execution duration
+See `docs/prometheus-queries.md` for query examples.
 
 ## 📈 Performance
 
@@ -399,7 +617,7 @@ ai-memory/
 - **Hook Exit Codes**: `0` (success), `1` (non-blocking error), `2` (blocking error - rare)
 - **Graceful Degradation**: All components must fail silently - Claude works without memory
 
-See [project-context.md](_bmad-output/project-context.md) for complete coding standards.
+See [CLAUDE.md](CLAUDE.md) for complete coding standards and project conventions.
 
 ## 🤝 Contributing
 

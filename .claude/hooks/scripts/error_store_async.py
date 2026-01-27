@@ -2,7 +2,7 @@
 """Async storage script for error pattern capture background processing.
 
 This script runs in a detached background process, storing captured
-error patterns to Qdrant with type="error_pattern".
+error patterns to Qdrant with type="error_fix" (v2.0).
 
 Performance: Runs independently of hook (no <500ms constraint)
 Timeout: Configurable via HOOK_TIMEOUT env var (default: 60s)
@@ -17,12 +17,13 @@ import time
 from pathlib import Path
 from typing import Any, Dict
 
-# Add src/memory to path for imports
-project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root / "src"))
+# CR-1.7: Setup path inline (must happen BEFORE any memory.* imports)
+INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Import project detection
 from memory.project import detect_project
+from memory.config import COLLECTION_CODE_PATTERNS, get_config
 
 try:
     from qdrant_client import AsyncQdrantClient
@@ -57,66 +58,9 @@ try:
 except ImportError:
     memory_captures_total = None
 
-
-def get_timeout() -> int:
-    """Get timeout value from env var.
-
-    Returns:
-        Timeout in seconds (default: 60)
-    """
-    try:
-        timeout_str = os.getenv("HOOK_TIMEOUT", "60")
-        return int(timeout_str)
-    except ValueError:
-        logger.warning(
-            "invalid_timeout_env",
-            extra={"value": timeout_str, "using_default": 60}
-        )
-        return 60
-
-
-def queue_to_file(error_context: Dict[str, Any], reason: str) -> None:
-    """Queue failed error capture to file for retry.
-
-    Args:
-        error_context: Error context data
-        reason: Reason for queuing
-    """
-    try:
-        # Queue directory
-        queue_dir = Path(os.getenv("MEMORY_QUEUE_DIR", "./.memory_queue"))
-        queue_dir.mkdir(parents=True, exist_ok=True)
-
-        # Generate queue file name
-        session_id = error_context.get("session_id", "unknown")
-        timestamp = time.time()
-        queue_file = queue_dir / f"error_{session_id}_{int(timestamp)}.json"
-
-        # Write to queue
-        queue_data = {
-            "error_context": error_context,
-            "reason": reason,
-            "timestamp": timestamp
-        }
-        queue_file.write_text(json.dumps(queue_data, indent=2))
-
-        logger.info(
-            "error_pattern_queued",
-            extra={
-                "reason": reason,
-                "queue_file": str(queue_file),
-                "session_id": session_id
-            }
-        )
-
-    except Exception as e:
-        logger.error(
-            "queue_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
-        )
+# CR-1.2, CR-1.3, CR-1.4: Use consolidated utility functions
+from memory.hooks_common import log_to_activity, get_hook_timeout
+from memory.queue import queue_operation
 
 
 def format_error_content(error_context: Dict[str, Any]) -> str:
@@ -177,22 +121,42 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
     client = None
 
     try:
-        # Get Qdrant configuration
+        # Get Qdrant configuration (BP-040)
         qdrant_host = os.getenv("QDRANT_HOST", "localhost")
         qdrant_port = int(os.getenv("QDRANT_PORT", "26350"))
-        collection_name = os.getenv("QDRANT_COLLECTION", "implementations")
+        qdrant_api_key = os.getenv("QDRANT_API_KEY")
+        qdrant_use_https = os.getenv("QDRANT_USE_HTTPS", "false").lower() == "true"
+        collection_name = os.getenv("QDRANT_COLLECTION", COLLECTION_CODE_PATTERNS)
+
+        # FIX #3: Dedup check in background (not hot path)
+        # Check if this exact error has already been stored
+        content_hash = error_context.get("content_hash")
+        if content_hash:
+            from memory.filters import ImplementationFilter
+            impl_filter = ImplementationFilter()
+            if impl_filter.is_duplicate(content_hash, collection_name):
+                logger.info("error_duplicate_skipped_background", extra={
+                    "content_hash": content_hash,
+                    "error": error_context.get("error_message", "")[:50]
+                })
+                return  # Skip storage, already captured
 
         # Initialize AsyncQdrantClient
         if AsyncQdrantClient is None:
             raise ImportError("qdrant-client not installed")
 
-        client = AsyncQdrantClient(host=qdrant_host, port=qdrant_port)
+        # BP-040: API key + HTTPS configurable via environment variables
+        client = AsyncQdrantClient(
+            host=qdrant_host, port=qdrant_port, api_key=qdrant_api_key, https=qdrant_use_https
+        )
 
         # Format content for embedding
         content = format_error_content(error_context)
 
-        # Compute content hash
-        content_hash = compute_content_hash(content)
+        # Use pre-computed content hash if available, otherwise compute it
+        content_hash = error_context.get("content_hash")
+        if not content_hash:
+            content_hash = compute_content_hash(content)
 
         # Group ID from cwd
         cwd = error_context.get("cwd", "")
@@ -207,7 +171,7 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
             "content": content,
             "content_hash": content_hash,
             "group_id": group_id,
-            "type": "error_pattern",
+            "type": "error_fix",
             "source_hook": "PostToolUse_ErrorCapture",
             "session_id": error_context.get("session_id", ""),
             "embedding_status": "pending",
@@ -229,17 +193,14 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
             }
         )
 
-        # Generate unique ID
+        # Generate deterministic UUID from content_hash (Fix: makes upsert idempotent)
+        # Using uuid5 prevents TOCTOU race - same hash = same ID = no duplicate
         import uuid
-        memory_id = str(uuid.uuid4())
-
-        # Get vector dimension
-        vector_size = int(os.getenv("EMBEDDING_DIMENSION", "768"))
+        memory_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, content_hash))
 
         # Generate embedding synchronously
         try:
             from memory.embeddings import EmbeddingClient
-            from memory.config import get_config
 
             def _generate_embedding():
                 config = get_config()
@@ -251,11 +212,13 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
             logger.info("embedding_generated_sync", extra={"dimensions": len(vector)})
         except Exception as e:
             # Graceful degradation: Use zero vector if embedding fails
+            # CR-1.5: Use config constant instead of magic number
+            config = get_config()
             logger.warning(
                 "embedding_failed_using_zero_vector",
                 extra={"error": str(e), "error_type": type(e).__name__}
             )
-            vector = [0.0] * vector_size
+            vector = [0.0] * config.embedding_dimension
             payload["embedding_status"] = "pending"
 
         # Store to Qdrant
@@ -268,6 +231,8 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
             }]
         )
 
+        # CR-1.2: Use consolidated log function
+        log_to_activity(f"✅ ErrorPattern stored: {error_context.get('command', 'Unknown')[:30]}", INSTALL_DIR)
         logger.info(
             "error_pattern_stored",
             extra={
@@ -287,6 +252,8 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
             ).inc()
 
     except ResponseHandlingException as e:
+        # CR-1.2, CR-1.3: Use consolidated functions
+        log_to_activity("📥 ErrorPattern queued: Qdrant unavailable", INSTALL_DIR)
         logger.error(
             "qdrant_response_error",
             extra={
@@ -294,9 +261,10 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
                 "error_type": type(e).__name__
             }
         )
-        queue_to_file(error_context, "response_error")
+        queue_operation(error_context, "response_error")
 
     except UnexpectedResponse as e:
+        log_to_activity("📥 ErrorPattern queued: Qdrant unavailable", INSTALL_DIR)
         logger.error(
             "qdrant_unexpected_response",
             extra={
@@ -304,14 +272,15 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
                 "error_type": type(e).__name__
             }
         )
-        queue_to_file(error_context, "unexpected_response")
+        queue_operation(error_context, "unexpected_response")
 
     except ConnectionRefusedError as e:
+        log_to_activity("📥 ErrorPattern queued: Qdrant unavailable", INSTALL_DIR)
         logger.error(
             "qdrant_unavailable",
             extra={"error": str(e)}
         )
-        queue_to_file(error_context, "qdrant_unavailable")
+        queue_operation(error_context, "qdrant_unavailable")
 
     except RuntimeError as e:
         if "closed" in str(e).lower():
@@ -319,11 +288,12 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
                 "qdrant_client_closed",
                 extra={"error": str(e)}
             )
-            queue_to_file(error_context, "client_closed")
+            queue_operation(error_context, "client_closed")
         else:
             raise
 
     except Exception as e:
+        log_to_activity(f"❌ ErrorPattern failed: {type(e).__name__}", INSTALL_DIR)
         logger.error(
             "storage_failed",
             extra={
@@ -347,7 +317,7 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
                 project=project
             ).inc()
 
-        queue_to_file(error_context, "unexpected_error")
+        queue_operation(error_context, "unexpected_error")
 
     finally:
         # Clean up client connection
@@ -372,8 +342,8 @@ async def main_async() -> int:
         raw_input = sys.stdin.read()
         error_context = json.loads(raw_input)
 
-        # Apply timeout
-        timeout = get_timeout()
+        # CR-1.4: Use consolidated timeout function
+        timeout = get_hook_timeout()
 
         # Run storage with timeout
         await asyncio.wait_for(
@@ -386,10 +356,10 @@ async def main_async() -> int:
     except asyncio.TimeoutError:
         logger.error(
             "storage_timeout",
-            extra={"timeout_seconds": get_timeout()}
+            extra={"timeout_seconds": get_hook_timeout()}
         )
         try:
-            queue_to_file(error_context, "timeout")
+            queue_operation(error_context, "timeout")
         except Exception:
             pass
         return 1

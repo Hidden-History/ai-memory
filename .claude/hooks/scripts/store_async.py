@@ -24,13 +24,18 @@ import time
 from pathlib import Path
 from typing import Any, Dict
 
-# Add src/memory to path for imports
-project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root / "src"))
+# CR-1.7: Setup path inline (must happen BEFORE any memory.* imports)
+INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Import pattern extraction (Story 2.3)
+from datetime import datetime, timezone
+
 from memory.extraction import extract_patterns
+from memory.filters import ImplementationFilter
 from memory.project import detect_project
+from memory.config import COLLECTION_CODE_PATTERNS
+from memory.chunking import IntelligentChunker, ChunkResult
 
 try:
     from qdrant_client import AsyncQdrantClient
@@ -57,12 +62,12 @@ except ImportError:
     async def is_duplicate(content, group_id, collection="memories"):
         return type('Result', (), {'is_duplicate': False, 'reason': 'module_unavailable'})()
 
-# Configure structured logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# CR-1.2: Use consolidated logging setup
+from memory.hooks_common import setup_hook_logging, get_hook_timeout
+logger = setup_hook_logging()
+
+# CR-1.3: Use consolidated queue operation
+from memory.queue import queue_operation
 
 # Import metrics for Prometheus instrumentation (Story 6.1)
 try:
@@ -71,84 +76,8 @@ except ImportError:
     memory_captures_total = None
     deduplication_events_total = None
 
-
-def get_timeout() -> int:
-    """Get timeout value from env var (AC 2.1.5).
-
-    Returns:
-        Timeout in seconds (default: 60)
-    """
-    try:
-        timeout_str = os.getenv("HOOK_TIMEOUT", "60")
-        return int(timeout_str)
-    except ValueError:
-        logger.warning(
-            "invalid_timeout_env",
-            extra={"value": timeout_str, "using_default": 60}
-        )
-        return 60
-
-
-def queue_to_file(hook_input: Dict[str, Any], reason: str) -> None:
-    """Queue failed memory capture to file for retry (AC 2.1.2).
-
-    Graceful degradation: When Qdrant unavailable, queue to file.
-
-    Args:
-        hook_input: Original hook input data
-        reason: Reason for queuing (e.g., 'qdrant_unavailable')
-    """
-    try:
-        # Queue directory (from config or default)
-        queue_dir = Path(os.getenv("MEMORY_QUEUE_DIR", "./.memory_queue"))
-        queue_dir.mkdir(parents=True, exist_ok=True)
-
-        # Generate queue file name
-        session_id = hook_input.get("session_id", "unknown")
-        timestamp = time.time()
-        queue_file = queue_dir / f"{session_id}_{int(timestamp)}.json"
-
-        # Write to queue
-        queue_data = {
-            "hook_input": hook_input,
-            "reason": reason,
-            "timestamp": timestamp
-        }
-        queue_file.write_text(json.dumps(queue_data, indent=2))
-
-        logger.info(
-            "memory_queued",
-            extra={
-                "reason": reason,
-                "queue_file": str(queue_file),
-                "session_id": session_id
-            }
-        )
-
-        # Metrics: Increment capture counter for queued (Story 6.1)
-        if memory_captures_total:
-            # Extract project from hook_input if available
-            try:
-                from memory.project import detect_project
-                cwd = hook_input.get("cwd", "")
-                project = detect_project(cwd) if cwd else "unknown"
-            except Exception:
-                project = "unknown"
-
-            memory_captures_total.labels(
-                hook_type="PostToolUse",
-                status="queued",
-                project=project
-            ).inc()
-
-    except Exception as e:
-        logger.error(
-            "queue_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
-        )
+# CR-1.4: get_timeout() removed - using consolidated get_hook_timeout() from hooks_common
+# CR-1.3: queue_to_file() removed - using consolidated queue_operation() from queue.py
 
 
 async def store_memory_async(hook_input: Dict[str, Any]) -> None:
@@ -166,18 +95,21 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
     client = None
 
     try:
-        # Get Qdrant configuration
-        # Use host/port parameters instead of url to avoid conflicts with QDRANT_URL env var
+        # Get Qdrant configuration (BP-040)
         qdrant_host = os.getenv("QDRANT_HOST", "localhost")
         qdrant_port = int(os.getenv("QDRANT_PORT", "26350"))
-        collection_name = os.getenv("QDRANT_COLLECTION", "implementations")
+        qdrant_api_key = os.getenv("QDRANT_API_KEY")
+        qdrant_use_https = os.getenv("QDRANT_USE_HTTPS", "false").lower() == "true"
+        collection_name = os.getenv("QDRANT_COLLECTION", COLLECTION_CODE_PATTERNS)
 
         # Initialize AsyncQdrantClient
         if AsyncQdrantClient is None:
             raise ImportError("qdrant-client not installed")
 
-        # Use host/port parameters instead of url to avoid QDRANT_URL env var interference
-        client = AsyncQdrantClient(host=qdrant_host, port=qdrant_port)
+        # BP-040: API key + HTTPS configurable via environment variables
+        client = AsyncQdrantClient(
+            host=qdrant_host, port=qdrant_port, api_key=qdrant_api_key, https=qdrant_use_https
+        )
 
         # Extract tool information
         tool_name = hook_input["tool_name"]
@@ -241,6 +173,20 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
         # Story 2.3: Extract patterns from the content
         file_path = tool_input.get("file_path", "unknown")
 
+        # BUG-013: Apply ImplementationFilter BEFORE extract_patterns()
+        # Filter rejects .md, .txt, .json, insignificant changes, generated dirs
+        impl_filter = ImplementationFilter()
+        if not impl_filter.should_store(file_path, code_content, tool_name):
+            logger.info(
+                "implementation_filtered",
+                extra={
+                    "file_path": file_path,
+                    "tool_name": tool_name,
+                    "reason": "filter_rejected"
+                }
+            )
+            return
+
         # Extract patterns using Story 2.3 module (code_content already extracted above)
         patterns = extract_patterns(code_content, file_path)
 
@@ -256,104 +202,169 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
             )
             return
 
-        # Build Qdrant payload using extracted patterns (AC 2.1.2: ALL fields snake_case)
-        payload = {
-            "content": patterns["content"],  # Enriched content with [lang/framework] header
-            "content_hash": content_hash,
-            "group_id": group_id,
-            "type": "implementation",
-            "source_hook": "PostToolUse",
-            "session_id": session_id,
-            "embedding_status": "pending",  # Will be updated when embedding completes
-            "tool_name": tool_name,
-            "file_path": patterns["file_path"],
-            "language": patterns["language"],
-            "framework": patterns["framework"],
-            "importance": patterns["importance"],
-            "tags": patterns["tags"],
-            "domain": patterns["domain"]
-        }
+        # TECH-DEBT-051: Use IntelligentChunker for content chunking
+        # MVP returns whole content as single chunk; TECH-DEBT-052 adds Tree-sitter AST chunking
+        chunker = IntelligentChunker(max_chunk_tokens=512, overlap_pct=0.15)
+        chunks = chunker.chunk(patterns["content"], file_path)
 
-        # Pattern extraction integrated (Story 2.3 - complete)
-        # Deduplication module integrated (Story 2.2 - completed)
-
-        # Store to Qdrant (using points API directly for MVP)
-        # Note: Embedding will be added later via separate process
-        logger.info(
-            "storing_memory",
-            extra={
-                "session_id": session_id,
-                "tool_name": tool_name,
-                "collection": collection_name
-            }
-        )
-
-        # Store to Qdrant using points API (Story 1.5: MemoryStorage integration)
-        logger.info(
-            "memory_payload_ready",
-            extra={
-                "payload_fields": list(payload.keys()),
-                "content_length": len(code_content)
-            }
-        )
-
-        # Generate unique ID for this memory
-        import uuid
-        memory_id = str(uuid.uuid4())
-
-        # Get vector dimension from config (default: 768 for Jina Embeddings v2 Base Code per DEC-010)
-        vector_size = int(os.getenv("EMBEDDING_DIMENSION", "768"))
-
-        # Generate embedding synchronously for immediate searchability (fix per code review)
-        # Note: This changes from async background processing to sync for test compatibility
-        try:
-            from memory.embeddings import EmbeddingClient
-            from memory.config import get_config
-
-            def _generate_embedding():
-                config = get_config()
-                with EmbeddingClient(config) as embed_client:
-                    return embed_client.embed([patterns["content"]])[0]
-
-            vector = await asyncio.to_thread(_generate_embedding)
-            payload["embedding_status"] = "complete"
-            logger.info("embedding_generated_sync", extra={"dimensions": len(vector)})
-        except Exception as e:
-            # Graceful degradation: Use zero vector if embedding fails
-            logger.warning(
-                "embedding_failed_using_zero_vector",
-                extra={"error": str(e), "error_type": type(e).__name__}
+        if not chunks:
+            logger.info(
+                "no_chunks_created",
+                extra={
+                    "session_id": session_id,
+                    "file_path": file_path
+                }
             )
-            vector = [0.0] * vector_size
-            payload["embedding_status"] = "pending"
+            return
 
-        # Store to Qdrant with real embedding (or zero vector fallback)
-        await client.upsert(
-            collection_name=collection_name,
-            points=[{
+        logger.info(
+            "chunking_complete",
+            extra={
+                "file_path": file_path,
+                "chunk_count": len(chunks),
+                "total_tokens": sum(c.metadata.chunk_size_tokens for c in chunks)
+            }
+        )
+
+        # CR-1.5: Use config constant instead of env var with magic number
+        from memory.config import get_config
+        config = get_config()
+        vector_size = config.embedding_dimension
+
+        # Store each chunk as a separate memory point
+        import uuid
+        points_to_store = []
+
+        for chunk in chunks:
+            memory_id = str(uuid.uuid4())
+
+            # Build Qdrant payload with chunk metadata (AC 2.1.2: ALL fields snake_case)
+            # FIX 1: Add created_at timestamp
+            payload = {
+                "content": chunk.content,
+                "content_hash": content_hash,
+                "group_id": group_id,
+                "type": "implementation",
+                "source_hook": "PostToolUse",
+                "session_id": session_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "embedding_status": "pending",
+                "tool_name": tool_name,
+                "file_path": patterns["file_path"],
+                "language": patterns["language"],
+                "framework": patterns["framework"],
+                "importance": patterns["importance"],
+                "tags": patterns["tags"],
+                "domain": patterns["domain"],
+                # FIX 2: Add chunk metadata from IntelligentChunker
+                "chunk_type": chunk.metadata.chunk_type,
+                "chunk_index": chunk.metadata.chunk_index,
+                "total_chunks": chunk.metadata.total_chunks,
+                "chunk_size_tokens": chunk.metadata.chunk_size_tokens,
+                # TECH-DEBT-069: Mark as not yet classified
+                "is_classified": False,
+            }
+
+            # Generate embedding synchronously for immediate searchability
+            try:
+                from memory.embeddings import EmbeddingClient
+
+                def _generate_embedding(content):
+                    cfg = get_config()
+                    with EmbeddingClient(cfg) as embed_client:
+                        return embed_client.embed([content])[0]
+
+                vector = await asyncio.to_thread(_generate_embedding, chunk.content)
+                payload["embedding_status"] = "complete"
+            except Exception as e:
+                # Graceful degradation: Use zero vector if embedding fails
+                logger.warning(
+                    "embedding_failed_using_zero_vector",
+                    extra={"error": str(e), "chunk_index": chunk.metadata.chunk_index}
+                )
+                vector = [0.0] * vector_size
+                payload["embedding_status"] = "pending"
+
+            points_to_store.append({
                 "id": memory_id,
                 "payload": payload,
                 "vector": vector
-            }]
+            })
+
+        # HIGH-4: Calculate token count BEFORE upsert for atomicity
+        # (Prevents underreporting if storage succeeds but metrics fail)
+        total_tokens = sum(len(p["payload"]["content"]) // 4 for p in points_to_store)
+
+        # Store all chunks to Qdrant
+        await client.upsert(
+            collection_name=collection_name,
+            points=points_to_store
         )
 
         logger.info(
             "memory_stored",
             extra={
-                "memory_id": memory_id,
+                "chunks_stored": len(points_to_store),
                 "session_id": session_id,
                 "collection": collection_name,
-                "embedding_status": payload["embedding_status"]
+                "file_path": file_path
             }
         )
 
+        # TECH-DEBT-069: Enqueue for async classification
+        try:
+            from memory.classifier.queue import enqueue_for_classification, ClassificationTask
+            from memory.classifier.config import CLASSIFIER_ENABLED
+
+            if CLASSIFIER_ENABLED:
+                for point in points_to_store:
+                    task = ClassificationTask(
+                        point_id=point["id"],
+                        collection=collection_name,
+                        content=point["payload"]["content"][:2000],  # Limit content size
+                        current_type=point["payload"]["type"],
+                        group_id=group_id,
+                        source_hook="PostToolUse",
+                        created_at=point["payload"]["created_at"],
+                    )
+                    enqueue_for_classification(task)
+        except ImportError:
+            pass  # Classifier module not installed
+        except Exception as e:
+            logger.warning("classification_enqueue_failed", extra={"error": str(e)})
+
         # Metrics: Increment capture counter on success (Story 6.1)
         if memory_captures_total:
+            # Increment by number of chunks stored
             memory_captures_total.labels(
                 hook_type="PostToolUse",
                 status="success",
                 project=group_id or "unknown"
-            ).inc()
+            ).inc(len(points_to_store))
+
+        # TECH-DEBT-070: Push metrics to Pushgateway (async to avoid latency)
+        from memory.metrics_push import push_capture_metrics_async, push_token_metrics_async
+        push_capture_metrics_async(
+            hook_type="PostToolUse",
+            status="success",
+            project=group_id or "unknown",
+            collection=COLLECTION_CODE_PATTERNS,
+            count=len(points_to_store)
+        )
+
+        # TECH-DEBT-071: Push token count for captured content
+        # HIGH-3: Token estimation accuracy ~25-50% error margin
+        # Actual: Python code ~3 chars/token, JSON ~5-6 chars/token
+        # Using len(content) // 4 for performance (avoids tiktoken dependency)
+        # TODO: Consider tiktoken for precise counting if accuracy becomes critical
+        # HIGH-4: Use pre-calculated total_tokens (calculated before upsert)
+        if total_tokens > 0:
+            push_token_metrics_async(
+                operation="capture",
+                direction="stored",
+                project=group_id or "unknown",
+                token_count=total_tokens
+            )
 
     except ResponseHandlingException as e:
         # AC 2.1.2: Handle request/response errors (includes 429 rate limiting)
@@ -365,7 +376,7 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
             }
         )
         # AC 2.1.2: Queue on response handling failure
-        queue_to_file(hook_input, "response_error")
+        queue_operation(hook_input, "response_error")
 
     except UnexpectedResponse as e:
         # AC 2.1.2: Handle HTTP errors
@@ -377,7 +388,7 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
             }
         )
         # AC 2.1.2: Queue on unexpected response
-        queue_to_file(hook_input, "unexpected_response")
+        queue_operation(hook_input, "unexpected_response")
 
     except ConnectionRefusedError as e:
         # Qdrant service unavailable
@@ -386,7 +397,7 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
             extra={"error": str(e)}
         )
         # AC 2.1.2: Queue on connection failure
-        queue_to_file(hook_input, "qdrant_unavailable")
+        queue_operation(hook_input, "qdrant_unavailable")
 
     except RuntimeError as e:
         # AC 2.1.2: Handle closed client instances
@@ -395,7 +406,7 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
                 "qdrant_client_closed",
                 extra={"error": str(e)}
             )
-            queue_to_file(hook_input, "client_closed")
+            queue_operation(hook_input, "client_closed")
         else:
             raise  # Re-raise if not client-related
 
@@ -425,7 +436,7 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
             ).inc()
 
         # AC 2.1.2: Queue on any failure
-        queue_to_file(hook_input, "unexpected_error")
+        queue_operation(hook_input, "unexpected_error")
 
     finally:
         # Clean up client connection
@@ -451,7 +462,7 @@ async def main_async() -> int:
         hook_input = json.loads(raw_input)
 
         # AC 2.1.5: Apply timeout
-        timeout = get_timeout()
+        timeout = get_hook_timeout()
 
         # Run storage with timeout
         await asyncio.wait_for(
@@ -465,11 +476,11 @@ async def main_async() -> int:
         # AC 2.1.5: Handle timeout
         logger.error(
             "storage_timeout",
-            extra={"timeout_seconds": get_timeout()}
+            extra={"timeout_seconds": get_hook_timeout()}
         )
         # Queue for retry
         try:
-            queue_to_file(hook_input, "timeout")
+            queue_operation(hook_input, "timeout")
         except Exception:
             pass
         return 1

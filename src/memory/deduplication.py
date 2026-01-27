@@ -29,8 +29,10 @@ from .embeddings import EmbeddingClient, EmbeddingError
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
 try:
     from .metrics import deduplication_events_total
+    from .metrics_push import push_deduplication_metrics_async  # BUG-021: Push to Pushgateway
 except ImportError:
     deduplication_events_total = None
+    push_deduplication_metrics_async = None
 
 __all__ = ["compute_content_hash", "is_duplicate", "DuplicationCheckResult"]
 
@@ -169,8 +171,11 @@ async def is_duplicate(
     try:
         # Fix: AsyncQdrantClient doesn't support async context manager protocol
         # Use manual client lifecycle management instead
+        # BP-040: API key + HTTPS configurable via environment variables
+        protocol = "https" if config.qdrant_use_https else "http"
         client = AsyncQdrantClient(
-            url=f"http://{config.qdrant_host}:{config.qdrant_port}"
+            url=f"{protocol}://{config.qdrant_host}:{config.qdrant_port}",
+            api_key=config.qdrant_api_key,
         )
 
         # Query by content_hash field (indexed for fast lookup)
@@ -201,8 +206,13 @@ async def is_duplicate(
             )
 
             # Metrics: Deduplication event detected (Story 6.1, AC 6.1.3)
-            if deduplication_events_total:
-                deduplication_events_total.labels(project=group_id).inc()
+            # BUG-021: Push to Pushgateway with action/collection labels
+            if push_deduplication_metrics_async:
+                push_deduplication_metrics_async(
+                    action="skipped_duplicate",
+                    collection=collection,
+                    project=group_id
+                )
 
             return DuplicationCheckResult(
                 is_duplicate=True,
@@ -257,8 +267,13 @@ async def is_duplicate(
                 )
 
                 # Metrics: Deduplication event detected (Story 6.1, AC 6.1.3)
-                if deduplication_events_total:
-                    deduplication_events_total.labels(project=group_id).inc()
+                # BUG-021: Push to Pushgateway with action/collection labels
+                if push_deduplication_metrics_async:
+                    push_deduplication_metrics_async(
+                        action="skipped_duplicate",
+                        collection=collection,
+                        project=group_id
+                    )
 
                 return DuplicationCheckResult(
                     is_duplicate=True,
