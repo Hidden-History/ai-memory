@@ -309,7 +309,9 @@ check_existing_installation() {
         elif [[ "${BMAD_FORCE_REINSTALL:-}" = "true" ]]; then
             log_info "BMAD_FORCE_REINSTALL=true - proceeding with full reinstall"
             INSTALL_MODE="full"
-            handle_reinstall "$services_running"
+            # BUG-035: If existing installation, assume services might be running
+            # (container name detection may fail but ports may still be in use)
+            handle_reinstall "true"
             return 0
         fi
 
@@ -323,7 +325,8 @@ check_existing_installation() {
             2)
                 log_info "Reinstalling shared infrastructure..."
                 INSTALL_MODE="full"
-                handle_reinstall "$services_running"
+                # BUG-035: Assume services might be running (container detection unreliable)
+                handle_reinstall "true"
                 ;;
             3|*)
                 log_info "Installation aborted by user"
