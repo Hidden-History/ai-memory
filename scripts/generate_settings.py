@@ -13,8 +13,37 @@ Exit codes:
 """
 
 import json
+import os
 import sys
 from pathlib import Path
+
+
+def read_qdrant_api_key(install_dir: str) -> str:
+    """Read QDRANT_API_KEY from Docker .env file.
+
+    BUG-029 fix: API key is required for Qdrant authentication.
+    The key is stored in docker/.env of the shared installation.
+
+    Args:
+        install_dir: Path to BMAD installation directory
+
+    Returns:
+        API key string, or empty string if not found
+    """
+    # Check environment variable first (allows override)
+    if os.environ.get("QDRANT_API_KEY"):
+        return os.environ["QDRANT_API_KEY"]
+
+    # Read from docker/.env in installation directory
+    env_file = Path(install_dir) / "docker" / ".env"
+    if env_file.exists():
+        with open(env_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("QDRANT_API_KEY=") and not line.startswith("#"):
+                    return line.split("=", 1)[1].strip()
+
+    return ""
 
 
 def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
@@ -48,28 +77,39 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
     # Quotes go around the full path including script name
     hooks_base = '$BMAD_INSTALL_DIR/.claude/hooks/scripts'
 
+    # BUG-029: Read API key from shared installation
+    qdrant_api_key = read_qdrant_api_key(install_dir)
+
     session_start_hook = {
         "type": "command",
         "command": f'python3 "{hooks_base}/session_start.py"',
         "timeout": 30000
     }
+
+    # Build env section
+    env_config = {
+        # BMAD Memory Module installation directory (dynamic)
+        "BMAD_INSTALL_DIR": install_dir,
+        # Project identification for multi-tenancy
+        "BMAD_PROJECT_ID": project_name,
+        # Service configuration - ports per CLAUDE.md
+        "QDRANT_HOST": "localhost",
+        "QDRANT_PORT": "26350",
+        "EMBEDDING_HOST": "localhost",
+        "EMBEDDING_PORT": "28080",
+        # TECH-DEBT-002: Lower threshold for NL query → code content matching
+        "SIMILARITY_THRESHOLD": "0.4",
+        "LOG_LEVEL": "INFO",
+        # Agent token budgets (TECH-DEBT-012)
+        "AGENT_TOKEN_BUDGETS": "architect:1500,scrum-master:800,default:1000"
+    }
+
+    # BUG-029: Include QDRANT_API_KEY if available
+    if qdrant_api_key:
+        env_config["QDRANT_API_KEY"] = qdrant_api_key
+
     return {
-        "env": {
-            # BMAD Memory Module installation directory (dynamic)
-            "BMAD_INSTALL_DIR": install_dir,
-            # Project identification for multi-tenancy
-            "BMAD_PROJECT_ID": project_name,
-            # Service configuration - ports per CLAUDE.md
-            "QDRANT_HOST": "localhost",
-            "QDRANT_PORT": "26350",
-            "EMBEDDING_HOST": "localhost",
-            "EMBEDDING_PORT": "28080",
-            # TECH-DEBT-002: Lower threshold for NL query → code content matching
-            "SIMILARITY_THRESHOLD": "0.4",
-            "LOG_LEVEL": "INFO",
-            # Agent token budgets (TECH-DEBT-012)
-            "AGENT_TOKEN_BUDGETS": "architect:1500,scrum-master:800,default:1000"
-        },
+        "env": env_config,
         "hooks": {
             "SessionStart": [
                 {
