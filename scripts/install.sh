@@ -880,6 +880,9 @@ configure_hooks() {
 
     CLAUDE_SETTINGS="$HOME/.claude/settings.json"
     HOOKS_DIR="$INSTALL_DIR/.claude/hooks/scripts"
+    # BUG-031: User-level settings use "global" as project name
+    # This provides default hooks that apply to all projects
+    USER_PROJECT_NAME="global"
 
     # Create .claude directory if needed
     mkdir -p "$HOME/.claude"
@@ -888,11 +891,13 @@ configure_hooks() {
     if [[ -f "$CLAUDE_SETTINGS" ]]; then
         # Merge with existing settings
         log_info "Merging with existing settings.json..."
-        python3 "$INSTALL_DIR/scripts/merge_settings.py" "$CLAUDE_SETTINGS" "$HOOKS_DIR"
+        # BUG-031: Pass project_name as third argument
+        python3 "$INSTALL_DIR/scripts/merge_settings.py" "$CLAUDE_SETTINGS" "$HOOKS_DIR" "$USER_PROJECT_NAME"
     else
         # Create new settings file
         log_info "Creating new settings.json..."
-        python3 "$INSTALL_DIR/scripts/generate_settings.py" "$CLAUDE_SETTINGS" "$HOOKS_DIR"
+        # BUG-031: generate_settings.py requires 3 arguments (was only passing 2!)
+        python3 "$INSTALL_DIR/scripts/generate_settings.py" "$CLAUDE_SETTINGS" "$HOOKS_DIR" "$USER_PROJECT_NAME"
     fi
 
     log_success "Hooks configured in $CLAUDE_SETTINGS"
