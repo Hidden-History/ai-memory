@@ -136,15 +136,13 @@ def backup_file(path: Path) -> Path:
     return backup_path
 
 
-def merge_settings(settings_path: str, hooks_dir: str, project_name: str = "default", install_dir: str = None) -> None:
+def merge_settings(settings_path: str, hooks_dir: str, project_name: str = "default") -> None:
     """Merge new hook configuration into existing settings file.
 
     Args:
         settings_path: Path to settings.json
-        hooks_dir: Absolute path to hooks scripts directory for commands
+        hooks_dir: Absolute path to hooks scripts directory
         project_name: Name of the project for BMAD_PROJECT_ID (default: "default")
-        install_dir: Optional. BMAD install dir for env vars (default: derived from hooks_dir)
-                     BUG-032: Required for project-local hooks (Windows/WSL compatibility)
 
     Side effects:
         - Creates backup of existing settings.json
@@ -166,8 +164,7 @@ def merge_settings(settings_path: str, hooks_dir: str, project_name: str = "defa
     # Generate new hook config with error handling (Issue 5: graceful degradation)
     try:
         from generate_settings import generate_hook_config
-        # BUG-032: Pass install_dir for project-local hooks support
-        new_config = generate_hook_config(hooks_dir, project_name, install_dir)
+        new_config = generate_hook_config(hooks_dir, project_name)
     except ImportError as e:
         print(f"ERROR: Failed to import generate_settings: {e}")
         print("Ensure generate_settings.py exists in the scripts directory.")
@@ -208,21 +205,14 @@ def merge_settings(settings_path: str, hooks_dir: str, project_name: str = "defa
 
 def main():
     """Main entry point for CLI invocation."""
-    if len(sys.argv) < 3 or len(sys.argv) > 5:
-        print("Usage: merge_settings.py <settings_path> <hooks_dir> [project_name] [install_dir]")
-        print("")
-        print("  settings_path - Path to settings.json to merge into")
-        print("  hooks_dir     - Path to hooks scripts directory for commands")
-        print("  project_name  - Optional. Project identifier (default: 'default')")
-        print("  install_dir   - Optional. BMAD install dir for env vars (default: derived from hooks_dir)")
+    if len(sys.argv) < 3 or len(sys.argv) > 4:
+        print("Usage: merge_settings.py <settings_path> <hooks_dir> [project_name]")
         sys.exit(1)
 
     settings_path = sys.argv[1]
     hooks_dir = sys.argv[2]
-    project_name = sys.argv[3] if len(sys.argv) >= 4 else "default"
-    # BUG-032: Optional install_dir for project-local hooks
-    install_dir = sys.argv[4] if len(sys.argv) == 5 else None
-    merge_settings(settings_path, hooks_dir, project_name, install_dir)
+    project_name = sys.argv[3] if len(sys.argv) == 4 else "default"
+    merge_settings(settings_path, hooks_dir, project_name)
 
 
 if __name__ == "__main__":
