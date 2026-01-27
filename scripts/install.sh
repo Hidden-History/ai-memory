@@ -42,8 +42,9 @@ cleanup() {
         echo ""
         log_warning "Installation interrupted (exit code: $exit_code)"
 
-        # Stop Docker services if they were started
-        if [[ -f "$INSTALL_DIR/docker/docker-compose.yml" ]]; then
+        # Stop Docker services ONLY in full install mode
+        # In add-project mode, services are shared/pre-existing - don't touch them!
+        if [[ "${INSTALL_MODE:-full}" == "full" && -f "$INSTALL_DIR/docker/docker-compose.yml" ]]; then
             echo ""
             echo "[INFO] Stopping Docker services..."
             cd "$INSTALL_DIR/docker" && docker compose down --timeout 5 2>/dev/null || true
@@ -51,10 +52,15 @@ cleanup() {
         fi
 
         echo ""
-        echo "Partial installation exists at: $INSTALL_DIR"
-        echo "To clean up and retry:"
-        echo "  rm -rf $INSTALL_DIR"
-        echo "  ./install.sh"
+        if [[ "${INSTALL_MODE:-full}" == "add-project" ]]; then
+            echo "Project setup failed. Shared installation at $INSTALL_DIR is intact."
+            echo "To retry: ./install.sh \"$PROJECT_PATH\" \"$PROJECT_NAME\""
+        else
+            echo "Partial installation exists at: $INSTALL_DIR"
+            echo "To clean up and retry:"
+            echo "  rm -rf $INSTALL_DIR"
+            echo "  ./install.sh"
+        fi
     fi
 }
 trap cleanup EXIT
@@ -869,33 +875,10 @@ setup_collections() {
 
     # Run the setup script
     if python3 "$INSTALL_DIR/scripts/setup-collections.py" 2>/dev/null; then
-        log_success "Qdrant collections created (implementations, best_practices)"
+        log_success "Qdrant collections created (code-patterns, conventions, discussions)"
     else
         log_warning "Collection setup had issues - will be created on first use"
     fi
-}
-
-configure_hooks() {
-    log_info "Configuring Claude Code hooks..."
-
-    CLAUDE_SETTINGS="$HOME/.claude/settings.json"
-    HOOKS_DIR="$INSTALL_DIR/.claude/hooks/scripts"
-
-    # Create .claude directory if needed
-    mkdir -p "$HOME/.claude"
-
-    # Use Python merge script for reliable deep merge
-    if [[ -f "$CLAUDE_SETTINGS" ]]; then
-        # Merge with existing settings
-        log_info "Merging with existing settings.json..."
-        python3 "$INSTALL_DIR/scripts/merge_settings.py" "$CLAUDE_SETTINGS" "$HOOKS_DIR"
-    else
-        # Create new settings file
-        log_info "Creating new settings.json..."
-        python3 "$INSTALL_DIR/scripts/generate_settings.py" "$CLAUDE_SETTINGS" "$HOOKS_DIR"
-    fi
-
-    log_success "Hooks configured in $CLAUDE_SETTINGS"
 }
 
 copy_env_template() {
@@ -916,61 +899,6 @@ copy_env_template() {
     else
         log_warning "Template .env.example not found - skipping"
     fi
-}
-
-verify_hooks() {
-    log_info "Verifying hook configuration..."
-
-    CLAUDE_SETTINGS="$HOME/.claude/settings.json"
-    HOOKS_DIR="$INSTALL_DIR/.claude/hooks/scripts"
-
-    # Check settings.json exists and is valid JSON
-    if ! python3 -c "import json; json.load(open('$CLAUDE_SETTINGS'))" 2>/dev/null; then
-        log_error "Invalid JSON in $CLAUDE_SETTINGS"
-        echo ""
-        echo "Backup available: $CLAUDE_SETTINGS.backup.*"
-        exit 1
-    fi
-
-    # Check hook scripts exist and are executable
-    local hooks_missing=0
-    # TECH-DEBT-012: Removed session_stop.py (now placeholder only)
-    # Updated to verify 5 hooks: session_start, post_tool_capture, pre_compact_save, error_context, memory_search
-    for hook in session_start.py post_tool_capture.py pre_compact_save.py error_context.py memory_search.py; do
-        if [[ ! -x "$HOOKS_DIR/$hook" ]]; then
-            log_error "Hook script missing or not executable: $hook"
-            hooks_missing=1
-        fi
-    done
-
-    if [[ $hooks_missing -eq 1 ]]; then
-        exit 1
-    fi
-
-    # Verify hooks are in settings using Python
-    if ! python3 -c "
-import json
-import sys
-
-settings = json.load(open('$CLAUDE_SETTINGS'))
-if 'hooks' not in settings:
-    print('ERROR: No hooks section in settings.json')
-    sys.exit(1)
-
-required_hooks = ['SessionStart', 'PostToolUse', 'Stop']
-missing = [h for h in required_hooks if h not in settings['hooks']]
-
-if missing:
-    print(f'ERROR: Missing hooks: {missing}')
-    sys.exit(1)
-
-print('✓ All hooks configured correctly')
-" 2>/dev/null; then
-        log_error "Hooks not properly configured in settings.json"
-        exit 1
-    fi
-
-    log_success "Hooks verified"
 }
 
 # Verify services are running (for add-project mode)
@@ -999,15 +927,34 @@ verify_services_running() {
 }
 
 # Create project-level symlinks to shared installation
+# BUG-032: On WSL, symlinks are not visible from Windows applications (e.g., VS Code, Windows Explorer).
+# We use file copies instead of symlinks on WSL to ensure cross-platform visibility.
+# Trade-off: Updates to shared hooks require re-running install.sh for the project.
 create_project_symlinks() {
-    log_info "Creating project-level symlinks..."
+    # Determine link method based on platform
+    local link_method="symlink"
+    if [[ "$PLATFORM" == "wsl" ]]; then
+        link_method="copy"
+        log_info "Creating project-level hook copies (WSL mode for Windows visibility)..."
+    else
+        log_info "Creating project-level symlinks..."
+    fi
 
     # Skip confirmation in non-interactive mode
     if [[ "$NON_INTERACTIVE" != "true" && ! -d "$PROJECT_PATH/.claude" ]]; then
         echo ""
         echo "The installer will create the following in your project:"
-        echo "  📁 $PROJECT_PATH/.claude/"
-        echo "     └── hooks/scripts/       (Symlinks to shared hooks)"
+        echo "  $PROJECT_PATH/.claude/"
+        if [[ "$link_method" == "copy" ]]; then
+            echo "     hooks/scripts/       (Copies of shared hooks - WSL mode)"
+            echo ""
+            echo "NOTE: On WSL, we copy files instead of creating symlinks."
+            echo "      This ensures hooks are visible from Windows applications."
+            echo "      If you update the shared installation, re-run this installer"
+            echo "      to update the project hooks."
+        else
+            echo "     hooks/scripts/       (Symlinks to shared hooks)"
+        fi
         echo ""
         echo "This allows Claude Code to use the memory system in your project."
         echo ""
@@ -1023,34 +970,66 @@ create_project_symlinks() {
     # Create project .claude directory structure
     mkdir -p "$PROJECT_PATH/.claude/hooks/scripts"
 
-    # Symlink hook scripts from shared install
-    local symlink_count=0
+    # Link or copy hook scripts from shared install
+    local file_count=0
     for script in "$INSTALL_DIR/.claude/hooks/scripts"/*.py; do
         if [[ -f "$script" ]]; then
             script_name=$(basename "$script")
-            ln -sf "$script" "$PROJECT_PATH/.claude/hooks/scripts/$script_name"
-            ((symlink_count++)) || true
+            target_path="$PROJECT_PATH/.claude/hooks/scripts/$script_name"
+
+            if [[ "$link_method" == "copy" ]]; then
+                # BUG-032: Copy files on WSL for Windows visibility
+                if ! cp "$script" "$target_path"; then
+                    log_error "Failed to copy $script_name - check disk space and permissions"
+                    exit 1
+                fi
+            else
+                # Use symlinks on native Linux/macOS
+                ln -sf "$script" "$target_path"
+            fi
+            ((file_count++)) || true
         fi
     done
 
-    # Verify symlinks work
+    # Verify at least one hook file was processed
+    if [[ $file_count -eq 0 ]]; then
+        log_error "No hook scripts found in $INSTALL_DIR/.claude/hooks/scripts/"
+        exit 1
+    fi
+
+    # Verify files exist and are accessible
     local verification_failed=0
     for script in "$PROJECT_PATH/.claude/hooks/scripts"/*.py; do
-        if [[ ! -L "$script" ]]; then
-            log_error "Not a symlink: $script"
+        if [[ ! -e "$script" ]]; then
+            log_error "Missing or inaccessible: $script"
             verification_failed=1
-        elif [[ ! -e "$script" ]]; then
-            log_error "Broken symlink: $script"
-            verification_failed=1
+        elif [[ "$link_method" == "symlink" ]]; then
+            # Additional symlink-specific checks
+            if [[ ! -L "$script" ]]; then
+                log_error "Not a symlink: $script"
+                verification_failed=1
+            fi
+            # Note: -e on symlink checks if TARGET exists (broken symlink test)
+        elif [[ "$link_method" == "copy" ]]; then
+            # Copy-specific checks: ensure readable
+            if [[ ! -r "$script" ]]; then
+                log_error "Not readable: $script"
+                verification_failed=1
+            fi
         fi
     done
 
     if [[ $verification_failed -eq 1 ]]; then
-        log_error "Symlink verification failed"
+        log_error "Hook file verification failed"
         exit 1
     fi
 
-    log_success "Created $symlink_count symlinks in $PROJECT_PATH/.claude/hooks/scripts/"
+    if [[ "$link_method" == "copy" ]]; then
+        log_success "Copied $file_count hook files to $PROJECT_PATH/.claude/hooks/scripts/"
+        log_info "WSL note: Re-run installer after updating shared hooks to sync changes"
+    else
+        log_success "Created $file_count symlinks in $PROJECT_PATH/.claude/hooks/scripts/"
+    fi
 }
 
 # Configure hooks for project (project-level settings.json)
@@ -1059,6 +1038,24 @@ configure_project_hooks() {
 
     PROJECT_SETTINGS="$PROJECT_PATH/.claude/settings.json"
     HOOKS_DIR="$INSTALL_DIR/.claude/hooks/scripts"
+
+    # Export QDRANT_API_KEY from docker/.env for generate_settings.py (BUG-029 fix)
+    # The generator reads this from environment to avoid hardcoding secrets
+    # BUG-029+030 fixes:
+    #   - cut -d= -f2- captures everything after first = (base64 keys contain =)
+    #   - tr -d removes quotes from .env values like QDRANT_API_KEY="value"
+    #   - || echo "" prevents grep exit 1 from crashing under set -e
+    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
+        QDRANT_API_KEY=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
+        export QDRANT_API_KEY
+        if [[ -n "$QDRANT_API_KEY" ]]; then
+            log_info "Loaded QDRANT_API_KEY from docker/.env (${#QDRANT_API_KEY} chars)"
+        else
+            log_warning "QDRANT_API_KEY not found or empty in docker/.env"
+        fi
+    else
+        log_warning "docker/.env not found - QDRANT_API_KEY will be empty"
+    fi
 
     # Check if project already has settings.json
     if [[ -f "$PROJECT_SETTINGS" ]]; then

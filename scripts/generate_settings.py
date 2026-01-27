@@ -13,6 +13,7 @@ Exit codes:
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -26,14 +27,17 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         project_name: Name of the project for BMAD_PROJECT_ID
 
     Returns:
-        Dict with 'hooks' key containing SessionStart, PostToolUse, PreCompact config
-        Also includes 'env' section with BMAD_INSTALL_DIR, BMAD_PROJECT_ID, and service ports
+        Dict with complete V2.0 hook configuration:
+        - 'env' section with BMAD_INSTALL_DIR, BMAD_PROJECT_ID, service ports, API keys
+        - 'hooks' section with all 6 hook types
 
-    2026 Best Practice: Correct Claude Code hook structure
-    - SessionStart: Requires 'matcher' (startup|resume|compact) per docs
-    - PostToolUse: Wrapper with 'matcher' + nested 'hooks' array
+    2026 Best Practice: Complete Claude Code V2.0 hook structure
+    - SessionStart: Requires 'matcher' (startup|resume|compact|clear) per docs
+    - UserPromptSubmit: Captures user prompts and triggers keyword detection
+    - PreToolUse: Triggers for new file creation and first edit detection
+    - PostToolUse: Wrapper with 'matcher' + nested 'hooks' array (Bash errors, Edit/Write capture)
     - PreCompact: Wrapper with 'matcher' for auto|manual triggers
-    - TECH-DEBT-012: Stop hook removed (placeholder only)
+    - Stop: Captures agent responses
     - Uses $BMAD_INSTALL_DIR for portability across installations
     Source: https://code.claude.com/docs/en/hooks, AC 7.2.2
     """
@@ -53,31 +57,99 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         "command": f'python3 "{hooks_base}/session_start.py"',
         "timeout": 30000
     }
+
+    # Build env section - only include QDRANT_API_KEY if it has a value
+    # (empty string vs omitted key matters for some consumers)
+    env_section = {
+        # BMAD Memory Module installation directory (dynamic)
+        "BMAD_INSTALL_DIR": install_dir,
+        # Project identification for multi-tenancy
+        "BMAD_PROJECT_ID": project_name,
+        # Service configuration - ports per CLAUDE.md
+        "QDRANT_HOST": "localhost",
+        "QDRANT_PORT": "26350",
+        "EMBEDDING_HOST": "localhost",
+        "EMBEDDING_PORT": "28080",
+        # TECH-DEBT-002: Lower threshold for NL query → code content matching
+        "SIMILARITY_THRESHOLD": "0.4",
+        "LOG_LEVEL": "INFO",
+        # Pushgateway configuration for metrics
+        "PUSHGATEWAY_URL": "localhost:29091",
+        "PUSHGATEWAY_ENABLED": "true"
+    }
+
+    # Only include QDRANT_API_KEY if it has a non-empty value
+    api_key = os.environ.get("QDRANT_API_KEY", "")
+    if api_key:
+        env_section["QDRANT_API_KEY"] = api_key
+
     return {
-        "env": {
-            # BMAD Memory Module installation directory (dynamic)
-            "BMAD_INSTALL_DIR": install_dir,
-            # Project identification for multi-tenancy
-            "BMAD_PROJECT_ID": project_name,
-            # Service configuration - ports per CLAUDE.md
-            "QDRANT_HOST": "localhost",
-            "QDRANT_PORT": "26350",
-            "EMBEDDING_HOST": "localhost",
-            "EMBEDDING_PORT": "28080",
-            # TECH-DEBT-002: Lower threshold for NL query → code content matching
-            "SIMILARITY_THRESHOLD": "0.4",
-            "LOG_LEVEL": "INFO",
-            # Agent token budgets (TECH-DEBT-012)
-            "AGENT_TOKEN_BUDGETS": "architect:1500,scrum-master:800,default:1000"
-        },
+        # Schema reference for IDE validation (BUG-029+030 fix)
+        "$schema": "https://json.schemastore.org/claude-code-settings.json",
+        "env": env_section,
         "hooks": {
             "SessionStart": [
                 {
-                    "matcher": "startup|resume|compact",
+                    "matcher": "startup|resume|compact|clear",
                     "hooks": [session_start_hook]
                 }
             ],
+            "UserPromptSubmit": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/user_prompt_capture.py"'
+                        }
+                    ]
+                },
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/unified_keyword_trigger.py"',
+                            "timeout": 5000
+                        }
+                    ]
+                }
+            ],
+            "PreToolUse": [
+                {
+                    "matcher": "Write",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/new_file_trigger.py"',
+                            "timeout": 2000
+                        }
+                    ]
+                },
+                {
+                    "matcher": "Edit",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/first_edit_trigger.py"',
+                            "timeout": 2000
+                        }
+                    ]
+                }
+            ],
             "PostToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/error_detection.py"',
+                            "timeout": 2000
+                        },
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/error_pattern_capture.py"'
+                        }
+                    ]
+                },
                 {
                     "matcher": "Edit|Write|NotebookEdit",
                     "hooks": [
@@ -96,6 +168,16 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                             "type": "command",
                             "command": f'python3 "{hooks_base}/pre_compact_save.py"',
                             "timeout": 10000
+                        }
+                    ]
+                }
+            ],
+            "Stop": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/agent_response_capture.py"'
                         }
                     ]
                 }

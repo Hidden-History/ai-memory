@@ -7,6 +7,7 @@
 - [Quick Diagnostic Commands](#quick-diagnostic-commands)
 - [Known Issues](#known-issues-in-v100)
 - [Services Won't Start](#services-wont-start)
+- [WSL-Specific Issues](#wsl-hook-files-use-copies-instead-of-symlinks-bug-032)
 - [Hook Issues](#hook-issues)
 - [Memory & Search Issues](#memory--search-issues)
 - [Command Issues](#command-issues)
@@ -132,6 +133,38 @@ sudo systemctl enable docker  # Auto-start on boot
 
 - Start Docker Desktop from Windows Start menu
 - Ensure WSL2 integration is enabled in Docker Desktop settings
+
+### WSL: Hook Files Use Copies Instead of Symlinks (BUG-032)
+
+**Background:**
+
+On WSL (Windows Subsystem for Linux), the installer automatically uses file copies instead of symlinks for hook scripts. This is because WSL symlinks are not visible from Windows applications (VS Code, Windows Explorer, etc.).
+
+**Behavior:**
+
+- **Native Linux/macOS:** Symlinks point to shared installation (`~/.bmad-memory/.claude/hooks/scripts/`)
+- **WSL:** Copies of hook scripts are placed in project directory
+
+**Trade-off:**
+
+When using file copies on WSL, updates to the shared installation do NOT automatically propagate to projects. After updating the BMAD Memory Module, re-run the installer for each project:
+
+```bash
+# Re-run installer to sync updated hooks
+./scripts/install.sh /path/to/your/project
+```
+
+**Verification:**
+
+```bash
+# Check if files are symlinks or copies
+ls -la .claude/hooks/scripts/
+
+# Symlinks show: session_start.py -> /home/user/.bmad-memory/.claude/hooks/scripts/session_start.py
+# Copies show: session_start.py (no arrow)
+```
+
+**Note:** The copies are for **visibility** in Windows apps (VS Code, Explorer). The hooks themselves execute from the shared installation (`~/.bmad-memory/`) via `settings.json`. Edit scripts in the shared location, not the project copies.
 
 ### Symptom: Permission Denied
 
