@@ -19,10 +19,10 @@ from pathlib import Path
 
 
 def read_qdrant_api_key(install_dir: str) -> str:
-    """Read QDRANT_API_KEY from Docker .env file.
+    """Read QDRANT_API_KEY from .env file.
 
     BUG-029 fix: API key is required for Qdrant authentication.
-    The key is stored in docker/.env of the shared installation.
+    BUG-033 fix: Check multiple locations for .env file.
 
     Args:
         install_dir: Path to BMAD installation directory
@@ -34,14 +34,19 @@ def read_qdrant_api_key(install_dir: str) -> str:
     if os.environ.get("QDRANT_API_KEY"):
         return os.environ["QDRANT_API_KEY"]
 
-    # Read from docker/.env in installation directory
-    env_file = Path(install_dir) / "docker" / ".env"
-    if env_file.exists():
-        with open(env_file, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("QDRANT_API_KEY=") and not line.startswith("#"):
-                    return line.split("=", 1)[1].strip()
+    # BUG-033: Check multiple possible locations for .env file
+    possible_locations = [
+        Path(install_dir) / ".env",           # Root of install dir
+        Path(install_dir) / "docker" / ".env", # Docker subdirectory
+    ]
+
+    for env_file in possible_locations:
+        if env_file.exists():
+            with open(env_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("QDRANT_API_KEY=") and not line.startswith("#"):
+                        return line.split("=", 1)[1].strip()
 
     return ""
 
@@ -97,6 +102,13 @@ def generate_hook_config(hooks_dir: str, project_name: str, install_dir: str = N
 
     # BUG-029: Read API key from shared installation
     qdrant_api_key = read_qdrant_api_key(install_dir)
+
+    # BUG-033: Validate API key presence and warn if missing
+    if not qdrant_api_key:
+        import sys
+        print("WARNING: QDRANT_API_KEY not found in .env files", file=sys.stderr)
+        print(f"  Checked: {install_dir}/.env, {install_dir}/docker/.env", file=sys.stderr)
+        print("  Memory operations will fail without API key authentication.", file=sys.stderr)
 
     # Build env section with all required variables
     env_config = {
