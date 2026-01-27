@@ -29,6 +29,39 @@
 
 ---
 
+## 🧬 Bespoke Neural Memory
+
+<table>
+<tr>
+<td width="60%">
+
+**This isn't a database you configure. It's institutional memory that forms as you build.**
+
+Traditional knowledge bases require upfront schema design and manual curation. AI-Memory takes a different approach: let the LLM and human decide what matters, and capture it as it happens.
+
+> 🎯 Error fixed? **Captured.**
+> 📐 Architecture decision made? **Stored.**
+> 📏 Convention established? **Remembered.**
+
+**Your agents don't just execute—they learn.**
+
+</td>
+<td width="40%">
+
+| | Aspect | Benefit |
+|:--:|--------|---------|
+| 🎨 | **Bespoke** | Memory unique to YOUR project |
+| ⚡ | **JIT Creation** | Emerges from work, not config |
+| 💫 | **Transient → Persistent** | Sessions become knowledge |
+| 🪶 | **Token Efficient** | ~500 token focused memories |
+| 🚀 | **Lightweight** | Docker + Qdrant + Python |
+
+</td>
+</tr>
+</table>
+
+---
+
 ## ✨ V2.0 Memory System
 
 - 🗂️ **Three Specialized Collections**: code-patterns (HOW), conventions (WHAT), discussions (WHY)
