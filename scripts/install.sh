@@ -724,8 +724,9 @@ read_existing_api_key() {
     for env_file in "${env_files[@]}"; do
         if [[ -f "$env_file" ]]; then
             # Extract QDRANT_API_KEY from .env file
+            # Note: grep returns 1 if no match, which triggers set -e; use || true
             local api_key
-            api_key=$(grep "^QDRANT_API_KEY=" "$env_file" 2>/dev/null | cut -d'=' -f2-)
+            api_key=$(grep "^QDRANT_API_KEY=" "$env_file" 2>/dev/null | cut -d'=' -f2- || true)
             if [[ -n "$api_key" ]]; then
                 QDRANT_API_KEY="$api_key"
                 export QDRANT_API_KEY
