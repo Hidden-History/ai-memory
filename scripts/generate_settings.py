@@ -46,17 +46,23 @@ def read_qdrant_api_key(install_dir: str) -> str:
     return ""
 
 
-def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
+def generate_hook_config(hooks_dir: str, project_name: str, install_dir: str = None) -> dict:
     """Generate COMPLETE hook configuration with all BMAD memory hooks.
 
     BUG-030 fix: Previous version only included minimal hooks (SessionStart,
     PostToolUse for edits, PreCompact). This version includes ALL hooks needed
     for full memory system functionality.
 
+    BUG-032 fix: Support project-local hooks (copied files, not symlinks) for
+    Windows/WSL compatibility. WSL symlinks don't work from Windows.
+
     Args:
-        hooks_dir: Absolute path to hooks scripts directory
-                   Expected format: /path/to/install/.claude/hooks/scripts
+        hooks_dir: Absolute path to hooks scripts directory for hook commands
+                   For user-level: /path/to/install/.claude/hooks/scripts
+                   For project-level: /path/to/project/.claude/hooks/scripts
         project_name: Name of the project for BMAD_PROJECT_ID
+        install_dir: Optional. Path to BMAD installation for env vars and API key.
+                     If not provided, derived from hooks_dir (legacy behavior).
 
     Returns:
         Dict with complete hook configuration including:
@@ -68,20 +74,26 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         - Stop: Capture agent responses
 
     2026 Best Practice: Complete Claude Code hook structure
-    - All hooks use $BMAD_INSTALL_DIR for portability
+    - Project-level hooks use absolute paths to copied scripts
+    - User-level hooks use $BMAD_INSTALL_DIR for portability
     - UserPromptSubmit is CRITICAL for memory retrieval on user queries
     Source: https://code.claude.com/docs/en/hooks
     """
-    # Extract install directory from hooks_dir
-    # hooks_dir format: /path/to/install/.claude/hooks/scripts
-    # install_dir should be: /path/to/install
-    # .parent chain: scripts -> hooks -> .claude -> install_dir (3 levels up)
     hooks_path = Path(hooks_dir)
-    install_dir = str(hooks_path.parent.parent.parent)
 
-    # Use environment variable reference for portability
-    # Quotes go around the full path including script name
-    hooks_base = '$BMAD_INSTALL_DIR/.claude/hooks/scripts'
+    # BUG-032: Determine install_dir for env vars
+    # If install_dir provided (project-level), use it
+    # Otherwise derive from hooks_dir (user-level, legacy behavior)
+    if install_dir is None:
+        # Legacy: hooks_dir format is /path/to/install/.claude/hooks/scripts
+        # .parent chain: scripts -> hooks -> .claude -> install_dir (3 levels up)
+        install_dir = str(hooks_path.parent.parent.parent)
+        # Use environment variable reference for portability (user-level)
+        hooks_base = '$BMAD_INSTALL_DIR/.claude/hooks/scripts'
+    else:
+        # BUG-032: Project-level - use absolute path to project's hooks
+        # Hooks were copied to project, so use project path directly
+        hooks_base = str(hooks_path)
 
     # BUG-029: Read API key from shared installation
     qdrant_api_key = read_qdrant_api_key(install_dir)
@@ -226,16 +238,23 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
 
 def main():
     """Main entry point for CLI invocation."""
-    if len(sys.argv) != 4:
-        print("Usage: generate_settings.py <output_path> <hooks_dir> <project_name>")
+    if len(sys.argv) < 4 or len(sys.argv) > 5:
+        print("Usage: generate_settings.py <output_path> <hooks_dir> <project_name> [install_dir]")
+        print("")
+        print("  output_path  - Path to write settings.json")
+        print("  hooks_dir    - Path to hooks scripts directory for commands")
+        print("  project_name - Project identifier for BMAD_PROJECT_ID")
+        print("  install_dir  - Optional. BMAD install dir for env vars (default: derived from hooks_dir)")
         sys.exit(1)
 
     output_path = Path(sys.argv[1])
     hooks_dir = sys.argv[2]
     project_name = sys.argv[3]
+    # BUG-032: Optional install_dir for project-local hooks
+    install_dir = sys.argv[4] if len(sys.argv) == 5 else None
 
     # Generate configuration
-    config = generate_hook_config(hooks_dir, project_name)
+    config = generate_hook_config(hooks_dir, project_name, install_dir)
 
     # Write to file
     output_path.parent.mkdir(parents=True, exist_ok=True)
