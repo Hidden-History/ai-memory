@@ -338,10 +338,34 @@ check_existing_installation() {
 }
 
 # Handle reinstallation - stop services, clean up if needed
+# BUG-035: Always ask permission before stopping services
 handle_reinstall() {
     local services_running=$1
 
     if [[ "$services_running" = true ]]; then
+        echo ""
+        log_warning "Services must be stopped to reinstall."
+        echo ""
+        echo "  ⚠️  WARNING: Other projects may be using these services!"
+        echo ""
+        echo "  If you have other Claude Code sessions running that use"
+        echo "  BMAD Memory, their memory operations will fail while"
+        echo "  services are stopped."
+        echo ""
+        echo "  Services will be restarted after reinstallation completes."
+        echo ""
+
+        # Skip confirmation in non-interactive mode (user already set BMAD_FORCE_REINSTALL)
+        if [[ "${NON_INTERACTIVE:-false}" != "true" ]]; then
+            read -r -p "Stop services and proceed with reinstall? [y/N]: " confirm
+            if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+                log_info "Reinstallation cancelled by user"
+                exit 0
+            fi
+        else
+            log_info "Non-interactive mode: proceeding with service restart"
+        fi
+
         log_info "Stopping existing services..."
         if [[ -f "$INSTALL_DIR/docker/docker-compose.yml" ]]; then
             (cd "$INSTALL_DIR/docker" && docker compose down 2>/dev/null) || true
