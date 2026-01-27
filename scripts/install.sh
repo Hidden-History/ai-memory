@@ -36,26 +36,18 @@ PROJECT_NAME="${2:-$(basename "$PROJECT_PATH")}"  # Optional second arg or deriv
 # Cleanup handler for interrupts (SIGINT/SIGTERM)
 # Per https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
 INSTALL_STARTED=false
-SERVICES_STARTED_BY_US=false  # Track if WE started services (vs. already running)
 cleanup() {
     local exit_code=$?
     if [[ "$INSTALL_STARTED" = true && $exit_code -ne 0 ]]; then
         echo ""
         log_warning "Installation interrupted (exit code: $exit_code)"
 
-        # BUG-034: Only stop services if WE started them during this install
-        # In add-project mode, services belong to shared installation and may be
-        # used by other projects - NEVER stop them on failure
-        if [[ "$SERVICES_STARTED_BY_US" = true ]]; then
-            if [[ -f "$INSTALL_DIR/docker/docker-compose.yml" ]]; then
-                echo ""
-                echo "[INFO] Stopping Docker services (started by this installer)..."
-                cd "$INSTALL_DIR/docker" && docker compose down --timeout 5 2>/dev/null || true
-                echo "[INFO] Docker services stopped"
-            fi
-        else
+        # Stop Docker services if they were started
+        if [[ -f "$INSTALL_DIR/docker/docker-compose.yml" ]]; then
             echo ""
-            echo "[INFO] Shared services left running (not started by this installer)"
+            echo "[INFO] Stopping Docker services..."
+            cd "$INSTALL_DIR/docker" && docker compose down --timeout 5 2>/dev/null || true
+            echo "[INFO] Docker services stopped"
         fi
 
         echo ""
@@ -243,7 +235,6 @@ main() {
         copy_files
         configure_environment
         start_services
-        SERVICES_STARTED_BY_US=true  # Mark that WE started services (for cleanup)
         wait_for_services
         setup_collections
         copy_env_template
@@ -255,13 +246,10 @@ main() {
         update_shared_scripts
         # Verify services are running in add-project mode
         verify_services_running
-        # BUG-033: Read API key from existing installation for project config
-        read_existing_api_key
     fi
 
     # Project-level setup - runs for both modes
-    # BUG-032: Copy files instead of symlinks for Windows/WSL compatibility
-    create_project_hooks
+    create_project_symlinks
     configure_project_hooks
     verify_project_hooks
 
@@ -309,9 +297,7 @@ check_existing_installation() {
         elif [[ "${BMAD_FORCE_REINSTALL:-}" = "true" ]]; then
             log_info "BMAD_FORCE_REINSTALL=true - proceeding with full reinstall"
             INSTALL_MODE="full"
-            # BUG-035: If existing installation, assume services might be running
-            # (container name detection may fail but ports may still be in use)
-            handle_reinstall "true"
+            handle_reinstall "$services_running"
             return 0
         fi
 
@@ -325,8 +311,7 @@ check_existing_installation() {
             2)
                 log_info "Reinstalling shared infrastructure..."
                 INSTALL_MODE="full"
-                # BUG-035: Assume services might be running (container detection unreliable)
-                handle_reinstall "true"
+                handle_reinstall "$services_running"
                 ;;
             3|*)
                 log_info "Installation aborted by user"
@@ -341,54 +326,14 @@ check_existing_installation() {
 }
 
 # Handle reinstallation - stop services, clean up if needed
-# BUG-035: Always ask permission before stopping services
 handle_reinstall() {
     local services_running=$1
 
     if [[ "$services_running" = true ]]; then
-        echo ""
-        log_warning "Services must be stopped to reinstall."
-        echo ""
-        echo "  ⚠️  WARNING: Other projects may be using these services!"
-        echo ""
-        echo "  If you have other Claude Code sessions running that use"
-        echo "  BMAD Memory, their memory operations will fail while"
-        echo "  services are stopped."
-        echo ""
-        echo "  Services will be restarted after reinstallation completes."
-        echo ""
-
-        # Skip confirmation in non-interactive mode (user already set BMAD_FORCE_REINSTALL)
-        if [[ "${NON_INTERACTIVE:-false}" != "true" ]]; then
-            read -r -p "Stop services and proceed with reinstall? [y/N]: " confirm
-            if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-                log_info "Reinstallation cancelled by user"
-                exit 0
-            fi
-        else
-            log_info "Non-interactive mode: proceeding with service restart"
-        fi
-
         log_info "Stopping existing services..."
-
-        # BUG-036: Stop services from BOTH locations:
-        # 1. Current repo (where install.sh is being run from) - user may have started services here
-        # 2. Shared installation - services may also be running from here
-        local script_dir
-        script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-        # Stop from current repo first (with monitoring profile to catch all services)
-        if [[ -f "$script_dir/docker/docker-compose.yml" ]]; then
-            log_info "Stopping services from $script_dir/docker..."
-            (cd "$script_dir/docker" && docker compose --profile monitoring down 2>/dev/null) || true
+        if [[ -f "$INSTALL_DIR/docker/docker-compose.yml" ]]; then
+            (cd "$INSTALL_DIR/docker" && docker compose down 2>/dev/null) || true
         fi
-
-        # Also stop from shared installation if different location
-        if [[ -f "$INSTALL_DIR/docker/docker-compose.yml" && "$INSTALL_DIR" != "$script_dir" ]]; then
-            log_info "Stopping services from $INSTALL_DIR/docker..."
-            (cd "$INSTALL_DIR/docker" && docker compose --profile monitoring down 2>/dev/null) || true
-        fi
-
         log_success "Services stopped"
     fi
 
@@ -711,14 +656,6 @@ copy_files() {
 configure_environment() {
     log_info "Configuring environment..."
 
-    # BUG-033: Generate random API key for Qdrant authentication
-    # Using /dev/urandom for cryptographic randomness
-    QDRANT_API_KEY=$(head -c 18 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 24)
-    if [[ -z "$QDRANT_API_KEY" ]]; then
-        # Fallback if /dev/urandom fails
-        QDRANT_API_KEY=$(date +%s%N | sha256sum | head -c 24)
-    fi
-
     # Create .env file with port configuration
     cat > "$INSTALL_DIR/.env" <<EOF
 # BMAD Memory Module Configuration
@@ -744,54 +681,9 @@ ARCH=$ARCH
 # Search Configuration (TECH-DEBT-002: semantic mismatch workaround)
 # Lower threshold needed for NL query → code content matching
 SIMILARITY_THRESHOLD=0.4
-
-# BUG-033: Qdrant API Key for authentication
-# Required for all Qdrant operations
-QDRANT_API_KEY=$QDRANT_API_KEY
 EOF
 
     log_success "Environment configured at $INSTALL_DIR/.env"
-
-    # BUG-033 Complete: Copy .env to docker/ directory
-    # Docker Compose only looks for .env in the same directory as compose.yaml
-    # It does NOT search parent directories (2026 best practice confirmed)
-    cp "$INSTALL_DIR/.env" "$INSTALL_DIR/docker/.env"
-    log_success "Environment copied to $INSTALL_DIR/docker/.env"
-
-    # Export for use in other functions
-    export QDRANT_API_KEY
-}
-
-# Read API key from existing installation (for add-project mode)
-# BUG-033: Projects need API key but add-project mode skips configure_environment()
-read_existing_api_key() {
-    log_info "Reading API key from existing installation..."
-
-    # Check multiple possible locations (same order as generate_settings.py)
-    local env_files=(
-        "$INSTALL_DIR/.env"
-        "$INSTALL_DIR/docker/.env"
-    )
-
-    for env_file in "${env_files[@]}"; do
-        if [[ -f "$env_file" ]]; then
-            # Extract QDRANT_API_KEY from .env file
-            # Note: grep returns 1 if no match, which triggers set -e; use || true
-            local api_key
-            api_key=$(grep "^QDRANT_API_KEY=" "$env_file" 2>/dev/null | cut -d'=' -f2- || true)
-            if [[ -n "$api_key" ]]; then
-                QDRANT_API_KEY="$api_key"
-                export QDRANT_API_KEY
-                log_success "API key loaded from $env_file"
-                return 0
-            fi
-        fi
-    done
-
-    # If no API key found, warn but don't fail (graceful degradation)
-    log_warning "No QDRANT_API_KEY found in existing installation"
-    log_warning "Memory operations may fail. Consider reinstalling with full mode."
-    return 0
 }
 
 # Service startup with 2026 security best practices (AC 7.1.7)
@@ -988,9 +880,6 @@ configure_hooks() {
 
     CLAUDE_SETTINGS="$HOME/.claude/settings.json"
     HOOKS_DIR="$INSTALL_DIR/.claude/hooks/scripts"
-    # BUG-031: User-level settings use "global" as project name
-    # This provides default hooks that apply to all projects
-    USER_PROJECT_NAME="global"
 
     # Create .claude directory if needed
     mkdir -p "$HOME/.claude"
@@ -999,13 +888,11 @@ configure_hooks() {
     if [[ -f "$CLAUDE_SETTINGS" ]]; then
         # Merge with existing settings
         log_info "Merging with existing settings.json..."
-        # BUG-031: Pass project_name as third argument
-        python3 "$INSTALL_DIR/scripts/merge_settings.py" "$CLAUDE_SETTINGS" "$HOOKS_DIR" "$USER_PROJECT_NAME"
+        python3 "$INSTALL_DIR/scripts/merge_settings.py" "$CLAUDE_SETTINGS" "$HOOKS_DIR"
     else
         # Create new settings file
         log_info "Creating new settings.json..."
-        # BUG-031: generate_settings.py requires 3 arguments (was only passing 2!)
-        python3 "$INSTALL_DIR/scripts/generate_settings.py" "$CLAUDE_SETTINGS" "$HOOKS_DIR" "$USER_PROJECT_NAME"
+        python3 "$INSTALL_DIR/scripts/generate_settings.py" "$CLAUDE_SETTINGS" "$HOOKS_DIR"
     fi
 
     log_success "Hooks configured in $CLAUDE_SETTINGS"
@@ -1111,18 +998,16 @@ verify_services_running() {
     log_success "All services are running"
 }
 
-# Copy hook scripts to project directory
-# BUG-032: Changed from symlinks to copies for Windows/WSL compatibility
-# WSL symlinks don't work from Windows - Claude Code can't see them
-create_project_hooks() {
-    log_info "Copying hook scripts to project..."
+# Create project-level symlinks to shared installation
+create_project_symlinks() {
+    log_info "Creating project-level symlinks..."
 
     # Skip confirmation in non-interactive mode
     if [[ "$NON_INTERACTIVE" != "true" && ! -d "$PROJECT_PATH/.claude" ]]; then
         echo ""
         echo "The installer will create the following in your project:"
         echo "  📁 $PROJECT_PATH/.claude/"
-        echo "     └── hooks/scripts/       (Hook scripts for memory system)"
+        echo "     └── hooks/scripts/       (Symlinks to shared hooks)"
         echo ""
         echo "This allows Claude Code to use the memory system in your project."
         echo ""
@@ -1138,31 +1023,34 @@ create_project_hooks() {
     # Create project .claude directory structure
     mkdir -p "$PROJECT_PATH/.claude/hooks/scripts"
 
-    # Copy hook scripts from shared install (not symlink - for Windows compatibility)
-    local copy_count=0
+    # Symlink hook scripts from shared install
+    local symlink_count=0
     for script in "$INSTALL_DIR/.claude/hooks/scripts"/*.py; do
         if [[ -f "$script" ]]; then
             script_name=$(basename "$script")
-            cp "$script" "$PROJECT_PATH/.claude/hooks/scripts/$script_name"
-            ((copy_count++)) || true
+            ln -sf "$script" "$PROJECT_PATH/.claude/hooks/scripts/$script_name"
+            ((symlink_count++)) || true
         fi
     done
 
-    # Verify files were copied
+    # Verify symlinks work
     local verification_failed=0
     for script in "$PROJECT_PATH/.claude/hooks/scripts"/*.py; do
-        if [[ ! -f "$script" ]]; then
-            log_error "Missing script: $script"
+        if [[ ! -L "$script" ]]; then
+            log_error "Not a symlink: $script"
+            verification_failed=1
+        elif [[ ! -e "$script" ]]; then
+            log_error "Broken symlink: $script"
             verification_failed=1
         fi
     done
 
     if [[ $verification_failed -eq 1 ]]; then
-        log_error "Hook script copy verification failed"
+        log_error "Symlink verification failed"
         exit 1
     fi
 
-    log_success "Copied $copy_count hook scripts to $PROJECT_PATH/.claude/hooks/scripts/"
+    log_success "Created $symlink_count symlinks in $PROJECT_PATH/.claude/hooks/scripts/"
 }
 
 # Configure hooks for project (project-level settings.json)
@@ -1170,42 +1058,19 @@ configure_project_hooks() {
     log_info "Configuring project-level hooks..."
 
     PROJECT_SETTINGS="$PROJECT_PATH/.claude/settings.json"
-    # BUG-032: Use project-local hooks path (files were copied, not symlinked)
-    # This path is used in settings.json for hook command paths
-    PROJECT_HOOKS_DIR="$PROJECT_PATH/.claude/hooks/scripts"
+    HOOKS_DIR="$INSTALL_DIR/.claude/hooks/scripts"
 
     # Check if project already has settings.json
     if [[ -f "$PROJECT_SETTINGS" ]]; then
-        log_info "Existing project settings found - will merge (preserving your hooks)"
-
-        # Create backup before merging
-        local backup_name="${PROJECT_SETTINGS}.backup.$(date +%Y%m%d_%H%M%S)"
-        cp "$PROJECT_SETTINGS" "$backup_name"
-        log_info "Backup created: $backup_name"
-
-        # Show what's being preserved
-        if command -v python3 &>/dev/null; then
-            local existing_hooks=$(python3 -c "
-import json
-with open('$PROJECT_SETTINGS') as f:
-    s = json.load(f)
-hooks = s.get('hooks', {})
-print(f'  Existing hooks: {list(hooks.keys())}')
-" 2>/dev/null || echo "  (unable to parse existing hooks)")
-            echo "$existing_hooks"
-        fi
-
-        # BUG-032: Pass both hooks_dir (for command paths) and install_dir (for env vars)
-        python3 "$INSTALL_DIR/scripts/merge_settings.py" "$PROJECT_SETTINGS" "$PROJECT_HOOKS_DIR" "$PROJECT_NAME" "$INSTALL_DIR"
-
-        log_success "Merged BMAD hooks with existing settings (backup saved)"
+        log_info "Existing project settings found - merging hooks..."
+        python3 "$INSTALL_DIR/scripts/merge_settings.py" "$PROJECT_SETTINGS" "$HOOKS_DIR" "$PROJECT_NAME"
     else
         # Generate new project-level settings.json
         log_info "Creating new project settings at $PROJECT_SETTINGS..."
-        # BUG-032: Pass both hooks_dir (for command paths) and install_dir (for env vars)
-        python3 "$INSTALL_DIR/scripts/generate_settings.py" "$PROJECT_SETTINGS" "$PROJECT_HOOKS_DIR" "$PROJECT_NAME" "$INSTALL_DIR"
-        log_success "Project hooks configured in $PROJECT_SETTINGS"
+        python3 "$INSTALL_DIR/scripts/generate_settings.py" "$PROJECT_SETTINGS" "$HOOKS_DIR" "$PROJECT_NAME"
     fi
+
+    log_success "Project hooks configured in $PROJECT_SETTINGS"
 }
 
 # Verify project hooks configuration
