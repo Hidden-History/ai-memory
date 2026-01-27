@@ -36,18 +36,26 @@ PROJECT_NAME="${2:-$(basename "$PROJECT_PATH")}"  # Optional second arg or deriv
 # Cleanup handler for interrupts (SIGINT/SIGTERM)
 # Per https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
 INSTALL_STARTED=false
+SERVICES_STARTED_BY_US=false  # Track if WE started services (vs. already running)
 cleanup() {
     local exit_code=$?
     if [[ "$INSTALL_STARTED" = true && $exit_code -ne 0 ]]; then
         echo ""
         log_warning "Installation interrupted (exit code: $exit_code)"
 
-        # Stop Docker services if they were started
-        if [[ -f "$INSTALL_DIR/docker/docker-compose.yml" ]]; then
+        # BUG-034: Only stop services if WE started them during this install
+        # In add-project mode, services belong to shared installation and may be
+        # used by other projects - NEVER stop them on failure
+        if [[ "$SERVICES_STARTED_BY_US" = true ]]; then
+            if [[ -f "$INSTALL_DIR/docker/docker-compose.yml" ]]; then
+                echo ""
+                echo "[INFO] Stopping Docker services (started by this installer)..."
+                cd "$INSTALL_DIR/docker" && docker compose down --timeout 5 2>/dev/null || true
+                echo "[INFO] Docker services stopped"
+            fi
+        else
             echo ""
-            echo "[INFO] Stopping Docker services..."
-            cd "$INSTALL_DIR/docker" && docker compose down --timeout 5 2>/dev/null || true
-            echo "[INFO] Docker services stopped"
+            echo "[INFO] Shared services left running (not started by this installer)"
         fi
 
         echo ""
@@ -235,6 +243,7 @@ main() {
         copy_files
         configure_environment
         start_services
+        SERVICES_STARTED_BY_US=true  # Mark that WE started services (for cleanup)
         wait_for_services
         setup_collections
         copy_env_template
