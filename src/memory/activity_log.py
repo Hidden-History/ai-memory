@@ -34,7 +34,15 @@ from typing import Optional, Any
 
 # Log file location - use BMAD_INSTALL_DIR if available
 INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
-LOG_DIR = Path(INSTALL_DIR) / "logs"
+
+# Silo isolation: Per-project log directories (2026 best practice)
+# If BMAD_PROJECT_ID is set, logs go to logs/<project_id>/activity.log
+# Otherwise, logs go to logs/activity.log (backwards compatible)
+PROJECT_ID = os.environ.get('BMAD_PROJECT_ID', '')
+if PROJECT_ID:
+    LOG_DIR = Path(INSTALL_DIR) / "logs" / PROJECT_ID
+else:
+    LOG_DIR = Path(INSTALL_DIR) / "logs"
 ACTIVITY_LOG = LOG_DIR / "activity.log"
 
 # Maximum log entries before rotation

@@ -246,6 +246,8 @@ main() {
         update_shared_scripts
         # Verify services are running in add-project mode
         verify_services_running
+        # BUG-033: Read API key from existing installation for project config
+        read_existing_api_key
     fi
 
     # Project-level setup - runs for both modes
@@ -657,6 +659,14 @@ copy_files() {
 configure_environment() {
     log_info "Configuring environment..."
 
+    # BUG-033: Generate random API key for Qdrant authentication
+    # Using /dev/urandom for cryptographic randomness
+    QDRANT_API_KEY=$(head -c 18 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 24)
+    if [[ -z "$QDRANT_API_KEY" ]]; then
+        # Fallback if /dev/urandom fails
+        QDRANT_API_KEY=$(date +%s%N | sha256sum | head -c 24)
+    fi
+
     # Create .env file with port configuration
     cat > "$INSTALL_DIR/.env" <<EOF
 # BMAD Memory Module Configuration
@@ -682,9 +692,53 @@ ARCH=$ARCH
 # Search Configuration (TECH-DEBT-002: semantic mismatch workaround)
 # Lower threshold needed for NL query → code content matching
 SIMILARITY_THRESHOLD=0.4
+
+# BUG-033: Qdrant API Key for authentication
+# Required for all Qdrant operations
+QDRANT_API_KEY=$QDRANT_API_KEY
 EOF
 
     log_success "Environment configured at $INSTALL_DIR/.env"
+
+    # BUG-033 Complete: Copy .env to docker/ directory
+    # Docker Compose only looks for .env in the same directory as compose.yaml
+    # It does NOT search parent directories (2026 best practice confirmed)
+    cp "$INSTALL_DIR/.env" "$INSTALL_DIR/docker/.env"
+    log_success "Environment copied to $INSTALL_DIR/docker/.env"
+
+    # Export for use in other functions
+    export QDRANT_API_KEY
+}
+
+# Read API key from existing installation (for add-project mode)
+# BUG-033: Projects need API key but add-project mode skips configure_environment()
+read_existing_api_key() {
+    log_info "Reading API key from existing installation..."
+
+    # Check multiple possible locations (same order as generate_settings.py)
+    local env_files=(
+        "$INSTALL_DIR/.env"
+        "$INSTALL_DIR/docker/.env"
+    )
+
+    for env_file in "${env_files[@]}"; do
+        if [[ -f "$env_file" ]]; then
+            # Extract QDRANT_API_KEY from .env file
+            local api_key
+            api_key=$(grep "^QDRANT_API_KEY=" "$env_file" 2>/dev/null | cut -d'=' -f2-)
+            if [[ -n "$api_key" ]]; then
+                QDRANT_API_KEY="$api_key"
+                export QDRANT_API_KEY
+                log_success "API key loaded from $env_file"
+                return 0
+            fi
+        fi
+    done
+
+    # If no API key found, warn but don't fail (graceful degradation)
+    log_warning "No QDRANT_API_KEY found in existing installation"
+    log_warning "Memory operations may fail. Consider reinstalling with full mode."
+    return 0
 }
 
 # Service startup with 2026 security best practices (AC 7.1.7)
