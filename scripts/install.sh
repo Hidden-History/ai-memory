@@ -1069,17 +1069,36 @@ configure_project_hooks() {
 
     # Check if project already has settings.json
     if [[ -f "$PROJECT_SETTINGS" ]]; then
-        log_info "Existing project settings found - merging hooks..."
+        log_info "Existing project settings found - will merge (preserving your hooks)"
+
+        # Create backup before merging
+        local backup_name="${PROJECT_SETTINGS}.backup.$(date +%Y%m%d_%H%M%S)"
+        cp "$PROJECT_SETTINGS" "$backup_name"
+        log_info "Backup created: $backup_name"
+
+        # Show what's being preserved
+        if command -v python3 &>/dev/null; then
+            local existing_hooks=$(python3 -c "
+import json
+with open('$PROJECT_SETTINGS') as f:
+    s = json.load(f)
+hooks = s.get('hooks', {})
+print(f'  Existing hooks: {list(hooks.keys())}')
+" 2>/dev/null || echo "  (unable to parse existing hooks)")
+            echo "$existing_hooks"
+        fi
+
         # BUG-032: Pass both hooks_dir (for command paths) and install_dir (for env vars)
         python3 "$INSTALL_DIR/scripts/merge_settings.py" "$PROJECT_SETTINGS" "$PROJECT_HOOKS_DIR" "$PROJECT_NAME" "$INSTALL_DIR"
+
+        log_success "Merged BMAD hooks with existing settings (backup saved)"
     else
         # Generate new project-level settings.json
         log_info "Creating new project settings at $PROJECT_SETTINGS..."
         # BUG-032: Pass both hooks_dir (for command paths) and install_dir (for env vars)
         python3 "$INSTALL_DIR/scripts/generate_settings.py" "$PROJECT_SETTINGS" "$PROJECT_HOOKS_DIR" "$PROJECT_NAME" "$INSTALL_DIR"
+        log_success "Project hooks configured in $PROJECT_SETTINGS"
     fi
-
-    log_success "Project hooks configured in $PROJECT_SETTINGS"
 }
 
 # Verify project hooks configuration
