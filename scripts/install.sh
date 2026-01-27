@@ -242,6 +242,8 @@ main() {
         seed_best_practices
     else
         log_info "Skipping shared infrastructure setup (add-project mode)"
+        # BUG-028: Update shared scripts to ensure compatibility with this installer version
+        update_shared_scripts
         # Verify services are running in add-project mode
         verify_services_running
     fi
@@ -336,6 +338,31 @@ handle_reinstall() {
     fi
 
     log_info "Proceeding with reinstallation..."
+}
+
+# Update shared scripts for add-project mode compatibility (BUG-028)
+# When adding a project to an existing installation, ensure the shared
+# scripts are compatible with the installer version being used.
+update_shared_scripts() {
+    log_info "Updating shared scripts for compatibility..."
+
+    # Ensure scripts directory exists
+    mkdir -p "$INSTALL_DIR/scripts"
+
+    # Copy all Python scripts from repo to shared installation
+    local updated_count=0
+    for script in "$SCRIPT_DIR"/*.py; do
+        if [[ -f "$script" ]]; then
+            cp "$script" "$INSTALL_DIR/scripts/"
+            ((updated_count++)) || true
+        fi
+    done
+
+    if [[ $updated_count -gt 0 ]]; then
+        log_success "Updated $updated_count shared scripts"
+    else
+        log_warning "No scripts found to update"
+    fi
 }
 
 # Prerequisite checking (AC 7.1.3)
