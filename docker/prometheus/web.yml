@@ -1,0 +1,24 @@
+# Prometheus Web Configuration - Basic Authentication
+# Generated for BMAD Memory Module (TECH-DEBT-076)
+# Best Practice: BP-040 (Docker Service Authentication)
+#
+# Username: admin
+# Password: Set in docker/.env as PROMETHEUS_ADMIN_PASSWORD
+# Bcrypt hash generated with cost factor 12
+#
+# To regenerate hash:
+#   python3 -c "import bcrypt; print(bcrypt.hashpw(b'your_password', bcrypt.gensalt(12)).decode())"
+#
+# IMPORTANT:
+# - This file is read on EVERY HTTP request (changes apply immediately, no restart needed)
+# - All Prometheus endpoints require auth when enabled (including /metrics, /targets, /graph)
+# - Grafana datasource must include basicAuth credentials to access Prometheus
+#
+# References:
+# - https://prometheus.io/docs/guides/basic-auth/
+# - https://prometheus.io/docs/prometheus/latest/configuration/https/
+
+basic_auth_users:
+  # Username: admin
+  # Password: Set in docker/.env as PROMETHEUS_ADMIN_PASSWORD (bcrypt hash below)
+  admin: $2b$12$qSnTg/yNNTEZKmze4mICjuPOuEl.nkFrU6yWOGFcdNlAT8ys/E9xG

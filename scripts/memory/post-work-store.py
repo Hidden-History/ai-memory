@@ -219,11 +219,11 @@ def store_synchronous(content: str, metadata: Dict[str, Any]) -> int:
 
         # Determine collection based on type
         if memory_type_str == "best_practice":
-            collection = "best_practices"
+            collection = "conventions"
         elif memory_type_str in ["session_summary", "chat_memory", "agent_decision"]:
-            collection = "agent-memory"
+            collection = "discussions"
         else:
-            collection = "implementations"
+            collection = "code-patterns"
 
         # Store memory
         storage = MemoryStorage()

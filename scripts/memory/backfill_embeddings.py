@@ -134,7 +134,7 @@ def process_queue_item(item: dict, storage: MemoryStorage, queue: MemoryQueue) -
             memory_type=memory_type,
             source_hook=memory_data["source_hook"],
             session_id=memory_data.get("session_id", "backfill"),
-            collection="implementations"
+            collection="code-patterns"
         )
 
         # Success - remove from queue

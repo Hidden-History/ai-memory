@@ -15,7 +15,7 @@ consistency and quality across the codebase.
 Requirements (from request):
 - Parse tool_input JSON from Claude Code hook input
 - Extract file path and detect component/domain from path
-- Search best_practices collection using semantic search
+- Search conventions collection using semantic search
 - Inject up to 3 relevant practices into context
 - Output goes to stdout (displayed before tool execution)
 - Must complete in <500ms
@@ -25,7 +25,7 @@ Hook Configuration:
     Invoked manually by review agents or explicit skill calls only
 
 Architecture:
-    PreToolUse → Check explicit mode → Parse file_path → Detect component → Search best_practices
+    PreToolUse → Check explicit mode → Parse file_path → Detect component → Search conventions
     → Format for display → Output to stdout → Claude sees context → Tool executes
 
 Performance:
@@ -46,47 +46,18 @@ import time
 from pathlib import Path
 from typing import Optional, Tuple
 
-# Add src to path for imports
-# Use INSTALL_DIR to find installed module (fixes path calculation bug)
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
-sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
+# Setup Python path using shared utility (CR-4 Wave 2)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))) + "/src")
+from memory.hooks_common import setup_python_path, setup_hook_logging, log_to_activity, get_metrics, LANGUAGE_MAP, PREVIEW_MAX_CHARS
 
-# Configure structured logging (Story 6.2)
-# Log to stderr since stdout is reserved for Claude context
-from memory.logging_config import StructuredFormatter
-handler = logging.StreamHandler(sys.stderr)
-handler.setFormatter(StructuredFormatter())
-logger = logging.getLogger("bmad.memory.hooks")
-logger.setLevel(logging.INFO)
-logger.addHandler(handler)
-logger.propagate = False
+INSTALL_DIR = setup_python_path()
 
-# Import metrics for Prometheus instrumentation (Story 6.1)
-try:
-    from memory.metrics import memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds
-except ImportError:
-    logger.warning("metrics_module_unavailable")
-    memory_retrievals_total = None
-    retrieval_duration_seconds = None
-    hook_duration_seconds = None
+# Configure structured logging using shared utility (CR-4 Wave 2)
+from memory.config import COLLECTION_CONVENTIONS, VALID_AGENTS
+logger = setup_hook_logging("bmad.memory.hooks")
 
-
-def _log_to_activity(message: str) -> None:
-    """Log message to activity log for user visibility.
-
-    Activity log provides user-visible feedback about memory operations.
-    Located at $BMAD_INSTALL_DIR/logs/activity.log
-    """
-    from datetime import datetime
-    log_dir = Path(INSTALL_DIR) / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "activity.log"
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    try:
-        with open(log_file, "a") as f:
-            f.write(f"[{timestamp}] {message}\n")
-    except Exception:
-        pass  # Graceful degradation
+# Import metrics using shared utility (CR-4 Wave 2)
+memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = get_metrics()
 
 
 def detect_component_from_path(file_path: str) -> Tuple[str, str]:
@@ -197,25 +168,8 @@ def build_query(file_path: str, component: str, domain: str, tool_name: str) -> 
     # Extract file extension for language/framework detection
     ext = Path(file_path).suffix.lower()
 
-    # Map extensions to languages
-    language_map = {
-        ".py": "Python",
-        ".js": "JavaScript",
-        ".ts": "TypeScript",
-        ".jsx": "React",
-        ".tsx": "React TypeScript",
-        ".go": "Go",
-        ".rs": "Rust",
-        ".java": "Java",
-        ".sql": "SQL",
-        ".sh": "Bash",
-        ".yaml": "YAML",
-        ".yml": "YAML",
-        ".json": "JSON",
-        ".md": "Markdown",
-    }
-
-    language = language_map.get(ext, "code")
+    # Use shared language map (CR-4.13)
+    language = LANGUAGE_MAP.get(ext, "code")
 
     # Build query parts
     query_parts = ["Best practices for"]
@@ -260,9 +214,9 @@ def format_best_practice(practice: dict, index: int) -> str:
     header = " ".join(header_parts)
 
     # Truncate content if too long (keep it concise for PreToolUse)
-    max_chars = 400
-    if len(content) > max_chars:
-        content = content[:max_chars] + "..."
+    # CR-4.12: Use shared constant instead of magic number
+    if len(content) > PREVIEW_MAX_CHARS:
+        content = content[:PREVIEW_MAX_CHARS] + "..."
 
     return f"{header}\n{content}\n"
 
@@ -289,10 +243,11 @@ def main() -> int:
         if not explicit_mode:
             # Check for review agent context
             agent_type = os.environ.get("BMAD_AGENT_TYPE", "").lower()
+            # CR-4.9: Use VALID_AGENTS from config + additional review-specific agents
             # TEA + review agents always check best practices (TECH-DEBT-015 pending: full redesign)
-            review_agents = ["code-review", "adversarial-review", "security-auditor", "code-reviewer", "tea", "tech-writer"]
+            review_agents = list(VALID_AGENTS) + ["code-review", "adversarial-review", "security-auditor", "code-reviewer"]
             if agent_type not in review_agents:
-                logger.debug("best_practices_skipped_no_trigger", extra={"agent_type": agent_type})
+                logger.debug("conventions_skipped_no_trigger", extra={"agent_type": agent_type})
                 return 0  # Silent exit - no injection
 
         # Parse hook input from stdin
@@ -323,7 +278,7 @@ def main() -> int:
         # Build semantic query
         query = build_query(file_path, component, domain, tool_name)
 
-        # Search best_practices collection
+        # Search conventions collection
         # Import here to avoid circular dependencies
         from memory.search import MemorySearch
         from memory.config import get_config
@@ -338,7 +293,7 @@ def main() -> int:
         if not check_qdrant_health(client):
             logger.warning("qdrant_unavailable")
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection="best_practices", status="failed").inc()
+                memory_retrievals_total.labels(collection=COLLECTION_CONVENTIONS, status="failed").inc()
             return 0
 
         # Detect project for logging
@@ -353,8 +308,8 @@ def main() -> int:
 
             results = search.search(
                 query=query,
-                collection="best_practices",
-                group_id=None,  # Best practices are shared across projects
+                collection=COLLECTION_CONVENTIONS,
+                group_id=None,  # Conventions are shared across projects
                 limit=3,  # Up to 3 relevant practices (requirement)
                 score_threshold=threshold
             )
@@ -362,8 +317,8 @@ def main() -> int:
             if not results:
                 # No relevant practices found - log to activity file for visibility
                 duration_ms = (time.perf_counter() - start_time) * 1000
-                _log_to_activity(f"🔍 PreToolUse searched best_practices for {file_path} (0 results) [{duration_ms:.0f}ms]")
-                logger.debug("no_best_practices_found", extra={
+                log_to_activity(f"🔍 PreToolUse searched conventions for {file_path} (0 results) [{duration_ms:.0f}ms]")
+                logger.debug("no_conventions_found", extra={
                     "file_path": file_path,
                     "component": component,
                     "domain": domain,
@@ -371,7 +326,7 @@ def main() -> int:
                     "duration_ms": round(duration_ms, 2)
                 })
                 if memory_retrievals_total:
-                    memory_retrievals_total.labels(collection="best_practices", status="empty").inc()
+                    memory_retrievals_total.labels(collection=COLLECTION_CONVENTIONS, status="empty").inc()
                 return 0
 
             # Format for stdout display
@@ -394,8 +349,8 @@ def main() -> int:
 
             # Log success with user visibility
             duration_ms = (time.perf_counter() - start_time) * 1000
-            _log_to_activity(f"🎯 Best practices retrieved (explicit) for {file_path} [{duration_ms:.0f}ms]")
-            logger.info("best_practices_retrieved", extra={
+            log_to_activity(f"🎯 Best practices retrieved (explicit) for {file_path} [{duration_ms:.0f}ms]")
+            logger.info("conventions_retrieved", extra={
                 "file_path": file_path,
                 "component": component,
                 "domain": domain,
@@ -406,7 +361,7 @@ def main() -> int:
 
             # Metrics
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection="best_practices", status="success").inc()
+                memory_retrievals_total.labels(collection=COLLECTION_CONVENTIONS, status="success").inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
             if hook_duration_seconds:
@@ -426,7 +381,7 @@ def main() -> int:
 
         # Metrics
         if memory_retrievals_total:
-            memory_retrievals_total.labels(collection="best_practices", status="failed").inc()
+            memory_retrievals_total.labels(collection=COLLECTION_CONVENTIONS, status="failed").inc()
         if hook_duration_seconds:
             duration_seconds = (time.perf_counter() - start_time) / 1000.0
             hook_duration_seconds.labels(hook_type="PreToolUse").observe(duration_seconds)

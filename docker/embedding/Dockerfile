@@ -48,7 +48,10 @@ RUN apt-get update && \
 
 # Create non-root user for security
 RUN useradd -m -u 1000 -s /bin/bash embedding && \
-    chown -R embedding:embedding /app
+    chown -R embedding:embedding /app && \
+    # Create cache directory for fastembed model persistence
+    mkdir -p /home/embedding/.cache/fastembed && \
+    chown -R embedding:embedding /home/embedding/.cache
 
 # Copy virtual environment from builder
 COPY --from=builder --chown=embedding:embedding /opt/venv /opt/venv

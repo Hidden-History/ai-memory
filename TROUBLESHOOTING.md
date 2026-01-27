@@ -7,11 +7,12 @@
 - [Quick Diagnostic Commands](#quick-diagnostic-commands)
 - [Known Issues](#known-issues-in-v100)
 - [Services Won't Start](#services-wont-start)
-- [Hook Issues](#hook-issues) ⭐ NEW
-- [Memory & Search Issues](#memory--search-issues) ⭐ NEW
-- [Command Issues](#command-issues) ⭐ NEW
-- [Performance Issues](#performance-issues) ⭐ NEW
-- [Configuration Issues](#configuration-issues) ⭐ NEW
+- [Hook Issues](#hook-issues)
+- [Memory & Search Issues](#memory--search-issues)
+- [Command Issues](#command-issues)
+- [V2.0 Automatic Triggers](#v20-automatic-triggers)
+- [Performance Issues](#performance-issues)
+- [Configuration Issues](#configuration-issues)
 
 See also:
 - [HOOKS.md](docs/HOOKS.md) - Hook-specific troubleshooting
@@ -40,22 +41,27 @@ lsof -i :28080  # Embedding
 lsof -i :28000  # Monitoring API
 ```
 
-## Known Issues in v1.0.0
+## Known Issues in v1.x
 
 ### Embedding Model Re-downloads on Every Restart
-**Fixed in**: v1.0.1
+**Fixed in**: v1.0.1+
 **Symptom**: First container start takes 80-90 seconds to download embedding model. Subsequent restarts also take 80-90 seconds.
-**Workaround**: None - upgrade to v1.0.1 which persists the model cache.
+**Workaround**: Upgrade to v1.0.1+ which persists the model cache.
 
 ### Installer Times Out on First Start
-**Fixed in**: v1.0.1
+**Fixed in**: v1.0.1+
 **Symptom**: Installation appears to fail with "Timed out waiting for services" but services actually work.
-**Workaround**: Ignore the error if `docker compose ps` shows services as healthy. Or upgrade to v1.0.1.
+**Workaround**: Ignore the error if `docker compose ps` shows services as healthy. Or upgrade to v1.0.1+.
 
 ### Missing requirements.txt
-**Fixed in**: v1.0.1
+**Fixed in**: v1.0.1+
 **Symptom**: Cannot install Python dependencies for testing.
-**Workaround**: Use `requirements-dev.txt` or upgrade to v1.0.1.
+**Workaround**: Use `requirements-dev.txt` or upgrade to v1.0.1+.
+
+### Old Collection Names (v1.x)
+**Fixed in**: V2.0
+**Symptom**: Collections named `implementations`, `best_practices`, `agent-memory`.
+**Workaround**: Upgrade to V2.0 which uses new collection names: `code-patterns`, `conventions`, `discussions`.
 
 ## Services Won't Start
 
@@ -638,14 +644,14 @@ See [HOOKS.md - PostToolUse Troubleshooting](docs/HOOKS.md#posttooluse) for comp
 
 **Diagnosis:**
 ```bash
-# Check if summaries are stored
-curl http://localhost:26350/collections/agent-memory/points/scroll \
-  | jq '.result.points[] | select(.payload.type == "session_summary")'
+# Check if summaries are stored (V2.0 collection name)
+curl http://localhost:26350/collections/discussions/points/scroll \
+  | jq '.result.points[] | select(.payload.type == "session")'
 ```
 
 **Common Causes:**
 1. **Hook timeout** - Timeout too short (<10s)
-2. **Wrong collection** - Stored in implementations instead of agent-memory
+2. **Wrong collection** - Stored in code-patterns instead of discussions
 3. **Older than 48 hours** - SessionStart filters recent only
 
 **Solution:**
@@ -671,9 +677,9 @@ See [HOOKS.md - PreCompact Troubleshooting](docs/HOOKS.md#precompact) for comple
 
 **Diagnosis:**
 ```bash
-# Check if memories exist for this project
+# Check if memories exist for this project (V2.0: check discussions collection)
 PROJECT_NAME=$(basename $(pwd))
-curl http://localhost:26350/collections/agent-memory/points/scroll \
+curl http://localhost:26350/collections/discussions/points/scroll \
   | jq ".result.points[] | select(.payload.group_id == \"$PROJECT_NAME\")"
 ```
 
@@ -757,9 +763,9 @@ See [COMMANDS.md - /memory-status](docs/COMMANDS.md#memory-status) for detailed 
 
 **Diagnosis:**
 ```bash
-# Check if summary was stored with recent timestamp
-curl http://localhost:26350/collections/agent-memory/points/scroll \
-  | jq '.result.points[] | select(.payload.type == "session_summary") | .payload.timestamp'
+# Check if summary was stored with recent timestamp (V2.0 collection)
+curl http://localhost:26350/collections/discussions/points/scroll \
+  | jq '.result.points[] | select(.payload.type == "session") | .payload.created_at'
 ```
 
 **Common Causes:**
@@ -768,6 +774,226 @@ curl http://localhost:26350/collections/agent-memory/points/scroll \
 3. **Low similarity** - Doesn't match next session's query
 
 See [COMMANDS.md - /save-memory](docs/COMMANDS.md#save-memory) for complete details.
+
+---
+
+## V2.0 Specific Issues
+
+### Triggers Not Firing
+
+**Symptoms**: No automatic context injection on errors/new files
+
+**Check**:
+```bash
+# Verify hooks are configured
+cat .claude/settings.json | jq '.hooks'
+
+# Check hook scripts exist
+ls -la .claude/hooks/scripts/
+
+# Test trigger detection
+python3 -c "from memory.triggers import detect_decision_keywords; print(detect_decision_keywords('why did we choose React'))"
+```
+
+**Fix**: Ensure .claude/settings.json has UserPromptSubmit and PreToolUse hooks configured.
+
+### Metrics Not Appearing in Grafana
+
+**Symptoms**: Grafana panels show "No data"
+
+**Check**:
+```bash
+# Verify Pushgateway is receiving metrics
+curl -s http://localhost:29091/metrics | grep bmad_
+
+# Verify Prometheus is scraping
+curl -s http://localhost:29090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.job == "pushgateway")'
+```
+
+**Fix**:
+1. Ensure --profile monitoring was used when starting Docker
+2. Restart the monitoring stack: docker compose --profile monitoring restart
+
+### Wrong Collection Being Searched
+
+**Symptoms**: Getting code patterns when expecting decisions
+
+**Check**:
+```bash
+# Test intent detection
+python3 -c "from memory.intent import detect_intent; print(detect_intent('why did we choose this approach'))"
+```
+
+Expected: IntentType.WHY → searches discussions collection
+
+---
+
+## 🎯 V2.0 Automatic Triggers
+
+V2.0 introduces 5 automatic triggers that retrieve memories based on specific signals. Use this section to debug when triggers aren't working.
+
+### Trigger Overview
+
+| Trigger | Hook | Signal | Collection | Type Filter |
+|---------|------|--------|------------|-------------|
+| Error Detection | PostToolUse (Bash) | Error text ('Exception:', 'Traceback'), exit code != 0 | code-patterns | `error_fix` |
+| New File | PreToolUse (Write) | File doesn't exist | conventions | `naming`, `structure` |
+| First Edit | PreToolUse (Edit) | First edit to file in session | code-patterns | `file_pattern` |
+| Decision Keywords | UserPromptSubmit | "why did we...", "what was decided" | discussions | `decision` |
+| Best Practices | UserPromptSubmit | "best practice", "convention" | conventions | `guideline` |
+
+### Verifying Triggers Fire
+
+**Check hook logs for trigger activation:**
+
+```bash
+# Error Detection trigger
+grep "error_detection" ~/.bmad-memory/logs/hooks.log
+
+# New File trigger
+grep "new_file_trigger" ~/.bmad-memory/logs/hooks.log
+
+# First Edit trigger
+grep "first_edit_trigger" ~/.bmad-memory/logs/hooks.log
+
+# Decision Keywords trigger
+grep "decision_keyword" ~/.bmad-memory/logs/hooks.log
+
+# Best Practices trigger
+grep "best_practices_keyword" ~/.bmad-memory/logs/hooks.log
+```
+
+### Error Detection Trigger Not Working
+
+**Symptoms:** Claude encounters errors but doesn't retrieve relevant error_fix patterns.
+
+**Diagnosis:**
+
+```bash
+# 1. Check if error_fix memories exist
+curl http://localhost:26350/collections/code-patterns/points/scroll \
+  | jq '.result.points[] | select(.payload.type == "error_fix")'
+
+# 2. Check if trigger is configured in settings.json
+grep -A 10 "PreToolUse\|PostToolUse" .claude/settings.json | grep -i bash
+```
+
+**Common Causes:**
+1. **No error_fix memories stored** - Need to capture errors first
+2. **Bash tool not in matcher** - Add `Bash` to PostToolUse matcher
+3. **Error text not detected** - Check error detection patterns
+
+### New File Trigger Not Working
+
+**Symptoms:** Creating new files doesn't retrieve naming/structure conventions.
+
+**Diagnosis:**
+
+```bash
+# 1. Check if conventions exist
+curl http://localhost:26350/collections/conventions/points/scroll \
+  | jq '.result.points[] | select(.payload.type == "naming" or .payload.type == "structure")'
+
+# 2. Check PreToolUse hook configuration
+grep -A 10 "PreToolUse" .claude/settings.json
+```
+
+**Common Causes:**
+1. **No conventions seeded** - Run `python3 scripts/memory/seed_best_practices.py`
+2. **PreToolUse hook not configured** - Add Write to PreToolUse matcher
+3. **File already exists** - Trigger only fires for new files
+
+### First Edit Trigger Not Working
+
+**Symptoms:** Editing files doesn't retrieve file_pattern memories.
+
+**Diagnosis:**
+
+```bash
+# 1. Check if file_pattern memories exist for the file
+FILE_PATH="/path/to/your/file.py"
+curl -X POST http://localhost:26350/collections/code-patterns/points/scroll \
+  -H "Content-Type: application/json" \
+  -d "{\"filter\": {\"must\": [{\"key\": \"file_path\", \"match\": {\"value\": \"$FILE_PATH\"}}]}}" \
+  | jq '.result.points'
+
+# 2. Check session tracking (first edit only triggers once per session)
+grep "first_edit" ~/.bmad-memory/logs/hooks.log | grep "$(date +%Y-%m-%d)"
+```
+
+**Common Causes:**
+1. **No file_pattern for that file** - Edit and save to create pattern
+2. **Already edited in session** - Trigger only fires on first edit
+3. **Session tracking issue** - Restart Claude Code session
+
+### Decision Keywords Trigger Not Working
+
+**Symptoms:** Asking "why did we..." doesn't retrieve past decisions.
+
+**Diagnosis:**
+
+```bash
+# 1. Check if decisions exist
+curl http://localhost:26350/collections/discussions/points/scroll \
+  | jq '.result.points[] | select(.payload.type == "decision")'
+
+# 2. Test keyword detection manually
+echo "why did we choose Qdrant?" | grep -iE "why did we|what was decided|remember when"
+```
+
+**Common Causes:**
+1. **No decisions stored** - Decisions must be explicitly saved
+2. **Keywords not matching** - Use exact phrases: "why did we", "what was decided"
+3. **UserPromptSubmit hook not configured** - Check settings.json
+
+### Best Practices Trigger Not Working
+
+**Symptoms:** Asking about conventions doesn't retrieve guidelines.
+
+**Diagnosis:**
+
+```bash
+# 1. Check if best practices exist
+curl http://localhost:26350/collections/conventions/points/scroll \
+  | jq '.result.points[] | select(.payload.type == "guideline")' | head -50
+
+# 2. Check collection size
+curl http://localhost:26350/collections/conventions | jq '.result.points_count'
+
+# 3. Test keyword detection
+echo "what is the best practice for logging?" | grep -iE "best practice|convention|how should I"
+```
+
+**Common Causes:**
+1. **No guidelines seeded** - Run seeding script with `--templates-dir templates/conventions`
+2. **Keywords not matching** - Use: "best practice", "convention", "how should I"
+3. **Low similarity score** - Guidelines don't match query semantically
+
+### Testing All Triggers
+
+**Quick verification script:**
+
+```bash
+#!/bin/bash
+echo "=== V2.0 Trigger Verification ==="
+
+# Check collections exist
+echo -e "\n1. Collections:"
+curl -s http://localhost:26350/collections | jq -r '.result.collections[].name'
+
+# Check memory counts per collection
+echo -e "\n2. Memory Counts:"
+for col in code-patterns conventions discussions; do
+  count=$(curl -s http://localhost:26350/collections/$col | jq -r '.result.points_count // 0')
+  echo "  $col: $count"
+done
+
+# Check recent hook activity
+echo -e "\n3. Recent Hook Activity:"
+grep -E "trigger|retrieval" ~/.bmad-memory/logs/hooks.log 2>/dev/null | tail -5 || echo "  No recent activity"
+
+echo -e "\n=== Verification Complete ==="
+```
 
 ---
 

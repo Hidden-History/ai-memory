@@ -39,7 +39,7 @@ class TestBestPracticeTemplateValidation:
 
         assert template.content == "Use type hints for better IDE support"
         assert template.domain == "python"
-        assert template.type == "pattern"  # default
+        assert template.type == "guideline"  # default (V2.0 spec)
         assert template.importance == "medium"  # default
         assert template.tags == []  # default
         assert template.source is None  # default
@@ -48,7 +48,7 @@ class TestBestPracticeTemplateValidation:
         """Test fully specified valid template."""
         template = BestPracticeTemplate(
             content="Always use type hints in function signatures",
-            type="pattern",
+            type="guideline",
             domain="python",
             importance="high",
             tags=["python", "type-hints", "best-practice"],
@@ -56,7 +56,7 @@ class TestBestPracticeTemplateValidation:
         )
 
         assert template.content == "Always use type hints in function signatures"
-        assert template.type == "pattern"
+        assert template.type == "guideline"
         assert template.domain == "python"
         assert template.importance == "high"
         assert template.tags == ["python", "type-hints", "best-practice"]
@@ -119,9 +119,9 @@ class TestBestPracticeTemplateValidation:
         assert template.domain == "python"
 
     def test_type_literal_validation(self):
-        """Test type field only accepts valid literals."""
-        # Valid types
-        valid_types = ["pattern", "antipattern", "tip", "security", "performance"]
+        """Test type field only accepts valid literals (V2.0 spec)."""
+        # Valid types (V2.0 conventions spec)
+        valid_types = ["rule", "guideline", "port", "naming", "structure"]
 
         for valid_type in valid_types:
             template = BestPracticeTemplate(
@@ -415,7 +415,7 @@ class TestLoadTemplatesFromFile:
             {
                 "content": "Use type hints for better IDE support",
                 "domain": "python",
-                "type": "pattern",
+                "type": "guideline",
                 "importance": "high",
                 "tags": ["python", "type-hints"],
                 "source": "https://docs.python.org",
@@ -423,7 +423,7 @@ class TestLoadTemplatesFromFile:
             {
                 "content": "Never use eval() for JSON parsing",
                 "domain": "python",
-                "type": "security",
+                "type": "rule",
                 "importance": "high",
                 "tags": ["python", "security"],
             },
@@ -436,7 +436,7 @@ class TestLoadTemplatesFromFile:
         assert len(templates) == 2
         assert all(isinstance(t, BestPracticeTemplate) for t in templates)
         assert templates[0].content == "Use type hints for better IDE support"
-        assert templates[1].type == "security"
+        assert templates[1].type == "rule"
 
     def test_load_file_not_found(self, tmp_path: Path):
         """Test FileNotFoundError when file doesn't exist."""
@@ -522,7 +522,7 @@ class TestTypeAdapter:
             {
                 "content": "Use type hints for better IDE support",
                 "domain": "python",
-                "type": "pattern",
+                "type": "guideline",
                 "importance": "high"
             }
         ]
@@ -540,3 +540,232 @@ class TestTypeAdapter:
 
         with pytest.raises(Exception):
             TemplateListAdapter.validate_json(invalid_json)
+
+
+class TestTimestampFields:
+    """Test timestamp fields (TECH-DEBT-028)."""
+
+    def test_source_date_none_default(self):
+        """Test source_date defaults to None."""
+        template = BestPracticeTemplate(
+            content="Use type hints for better IDE support",
+            domain="python",
+        )
+
+        assert template.source_date is None
+
+    def test_last_verified_none_default(self):
+        """Test last_verified defaults to None."""
+        template = BestPracticeTemplate(
+            content="Use type hints for better IDE support",
+            domain="python",
+        )
+
+        assert template.last_verified is None
+
+    def test_source_date_from_datetime_object(self):
+        """Test source_date accepts datetime object."""
+        from datetime import datetime, timezone
+
+        dt = datetime(2014, 9, 29, tzinfo=timezone.utc)
+
+        template = BestPracticeTemplate(
+            content="Use type hints for better IDE support",
+            domain="python",
+            source_date=dt,
+        )
+
+        assert template.source_date == dt
+
+    def test_source_date_from_iso_string(self):
+        """Test source_date parses ISO date string (YYYY-MM-DD)."""
+        template = BestPracticeTemplate(
+            content="Use type hints for better IDE support",
+            domain="python",
+            source_date="2014-09-29",
+        )
+
+        from datetime import datetime
+
+        assert isinstance(template.source_date, datetime)
+        assert template.source_date.year == 2014
+        assert template.source_date.month == 9
+        assert template.source_date.day == 29
+
+    def test_source_date_from_iso_datetime_string(self):
+        """Test source_date parses full ISO datetime string."""
+        template = BestPracticeTemplate(
+            content="Use type hints for better IDE support",
+            domain="python",
+            source_date="2014-09-29T12:00:00Z",
+        )
+
+        from datetime import datetime
+
+        assert isinstance(template.source_date, datetime)
+        assert template.source_date.year == 2014
+        assert template.source_date.month == 9
+        assert template.source_date.day == 29
+
+    def test_last_verified_from_datetime_object(self):
+        """Test last_verified accepts datetime object."""
+        from datetime import datetime, timezone
+
+        dt = datetime(2026, 1, 15, tzinfo=timezone.utc)
+
+        template = BestPracticeTemplate(
+            content="Use type hints for better IDE support",
+            domain="python",
+            last_verified=dt,
+        )
+
+        assert template.last_verified == dt
+
+    def test_last_verified_from_iso_string(self):
+        """Test last_verified parses ISO date string (YYYY-MM-DD)."""
+        template = BestPracticeTemplate(
+            content="Use type hints for better IDE support",
+            domain="python",
+            last_verified="2026-01-15",
+        )
+
+        from datetime import datetime
+
+        assert isinstance(template.last_verified, datetime)
+        assert template.last_verified.year == 2026
+        assert template.last_verified.month == 1
+        assert template.last_verified.day == 15
+
+    def test_template_with_both_timestamps(self):
+        """Test template with both source_date and last_verified."""
+        template = BestPracticeTemplate(
+            content="Always use type hints in function signatures",
+            domain="python",
+            type="guideline",
+            importance="high",
+            tags=["python", "type-hints"],
+            source="https://peps.python.org/pep-0484/",
+            source_date="2014-09-29",
+            last_verified="2026-01-15",
+        )
+
+        from datetime import datetime
+
+        assert isinstance(template.source_date, datetime)
+        assert template.source_date.year == 2014
+        assert isinstance(template.last_verified, datetime)
+        assert template.last_verified.year == 2026
+
+    def test_load_template_with_source_date_from_json(self, tmp_path: Path):
+        """Test loading template with source_date from JSON file."""
+        json_file = tmp_path / "test_timestamps.json"
+
+        templates_data = [
+            {
+                "content": "Always use type hints in function signatures",
+                "domain": "python",
+                "type": "guideline",
+                "importance": "high",
+                "tags": ["python", "type-hints"],
+                "source": "https://peps.python.org/pep-0484/",
+                "source_date": "2014-09-29",
+            }
+        ]
+
+        json_file.write_text(json.dumps(templates_data))
+
+        templates = load_templates_from_file(json_file)
+
+        assert len(templates) == 1
+        assert templates[0].source_date is not None
+        from datetime import datetime
+
+        assert isinstance(templates[0].source_date, datetime)
+        assert templates[0].source_date.year == 2014
+
+    def test_load_template_without_source_date_backwards_compatible(
+        self, tmp_path: Path
+    ):
+        """Test loading template without source_date (backwards compatibility)."""
+        json_file = tmp_path / "test_no_timestamps.json"
+
+        # Old template format without timestamp fields
+        templates_data = [
+            {
+                "content": "Use type hints for better IDE support",
+                "domain": "python",
+                "type": "guideline",
+                "importance": "high",
+                "tags": ["python", "type-hints"],
+            }
+        ]
+
+        json_file.write_text(json.dumps(templates_data))
+
+        templates = load_templates_from_file(json_file)
+
+        assert len(templates) == 1
+        assert templates[0].source_date is None
+        assert templates[0].last_verified is None
+
+    def test_source_date_invalid_format_raises_error(self):
+        """Test source_date raises ValidationError for invalid date string (HIGH-4)."""
+        with pytest.raises(ValidationError) as exc_info:
+            BestPracticeTemplate(
+                content="Use type hints for better IDE support and code quality",
+                domain="python",
+                source_date="not-a-valid-date",
+            )
+
+        error_str = str(exc_info.value).lower()
+        assert "source_date" in error_str or "invalid" in error_str
+
+    def test_source_date_isoformat_roundtrip(self):
+        """Test source_date survives string → datetime → isoformat() round-trip (HIGH-5)."""
+        template = BestPracticeTemplate(
+            content="Use type hints for better IDE support and code quality",
+            domain="python",
+            source_date="2014-09-29T12:00:00+00:00",
+        )
+
+        # Verify isoformat() produces valid string
+        iso_string = template.source_date.isoformat()
+        assert isinstance(iso_string, str)
+        assert iso_string.startswith("2014-09-29")
+
+        # Verify round-trip parsing works
+        from datetime import datetime
+
+        reparsed = datetime.fromisoformat(iso_string)
+        assert reparsed.year == 2014
+        assert reparsed.month == 9
+        assert reparsed.day == 29
+
+    def test_load_template_with_last_verified_from_json(self, tmp_path: Path):
+        """Test loading template with last_verified from JSON file (HIGH-6)."""
+        json_file = tmp_path / "test_last_verified.json"
+
+        templates_data = [
+            {
+                "content": "Always use type hints in function signatures for clarity",
+                "domain": "python",
+                "type": "guideline",
+                "importance": "high",
+                "tags": ["python", "type-hints"],
+                "source": "https://peps.python.org/pep-0484/",
+                "source_date": "2014-09-29",
+                "last_verified": "2026-01-15",
+            }
+        ]
+
+        json_file.write_text(json.dumps(templates_data))
+        templates = load_templates_from_file(json_file)
+
+        assert len(templates) == 1
+        assert templates[0].last_verified is not None
+        from datetime import datetime
+
+        assert isinstance(templates[0].last_verified, datetime)
+        assert templates[0].last_verified.year == 2026
+        assert templates[0].last_verified.month == 1
+        assert templates[0].last_verified.day == 15

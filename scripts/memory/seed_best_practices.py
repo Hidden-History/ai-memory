@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# scripts/memory/seed_best_practices.py
-"""Seed best_practices collection from validated JSON templates.
+# scripts/memory/seed_conventions.py
+"""Seed conventions collection from validated JSON templates.
 
 2026 Best Practices Applied:
 - Pydantic validation for template security
@@ -127,17 +127,22 @@ def generate_embedding(
 def create_point_from_template(
     template: BestPracticeTemplate, embedding: list[float]
 ) -> PointStruct:
-    """Create Qdrant point from validated template.
+    """Create Qdrant point from validated template with optional timestamp fields.
+
+    TECH-DEBT-028: Adds optional timestamp fields to payload:
+    - timestamp: Auto-generated from current UTC time (existing field)
+    - source_date: From template.source_date if provided (NEW)
+    - last_verified: From template.last_verified if provided (NEW)
 
     2026 Pattern: uuid4() for secure random IDs
     Source: https://thelinuxcode.com/generating-random-ids-with-pythons-uuid-module-2026-playbook/
 
     Args:
-        template: Validated template
-        embedding: 768d embedding vector
+        template: Validated BestPracticeTemplate with optional source_date/last_verified
+        embedding: 768-dimensional embedding vector from Jina v2
 
     Returns:
-        PointStruct ready for Qdrant upsert
+        PointStruct ready for Qdrant upsert with all payload fields
     """
     # 2026: uuid4() for secure random IDs (not uuid1 which exposes MAC)
     point_id = str(uuid.uuid4())
@@ -154,10 +159,17 @@ def create_point_from_template(
         "importance": template.importance,
         "tags": template.tags,
         "source_hook": "seed_script",
-        "group_id": "shared",  # best_practices are shared across projects
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "group_id": "shared",  # conventions are shared across projects
         "embedding_status": "complete",
-        "embedding_model": "nomic-embed-code",
+        "embedding_model": "jina-embeddings-v2-base-en",
+        # Timestamp fields (TECH-DEBT-028)
+        "timestamp": datetime.now(timezone.utc).isoformat(),  # Existing field (backwards compatible)
+        "source_date": (
+            template.source_date.isoformat() if template.source_date else None
+        ),  # TECH-DEBT-028: NEW optional field
+        "last_verified": (
+            template.last_verified.isoformat() if template.last_verified else None
+        ),  # TECH-DEBT-028: NEW optional field
     }
 
     # Add optional source if present
@@ -167,7 +179,7 @@ def create_point_from_template(
     return PointStruct(id=point_id, vector=embedding, payload=payload)
 
 
-def get_existing_hashes(client: QdrantClient, collection: str = "best_practices") -> set[str]:
+def get_existing_hashes(client: QdrantClient, collection: str = "conventions") -> set[str]:
     """Get all existing content_hash values from collection.
 
     Used for deduplication check before seeding (MED-3 fix).
@@ -219,7 +231,7 @@ def seed_templates(
     templates: list[BestPracticeTemplate], config, dry_run: bool = False,
     batch_size: int = 100, skip_duplicates: bool = True
 ) -> int:
-    """Seed best_practices collection with templates.
+    """Seed conventions collection with templates.
 
     2026 Pattern: Batch upsert for performance
     Source: https://qdrant.tech/documentation/database-tutorials/bulk-upload/
@@ -250,20 +262,24 @@ def seed_templates(
     # Connect to Qdrant
     try:
         client = QdrantClient(
-            host=config.qdrant_host, port=config.qdrant_port, timeout=10.0
+            host=config.qdrant_host,
+            port=config.qdrant_port,
+            api_key=config.qdrant_api_key,
+            https=config.qdrant_use_https,  # BP-040
+            timeout=10.0
         )
 
         # Verify collection exists
         collections = client.get_collections()
         collection_names = [c.name for c in collections.collections]
 
-        if "best_practices" not in collection_names:
+        if "conventions" not in collection_names:
             logger.error(
                 "collection_not_found",
-                extra={"collection": "best_practices", "available": collection_names},
+                extra={"collection": "conventions", "available": collection_names},
             )
             raise ConnectionError(
-                "Collection 'best_practices' not found. "
+                "Collection 'conventions' not found. "
                 "Run setup-collections.py first."
             )
 
@@ -328,7 +344,7 @@ def seed_templates(
             else:
                 try:
                     client.upsert(
-                        collection_name="best_practices",
+                        collection_name="conventions",
                         points=batch_points,
                         wait=True,  # Wait for indexing to complete
                     )
@@ -375,34 +391,34 @@ def main() -> int:
     # 2026 Pattern: argparse with dry-run support
     # Source: https://docs.python.org/3/howto/argparse.html
     parser = argparse.ArgumentParser(
-        description="Seed best_practices collection from JSON templates",
+        description="Seed conventions collection from JSON templates",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Seed from default directory
-  python seed_best_practices.py
+  python seed_conventions.py
 
   # Seed from custom directory
-  python seed_best_practices.py --templates-dir /path/to/templates
+  python seed_conventions.py --templates-dir /path/to/templates
 
   # Dry run to validate templates without seeding
-  python seed_best_practices.py --dry-run
+  python seed_conventions.py --dry-run
 
   # Verbose logging
-  python seed_best_practices.py -v
+  python seed_conventions.py -v
 
   # Large batch for bulk import (2026 best practice)
-  python seed_best_practices.py --batch-size 1000
+  python seed_conventions.py --batch-size 1000
 
   # Force re-seed (skip deduplication check)
-  python seed_best_practices.py --no-dedup
+  python seed_conventions.py --no-dedup
         """,
     )
 
     parser.add_argument(
         "--templates-dir",
         type=Path,
-        help="Directory containing template JSON files (default: templates/best_practices)",
+        help="Directory containing template JSON files (default: templates/conventions)",
     )
 
     parser.add_argument(
@@ -441,13 +457,13 @@ Examples:
     if args.templates_dir:
         templates_dir = args.templates_dir
     else:
-        # Default: <install_dir>/templates/best_practices
+        # Default: <install_dir>/templates/conventions
         try:
             config = get_config()
-            templates_dir = config.install_dir / "templates" / "best_practices"
+            templates_dir = config.install_dir / "templates" / "conventions"
         except Exception:
             # Fallback if config fails
-            templates_dir = Path.home() / ".bmad-memory" / "templates" / "best_practices"
+            templates_dir = Path.home() / ".bmad-memory" / "templates" / "conventions"
 
     logger.info(
         "seeding_started", extra={"templates_dir": str(templates_dir), "dry_run": args.dry_run}

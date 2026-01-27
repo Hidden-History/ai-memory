@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Always specify exact Docker image versions (e.g., qdrant/qdrant:v1.16.3) instead of 'latest' to ensure reproducible builds and avoid breaking changes.",
+    "type": "guideline",
+    "domain": "docker",
+    "importance": "high",
+    "tags": ["docker", "reproducibility", "best-practice"],
+    "source_date": "2014-06-09"
+  },
+  {
+    "content": "Use multi-stage Docker builds to reduce final image size. Build dependencies in one stage, copy only runtime artifacts to final stage.",
+    "type": "guideline",
+    "domain": "docker",
+    "importance": "medium",
+    "tags": ["docker", "optimization", "performance"],
+    "source_date": "2017-01-01"
+  },
+  {
+    "content": "Run containers as non-root user for security. Create dedicated user in Dockerfile: RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app",
+    "type": "rule",
+    "domain": "docker",
+    "importance": "high",
+    "tags": ["docker", "security", "best-practice"],
+    "source_date": "2016-02-01"
+  }
+]

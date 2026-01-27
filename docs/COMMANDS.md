@@ -58,9 +58,9 @@ No arguments required.
    - Model loaded status
 
 3. **Collection Statistics**
-   - agent-memory: Session summaries count
-   - implementations: Code patterns count
-   - best_practices: Shared patterns count
+   - discussions: Session summaries count
+   - code-patterns: Code patterns count
+   - conventions: Shared patterns count
 
 4. **Recent Activity**
    - Last memory captured
@@ -83,22 +83,22 @@ No arguments required.
 **Embedding Service**
 - Status: ✅ Healthy
 - URL: http://localhost:28080
-- Model: nomic-embed-text-v1.5
+- Model: jinaai/jina-embeddings-v2-base-en
 - Response Time: 120ms
 
 ### 📊 Collection Statistics
 
-**agent-memory** (Session Summaries)
+**discussions** (Session Summaries)
 - Total Memories: 47
 - Current Project: 12
 - Last Updated: 2 hours ago
 
-**implementations** (Code Patterns)
+**code-patterns** (Code Patterns)
 - Total Memories: 234
 - Current Project: 89
 - Last Updated: 15 minutes ago
 
-**best_practices** (Shared Patterns)
+**conventions** (Shared Patterns)
 - Total Memories: 156 (shared across all projects)
 - Last Updated: 3 days ago
 
@@ -183,7 +183,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 curl http://localhost:26350/collections
 
 # Check memories for current project
-curl http://localhost:26350/collections/implementations/points/scroll \
+curl http://localhost:26350/collections/code-patterns/points/scroll \
   | jq '.result.points[] | select(.payload.group_id == "current-project")'
 ```
 
@@ -200,7 +200,7 @@ curl http://localhost:26350/collections/implementations/points/scroll \
 **Manually Save Current Session to Memory**
 
 #### Purpose
-Saves the current session summary to agent-memory collection without waiting for automatic compaction. Useful before ending a session or after completing a major milestone.
+Saves the current session summary to discussions collection without waiting for automatic compaction. Useful before ending a session or after completing a major milestone.
 
 #### Syntax
 ```bash
@@ -320,8 +320,8 @@ Next Session: Consider implementing OAuth2 providers
 **Diagnosis:**
 ```bash
 # Check if summary was stored
-curl http://localhost:26350/collections/agent-memory/points/scroll \
-  | jq '.result.points[] | select(.payload.type == "session_summary")' \
+curl http://localhost:26350/collections/discussions/points/scroll \
+  | jq '.result.points[] | select(.payload.type == "session")' \
   | jq -r '.payload.timestamp'
 
 # Should show recent timestamp
@@ -358,7 +358,7 @@ docker compose -f docker/docker-compose.yml restart bmad-qdrant
 **Search Across All Project Memories**
 
 #### Purpose
-Performs semantic search across all memory collections (agent-memory, implementations, best_practices) to find relevant patterns, implementations, and decisions.
+Performs semantic search across all memory collections (discussions, code-patterns, conventions) to find relevant patterns, implementations, and decisions.
 
 #### Syntax
 ```bash
@@ -367,7 +367,7 @@ Performs semantic search across all memory collections (agent-memory, implementa
 
 **Arguments:**
 - `query` (required): Search query (semantic, not literal)
-- `--collection` (optional): Specific collection to search (`agent-memory`, `implementations`, `best_practices`, or `all`)
+- `--collection` (optional): Specific collection to search (`discussions`, `code-patterns`, `conventions`, or `all`)
 - `--limit` (optional): Maximum results to return (default: 5, max: 20)
 
 #### Examples
@@ -377,7 +377,7 @@ Performs semantic search across all memory collections (agent-memory, implementa
 /search-memory JWT authentication implementation
 
 # Search specific collection
-/search-memory database migrations --collection implementations
+/search-memory database migrations --collection code-patterns
 
 # Limit results
 /search-memory error handling patterns --limit 10
@@ -407,9 +407,9 @@ Searches by *meaning*, not exact text matching:
 
 | Collection | Contains | Filtered By |
 |------------|----------|-------------|
-| `agent-memory` | Session summaries | Current project only |
-| `implementations` | Code patterns | Current project only |
-| `best_practices` | Universal patterns | ALL projects (shared) |
+| `discussions` | Session summaries | Current project only |
+| `code-patterns` | Code patterns | Current project only |
+| `conventions` | Universal patterns | ALL projects (shared) |
 | `all` (default) | All three collections | Mixed filtering |
 
 **Relevance Scoring:**
@@ -429,7 +429,7 @@ Found 8 relevant memories across 2 collections
 
 ### High Relevance (>90%)
 
-**implementation** (95%) [implementations]
+**implementation** (95%) [code-patterns]
 File: src/auth/login.py:23-45
 Project: my-project
 Captured: 2 hours ago
@@ -472,7 +472,7 @@ def authenticate_user(email: str, password: str) -> dict:
 
 ---
 
-**session_summary** (92%) [agent-memory]
+**session** (92%) [discussions]
 Session: sess-abc123
 Project: my-project
 Captured: 3 hours ago
@@ -499,7 +499,7 @@ Files Modified:
 
 ### Medium Relevance (50-90%)
 
-**best_practice** (78%) [best_practices]
+**best_practice** (78%) [conventions]
 Domain: security
 Shared: All projects
 
@@ -526,7 +526,7 @@ When implementing JWT authentication:
 
 ---
 
-**implementation** (72%) [implementations]
+**implementation** (72%) [code-patterns]
 File: src/middleware/auth.py:12-28
 Project: my-project
 Captured: 2 hours ago
@@ -555,7 +555,7 @@ def require_auth(f):
 ---
 
 Total Results: 8 memories (4 shown)
-Collections Searched: implementations (5), agent-memory (2), best_practices (1)
+Collections Searched: code-patterns (5), discussions (2), conventions (1)
 Search Duration: 0.4s
 ```
 
@@ -607,13 +607,13 @@ Search Duration: 0.4s
 
 ```bash
 # Only session summaries
-/search-memory authentication --collection agent-memory
+/search-memory authentication --collection discussions
 
 # Only code implementations
-/search-memory database queries --collection implementations
+/search-memory database queries --collection code-patterns
 
 # Only shared best practices
-/search-memory testing patterns --collection best_practices
+/search-memory testing patterns --collection conventions
 
 # All collections (default)
 /search-memory API design --collection all
@@ -649,7 +649,7 @@ Search Duration: 0.4s
 /search-memory your-query --collection all
 
 # Check if memories exist
-curl http://localhost:26350/collections/implementations/points/scroll
+curl http://localhost:26350/collections/code-patterns/points/scroll
 
 # Lower threshold (in config)
 export MEMORY_SIMILARITY_THRESHOLD=0.3
@@ -675,7 +675,7 @@ Semantic search returns conceptually similar results, not exact matches.
 2. **Filter by collection**:
    ```bash
    # Implementations only
-   /search-memory database --collection implementations
+   /search-memory database --collection code-patterns
    ```
 
 3. **Increase limit to see lower scores**:

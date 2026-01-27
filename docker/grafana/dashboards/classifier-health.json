@@ -1,0 +1,593 @@
+{
+  "uid": "bmad-classifier-health-v2",
+  "title": "BMAD Classifier Health",
+  "tags": [
+    "bmad",
+    "classifier",
+    "ai",
+    "v2"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 7,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "provider",
+        "type": "custom",
+        "options": [
+          {
+            "text": "ollama",
+            "value": "ollama"
+          },
+          {
+            "text": "openrouter",
+            "value": "openrouter"
+          },
+          {
+            "text": "openai",
+            "value": "openai"
+          },
+          {
+            "text": "claude",
+            "value": "claude"
+          }
+        ],
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "type",
+        "type": "custom",
+        "options": [
+          {
+            "text": "implementation",
+            "value": "implementation"
+          },
+          {
+            "text": "error_fix",
+            "value": "error_fix"
+          },
+          {
+            "text": "refactor",
+            "value": "refactor"
+          },
+          {
+            "text": "file_pattern",
+            "value": "file_pattern"
+          },
+          {
+            "text": "rule",
+            "value": "rule"
+          },
+          {
+            "text": "guideline",
+            "value": "guideline"
+          },
+          {
+            "text": "port",
+            "value": "port"
+          },
+          {
+            "text": "naming",
+            "value": "naming"
+          },
+          {
+            "text": "structure",
+            "value": "structure"
+          },
+          {
+            "text": "decision",
+            "value": "decision"
+          },
+          {
+            "text": "session",
+            "value": "session"
+          },
+          {
+            "text": "blocker",
+            "value": "blocker"
+          },
+          {
+            "text": "preference",
+            "value": "preference"
+          },
+          {
+            "text": "user_message",
+            "value": "user_message"
+          },
+          {
+            "text": "agent_response",
+            "value": "agent_response"
+          }
+        ],
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "allValue": ".*"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 6
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "# BMAD Classifier Health Dashboard\n\n**Purpose:** ML/AI classification monitoring - answering \"Is classification working?\", \"Which provider used?\", \"What types classified?\"\n\n**Audience:** ML Operators, Data Scientists\n\n**Providers:** Ollama (local) | OpenRouter (API) | OpenAI (API) | Claude (API)\n\n**Memory Types:** 15 types across 3 collections (code-patterns, conventions, discussions)\n\n**Template Variables:** Use dropdowns above to filter by provider or memory type"
+      }
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Classifications",
+      "description": "**Metric:** `memory_classifier_requests_total`\n**Measures:** Total classification requests sent to providers\n**Formula:** `sum(memory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"})`\n**Expected:** Growing as memories captured\n**Note:** Includes both success and error requests",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(memory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"})",
+          "refId": "A",
+          "legendFormat": "Total Classifications"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#5794F2"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Classification Success Rate",
+      "description": "**Metric:** `memory_classifier_requests_total`\n**Measures:** Percentage of successful classification requests\n**Formula:** `sum(memory_classifier_requests_total{status=\"success\", ...}) / sum(memory_classifier_requests_total{...}) * 100`\n**NFR:** >95% success rate\n**Thresholds:** Green >95% | Yellow 90-95% | Red <90%",
+      "gridPos": {
+        "x": 8,
+        "y": 6,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(memory_classifier_requests_total{status=\"success\", provider=~\"$provider\", classified_type=~\"$type\"}) / sum(memory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"}) * 100",
+          "refId": "A",
+          "legendFormat": "Success Rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#F2495C"
+              },
+              {
+                "value": 90,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 95,
+                "color": "#73BF69"
+              }
+            ]
+          },
+          "min": 0,
+          "max": 100
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Queue Skipped (Already Classified)",
+      "description": "**Metric:** `memory_classifier_queue_processed_total{status=\"skipped\"}`\n**Measures:** Items skipped because already classified\n**Purpose:** Shows deduplication effectiveness\n**Expected:** Growing as queue processes duplicate requests\n**Note:** High skipped count = good deduplication",
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(memory_classifier_queue_processed_total{status=\"skipped\"})",
+          "refId": "A",
+          "legendFormat": "Skipped"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#5794F2"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Classification Requests by Type",
+      "description": "**Metric:** `memory_classifier_requests_total`\n**Groups by:** `classified_type` (decision, blocker, user_message, etc.)\n**Shows:** Distribution of memory types being classified\n**Expected:** user_message and agent_response most common",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "expr": "sum by (classified_type) (memory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"})",
+          "refId": "A",
+          "legendFormat": "{{classified_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "maxDataPoints": 5000,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Provider Usage",
+      "description": "**Metric:** `memory_classifier_requests_total`\n**Groups by:** `provider` (ollama, openrouter, openai, claude)\n**Shows:** Which provider is handling classifications\n**Expected:** Primary provider handling most traffic",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "expr": "sum by (provider) (memory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"})",
+          "refId": "A",
+          "legendFormat": "{{provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "maxDataPoints": 5000,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Classifier Fallbacks",
+      "description": "**Metric:** `memory_classifier_fallbacks_total`\n**Measures:** Provider fallback events (primary provider failed, switched to backup)\n**Formula:** `sum by (from_provider, to_provider) (memory_classifier_fallbacks_total)`\n**Expected:** Rare - spikes indicate primary provider issues\n**Action:** If frequent, investigate primary provider health\n**See:** src/memory/classifier.py (fallback logic)",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (from_provider, to_provider) (memory_classifier_fallbacks_total)",
+          "refId": "A",
+          "legendFormat": "{{from_provider}} \u2192 {{to_provider}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "sum"
+          ]
+        }
+      },
+      "maxDataPoints": 5000,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Token Usage - Input Tokens by Provider",
+      "description": "**Metric:** `memory_classifier_tokens_total`\n**Measures:** Cumulative input tokens sent to classification providers\n**Formula:** `sum by (provider) (memory_classifier_tokens_total{direction=\"input\", provider=~\"$provider\"})`\n**Purpose:** Cost tracking and provider usage monitoring\n**Expected:** Ollama (local) should be free, API providers incur costs\n**Note:** Pushgateway counter - NO rate() per BP-028\n**See:** BP-028 (Pushgateway), src/memory/classifier.py",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (provider) (memory_classifier_tokens_total{direction=\"input\", provider=~\"$provider\"})",
+          "refId": "A",
+          "legendFormat": "{{provider}} (input)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "sum"
+          ]
+        }
+      },
+      "maxDataPoints": 5000,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Token Usage - Output Tokens by Provider",
+      "description": "**Metric:** `memory_classifier_tokens_total`\n**Measures:** Cumulative output tokens received from classification providers\n**Formula:** `sum by (provider) (memory_classifier_tokens_total{direction=\"output\", provider=~\"$provider\"})`\n**Purpose:** Cost tracking - output tokens may have different pricing\n**Expected:** Output tokens typically lower than input (classification results are concise)\n**Note:** Pushgateway counter - NO rate() per BP-028\n**See:** BP-028 (Pushgateway), src/memory/classifier.py",
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (provider) (memory_classifier_tokens_total{direction=\"output\", provider=~\"$provider\"})",
+          "refId": "A",
+          "legendFormat": "{{provider}} (output)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "sum"
+          ]
+        }
+      },
+      "maxDataPoints": 5000,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    }
+  ],
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "liveNow": false,
+  "style": "dark"
+}

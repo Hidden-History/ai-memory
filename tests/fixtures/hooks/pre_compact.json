@@ -1,0 +1,22 @@
+{
+  "session_id": "sess_pre_compact_test_007",
+  "transcript_path": "/tmp/test_transcript_pre_compact.jsonl",
+  "event_type": "pre_compact",
+  "trigger_type": "auto",
+  "cwd": "/mnt/e/projects/bmad-memory-module",
+  "transcript_entries": [
+    {
+      "role": "user",
+      "content": "Why did we decide to use port 26350 instead of the default?"
+    },
+    {
+      "role": "assistant",
+      "content": "We chose port 26350 to avoid conflicts with other services. This is documented in DEC-002."
+    },
+    {
+      "role": "user",
+      "content": "Perfect, let's document this in the README"
+    }
+  ],
+  "turn_number": 20
+}

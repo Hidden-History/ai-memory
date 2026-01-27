@@ -120,6 +120,34 @@ def log_session_start(project: str, trigger: str, memories: list[dict], duration
         _write_full_content(content_lines)
 
 
+def log_conversation_context_injection(
+    project: str,
+    trigger: str,
+    message_count: int,
+    summary_count: int,
+    duration_ms: float,
+    context_preview: str = ""
+) -> None:
+    """Log V2.0 conversation context injection.
+
+    Args:
+        project: Project name
+        trigger: Trigger type (compact, resume)
+        message_count: Number of user/agent messages injected
+        summary_count: Number of session summaries injected
+        duration_ms: Duration of retrieval
+        context_preview: Optional preview of context (first 200 chars)
+    """
+    total = message_count + summary_count
+    log_activity("🧠", f"SessionStart ({trigger}): Injected {total} items ({summary_count} summaries, {message_count} messages) for {project} [{duration_ms:.0f}ms]")
+
+    if context_preview:
+        content_lines = [f"  Context:"]
+        for line in context_preview.split('\n'):
+            content_lines.append(f"    {line}")
+        _write_full_content(content_lines)
+
+
 def log_session_end(project: str, reason: str, duration_ms: float) -> None:
     """Log SessionEnd event."""
     log_activity("🔚", f"SessionEnd ({reason}): Session ended for {project} [{duration_ms:.0f}ms]")
@@ -141,22 +169,22 @@ def log_pre_tool_use(tool_name: str, tool_input: dict, project: str) -> None:
     """Log PreToolUse event with tool input."""
     # Summary based on tool type
     if tool_name == "Bash":
-        cmd = tool_input.get('command', '')[:60]
-        summary = f"$ {cmd}..."
+        cmd = tool_input.get('command', '')
+        summary = f"$ {cmd}"
     elif tool_name in ["Read", "Write", "Edit"]:
         path = tool_input.get('file_path', '')
-        summary = path.split('/')[-1] if '/' in path else path
+        summary = path
     elif tool_name == "Glob":
         pattern = tool_input.get('pattern', '')
         summary = f"pattern: {pattern}"
     elif tool_name == "Grep":
-        pattern = tool_input.get('pattern', '')[:30]
+        pattern = tool_input.get('pattern', '')
         summary = f"search: {pattern}"
     elif tool_name == "Task":
-        desc = tool_input.get('description', '')[:40]
+        desc = tool_input.get('description', '')
         summary = f"task: {desc}"
     else:
-        summary = str(tool_input)[:50]
+        summary = str(tool_input)
 
     log_activity("🔧", f"PreToolUse {tool_name}: {summary}")
 
@@ -169,16 +197,19 @@ def log_post_tool_use(tool_name: str, tool_input: dict, tool_response: dict, pro
     # Summary based on tool type
     if tool_name == "Bash":
         exit_code = tool_response.get('exitCode', 0) if isinstance(tool_response, dict) else 0
-        output_preview = str(tool_response.get('output', ''))[:50] if isinstance(tool_response, dict) else ""
-        summary = f"exit:{exit_code} {output_preview}"
+        # Use stdout/stderr fields (Claude Code format)
+        stdout = tool_response.get('stdout', '') if isinstance(tool_response, dict) else ""
+        stderr = tool_response.get('stderr', '') if isinstance(tool_response, dict) else ""
+        output = stderr if stderr else stdout
+        summary = f"exit:{exit_code} {output}"
     elif tool_name in ["Write", "Edit"]:
         path = tool_response.get('filePath', '') if isinstance(tool_response, dict) else ""
-        summary = path.split('/')[-1] if '/' in path else path
+        summary = path
     elif tool_name == "Read":
         path = tool_input.get('file_path', '')
-        summary = path.split('/')[-1] if '/' in path else path
+        summary = path
     else:
-        summary = str(tool_response)[:50] if tool_response else "completed"
+        summary = str(tool_response) if tool_response else "completed"
 
     log_activity("📋", f"PostToolUse {tool_name} {status}: {summary} [{duration_ms:.0f}ms]")
 
@@ -213,13 +244,13 @@ def log_manual_save(project: str, description: str, success: bool) -> None:
 
 def log_memory_search(project: str, query: str, results_count: int, duration_ms: float, results: list[dict] = None) -> None:
     """Log /search-memory command with results."""
-    log_activity("🔍", f"SearchMemory: {results_count} results for \"{query[:30]}\" [{duration_ms:.0f}ms]")
+    log_activity("🔍", f"SearchMemory: {results_count} results for \"{query}\" [{duration_ms:.0f}ms]")
 
     if results:
         content_lines = []
-        for i, r in enumerate(results[:5], 1):
+        for i, r in enumerate(results, 1):
             score = r.get('score', 0)
-            content = r.get('content', '')[:150]
+            content = r.get('content', '')
             content_lines.append(f"  [{i}] ({score:.0%}) {content}")
 
         _write_full_content(content_lines)
@@ -227,10 +258,10 @@ def log_memory_search(project: str, query: str, results_count: int, duration_ms:
 
 def log_memory_status(project: str, collections: dict) -> None:
     """Log /memory-status command."""
-    agent = collections.get('agent-memory', 0)
-    impl = collections.get('implementations', 0)
-    bp = collections.get('best_practices', 0)
-    log_activity("📊", f"MemoryStatus: {project} - agent:{agent} impl:{impl} bp:{bp}")
+    discussions = collections.get('discussions', 0)
+    code_patterns = collections.get('code-patterns', 0)
+    conventions = collections.get('conventions', 0)
+    log_activity("📊", f"MemoryStatus: {project} - disc:{discussions} code:{code_patterns} conv:{conventions}")
 
 
 def log_implementation_capture(file_path: str, tool_name: str, language: str, content: str, lines: int) -> None:
@@ -243,27 +274,25 @@ def log_implementation_capture(file_path: str, tool_name: str, language: str, co
         f"  Tool: {tool_name} | Language: {language}",
         f"  Content ({lines} lines):",
     ]
-    MAX_LINES = 100
-    for line in content.split('\n')[:MAX_LINES]:
+    # No truncation - show full content for Streamlit dropdown
+    for line in content.split('\n'):
         content_lines.append(f"    {line}")
-    if lines > MAX_LINES:
-        content_lines.append(f"    ... [{lines - MAX_LINES} more lines]")
 
     _write_full_content(content_lines)
 
 
 def log_error_capture(command: str, error_msg: str, exit_code: int, output: str = None) -> None:
     """Log error pattern capture with full context."""
-    log_activity("🔴", f"ErrorCapture: {error_msg[:50]} (exit {exit_code})")
+    log_activity("🔴", f"ErrorCapture: {error_msg} (exit {exit_code})")
 
     content_lines = [
-        f"  Command: {command[:100]}",
+        f"  Command: {command}",
         f"  Exit Code: {exit_code}",
         f"  Error: {error_msg}",
     ]
     if output:
         content_lines.append("  Output:")
-        for line in output.split('\n')[:30]:
+        for line in output.split('\n'):
             content_lines.append(f"    {line}")
 
     _write_full_content(content_lines)
@@ -271,13 +300,13 @@ def log_error_capture(command: str, error_msg: str, exit_code: int, output: str 
 
 def log_error_context_retrieval(file_path: str, language: str, results: list[dict], duration_ms: float) -> None:
     """Log PreToolUse error context retrieval."""
-    log_activity("🔧", f"ErrorContext: {len(results)} implementations for {file_path.split('/')[-1]} [{duration_ms:.0f}ms]")
+    log_activity("🔧", f"ErrorContext: {len(results)} code-patterns for {file_path} [{duration_ms:.0f}ms]")
 
     if results:
         content_lines = []
         for i, impl in enumerate(results, 1):
             score = impl.get('score', 0)
-            content = impl.get('content', '')[:100]
+            content = impl.get('content', '')
             content_lines.append(f"  [{i}] ({score:.0%}) {content}")
 
         _write_full_content(content_lines)
@@ -289,14 +318,23 @@ def log_best_practices_retrieval(file_path: str, component: str, results: list[d
 
 
 # User Interaction
-def log_user_prompt(prompt_preview: str) -> None:
-    """Log UserPromptSubmit event."""
-    log_activity("💬", f"UserPrompt: {prompt_preview[:60]}...")
+def log_user_prompt(prompt: str) -> None:
+    """Log UserPromptSubmit event with full content."""
+    log_activity("💬", f"UserPrompt: {prompt}")
+
+    # Write full content for expansion
+    content_lines = [
+        "  Content:",
+    ]
+    for line in prompt.split('\n'):
+        content_lines.append(f"    {line}")
+
+    _write_full_content(content_lines)
 
 
 def log_notification(notification_type: str, message: str) -> None:
     """Log Notification event."""
-    log_activity("🔔", f"Notification ({notification_type}): {message[:50]}")
+    log_activity("🔔", f"Notification ({notification_type}): {message}")
 
 
 def log_permission_request(tool_name: str, decision: str) -> None:

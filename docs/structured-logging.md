@@ -248,7 +248,7 @@ Use log levels to indicate severity and operational status:
 ```python
 logger.debug("embedding_request_payload", extra={
     "text_length": len(text),
-    "model": "nomic-embed-code",
+    "model": "jinaai/jina-embeddings-v2-base-en",
     "dimensions": 768
 })
 ```
@@ -629,7 +629,6 @@ logger.info("operation_completed", extra={
 **Related Documentation:**
 - `docs/prometheus-queries.md` - Metric query patterns and histogram aggregation
 - `CLAUDE.md` - Project conventions and port assignments
-- `_bmad-output/planning-artifacts/architecture.md:864-941` - SessionStart Hook architecture
 
 **External Best Practices:**
 - [Python Logging Best Practices 2026](https://www.carmatec.com/blog/python-logging-best-practices-complete-guide/)

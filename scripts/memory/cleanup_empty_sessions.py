@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Clean up empty session summaries from agent-memory collection.
+"""Clean up empty session summaries from discussions collection.
 
 Deletes entries where:
 - content contains "Tools Used: None"
@@ -55,12 +55,12 @@ def is_empty_session_summary(content: str) -> bool:
     return False
 
 
-def find_empty_sessions(client, collection_name: str = "agent-memory") -> List[Dict]:
+def find_empty_sessions(client, collection_name: str = "discussions") -> List[Dict]:
     """Find all empty session summaries in collection.
 
     Args:
         client: Qdrant client instance
-        collection_name: Collection to search (default: agent-memory)
+        collection_name: Collection to search (default: discussions)
 
     Returns:
         List of point dicts with id and content
@@ -124,8 +124,8 @@ def main():
     )
     parser.add_argument(
         "--collection",
-        default="agent-memory",
-        help="Collection to clean (default: agent-memory)"
+        default="discussions",
+        help="Collection to clean (default: discussions)"
     )
     args = parser.parse_args()
 

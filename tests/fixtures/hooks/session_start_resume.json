@@ -1,0 +1,16 @@
+{
+  "session_id": "sess_resume_test_002",
+  "transcript_path": "/tmp/test_transcript_resume.jsonl",
+  "event_type": "resume",
+  "cwd": "/mnt/e/projects/bmad-memory-module",
+  "transcript_entries": [
+    {
+      "role": "user",
+      "content": "Implement the search functionality"
+    },
+    {
+      "role": "assistant",
+      "content": "I'll implement semantic search with cascading fallback."
+    }
+  ]
+}

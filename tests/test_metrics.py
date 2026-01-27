@@ -232,11 +232,11 @@ def test_gauge_can_be_set_and_incremented():
     )
 
     # Set gauge value
-    test_gauge.labels(collection="implementations", project="test").set(100)
+    test_gauge.labels(collection="code-patterns", project="test").set(100)
 
     # Increment/decrement
-    test_gauge.labels(collection="implementations", project="test").inc(5)
-    test_gauge.labels(collection="implementations", project="test").dec(2)
+    test_gauge.labels(collection="code-patterns", project="test").inc(5)
+    test_gauge.labels(collection="code-patterns", project="test").dec(2)
 
     # Verify operations completed without error
     metrics = test_registry.collect()

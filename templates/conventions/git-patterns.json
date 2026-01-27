@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Write commit messages in imperative mood ('Add feature' not 'Added feature'). First line max 50 chars, detailed explanation after blank line.",
+    "type": "guideline",
+    "domain": "git",
+    "importance": "medium",
+    "tags": ["git", "commit-messages", "best-practice"],
+    "source_date": "2014-11-01"
+  },
+  {
+    "content": "Never force push to main/master branch. Use feature branches and pull requests for all changes to protect production code.",
+    "type": "rule",
+    "domain": "git",
+    "importance": "high",
+    "tags": ["git", "safety", "workflow"],
+    "source_date": "2010-01-01"
+  },
+  {
+    "content": "Use .gitignore to exclude .env files containing secrets. Never commit API keys, passwords, or tokens to version control.",
+    "type": "rule",
+    "domain": "git",
+    "importance": "high",
+    "tags": ["git", "security", "secrets"],
+    "source_date": "2012-01-01"
+  }
+]

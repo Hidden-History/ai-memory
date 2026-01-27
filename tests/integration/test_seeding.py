@@ -144,19 +144,19 @@ class TestCreatePointFromTemplate:
         assert point.payload["content"] == template.content
         assert point.payload["content_hash"].startswith("sha256:")  # HIGH-1 fix
         assert point.payload["domain"] == "python"
-        assert point.payload["type"] == "pattern"  # default
+        assert point.payload["type"] == "guideline"  # default (V2.0 spec)
         assert point.payload["importance"] == "medium"  # default
         assert point.payload["group_id"] == "shared"
         assert point.payload["source_hook"] == "seed_script"
         assert point.payload["embedding_status"] == "complete"
-        assert point.payload["embedding_model"] == "nomic-embed-code"
+        assert point.payload["embedding_model"] == "jina-embeddings-v2-base-en"
         assert "timestamp" in point.payload
 
     def test_create_point_with_all_fields(self):
         """Test point creation with all optional fields."""
         template = BestPracticeTemplate(
             content="Never use eval() for JSON parsing",
-            type="security",
+            type="rule",
             domain="python",
             importance="high",
             tags=["python", "security", "json"],
@@ -167,7 +167,7 @@ class TestCreatePointFromTemplate:
 
         point = create_point_from_template(template, embedding)
 
-        assert point.payload["type"] == "security"
+        assert point.payload["type"] == "rule"
         assert point.payload["importance"] == "high"
         assert point.payload["tags"] == ["python", "security", "json"]
         assert point.payload["source"] == "https://www.invicti.com/learn/json-injection"
@@ -191,7 +191,7 @@ class TestSeedTemplates:
 
     def create_mock_config(self):
         """Create mock MemoryConfig for testing."""
-        config = Mock(spec=MemoryConfig)
+        config = Mock()
         config.qdrant_host = "localhost"
         config.qdrant_port = 26350
         config.get_embedding_url.return_value = "http://localhost:28080"
@@ -203,7 +203,7 @@ class TestSeedTemplates:
             BestPracticeTemplate(
                 content=f"Test best practice {i}",
                 domain="python",
-                type="pattern",
+                type="guideline",
                 importance="medium",
             )
             for i in range(count)
@@ -219,7 +219,7 @@ class TestSeedTemplates:
 
         # Mock collections response - just mock the response directly
         mock_collection_info = Mock()
-        mock_collection_info.name = "best_practices"
+        mock_collection_info.name = "conventions"
 
         mock_collections = Mock()
         mock_collections.collections = [mock_collection_info]
@@ -242,7 +242,7 @@ class TestSeedTemplates:
 
         # Verify upsert call
         call_args = mock_client.upsert.call_args
-        assert call_args.kwargs["collection_name"] == "best_practices"
+        assert call_args.kwargs["collection_name"] == "conventions"
         assert len(call_args.kwargs["points"]) == 5
         assert call_args.kwargs["wait"] is True
 
@@ -255,7 +255,7 @@ class TestSeedTemplates:
         mock_qdrant_class.return_value = mock_client
 
         mock_collection_info = Mock()
-        mock_collection_info.name = "best_practices"
+        mock_collection_info.name = "conventions"
 
         mock_collections = Mock()
         mock_collections.collections = [mock_collection_info]
@@ -281,7 +281,7 @@ class TestSeedTemplates:
         mock_qdrant_class.return_value = mock_client
 
         mock_collection_info = Mock()
-        mock_collection_info.name = "best_practices"
+        mock_collection_info.name = "conventions"
 
         mock_collections = Mock()
         mock_collections.collections = [mock_collection_info]
@@ -321,7 +321,7 @@ class TestSeedTemplates:
 
         # Mock collections without best_practices
         mock_coll1 = Mock()
-        mock_coll1.name = "implementations"
+        mock_coll1.name = "code-patterns"
         mock_coll2 = Mock()
         mock_coll2.name = "patterns"
 
@@ -335,7 +335,7 @@ class TestSeedTemplates:
         with pytest.raises(ConnectionError) as exc_info:
             seed_templates(templates, config, dry_run=False)
 
-        assert "best_practices" in str(exc_info.value)
+        assert "conventions" in str(exc_info.value)
         assert "not found" in str(exc_info.value).lower()
 
     @patch("seed_best_practices.generate_embedding")
@@ -347,7 +347,7 @@ class TestSeedTemplates:
         mock_qdrant_class.return_value = mock_client
 
         mock_collection_info = Mock()
-        mock_collection_info.name = "best_practices"
+        mock_collection_info.name = "conventions"
 
         mock_collections = Mock()
         mock_collections.collections = [mock_collection_info]
@@ -387,7 +387,7 @@ class TestSeedTemplates:
         mock_qdrant_class.return_value = mock_client
 
         mock_collection_info = Mock()
-        mock_collection_info.name = "best_practices"
+        mock_collection_info.name = "conventions"
 
         mock_collections = Mock()
         mock_collections.collections = [mock_collection_info]
@@ -431,7 +431,7 @@ class TestSeedTemplates:
         mock_qdrant_class.return_value = mock_client
 
         mock_collection_info = Mock()
-        mock_collection_info.name = "best_practices"
+        mock_collection_info.name = "conventions"
 
         mock_collections = Mock()
         mock_collections.collections = [mock_collection_info]
@@ -466,7 +466,7 @@ class TestSeedTemplates:
         mock_qdrant_class.return_value = mock_client
 
         mock_collection_info = Mock()
-        mock_collection_info.name = "best_practices"
+        mock_collection_info.name = "conventions"
 
         mock_collections = Mock()
         mock_collections.collections = [mock_collection_info]
@@ -507,7 +507,7 @@ class TestGetExistingHashes:
             (mock_records, None),  # First batch, no more pages
         ]
 
-        hashes = get_existing_hashes(mock_client, "best_practices")
+        hashes = get_existing_hashes(mock_client, "conventions")
 
         assert len(hashes) == 3
         assert "sha256:hash1" in hashes
@@ -522,7 +522,7 @@ class TestGetExistingHashes:
         mock_client = Mock()
         mock_client.scroll.return_value = ([], None)
 
-        hashes = get_existing_hashes(mock_client, "best_practices")
+        hashes = get_existing_hashes(mock_client, "conventions")
 
         assert hashes == set()
 
@@ -535,7 +535,7 @@ class TestGetExistingHashes:
         mock_client.scroll.side_effect = Exception("Network error")
 
         # Should return empty set, not raise
-        hashes = get_existing_hashes(mock_client, "best_practices")
+        hashes = get_existing_hashes(mock_client, "conventions")
 
         assert hashes == set()
 

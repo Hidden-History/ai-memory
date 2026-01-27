@@ -36,7 +36,8 @@ sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Configure structured logging
 from memory.logging_config import StructuredFormatter
-from memory.activity_log import log_error_capture
+from memory.activity_log import log_capture, log_error_capture
+from memory.hooks_common import log_to_activity
 
 handler = logging.StreamHandler()
 handler.setFormatter(StructuredFormatter())
@@ -246,9 +247,12 @@ def extract_error_context(hook_input: Dict[str, Any]) -> Optional[Dict[str, Any]
     tool_response = hook_input.get("tool_response", {})
 
     # Get command and output
+    # Claude Code sends stdout/stderr separately, not combined "output"
     command = tool_input.get("command", "")
-    output = tool_response.get("output", "")
-    exit_code = tool_response.get("exitCode")
+    stdout = tool_response.get("stdout", "")
+    stderr = tool_response.get("stderr", "")
+    output = stderr if stderr else stdout  # Prefer stderr for errors
+    exit_code = tool_response.get("exitCode")  # May not be present in newer Claude Code versions
 
     # Detect if this is an error
     if not detect_error_indicators(output, exit_code):
@@ -329,6 +333,7 @@ def main() -> int:
     global hook_duration_seconds
     start_time = time.perf_counter()
 
+
     # Late import of metrics
     try:
         script_dir = Path(__file__).parent
@@ -382,17 +387,17 @@ def main() -> int:
         fork_to_background(error_context)
 
         # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
-        error_msg = error_context["error_message"][:50]
+        error_msg = error_context["error_message"]
         message = f"🔴 BMAD Memory: Captured error pattern: {error_msg}"
         print(json.dumps({"systemMessage": message}))
         sys.stdout.flush()  # Ensure output is flushed before exit
 
-        # TECH-DEBT-014: Comprehensive error logging with full context
+        # Activity log with proper error icon (no truncation)
         log_error_capture(
-            error_context["command"],
-            error_context["error_message"],
-            error_context["exit_code"],
-            error_context.get("output")
+            command=error_context["command"],
+            error_msg=error_msg,
+            exit_code=error_context.get("exit_code", -1),
+            output=error_context.get("output", "")
         )
 
         # Metrics: Record hook duration

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Store chat memory to agent-memory collection for BMAD workflows.
+"""Store chat memory to discussions collection for BMAD workflows.
 
 Usage:
     python3 store-chat-memory.py --session-id <id> --agent <agent> --content <text>
@@ -9,7 +9,7 @@ Arguments:
     --agent: BMAD agent name (dev, architect, pm, tea, analyst, etc.)
     --content: Conversation context to store
 
-Stores to agent-memory collection with:
+Stores to discussions collection with:
 - type="chat_memory"
 - timestamp (ISO 8601)
 - agent field (BMAD context)
@@ -69,7 +69,7 @@ logger.propagate = False
 
 
 def store_chat_memory(session_id: str, agent: str, content: str, cwd: str = None) -> bool:
-    """Store chat memory to agent-memory collection.
+    """Store chat memory to discussions collection.
 
     Args:
         session_id: Claude session identifier
@@ -155,15 +155,15 @@ def store_chat_memory(session_id: str, agent: str, content: str, cwd: str = None
             "session_id": session_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "embedding_status": embedding_status,
-            "embedding_model": "nomic-embed-code",
+            "embedding_model": "jina-embeddings-v2-base-en",
             "agent": agent,  # BMAD agent context
             "importance": "medium",
         }
 
-        # Store to agent-memory collection
+        # Store to discussions collection
         client = get_qdrant_client()
         client.upsert(
-            collection_name="agent-memory",
+            collection_name="discussions",
             points=[
                 PointStruct(
                     id=memory_id,
@@ -218,7 +218,7 @@ def main() -> int:
         Exit code: Always 0 (graceful degradation)
     """
     parser = argparse.ArgumentParser(
-        description="Store chat memory to agent-memory collection"
+        description="Store chat memory to discussions collection"
     )
     parser.add_argument(
         "--session-id",

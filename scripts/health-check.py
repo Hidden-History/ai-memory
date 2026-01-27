@@ -87,7 +87,7 @@ def check_qdrant(
             collections = collections_response.json().get("result", {}).get("collections", [])
             collection_names = [c["name"] for c in collections]
 
-            if "implementations" in collection_names and "best_practices" in collection_names:
+            if "code-patterns" in collection_names and "conventions" in collection_names:
                 return HealthCheckResult(
                     "qdrant",
                     "healthy",

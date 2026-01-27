@@ -9,7 +9,7 @@ the new optional fields to existing memories.
 
 Usage:
     python scripts/memory/migrate_add_fields.py --dry-run
-    python scripts/memory/migrate_add_fields.py --collection implementations
+    python scripts/memory/migrate_add_fields.py --collection code-patterns
     python scripts/memory/migrate_add_fields.py
 
 Architecture Compliance:
@@ -55,7 +55,7 @@ logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
 
 # Collections to migrate
-COLLECTIONS = ["implementations", "best_practices", "agent-memory"]
+COLLECTIONS = ["code-patterns", "conventions", "discussions"]
 
 # Batch size for updates
 BATCH_SIZE = 100

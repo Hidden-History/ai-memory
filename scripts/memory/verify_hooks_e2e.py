@@ -600,10 +600,10 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
             result = storage.store_memory(
                 content=test_content,
                 cwd=str(project_root),
-                memory_type=MemoryType.SESSION_SUMMARY,
+                memory_type=MemoryType.SESSION,
                 source_hook="verify_hooks_e2e",
                 session_id="e2e_test_" + timestamp,
-                collection="agent-memory",
+                collection="discussions",
                 group_id=project_name,
                 test=True,
                 timestamp=timestamp
@@ -625,7 +625,7 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
         try:
             search_results = search.search(
                 query=test_content,
-                collection="agent-memory",
+                collection="discussions",
                 group_id=project_name,
                 limit=5,
                 score_threshold=0.5
@@ -657,7 +657,7 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
         # Step 3: Verify memory is retrievable by ID
         print(f"\n{Colors.BOLD}Step 3: Retrieving memory by ID{Colors.ENDC}")
         try:
-            memory = storage.get_by_id(memory_id, collection="agent-memory")
+            memory = storage.get_by_id(memory_id, collection="discussions")
 
             if memory:
                 results.add_pass("workflow_retrieve", "Memory retrieved")
@@ -683,10 +683,10 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
             duplicate_result = storage.store_memory(
                 content=test_content,
                 cwd=str(project_root),
-                memory_type=MemoryType.SESSION_SUMMARY,
+                memory_type=MemoryType.SESSION,
                 source_hook="verify_hooks_e2e",
                 session_id="e2e_test_" + timestamp,
-                collection="agent-memory",
+                collection="discussions",
                 group_id=project_name,
                 test=True,
                 timestamp=timestamp

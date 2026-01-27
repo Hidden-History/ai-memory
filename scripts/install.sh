@@ -536,6 +536,28 @@ detect_platform() {
 create_directories() {
     log_info "Creating directory structure..."
 
+    # Skip confirmation in non-interactive mode
+    if [[ "$NON_INTERACTIVE" != "true" ]]; then
+        echo ""
+        echo "The installer will create the following directories:"
+        echo "  📁 $INSTALL_DIR/"
+        echo "     ├── docker/              (Docker Compose configs)"
+        echo "     ├── src/memory/          (Python memory modules)"
+        echo "     ├── scripts/             (Management scripts)"
+        echo "     ├── .claude/hooks/scripts/ (Hook implementations)"
+        echo "     └── logs/                (Application logs)"
+        echo ""
+        echo "  📁 $HOME/.claude-memory/   (Private queue/logs, chmod 700)"
+        echo ""
+        read -p "Proceed with directory creation? [Y/n]: " confirm
+        if [[ "$confirm" =~ ^[Nn]$ ]]; then
+            echo ""
+            log_info "Installation cancelled by user"
+            exit 0
+        fi
+        echo ""
+    fi
+
     # Create main installation directory and subdirectories
     mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,logs}
 
@@ -952,6 +974,24 @@ verify_services_running() {
 # Create project-level symlinks to shared installation
 create_project_symlinks() {
     log_info "Creating project-level symlinks..."
+
+    # Skip confirmation in non-interactive mode
+    if [[ "$NON_INTERACTIVE" != "true" && ! -d "$PROJECT_PATH/.claude" ]]; then
+        echo ""
+        echo "The installer will create the following in your project:"
+        echo "  📁 $PROJECT_PATH/.claude/"
+        echo "     └── hooks/scripts/       (Symlinks to shared hooks)"
+        echo ""
+        echo "This allows Claude Code to use the memory system in your project."
+        echo ""
+        read -p "Proceed with project setup? [Y/n]: " confirm
+        if [[ "$confirm" =~ ^[Nn]$ ]]; then
+            echo ""
+            log_info "Project setup cancelled by user"
+            exit 0
+        fi
+        echo ""
+    fi
 
     # Create project .claude directory structure
     mkdir -p "$PROJECT_PATH/.claude/hooks/scripts"

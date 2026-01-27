@@ -4,11 +4,10 @@ Metadata Validation for BMAD Memory System
 
 Implements metadata validation with JSON schema enforcement for all memory types.
 
-Validates metadata for memory types across 3 collections:
-- implementations: implementation, architecture_decision, story_outcome, error_pattern,
-                   database_schema, config_pattern, integration_example
-- best_practices: best_practice
-- agent-memory: session_summary, chat_memory, agent_decision
+Validates metadata for memory types across 3 v2.0 collections:
+- code-patterns: implementation, error_fix, refactor, file_pattern
+- conventions: guideline, anti_pattern, decision
+- discussions: session, conversation, analysis, reflection, context, decision_record, lesson_learned
 
 Usage:
     # As module
@@ -20,6 +19,7 @@ Usage:
     python validate_metadata.py --metadata metadata.json --strict
 
 Created: 2026-01-17
+Updated: 2026-01-17 (v2.0 compliance)
 Adapted from proven patterns for BMAD Memory Module
 """
 
@@ -48,22 +48,25 @@ OPTIONAL_FIELDS = [
     "session_id",
 ]
 
-# All valid memory types (all 3 collections)
+# All valid memory types (v2.0 - all 3 collections)
 VALID_TYPES = [
-    # implementations collection
+    # code-patterns collection (HOW)
     "implementation",
-    "architecture_decision",
-    "story_outcome",
-    "error_pattern",
-    "database_schema",
-    "config_pattern",
-    "integration_example",
-    # best_practices collection
-    "best_practice",
-    # agent-memory collection
-    "session_summary",
-    "chat_memory",
-    "agent_decision",
+    "error_fix",
+    "refactor",
+    "file_pattern",
+    # conventions collection (WHAT)
+    "guideline",
+    "anti_pattern",
+    "decision",
+    # discussions collection (WHY)
+    "session",
+    "conversation",
+    "analysis",
+    "reflection",
+    "context",
+    "decision_record",
+    "lesson_learned",
 ]
 
 VALID_IMPORTANCE = ["critical", "high", "medium", "low"]

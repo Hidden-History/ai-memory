@@ -10,6 +10,7 @@ from src.memory.models import MemoryPayload, MemoryType, EmbeddingStatus
 from src.memory.validation import validate_payload, compute_content_hash
 
 
+@pytest.mark.requires_qdrant
 class TestCollectionSchema:
     """Test Qdrant collection creation and schema validation."""
 
@@ -22,19 +23,19 @@ class TestCollectionSchema:
         """Both collections exist after running setup script (AC 1.3.1)."""
         collections = qdrant_client.get_collections().collections
         collection_names = [c.name for c in collections]
-        assert "implementations" in collection_names, "implementations collection not found"
-        assert "best_practices" in collection_names, "best_practices collection not found"
+        assert "code-patterns" in collection_names, "implementations collection not found"
+        assert "conventions" in collection_names, "best_practices collection not found"
 
     def test_collection_vector_config(self, qdrant_client):
         """Collections have correct vector configuration (AC 1.3.4)."""
-        for name in ["implementations", "best_practices"]:
+        for name in ["code-patterns", "conventions"]:
             info = qdrant_client.get_collection(name)
             assert info.config.params.vectors.size == 768, f"{name}: Expected 768 dimensions (DEC-010)"
             assert info.config.params.vectors.distance == Distance.COSINE, f"{name}: Expected COSINE distance"
 
     def test_payload_indexes_exist(self, qdrant_client):
         """Payload indexes created for filtering (AC 1.3.1, 1.3.4)."""
-        for name in ["implementations", "best_practices"]:
+        for name in ["code-patterns", "conventions"]:
             info = qdrant_client.get_collection(name)
             # Qdrant exposes payload_schema at the result level, not in params
             payload_schema = info.payload_schema

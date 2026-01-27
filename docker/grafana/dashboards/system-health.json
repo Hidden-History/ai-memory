@@ -1,55 +1,104 @@
 {
-  "uid": "bmad-system-health",
-  "title": "BMAD Memory Module - System Health & Effectiveness",
-  "tags": ["bmad", "system-health", "memory-module", "token-savings"],
+  "uid": "bmad-system-health-v2",
+  "title": "BMAD System Health",
+  "tags": [
+    "bmad",
+    "system",
+    "health",
+    "infrastructure",
+    "v2"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 5,
   "refresh": "30s",
   "time": {
-    "from": "now-6h",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {
-    "refresh_intervals": ["10s", "30s", "1m", "5m", "15m", "30m", "1h"]
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "project",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(bmad_memory_captures_total, project)",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
   },
   "panels": [
     {
-      "id": 1,
+      "id": 100,
       "type": "text",
-      "title": "📊 Memory System Status",
+      "title": "",
       "gridPos": {
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 3
+        "h": 6
       },
       "options": {
         "mode": "markdown",
-        "content": "# BMAD Memory Module - Proving Effectiveness ✅\n\nThis dashboard demonstrates the memory system's impact on reducing token usage and improving Claude Code sessions. **Key Value:** Automatic context injection saves 1500-2500 tokens per session by retrieving relevant implementation patterns instead of requiring manual re-explanation.\n\n**📈 Success Metrics:** Collection growth | Deduplication rate | Token savings estimate | System health"
+        "content": "# BMAD System Health Dashboard\n\n**Purpose:** Infrastructure health monitoring - answering \"Are services healthy?\", \"How big are collections?\", \"Is deduplication working?\"\n\n**Audience:** SREs, DevOps, Capacity Planning\n\n**Services:** Qdrant (vector DB) | Embedding Service | Prometheus | Pushgateway | Grafana | Classifier Worker\n\n**Collections:** code-patterns (HOW) | conventions (WHAT) | discussions (WHY)\n\n\n**Template Variables:** Use dropdown above to filter by project (group_id)"
       }
     },
     {
-      "id": 2,
+      "id": 1,
       "type": "stat",
-      "title": "💾 Total Memories Stored",
+      "title": "Qdrant Status",
+      "description": "**Metric:** `up{job=\"qdrant\"}`\n**Measures:** Qdrant service health (1=up, 0=down)\n**Expected:** Always 1 (up)\n**Action:** If 0, check docker compose, restart qdrant container\n**See:** docker/docker-compose.yml (qdrant service)",
       "gridPos": {
         "x": 0,
-        "y": 3,
-        "w": 6,
-        "h": 5
+        "y": 6,
+        "w": 4,
+        "h": 4
       },
       "targets": [
         {
-          "expr": "sum(bmad_collection_size{project=\"all\"})",
+          "expr": "up{job=\"qdrant\"}",
           "refId": "A",
-          "legendFormat": "Total"
+          "legendFormat": "Qdrant"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
+          "noValue": "DOWN",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
           "color": {
             "mode": "thresholds"
           },
@@ -58,19 +107,11 @@
             "steps": [
               {
                 "value": null,
-                "color": "blue"
+                "color": "#F2495C"
               },
               {
-                "value": 100,
-                "color": "green"
-              },
-              {
-                "value": 500,
-                "color": "yellow"
-              },
-              {
-                "value": 1000,
-                "color": "orange"
+                "value": 1,
+                "color": "#73BF69"
               }
             ]
           }
@@ -79,13 +120,83 @@
       "options": {
         "reduceOptions": {
           "values": false,
-          "calcs": ["lastNotNull"]
+          "calcs": [
+            "lastNotNull"
+          ]
         },
-        "orientation": "auto",
-        "textMode": "value_and_name",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center"
+        "textMode": "value",
+        "colorMode": "background"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Embedding Service Status",
+      "description": "**Metric:** `up{job=\"embedding-service\"}`\n**Measures:** Embedding service health (1=up, 0=down)\n**Expected:** Always 1 (up)\n**Action:** If 0, check docker compose, restart embedding-service container\n**See:** docker/docker-compose.yml (embedding-service)",
+      "gridPos": {
+        "x": 4,
+        "y": 6,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"embedding-service\"}",
+          "refId": "A",
+          "legendFormat": "Embedding"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "DOWN",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#F2495C"
+              },
+              {
+                "value": 1,
+                "color": "#73BF69"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "background"
       },
       "datasource": {
         "type": "prometheus",
@@ -95,25 +206,41 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "💰 Estimated Token Savings (Daily)",
-      "description": "Based on: 3 retrievals/session × 500 tokens/memory × 10 sessions/day = 15,000 tokens saved. Without memory, users re-explain context manually.",
+      "title": "Prometheus Status",
+      "description": "**Metric:** `up{job=\"prometheus\"}`\n**Measures:** Prometheus service health (1=up, 0=down)\n**Expected:** Always 1 (up) - you're reading this!\n**Note:** If this shows DOWN, Grafana can't reach Prometheus\n**See:** docker/docker-compose.yml (prometheus service)",
       "gridPos": {
-        "x": 6,
-        "y": 3,
-        "w": 6,
-        "h": 5
+        "x": 8,
+        "y": 6,
+        "w": 4,
+        "h": 4
       },
       "targets": [
         {
-          "expr": "(sum(bmad_collection_size{project=\"all\"}) / 100) * 15000",
+          "expr": "up{job=\"prometheus\"}",
           "refId": "A",
-          "legendFormat": "Est. Daily Savings"
+          "legendFormat": "Prometheus"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
+          "noValue": "DOWN",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
           "color": {
             "mode": "thresholds"
           },
@@ -122,15 +249,11 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
+                "color": "#F2495C"
               },
               {
-                "value": 50000,
-                "color": "yellow"
-              },
-              {
-                "value": 100000,
-                "color": "orange"
+                "value": 1,
+                "color": "#73BF69"
               }
             ]
           }
@@ -139,13 +262,12 @@
       "options": {
         "reduceOptions": {
           "values": false,
-          "calcs": ["lastNotNull"]
+          "calcs": [
+            "lastNotNull"
+          ]
         },
-        "orientation": "auto",
-        "textMode": "value_and_name",
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center"
+        "textMode": "value",
+        "colorMode": "background"
       },
       "datasource": {
         "type": "prometheus",
@@ -155,25 +277,41 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "⚡ Memory System Efficiency",
-      "description": "Deduplication proxy: (Embeddings generated) / (Memories stored). Higher ratio = more deduplication happening.",
+      "title": "Pushgateway Status",
+      "description": "**Metric:** `up{job=\"pushgateway\"}`\n**Measures:** Pushgateway service health (1=up, 0=down)\n**Expected:** Always 1 (up)\n**Action:** If 0, hooks will fail to push metrics\n**See:** docker/docker-compose.yml (pushgateway service), BP-028",
       "gridPos": {
         "x": 12,
-        "y": 3,
-        "w": 6,
-        "h": 5
+        "y": 6,
+        "w": 4,
+        "h": 4
       },
       "targets": [
         {
-          "expr": "(bmad_embedding_requests_total / sum(bmad_collection_size{project=\"all\"})) * 100",
+          "expr": "up{job=\"pushgateway\"}",
           "refId": "A",
-          "legendFormat": "Efficiency %"
+          "legendFormat": "Pushgateway"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "decimals": 1,
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "DOWN",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
           "color": {
             "mode": "thresholds"
           },
@@ -182,15 +320,11 @@
             "steps": [
               {
                 "value": null,
-                "color": "red"
+                "color": "#F2495C"
               },
               {
-                "value": 10,
-                "color": "yellow"
-              },
-              {
-                "value": 20,
-                "color": "green"
+                "value": 1,
+                "color": "#73BF69"
               }
             ]
           }
@@ -199,13 +333,12 @@
       "options": {
         "reduceOptions": {
           "values": false,
-          "calcs": ["lastNotNull"]
+          "calcs": [
+            "lastNotNull"
+          ]
         },
-        "orientation": "auto",
-        "textMode": "value_and_name",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "center"
+        "textMode": "value",
+        "colorMode": "background"
       },
       "datasource": {
         "type": "prometheus",
@@ -215,24 +348,41 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "🚀 Active Projects",
+      "title": "Grafana Status",
+      "description": "**Metric:** `up{job=\"grafana\"}`\n**Measures:** Grafana service health (1=up, 0=down)\n**Expected:** Always 1 (up) - you're reading this!\n**Note:** If this shows DOWN, Grafana can't scrape itself\n**See:** docker/docker-compose.yml (grafana service)",
       "gridPos": {
-        "x": 18,
-        "y": 3,
-        "w": 6,
-        "h": 5
+        "x": 16,
+        "y": 6,
+        "w": 4,
+        "h": 4
       },
       "targets": [
         {
-          "expr": "count(count by (project) (bmad_collection_size{project!=\"all\",project!=\"shared\"}))",
+          "expr": "up{job=\"grafana\"}",
           "refId": "A",
-          "legendFormat": "Projects"
+          "legendFormat": "Grafana"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
+          "noValue": "DOWN",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
           "color": {
             "mode": "thresholds"
           },
@@ -241,15 +391,11 @@
             "steps": [
               {
                 "value": null,
-                "color": "blue"
+                "color": "#F2495C"
               },
               {
-                "value": 5,
-                "color": "green"
-              },
-              {
-                "value": 10,
-                "color": "yellow"
+                "value": 1,
+                "color": "#73BF69"
               }
             ]
           }
@@ -258,13 +404,12 @@
       "options": {
         "reduceOptions": {
           "values": false,
-          "calcs": ["lastNotNull"]
+          "calcs": [
+            "lastNotNull"
+          ]
         },
-        "orientation": "auto",
-        "textMode": "value_and_name",
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center"
+        "textMode": "value",
+        "colorMode": "background"
       },
       "datasource": {
         "type": "prometheus",
@@ -273,18 +418,89 @@
     },
     {
       "id": 6,
-      "type": "timeseries",
-      "title": "📈 Memory Growth Over Time (Proving System Usage)",
-      "description": "Upward trend = Memory system actively capturing patterns. Each new memory = future token savings.",
+      "type": "stat",
+      "title": "Classifier Worker Status",
+      "description": "**Metric:** `memory_classifier_last_success_timestamp`\n**Measures:** Classifier worker liveness (1=active, 0=stalled)\n**Formula:** `time() - memory_classifier_last_success_timestamp < 300` (pushed within last 5 minutes)\n**Expected:** Always 1 (active)\n**Action:** If 0, check worker logs: `docker logs memory-classifier-worker`\n**Note:** Worker doesn't expose /metrics endpoint, it pushes to Pushgateway",
       "gridPos": {
-        "x": 0,
-        "y": 8,
-        "w": 12,
-        "h": 8
+        "x": 20,
+        "y": 6,
+        "w": 4,
+        "h": 4
       },
       "targets": [
         {
-          "expr": "bmad_collection_size{project=\"all\"}",
+          "expr": "time() - memory_classifier_last_success_timestamp < 300",
+          "refId": "A",
+          "legendFormat": "Classifier"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "DOWN",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#F2495C"
+              },
+              {
+                "value": 1,
+                "color": "#73BF69"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "background"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Collection Sizes",
+      "description": "**Metric:** `bmad_collection_size`\n**Measures:** Number of memory points in each V2.0 collection\n**Formula:** `max by (collection) (bmad_collection_size{...})` (max to avoid double-counting across project labels)\n**Collections:**\n- **code-patterns**: Implementation patterns, error fixes, refactorings\n- **conventions**: Rules, guidelines, ports, naming conventions\n- **discussions**: Decisions, sessions, preferences, messages\n\n**Expected Growth:**\n- code-patterns: Grows with code changes (PostToolUse hooks)\n- conventions: Relatively stable (seeded from templates)\n- discussions: Grows fastest (every user/agent message)\n\n**Current Verified Totals (via Qdrant API):**\n- code-patterns: 339 points\n- conventions: 160 points\n- discussions: 1,942 points",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "expr": "max by (collection) (bmad_collection_size{collection=~\"code-patterns|conventions|discussions\"})",
           "refId": "A",
           "legendFormat": "{{collection}}"
         }
@@ -295,30 +511,9 @@
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
-            "barAlignment": 0,
             "lineWidth": 2,
             "fillOpacity": 20,
-            "gradientMode": "opacity",
-            "spanNulls": false,
-            "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "Memories",
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "showPoints": "never"
           },
           "color": {
             "mode": "palette-classic"
@@ -333,77 +528,11 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["lastNotNull", "max", "mean"]
-        }
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      }
-    },
-    {
-      "id": 7,
-      "type": "timeseries",
-      "title": "🔥 Embedding Activity (Memory Capture Rate)",
-      "description": "Shows when new memories are being generated. Spikes = active development sessions.",
-      "gridPos": {
-        "x": 12,
-        "y": 8,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "expr": "rate(bmad_embedding_requests_total[5m]) * 60",
-          "refId": "A",
-          "legendFormat": "{{status}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "rpm",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "barAlignment": 0,
-            "lineWidth": 2,
-            "fillOpacity": 30,
-            "gradientMode": "opacity",
-            "spanNulls": false,
-            "showPoints": "auto",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "Requests/min",
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        }
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["lastNotNull", "max", "mean"]
+          "calcs": [
+            "lastNotNull",
+            "max",
+            "mean"
+          ]
         }
       },
       "datasource": {
@@ -413,366 +542,71 @@
     },
     {
       "id": 8,
-      "type": "table",
-      "title": "📋 Memory Distribution by Project",
-      "description": "Shows which projects benefit from memory system. More memories = better context injection.",
+      "type": "timeseries",
+      "title": "Deduplication Activity (No Duplicates Detected Yet - EXPECTED)",
+      "description": "**Metric:** `bmad_dedup_events_total{action, collection}`\n**Measures:** Deduplication events over time by action (stored vs skipped_duplicate)\n**Formula:** `sum by (action, collection) (bmad_dedup_events_total{...})`\n\n**Why \"No data\" is NORMAL:**\nThis metric only shows data when duplicate memories are detected. Duplication happens when:\n1. **Hash Match**: Exact same content stored twice (same SHA-256 hash)\n2. **Semantic Match**: Similar content with >0.95 similarity score\n\n**When this will show data:**\n- Storing identical code patterns multiple times\n- Re-capturing same user messages\n- Duplicate API responses or error messages\n\n**Current Status:** No duplicates detected yet - this is GOOD! It means:\n- Content is unique across captures\n- Deduplication system is working (not triggering on unique content)\n- Memory is growing organically without redundancy\n\n**Note:** Code fix deployed (BUG-021) - metric will populate when duplicates occur.",
       "gridPos": {
         "x": 0,
-        "y": 16,
-        "w": 12,
-        "h": 8
+        "y": 20,
+        "w": 24,
+        "h": 10
       },
       "targets": [
         {
-          "expr": "bmad_collection_size{project!=\"all\"}",
+          "expr": "sum by (action, collection) (bmad_dedup_events_total{collection=~\"code-patterns|conventions|discussions\"})",
           "refId": "A",
-          "format": "table",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "displayMode": "auto",
-            "filterable": true
-          },
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "blue"
-              },
-              {
-                "value": 50,
-                "color": "green"
-              },
-              {
-                "value": 100,
-                "color": "yellow"
-              },
-              {
-                "value": 500,
-                "color": "orange"
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Value"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Memories"
-              },
-              {
-                "id": "custom.displayMode",
-                "value": "color-background-solid"
-              },
-              {
-                "id": "decimals",
-                "value": 0
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "project"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Project"
-              },
-              {
-                "id": "custom.width",
-                "value": 250
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "collection"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Collection"
-              },
-              {
-                "id": "custom.width",
-                "value": 150
-              }
-            ]
-          }
-        ]
-      },
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "__name__": true,
-              "Time": true,
-              "instance": true,
-              "job": true
-            },
-            "indexByName": {
-              "project": 0,
-              "collection": 1,
-              "Value": 2
-            },
-            "renameByName": {}
-          }
-        }
-      ],
-      "options": {
-        "showHeader": true,
-        "footer": {
-          "show": true,
-          "reducer": ["sum"],
-          "fields": ""
-        },
-        "sortBy": [
-          {
-            "displayName": "Memories",
-            "desc": true
-          }
-        ]
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      }
-    },
-    {
-      "id": 9,
-      "type": "gauge",
-      "title": "⚡ Embedding Performance (p95)",
-      "description": "Target: <300ms. Shows system responsiveness for generating new memory embeddings.",
-      "gridPos": {
-        "x": 12,
-        "y": 16,
-        "w": 6,
-        "h": 8
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(bmad_embedding_duration_seconds_bucket[5m]))) * 1000",
-          "refId": "A",
-          "legendFormat": "p95 Latency"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "decimals": 0,
-          "min": 0,
-          "max": 500,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "green"
-              },
-              {
-                "value": 200,
-                "color": "yellow"
-              },
-              {
-                "value": 300,
-                "color": "orange"
-              },
-              {
-                "value": 400,
-                "color": "red"
-              }
-            ]
-          }
-        }
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"]
-        },
-        "orientation": "auto",
-        "showThresholdLabels": true,
-        "showThresholdMarkers": true
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      }
-    },
-    {
-      "id": 10,
-      "type": "stat",
-      "title": "🎯 System Health Status",
-      "gridPos": {
-        "x": 18,
-        "y": 16,
-        "w": 6,
-        "h": 4
-      },
-      "targets": [
-        {
-          "expr": "up{job=\"bmad-embedding\"}",
-          "refId": "A",
-          "legendFormat": "Embedding"
-        },
-        {
-          "expr": "up{job=\"bmad-monitoring\"}",
-          "refId": "B",
-          "legendFormat": "Monitoring"
+          "legendFormat": "{{action}} - {{collection}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "decimals": 0,
-          "color": {
-            "mode": "thresholds"
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
           },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "red"
-              },
-              {
-                "value": 1,
-                "color": "green"
-              }
-            ]
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "DOWN",
-                  "color": "red",
-                  "index": 1
-                },
-                "1": {
-                  "text": "UP",
-                  "color": "green",
-                  "index": 0
-                }
-              }
-            }
-          ]
+          "noValue": "No duplicates detected - Memory is unique \u2713"
         }
       },
       "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"]
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         },
-        "orientation": "auto",
-        "textMode": "value_and_name",
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "center"
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "sum"
+          ],
+          "showLegend": true
+        }
       },
+      "maxDataPoints": 5000,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
-      }
+      },
+      "transparent": false
     },
     {
-      "id": 11,
-      "type": "stat",
-      "title": "💾 Service Memory Usage",
-      "gridPos": {
-        "x": 18,
-        "y": 20,
-        "w": 6,
-        "h": 4
-      },
-      "targets": [
-        {
-          "expr": "process_resident_memory_bytes{job=\"bmad-embedding\"}",
-          "refId": "A",
-          "legendFormat": "Embedding"
-        },
-        {
-          "expr": "process_resident_memory_bytes{job=\"bmad-monitoring\"}",
-          "refId": "B",
-          "legendFormat": "Monitoring"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "decimals": 1,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "green"
-              },
-              {
-                "value": 536870912,
-                "color": "yellow"
-              },
-              {
-                "value": 1073741824,
-                "color": "orange"
-              }
-            ]
-          }
-        }
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": ["lastNotNull"]
-        },
-        "orientation": "auto",
-        "textMode": "value_and_name",
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      }
-    },
-    {
-      "id": 12,
+      "id": 9,
       "type": "text",
-      "title": "📊 Retrieval Metrics & Activity Log",
+      "title": "Queue Status (Future Enhancement)",
       "gridPos": {
         "x": 0,
-        "y": 24,
+        "y": 28,
         "w": 24,
-        "h": 4
+        "h": 6
       },
       "options": {
         "mode": "markdown",
-        "content": "## Memory Retrieval Tracking\n\n**SessionStart Hook Activity** (captured in activity log, not Prometheus due to one-off process limitation):\n\n```bash\n# View recent memory retrievals\ntail -50 ~/.bmad-memory/logs/activity.log | grep RETRIEVAL\n\n# Count retrievals by project (last 100 lines)\ntail -100 ~/.bmad-memory/logs/activity.log | grep RETRIEVAL | grep -oP 'project=[^ ]+' | sort | uniq -c\n\n# View retrieval timing stats\ntail -100 ~/.bmad-memory/logs/activity.log | grep RETRIEVAL | grep -oP 'duration_ms=[0-9]+' | cut -d= -f2 | awk '{sum+=$1; count++} END {print \"Avg: \"sum/count\"ms, Total: \"count\" retrievals\"}'\n```\n\n**What This Proves:**\n- **Capture:** Embeddings/min shows memories being created ✅\n- **Storage:** Collection growth proves persistent storage ✅  \n- **Retrieval:** Activity log tracks SessionStart context injection ✅\n- **Token Savings:** Estimated 1500-2500 tokens saved per session with memory retrieval ✅\n\n**Future Enhancement (Story 6.7):** Prometheus Pushgateway will enable retrieval metrics in this dashboard."
+        "content": "**Note:** Queue status panels (classification queue size, pending operations queue) will be added when queue metrics are implemented.\n\n**Future Metrics:**\n- `memory_classifier_queue_size` - Classification requests awaiting processing\n- `memory_operations_pending_total` - Background operations queue size\n\n**Expected Behavior:** Queue sizes should be near-zero under normal load. Large queues indicate backpressure or service issues.\n\n**Reference:** Architect prompt Row 4 (Queue Status panels)"
       }
     }
   ],

@@ -15,7 +15,7 @@ Exit Codes:
 - Sync QdrantClient (user triggered, acceptable wait)
 - Structured JSON logging with extra={} dict
 - Graceful degradation: queue to file on failure
-- Store to agent-memory collection
+- Store to discussions collection
 """
 
 import json
@@ -27,25 +27,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-# Add src to path for imports
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
-sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
+# Setup Python path and import shared utilities (CR-4 Wave 2)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))) + "/src")
+from memory.hooks_common import setup_python_path, setup_hook_logging
 
-from memory.config import get_config
+INSTALL_DIR = setup_python_path()
+
+from memory.config import get_config, COLLECTION_DISCUSSIONS, EMBEDDING_DIMENSIONS, EMBEDDING_MODEL
 from memory.queue import queue_operation
 from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 from memory.project import detect_project
-from memory.logging_config import StructuredFormatter
 from memory.embeddings import EmbeddingClient, EmbeddingError
 from memory.activity_log import log_manual_save
 
-# Configure structured logging
-handler = logging.StreamHandler()
-handler.setFormatter(StructuredFormatter())
-logger = logging.getLogger("bmad.memory.manual")
-logger.setLevel(logging.INFO)
-logger.addHandler(handler)
-logger.propagate = False
+# Configure structured logging using shared utility (CR-4 Wave 2)
+logger = setup_hook_logging("bmad.memory.manual")
 
 # Import Qdrant-specific exceptions
 try:
@@ -92,7 +88,7 @@ This session summary was manually saved by the user using /save-memory command.
 
         # Generate embedding
         embedding_status = EmbeddingStatus.PENDING.value
-        vector = [0.0] * 768  # Default placeholder
+        vector = [0.0] * EMBEDDING_DIMENSIONS  # Default placeholder (CR-4.6)
 
         try:
             embed_client = EmbeddingClient()
@@ -104,9 +100,11 @@ This session summary was manually saved by the user using /save-memory command.
                 extra={"memory_id": memory_id, "dimensions": len(vector)}
             )
         except EmbeddingError as e:
+            # CR-4.4: Explicitly set FAILED status when embedding generation fails
+            embedding_status = EmbeddingStatus.FAILED.value
             logger.warning(
                 "embedding_failed_using_placeholder",
-                extra={"error": str(e), "memory_id": memory_id}
+                extra={"error": str(e), "memory_id": memory_id, "embedding_status": "failed"}
             )
             # Continue with zero vector - will be backfilled later
 
@@ -114,21 +112,21 @@ This session summary was manually saved by the user using /save-memory command.
             "content": summary_content,
             "content_hash": content_hash,
             "group_id": project_name,
-            "type": "session_summary",
+            "type": "session",
             "source_hook": "ManualSave",
             "session_id": session_id,
             "timestamp": timestamp,
             "embedding_status": embedding_status,
-            "embedding_model": "nomic-embed-code",
+            "embedding_model": EMBEDDING_MODEL,  # CR-4.8
             "importance": "normal",
             "manual_save": True,
             "user_description": description
         }
 
-        # Store to agent-memory collection
+        # Store to discussions collection
         client = get_qdrant_client()
         client.upsert(
-            collection_name="agent-memory",
+            collection_name=COLLECTION_DISCUSSIONS,
             points=[
                 PointStruct(
                     id=memory_id,
@@ -162,7 +160,7 @@ This session summary was manually saved by the user using /save-memory command.
         queue_data = {
             "content": summary_content,
             "group_id": project_name,
-            "memory_type": "session_summary",
+            "memory_type": "session",
             "source_hook": "ManualSave",
             "session_id": session_id,
             "importance": "normal"

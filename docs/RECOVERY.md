@@ -105,7 +105,7 @@ echo "✓ Qdrant healthy"
 
 # 3. Verify collections exist
 curl http://localhost:26350/collections
-# Should show: {"collections":[{"name":"implementations"},{"name":"best_practices"}]}
+# Should show: {"collections":[{"name":"code-patterns"},{"name":"conventions"}]}
 
 # 4. Process queued memories (if any)
 python scripts/memory/backfill_embeddings.py
@@ -220,7 +220,7 @@ print(f'✓ Test memory stored: {result[\"memory_id\"][:8]}...')
 python -c "
 from memory.search import MemorySearch
 search = MemorySearch()
-results = search.search(query='Recovery test', collection='implementations', limit=1)
+results = search.search(query='Recovery test', collection='code-patterns', limit=1)
 print(f'✓ Search working: {len(results)} results')
 "
 ```
@@ -280,7 +280,7 @@ If recovery fails after 3 attempts:
 ### Root Causes
 
 1. **Service container stopped**: Most common
-2. **Model loading incomplete**: Service started but Nomic model still loading (~30s)
+2. **Model loading incomplete**: Service started but Jina model still loading (~30s)
 3. **Resource exhaustion**: Out of memory (model requires ~2GB RAM)
 4. **Port conflict**: Another service using port 28080
 
@@ -294,11 +294,11 @@ docker compose -f ~/.bmad-memory/docker/docker-compose.yml ps embedding
 docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs embedding --tail 50 | grep -E "Model|Ready|Error"
 
 # Expected healthy log line:
-# "Nomic Embed Code model loaded successfully (768d)"
+# "Jina Embeddings v2 Base EN model loaded successfully (768d)"
 
 # Step 3: Check health endpoint
 curl http://localhost:28080/health
-# Expected response: {"status":"healthy","model":"nomic-embed-code","dimension":768}
+# Expected response: {"status":"healthy","model":"jinaai/jina-embeddings-v2-base-en","dimension":768}
 
 # Step 4: Check for pending embeddings in Qdrant
 python -c "
@@ -308,7 +308,7 @@ import os
 
 client = QdrantClient(url='http://localhost:26350')
 results = client.scroll(
-    collection_name='implementations',
+    collection_name='code-patterns',
     scroll_filter=Filter(
         must=[FieldCondition(key='embedding_status', match=MatchValue(value='pending'))]
     ),
@@ -332,13 +332,13 @@ curl -X POST http://localhost:28080/embed \
 # 1. Start embedding service
 docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d embedding
 
-# 2. Wait for model load (30-90s - watch logs)
+# 2. Wait for model load (15-45s - watch logs)
 docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs -f embedding | grep "Model loaded"
-# Press Ctrl+C when you see "Nomic Embed Code model loaded successfully"
+# Press Ctrl+C when you see "Jina Embeddings v2 Base EN model loaded successfully"
 
 # 3. Verify health
 curl http://localhost:28080/health
-# Should return: {"status":"healthy","model":"nomic-embed-code","dimension":768}
+# Should return: {"status":"healthy","model":"jinaai/jina-embeddings-v2-base-en","dimension":768}
 
 # 4. Test embedding generation
 curl -X POST http://localhost:28080/embed \
@@ -366,7 +366,7 @@ docker compose -f ~/.bmad-memory/docker/docker-compose.yml restart embedding
 docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs -f embedding
 
 # Look for:
-# "Loading Nomic Embed Code model..."
+# "Loading Jina Embeddings v2 model..."
 # "Model loaded successfully"
 
 # If stuck >3 minutes, restart again
@@ -431,11 +431,11 @@ docker compose -f ~/.bmad-memory/docker/docker-compose.yml ps embedding
 
 # 2. Health endpoint responds
 curl http://localhost:28080/health
-# Response: {"status":"healthy","model":"nomic-embed-code","dimension":768}
+# Response: {"status":"healthy","model":"jinaai/jina-embeddings-v2-base-en","dimension":768}
 
 # 3. Model loaded (check logs)
 docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs embedding | grep "Model loaded"
-# Should show: "Nomic Embed Code model loaded successfully"
+# Should show: "Jina Embeddings v2 Base EN model loaded successfully"
 
 # 4. Embedding generation works
 time curl -X POST http://localhost:28080/embed \
@@ -467,7 +467,7 @@ import time
 time.sleep(2)  # Wait for embedding generation
 results = search.search(
     query='semantic search validation',
-    collection='implementations',
+    collection='code-patterns',
     limit=5
 )
 print(f'✓ Semantic search working: {len(results)} results')
@@ -507,14 +507,14 @@ docker compose -f ~/.bmad-memory/docker/docker-compose.yml stop embedding
 - **Pre-warm on restart**: Docker Compose configured with `restart: unless-stopped`
 - **Health checks**: Service includes `/health` endpoint for monitoring
 - **Resource allocation**: Ensure ≥3GB RAM available for Docker
-- **Model cache**: Nomic model cached in Docker volume, fast restarts
+- **Model cache**: Jina model cached in Docker volume, fast restarts
 
 ### Escalation Path
 
 If recovery fails after 3 attempts:
 1. Check embedding service logs: `docker compose logs embedding > embedding.log`
 2. Verify model file integrity (inside container): `docker compose exec embedding ls -lh /models`
-3. Test with simpler embedding: Replace Nomic with all-MiniLM-L6-v2 (384d)
+3. Test with simpler embedding: Replace Jina with all-MiniLM-L6-v2 (384d)
 4. Contact support with:
    - Embedding service logs
    - System memory: `free -h` (Linux) or `vm_stat` (macOS)
@@ -806,7 +806,7 @@ If queue recovery fails after 3 attempts:
    python -c "
    from qdrant_client import QdrantClient
    client = QdrantClient(url='http://localhost:26350')
-   for collection in ['implementations', 'best_practices']:
+   for collection in ['code-patterns', 'conventions']:
        info = client.get_collection(collection)
        print(f'{collection}: {info.points_count} memories')
    "
@@ -919,7 +919,7 @@ See docs/RECOVERY.md for detailed recovery procedures
 **Diagnosis:**
 ```bash
 # Check if any memories exist
-curl http://localhost:26350/collections/implementations | grep points_count
+curl http://localhost:26350/collections/code-patterns | grep points_count
 # If 0: No memories stored yet
 
 # Check hook configuration
@@ -986,7 +986,7 @@ docker compose -f ~/.bmad-memory/docker/docker-compose.yml restart embedding
 python -c "
 from qdrant_client import QdrantClient
 client = QdrantClient(url='http://localhost:26350')
-results = client.scroll(collection_name='implementations', limit=5)
+results = client.scroll(collection_name='code-patterns', limit=5)
 for point in results[0]:
     print(f'ID: {point.id}, embedding_status: {point.payload.get(\"embedding_status\")}')
 "
@@ -1100,7 +1100,7 @@ sudo systemctl start docker
 docker stats --no-stream
 
 # Check Qdrant memory
-curl http://localhost:26350/collections/implementations
+curl http://localhost:26350/collections/code-patterns
 # Look at vectors_count - high count increases memory
 ```
 

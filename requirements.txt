@@ -16,3 +16,17 @@ structlog>=24.0.0,<25.0.0
 
 # Monitoring (optional but included in core)
 prometheus-client>=0.21.0,<1.0.0
+
+# Anthropic SDK for conversation capture (TECH-DEBT-035)
+anthropic>=0.61.0,<1.0.0
+
+# Retry logic with exponential backoff (DEC-029, TECH-DEBT-041)
+tenacity>=8.0.0,<9.0.0
+
+# AST-based code chunking (TECH-DEBT-052)
+tree-sitter>=0.21.0,<1.0.0
+tree-sitter-python>=0.21.0,<1.0.0
+tree-sitter-javascript>=0.21.0,<1.0.0
+tree-sitter-typescript>=0.21.0,<1.0.0
+tree-sitter-go>=0.21.0,<1.0.0
+tree-sitter-rust>=0.21.0,<1.0.0

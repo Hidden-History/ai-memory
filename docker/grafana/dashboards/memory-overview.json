@@ -1,40 +1,213 @@
 {
-  "uid": "bmad-memory-overview",
-  "title": "BMAD Memory Overview",
-  "tags": ["bmad", "memory", "overview"],
+  "uid": "bmad-memory-overview-v2",
+  "title": "BMAD Memory System - Overview",
+  "tags": [
+    "bmad",
+    "memory",
+    "overview",
+    "v2"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 7,
   "refresh": "30s",
   "time": {
-    "from": "now-30m",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {
-    "refresh_intervals": ["10s", "30s", "1m", "5m", "15m", "30m", "1h"]
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "project",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(bmad_memory_captures_total, project)",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "collection",
+        "type": "custom",
+        "options": [
+          {
+            "text": "code-patterns",
+            "value": "code-patterns"
+          },
+          {
+            "text": "conventions",
+            "value": "conventions"
+          },
+          {
+            "text": "discussions",
+            "value": "discussions"
+          }
+        ],
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "hook",
+        "type": "custom",
+        "options": [
+          {
+            "text": "user_prompt_capture",
+            "value": "user_prompt_capture"
+          },
+          {
+            "text": "agent_response_capture",
+            "value": "agent_response_capture"
+          },
+          {
+            "text": "post_tool_capture",
+            "value": "post_tool_capture"
+          },
+          {
+            "text": "error_pattern_capture",
+            "value": "error_pattern_capture"
+          },
+          {
+            "text": "pre_compact_save",
+            "value": "pre_compact_save"
+          },
+          {
+            "text": "error_detection",
+            "value": "error_detection"
+          },
+          {
+            "text": "new_file_trigger",
+            "value": "new_file_trigger"
+          },
+          {
+            "text": "first_edit_trigger",
+            "value": "first_edit_trigger"
+          },
+          {
+            "text": "decision_keyword_trigger",
+            "value": "decision_keyword_trigger"
+          },
+          {
+            "text": "best_practices_keyword_trigger",
+            "value": "best_practices_keyword_trigger"
+          },
+          {
+            "text": "session_start",
+            "value": "session_start"
+          }
+        ],
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "trigger",
+        "type": "custom",
+        "options": [
+          {
+            "text": "error_detection",
+            "value": "error_detection"
+          },
+          {
+            "text": "new_file",
+            "value": "new_file"
+          },
+          {
+            "text": "first_edit",
+            "value": "first_edit"
+          },
+          {
+            "text": "decision_keywords",
+            "value": "decision_keywords"
+          },
+          {
+            "text": "best_practices_keywords",
+            "value": "best_practices_keywords"
+          },
+          {
+            "text": "session_start_context",
+            "value": "session_start_context"
+          }
+        ],
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "allValue": ".*"
+      }
+    ]
   },
   "panels": [
     {
-      "id": 1,
-      "type": "stat",
-      "title": "Total Memories Stored",
+      "id": 100,
+      "type": "text",
+      "title": "",
       "gridPos": {
         "x": 0,
         "y": 0,
+        "w": 24,
+        "h": 6
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "# BMAD Memory System - Overview Dashboard\n\n**Purpose:** Daily operational monitoring - answering \"How many memories captured?\", \"What's the success rate?\", \"Which collections growing?\"\n\n**Audience:** Operators, Engineering Leads\n\n**V2.0 Architecture:** 3 collections (code-patterns, conventions, discussions) | 11 hooks (5 capture + 6 retrieval) | 6 triggers\n\n\n**Template Variables:** Use dropdowns above to filter by project, collection, or hook\n\n**Template Variables:** Use dropdowns above to filter by project, collection, hook, or trigger"
+      }
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Memories",
+      "description": "**Metric:** `bmad_collection_size`\n**Measures:** Total number of memory points across all 3 collections\n**Formula:** `sum(bmad_collection_size)`\n**Collections:** code-patterns (implementation, error_fix, refactor, file_pattern) + conventions (rule, guideline, port, naming, structure) + discussions (decision, session, blocker, preference, user_message, agent_response)\n**Thresholds:** Blue=info | No thresholds (growth expected)\n**See:** Core-Architecture-Principle-V2.md",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
         "w": 8,
         "h": 6
       },
       "targets": [
         {
-          "expr": "sum(bmad_collection_size{project=\"all\"})",
+          "expr": "sum(bmad_collection_size)",
           "refId": "A",
-          "legendFormat": "Total"
+          "legendFormat": "Total Memories"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
+          "noValue": "No data",
           "color": {
             "mode": "thresholds"
           },
@@ -43,15 +216,7 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
-              },
-              {
-                "value": 1000,
-                "color": "yellow"
-              },
-              {
-                "value": 5000,
-                "color": "red"
+                "color": "#5794F2"
               }
             ]
           }
@@ -60,13 +225,13 @@
       "options": {
         "reduceOptions": {
           "values": false,
-          "calcs": ["lastNotNull"]
+          "calcs": [
+            "lastNotNull"
+          ]
         },
-        "orientation": "auto",
         "textMode": "value_and_name",
         "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
+        "graphMode": "area"
       },
       "datasource": {
         "type": "prometheus",
@@ -76,24 +241,26 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Embedding Rate (Last 30m)",
+      "title": "Capture Success Rate",
+      "description": "**Metric:** `bmad_memory_captures_total`\n**Measures:** Percentage of successful memory captures\n**Formula:** `sum(bmad_memory_captures_total{status=\"success\"}) / sum(bmad_memory_captures_total) * 100`\n**NFR:** >95% success rate (BP-022)\n**Thresholds:** Green >95% | Yellow 90-95% | Red <90%\n**Note:** Pushgateway counter - NO rate() per BP-028\n**See:** BP-022 (NFR-P3), BP-028 (Pushgateway)",
       "gridPos": {
         "x": 8,
-        "y": 0,
+        "y": 6,
         "w": 8,
         "h": 6
       },
       "targets": [
         {
-          "expr": "rate(bmad_embedding_requests_total[30m])",
+          "expr": "sum(bmad_memory_captures_total{status=\"success\"}) / sum(bmad_memory_captures_total) * 100",
           "refId": "A",
-          "legendFormat": "{{status}}"
+          "legendFormat": "Success Rate"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ops",
-          "decimals": 3,
+          "unit": "percent",
+          "decimals": 1,
+          "noValue": "No data",
           "color": {
             "mode": "thresholds"
           },
@@ -102,30 +269,32 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
+                "color": "#F2495C"
               },
               {
-                "value": 5,
-                "color": "yellow"
+                "value": 90,
+                "color": "#FADE2A"
               },
               {
-                "value": 20,
-                "color": "red"
+                "value": 95,
+                "color": "#73BF69"
               }
             ]
-          }
+          },
+          "min": 0,
+          "max": 100
         }
       },
       "options": {
         "reduceOptions": {
           "values": false,
-          "calcs": ["lastNotNull"]
+          "calcs": [
+            "lastNotNull"
+          ]
         },
-        "orientation": "auto",
         "textMode": "value_and_name",
         "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto"
+        "graphMode": "area"
       },
       "datasource": {
         "type": "prometheus",
@@ -135,24 +304,26 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Unique Projects",
+      "title": "Active Hooks",
+      "description": "**Metric:** `bmad_memory_captures_total`\n**Measures:** Number of hooks that have captured at least one memory\n**Formula:** `count(count by (hook_type) (bmad_memory_captures_total))`\n**Expected:** 11 hooks total (5 capture + 6 retrieval)\n**Hooks:** user_prompt_capture, agent_response_capture, post_tool_capture, error_pattern_capture, pre_compact_save, error_detection, new_file_trigger, first_edit_trigger, decision_keyword_trigger, best_practices_keyword_trigger, session_start\n**See:** Core-Architecture-Principle-V2.md",
       "gridPos": {
         "x": 16,
-        "y": 0,
+        "y": 6,
         "w": 8,
         "h": 6
       },
       "targets": [
         {
-          "expr": "count(count by (project) (bmad_collection_size{project!=\"all\",project!=\"shared\"}))",
+          "expr": "count(count by (hook_type) (bmad_memory_captures_total))",
           "refId": "A",
-          "legendFormat": "Projects"
+          "legendFormat": "Active Hooks"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
+          "noValue": "No data",
           "color": {
             "mode": "thresholds"
           },
@@ -161,15 +332,7 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
-              },
-              {
-                "value": 10,
-                "color": "yellow"
-              },
-              {
-                "value": 50,
-                "color": "red"
+                "color": "#5794F2"
               }
             ]
           }
@@ -178,13 +341,13 @@
       "options": {
         "reduceOptions": {
           "values": false,
-          "calcs": ["lastNotNull"]
+          "calcs": [
+            "lastNotNull"
+          ]
         },
-        "orientation": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
         "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto"
+        "graphMode": "none"
       },
       "datasource": {
         "type": "prometheus",
@@ -193,185 +356,32 @@
     },
     {
       "id": 4,
-      "type": "table",
-      "title": "Collection Sizes by Project",
+      "type": "timeseries",
+      "title": "Memory Captures by Hook",
+      "description": "**Metric:** `bmad_memory_captures_total`\n**Labels:** `[hook_type, status, project]` (NO collection label)\n**Why:** Collection is determined by classifier AFTER capture\n**Shows:** Capture attempts by hook type (PostToolUse, PreCompact, Stop, etc.)\n**Note:** Does NOT show which collection memories went to (unknown at capture time)",
       "gridPos": {
         "x": 0,
-        "y": 6,
-        "w": 12,
+        "y": 12,
+        "w": 24,
         "h": 8
       },
       "targets": [
         {
-          "expr": "bmad_collection_size{project!=\"all\"}",
+          "expr": "sum by (hook_type, status) (bmad_memory_captures_total{hook_type=~\"$hook\", project=~\"$project\"})",
           "refId": "A",
-          "format": "table",
-          "instant": true
+          "legendFormat": "{{hook_type}} - {{status}} - {{collection}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "align": "auto",
-            "displayMode": "auto",
-            "filterable": true
-          },
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "green"
-              },
-              {
-                "value": 1000,
-                "color": "yellow"
-              },
-              {
-                "value": 5000,
-                "color": "red"
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Value"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Size"
-              },
-              {
-                "id": "custom.displayMode",
-                "value": "color-background"
-              },
-              {
-                "id": "decimals",
-                "value": 0
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "collection"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Collection"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "project"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Project"
-              }
-            ]
-          }
-        ]
-      },
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "__name__": true,
-              "Time": true,
-              "instance": true,
-              "job": true
-            },
-            "indexByName": {
-              "project": 0,
-              "collection": 1,
-              "Value": 2
-            },
-            "renameByName": {}
-          }
-        }
-      ],
-      "options": {
-        "showHeader": true,
-        "footer": {
-          "show": false,
-          "reducer": ["sum"],
-          "fields": ""
-        },
-        "sortBy": [
-          {
-            "displayName": "Size",
-            "desc": true
-          }
-        ]
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      }
-    },
-    {
-      "id": 5,
-      "type": "timeseries",
-      "title": "Embedding Activity (Last 30m)",
-      "gridPos": {
-        "x": 12,
-        "y": 6,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "expr": "rate(bmad_embedding_requests_total[5m])",
-          "refId": "A",
-          "legendFormat": "{{status}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
+          "unit": "short",
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "barAlignment": 0,
+            "lineInterpolation": "stepAfter",
             "lineWidth": 2,
-            "fillOpacity": 20,
-            "gradientMode": "opacity",
-            "spanNulls": false,
-            "showPoints": "auto",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "Requests/sec",
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
           }
         }
       },
@@ -383,27 +393,32 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["mean", "max", "last"]
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
         }
       },
+      "maxDataPoints": 5000,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       }
     },
     {
-      "id": 6,
+      "id": 5,
       "type": "timeseries",
-      "title": "Collection Growth Over Time",
+      "title": "Collection Sizes",
+      "description": "**Metric:** `bmad_collection_size`\n**Query:** `max by (collection)` to avoid double-counting across project labels\n**Shows:** True collection sizes (code-patterns, conventions, discussions)\n**Note:** Uses max() not sum() because metric has multiple project labels",
       "gridPos": {
         "x": 0,
-        "y": 14,
+        "y": 20,
         "w": 24,
         "h": 8
       },
       "targets": [
         {
-          "expr": "bmad_collection_size{project=\"all\"}",
+          "expr": "max by (collection) (bmad_collection_size{collection=~\"$collection\"})",
           "refId": "A",
           "legendFormat": "{{collection}}"
         }
@@ -414,30 +429,160 @@
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
-            "barAlignment": 0,
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never"
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Memory Retrievals by Collection",
+      "description": "**Metric:** `bmad_memory_retrievals_total`\n**Labels:** `[collection, status]` (HAS collection label)\n**Shows:** Retrieval operations per collection\n**Status values:**\n  - success: Results found and returned\n  - empty: Search succeeded but no results\n  - failed: Search operation failed\n**Note:** This is the actual retrieval metric, not trigger fires",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (collection, status) (bmad_memory_retrievals_total{collection=~\"$collection\"})",
+          "refId": "A",
+          "legendFormat": "{{collection}} ({{status}})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
             "lineWidth": 2,
             "fillOpacity": 10,
-            "gradientMode": "none",
-            "spanNulls": false,
             "showPoints": "never",
-            "pointSize": 5,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "axisPlacement": "auto",
-            "axisLabel": "Memories",
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "spanNulls": false
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "maxDataPoints": 5000,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Context Tokens by Hook Type",
+      "description": "**Metric:** `bmad_context_injection_tokens_sum`\n**Measures:** Cumulative context tokens injected by hook type\n**Formula:** `sum by (hook_type, collection) (bmad_context_injection_tokens_sum{hook_type=~\"$hook\", collection=~\"$collection\", project=~\"$project\"})`\n**Purpose:** Track how much context each hook is injecting into sessions\n**Note:** Pushgateway counter - NO rate() per BP-028\n**See:** BP-028 (Pushgateway), BP-002 (Context Injection)",
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (hook_type, collection) (bmad_context_injection_tokens_sum{hook_type=~\"$hook\", collection=~\"$collection\", project=~\"$project\"})",
+          "refId": "A",
+          "legendFormat": "{{hook_type}} - {{collection}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "sum"
+          ]
+        }
+      },
+      "maxDataPoints": 5000,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Context Tokens by Collection",
+      "description": "**Metric:** `bmad_context_injection_tokens_sum`\n**Measures:** Cumulative context tokens injected by collection\n**Formula:** `sum by (collection) (bmad_context_injection_tokens_sum{collection=~\"$collection\", project=~\"$project\"})`\n**Purpose:** Track which collections are providing the most context\n**Expected:** Balanced distribution across code-patterns, conventions, discussions\n**See:** BP-002 (Context Injection), Core-Architecture-Principle-V2.md",
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (collection) (bmad_context_injection_tokens_sum{collection=~\"$collection\", project=~\"$project\"})",
+          "refId": "A",
+          "legendFormat": "{{collection}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never"
           },
           "color": {
             "mode": "palette-classic"
@@ -452,7 +597,11 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["mean", "max", "last"]
+          "calcs": [
+            "lastNotNull",
+            "sum",
+            "mean"
+          ]
         }
       },
       "datasource": {
@@ -461,18 +610,359 @@
       }
     },
     {
-      "id": 7,
-      "type": "text",
-      "title": "Note: SessionStart Retrieval Metrics",
+      "id": 9,
+      "type": "timeseries",
+      "title": "Failures (Captures + Retrievals)",
+      "description": "**Metrics:** `bmad_memory_captures_total{status=\"error\"}` + `bmad_trigger_fires_total{status=\"error\"}`\n**Shows:** Failure events over time\n**Expected:** Flat line at zero (no failures)\n**Note:** Uses OR vector(0) to show zero instead of \"No data\"",
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 44,
         "w": 24,
-        "h": 3
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (hook_type) (bmad_memory_captures_total{status=\"error\", hook_type=~\"$hook\", collection=~\"$collection\", project=~\"$project\"}) OR vector(0)",
+          "refId": "A",
+          "legendFormat": "Capture Failed - {{hook_type}}"
+        },
+        {
+          "expr": "sum by (trigger_type) (bmad_trigger_fires_total{status=\"error\", trigger_type=~\"$trigger\", collection=~\"$collection\", project=~\"$project\"}) OR vector(0)",
+          "refId": "B",
+          "legendFormat": "Retrieval Failed - {{trigger_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "noValue": "0",
+          "min": 0
+        }
       },
       "options": {
-        "mode": "markdown",
-        "content": "**ℹ️ Retrieval metrics from SessionStart hook require Prometheus Pushgateway**\n\nSessionStart runs as a one-off process and can't export metrics. Retrieval data is logged to `~/.bmad-memory/logs/activity.log`.\n\n*Track implementation progress in Story 6.7 (Pushgateway integration)*"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "sum"
+          ]
+        }
+      },
+      "maxDataPoints": 5000,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Trigger Activations by Type",
+      "description": "**Metric:** `bmad_trigger_fires_total`\n**Labels:** `[trigger_type, status, project]` (NO collection label)\n**Shows:** When triggers fired (not what they retrieved)\n**Trigger types:**\n  - decision_keywords: \"why did we\", \"what was decided\"\n  - best_practices_keywords: \"best practice\", \"convention\"\n  - session_keywords: Session history queries\n  - error_detection: Bash errors (exit code != 0)\n  - new_file: Write to new file path\n  - first_edit: First edit to file in session\n**Note:** One trigger can search multiple collections",
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (trigger_type, status) (bmad_trigger_fires_total{trigger_type=~\"$trigger\", project=~\"$project\"})",
+          "refId": "A",
+          "legendFormat": "{{trigger_type}} ({{status}})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "drawStyle": "line",
+            "spanNulls": false
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Retry Queue",
+      "gridPos": {
+        "x": 0,
+        "y": 58,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Queue - Ready",
+      "description": "**Metric:** `bmad_queue_size{status=\"ready\"}`\n**Measures:** Items ready for immediate retry (next_retry_at <= now)\n**Thresholds:** Green=0 | Yellow 1-5 | Red >5\n**Action:** If >0, click 'Process Queue' in Streamlit dashboard",
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "bmad_queue_size{status=\"ready\"} OR vector(0)",
+          "refId": "A",
+          "legendFormat": "Ready"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 1,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 5,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"]
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Queue - Pending",
+      "description": "**Metric:** `bmad_queue_size{status=\"pending\"}`\n**Measures:** Items awaiting backoff timer (retry_count < max_retries, next_retry_at > now)\n**Thresholds:** Green=0 | Yellow 1-10 | Red >10\n**Note:** Will become 'ready' after backoff expires (1min → 5min → 15min)",
+      "gridPos": {
+        "x": 8,
+        "y": 59,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "bmad_queue_size{status=\"pending\"} OR vector(0)",
+          "refId": "A",
+          "legendFormat": "Pending"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 1,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 10,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"]
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Queue - Exhausted",
+      "description": "**Metric:** `bmad_queue_size{status=\"exhausted\"}`\n**Measures:** Items that exceeded max_retries (3 attempts)\n**Thresholds:** Green=0 | Red >0\n**Action:** Review in Streamlit dashboard, fix underlying issue, clear queue",
+      "gridPos": {
+        "x": 16,
+        "y": 59,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "bmad_queue_size{status=\"exhausted\"} OR vector(0)",
+          "refId": "A",
+          "legendFormat": "Exhausted"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 1,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"]
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Queue Size Over Time",
+      "description": "**Metric:** `bmad_queue_size`\n**Shows:** Queue size trend by status\n**Statuses:**\n  - ready: Items ready for immediate retry\n  - pending: Items awaiting backoff timer\n  - exhausted: Items that exceeded max_retries\n**Expected:** All lines at 0 (healthy system)\n**Alert:** Investigate if any line consistently >0",
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "bmad_queue_size",
+          "refId": "A",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "ready"},
+            "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]
+          },
+          {
+            "matcher": {"id": "byName", "options": "pending"},
+            "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "blue"}}]
+          },
+          {
+            "matcher": {"id": "byName", "options": "exhausted"},
+            "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["lastNotNull", "max", "sum"]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       }
     }
   ],

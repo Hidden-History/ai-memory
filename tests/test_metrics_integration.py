@@ -23,7 +23,7 @@ class TestUpdateCollectionMetrics:
     def test_update_collection_metrics_sets_overall_gauge(self):
         """update_collection_metrics() sets gauge for overall collection."""
         stats = CollectionStats(
-            collection_name="implementations",
+            collection_name="code-patterns",
             total_points=1500,
             indexed_points=1450,
             segments_count=3,
@@ -40,14 +40,14 @@ class TestUpdateCollectionMetrics:
 
             # Verify overall collection gauge set
             mock_gauge.labels.assert_any_call(
-                collection="implementations", project="all"
+                collection="code-patterns", project="all"
             )
             mock_gauge.labels.return_value.set.assert_any_call(1500)
 
     def test_update_collection_metrics_sets_per_project_gauges(self):
         """update_collection_metrics() sets gauges for each project."""
         stats = CollectionStats(
-            collection_name="implementations",
+            collection_name="code-patterns",
             total_points=1500,
             indexed_points=1450,
             segments_count=3,
@@ -64,16 +64,16 @@ class TestUpdateCollectionMetrics:
 
             # Verify per-project gauges set
             mock_gauge.labels.assert_any_call(
-                collection="implementations", project="proj-a"
+                collection="code-patterns", project="proj-a"
             )
             mock_gauge.labels.assert_any_call(
-                collection="implementations", project="proj-b"
+                collection="code-patterns", project="proj-b"
             )
 
     def test_update_collection_metrics_multiple_collections(self):
         """update_collection_metrics() handles multiple collections independently."""
         stats_impl = CollectionStats(
-            collection_name="implementations",
+            collection_name="code-patterns",
             total_points=1500,
             indexed_points=1450,
             segments_count=3,
@@ -84,7 +84,7 @@ class TestUpdateCollectionMetrics:
         )
 
         stats_best = CollectionStats(
-            collection_name="best_practices",
+            collection_name="conventions",
             total_points=500,
             indexed_points=500,
             segments_count=1,
@@ -103,16 +103,16 @@ class TestUpdateCollectionMetrics:
 
             # Verify both collections updated with correct labels
             mock_gauge.labels.assert_any_call(
-                collection="implementations", project="all"
+                collection="code-patterns", project="all"
             )
             mock_gauge.labels.assert_any_call(
-                collection="best_practices", project="all"
+                collection="conventions", project="all"
             )
 
     def test_update_collection_metrics_empty_collection(self):
         """update_collection_metrics() handles empty collection (0 points)."""
         stats = CollectionStats(
-            collection_name="implementations",
+            collection_name="code-patterns",
             total_points=0,
             indexed_points=0,
             segments_count=0,
@@ -129,6 +129,6 @@ class TestUpdateCollectionMetrics:
 
             # Verify gauge set to 0
             mock_gauge.labels.assert_called_once_with(
-                collection="implementations", project="all"
+                collection="code-patterns", project="all"
             )
             mock_gauge.labels.return_value.set.assert_called_once_with(0)

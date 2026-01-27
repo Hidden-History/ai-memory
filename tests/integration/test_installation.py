@@ -509,8 +509,8 @@ def test_qdrant_collections_exist():
     collections = data.get("result", {}).get("collections", [])
     collection_names = [c["name"] for c in collections]
 
-    assert "implementations" in collection_names, "implementations collection not found"
-    assert "best_practices" in collection_names, "best_practices collection not found"
+    assert "code-patterns" in collection_names, "implementations collection not found"
+    assert "conventions" in collection_names, "best_practices collection not found"
 
 
 def test_embedding_service_responds():

@@ -96,7 +96,7 @@ def cleanup_test_memories():
         for group_id in TEST_GROUP_IDS:
             try:
                 cleanup_client.delete(
-                    collection_name="implementations",
+                    collection_name="code-patterns",
                     points_selector=Filter(
                         must=[FieldCondition(key="group_id", match=MatchValue(value=group_id))]
                     )
@@ -141,7 +141,7 @@ def test_data_persists_across_docker_restart(qdrant_client, tmp_path, cleanup_te
         memory_type=MemoryType.IMPLEMENTATION,
         source_hook="PostToolUse",
         session_id="persistence-session",
-        collection="implementations",
+        collection="code-patterns",
         group_id="persistence-test"
     )
 
@@ -154,7 +154,7 @@ def test_data_persists_across_docker_restart(qdrant_client, tmp_path, cleanup_te
     # 2. Verify memory exists before restart
     pre_restart_results = search.search(
         query=test_content,
-        collection="implementations",
+        collection="code-patterns",
         group_id="persistence-test",
         limit=5
     )
@@ -204,7 +204,7 @@ def test_data_persists_across_docker_restart(qdrant_client, tmp_path, cleanup_te
     search_after_restart = MemorySearch()
     post_restart_results = search_after_restart.search(
         query=test_content,
-        collection="implementations",
+        collection="code-patterns",
         group_id="persistence-test",
         limit=5
     )
@@ -460,7 +460,7 @@ def test_data_persists_through_multiple_restarts(qdrant_client, tmp_path, cleanu
             memory_type=MemoryType.IMPLEMENTATION,
             source_hook="PostToolUse",
             session_id="multi-restart-session",
-            collection="implementations",
+            collection="code-patterns",
             group_id="multi-restart-test"
         )
         memory_ids.append(result["memory_id"])
@@ -491,7 +491,7 @@ def test_data_persists_through_multiple_restarts(qdrant_client, tmp_path, cleanu
         for idx, (memory_id, content) in enumerate(zip(memory_ids, test_contents)):
             results = cycle_search.search(
                 query=content,
-                collection="implementations",
+                collection="code-patterns",
                 group_id="multi-restart-test",
                 limit=10
             )
@@ -508,7 +508,7 @@ def test_data_persists_through_multiple_restarts(qdrant_client, tmp_path, cleanu
     # Use the last cycle_search which is still fresh from final restart
     all_results = cycle_search.search(
         query="Multi-restart test memory",
-        collection="implementations",
+        collection="code-patterns",
         group_id="multi-restart-test",
         limit=10
     )

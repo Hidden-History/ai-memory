@@ -54,7 +54,7 @@ def check_collection_thresholds(stats: CollectionStats) -> list[str]:
         List of human-readable warning strings (empty if no warnings)
 
     Example:
-        >>> stats = get_collection_stats(client, "implementations")
+        >>> stats = get_collection_stats(client, "code-patterns")
         >>> warnings = check_collection_thresholds(stats)
         >>> for warning in warnings:
         ...     print(f"⚠️  {warning}")

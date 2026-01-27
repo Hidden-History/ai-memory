@@ -31,20 +31,23 @@ memory_retrievals_total = Counter(
     "Total memory retrieval attempts",
     ["collection", "status"]
     # status: success, empty, failed
-    # collection: implementations, best_practices, combined
+    # collection: code-patterns, conventions, discussions, combined
 )
 
 embedding_requests_total = Counter(
     "bmad_embedding_requests_total",
     "Total embedding generation requests",
-    ["status"]
+    ["status", "embedding_type"]
     # status: success, timeout, failed
+    # embedding_type: dense, sparse_bm25, sparse_splade
 )
 
 deduplication_events_total = Counter(
     "bmad_deduplication_events_total",
     "Memories deduplicated (not stored)",
-    ["project"]
+    ["action", "collection", "project"]  # BUG-021: Added action/collection for dashboard granularity
+    # action: skipped_duplicate (when dedup detected), stored (when unique)
+    # collection: code-patterns, conventions, discussions
 )
 
 failure_events_total = Counter(
@@ -53,6 +56,40 @@ failure_events_total = Counter(
     ["component", "error_code"]
     # component: qdrant, embedding, queue, hook
     # error_code: QDRANT_UNAVAILABLE, EMBEDDING_TIMEOUT, QUEUE_FULL, VALIDATION_ERROR
+)
+
+# ==============================================================================
+# TOKEN TRACKING (V2.0 - TECH-DEBT-067)
+# ==============================================================================
+
+tokens_consumed_total = Counter(
+    "bmad_tokens_consumed_total",
+    "Total tokens consumed by memory operations",
+    ["operation", "direction", "project"]
+    # operation: capture, retrieval, trigger, injection
+    # direction: input, output
+    # project: project name (from group_id)
+)
+
+# ==============================================================================
+# TRIGGER TRACKING (V2.0 - TECH-DEBT-067)
+# ==============================================================================
+
+trigger_fires_total = Counter(
+    "bmad_trigger_fires_total",
+    "Total trigger activations by type",
+    ["trigger_type", "status", "project"]
+    # trigger_type: decision_keywords, best_practices_keywords, session_history_keywords,
+    #               error_detection, new_file, first_edit
+    # status: success, empty, failed
+    # project: project name
+)
+
+trigger_results_returned = Histogram(
+    "bmad_trigger_results_returned",
+    "Number of results returned per trigger",
+    ["trigger_type"],
+    buckets=[0, 1, 2, 3, 5, 10, 20]
 )
 
 # ==============================================================================
@@ -87,8 +124,10 @@ hook_duration_seconds = Histogram(
 embedding_duration_seconds = Histogram(
     "bmad_embedding_duration_seconds",
     "Embedding generation time in seconds",
-    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+    ["embedding_type"],
+    buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
     # Buckets optimized for NFR-P2 <2s target
+    # embedding_type: dense, sparse_bm25, sparse_splade
 )
 
 retrieval_duration_seconds = Histogram(
@@ -96,6 +135,15 @@ retrieval_duration_seconds = Histogram(
     "Memory retrieval time in seconds",
     buckets=[0.1, 0.5, 1.0, 2.0, 3.0, 5.0]
     # Buckets optimized for SessionStart <3s target
+)
+
+context_injection_tokens = Histogram(
+    "bmad_context_injection_tokens",
+    "Tokens injected into Claude context per hook",
+    ["hook_type", "collection"],
+    buckets=[100, 250, 500, 1000, 1500, 2000, 3000, 5000]
+    # hook_type: SessionStart, UserPromptSubmit, PreToolUse
+    # collection: code-patterns, conventions, discussions, combined
 )
 
 # ==============================================================================
@@ -109,9 +157,10 @@ system_info = Info(
 
 # Initialize system info with static metadata
 system_info.info({
-    "version": "1.0.0",
-    "embedding_model": "nomic-embed-code",
-    "vector_dimensions": "768"
+    "version": "2.0.0",
+    "embedding_model": "jina-embeddings-v2-base-en",
+    "vector_dimensions": "768",
+    "collections": "code-patterns,conventions,discussions"
 })
 
 
@@ -135,7 +184,7 @@ def update_collection_metrics(stats) -> None:
         >>> from memory.stats import get_collection_stats
         >>> config = get_config()
         >>> client = QdrantClient(host=config.qdrant_host, port=config.qdrant_port)
-        >>> stats = get_collection_stats(client, "implementations")
+        >>> stats = get_collection_stats(client, "code-patterns")
         >>> update_collection_metrics(stats)
     """
     # Overall collection size

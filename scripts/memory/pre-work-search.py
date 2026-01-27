@@ -17,7 +17,7 @@ Output Format:
                 "content": "...",
                 "type": "implementation",
                 "similarity": 0.89,
-                "collection": "implementations"
+                "collection": "code-patterns"
             }
         ],
         "count": N
@@ -84,11 +84,11 @@ def search_memories(
     limit: int = 5
 ) -> Dict[str, Any]:
     """
-    Search for relevant memories in implementations and best_practices.
+    Search for relevant memories in code-patterns and conventions.
 
     Uses MemorySearch.search_both_collections() which:
-    - Searches implementations (filtered by project if cwd provided)
-    - Searches best_practices (shared across all projects)
+    - Searches code-patterns (filtered by project if cwd provided)
+    - Searches conventions (shared across all projects)
 
     Args:
         query: Semantic search query
@@ -103,8 +103,8 @@ def search_memories(
         config = get_config()
         search = MemorySearch(config=config)
 
-        # Search both collections (implementations + best_practices)
-        # Returns: {"implementations": [...], "best_practices": [...]}
+        # Search both collections (code-patterns + conventions)
+        # Returns: {"code-patterns": [...], "conventions": [...]}
         results = search.search_both_collections(
             query=query,
             cwd=cwd,  # Auto-detects group_id if provided
@@ -114,22 +114,22 @@ def search_memories(
         # Flatten results from both collections
         all_memories = []
 
-        # Add implementations
-        for mem in results.get("implementations", []):
+        # Add code-patterns
+        for mem in results.get("code-patterns", []):
             all_memories.append({
                 "content": mem.get("content", ""),
                 "type": mem.get("type", "unknown"),
                 "similarity": round(mem.get("score", 0.0), 2),
-                "collection": mem.get("collection", "implementations"),
+                "collection": mem.get("collection", "code-patterns"),
             })
 
-        # Add best_practices
-        for mem in results.get("best_practices", []):
+        # Add conventions
+        for mem in results.get("conventions", []):
             all_memories.append({
                 "content": mem.get("content", ""),
                 "type": mem.get("type", "unknown"),
                 "similarity": round(mem.get("score", 0.0), 2),
-                "collection": mem.get("collection", "best_practices"),
+                "collection": mem.get("collection", "conventions"),
             })
 
         # Sort by similarity (highest first)

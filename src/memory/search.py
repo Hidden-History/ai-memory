@@ -13,9 +13,9 @@ import logging
 import time
 from typing import Optional
 
-from qdrant_client.models import Filter, FieldCondition, MatchValue
+from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny, SearchParams
 
-from .config import MemoryConfig, get_config
+from .config import MemoryConfig, get_config, COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS
 from .embeddings import EmbeddingClient, EmbeddingError
 from .qdrant_client import get_qdrant_client, QdrantUnavailable
 
@@ -31,16 +31,50 @@ except ImportError:
     memory_retrievals_total = None
     failure_events_total = None
 
-__all__ = ["MemorySearch", "retrieve_best_practices"]
+from .metrics_push import push_retrieval_metrics_async, push_failure_metrics_async
+
+__all__ = ["MemorySearch", "retrieve_best_practices", "search_memories", "format_attribution"]
 
 logger = logging.getLogger("bmad.memory.retrieve")
+
+
+def format_attribution(
+    collection: str,
+    memory_type: str,
+    score: Optional[float] = None,
+) -> str:
+    """Format attribution string for display.
+
+    Creates consistent attribution strings for memory search results,
+    combining collection name and memory type with optional relevance score.
+
+    Args:
+        collection: Collection name (code-patterns, conventions, discussions)
+        memory_type: Memory type from payload (e.g., implementation, error_fix)
+        score: Optional relevance score (0.0 to 1.0)
+
+    Returns:
+        Formatted attribution string.
+
+    Examples:
+        >>> format_attribution("code-patterns", "implementation")
+        '[code-patterns:implementation]'
+        >>> format_attribution("conventions", "naming", 0.87)
+        '[conventions:naming] (87%)'
+        >>> format_attribution("discussions", "unknown", 0.5)
+        '[discussions:unknown] (50%)'
+    """
+    base = f"[{collection}:{memory_type}]"
+    if score is not None:
+        return f"{base} ({int(score * 100)}%)"
+    return base
 
 
 class MemorySearch:
     """Handles memory search operations with semantic similarity.
 
     Provides semantic search with configurable filtering by group_id and memory_type,
-    dual-collection search (implementations + best_practices), and tiered result
+    dual-collection search (code-patterns + conventions), and tiered result
     formatting for context injection.
 
     Implements 2025 best practices:
@@ -84,12 +118,13 @@ class MemorySearch:
     def search(
         self,
         query: str,
-        collection: str = "implementations",
+        collection: str = COLLECTION_CODE_PATTERNS,
         cwd: Optional[str] = None,
         group_id: Optional[str] = None,
         limit: Optional[int] = None,
         score_threshold: Optional[float] = None,
-        memory_type: Optional[str] = None,
+        memory_type: Optional[str | list[str]] = None,
+        fast_mode: bool = False,  # NEW: Use hnsw_ef=64 for triggers
     ) -> list[dict]:
         """Search for relevant memories using semantic similarity with project scoping.
 
@@ -98,14 +133,20 @@ class MemorySearch:
 
         Implements AC 4.2.2: Supports automatic project detection via cwd parameter.
 
+        Memory System v2.0: Supports new collections (code-patterns, conventions, discussions)
+        with type-level filtering for precision.
+
         Args:
             query: Search query text (will be embedded for semantic search)
-            collection: Collection name ("implementations" or "best_practices")
+            collection: Collection name (code-patterns, conventions, discussions) - default: code-patterns
             cwd: Optional path for automatic project detection (auto-sets group_id)
             group_id: Optional filter by project group_id (None = search all, overrides cwd)
             limit: Maximum results to return (defaults to config.max_retrievals)
             score_threshold: Minimum similarity score (defaults to config.similarity_threshold)
-            memory_type: Optional filter by memory type (e.g., "implementation", "pattern")
+            memory_type: Optional memory type(s) to filter by - accepts string or list
+                        (e.g., "implementation" or ["implementation", "error_fix"])
+            fast_mode: If True, use hnsw_ef=64 for faster search (triggers).
+                      If False (default), use hnsw_ef=128 for accuracy (user searches).
 
         Returns:
             List of memory dicts with score, id, and all payload fields.
@@ -120,11 +161,31 @@ class MemorySearch:
             >>> results = search.search(
             ...     query="database connection pooling",
             ...     cwd="/path/to/project",  # Auto-detect project
-            ...     memory_type="implementation"
+            ...     memory_type=["implementation", "error_fix"]
             ... )
             >>> results[0].keys()
             dict_keys(['id', 'score', 'content', 'group_id', 'type', ...])
         """
+        # Normalize memory_type to list for internal use
+        # CR-2 FIX: Add type validation with warning if wrong type passed
+        memory_types = None
+        if memory_type is not None:
+            if isinstance(memory_type, str):
+                memory_types = [memory_type]
+            elif isinstance(memory_type, list):
+                memory_types = memory_type
+            else:
+                # Defensive programming: log warning for invalid type
+                logger.warning(
+                    "invalid_memory_type_parameter",
+                    extra={
+                        "received_type": type(memory_type).__name__,
+                        "expected": "str or list[str]",
+                        "value": str(memory_type)[:50]
+                    }
+                )
+                memory_types = None  # Skip type filtering if invalid
+
         # Auto-detect group_id from cwd if not explicitly provided (AC 4.2.2)
         if cwd is not None and group_id is None:
             try:
@@ -171,9 +232,9 @@ class MemorySearch:
                 "no_group_id_filter",
                 extra={"collection": collection, "reason": "group_id is None"},
             )
-        if memory_type:
+        if memory_types:
             filter_conditions.append(
-                FieldCondition(key="type", match=MatchValue(value=memory_type))
+                FieldCondition(key="type", match=MatchAny(any=memory_types))
             )
 
         query_filter = (
@@ -182,6 +243,29 @@ class MemorySearch:
 
         # Search Qdrant using query_points (qdrant-client 1.16+ API)
         # Wraps exceptions in QdrantUnavailable for graceful degradation (AC 1.6.4)
+        # 2026 Best Practice: Tune hnsw_ef based on use case
+        # - Triggers (fast_mode=True): config.hnsw_ef_fast for <100ms response
+        # - User searches (fast_mode=False): config.hnsw_ef_accurate for accuracy
+        try:
+            hnsw_ef = self.config.hnsw_ef_fast if fast_mode else self.config.hnsw_ef_accurate
+            search_params = SearchParams(hnsw_ef=hnsw_ef)
+        except Exception as e:
+            # Graceful degradation: let Qdrant use defaults
+            logger.warning(
+                "search_params_creation_failed",
+                extra={"error": str(e), "fast_mode": fast_mode}
+            )
+            search_params = None
+
+        logger.debug(
+            "search_params_configured",
+            extra={
+                "hnsw_ef": search_params.hnsw_ef if search_params else "default",
+                "fast_mode": fast_mode,
+                "collection": collection,
+            }
+        )
+
         start_time = time.perf_counter()
         try:
             response = self.client.query_points(
@@ -191,6 +275,7 @@ class MemorySearch:
                 limit=limit,
                 score_threshold=score_threshold,
                 with_payload=True,
+                search_params=search_params,
             )
             results = response.points
 
@@ -201,8 +286,8 @@ class MemorySearch:
 
         except Exception as e:
             # Metrics: Record failed retrieval duration (Story 6.1, AC 6.1.3)
+            duration_seconds = time.perf_counter() - start_time
             if retrieval_duration_seconds:
-                duration_seconds = time.perf_counter() - start_time
                 retrieval_duration_seconds.observe(duration_seconds)
 
             # Metrics: Increment failed retrieval counter (Story 6.1, AC 6.1.3)
@@ -217,6 +302,17 @@ class MemorySearch:
                     component="qdrant", error_code="QDRANT_UNAVAILABLE"
                 ).inc()
 
+            # Push to Pushgateway for hook subprocess visibility
+            push_retrieval_metrics_async(
+                collection=collection,
+                status="failed",
+                duration_seconds=duration_seconds
+            )
+            push_failure_metrics_async(
+                component="qdrant",
+                error_code="QDRANT_UNAVAILABLE"
+            )
+
             logger.error(
                 "qdrant_search_failed",
                 extra={
@@ -227,21 +323,33 @@ class MemorySearch:
             )
             raise QdrantUnavailable(f"Search failed: {e}") from e
 
-        # Format results with collection attribution (AC 3.2.4)
+        # Format results with collection and type attribution (AC 3.2.4, T4)
+        # Note: Spread payload first, then set explicit fields to ensure consistency
         memories = []
         for result in results:
+            payload = result.payload or {}
+            memory_type = payload.get("type", "unknown")
             memory = {
+                **payload,  # Spread first - explicit fields below take precedence
                 "id": result.id,
                 "score": result.score,
-                "collection": collection,  # Add collection attribution
-                **result.payload,
+                "collection": collection,
+                "type": memory_type,
+                "attribution": format_attribution(collection, memory_type, result.score),
             }
             memories.append(memory)
 
         # Metrics: Increment retrieval counter with success/empty status (Story 6.1, AC 6.1.3)
+        status = "success" if memories else "empty"
         if memory_retrievals_total:
-            status = "success" if memories else "empty"
             memory_retrievals_total.labels(collection=collection, status=status).inc()
+
+        # Push to Pushgateway for hook subprocess visibility
+        push_retrieval_metrics_async(
+            collection=collection,
+            status=status,
+            duration_seconds=time.perf_counter() - start_time
+        )
 
         # Structured logging
         logger.info(
@@ -262,12 +370,13 @@ class MemorySearch:
         group_id: Optional[str] = None,
         cwd: Optional[str] = None,
         limit: int = 5,
+        fast_mode: bool = False,
     ) -> dict:
-        """Search implementations (filtered) and best_practices (shared).
+        """Search code-patterns (filtered) and conventions (shared).
 
         Performs parallel search on both collections with different filtering:
-        - implementations: Filtered by group_id (project-specific)
-        - best_practices: No group_id filter (shared across all projects)
+        - code-patterns: Filtered by group_id (project-specific)
+        - conventions: No group_id filter (shared across all projects)
 
         Implements AC 4.2.2: Supports automatic project detection via cwd parameter.
 
@@ -276,14 +385,16 @@ class MemorySearch:
             group_id: Optional explicit project identifier (takes precedence over cwd)
             cwd: Optional working directory for auto project detection
             limit: Maximum results per collection (default 5)
+            fast_mode: If True, use hnsw_ef_fast for faster search (triggers).
+                      If False (default), use hnsw_ef_accurate for accuracy.
 
         Returns:
-            Dict with "implementations" and "best_practices" keys, each containing
+            Dict with "code-patterns" and "conventions" keys, each containing
             list of search results.
 
         Note:
-            Either group_id or cwd should be provided for implementations filtering.
-            If neither provided, implementations search uses no project filter.
+            Either group_id or cwd should be provided for code-patterns filtering.
+            If neither provided, code-patterns search uses no project filter.
 
         Example:
             >>> search = MemorySearch()
@@ -292,9 +403,9 @@ class MemorySearch:
             ...     cwd="/path/to/my-project",  # Auto-detects group_id
             ...     limit=3
             ... )
-            >>> len(results["implementations"])
+            >>> len(results["code-patterns"])
             3
-            >>> len(results["best_practices"])
+            >>> len(results["conventions"])
             3
         """
         # Resolve group_id from cwd if not explicitly provided (AC 4.2.2)
@@ -315,20 +426,22 @@ class MemorySearch:
                 )
                 effective_group_id = None
 
-        # Search implementations with group_id filter (project-specific)
-        implementations = self.search(
+        # Search code-patterns with group_id filter (project-specific)
+        code_patterns = self.search(
             query=query,
-            collection="implementations",
+            collection=COLLECTION_CODE_PATTERNS,
             group_id=effective_group_id,  # May be None if no project context
             limit=limit,
+            fast_mode=fast_mode,
         )
 
-        # Search best_practices without group_id filter (shared)
-        best_practices = self.search(
+        # Search conventions without group_id filter (shared)
+        conventions = self.search(
             query=query,
-            collection="best_practices",
+            collection=COLLECTION_CONVENTIONS,
             group_id=None,  # Shared across all projects
             limit=limit,
+            fast_mode=fast_mode,
         )
 
         # Log dual-collection search operation (AC 1.6.2)
@@ -336,16 +449,139 @@ class MemorySearch:
             "dual_collection_search_completed",
             extra={
                 "group_id": group_id,
-                "implementations_count": len(implementations),
-                "best_practices_count": len(best_practices),
-                "total_results": len(implementations) + len(best_practices),
+                "code_patterns_count": len(code_patterns),
+                "conventions_count": len(conventions),
+                "total_results": len(code_patterns) + len(conventions),
             },
         )
 
         return {
-            "implementations": implementations,
-            "best_practices": best_practices,
+            "code-patterns": code_patterns,
+            "conventions": conventions,
         }
+
+    def cascading_search(
+        self,
+        query: str,
+        group_id: Optional[str],
+        primary_collection: str,
+        secondary_collections: list[str],
+        limit: int = 5,
+        min_results: int = 3,
+        min_relevance: float = 0.5,
+        memory_type: Optional[str | list[str]] = None,
+        fast_mode: bool = False,  # NEW: Pass through to search() for hnsw_ef tuning
+    ) -> list[dict]:
+        """Search primary collection first, expand to secondary if results insufficient.
+
+        Implements V2.0 cascading search strategy: search the primary collection based
+        on detected intent, and only expand to secondary collections if results are
+        insufficient (fewer than min_results OR best result below min_relevance).
+
+        This approach is more efficient than searching all collections upfront.
+
+        Args:
+            query: Search query text
+            group_id: Project isolation filter (None = search all)
+            primary_collection: Collection to search first (based on intent)
+            secondary_collections: Collections to search if primary insufficient
+            limit: Maximum results to return (default: 5)
+            min_results: Minimum results before expanding (default: 3)
+            min_relevance: Minimum relevance score before expanding (default: 0.5)
+            memory_type: Optional filter by memory type(s). Can be a single string
+                        or list of strings. If None, no type filtering is applied.
+            fast_mode: If True, use hnsw_ef=64 for faster search (triggers).
+                      If False (default), use hnsw_ef=128 for accuracy (user searches).
+
+        Returns:
+            List of search results with collection attribution. Each result dict
+            contains: id, score, collection, content, and other payload fields.
+
+        Example:
+            >>> search = MemorySearch()
+            >>> results = search.cascading_search(
+            ...     query="how do I implement auth",
+            ...     group_id="my-project",
+            ...     primary_collection="code-patterns",
+            ...     secondary_collections=["conventions", "discussions"],
+            ...     limit=5
+            ... )
+            >>> results[0]["collection"]
+            'code-patterns'
+        """
+        # Step 1: Search primary collection
+        primary_results = self.search(
+            query=query,
+            collection=primary_collection,
+            group_id=group_id,
+            limit=limit,
+            memory_type=memory_type,
+            fast_mode=fast_mode,
+        )
+
+        # Step 2: Check if results are sufficient
+        results_count = len(primary_results)
+        best_score = primary_results[0]["score"] if primary_results else 0.0
+
+        if results_count >= min_results and best_score >= min_relevance:
+            # Primary results are sufficient - no expansion needed
+            logger.debug(
+                "cascading_search_primary_sufficient",
+                extra={
+                    "primary_collection": primary_collection,
+                    "results_count": results_count,
+                    "best_score": best_score,
+                    "min_results": min_results,
+                    "min_relevance": min_relevance,
+                    "expansion_needed": False,
+                },
+            )
+            return primary_results
+
+        # Step 3: Results insufficient - expand to secondary collections
+        logger.debug(
+            "cascading_search_expanding",
+            extra={
+                "primary_collection": primary_collection,
+                "primary_count": results_count,
+                "best_score": best_score,
+                "min_results": min_results,
+                "min_relevance": min_relevance,
+                "secondary_collections": secondary_collections,
+                "reason": "insufficient_results" if results_count < min_results else "low_relevance",
+            },
+        )
+
+        # Collect all results (primary + secondary)
+        all_results = list(primary_results)
+
+        for secondary in secondary_collections:
+            secondary_results = self.search(
+                query=query,
+                collection=secondary,
+                group_id=group_id,
+                limit=limit,
+                memory_type=memory_type,
+                fast_mode=fast_mode,
+            )
+            all_results.extend(secondary_results)
+
+        # Step 4: Sort by score (descending) and return top `limit`
+        all_results.sort(key=lambda r: r["score"], reverse=True)
+        final_results = all_results[:limit]
+
+        logger.info(
+            "cascading_search_completed",
+            extra={
+                "primary_collection": primary_collection,
+                "secondary_collections": secondary_collections,
+                "total_candidates": len(all_results),
+                "returned_count": len(final_results),
+                "expanded": True,
+            },
+        )
+
+        return final_results
 
     def format_tiered_results(
         self,
@@ -471,6 +707,7 @@ class MemorySearch:
 def retrieve_best_practices(
     query: str,
     limit: int = 3,
+    fast_mode: bool = False,
     config: Optional[MemoryConfig] = None,
 ) -> list[dict]:
     """Retrieve best practices regardless of current project.
@@ -480,15 +717,19 @@ def retrieve_best_practices(
     Best practices are shared across all projects (FR16), so no group_id
     filter is applied. This enables universal pattern discovery.
 
-    Unlike implementations (Story 4.2), best practices:
+    Unlike code-patterns (Story 4.2), best practices:
     - NO group_id filter applied (searches all best practices)
-    - Collection is always "best_practices" (not "implementations")
+    - Collection is always "conventions" (not "code-patterns")
     - NO cwd parameter (best practices are intentionally global)
     - Smaller default limit (3 vs 5) for context efficiency
 
     Args:
         query: Semantic search query for best practices
         limit: Maximum number of results (default: 3 for context efficiency)
+        fast_mode: If True, use hnsw_ef_fast for faster search.
+                  If False (default), use hnsw_ef_accurate for accuracy.
+                  Note: Best practices are typically user-facing, so
+                  accuracy is preferred over speed (default=False).
         config: Optional MemoryConfig instance. Uses get_config() if not provided.
 
     Returns:
@@ -499,7 +740,7 @@ def retrieve_best_practices(
                     - content: Best practice text
                     - group_id: Always "shared"
                     - type: Always "pattern"
-                    - collection: Always "best_practices"
+                    - collection: Always "conventions"
                     - Other payload fields (session_id, source_hook, timestamp, etc.)
 
     Raises:
@@ -516,7 +757,7 @@ def retrieve_best_practices(
         >>> results[0]["group_id"]
         'shared'
         >>> results[0]["collection"]
-        'best_practices'
+        'conventions'
 
     Note:
         No 'cwd' parameter - best practices are intentionally global.
@@ -525,9 +766,9 @@ def retrieve_best_practices(
     Performance Considerations (2026):
         Per Qdrant Multitenancy Guide (https://qdrant.tech/articles/multitenancy/):
         - Unfiltered queries (no group_id filter) scan all vectors in collection
-        - For best_practices collection with ~100-1000 entries, overhead is minimal (<50ms)
+        - For conventions collection with ~100-1000 entries, overhead is minimal (<50ms)
         - Much faster than maintaining separate collections per project
-        - Use smaller default limit=3 vs implementations limit=5 to reduce context load
+        - Use smaller default limit=3 vs code-patterns limit=5 to reduce context load
 
     2026 Best Practice Rationale:
         Per Qdrant Filtering Guide (https://qdrant.tech/articles/vector-search-filtering/):
@@ -542,9 +783,10 @@ def retrieve_best_practices(
         # CRITICAL: group_id=None means search ALL best practices, not just one project
         results = search.search(
             query=query,
-            collection="best_practices",  # CRITICAL: Separate collection for shared content
+            collection=COLLECTION_CONVENTIONS,  # CRITICAL: Separate collection for shared content
             group_id=None,  # CRITICAL: No project filter for shared collection
             limit=limit,
+            fast_mode=fast_mode,
         )
 
         logger.info(
@@ -593,3 +835,145 @@ def retrieve_best_practices(
         )
         # Return empty list for graceful degradation (explicit error per user requirements)
         return []
+
+
+def search_memories(
+    query: str,
+    collection: Optional[str] = None,
+    group_id: Optional[str] = None,
+    limit: int = 5,
+    memory_type: Optional[str | list[str]] = None,
+    use_cascading: bool = False,
+    intent: Optional[str] = None,
+    fast_mode: bool = False,
+    config: Optional[MemoryConfig] = None,
+) -> list[dict]:
+    """Search memories with optional intent-based cascading.
+
+    Convenience function for searching memories with backward compatibility.
+    When use_cascading=True and collection=None, uses intent detection to
+    route to the appropriate primary collection and cascades if needed.
+
+    Memory System V2.0: Supports cascading search across collections based
+    on detected user intent (HOW → code-patterns, WHAT → conventions,
+    WHY → discussions).
+
+    Args:
+        query: Search query text
+        collection: Collection to search. If None with use_cascading=True,
+                   auto-detects based on intent.
+        group_id: Optional project isolation filter
+        limit: Maximum results to return (default: 5)
+        memory_type: Optional memory type(s) to filter by - accepts string or list
+        use_cascading: If True and collection=None, use cascading search
+                      based on detected intent (default: False)
+        intent: Optional pre-detected intent ("how", "what", "why").
+               If not provided, will be auto-detected from query.
+        fast_mode: If True, use hnsw_ef_fast for faster search (triggers).
+                  If False (default), use hnsw_ef_accurate for accuracy.
+        config: Optional MemoryConfig instance
+
+    Returns:
+        List of memory dicts with score, id, collection, and payload fields.
+        Sorted by similarity score (highest first).
+
+    Raises:
+        EmbeddingError: If embedding service is unavailable
+        QdrantUnavailable: If Qdrant search fails
+
+    Example (backward compatible - explicit collection):
+        >>> results = search_memories(
+        ...     query="how do I implement auth",
+        ...     collection="code-patterns",
+        ...     group_id="my-project"
+        ... )
+        >>> len(results)
+        5
+
+    Example (cascading search):
+        >>> results = search_memories(
+        ...     query="how do I implement auth",
+        ...     group_id="my-project",
+        ...     use_cascading=True
+        ... )
+        >>> results[0]["collection"]  # Attribution included
+        'code-patterns'
+
+    Note:
+        - Backward compatible: Existing callers passing collection work unchanged
+        - Collection attribution: All results include 'collection' field
+        - Efficient: Only expands to secondary collections if primary insufficient
+    """
+    search = MemorySearch(config=config)
+
+    # Backward compatible: If collection explicitly provided, use direct search
+    if collection is not None:
+        logger.debug(
+            "search_memories_direct",
+            extra={"collection": collection, "group_id": group_id},
+        )
+        return search.search(
+            query=query,
+            collection=collection,
+            group_id=group_id,
+            limit=limit,
+            memory_type=memory_type,
+            fast_mode=fast_mode,
+        )
+
+    # If not using cascading and no collection, default to code-patterns
+    if not use_cascading:
+        logger.debug(
+            "search_memories_default_collection",
+            extra={"collection": COLLECTION_CODE_PATTERNS, "group_id": group_id},
+        )
+        return search.search(
+            query=query,
+            collection=COLLECTION_CODE_PATTERNS,
+            group_id=group_id,
+            limit=limit,
+            memory_type=memory_type,
+            fast_mode=fast_mode,
+        )
+
+    # Cascading search: Detect intent and route appropriately
+    from .intent import detect_intent, get_target_collection, get_target_types, IntentType
+
+    # Detect or use provided intent
+    if intent:
+        detected_intent = IntentType(intent.lower())
+    else:
+        detected_intent = detect_intent(query)
+
+    # Get primary collection and types for this intent
+    primary_collection = get_target_collection(detected_intent)
+    intent_types = get_target_types(detected_intent)
+
+    # Explicit memory_type overrides intent-inferred types (intentional - user knows what they want)
+    effective_types = memory_type if memory_type else (intent_types if intent_types else None)
+
+    # Build secondary collections list (all collections except primary)
+    all_collections = [COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS]
+    secondary_collections = [c for c in all_collections if c != primary_collection]
+
+    logger.info(
+        "search_memories_cascading",
+        extra={
+            "query": query[:50],
+            "detected_intent": detected_intent.value,
+            "primary_collection": primary_collection,
+            "secondary_collections": secondary_collections,
+            "memory_type": effective_types,
+            "group_id": group_id,
+        },
+    )
+
+    return search.cascading_search(
+        query=query,
+        group_id=group_id,  # Pass None to use no filter
+        primary_collection=primary_collection,
+        secondary_collections=secondary_collections,
+        limit=limit,
+        memory_type=effective_types,
+        fast_mode=fast_mode,
+    )

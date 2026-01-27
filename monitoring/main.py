@@ -73,10 +73,19 @@ except ImportError:
     })
 
 # Initialize async Qdrant client (2026 best practice for async FastAPI)
-# Use host/port instead of url to avoid QDRANT_URL env var interference
+# BP-040: API key + HTTPS configurable via environment variables
 qdrant_host = os.getenv("QDRANT_HOST", "localhost")
 qdrant_port = int(os.getenv("QDRANT_PORT", "26350"))
-client = AsyncQdrantClient(host=qdrant_host, port=qdrant_port, timeout=10)
+qdrant_api_key = os.getenv("QDRANT_API_KEY")
+qdrant_use_https = os.getenv("QDRANT_USE_HTTPS", "false").lower() == "true"
+client = AsyncQdrantClient(
+    host=qdrant_host,
+    port=qdrant_port,
+    api_key=qdrant_api_key,
+    https=qdrant_use_https,
+    timeout=10
+)
+
 
 # Lazy-loaded sync client for stats operations (reused across requests)
 _sync_client: "QdrantClient | None" = None
@@ -91,7 +100,13 @@ def get_sync_client():
     global _sync_client
     if _sync_client is None:
         from qdrant_client import QdrantClient
-        _sync_client = QdrantClient(host=qdrant_host, port=qdrant_port, timeout=5)
+        _sync_client = QdrantClient(
+            host=qdrant_host,
+            port=qdrant_port,
+            api_key=qdrant_api_key,
+            https=qdrant_use_https,  # BP-040
+            timeout=5
+        )
     return _sync_client
 
 # Background task to update collection metrics (Story 6.6)
@@ -105,7 +120,7 @@ async def update_metrics_periodically():
             # Reuse sync client for stats (avoids creating new connection per update)
             sync_client = get_sync_client()
 
-            for collection_name in ["implementations", "best_practices"]:
+            for collection_name in ["code-patterns", "conventions", "discussions"]:
                 try:
                     stats = get_collection_stats(sync_client, collection_name)
                     update_collection_metrics(stats)
@@ -169,7 +184,7 @@ class MemoryResponse(BaseModel):
 class SearchRequest(BaseModel):
     """Search request model for semantic search."""
     query: str = Field(..., description="Search query text")
-    collection: str = Field("implementations", description="Collection to search")
+    collection: str = Field("code-patterns", description="Collection to search")
     limit: int = Field(10, description="Maximum results to return")
 
 
@@ -215,7 +230,7 @@ async def health():
         sync_client = get_sync_client()
 
         all_warnings = []
-        for collection_name in ["implementations", "best_practices"]:
+        for collection_name in ["code-patterns", "conventions", "discussions"]:
             try:
                 stats = get_collection_stats(sync_client, collection_name)
                 warnings = check_collection_thresholds(stats)
@@ -290,14 +305,14 @@ async def readiness():
 @app.get("/memory/{memory_id}", response_model=MemoryResponse, tags=["Memory Operations"])
 async def get_memory(
     memory_id: str,
-    collection: str = "implementations"
+    collection: str = "code-patterns"
 ):
     """
     Retrieve a specific memory by ID for testing verification.
 
     Args:
         memory_id: UUID of the memory to retrieve
-        collection: Collection name (implementations or best_practices)
+        collection: Collection name (code-patterns, conventions, or discussions)
 
     Returns:
         Memory payload if found, error if not found or Qdrant unavailable
@@ -347,7 +362,7 @@ async def collection_stats(collection: str):
     Get collection statistics for testing verification.
 
     Args:
-        collection: Collection name (implementations or best_practices)
+        collection: Collection name (code-patterns, conventions, or discussions)
 
     Returns:
         Collection info including point count and status

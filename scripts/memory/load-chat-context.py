@@ -2,7 +2,7 @@
 """
 Chat Context Loader for BMAD Agent Session Continuity
 
-Loads previous conversation context from agent-memory collection to provide
+Loads previous conversation context from discussions collection to provide
 session continuity for BMAD agents. Retrieves recent chat memories filtered
 by agent type and session information.
 
@@ -80,7 +80,7 @@ def load_chat_context(
     """
     Load recent chat memories for session continuity.
 
-    Queries agent-memory collection for chat_memory type, filters by agent
+    Queries discussions collection for chat_memory type, filters by agent
     and optionally session_id, sorted by timestamp (most recent first).
 
     Args:
@@ -142,7 +142,7 @@ def load_chat_context(
         # Note: We can't use order_by without a payload index on timestamp,
         # so we fetch and sort in Python for graceful degradation
         response = client.scroll(
-            collection_name="agent-memory",
+            collection_name="discussions",
             scroll_filter=query_filter,
             limit=limit * 2,  # Fetch extra to ensure we get recent ones after sorting
             with_payload=True,

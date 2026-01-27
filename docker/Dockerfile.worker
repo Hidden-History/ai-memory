@@ -1,0 +1,34 @@
+FROM python:3.12.8-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY src/ /app/src/
+COPY scripts/ /app/scripts/
+
+# Create queue directory and tmp for health checks
+RUN mkdir -p /app/queue /tmp
+
+# Create non-root user (security hardening 2025)
+RUN useradd -r -u 1001 -g users classifier && \
+    chown -R classifier:users /app /tmp
+
+# Set Python path to include src directory where memory module lives
+ENV PYTHONPATH=/app/src
+
+# Switch to non-root user
+USER classifier
+
+# Run the classification queue processor
+CMD ["python3", "scripts/memory/process_classification_queue.py"]

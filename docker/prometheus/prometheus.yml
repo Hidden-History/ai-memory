@@ -1,5 +1,6 @@
 # Prometheus Configuration for BMAD Memory Module
-# Scrapes metrics from embedding service at /metrics endpoint
+# Comprehensive monitoring of all services in the stack
+# Updated: 2026-01-26 - BUG-021 Complete monitoring coverage
 
 global:
   scrape_interval: 15s
@@ -7,7 +8,11 @@ global:
   scrape_timeout: 10s
 
 scrape_configs:
-  - job_name: 'bmad-embedding'
+  # ===================================================================
+  # Application Services (with /metrics endpoints)
+  # ===================================================================
+
+  - job_name: 'embedding-service'
     static_configs:
       - targets: ['embedding:8080']
     metrics_path: '/metrics'
@@ -18,3 +23,54 @@ scrape_configs:
       - targets: ['monitoring-api:8000']
     metrics_path: '/metrics'
     scrape_interval: 15s
+
+  # ===================================================================
+  # Infrastructure Services
+  # ===================================================================
+
+  - job_name: 'qdrant'
+    static_configs:
+      - targets: ['qdrant:6333']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    # Qdrant requires API key authentication
+    authorization:
+      type: Bearer
+      credentials: 'REDACTED_API_KEY'
+
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    # Prometheus self-scrape with basic auth
+    basic_auth:
+      username: 'admin'
+      password: '5HCf9v5laO0jxxLcXtnyYj7G'
+
+  # ===================================================================
+  # Pushgateway (aggregates metrics from hooks)
+  # ===================================================================
+
+  - job_name: 'pushgateway'
+    honor_labels: true
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['pushgateway:9091']
+
+  # ===================================================================
+  # NOTES
+  # ===================================================================
+  #
+  # classifier-worker does NOT have a /metrics endpoint
+  # It's a Python script that pushes metrics to Pushgateway
+  # Its metrics appear under job="bmad_memory_classifier" via Pushgateway
+  #
+  # honor_labels: true on Pushgateway preserves job labels from pushed metrics
+  # This allows classifier, hooks, etc. to maintain their own job identities

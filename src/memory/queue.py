@@ -201,23 +201,31 @@ class MemoryQueue:
         os.chmod(self.queue_path.parent, 0o700)
 
     def _update_queue_metrics(self):
-        """Update queue_size gauge with current stats.
+        """Update queue_size gauge with current stats and push to Pushgateway.
 
         Metrics: Update queue_size gauge (Story 6.1, AC 6.1.3)
-        Labels: status in ["pending", "exhausted"]
-        - pending: Items with retry_count < max_retries
+        Labels: status in ["pending", "exhausted", "ready"]
+        - pending: Items with retry_count < max_retries (awaiting backoff)
         - exhausted: Items with retry_count >= max_retries
+        - ready: Items ready for immediate retry (next_retry_at <= now)
         """
-        if queue_size is None:
-            return
-
         stats = self.get_stats()
-        # Pending = ready_for_retry + awaiting_backoff
-        pending_count = stats["ready_for_retry"] + stats["awaiting_backoff"]
+        # Pending = awaiting_backoff (not yet ready)
+        pending_count = stats["awaiting_backoff"]
         exhausted_count = stats["exhausted"]
+        ready_count = stats["ready_for_retry"]
 
-        queue_size.labels(status="pending").set(pending_count)
-        queue_size.labels(status="exhausted").set(exhausted_count)
+        # Update in-memory gauge if available
+        if queue_size is not None:
+            queue_size.labels(status="pending").set(pending_count)
+            queue_size.labels(status="exhausted").set(exhausted_count)
+
+        # Push to Pushgateway for dashboard visibility
+        try:
+            from .metrics_push import push_queue_metrics_async
+            push_queue_metrics_async(pending_count, exhausted_count, ready_count)
+        except ImportError:
+            pass  # Graceful degradation if push module not available
 
     def enqueue(self, memory_data: dict, failure_reason: str, immediate: bool = False) -> str:
         """Add memory operation to queue.
@@ -567,21 +575,26 @@ class LockedReadModifyWrite:
             self.lock_file.close()
 
 
-def queue_operation(data: dict) -> bool:
+def queue_operation(data: dict, reason: str = "HOOK_STORAGE_FAILED", immediate: bool = False) -> bool:
     """Queue a memory operation for later retry.
 
     Simple wrapper for hooks that need to queue failed operations.
     Provides graceful degradation by never raising exceptions.
 
+    Enhanced in CR-1.3 to consolidate queue_to_file() from hook scripts.
+
     Args:
         data: Dictionary with memory operation data (content, group_id, etc.)
+        reason: Failure reason code (default: "HOOK_STORAGE_FAILED")
+                Examples: "qdrant_unavailable", "timeout", "embedding_failed"
+        immediate: If True, queued item is immediately ready for retry (no backoff)
 
     Returns:
         True if queued successfully, False on any error
     """
     try:
         queue = MemoryQueue()
-        queue.enqueue(data, "HOOK_STORAGE_FAILED")
+        queue.enqueue(data, reason, immediate=immediate)
         return True
     except Exception as e:
         # Graceful degradation: log error but never crash

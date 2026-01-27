@@ -11,6 +11,10 @@ Test Coverage:
 import re
 import pytest
 from typing import List, Dict, Any
+
+# Skip tests if playwright is not installed (optional dependency)
+pytest.importorskip("playwright", reason="Playwright not installed - run 'pip install playwright' and 'playwright install' to enable E2E tests")
+
 from playwright.sync_api import Page, expect, ConsoleMessage
 
 

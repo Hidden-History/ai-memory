@@ -126,7 +126,7 @@ class TestProcessQueueItem:
         assert call_kwargs["group_id"] == "test-project"
         assert call_kwargs["memory_type"] == "implementation"
         assert call_kwargs["source_hook"] == "PostToolUse"
-        assert call_kwargs["collection"] == "implementations"
+        assert call_kwargs["collection"] == "code-patterns"
 
         # Verify dequeue called
         mock_queue.dequeue.assert_called_once_with("queue-id-123")

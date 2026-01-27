@@ -42,7 +42,7 @@ class TestMonitoringPerformance:
             memory_captures_total.labels(
                 hook_type="PostToolUse", status="success", project="perf-test"
             ).inc()
-            collection_size.labels(collection="implementations", project="perf-test").set(
+            collection_size.labels(collection="code-patterns", project="perf-test").set(
                 i
             )
             hook_duration_seconds.labels(hook_type="PostToolUse").observe(0.123)
@@ -171,7 +171,7 @@ class TestMonitoringPerformance:
             memory_captures_total.labels(
                 hook_type="PostToolUse", status="success", project="nfr-test"
             ).inc()
-            collection_size.labels(collection="implementations", project="nfr-test").set(
+            collection_size.labels(collection="code-patterns", project="nfr-test").set(
                 i * 100
             )
             hook_duration_seconds.labels(hook_type="PostToolUse").observe(0.123)

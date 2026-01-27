@@ -76,7 +76,8 @@ logger = logging.getLogger(__name__)
 
 
 @pytest.mark.integration
-def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path) -> None:
+@pytest.mark.requires_qdrant
+def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path, monkeypatch) -> None:
     """
     Test that implementations are isolated between projects (FR14, FR15).
 
@@ -91,6 +92,10 @@ def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path) -> None:
     When: I search from project "project-a"
     Then: memories from "project-a" ARE returned (project-scoped access works)
     """
+    # TECH-DEBT-015 FIX: Clear BMAD_PROJECT_ID to enable cwd-based detection
+    # The env var has highest priority and prevents multi-project testing
+    monkeypatch.delenv("BMAD_PROJECT_ID", raising=False)
+
     logger.info(
         "test_started",
         extra={
@@ -114,7 +119,7 @@ def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path) -> None:
     result_a = storage.store_memory(
         content="Project A specific implementation: FastAPI OAuth2 flow",
         cwd=str(project_a_dir),
-        collection="implementations",
+        collection="code-patterns",
         memory_type=MemoryType.IMPLEMENTATION,
         session_id="proj-a-session",
         source_hook="PostToolUse",
@@ -127,7 +132,7 @@ def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path) -> None:
     result_b = storage.store_memory(
         content="Project B specific implementation: Django REST authentication",
         cwd=str(project_b_dir),
-        collection="implementations",
+        collection="code-patterns",
         memory_type=MemoryType.IMPLEMENTATION,
         session_id="proj-b-session",
         source_hook="PostToolUse",
@@ -142,7 +147,7 @@ def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path) -> None:
     # Retrieve from project A - should ONLY get project A memories
     results_a = search.search(
         query="implementation pattern",
-        collection="implementations",
+        collection="code-patterns",
         group_id="project-a",
         limit=10,
     )
@@ -157,7 +162,7 @@ def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path) -> None:
     # Retrieve from project B - should ONLY get project B memories
     results_b = search.search(
         query="implementation pattern",
-        collection="implementations",
+        collection="code-patterns",
         group_id="project-b",
         limit=10,
     )
@@ -187,7 +192,8 @@ def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path) -> None:
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path) -> None:
+@pytest.mark.requires_qdrant
+def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path, monkeypatch) -> None:
     """
     Test seamless switching between projects without manual intervention (FR17).
 
@@ -198,6 +204,9 @@ def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path) -> None:
     Then: context retrieved reflects project "project-b" memories ONLY
     And: switching back to "project-a" retrieves project "project-a" context again (FR17)
     """
+    # TECH-DEBT-015 FIX: Clear BMAD_PROJECT_ID to enable cwd-based detection
+    monkeypatch.delenv("BMAD_PROJECT_ID", raising=False)
+
     logger.info(
         "test_started",
         extra={
@@ -221,7 +230,7 @@ def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path) -> None:
     storage.store_memory(
         content="Switch test A: Pytest fixtures with tmp_path",
         cwd=str(switch_a),
-        collection="implementations",
+        collection="code-patterns",
         memory_type=MemoryType.IMPLEMENTATION,
         session_id="switch-a-1",
         source_hook="PostToolUse",
@@ -231,7 +240,7 @@ def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path) -> None:
     storage.store_memory(
         content="Switch test B: Asyncio concurrent testing",
         cwd=str(switch_b),
-        collection="implementations",
+        collection="code-patterns",
         memory_type=MemoryType.IMPLEMENTATION,
         session_id="switch-b-1",
         source_hook="PostToolUse",
@@ -245,7 +254,7 @@ def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path) -> None:
     # Stored content: "Switch test A: Pytest fixtures with tmp_path"
     context_a1 = search.search(
         query="pytest fixtures switch test",
-        collection="implementations",
+        collection="code-patterns",
         group_id="switch-test-a",
         limit=5,
     )
@@ -256,7 +265,7 @@ def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path) -> None:
     # Stored content: "Switch test B: Asyncio concurrent testing"
     context_b = search.search(
         query="asyncio concurrent switch test",
-        collection="implementations",
+        collection="code-patterns",
         group_id="switch-test-b",
         limit=5,
     )
@@ -264,7 +273,7 @@ def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path) -> None:
     # Switch back to project A - second retrieval
     context_a2 = search.search(
         query="pytest fixtures switch test",
-        collection="implementations",
+        collection="code-patterns",
         group_id="switch-test-a",
         limit=5,
     )
@@ -306,7 +315,8 @@ def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path) -> None:
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_concurrent_projects(qdrant_client: QdrantClient, tmp_path: Path) -> None:
+@pytest.mark.requires_qdrant
+def test_concurrent_projects(qdrant_client: QdrantClient, tmp_path: Path, monkeypatch) -> None:
     """
     Test 2-3 concurrent projects without interference (FR15, NFR-SC2).
 
@@ -317,6 +327,9 @@ def test_concurrent_projects(qdrant_client: QdrantClient, tmp_path: Path) -> Non
     Then: each project maintains isolation (no cross-contamination) (FR15)
     And: all projects can operate simultaneously without interference
     """
+    # TECH-DEBT-015 FIX: Clear BMAD_PROJECT_ID to enable cwd-based detection
+    monkeypatch.delenv("BMAD_PROJECT_ID", raising=False)
+
     logger.info(
         "test_started",
         extra={
@@ -360,7 +373,7 @@ def test_concurrent_projects(qdrant_client: QdrantClient, tmp_path: Path) -> Non
         result = storage.store_memory(
             content=proj["content"],
             cwd=str(proj["dir"]),
-            collection="implementations",
+            collection="code-patterns",
             memory_type=MemoryType.IMPLEMENTATION,
             session_id=f"{proj['name']}-session",
             source_hook="PostToolUse",
@@ -376,7 +389,7 @@ def test_concurrent_projects(qdrant_client: QdrantClient, tmp_path: Path) -> Non
     for proj in projects:
         results = search.search(
             query=proj["query"],
-            collection="implementations",
+            collection="code-patterns",
             group_id=proj["name"],
             limit=10,
         )
@@ -417,6 +430,7 @@ def test_concurrent_projects(qdrant_client: QdrantClient, tmp_path: Path) -> Non
 
 @pytest.mark.integration
 @pytest.mark.slow  # Long wait for embeddings: ~150s
+@pytest.mark.requires_qdrant
 def test_concurrent_projects_performance(
     qdrant_client: QdrantClient, tmp_path: Path
 ) -> None:
@@ -461,7 +475,7 @@ def test_concurrent_projects_performance(
         storage.store_memory(
             content=proj["content"],
             cwd=str(proj["dir"]),
-            collection="implementations",
+            collection="code-patterns",
             memory_type=MemoryType.IMPLEMENTATION,
             session_id=f"perf-session-{proj['name']}",
             source_hook="PostToolUse",
@@ -477,7 +491,7 @@ def test_concurrent_projects_performance(
         start = time.time()
         results = search.search(
             query="performance test pattern",
-            collection="implementations",
+            collection="code-patterns",
             group_id=proj["name"],
             limit=5,
         )
@@ -529,6 +543,7 @@ def test_concurrent_projects_performance(
 
 
 @pytest.mark.integration
+@pytest.mark.requires_qdrant
 def test_best_practices_shared_across_projects(
     qdrant_client: QdrantClient, tmp_path: Path
 ) -> None:
@@ -546,7 +561,7 @@ def test_best_practices_shared_across_projects(
         extra={
             "test_name": "test_best_practices_shared_across_projects",
             "sharing_type": "cross_project",
-            "collection": "best_practices",
+            "collection": "conventions",
         },
     )
 
@@ -597,6 +612,7 @@ def test_best_practices_shared_across_projects(
 
 
 @pytest.mark.integration
+@pytest.mark.requires_qdrant
 def test_implementations_not_in_best_practices_collection(
     qdrant_client: QdrantClient, tmp_path: Path
 ) -> None:
@@ -629,7 +645,7 @@ def test_implementations_not_in_best_practices_collection(
     impl_result = storage.store_memory(
         content="Implementation: OAuth2 password flow with FastAPI dependency injection",
         cwd=str(impl_proj_dir),
-        collection="implementations",
+        collection="code-patterns",
         memory_type=MemoryType.IMPLEMENTATION,
         session_id="impl-session",
         source_hook="PostToolUse",
@@ -673,6 +689,7 @@ def test_implementations_not_in_best_practices_collection(
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.requires_qdrant
 def test_hooks_multi_project_integration(
     qdrant_client: QdrantClient, tmp_path: Path
 ) -> None:
@@ -783,14 +800,14 @@ def test_hooks_multi_project_integration(
     # Stored content B: "# Hook test B: Asyncio concurrent testing"
     memories_a = search.search(
         query="pytest tmp_path fixture hook test",
-        collection="implementations",
+        collection="code-patterns",
         group_id="hook-project-a",
         limit=10,
     )
 
     memories_b = search.search(
         query="asyncio concurrent testing hook test",
-        collection="implementations",
+        collection="code-patterns",
         group_id="hook-project-b",
         limit=10,
     )

@@ -34,7 +34,7 @@ class TestCollectionStatsDataclass:
     def test_collection_stats_initialization(self):
         """CollectionStats initializes with all required fields."""
         stats = CollectionStats(
-            collection_name="implementations",
+            collection_name="code-patterns",
             total_points=1000,
             indexed_points=950,
             segments_count=3,
@@ -44,7 +44,7 @@ class TestCollectionStatsDataclass:
             points_by_project={"project-a": 600, "project-b": 400},
         )
 
-        assert stats.collection_name == "implementations"
+        assert stats.collection_name == "code-patterns"
         assert stats.total_points == 1000
         assert stats.indexed_points == 950
         assert stats.segments_count == 3
@@ -56,7 +56,7 @@ class TestCollectionStatsDataclass:
     def test_collection_stats_optional_last_updated(self):
         """CollectionStats allows None for last_updated."""
         stats = CollectionStats(
-            collection_name="best_practices",
+            collection_name="conventions",
             total_points=0,
             indexed_points=0,
             segments_count=0,
@@ -102,10 +102,10 @@ class TestGetCollectionStats:
         ]
 
         # Execute
-        stats = get_collection_stats(mock_client, "implementations")
+        stats = get_collection_stats(mock_client, "code-patterns")
 
         # Verify
-        assert stats.collection_name == "implementations"
+        assert stats.collection_name == "code-patterns"
         assert stats.total_points == 1500
         assert stats.indexed_points == 1450
         assert stats.segments_count == 2
@@ -127,7 +127,7 @@ class TestGetCollectionStats:
         mock_client.get_collection.return_value = mock_collection_info
         mock_client.scroll.return_value = ([], None)
 
-        stats = get_collection_stats(mock_client, "implementations")
+        stats = get_collection_stats(mock_client, "code-patterns")
 
         assert stats.total_points == 0
         assert stats.indexed_points == 0
@@ -154,7 +154,7 @@ class TestGetUniqueFieldValues:
         )
 
         projects = get_unique_field_values(
-            mock_client, "implementations", "group_id"
+            mock_client, "code-patterns", "group_id"
         )
 
         assert projects == ["project-a", "project-b", "project-c"]  # sorted
@@ -165,7 +165,7 @@ class TestGetUniqueFieldValues:
         mock_client.scroll.return_value = ([], None)
 
         projects = get_unique_field_values(
-            mock_client, "implementations", "group_id"
+            mock_client, "code-patterns", "group_id"
         )
 
         assert projects == []
@@ -183,7 +183,7 @@ class TestGetUniqueFieldValues:
         )
 
         projects = get_unique_field_values(
-            mock_client, "implementations", "group_id"
+            mock_client, "code-patterns", "group_id"
         )
 
         assert projects == ["project-a", "project-b"]
@@ -229,7 +229,7 @@ class TestGetLastUpdated:
             None,
         )
 
-        last_updated = get_last_updated(mock_client, "implementations")
+        last_updated = get_last_updated(mock_client, "code-patterns")
 
         assert last_updated == "2026-01-13T09:00:00Z"
 
@@ -238,7 +238,7 @@ class TestGetLastUpdated:
         mock_client = Mock()
         mock_client.scroll.return_value = ([], None)
 
-        last_updated = get_last_updated(mock_client, "implementations")
+        last_updated = get_last_updated(mock_client, "code-patterns")
 
         assert last_updated is None
 
@@ -250,6 +250,6 @@ class TestGetLastUpdated:
             None,
         )
 
-        last_updated = get_last_updated(mock_client, "implementations")
+        last_updated = get_last_updated(mock_client, "code-patterns")
 
         assert last_updated is None

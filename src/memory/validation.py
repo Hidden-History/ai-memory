@@ -6,6 +6,8 @@ Implements Story 1.3 AC 1.3.3.
 
 import hashlib
 
+from .models import MemoryType
+
 __all__ = ["ValidationError", "validate_payload", "compute_content_hash"]
 
 
@@ -51,13 +53,26 @@ def validate_payload(payload: dict) -> list[str]:
             errors.append("Content too short (minimum 10 chars)")
 
     # Type validation (only if field is present and non-empty)
-    valid_types = ["implementation", "session_summary", "decision", "pattern"]
+    # v2.0 spec types (14 total - MEMORY-SYSTEM-REDESIGN-v2.md Section 5)
+    # Extract valid types from MemoryType enum (single source of truth)
+    valid_types = [t.value for t in MemoryType]
     if "type" in payload and payload["type"] and payload.get("type") not in valid_types:
         errors.append(f"Invalid type. Must be one of: {valid_types}")
 
     # Hook validation (only if field is present and non-empty)
-    # Story 4.3: Added "manual" for skill-based best practice storage
-    valid_hooks = ["PostToolUse", "Stop", "SessionStart", "seed_script", "manual"]
+    # V2.0 hooks per Core-Architecture-Principle-V2.md:
+    # - PostToolUse: post_tool_capture.py (code patterns)
+    # - Stop: stop_capture.py (agent responses)
+    # - SessionStart: session_start.py (context injection - read-only, but valid source)
+    # - UserPromptSubmit: user_prompt_capture.py (user messages, decision/best-practice triggers)
+    # - PreCompact: pre_compact_save.py (session summaries)
+    # - PreToolUse: new_file_trigger.py, first_edit_trigger.py (convention triggers)
+    # - seed_script: seed_best_practices.py (convention seeding)
+    # - manual: skill-based or API-driven storage (Story 4.3)
+    valid_hooks = [
+        "PostToolUse", "Stop", "SessionStart", "UserPromptSubmit",
+        "PreCompact", "PreToolUse", "seed_script", "manual"
+    ]
     if "source_hook" in payload and payload["source_hook"] and payload.get("source_hook") not in valid_hooks:
         errors.append(f"Invalid source_hook. Must be one of: {valid_hooks}")
 

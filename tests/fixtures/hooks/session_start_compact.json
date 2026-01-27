@@ -1,0 +1,20 @@
+{
+  "session_id": "sess_compact_test_001",
+  "transcript_path": "/tmp/test_transcript_compact.jsonl",
+  "event_type": "compact",
+  "cwd": "/mnt/e/projects/bmad-memory-module",
+  "transcript_entries": [
+    {
+      "role": "user",
+      "content": "Add error handling to the storage module"
+    },
+    {
+      "role": "assistant",
+      "content": "I'll add comprehensive error handling with graceful degradation to the storage module."
+    },
+    {
+      "role": "user",
+      "content": "Great, also add logging for failed operations"
+    }
+  ]
+}
