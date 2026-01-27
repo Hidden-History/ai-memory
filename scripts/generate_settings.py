@@ -47,7 +47,11 @@ def read_qdrant_api_key(install_dir: str) -> str:
 
 
 def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
-    """Generate hook configuration with dynamic BMAD_INSTALL_DIR paths.
+    """Generate COMPLETE hook configuration with all BMAD memory hooks.
+
+    BUG-030 fix: Previous version only included minimal hooks (SessionStart,
+    PostToolUse for edits, PreCompact). This version includes ALL hooks needed
+    for full memory system functionality.
 
     Args:
         hooks_dir: Absolute path to hooks scripts directory
@@ -55,16 +59,18 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         project_name: Name of the project for BMAD_PROJECT_ID
 
     Returns:
-        Dict with 'hooks' key containing SessionStart, PostToolUse, PreCompact config
-        Also includes 'env' section with BMAD_INSTALL_DIR, BMAD_PROJECT_ID, and service ports
+        Dict with complete hook configuration including:
+        - SessionStart: Context injection on session start/resume/compact
+        - UserPromptSubmit: Memory retrieval triggers (decision/best practices keywords)
+        - PreToolUse: New file and first edit triggers
+        - PostToolUse: Error detection, error capture, code pattern capture
+        - PreCompact: Save conversation memory before compaction
+        - Stop: Capture agent responses
 
-    2026 Best Practice: Correct Claude Code hook structure
-    - SessionStart: Requires 'matcher' (startup|resume|compact) per docs
-    - PostToolUse: Wrapper with 'matcher' + nested 'hooks' array
-    - PreCompact: Wrapper with 'matcher' for auto|manual triggers
-    - TECH-DEBT-012: Stop hook removed (placeholder only)
-    - Uses $BMAD_INSTALL_DIR for portability across installations
-    Source: https://code.claude.com/docs/en/hooks, AC 7.2.2
+    2026 Best Practice: Complete Claude Code hook structure
+    - All hooks use $BMAD_INSTALL_DIR for portability
+    - UserPromptSubmit is CRITICAL for memory retrieval on user queries
+    Source: https://code.claude.com/docs/en/hooks
     """
     # Extract install directory from hooks_dir
     # hooks_dir format: /path/to/install/.claude/hooks/scripts
@@ -80,13 +86,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
     # BUG-029: Read API key from shared installation
     qdrant_api_key = read_qdrant_api_key(install_dir)
 
-    session_start_hook = {
-        "type": "command",
-        "command": f'python3 "{hooks_base}/session_start.py"',
-        "timeout": 30000
-    }
-
-    # Build env section
+    # Build env section with all required variables
     env_config = {
         # BMAD Memory Module installation directory (dynamic)
         "BMAD_INSTALL_DIR": install_dir,
@@ -100,24 +100,92 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         # TECH-DEBT-002: Lower threshold for NL query → code content matching
         "SIMILARITY_THRESHOLD": "0.4",
         "LOG_LEVEL": "INFO",
-        # Agent token budgets (TECH-DEBT-012)
-        "AGENT_TOKEN_BUDGETS": "architect:1500,scrum-master:800,default:1000"
+        # Pushgateway for metrics (BUG-030)
+        "PUSHGATEWAY_URL": "localhost:29091",
+        "PUSHGATEWAY_ENABLED": "true",
     }
 
     # BUG-029: Include QDRANT_API_KEY if available
     if qdrant_api_key:
         env_config["QDRANT_API_KEY"] = qdrant_api_key
 
+    # BUG-030: Complete hook configuration matching main project
     return {
+        "$schema": "https://json.schemastore.org/claude-code-settings.json",
         "env": env_config,
         "hooks": {
+            # SessionStart: Context injection on session events
             "SessionStart": [
                 {
-                    "matcher": "startup|resume|compact",
-                    "hooks": [session_start_hook]
+                    "matcher": "startup|resume|compact|clear",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/session_start.py"',
+                            "timeout": 30000
+                        }
+                    ]
                 }
             ],
+            # UserPromptSubmit: Memory retrieval triggers (CRITICAL for memory injection)
+            "UserPromptSubmit": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/user_prompt_capture.py"'
+                        }
+                    ]
+                },
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/unified_keyword_trigger.py"',
+                            "timeout": 5000
+                        }
+                    ]
+                }
+            ],
+            # PreToolUse: Triggers before tool execution
+            "PreToolUse": [
+                {
+                    "matcher": "Write",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/new_file_trigger.py"',
+                            "timeout": 2000
+                        }
+                    ]
+                },
+                {
+                    "matcher": "Edit",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/first_edit_trigger.py"',
+                            "timeout": 2000
+                        }
+                    ]
+                }
+            ],
+            # PostToolUse: Capture after tool execution
             "PostToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/error_detection.py"',
+                            "timeout": 2000
+                        },
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/error_pattern_capture.py"'
+                        }
+                    ]
+                },
                 {
                     "matcher": "Edit|Write|NotebookEdit",
                     "hooks": [
@@ -128,6 +196,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     ]
                 }
             ],
+            # PreCompact: Save conversation memory before compaction
             "PreCompact": [
                 {
                     "matcher": "auto|manual",
@@ -136,6 +205,17 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                             "type": "command",
                             "command": f'python3 "{hooks_base}/pre_compact_save.py"',
                             "timeout": 10000
+                        }
+                    ]
+                }
+            ],
+            # Stop: Capture agent responses
+            "Stop": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'python3 "{hooks_base}/agent_response_capture.py"'
                         }
                     ]
                 }
