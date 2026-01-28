@@ -2,7 +2,7 @@
 
 This module provides a persistent queue for memory operations that fail due to
 service unavailability (Qdrant down, embedding timeout). Operations are queued
-to $BMAD_INSTALL_DIR/queue/pending_queue.jsonl and retried with exponential backoff.
+to $AI_MEMORY_INSTALL_DIR/queue/pending_queue.jsonl and retried with exponential backoff.
 
 Key Features:
 - JSONL format (one JSON object per line)
@@ -41,7 +41,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger("bmad.memory.queue")
+logger = logging.getLogger("ai_memory.queue")
 
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
 try:
@@ -52,9 +52,9 @@ except ImportError:
 # Default lock timeout per AC 5.1.4
 LOCK_TIMEOUT_SECONDS = 5.0
 
-# Default queue file path - uses BMAD_INSTALL_DIR for multi-project support
+# Default queue file path - uses AI_MEMORY_INSTALL_DIR for multi-project support
 # Use MemoryQueue(queue_path=...) or MEMORY_QUEUE_PATH env var for custom paths
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 QUEUE_FILE = Path(INSTALL_DIR) / "queue" / "pending_queue.jsonl"
 
 
@@ -181,13 +181,13 @@ class MemoryQueue:
 
         Args:
             queue_path: Custom queue file path. Falls back to MEMORY_QUEUE_PATH
-                        env var, then $BMAD_INSTALL_DIR/queue/pending_queue.jsonl
+                        env var, then $AI_MEMORY_INSTALL_DIR/queue/pending_queue.jsonl
         """
-        # Priority: explicit arg > env var > default (uses BMAD_INSTALL_DIR)
+        # Priority: explicit arg > env var > default (uses AI_MEMORY_INSTALL_DIR)
         resolved_path = (
             queue_path
             or os.environ.get("MEMORY_QUEUE_PATH")
-            or str(QUEUE_FILE)  # Uses BMAD_INSTALL_DIR-based default
+            or str(QUEUE_FILE)  # Uses AI_MEMORY_INSTALL_DIR-based default
         )
         self.queue_path = Path(resolved_path)
         self._ensure_directory()

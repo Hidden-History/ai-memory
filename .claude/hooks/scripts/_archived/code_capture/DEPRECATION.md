@@ -54,7 +54,7 @@ mv .claude/hooks/scripts/_archived/code_capture/*.py .claude/hooks/scripts/
     "hooks": [
       {
         "type": "command",
-        "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/post_tool_capture.py\""
+        "command": "python3 \"$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/post_tool_capture.py\""
       }
     ]
   },
@@ -63,11 +63,11 @@ mv .claude/hooks/scripts/_archived/code_capture/*.py .claude/hooks/scripts/
     "hooks": [
       {
         "type": "command",
-        "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/error_pattern_capture.py\""
+        "command": "python3 \"$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/error_pattern_capture.py\""
       },
       {
         "type": "command",
-        "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/error_detection.py\"",
+        "command": "python3 \"$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/error_detection.py\"",
         "timeout": 2000
       }
     ]

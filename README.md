@@ -276,7 +276,7 @@ SEED_BEST_PRACTICES=true ./scripts/install.sh /path/to/your-project
 
 ```
 ═══════════════════════════════════════════════════════════
-  BMAD Memory Module Health Check
+  AI Memory Module Health Check
 ═══════════════════════════════════════════════════════════
 
 [1/3] Checking Qdrant (localhost:26350)...
@@ -336,7 +336,7 @@ All services use `2XXXX` prefix to avoid conflicts:
 | `QDRANT_PORT`          | `26350`              | Qdrant external port              |
 | `EMBEDDING_HOST`       | `localhost`          | Embedding service hostname        |
 | `EMBEDDING_PORT`       | `28080`              | Embedding service port            |
-| `MEMORY_INSTALL_DIR`   | `~/.bmad-memory`     | Installation directory            |
+| `AI_MEMORY_INSTALL_DIR`   | `~/.ai-memory`     | Installation directory            |
 | `MEMORY_LOG_LEVEL`     | `INFO`               | Logging level (DEBUG/INFO/WARNING)|
 
 **Override Example:**
@@ -605,7 +605,7 @@ lsof -i :28000  # Monitoring API
 
 3. Check hook logs (if logging enabled):
    ```bash
-   cat ~/.bmad-memory/logs/hook.log
+   cat ~/.ai-memory/logs/hook.log
    ```
 
 For more detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
@@ -625,10 +625,10 @@ Access Grafana at `http://localhost:23000` (admin/admin):
 
 | Metric | Description |
 |--------|-------------|
-| `bmad_memory_captures_total` | Total memory capture attempts |
-| `bmad_trigger_fires_total` | Automatic trigger activations |
-| `bmad_retrieval_duration_seconds` | Search response times |
-| `bmad_tokens_consumed_total` | Token usage by operation |
+| `ai_memory_memory_captures_total` | Total memory capture attempts |
+| `ai_memory_trigger_fires_total` | Automatic trigger activations |
+| `ai_memory_retrieval_duration_seconds` | Search response times |
+| `ai_memory_tokens_consumed_total` | Token usage by operation |
 
 See `docs/prometheus-queries.md` for query examples.
 

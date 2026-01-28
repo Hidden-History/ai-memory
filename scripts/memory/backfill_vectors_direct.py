@@ -35,7 +35,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
-logger = logging.getLogger("bmad.memory.backfill")
+logger = logging.getLogger("ai_memory.backfill")
 
 # All V2.0 collections
 ALL_COLLECTIONS = [COLLECTION_DISCUSSIONS, COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS]
@@ -268,7 +268,7 @@ def main():
     args = parser.parse_args()
 
     if args.verbose:
-        logging.getLogger("bmad.memory.backfill").setLevel(logging.DEBUG)
+        logging.getLogger("ai_memory.backfill").setLevel(logging.DEBUG)
 
     # Get configuration
     config = get_config()

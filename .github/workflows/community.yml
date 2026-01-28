@@ -23,16 +23,16 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           issue-message: |
-            👋 Welcome to BMAD Memory Module! Thanks for opening your first issue.
+            👋 Welcome to AI Memory Module! Thanks for opening your first issue.
 
             A maintainer will review your issue soon. In the meantime:
-            - Check out our [Contributing Guidelines](https://github.com/wbsolutions-ca/bmad-memory/blob/main/CONTRIBUTING.md)
-            - Join the discussion in [GitHub Discussions](https://github.com/wbsolutions-ca/bmad-memory/discussions)
+            - Check out our [Contributing Guidelines](https://github.com/Hidden-History/ai-memory/blob/main/CONTRIBUTING.md)
+            - Join the discussion in [GitHub Discussions](https://github.com/Hidden-History/ai-memory/discussions)
             - Star the repo if you find it useful ⭐
 
             Please ensure you've filled out the issue template completely to help us assist you faster.
           pr-message: |
-            🎉 Thanks for your first pull request to BMAD Memory Module!
+            🎉 Thanks for your first pull request to AI Memory Module!
 
             A maintainer will review your PR soon. Here's what happens next:
             1. Automated tests will run (check the status above)
@@ -143,8 +143,8 @@ A maintainer will triage this issue within 2-3 business days.
 
 **In the meantime:**
 - Check if the health check passes: \`python3 scripts/health-check.py\`
-- Review [TROUBLESHOOTING.md](https://github.com/wbsolutions-ca/bmad-memory/blob/main/TROUBLESHOOTING.md)
-- Check [existing issues](https://github.com/wbsolutions-ca/bmad-memory/issues) for similar problems
+- Review [TROUBLESHOOTING.md](https://github.com/Hidden-History/ai-memory/blob/main/TROUBLESHOOTING.md)
+- Check [existing issues](https://github.com/Hidden-History/ai-memory/issues) for similar problems
 
 If you find a workaround, please share it here to help others! 🙏`
               });

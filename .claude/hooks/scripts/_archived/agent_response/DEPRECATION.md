@@ -34,7 +34,7 @@ mv .claude/hooks/scripts/_archived/agent_response/*.py .claude/hooks/scripts/
     "hooks": [
       {
         "type": "command",
-        "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/agent_response_capture.py\""
+        "command": "python3 \"$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/agent_response_capture.py\""
       }
     ]
   }

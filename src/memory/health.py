@@ -36,7 +36,7 @@ from .embeddings import EmbeddingClient
 HEALTH_CHECK_TIMEOUT = 2.0
 
 # Configure logger for health check operations
-logger = logging.getLogger("bmad.memory.health")
+logger = logging.getLogger("ai_memory.health")
 
 
 def check_services() -> Dict[str, bool]:
@@ -134,7 +134,7 @@ def get_fallback_mode(health: Dict[str, bool]) -> str:
     Returns:
         str: Fallback mode for graceful degradation:
             - "normal": All services healthy - full functionality
-            - "queue_to_file": Qdrant down - queue to ~/.bmad-memory/queue/
+            - "queue_to_file": Qdrant down - queue to ~/.ai-memory/queue/
             - "pending_embedding": Embedding down - store with embedding_status=pending
             - "passthrough": Both down - log and exit gracefully
 

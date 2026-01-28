@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # CR-2 FIX: Use consolidated logging and metrics from hooks_common

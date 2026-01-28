@@ -1,4 +1,4 @@
-# Prometheus Configuration for BMAD Memory Module
+# Prometheus Configuration for AI Memory Module
 # Comprehensive monitoring of all services in the stack
 # Updated: 2026-01-26 - BUG-021 Complete monitoring coverage
 
@@ -18,7 +18,7 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 15s
 
-  - job_name: 'bmad-monitoring'
+  - job_name: 'ai-memory-monitoring'
     static_configs:
       - targets: ['monitoring-api:8000']
     metrics_path: '/metrics'
@@ -70,7 +70,7 @@ scrape_configs:
   #
   # classifier-worker does NOT have a /metrics endpoint
   # It's a Python script that pushes metrics to Pushgateway
-  # Its metrics appear under job="bmad_memory_classifier" via Pushgateway
+  # Its metrics appear under job="ai_memory_classifier" via Pushgateway
   #
   # honor_labels: true on Pushgateway preserves job labels from pushed metrics
   # This allows classifier, hooks, etc. to maintain their own job identities

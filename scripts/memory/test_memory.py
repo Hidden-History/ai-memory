@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive Memory System Test for BMAD Memory Module
+Comprehensive Memory System Test for AI Memory Module
 
 Tests all 3 memory collections with validation patterns:
 - code-patterns
@@ -13,7 +13,7 @@ Usage:
     python test_memory.py -v                 # Verbose output
 
 Created: 2026-01-17
-Adapted for BMAD Memory Module
+Adapted for AI Memory Module
 """
 
 import os

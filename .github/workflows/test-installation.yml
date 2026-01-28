@@ -44,32 +44,32 @@ jobs:
 
       - name: Run installer
         env:
-          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
-          BMAD_QDRANT_PORT: 26350
-          BMAD_EMBEDDING_PORT: 28080
+          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
+          AI_MEMORY_QDRANT_PORT: 26350
+          AI_MEMORY_EMBEDDING_PORT: 28080
         run: |
           chmod +x scripts/install.sh
           ./scripts/install.sh
 
       - name: Verify installation
         env:
-          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
         run: |
-          ls -la $BMAD_INSTALL_DIR
-          ls -la $BMAD_INSTALL_DIR/docker
-          ls -la $BMAD_INSTALL_DIR/src/memory
+          ls -la $AI_MEMORY_INSTALL_DIR
+          ls -la $AI_MEMORY_INSTALL_DIR/docker
+          ls -la $AI_MEMORY_INSTALL_DIR/src/memory
 
       - name: Run health check
         env:
-          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
         run: |
-          python3 $BMAD_INSTALL_DIR/scripts/health-check.py
+          python3 $AI_MEMORY_INSTALL_DIR/scripts/health-check.py
 
       - name: Run integration tests
         env:
-          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
-          BMAD_QDRANT_PORT: 26350
-          BMAD_EMBEDDING_PORT: 28080
+          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
+          AI_MEMORY_QDRANT_PORT: 26350
+          AI_MEMORY_EMBEDDING_PORT: 28080
         run: |
           pytest tests/integration/test_installation.py -v --tb=short
           pytest tests/integration/test_platform.py -v --tb=short
@@ -77,17 +77,17 @@ jobs:
       - name: Show Docker logs on failure
         if: failure()
         env:
-          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
         run: |
-          docker compose -f $BMAD_INSTALL_DIR/docker/docker-compose.yml logs
+          docker compose -f $AI_MEMORY_INSTALL_DIR/docker/docker-compose.yml logs
 
       - name: Cleanup
         if: always()
         env:
-          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
         run: |
-          docker compose -f $BMAD_INSTALL_DIR/docker/docker-compose.yml down -v || true
-          rm -rf $BMAD_INSTALL_DIR
+          docker compose -f $AI_MEMORY_INSTALL_DIR/docker/docker-compose.yml down -v || true
+          rm -rf $AI_MEMORY_INSTALL_DIR
 
   test-macos:
     name: Test Installation (macOS)
@@ -136,32 +136,32 @@ jobs:
 
       - name: Run installer
         env:
-          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
-          BMAD_QDRANT_PORT: 26350
-          BMAD_EMBEDDING_PORT: 28080
+          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
+          AI_MEMORY_QDRANT_PORT: 26350
+          AI_MEMORY_EMBEDDING_PORT: 28080
         run: |
           chmod +x scripts/install.sh
           ./scripts/install.sh
 
       - name: Verify installation
         env:
-          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
         run: |
-          ls -la $BMAD_INSTALL_DIR
-          ls -la $BMAD_INSTALL_DIR/docker
-          ls -la $BMAD_INSTALL_DIR/src/memory
+          ls -la $AI_MEMORY_INSTALL_DIR
+          ls -la $AI_MEMORY_INSTALL_DIR/docker
+          ls -la $AI_MEMORY_INSTALL_DIR/src/memory
 
       - name: Run health check
         env:
-          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
         run: |
-          python3 $BMAD_INSTALL_DIR/scripts/health-check.py
+          python3 $AI_MEMORY_INSTALL_DIR/scripts/health-check.py
 
       - name: Run integration tests
         env:
-          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
-          BMAD_QDRANT_PORT: 26350
-          BMAD_EMBEDDING_PORT: 28080
+          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
+          AI_MEMORY_QDRANT_PORT: 26350
+          AI_MEMORY_EMBEDDING_PORT: 28080
         run: |
           pytest tests/integration/test_installation.py -v --tb=short
           pytest tests/integration/test_platform.py -v --tb=short
@@ -169,14 +169,14 @@ jobs:
       - name: Show Docker logs on failure
         if: failure()
         env:
-          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
         run: |
-          docker compose -f $BMAD_INSTALL_DIR/docker/docker-compose.yml logs
+          docker compose -f $AI_MEMORY_INSTALL_DIR/docker/docker-compose.yml logs
 
       - name: Cleanup
         if: always()
         env:
-          BMAD_INSTALL_DIR: ${{ github.workspace }}/test-install
+          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
         run: |
-          docker compose -f $BMAD_INSTALL_DIR/docker/docker-compose.yml down -v || true
-          rm -rf $BMAD_INSTALL_DIR
+          docker compose -f $AI_MEMORY_INSTALL_DIR/docker/docker-compose.yml down -v || true
+          rm -rf $AI_MEMORY_INSTALL_DIR

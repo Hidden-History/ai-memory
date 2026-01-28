@@ -2,12 +2,12 @@
 FROM python:3.11-slim
 
 # Metadata labels (2026 best practice)
-LABEL maintainer="bmad-memory-module"
+LABEL maintainer="ai-memory"
 LABEL version="1.0.0"
-LABEL description="Monitoring API for BMAD Memory Module"
+LABEL description="Monitoring API for AI Memory Module"
 
 # Non-root user for security (2026 security standard)
-RUN groupadd -r bmad && useradd -r -g bmad bmad
+RUN groupadd -r memory && useradd -r -g memory memory
 
 WORKDIR /app
 
@@ -22,10 +22,10 @@ COPY monitoring/*.py .
 COPY src /app/src
 
 # Change ownership to non-root user
-RUN chown -R bmad:bmad /app
+RUN chown -R memory:memory /app
 
 # Switch to non-root user
-USER bmad
+USER memory
 
 # Health check (2026 best practice)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \

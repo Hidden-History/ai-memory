@@ -1,6 +1,6 @@
-# BMAD Memory Module - Docker Stack
+# AI Memory Module - Docker Stack
 
-This directory contains the Docker Compose configuration for the BMAD Memory Module infrastructure.
+This directory contains the Docker Compose configuration for the AI Memory Module infrastructure.
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ curl http://localhost:28000/health
 
 ### Monitoring API (Testing Profile Only)
 
-The Monitoring API provides testing and verification endpoints for the BMAD Memory Module. It follows 2026 FastAPI best practices including Kubernetes health probes, async-first design, and Pydantic response models.
+The Monitoring API provides testing and verification endpoints for the AI Memory Module. It follows 2026 FastAPI best practices including Kubernetes health probes, async-first design, and Pydantic response models.
 
 **Profile:** `testing` or `monitoring` (optional service)
 

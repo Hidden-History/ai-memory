@@ -18,7 +18,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 import httpx  # For specific exception types
 
 # CR-1.7: Setup path inline (must happen BEFORE any memory.* imports)
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # CR-1.2: Use consolidated logging and activity log

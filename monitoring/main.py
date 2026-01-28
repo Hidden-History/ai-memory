@@ -1,4 +1,4 @@
-"""BMAD Memory Monitoring API.
+"""AI Memory Monitoring API.
 
 FastAPI monitoring service following 2026 best practices:
 - Kubernetes liveness/readiness probes
@@ -50,7 +50,7 @@ handler = logging.StreamHandler()
 handler.setFormatter(StructuredLogFormatter(
     '{"time": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s", "extra": %(extra)s}'
 ))
-logger = logging.getLogger("bmad.monitoring")
+logger = logging.getLogger("ai_memory.monitoring")
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False  # Prevent duplicate logs
@@ -153,8 +153,8 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app with lifespan context
 app = FastAPI(
-    title="BMAD Memory Monitoring API",
-    description="Testing and verification API for BMAD Memory Module",
+    title="AI Memory Monitoring API",
+    description="Testing and verification API for AI Memory Module",
     version="1.0.0",
     docs_url="/docs",  # Swagger UI
     redoc_url="/redoc",  # ReDoc

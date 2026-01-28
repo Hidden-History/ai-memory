@@ -16,7 +16,7 @@ from .config import (
     LOW_PATTERNS,
 )
 
-logger = logging.getLogger("bmad.memory.classifier.significance")
+logger = logging.getLogger("ai_memory.classifier.significance")
 
 __all__ = ["check_significance"]
 

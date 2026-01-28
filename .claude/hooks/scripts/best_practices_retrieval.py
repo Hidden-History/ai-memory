@@ -54,7 +54,7 @@ INSTALL_DIR = setup_python_path()
 
 # Configure structured logging using shared utility (CR-4 Wave 2)
 from memory.config import COLLECTION_CONVENTIONS, VALID_AGENTS
-logger = setup_hook_logging("bmad.memory.hooks")
+logger = setup_hook_logging("ai_memory.hooks")
 
 # Import metrics using shared utility (CR-4 Wave 2)
 memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = get_metrics()

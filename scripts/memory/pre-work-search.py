@@ -29,7 +29,7 @@ Graceful Degradation:
     - Always exits with code 0 (never blocks workflow)
 
 Created: 2026-01-17
-BMAD Memory Module - Workflow Integration
+AI Memory Module - Workflow Integration
 """
 
 import os

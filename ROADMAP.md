@@ -1,6 +1,6 @@
-# BMAD Memory Module - Roadmap
+# AI Memory Module - Roadmap
 
-This roadmap outlines the planned development direction for BMAD Memory Module. Community feedback and contributions help shape these priorities.
+This roadmap outlines the planned development direction for AI Memory Module. Community feedback and contributions help shape these priorities.
 
 ---
 
@@ -61,9 +61,9 @@ This roadmap outlines the planned development direction for BMAD Memory Module. 
   - Search and filter interface
   - Quick memory inspection
 - [ ] **CLI tool for memory management**
-  - `bmad-memory search "query"` - Search memories
-  - `bmad-memory stats` - Show collection statistics
-  - `bmad-memory prune --before DATE` - Remove old memories
+  - `ai-memory search "query"` - Search memories
+  - `ai-memory stats` - Show collection statistics
+  - `ai-memory prune --before DATE` - Remove old memories
 - [ ] **Enhanced debugging output**
   - Structured logging with log levels
   - Trace IDs for request correlation

@@ -133,9 +133,9 @@
 open http://localhost:23000
 
 # Verify dashboards load without errors:
-# 1. BMAD Memory System - Overview
-# 2. BMAD Embedding Services
-# 3. BMAD Memory Performance (existing)
+# 1. AI Memory System - Overview
+# 2. AI Memory Embedding Services
+# 3. AI Memory Performance (existing)
 # 4. System Health (existing)
 ```
 

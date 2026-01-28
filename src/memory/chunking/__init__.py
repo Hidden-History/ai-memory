@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 import logging
 
-logger = logging.getLogger("bmad.memory.chunking")
+logger = logging.getLogger("ai_memory.chunking")
 
 # FIX-9: Shared constant for token estimation (used across all chunkers)
 CHARS_PER_TOKEN = 4  # Approximate: 4 characters ≈ 1 token

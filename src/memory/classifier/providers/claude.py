@@ -13,7 +13,7 @@ from typing import Optional
 from .base import BaseProvider, ProviderResponse
 from ..config import ANTHROPIC_MODEL, MAX_OUTPUT_TOKENS
 
-logger = logging.getLogger("bmad.memory.classifier.providers.claude")
+logger = logging.getLogger("ai_memory.classifier.providers.claude")
 
 __all__ = ["ClaudeProvider"]
 

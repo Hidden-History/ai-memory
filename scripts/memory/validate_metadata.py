@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Metadata Validation for BMAD Memory System
+Metadata Validation for AI Memory System
 
 Implements metadata validation with JSON schema enforcement for all memory types.
 
@@ -20,7 +20,7 @@ Usage:
 
 Created: 2026-01-17
 Updated: 2026-01-17 (v2.0 compliance)
-Adapted from proven patterns for BMAD Memory Module
+Adapted from proven patterns for AI Memory Module
 """
 
 import json

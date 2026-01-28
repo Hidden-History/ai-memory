@@ -1,4 +1,4 @@
-"""Intent Detection for BMAD Memory System V2.0.
+"""Intent Detection for AI Memory System V2.0.
 
 Routes searches based on user intent:
 - HOW queries → code-patterns collection (implementation, error_fix, refactor)

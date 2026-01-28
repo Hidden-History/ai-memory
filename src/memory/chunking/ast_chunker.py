@@ -21,7 +21,7 @@ except ImportError:
 # Use existing models from chunking module
 from . import ChunkResult, ChunkMetadata, CHARS_PER_TOKEN
 
-logger = logging.getLogger("bmad.memory.chunking")
+logger = logging.getLogger("ai_memory.chunking.ast")
 
 
 class ASTChunker:

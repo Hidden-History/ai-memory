@@ -36,7 +36,7 @@ except ImportError:
 
 __all__ = ["compute_content_hash", "is_duplicate", "DuplicationCheckResult"]
 
-logger = logging.getLogger("bmad.memory.dedup")
+logger = logging.getLogger("ai_memory.dedup")
 
 
 @dataclass

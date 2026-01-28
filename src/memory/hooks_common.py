@@ -40,17 +40,17 @@ def setup_python_path() -> str:
     Consolidated from CR-1.7 (duplicated across 6 hook scripts).
 
     Returns:
-        BMAD installation directory path
+        AI Memory installation directory path
 
     Note:
         Must be called before importing memory modules.
     """
-    install_dir = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+    install_dir = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
     sys.path.insert(0, os.path.join(install_dir, "src"))
     return install_dir
 
 
-def setup_hook_logging(logger_name: str = "bmad.memory.hooks") -> logging.Logger:
+def setup_hook_logging(logger_name: str = "ai_memory.hooks") -> logging.Logger:
     """Configure structured logging for hook scripts.
 
     Args:
@@ -115,11 +115,11 @@ def log_to_activity(message: str, install_dir: Optional[str] = None) -> None:
 
     Consolidated from CR-1.2 (_log_to_activity duplicated across 4 files).
     Activity log provides user-visible feedback about memory operations.
-    Located at $BMAD_INSTALL_DIR/logs/activity.log
+    Located at $AI_MEMORY_INSTALL_DIR/logs/activity.log
 
     Args:
         message: Message to log (newlines will be escaped)
-        install_dir: Optional BMAD installation directory (auto-detected if None)
+        install_dir: Optional AI Memory installation directory (auto-detected if None)
 
     Note:
         - Fails silently on error (graceful degradation)
@@ -128,7 +128,7 @@ def log_to_activity(message: str, install_dir: Optional[str] = None) -> None:
     from datetime import datetime
 
     if install_dir is None:
-        install_dir = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+        install_dir = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 
     log_dir = Path(install_dir) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -165,7 +165,7 @@ def get_hook_timeout() -> int:
         timeout_str = os.getenv("HOOK_TIMEOUT", "60")
         return int(timeout_str)
     except ValueError:
-        logger = logging.getLogger("bmad.memory.hooks")
+        logger = logging.getLogger("ai_memory.hooks")
         logger.warning(
             "invalid_timeout_env",
             extra={"value": timeout_str, "using_default": 60}
@@ -189,7 +189,7 @@ def get_metrics():
         >>> if memory_retrievals_total:
         ...     memory_retrievals_total.labels(collection="code-patterns", status="success").inc()
     """
-    logger = logging.getLogger("bmad.memory.hooks")
+    logger = logging.getLogger("ai_memory.hooks")
     try:
         from memory.metrics import (
             memory_retrievals_total,
@@ -217,7 +217,7 @@ def get_trigger_metrics():
         >>> if trigger_fires_total:
         ...     trigger_fires_total.labels(trigger_type="decision_keywords", status="success", project="my-project").inc()
     """
-    logger = logging.getLogger("bmad.memory.hooks")
+    logger = logging.getLogger("ai_memory.hooks")
     try:
         from memory.metrics import (
             trigger_fires_total,
@@ -244,7 +244,7 @@ def get_token_metrics():
         >>> if tokens_consumed_total:
         ...     tokens_consumed_total.labels(operation="injection", direction="output", project="my-project").inc(500)
     """
-    logger = logging.getLogger("bmad.memory.hooks")
+    logger = logging.getLogger("ai_memory.hooks")
     try:
         from memory.metrics import (
             tokens_consumed_total,
@@ -320,7 +320,7 @@ def read_transcript(transcript_path: str) -> List[dict]:
     expanded_path = os.path.expanduser(transcript_path)
 
     if not os.path.exists(expanded_path):
-        logger = logging.getLogger("bmad.memory.hooks")
+        logger = logging.getLogger("ai_memory.hooks")
         logger.warning(
             "transcript_not_found",
             extra={"path": transcript_path, "expanded": expanded_path}
@@ -338,7 +338,7 @@ def read_transcript(transcript_path: str) -> List[dict]:
                         # Skip malformed lines
                         continue
     except Exception as e:
-        logger = logging.getLogger("bmad.memory.hooks")
+        logger = logging.getLogger("ai_memory.hooks")
         logger.warning(
             "transcript_read_error",
             extra={"error": str(e), "path": expanded_path}

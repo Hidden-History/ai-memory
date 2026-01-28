@@ -1,5 +1,5 @@
 """
-BMAD Memory Browser - Streamlit Dashboard
+AI Memory Browser - Streamlit Dashboard
 Story 6.4: Streamlit Memory Browser
 
 2026 Best Practices:
@@ -103,7 +103,7 @@ for collection in COLLECTION_NAMES:
 # PAGE CONFIGURATION (MUST BE FIRST STREAMLIT COMMAND)
 # ============================================================================
 st.set_page_config(
-    page_title="BMAD Memory Browser",
+    page_title="AI Memory Browser",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -113,9 +113,9 @@ st.set_page_config(
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-# Activity log path - uses BMAD_INSTALL_DIR from environment
-# In container: /app/logs/activity.log (mounted from host's $BMAD_INSTALL_DIR/logs)
-INSTALL_DIR = os.getenv("BMAD_INSTALL_DIR", "/app")
+# Activity log path - uses AI_MEMORY_INSTALL_DIR from environment
+# In container: /app/logs/activity.log (mounted from host's $AI_MEMORY_INSTALL_DIR/logs)
+INSTALL_DIR = os.getenv("AI_MEMORY_INSTALL_DIR", "/app")
 ACTIVITY_LOG_PATH = os.path.join(INSTALL_DIR, "logs", "activity.log")
 
 
@@ -458,8 +458,8 @@ def display_logs_page():
     if not log_valid:
         st.error("⚠️ **Volume Mount Issue Detected**")
         st.warning(f"**Problem**: {log_message}")
-        st.code(f"Container BMAD_INSTALL_DIR: {INSTALL_DIR}\nExpected log path: {ACTIVITY_LOG_PATH}")
-        st.info("🔧 **Fix**: Restart Docker Compose with `BMAD_INSTALL_DIR` environment variable set, or check `docker/.env` file.")
+        st.code(f"Container AI_MEMORY_INSTALL_DIR: {INSTALL_DIR}\nExpected log path: {ACTIVITY_LOG_PATH}")
+        st.info("🔧 **Fix**: Restart Docker Compose with `AI_MEMORY_INSTALL_DIR` environment variable set, or check `docker/.env` file.")
         # Continue anyway to show whatever logs exist
 
     # BUG-022: Log stats and manual refresh button
@@ -881,7 +881,7 @@ def display_statistics_page():
 # ============================================================================
 # SIDEBAR (NAVIGATION & FILTERS)
 # ============================================================================
-st.sidebar.title("🧠 BMAD Memory Browser")
+st.sidebar.title("🧠 AI Memory Browser")
 
 # Page navigation
 page = st.sidebar.radio(
@@ -942,7 +942,7 @@ elif page == "📊 Statistics":
     display_statistics_page()
 
 else:  # Default: 🔍 Memory Browser
-    st.title("🧠 BMAD Memory Browser")
+    st.title("🧠 AI Memory Browser")
 
     # Execute search if triggered
     if st.session_state.get("perform_search", False):

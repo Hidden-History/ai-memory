@@ -47,7 +47,7 @@ from memory.models import MemoryType
 # Configure structured logging
 handler = logging.StreamHandler()
 handler.setFormatter(StructuredFormatter())
-logger = logging.getLogger("bmad.memory.post_work_store_async")
+logger = logging.getLogger("ai_memory.post_work_store_async")
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False

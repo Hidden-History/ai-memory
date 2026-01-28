@@ -1,4 +1,4 @@
-"""BMAD Memory Module - Core memory storage and retrieval system.
+"""AI Memory Module - Core memory storage and retrieval system.
 
 Provides persistent semantic memory for Claude Code through:
 - Configuration management with environment overrides

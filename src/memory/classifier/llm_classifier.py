@@ -47,7 +47,7 @@ except ImportError:
     push_token_metrics_async = None
     detect_project = None
 
-logger = logging.getLogger("bmad.memory.classifier.llm_classifier")
+logger = logging.getLogger("ai_memory.classifier.llm_classifier")
 
 __all__ = ["ClassificationResult", "classify"]
 

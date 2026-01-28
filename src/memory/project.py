@@ -125,11 +125,11 @@ def detect_project(cwd: Optional[str] = None) -> str:
     """Detect project identifier from environment variable or working directory.
 
     Detection priority:
-    1. BMAD_PROJECT_ID environment variable (highest priority)
+    1. AI_MEMORY_PROJECT_ID environment variable (highest priority)
     2. Directory-based detection (fallback)
 
     Implements project detection strategy with special handling for edge cases:
-    - Uses BMAD_PROJECT_ID env var if set (prevents pollution)
+    - Uses AI_MEMORY_PROJECT_ID env var if set (prevents pollution)
     - Falls back to directory name as project identifier
     - Handles root, home, and temp directories specially
     - Normalizes name for consistent group_id
@@ -142,17 +142,17 @@ def detect_project(cwd: Optional[str] = None) -> str:
         Normalized project name suitable for group_id filtering
 
     Example:
-        >>> os.environ['BMAD_PROJECT_ID'] = 'my-project'
+        >>> os.environ['AI_MEMORY_PROJECT_ID'] = 'my-project'
         >>> detect_project("/any/directory")
         'my-project'
-        >>> del os.environ['BMAD_PROJECT_ID']
+        >>> del os.environ['AI_MEMORY_PROJECT_ID']
         >>> detect_project("/home/user/projects/my-app")
         'my-app'
         >>> detect_project("/")
         'root-project'
     """
     # 1. Check environment variable first (highest priority)
-    env_project = os.getenv("BMAD_PROJECT_ID")
+    env_project = os.getenv("AI_MEMORY_PROJECT_ID")
     if env_project and env_project.strip():
         project_name = normalize_project_name(env_project)
         logger.debug("using_env_project", extra={

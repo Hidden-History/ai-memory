@@ -1,4 +1,4 @@
-"""Version information for BMAD Memory Module.
+"""Version information for AI Memory Module.
 
 Single source of truth for version number.
 Follows PEP 440 and semantic versioning principles.

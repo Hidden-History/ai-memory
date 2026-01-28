@@ -1,5 +1,5 @@
 """
-BMAD Memory Module - Embedding Service
+AI Memory Module - Embedding Service
 FastAPI application for generating embeddings using Jina v2 Base EN (768d)
 
 Configuration via environment variables:
@@ -29,7 +29,7 @@ try:
     from memory.metrics import embedding_requests_total, embedding_duration_seconds
     metrics_available = True
 except ImportError:
-    logger = logging.getLogger("bmad.embedding")
+    logger = logging.getLogger("ai_memory.embedding")
     logger.warning("metrics_import_failed", extra={
         "error_details": "Could not import memory.metrics module - metrics may be unavailable"
     })
@@ -47,10 +47,10 @@ logging.basicConfig(
     level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger("bmad.embedding")
+logger = logging.getLogger("ai_memory.embedding")
 
 app = FastAPI(
-    title="BMAD Embedding Service",
+    title="AI Memory Embedding Service",
     description="Text embedding generation using Jina v2 Base EN (768d)",
     version="2.1.0"
 )
@@ -154,7 +154,7 @@ def embed(request: EmbedRequest):
 @app.get("/")
 def root():
     return {
-        "service": "BMAD Embedding Service",
+        "service": "AI Memory Embedding Service",
         "model": MODEL_NAME,
         "dimensions": VECTOR_DIMENSIONS,
         "endpoints": {

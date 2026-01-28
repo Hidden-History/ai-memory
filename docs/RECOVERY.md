@@ -1,8 +1,8 @@
-# BMAD Memory Module - Recovery Procedures
+# AI Memory Module - Recovery Procedures
 
 **Purpose:** Rapid recovery guide for common memory system failures
 **Audience:** Operators troubleshooting Claude Code memory issues
-**Owner:** BMAD Memory Module Team
+**Owner:** AI Memory Module Team
 **Version:** 1.0.0
 **Last Updated:** 2026-01-13
 **Last Validated:** 2026-01-13
@@ -63,18 +63,18 @@
 
 ```bash
 # Step 1: Check Qdrant container status
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml ps qdrant
+docker compose -f ~/.ai-memory/docker/docker-compose.yml ps qdrant
 
 # Expected if stopped:
 # NAME                    COMMAND             SERVICE   STATUS    PORTS
-# bmad-memory-qdrant-1    ./qdrant           qdrant    exited
+# ai-memory-qdrant-1    ./qdrant           qdrant    exited
 
 # Step 2: Check Docker daemon
 docker ps
 # If fails: "Cannot connect to Docker daemon" - Docker daemon down
 
 # Step 3: Check Qdrant logs
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs qdrant --tail 50
+docker compose -f ~/.ai-memory/docker/docker-compose.yml logs qdrant --tail 50
 
 # Step 4: Check port conflict (if Qdrant won't start)
 lsof -i :26350
@@ -92,7 +92,7 @@ curl http://localhost:26350/health
 
 ```bash
 # 1. Start Qdrant
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d qdrant
+docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d qdrant
 
 # 2. Wait for healthy (30-60s)
 # Retry every 5s until health check passes
@@ -132,7 +132,7 @@ until docker ps > /dev/null 2>&1; do
 done
 
 # 3. Start full stack
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d
+docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d
 
 # 4. Wait for Qdrant healthy
 # (Use wait loop from Scenario A Step 2)
@@ -155,12 +155,12 @@ lsof -i :26350
 kill <PID>
 
 # Option 2: Change Qdrant port (permanent fix)
-# Edit ~/.bmad-memory/docker/docker-compose.yml
+# Edit ~/.ai-memory/docker/docker-compose.yml
 # Change: "26350:6333" to "26351:6333"
 # Update QDRANT_URL in src/memory/config.py: QDRANT_URL = "http://localhost:16351"
 
 # 3. Start Qdrant
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d qdrant
+docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d qdrant
 
 # 4. Verify healthy on new port
 curl http://localhost:16351/health  # If port changed
@@ -172,7 +172,7 @@ curl http://localhost:16351/health  # If port changed
 
 ```bash
 # 1. Check disk space
-df -h ~/.bmad-memory
+df -h ~/.ai-memory
 # If <1GB free: Clear space
 
 # 2. Check Docker resource limits
@@ -182,7 +182,7 @@ docker system info | grep -E 'CPUs|Total Memory'
 docker system prune -f
 
 # 4. Start Qdrant
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d qdrant
+docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d qdrant
 ```
 
 **Expected Recovery Time:** Varies (depends on cleanup)
@@ -191,7 +191,7 @@ docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d qdrant
 
 ```bash
 # 1. Container running
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml ps qdrant
+docker compose -f ~/.ai-memory/docker/docker-compose.yml ps qdrant
 # STATUS should be "running" (not "exited")
 
 # 2. Health check passes
@@ -229,7 +229,7 @@ print(f'✓ Search working: {len(results)} results')
 
 ```bash
 # 1. Stop all services
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml down
+docker compose -f ~/.ai-memory/docker/docker-compose.yml down
 
 # 2. Check for conflicting processes
 docker ps -a | grep qdrant
@@ -238,10 +238,10 @@ docker rm -f <container-id>
 
 # 3. Reset volumes (DESTRUCTIVE - only if data loss acceptable)
 # WARNING: This deletes all stored memories!
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml down -v
+docker compose -f ~/.ai-memory/docker/docker-compose.yml down -v
 
 # 4. Restart from clean state
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d
+docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d
 
 # 5. Verify clean start
 curl http://localhost:26350/health
@@ -251,7 +251,7 @@ curl http://localhost:26350/health
 
 - **Daily health check**: Add `curl http://localhost:26350/health` to cron
 - **Docker auto-restart**: Services configured with `restart: unless-stopped`
-- **Disk space monitoring**: Alert when <5GB free in ~/.bmad-memory
+- **Disk space monitoring**: Alert when <5GB free in ~/.ai-memory
 - **Log rotation**: Prevent log files from filling disk
 
 ### Escalation Path
@@ -288,10 +288,10 @@ If recovery fails after 3 attempts:
 
 ```bash
 # Step 1: Check embedding service status
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml ps embedding
+docker compose -f ~/.ai-memory/docker/docker-compose.yml ps embedding
 
 # Step 2: Check service logs (look for "Model loaded" message)
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs embedding --tail 50 | grep -E "Model|Ready|Error"
+docker compose -f ~/.ai-memory/docker/docker-compose.yml logs embedding --tail 50 | grep -E "Model|Ready|Error"
 
 # Expected healthy log line:
 # "Jina Embeddings v2 Base EN model loaded successfully (768d)"
@@ -330,10 +330,10 @@ curl -X POST http://localhost:28080/embed \
 
 ```bash
 # 1. Start embedding service
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d embedding
+docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d embedding
 
 # 2. Wait for model load (15-45s - watch logs)
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs -f embedding | grep "Model loaded"
+docker compose -f ~/.ai-memory/docker/docker-compose.yml logs -f embedding | grep "Model loaded"
 # Press Ctrl+C when you see "Jina Embeddings v2 Base EN model loaded successfully"
 
 # 3. Verify health
@@ -360,10 +360,10 @@ python scripts/memory/backfill_embeddings.py --stats
 
 ```bash
 # 1. Restart to force reload
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml restart embedding
+docker compose -f ~/.ai-memory/docker/docker-compose.yml restart embedding
 
 # 2. Monitor model loading
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs -f embedding
+docker compose -f ~/.ai-memory/docker/docker-compose.yml logs -f embedding
 
 # Look for:
 # "Loading Jina Embeddings v2 model..."
@@ -390,11 +390,11 @@ vm_stat | perl -ne '/page size of (\d+)/ and $size=$1;/Pages free:\s+(\d+)/&& pr
 # - Or increase Docker Desktop memory limit (Settings → Resources → Memory)
 
 # 4. Restart embedding service with more resources
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml stop embedding
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d embedding
+docker compose -f ~/.ai-memory/docker/docker-compose.yml stop embedding
+docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d embedding
 
 # 5. Monitor startup
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs -f embedding
+docker compose -f ~/.ai-memory/docker/docker-compose.yml logs -f embedding
 ```
 
 **Expected Recovery Time:** 2-10 minutes (if config change needed)
@@ -412,12 +412,12 @@ netstat -tuln | grep 28080
 kill <PID>
 
 # Option 2: Change embedding port (permanent)
-# Edit ~/.bmad-memory/docker/docker-compose.yml
+# Edit ~/.ai-memory/docker/docker-compose.yml
 # Change: "28080:8080" to "28081:8080"
 # Update EMBEDDING_URL in src/memory/config.py: EMBEDDING_URL = "http://localhost:8001"
 
 # 3. Start embedding service
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d embedding
+docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d embedding
 ```
 
 **Expected Recovery Time:** 5-10 minutes (if port change required)
@@ -426,7 +426,7 @@ docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d embedding
 
 ```bash
 # 1. Container running
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml ps embedding
+docker compose -f ~/.ai-memory/docker/docker-compose.yml ps embedding
 # STATUS: running
 
 # 2. Health endpoint responds
@@ -434,7 +434,7 @@ curl http://localhost:28080/health
 # Response: {"status":"healthy","model":"jinaai/jina-embeddings-v2-base-en","dimension":768}
 
 # 3. Model loaded (check logs)
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs embedding | grep "Model loaded"
+docker compose -f ~/.ai-memory/docker/docker-compose.yml logs embedding | grep "Model loaded"
 # Should show: "Jina Embeddings v2 Base EN model loaded successfully"
 
 # 4. Embedding generation works
@@ -494,7 +494,7 @@ time curl -X POST http://localhost:28080/embed \
 # If embedding service recovery fails completely:
 
 # 1. Stop service
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml stop embedding
+docker compose -f ~/.ai-memory/docker/docker-compose.yml stop embedding
 
 # 2. System still functional - memories stored with pending status
 # Semantic search degrades to sparse-only (BM25)
@@ -863,7 +863,7 @@ fi
 ### Expected Output (Healthy System)
 
 ```
-=== BMAD Memory Module Health Check ===
+=== AI Memory Module Health Check ===
 
 Docker daemon... ✓ Running
 Qdrant container... ✓ Running
@@ -884,11 +884,11 @@ End-to-end test... ✓ Passed
 ### Expected Output (Issues Found)
 
 ```
-=== BMAD Memory Module Health Check ===
+=== AI Memory Module Health Check ===
 
 Docker daemon... ✓ Running
 Qdrant container... ✗ Not running
-  → Run: docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d qdrant
+  → Run: docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d qdrant
   → See: docs/RECOVERY.md#qdrant-unavailable
 Qdrant health... ✗ Unhealthy
   → See: docs/RECOVERY.md#qdrant-unavailable
@@ -961,7 +961,7 @@ docker stats --no-stream
 **Resolution:**
 ```bash
 # Restart embedding service to pre-warm model
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml restart embedding
+docker compose -f ~/.ai-memory/docker/docker-compose.yml restart embedding
 
 # Increase Docker resources (Settings → Resources)
 # Recommended: 4GB RAM, 2 CPUs
@@ -1014,7 +1014,7 @@ python scripts/memory/backfill_embeddings.py --stats
 ```bash
 # Symptom: "docker compose: command not found"
 # Resolution: Use docker-compose (hyphenated) for older Docker Desktop
-docker-compose -f ~/.bmad-memory/docker/docker-compose.yml up -d
+docker-compose -f ~/.ai-memory/docker/docker-compose.yml up -d
 ```
 
 **Issue: Port already allocated**
@@ -1029,7 +1029,7 @@ docker-compose -f ~/.bmad-memory/docker/docker-compose.yml up -d
 **Issue: File sharing permissions**
 ```bash
 # Symptom: "Permission denied" mounting volumes
-# Resolution: Add ~/.bmad-memory to Docker Desktop file sharing
+# Resolution: Add ~/.ai-memory to Docker Desktop file sharing
 # Docker Desktop → Settings → Resources → File Sharing → Add
 ```
 
@@ -1055,9 +1055,9 @@ git config core.autocrlf input
 
 **Issue: Path resolution**
 ```bash
-# Symptom: "~/.bmad-memory not found"
+# Symptom: "~/.ai-memory not found"
 # Resolution: Use full WSL path
-/home/<username>/.bmad-memory
+/home/<username>/.ai-memory
 ```
 
 ---
@@ -1132,10 +1132,10 @@ time curl -X POST http://localhost:28080/embed \
 **Resolution:**
 ```bash
 # Check if model loaded
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs embedding | grep "Model loaded"
+docker compose -f ~/.ai-memory/docker/docker-compose.yml logs embedding | grep "Model loaded"
 
 # Restart to force model reload
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml restart embedding
+docker compose -f ~/.ai-memory/docker/docker-compose.yml restart embedding
 
 # Allocate more CPU to Docker (Settings → Resources → CPUs → 4+)
 ```
@@ -1185,13 +1185,13 @@ INFO backfill_complete extra={'processed': 42, 'errors': 0, 'duration_seconds': 
 ~/.claude/logs/
 
 # Docker Compose logs
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs
+docker compose -f ~/.ai-memory/docker/docker-compose.yml logs
 
 # Qdrant logs
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs qdrant
+docker compose -f ~/.ai-memory/docker/docker-compose.yml logs qdrant
 
 # Embedding service logs
-docker compose -f ~/.bmad-memory/docker/docker-compose.yml logs embedding
+docker compose -f ~/.ai-memory/docker/docker-compose.yml logs embedding
 
 # System logs (Linux)
 journalctl -u docker

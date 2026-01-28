@@ -560,7 +560,7 @@ Examples:
 
         # Query pending records
         print(f"\n{'=' * 70}")
-        print("  BMAD Memory Embedding Backfill")
+        print("  AI Memory Embedding Backfill")
         print(f"{'=' * 70}\n")
         print(f"  Collection: {args.collection}")
         print(f"  Mode: {'DRY RUN' if args.dry_run else 'LIVE'}")

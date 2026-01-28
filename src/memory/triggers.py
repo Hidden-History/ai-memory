@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger("bmad.memory.triggers")
+logger = logging.getLogger("ai_memory.triggers")
 
 # Session state tracking with thread safety and cleanup
 # Maps session_id -> set of file paths edited in that session

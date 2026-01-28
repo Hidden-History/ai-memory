@@ -21,7 +21,7 @@ from typing import Optional
 
 # Add src to path for system python3 execution
 # Use INSTALL_DIR to find installed module (fixes path calculation bug)
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 local_src = os.path.join(INSTALL_DIR, "src")
 
 # Always use INSTALL_DIR for src path (multi-project support)
@@ -41,7 +41,7 @@ from memory.filters import filter_low_value_content, smart_truncate, is_duplicat
 handler = logging.StreamHandler(sys.stderr)
 from memory.logging_config import StructuredFormatter
 handler.setFormatter(StructuredFormatter())
-logger = logging.getLogger("bmad.memory.hooks")
+logger = logging.getLogger("ai_memory.hooks")
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False
@@ -610,7 +610,7 @@ def main():
                 })
 
                 # User notification - V2.0 behavior
-                print(f"🧠 BMAD Memory V2.0: No injection on {trigger} (fresh start) [{duration_ms:.0f}ms]", file=sys.stderr)
+                print(f"🧠 AI Memory V2.0: No injection on {trigger} (fresh start) [{duration_ms:.0f}ms]", file=sys.stderr)
 
                 # Empty context JSON - no injection on startup/resume/clear
                 print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}}))
@@ -755,7 +755,7 @@ def main():
                 })
 
                 # User notification - conversation context injected
-                print(f"🧠 BMAD Memory V2.0: Conversation context restored ({total_count} items: {summary_count} summaries, {message_count} messages) [{duration_ms:.0f}ms]", file=sys.stderr)
+                print(f"🧠 AI Memory V2.0: Conversation context restored ({total_count} items: {summary_count} summaries, {message_count} messages) [{duration_ms:.0f}ms]", file=sys.stderr)
 
                 # BUG-020 DEBUG: Log counts before activity log write
                 logger.debug("pre_activity_log", extra={
@@ -859,7 +859,7 @@ def main():
                 })
 
                 # User notification - no conversation context
-                print(f"🧠 BMAD Memory V2.0: No conversation context available [{duration_ms:.0f}ms]", file=sys.stderr)
+                print(f"🧠 AI Memory V2.0: No conversation context available [{duration_ms:.0f}ms]", file=sys.stderr)
 
                 # Metrics: Empty conversation context
                 if memory_retrievals_total:

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 # CR-1.7: Setup path inline (must happen BEFORE any memory.* imports)
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Import pattern extraction (Story 2.3)

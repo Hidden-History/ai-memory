@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Duplicate Detection for BMAD Memory System
+Duplicate Detection for AI Memory System
 
 Implements two-stage duplicate detection:
 - Stage 1: Exact duplicate (SHA256 hash)
@@ -21,7 +21,7 @@ Usage:
     python check_duplicates.py --content-file content.txt --metadata metadata.json
 
 Created: 2026-01-17
-Adapted from proven patterns for BMAD Memory Module
+Adapted from proven patterns for AI Memory Module
 """
 
 import os

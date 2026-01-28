@@ -33,7 +33,7 @@ from memory.logging_config import StructuredFormatter
 # Configure structured logging
 handler = logging.StreamHandler()
 handler.setFormatter(StructuredFormatter())
-logger = logging.getLogger("bmad.memory.status")
+logger = logging.getLogger("ai_memory.status")
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False
@@ -142,7 +142,7 @@ def main() -> int:
     Returns:
         Exit code: 0 (success) or 1 (error)
     """
-    print("\n🧠 BMAD Memory System Status")
+    print("\n🧠 AI Memory System Status")
     print("=" * 60)
 
     # Current project

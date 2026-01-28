@@ -27,7 +27,7 @@ from typing import Callable, Any, Optional
 from functools import wraps
 
 # Configure logger for hook operations
-logger = logging.getLogger("bmad.memory.hooks")
+logger = logging.getLogger("ai_memory.hooks")
 
 # Exit codes per project-context.md and Claude Code hook specification
 EXIT_SUCCESS = 0       # Normal completion

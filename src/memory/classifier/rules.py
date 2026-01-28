@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 
 from .config import RULE_PATTERNS, RULE_CONFIDENCE_THRESHOLD
 
-logger = logging.getLogger("bmad.memory.classifier.rules")
+logger = logging.getLogger("ai_memory.classifier.rules")
 
 __all__ = ["classify_by_rules"]
 

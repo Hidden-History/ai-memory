@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/rollback.sh - Rollback BMAD Memory Module Update
+# scripts/rollback.sh - Rollback AI Memory Module Update
 # 2026 Best Practice: Pre-written, tested rollback script
 
 set -euo pipefail
@@ -15,7 +15,7 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-INSTALL_DIR="${BMAD_INSTALL_DIR:-$HOME/.bmad-memory}"
+INSTALL_DIR="${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}"
 
 # Track rollback state for cleanup
 ROLLBACK_STARTED=false
@@ -42,7 +42,7 @@ trap cleanup EXIT
 main() {
     echo ""
     echo "========================================"
-    echo "  BMAD Memory Module Rollback"
+    echo "  AI Memory Module Rollback"
     echo "========================================"
     echo ""
 

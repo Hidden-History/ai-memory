@@ -28,8 +28,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
-# Session log configuration (defaults) - uses BMAD_INSTALL_DIR for multi-project support
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+# Session log configuration (defaults) - uses AI_MEMORY_INSTALL_DIR for multi-project support
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 SESSION_LOG_PATH = os.path.join(INSTALL_DIR, "logs", "sessions.jsonl")
 SESSION_LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB per file
 SESSION_LOG_BACKUP_COUNT = 90  # Keep 90 rotated files (90 days if daily rotation)
@@ -107,7 +107,7 @@ def get_session_logger() -> Optional[logging.Logger]:
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Configure logger
-    session_logger = logging.getLogger("bmad.memory.sessions")
+    session_logger = logging.getLogger("ai_memory.sessions")
     session_logger.setLevel(logging.INFO)
     session_logger.propagate = False  # Don't propagate to root logger
 

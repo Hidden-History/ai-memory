@@ -31,14 +31,14 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Configure structured logging
 from memory.logging_config import StructuredFormatter
 handler = logging.StreamHandler()
 handler.setFormatter(StructuredFormatter())
-logger = logging.getLogger("bmad.memory.hooks")
+logger = logging.getLogger("ai_memory.hooks")
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False

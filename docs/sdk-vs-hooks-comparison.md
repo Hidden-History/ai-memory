@@ -347,7 +347,7 @@ Total: ~3000ms (response time + 1000ms hook overhead)
 
 ## Recommendations
 
-### For BMAD Memory Module
+### For AI Memory Module
 
 1. **Keep Both Approaches**
    - SDK wrapper for Parzival and custom agents

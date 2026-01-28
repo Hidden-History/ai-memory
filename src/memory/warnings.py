@@ -1,11 +1,11 @@
-"""Collection threshold warnings module for BMAD Memory Module.
+"""Collection threshold warnings module for AI Memory Module.
 
 Checks collection sizes against WARNING and CRITICAL thresholds and emits
 structured log events for monitoring and alerting.
 
 Thresholds are configurable via environment variables:
-- BMAD_COLLECTION_SIZE_WARNING: Default 10,000 (FR46a)
-- BMAD_COLLECTION_SIZE_CRITICAL: Default 50,000
+- AI_MEMORY_COLLECTION_SIZE_WARNING: Default 10,000 (FR46a)
+- AI_MEMORY_COLLECTION_SIZE_CRITICAL: Default 50,000
 
 Complies with:
 - AC 6.6.2: Threshold Warning Implementation (FR46a)
@@ -23,14 +23,14 @@ __all__ = [
     "COLLECTION_SIZE_CRITICAL",
 ]
 
-logger = logging.getLogger("bmad.memory.storage")
+logger = logging.getLogger("ai_memory.storage")
 
 # Configurable thresholds (FR46a: default 10,000)
 COLLECTION_SIZE_WARNING = int(
-    os.getenv("BMAD_COLLECTION_SIZE_WARNING", "10000")
+    os.getenv("AI_MEMORY_COLLECTION_SIZE_WARNING", "10000")
 )
 COLLECTION_SIZE_CRITICAL = int(
-    os.getenv("BMAD_COLLECTION_SIZE_CRITICAL", "50000")
+    os.getenv("AI_MEMORY_COLLECTION_SIZE_CRITICAL", "50000")
 )
 
 # Validate thresholds on module load

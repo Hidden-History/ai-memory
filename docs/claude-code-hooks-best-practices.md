@@ -1,6 +1,6 @@
 # Claude Code Hooks Best Practices (2026)
 
-This document captures best practices for implementing Claude Code hooks, based on official documentation and extensive debugging experience from the BMAD Memory Module project.
+This document captures best practices for implementing Claude Code hooks, based on official documentation and extensive debugging experience from the AI Memory Module project.
 
 ## Table of Contents
 
@@ -421,9 +421,9 @@ sys.exit(0)  # Return immediately
 }
 ```
 
-### 7. Wrong Environment Variables for BMAD Memory
+### 7. Wrong Environment Variables for AI Memory
 
-For BMAD Memory Module, use separate host/port variables, NOT URL strings:
+For AI Memory Module, use separate host/port variables, NOT URL strings:
 
 **Wrong:**
 ```json
@@ -567,7 +567,7 @@ Based on working reference architecture from `bmad-qdrant-knowledge-management`,
    import sys
 
    # Add module to path
-   INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+   INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
    sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
    try:
@@ -655,14 +655,14 @@ When Claude is about to use a tool (Read, Search, etc.), the terminal should sho
 ======================================================================
 
 1. [implementation] (Relevance: 75%)
-## Grafana Dashboard Fix Guide - BMAD Memory Module
+## Grafana Dashboard Fix Guide - AI Memory Module
 
 ### Problem Summary
 The Grafana dashboards at docker/grafana/dashboards/ show "No data"...
 ... (truncated)
 
 2. [implementation] (Relevance: 75%)
-## BMAD Memory Module - Prometheus Metrics Reference
+## AI Memory Module - Prometheus Metrics Reference
 ...
 
 ======================================================================
@@ -767,7 +767,7 @@ Use this checklist when hooks aren't working:
 - [ ] **Valid JSON**: Settings file passes JSON validation?
 - [ ] **Correct location**: Settings in right location for scope? (global vs project)
 
-### Environment Checklist (BMAD Memory)
+### Environment Checklist (AI Memory)
 
 - [ ] **QDRANT_HOST**: Set to `localhost` (not URL string)?
 - [ ] **QDRANT_PORT**: Set to `26350` (not default 6333)?
@@ -878,4 +878,4 @@ Here's a complete, tested settings.json configuration:
 ---
 
 *Last updated: 2026-01-16*
-*Based on Claude Code documentation and extensive debugging experience from BMAD Memory Module VAL-001 validation and BLK-002 investigation*
+*Based on Claude Code documentation and extensive debugging experience from AI Memory Module VAL-001 validation and BLK-002 investigation*

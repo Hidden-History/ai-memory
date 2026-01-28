@@ -15,7 +15,7 @@ import httpx
 from .base import BaseProvider, ProviderResponse
 from ..config import MAX_OUTPUT_TOKENS
 
-logger = logging.getLogger("bmad.memory.classifier.providers.openai")
+logger = logging.getLogger("ai_memory.classifier.providers.openai")
 
 __all__ = ["OpenAIProvider"]
 

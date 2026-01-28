@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create Qdrant collections for BMAD Memory Module.
+"""Create Qdrant collections for AI Memory Module.
 
 Creates three v2.0 collections:
 - code-patterns: HOW things are built (implementation, error_fix, refactor, file_pattern)
@@ -118,7 +118,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Create Qdrant collections for BMAD Memory Module (V2.0)"
+        description="Create Qdrant collections for AI Memory Module (V2.0)"
     )
     parser.add_argument(
         "--dry-run",

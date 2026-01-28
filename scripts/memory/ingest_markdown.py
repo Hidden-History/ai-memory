@@ -28,7 +28,7 @@ from memory.config import get_config, COLLECTION_CONVENTIONS
 from memory.storage import MemoryStorage
 from memory.chunking import ProseChunker, ProseChunkerConfig
 
-logger = logging.getLogger("bmad.memory.ingest")
+logger = logging.getLogger("ai_memory.ingest")
 
 # Frontmatter pattern (YAML between --- markers)
 FRONTMATTER_PATTERN = re.compile(r'^---\s*\n(.*?)\n---\s*\n', re.DOTALL)

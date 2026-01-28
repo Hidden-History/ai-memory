@@ -1,9 +1,9 @@
 #!/bin/bash
-# BMAD Memory Module - Comprehensive Health Check
+# AI Memory Module - Comprehensive Health Check
 # Purpose: Validate all memory system components in one command
 # Usage: ./scripts/memory/health_check.sh
 # Exit codes: 0 = healthy, 1 = needs attention
-# Author: BMAD Memory Module Team
+# Author: AI Memory Module Team
 # Last validated: 2026-01-13
 
 # Strict mode: exit on error, undefined vars, pipe failures
@@ -24,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "=== BMAD Memory Module Health Check ==="
+echo "=== AI Memory Module Health Check ==="
 echo ""
 
 # Colors for output

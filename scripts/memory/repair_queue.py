@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BMAD Memory Module - Queue Repair Script
+AI Memory Module - Queue Repair Script
 
 Purpose: Repair corrupt pending_queue.jsonl file by extracting valid entries
 Usage: python scripts/memory/repair_queue.py [--dry-run] [--verbose]
@@ -168,7 +168,7 @@ def main() -> int:
     """Main entry point."""
     args = parse_args()
 
-    print("=== BMAD Memory Queue Repair ===")
+    print("=== AI Memory Queue Repair ===")
     print(f"Queue path: {args.queue_path}")
     if args.dry_run:
         print("[DRY RUN MODE]")

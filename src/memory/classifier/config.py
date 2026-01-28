@@ -14,7 +14,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-logger = logging.getLogger("bmad.memory.classifier.config")
+logger = logging.getLogger("ai_memory.classifier.config")
 
 
 def _load_env_file() -> None:
@@ -25,7 +25,7 @@ def _load_env_file() -> None:
     # Try multiple possible locations for .env
     possible_paths = [
         Path(__file__).parent.parent.parent.parent / "docker" / ".env",  # src/memory/classifier -> project/docker/.env
-        Path.home() / ".bmad-memory" / ".env",
+        Path.home() / ".ai-memory" / ".env",
         Path("/app/docker/.env"),  # Docker container path
     ]
 

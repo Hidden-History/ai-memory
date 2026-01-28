@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end verification for BMAD Memory hooks system.
+"""End-to-end verification for AI Memory hooks system.
 
 Verifies the complete hooks workflow:
 1. Hook scripts exist and are executable
@@ -771,7 +771,7 @@ def generate_report(results: TestResults, verbose: bool = False):
             print(f"{Colors.WARNING}All critical checks passed, but some warnings were found.{Colors.ENDC}")
         else:
             print(f"{Colors.OKGREEN}{Colors.BOLD}✓ ALL CHECKS PASSED{Colors.ENDC}")
-            print(f"{Colors.OKGREEN}BMAD Memory hooks system is fully functional!{Colors.ENDC}")
+            print(f"{Colors.OKGREEN}AI Memory hooks system is fully functional!{Colors.ENDC}")
     else:
         if results.has_critical_failures():
             print(f"{Colors.FAIL}{Colors.BOLD}✗ CRITICAL FAILURES DETECTED{Colors.ENDC}")
@@ -784,7 +784,7 @@ def generate_report(results: TestResults, verbose: bool = False):
 def main():
     """Main entry point for verification script."""
     parser = argparse.ArgumentParser(
-        description="End-to-end verification for BMAD Memory hooks system",
+        description="End-to-end verification for AI Memory hooks system",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -808,7 +808,7 @@ Examples:
     print(f"{Colors.HEADER}{Colors.BOLD}")
     print("╔" + "="*68 + "╗")
     print("║" + " "*68 + "║")
-    print("║" + "  BMAD Memory Module - Hooks System E2E Verification".center(68) + "║")
+    print("║" + "  AI Memory Module - Hooks System E2E Verification".center(68) + "║")
     print("║" + " "*68 + "║")
     print("╚" + "="*68 + "╝")
     print(Colors.ENDC)

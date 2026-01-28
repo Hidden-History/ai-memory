@@ -33,7 +33,7 @@ def push_metrics() -> None:
 
 ### Issue 2: Deduplication Metrics Not Appearing in Prometheus
 
-**Problem**: `bmad_deduplication_events_total` was defined and incremented but NEVER pushed to Prometheus.
+**Problem**: `ai_memory_dedup_matches` was defined and incremented but NEVER pushed to Prometheus.
 
 **Root Cause**:
 - No `push_deduplication_metrics_async()` function existed
@@ -45,7 +45,7 @@ def push_metrics() -> None:
 1. **Updated metric definition** (`src/memory/metrics.py:45-50`):
 ```python
 deduplication_events_total = Counter(
-    "bmad_deduplication_events_total",
+    "ai_memory_dedup_matches",
     "Memories deduplicated (not stored)",
     ["action", "collection", "project"]  # BUG-021: Added action/collection for dashboard granularity
     # action: skipped_duplicate (when dedup detected), stored (when unique)
@@ -109,9 +109,9 @@ memory_classifier_rule_matches_total{rule_type="port_number"}
 When memories are stored or duplicates detected:
 
 ```
-bmad_deduplication_events_total{action="skipped_duplicate", collection="code-patterns", project="bmad-memory-module"}
-bmad_deduplication_events_total{action="skipped_duplicate", collection="conventions", project="bmad-memory-module"}
-bmad_deduplication_events_total{action="skipped_duplicate", collection="discussions", project="bmad-memory-module"}
+ai_memory_dedup_matches{action="skipped_duplicate", collection="code-patterns", project="ai-memory-module"}
+ai_memory_dedup_matches{action="skipped_duplicate", collection="conventions", project="ai-memory-module"}
+ai_memory_dedup_matches{action="skipped_duplicate", collection="discussions", project="ai-memory-module"}
 ```
 
 ## Verification Steps
@@ -130,7 +130,7 @@ bmad_deduplication_events_total{action="skipped_duplicate", collection="discussi
 
 **To Verify Deduplication**:
 1. Create duplicate memories (same content twice)
-2. Check Prometheus for `bmad_deduplication_events_total` with `action="skipped_duplicate"`
+2. Check Prometheus for `ai_memory_dedup_matches` with `action="skipped_duplicate"`
 
 ## Related Issues
 

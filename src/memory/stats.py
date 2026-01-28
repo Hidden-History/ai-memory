@@ -1,4 +1,4 @@
-"""Collection statistics module for BMAD Memory Module.
+"""Collection statistics module for AI Memory Module.
 
 Provides comprehensive statistics for Qdrant collections including:
 - Total points and indexed points
@@ -26,7 +26,7 @@ __all__ = [
     "get_last_updated",
 ]
 
-logger = logging.getLogger("bmad.memory.storage")
+logger = logging.getLogger("ai_memory.storage")
 
 
 @dataclass

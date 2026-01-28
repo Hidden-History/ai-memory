@@ -43,7 +43,7 @@ from memory.storage import MemoryStorage
 from memory.models import MemoryType
 from memory.config import COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS
 
-logger = setup_hook_logging("bmad.memory.retry_processor")
+logger = setup_hook_logging("ai_memory.retry_processor")
 
 # Dead letter queue for items that exceed max retries
 DLQ_FILE = Path(INSTALL_DIR) / "queue" / "retry_queue_dlq.jsonl"

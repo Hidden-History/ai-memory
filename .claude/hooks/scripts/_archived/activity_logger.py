@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 # CR-4.3: Use Path operations instead of string concatenation
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 sys.path.insert(0, str(Path(INSTALL_DIR) / "src"))
 
 from memory.activity_log import (
@@ -29,7 +29,7 @@ from memory.project import detect_project
 
 def main():
     """Route hook events to appropriate activity loggers."""
-    logger = logging.getLogger("bmad.memory.activity")
+    logger = logging.getLogger("ai_memory.activity")
     try:
         hook_input = json.load(sys.stdin)
     except json.JSONDecodeError as e:

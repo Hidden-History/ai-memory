@@ -41,7 +41,7 @@ from memory.metrics_push import push_skill_metrics_async
 # Configure structured logging
 handler = logging.StreamHandler()
 handler.setFormatter(StructuredFormatter())
-logger = logging.getLogger("bmad.memory.search")
+logger = logging.getLogger("ai_memory.search")
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False

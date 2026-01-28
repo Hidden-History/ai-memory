@@ -20,13 +20,13 @@ from contextlib import contextmanager
 from typing import Optional, Set
 from prometheus_client import CollectorRegistry, Counter, Histogram, pushadd_to_gateway
 
-logger = logging.getLogger("bmad.memory.metrics")
+logger = logging.getLogger("ai_memory.metrics")
 
 PUSHGATEWAY_URL = os.getenv("PUSHGATEWAY_URL", "localhost:29091")
 PUSHGATEWAY_ENABLED = os.getenv("PUSHGATEWAY_ENABLED", "true").lower() == "true"
 
 # Job name per Monitoring-System-V2-Spec.md
-JOB_NAME = "bmad_memory_hooks"
+JOB_NAME = "ai_memory_hooks"
 
 # Validation sets for label values (HIGH-1)
 VALID_STATUSES = {"success", "empty", "error", "failed", "queued", "skipped", "timeout"}
@@ -86,7 +86,7 @@ def push_hook_metrics(hook_name: str, duration_seconds: float, success: bool = T
     registry = CollectorRegistry()
 
     duration = Histogram(
-        'bmad_hook_duration_seconds',
+        'ai_memory_hook_latency',
         'Hook execution duration',
         ['hook_type', 'status'],
         registry=registry,
@@ -98,7 +98,7 @@ def push_hook_metrics(hook_name: str, duration_seconds: float, success: bool = T
         pushadd_to_gateway(PUSHGATEWAY_URL, job=JOB_NAME, registry=registry, timeout=0.5)
     except Exception as e:
         logger.warning("pushgateway_push_failed", extra={
-            "metric": "bmad_hook_duration_seconds",
+            "metric": "ai_memory_hook_latency",
             "error": str(e),
             "error_type": type(e).__name__
         })
@@ -135,7 +135,7 @@ from prometheus_client import CollectorRegistry, Histogram, pushadd_to_gateway
 data = json.loads(sys.argv[1])
 registry = CollectorRegistry()
 duration = Histogram(
-    "bmad_hook_duration_seconds",
+    "ai_memory_hook_latency",
     "Hook execution duration",
     ["hook_type", "status"],
     registry=registry,
@@ -149,13 +149,13 @@ duration.labels(
 try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
-        job=os.getenv("JOB_NAME", "bmad_memory_hooks"),
+        job=os.getenv("JOB_NAME", "ai_memory_hooks"),
         registry=registry,
         timeout=0.5
     )
 except Exception as e:
     import logging
-    logging.getLogger("bmad.memory.metrics").warning(
+    logging.getLogger("ai_memory.metrics").warning(
         "pushgateway_async_failed",
         extra={"error": str(e), "metric": "hook_duration"}
     )
@@ -238,7 +238,7 @@ data = json.loads({repr(json.dumps(metrics_data))})
 registry = CollectorRegistry()
 
 fires = Counter(
-    "bmad_trigger_fires_total",
+    "ai_memory_trigger_fires_total",
     "Total trigger activations",
     ["trigger_type", "status", "project"],
     registry=registry
@@ -250,7 +250,7 @@ fires.labels(
 ).inc()
 
 results = Histogram(
-    "bmad_trigger_results_returned",
+    "ai_memory_trigger_results_returned",
     "Number of results per trigger",
     ["trigger_type"],
     registry=registry,
@@ -261,13 +261,13 @@ results.labels(trigger_type=data["trigger_type"]).observe(data["results_count"])
 try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
-        job="bmad_memory_hooks",
+        job="ai_memory_hooks",
         registry=registry,
         timeout=0.5
     )
 except Exception as e:
     import logging
-    logging.getLogger("bmad.memory.metrics").warning(
+    logging.getLogger("ai_memory.metrics").warning(
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "trigger"}}
     )
@@ -326,7 +326,7 @@ data = json.loads({repr(json.dumps(metrics_data))})
 registry = CollectorRegistry()
 
 tokens = Counter(
-    "bmad_tokens_consumed_total",
+    "ai_memory_tokens_consumed_total",
     "Total tokens consumed",
     ["operation", "direction", "project"],
     registry=registry
@@ -340,13 +340,13 @@ tokens.labels(
 try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
-        job="bmad_memory_hooks",
+        job="ai_memory_hooks",
         registry=registry,
         timeout=0.5
     )
 except Exception as e:
     import logging
-    logging.getLogger("bmad.memory.metrics").warning(
+    logging.getLogger("ai_memory.metrics").warning(
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "token"}}
     )
@@ -409,7 +409,7 @@ data = json.loads({repr(json.dumps(metrics_data))})
 registry = CollectorRegistry()
 
 injection = Histogram(
-    "bmad_context_injection_tokens",
+    "ai_memory_context_injection_tokens",
     "Tokens injected per hook",
     ["hook_type", "collection", "project"],
     registry=registry,
@@ -424,13 +424,13 @@ injection.labels(
 try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
-        job="bmad_memory_hooks",
+        job="ai_memory_hooks",
         registry=registry,
         timeout=0.5
     )
 except Exception as e:
     import logging
-    logging.getLogger("bmad.memory.metrics").warning(
+    logging.getLogger("ai_memory.metrics").warning(
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "context_injection"}}
     )
@@ -493,7 +493,7 @@ data = json.loads({repr(json.dumps(metrics_data))})
 registry = CollectorRegistry()
 
 captures = Counter(
-    "bmad_memory_captures_total",
+    "ai_memory_captures_total",
     "Total memory captures",
     ["hook_type", "status", "project", "collection"],
     registry=registry
@@ -508,13 +508,13 @@ captures.labels(
 try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
-        job="bmad_memory_hooks",
+        job="ai_memory_hooks",
         registry=registry,
         timeout=0.5
     )
 except Exception as e:
     import logging
-    logging.getLogger("bmad.memory.metrics").warning(
+    logging.getLogger("ai_memory.metrics").warning(
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "capture"}}
     )
@@ -570,7 +570,7 @@ data = json.loads({repr(json.dumps(metrics_data))})
 registry = CollectorRegistry()
 
 requests = Counter(
-    "bmad_embedding_requests_total",
+    "ai_memory_embedding_requests_total",
     "Total embedding requests",
     ["status", "embedding_type"],
     registry=registry
@@ -581,7 +581,7 @@ requests.labels(
 ).inc()
 
 duration = Histogram(
-    "bmad_embedding_duration_seconds",
+    "ai_memory_embedding_latency",
     "Embedding generation duration",
     ["embedding_type"],
     registry=registry,
@@ -592,13 +592,13 @@ duration.labels(embedding_type=data["embedding_type"]).observe(data["duration_se
 try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
-        job="bmad_memory_hooks",
+        job="ai_memory_hooks",
         registry=registry,
         timeout=0.5
     )
 except Exception as e:
     import logging
-    logging.getLogger("bmad.memory.metrics").warning(
+    logging.getLogger("ai_memory.metrics").warning(
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "embedding"}}
     )
@@ -654,7 +654,7 @@ data = json.loads({repr(json.dumps(metrics_data))})
 registry = CollectorRegistry()
 
 retrievals = Counter(
-    "bmad_memory_retrievals_total",
+    "ai_memory_retrievals_total",
     "Total memory retrievals",
     ["collection", "status"],
     registry=registry
@@ -665,7 +665,7 @@ retrievals.labels(
 ).inc()
 
 duration = Histogram(
-    "bmad_retrieval_duration_seconds",
+    "ai_memory_search_latency",
     "Memory retrieval duration",
     registry=registry,
     buckets=(0.1, 0.5, 1.0, 2.0, 3.0, 5.0)
@@ -675,13 +675,13 @@ duration.observe(data["duration_seconds"])
 try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
-        job="bmad_memory_hooks",
+        job="ai_memory_hooks",
         registry=registry,
         timeout=0.5
     )
 except Exception as e:
     import logging
-    logging.getLogger("bmad.memory.metrics").warning(
+    logging.getLogger("ai_memory.metrics").warning(
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "retrieval"}}
     )
@@ -734,7 +734,7 @@ data = json.loads({repr(json.dumps(metrics_data))})
 registry = CollectorRegistry()
 
 failures = Counter(
-    "bmad_failure_events_total",
+    "ai_memory_failure_events_total",
     "Total failure events",
     ["component", "error_code"],
     registry=registry
@@ -747,13 +747,13 @@ failures.labels(
 try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
-        job="bmad_memory_hooks",
+        job="ai_memory_hooks",
         registry=registry,
         timeout=0.5
     )
 except Exception as e:
     import logging
-    logging.getLogger("bmad.memory.metrics").warning(
+    logging.getLogger("ai_memory.metrics").warning(
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "failure"}}
     )
@@ -811,7 +811,7 @@ data = json.loads({repr(json.dumps(metrics_data))})
 registry = CollectorRegistry()
 
 invocations = Counter(
-    "bmad_skill_invocations_total",
+    "ai_memory_skill_invocations_total",
     "Total skill invocations",
     ["skill_name", "status"],
     registry=registry
@@ -822,7 +822,7 @@ invocations.labels(
 ).inc()
 
 duration = Histogram(
-    "bmad_skill_duration_seconds",
+    "ai_memory_skill_duration_seconds",
     "Skill execution duration",
     ["skill_name"],
     registry=registry,
@@ -833,13 +833,13 @@ duration.labels(skill_name=data["skill_name"]).observe(data["duration_seconds"])
 try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
-        job="bmad_memory_hooks",
+        job="ai_memory_hooks",
         registry=registry,
         timeout=0.5
     )
 except Exception as e:
     import logging
-    logging.getLogger("bmad.memory.metrics").warning(
+    logging.getLogger("ai_memory.metrics").warning(
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "skill"}}
     )
@@ -865,7 +865,7 @@ def push_deduplication_metrics_async(
     Uses subprocess fork pattern to avoid blocking hook execution.
     Tracks when duplicates are detected vs unique memories stored.
 
-    BUG-021: Created to push bmad_deduplication_events_total metric.
+    BUG-021: Created to push ai_memory_dedup_matches metric.
 
     Args:
         action: skipped_duplicate (duplicate detected), stored (unique memory)
@@ -898,7 +898,7 @@ data = json.loads({repr(json.dumps(metrics_data))})
 registry = CollectorRegistry()
 
 dedup = Counter(
-    "bmad_deduplication_events_total",
+    "ai_memory_dedup_matches",
     "Memories deduplicated (not stored)",
     ["action", "collection", "project"],
     registry=registry
@@ -912,13 +912,13 @@ dedup.labels(
 try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
-        job="bmad_memory_hooks",
+        job="ai_memory_hooks",
         registry=registry,
         timeout=0.5
     )
 except Exception as e:
     import logging
-    logging.getLogger("bmad.memory.metrics").warning(
+    logging.getLogger("ai_memory.metrics").warning(
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "deduplication"}}
     )
@@ -969,7 +969,7 @@ data = json.loads({repr(json.dumps(metrics_data))})
 registry = CollectorRegistry()
 
 queue_size = Gauge(
-    "bmad_queue_size",
+    "ai_memory_queue_size",
     "Pending items in retry queue",
     ["status"],
     registry=registry
@@ -981,13 +981,13 @@ queue_size.labels(status="ready").set(data["ready_count"])
 try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
-        job="bmad_memory_hooks",
+        job="ai_memory_hooks",
         registry=registry,
         timeout=0.5
     )
 except Exception as e:
     import logging
-    logging.getLogger("bmad.memory.metrics").warning(
+    logging.getLogger("ai_memory.metrics").warning(
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "queue_size"}}
     )

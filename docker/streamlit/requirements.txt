@@ -1,4 +1,4 @@
-# BMAD Memory Module - Streamlit Dashboard
+# AI Memory Module - Streamlit Dashboard
 # Last audited: 2026-01-14
 # All versions pinned per ACT-003
 

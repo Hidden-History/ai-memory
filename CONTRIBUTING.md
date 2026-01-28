@@ -1,4 +1,4 @@
-# Contributing to BMAD Memory Module
+# Contributing to AI Memory Module
 
 Thank you for your interest in contributing! This guide will help you get started.
 

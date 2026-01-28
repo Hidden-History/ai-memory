@@ -1,4 +1,4 @@
-# Dockerfile for BMAD Memory Browser (Streamlit)
+# Dockerfile for AI Memory Browser (Streamlit)
 # Story 6.4: Streamlit Memory Browser
 # 2026 Best Practices:
 # - Python 3.11-slim (latest stable)
