@@ -1255,8 +1255,8 @@ seed_best_practices() {
     if [[ "${SEED_BEST_PRACTICES:-false}" == "true" ]]; then
         log_info "Seeding best_practices collection..."
 
-        # Check if templates directory exists
-        if [[ ! -d "$INSTALL_DIR/templates/best_practices" ]]; then
+        # Check if templates directory exists (V2.0: renamed from best_practices to conventions)
+        if [[ ! -d "$INSTALL_DIR/templates/conventions" ]]; then
             log_warning "Templates directory not found - skipping seeding"
             log_info "To seed manually later:"
             log_info "  python3 $INSTALL_DIR/scripts/memory/seed_best_practices.py"
@@ -1264,12 +1264,12 @@ seed_best_practices() {
         fi
 
         # Run seeding script
-        if python3 "$INSTALL_DIR/scripts/memory/seed_best_practices.py" --templates-dir "$INSTALL_DIR/templates/best_practices"; then
+        if python3 "$INSTALL_DIR/scripts/memory/seed_best_practices.py" --templates-dir "$INSTALL_DIR/templates/conventions"; then
             log_success "Best practices seeded successfully"
         else
             log_warning "Failed to seed best practices (non-critical)"
             log_info "You can seed manually later with:"
-            log_info "  python3 $INSTALL_DIR/scripts/memory/seed_best_practices.py --templates-dir $INSTALL_DIR/templates/best_practices"
+            log_info "  python3 $INSTALL_DIR/scripts/memory/seed_best_practices.py --templates-dir $INSTALL_DIR/templates/conventions"
         fi
     fi
     # No tip shown if user explicitly declined during interactive prompt
