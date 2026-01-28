@@ -592,7 +592,7 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         test_content = f"E2E test memory - {timestamp}"
         test_hash = compute_content_hash(test_content)
-        project_name = "bmad-memory-module"
+        project_name = "ai-memory-module"
 
         # Step 1: Store test memory
         print(f"{Colors.BOLD}Step 1: Storing test memory{Colors.ENDC}")

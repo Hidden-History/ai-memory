@@ -92,9 +92,9 @@ def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path, monkeypa
     When: I search from project "project-a"
     Then: memories from "project-a" ARE returned (project-scoped access works)
     """
-    # TECH-DEBT-015 FIX: Clear BMAD_PROJECT_ID to enable cwd-based detection
+    # TECH-DEBT-015 FIX: Clear AI_MEMORY_PROJECT_ID to enable cwd-based detection
     # The env var has highest priority and prevents multi-project testing
-    monkeypatch.delenv("BMAD_PROJECT_ID", raising=False)
+    monkeypatch.delenv("AI_MEMORY_PROJECT_ID", raising=False)
 
     logger.info(
         "test_started",
@@ -204,8 +204,8 @@ def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path, monkeypa
     Then: context retrieved reflects project "project-b" memories ONLY
     And: switching back to "project-a" retrieves project "project-a" context again (FR17)
     """
-    # TECH-DEBT-015 FIX: Clear BMAD_PROJECT_ID to enable cwd-based detection
-    monkeypatch.delenv("BMAD_PROJECT_ID", raising=False)
+    # TECH-DEBT-015 FIX: Clear AI_MEMORY_PROJECT_ID to enable cwd-based detection
+    monkeypatch.delenv("AI_MEMORY_PROJECT_ID", raising=False)
 
     logger.info(
         "test_started",
@@ -327,8 +327,8 @@ def test_concurrent_projects(qdrant_client: QdrantClient, tmp_path: Path, monkey
     Then: each project maintains isolation (no cross-contamination) (FR15)
     And: all projects can operate simultaneously without interference
     """
-    # TECH-DEBT-015 FIX: Clear BMAD_PROJECT_ID to enable cwd-based detection
-    monkeypatch.delenv("BMAD_PROJECT_ID", raising=False)
+    # TECH-DEBT-015 FIX: Clear AI_MEMORY_PROJECT_ID to enable cwd-based detection
+    monkeypatch.delenv("AI_MEMORY_PROJECT_ID", raising=False)
 
     logger.info(
         "test_started",

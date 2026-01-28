@@ -86,8 +86,8 @@ npm run test:report
 
 ### Screenshots
 All screenshots are saved to `test-results/screenshots/`:
-- `bmad-memory-overview.png` - Full-page screenshot of Overview dashboard
-- `bmad-memory-performance.png` - Full-page screenshot of Performance dashboard
+- `ai-memory-overview.png` - Full-page screenshot of Overview dashboard
+- `ai-memory-performance.png` - Full-page screenshot of Performance dashboard
 
 ### Test Report
 JSON report saved to `test-results/dashboard-test-report.json`:
@@ -96,7 +96,7 @@ JSON report saved to `test-results/dashboard-test-report.json`:
   "timestamp": "2026-01-15T...",
   "dashboards": {
     "overview": {
-      "url": "http://localhost:23000/d/bmad-memory-overview/bmad-memory-overview",
+      "url": "http://localhost:23000/d/ai-memory-overview/ai-memory-overview",
       "panels": {
         "Embedding Rate (last 1h)": {
           "visible": true,

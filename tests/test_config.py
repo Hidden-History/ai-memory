@@ -48,7 +48,7 @@ class TestMemoryConfig:
         assert config.collection_size_critical == 50000
 
         # Paths
-        assert config.install_dir == Path.home() / ".bmad-memory"
+        assert config.install_dir == Path.home() / ".ai-memory"
         assert config.queue_path == Path.home() / ".claude-memory" / "pending_queue.jsonl"
         assert config.session_log_path == Path.home() / ".claude-memory" / "sessions.jsonl"
 
@@ -267,13 +267,13 @@ LOG_LEVEL=WARNING
     def test_path_expansion_tilde(self, monkeypatch):
         """AC 7.4.1: Path expansion for ~ with field_validator."""
         reset_config()
-        monkeypatch.setenv("INSTALL_DIR", "~/custom-bmad")
+        monkeypatch.setenv("INSTALL_DIR", "~/custom-ai-memory")
 
         config = get_config()
 
         # Tilde should be expanded to home directory
         assert "~" not in str(config.install_dir)
-        assert config.install_dir == Path.home() / "custom-bmad"
+        assert config.install_dir == Path.home() / "custom-ai-memory"
 
     def test_path_expansion_env_vars(self, monkeypatch):
         """AC 7.4.1: Path expansion for $HOME with field_validator."""

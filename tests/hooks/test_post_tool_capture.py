@@ -43,7 +43,7 @@ def mock_config():
     config = MagicMock()
     config.qdrant_host = "localhost"
     config.qdrant_port = 26350
-    config.project_name = "bmad-memory-module"
+    config.project_name = "ai-memory-module"
     return config
 
 

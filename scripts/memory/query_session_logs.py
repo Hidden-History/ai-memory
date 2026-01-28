@@ -10,7 +10,7 @@ Usage:
 
 Examples:
     # Show all sessions for a project
-    python scripts/memory/query_session_logs.py --project bmad-memory-module
+    python scripts/memory/query_session_logs.py --project ai-memory-module
 
     # Sessions with 5+ results in last 7 days
     python scripts/memory/query_session_logs.py --min-results 5 --since 2026-01-06

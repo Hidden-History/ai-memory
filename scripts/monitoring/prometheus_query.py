@@ -5,7 +5,7 @@ Handles basic auth automatically using credentials from environment or defaults.
 
 Usage:
     python3 prometheus_query.py "bmad_collection_size"
-    python3 prometheus_query.py "rate(bmad_memory_captures_total[5m])"
+    python3 prometheus_query.py "rate(ai_memory_captures_total[5m])"
     python3 prometheus_query.py --range "bmad_hook_duration_seconds_sum" --start 1h
 
 Exit Codes:

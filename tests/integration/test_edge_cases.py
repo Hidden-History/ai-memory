@@ -361,7 +361,7 @@ def test_qdrant_unavailable_queues_memory(cleanup_edge_case_memories):
 
     try:
         # Stop Qdrant (simulate outage)
-        compose_file = Path.home() / ".bmad-memory" / "docker" / "docker-compose.yml"
+        compose_file = Path.home() / ".ai-memory" / "docker" / "docker-compose.yml"
 
         if not compose_file.exists():
             pytest.skip(f"Docker Compose not found: {compose_file}")

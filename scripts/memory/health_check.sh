@@ -49,11 +49,11 @@ fi
 
 # Check 2: Qdrant container
 echo -n "Qdrant container... "
-if docker compose -f ~/.bmad-memory/docker/docker-compose.yml ps qdrant 2>/dev/null | grep -q "running"; then
+if docker compose -f ~/.ai-memory/docker/docker-compose.yml ps qdrant 2>/dev/null | grep -q "running"; then
     echo -e "${GREEN}✓ Running${NC}"
 else
     echo -e "${RED}✗ Not running${NC}"
-    echo "  → Run: docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d qdrant"
+    echo "  → Run: docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d qdrant"
     echo "  → See: docs/RECOVERY.md#qdrant-unavailable"
     ((ERRORS++))
 fi
@@ -81,11 +81,11 @@ fi
 
 # Check 5: Embedding service container
 echo -n "Embedding service... "
-if docker compose -f ~/.bmad-memory/docker/docker-compose.yml ps embedding 2>/dev/null | grep -q "running"; then
+if docker compose -f ~/.ai-memory/docker/docker-compose.yml ps embedding 2>/dev/null | grep -q "running"; then
     echo -e "${GREEN}✓ Running${NC}"
 else
     echo -e "${RED}✗ Not running${NC}"
-    echo "  → Run: docker compose -f ~/.bmad-memory/docker/docker-compose.yml up -d embedding"
+    echo "  → Run: docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d embedding"
     echo "  → See: docs/RECOVERY.md#embedding-service-unavailable"
     ((ERRORS++))
 fi

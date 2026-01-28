@@ -2,7 +2,7 @@
   "session_id": "sess_stop_test_006",
   "transcript_path": "/tmp/test_transcript_stop.jsonl",
   "event_type": "stop",
-  "cwd": "/mnt/e/projects/bmad-memory-module",
+  "cwd": "/mnt/e/projects/ai-memory-module",
   "agent_response": "I've completed the implementation of the memory storage module with deduplication checks, error handling, and comprehensive logging. The module is now ready for testing.",
   "turn_number": 15
 }

@@ -100,7 +100,7 @@ class TestStorageIntegration:
         result = storage.store_memory(
             content="def hello_world(): return 'Hello from integration test'",
             cwd="/test/integration",
-            group_id="bmad-memory-module-test",
+            group_id="ai-memory-module-test",
             memory_type=MemoryType.IMPLEMENTATION,
             source_hook="PostToolUse",
             session_id="test-integration-001",
@@ -124,7 +124,7 @@ class TestStorageIntegration:
             retrieved[0].payload["content"]
             == "def hello_world(): return 'Hello from integration test'"
         )
-        assert retrieved[0].payload["group_id"] == "bmad-memory-module-test"
+        assert retrieved[0].payload["group_id"] == "ai-memory-module-test"
         assert retrieved[0].payload["type"] == "implementation"
         # Accept either complete or pending status
         assert retrieved[0].payload["embedding_status"] in ["complete", "pending"]

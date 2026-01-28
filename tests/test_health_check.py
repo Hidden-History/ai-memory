@@ -407,7 +407,7 @@ class TestCheckHookScripts:
 
     @patch('os.path.exists')
     @patch('os.access')
-    @patch.dict(os.environ, {'BMAD_INSTALL_DIR': '/test/install'})
+    @patch.dict(os.environ, {'AI_MEMORY_INSTALL_DIR': '/test/install'})
     def test_all_scripts_present_and_executable(self, mock_access, mock_exists):
         """Test all hook scripts exist and are executable."""
         mock_exists.return_value = True
@@ -420,7 +420,7 @@ class TestCheckHookScripts:
         assert "All 3 scripts present and executable" in result.message
 
     @patch('os.path.exists')
-    @patch.dict(os.environ, {'BMAD_INSTALL_DIR': '/test/install'})
+    @patch.dict(os.environ, {'AI_MEMORY_INSTALL_DIR': '/test/install'})
     def test_scripts_missing(self, mock_exists):
         """Test some scripts are missing."""
         # First script missing, others present
@@ -435,7 +435,7 @@ class TestCheckHookScripts:
 
     @patch('os.path.exists')
     @patch('os.access')
-    @patch.dict(os.environ, {'BMAD_INSTALL_DIR': '/test/install'})
+    @patch.dict(os.environ, {'AI_MEMORY_INSTALL_DIR': '/test/install'})
     def test_scripts_not_executable(self, mock_access, mock_exists):
         """Test scripts exist but are not executable."""
         mock_exists.return_value = True

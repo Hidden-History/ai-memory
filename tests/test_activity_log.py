@@ -55,7 +55,7 @@ def test_log_user_prompt_with_long_content(temp_log_file):
     # Create a 760-char prompt similar to the bug report
     long_prompt = (
         "Fix BUG-006: Add Full Content Logging for User Prompts in Activity Log. "
-        "Context: Project is /mnt/e/projects/bmad-memory-module, File is src/memory/activity_log.py, "
+        "Context: Project is /mnt/e/projects/bmad-memory-module, File is src/memory/activity_log.py,"
         "Problem is User prompts truncated to 60 chars in activity.log with no full content expansion. "
         "Evidence: Turn 520 stored 760 chars in Qdrant but activity.log shows only 'UserPrompt: user prompt log, 📝...' (60 chars). "
         "Root Cause: Line 292-294 in activity_log.py has log_user_prompt() without _write_full_content() call. "

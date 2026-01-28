@@ -26,7 +26,7 @@ class TestStructuredFormatter:
 
         formatter = StructuredFormatter()
         record = logging.LogRecord(
-            name="bmad.memory.test",
+            name="ai_memory.test",
             level=logging.INFO,
             pathname="test.py",
             lineno=10,
@@ -47,7 +47,7 @@ class TestStructuredFormatter:
 
         formatter = StructuredFormatter()
         record = logging.LogRecord(
-            name="bmad.memory.storage",
+            name="ai_memory.storage",
             level=logging.INFO,
             pathname="storage.py",
             lineno=42,
@@ -66,7 +66,7 @@ class TestStructuredFormatter:
         assert "message" in log_data
 
         assert log_data["level"] == "INFO"
-        assert log_data["logger"] == "bmad.memory.storage"
+        assert log_data["logger"] == "ai_memory.storage"
         assert log_data["message"] == "memory_stored"
 
     def test_timestamp_is_utc_iso8601(self):
@@ -75,7 +75,7 @@ class TestStructuredFormatter:
 
         formatter = StructuredFormatter()
         record = logging.LogRecord(
-            name="bmad.memory",
+            name="ai_memory",
             level=logging.INFO,
             pathname="test.py",
             lineno=1,
@@ -100,7 +100,7 @@ class TestStructuredFormatter:
 
         formatter = StructuredFormatter()
         record = logging.LogRecord(
-            name="bmad.memory.capture",
+            name="ai_memory.capture",
             level=logging.INFO,
             pathname="capture.py",
             lineno=100,
@@ -127,25 +127,25 @@ class TestStructuredFormatter:
 class TestLoggerHierarchy:
     """Tests for AC 6.2.2: Logger Hierarchy."""
 
-    def test_configure_logging_creates_bmad_memory_logger(self):
-        """Test that configure_logging sets up bmad.memory root logger."""
+    def test_configure_logging_creates_ai_memory_logger(self):
+        """Test that configure_logging sets up ai_memory root logger."""
         from src.memory.logging_config import configure_logging
 
         configure_logging(level="INFO")
 
-        logger = logging.getLogger("bmad.memory")
+        logger = logging.getLogger("ai_memory")
         assert logger.level == logging.INFO
         assert len(logger.handlers) > 0
 
     def test_child_loggers_inherit_configuration(self):
-        """Test that child loggers inherit from bmad.memory root."""
+        """Test that child loggers inherit from ai_memory root."""
         from src.memory.logging_config import configure_logging
 
         configure_logging(level="DEBUG")
 
         # Child loggers should inherit
-        capture_logger = logging.getLogger("bmad.memory.capture")
-        storage_logger = logging.getLogger("bmad.memory.storage")
+        capture_logger = logging.getLogger("ai_memory.capture")
+        storage_logger = logging.getLogger("ai_memory.storage")
 
         # Should inherit level from parent
         assert capture_logger.level == logging.NOTSET  # Inherits from parent
@@ -155,12 +155,12 @@ class TestLoggerHierarchy:
         assert capture_logger.isEnabledFor(logging.DEBUG)
 
     def test_logger_propagation_disabled(self):
-        """Test that bmad.memory logger does not propagate to root."""
+        """Test that ai_memory logger does not propagate to root."""
         from src.memory.logging_config import configure_logging
 
         configure_logging()
 
-        logger = logging.getLogger("bmad.memory")
+        logger = logging.getLogger("ai_memory")
         # Per AC, propagate should be False to avoid duplicate logs
         assert logger.propagate is False
 
@@ -169,28 +169,28 @@ class TestEnvironmentVariableControl:
     """Tests for AC 6.2.5: Environment Variable Control."""
 
     def test_log_level_from_environment(self):
-        """Test that BMAD_LOG_LEVEL environment variable controls log level."""
+        """Test that AI_MEMORY_LOG_LEVEL environment variable controls log level."""
         from src.memory.logging_config import configure_logging
 
-        with patch.dict(os.environ, {"BMAD_LOG_LEVEL": "DEBUG"}):
+        with patch.dict(os.environ, {"AI_MEMORY_LOG_LEVEL": "DEBUG"}):
             configure_logging()
-            logger = logging.getLogger("bmad.memory")
+            logger = logging.getLogger("ai_memory")
             assert logger.level == logging.DEBUG
 
-        with patch.dict(os.environ, {"BMAD_LOG_LEVEL": "ERROR"}):
+        with patch.dict(os.environ, {"AI_MEMORY_LOG_LEVEL": "ERROR"}):
             # Need to remove existing handlers to reconfigure
-            logger = logging.getLogger("bmad.memory")
+            logger = logging.getLogger("ai_memory")
             logger.handlers.clear()
             configure_logging()
             assert logger.level == logging.ERROR
 
     def test_optional_text_format_for_development(self):
-        """Test that BMAD_LOG_FORMAT=text produces human-readable output."""
+        """Test that AI_MEMORY_LOG_FORMAT=text produces human-readable output."""
         from src.memory.logging_config import configure_logging
 
-        with patch.dict(os.environ, {"BMAD_LOG_FORMAT": "text"}):
+        with patch.dict(os.environ, {"AI_MEMORY_LOG_FORMAT": "text"}):
             # Clear existing handlers
-            logger = logging.getLogger("bmad.memory")
+            logger = logging.getLogger("ai_memory")
             logger.handlers.clear()
 
             configure_logging()
@@ -200,7 +200,7 @@ class TestEnvironmentVariableControl:
             # Replace handler stream
             logger.handlers[0].stream = stream
 
-            test_logger = logging.getLogger("bmad.memory.test")
+            test_logger = logging.getLogger("ai_memory.test")
             test_logger.info("test message", extra={"key": "value"})
 
             output = stream.getvalue()
@@ -216,7 +216,7 @@ class TestTimedOperation:
         """Test that timed_operation accurately measures elapsed time."""
         from src.memory.timing import timed_operation
 
-        logger = logging.getLogger("bmad.memory.test")
+        logger = logging.getLogger("ai_memory.test")
         stream = StringIO()
         handler = logging.StreamHandler(stream)
         from src.memory.logging_config import StructuredFormatter
@@ -242,7 +242,7 @@ class TestTimedOperation:
         """Test that successful operations log with status=success."""
         from src.memory.timing import timed_operation
 
-        logger = logging.getLogger("bmad.memory.test2")
+        logger = logging.getLogger("ai_memory.test2")
         stream = StringIO()
         handler = logging.StreamHandler(stream)
         from src.memory.logging_config import StructuredFormatter
@@ -264,7 +264,7 @@ class TestTimedOperation:
         """Test that exceptions are logged with error details and re-raised."""
         from src.memory.timing import timed_operation
 
-        logger = logging.getLogger("bmad.memory.test3")
+        logger = logging.getLogger("ai_memory.test3")
         stream = StringIO()
         handler = logging.StreamHandler(stream)
         from src.memory.logging_config import StructuredFormatter
@@ -292,7 +292,7 @@ class TestTimedOperation:
         """Test that timing uses time.perf_counter for precision."""
         from src.memory.timing import timed_operation
 
-        logger = logging.getLogger("bmad.memory.test4")
+        logger = logging.getLogger("ai_memory.test4")
         stream = StringIO()
         handler = logging.StreamHandler(stream)
         from src.memory.logging_config import StructuredFormatter
@@ -318,7 +318,7 @@ class TestTimedOperation:
         """Test that extra context is properly merged with timing data."""
         from src.memory.timing import timed_operation
 
-        logger = logging.getLogger("bmad.memory.test5")
+        logger = logging.getLogger("ai_memory.test5")
         stream = StringIO()
         handler = logging.StreamHandler(stream)
         from src.memory.logging_config import StructuredFormatter
@@ -352,7 +352,7 @@ class TestSensitiveDataRedaction:
 
         formatter = StructuredFormatter()
         record = logging.LogRecord(
-            name="bmad.memory.test",
+            name="ai_memory.test",
             level=logging.INFO,
             pathname="test.py",
             lineno=10,
@@ -385,7 +385,7 @@ class TestSensitiveDataRedaction:
 
         formatter = StructuredFormatter()
         record = logging.LogRecord(
-            name="bmad.memory.test",
+            name="ai_memory.test",
             level=logging.INFO,
             pathname="test.py",
             lineno=10,
@@ -414,7 +414,7 @@ class TestConfigureLoggingIdempotency:
         """Calling configure_logging() multiple times should not add duplicate handlers."""
         from src.memory.logging_config import configure_logging
 
-        logger = logging.getLogger("bmad.memory")
+        logger = logging.getLogger("ai_memory")
         logger.handlers.clear()
 
         configure_logging()
@@ -435,7 +435,7 @@ class TestConfigureLoggingIdempotency:
         """Multiple imports should not cause handler accumulation."""
         from src.memory.logging_config import configure_logging
 
-        logger = logging.getLogger("bmad.memory")
+        logger = logging.getLogger("ai_memory")
         logger.handlers.clear()
 
         # Simulate multiple imports/configurations

@@ -21,7 +21,7 @@ import pytest
 # Test configuration
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 MANUAL_SAVE_SCRIPT = PROJECT_ROOT / ".claude/hooks/scripts/manual_save_memory.py"
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 
 
 def test_manual_save_script_exists():
@@ -35,7 +35,7 @@ def test_manual_save_imports_successfully():
     result = subprocess.run(
         [sys.executable, "-c", f"import sys; sys.path.insert(0, '{PROJECT_ROOT}'); "
          f"exec(open('{MANUAL_SAVE_SCRIPT}').read())"],
-        env={**os.environ, 'BMAD_INSTALL_DIR': INSTALL_DIR},
+        env={**os.environ, 'AI_MEMORY_INSTALL_DIR': INSTALL_DIR},
         capture_output=True,
         timeout=5
     )
@@ -60,7 +60,7 @@ def test_manual_save_executes_with_description():
         [sys.executable, str(MANUAL_SAVE_SCRIPT), "Test session save"],
         env={
             **os.environ,
-            'BMAD_INSTALL_DIR': INSTALL_DIR,
+            'AI_MEMORY_INSTALL_DIR': INSTALL_DIR,
             'CLAUDE_SESSION_ID': 'test_session_123'
         },
         capture_output=True,
@@ -78,12 +78,12 @@ def test_manual_save_executes_with_description():
 
 
 def test_manual_save_graceful_degradation_invalid_path():
-    """Test graceful degradation when BMAD_INSTALL_DIR is invalid (F2 fix)."""
+    """Test graceful degradation when AI_MEMORY_INSTALL_DIR is invalid (F2 fix)."""
     result = subprocess.run(
         [sys.executable, str(MANUAL_SAVE_SCRIPT)],
         env={
             **os.environ,
-            'BMAD_INSTALL_DIR': '/nonexistent/path/to/memory',
+            'AI_MEMORY_INSTALL_DIR': '/nonexistent/path/to/memory',
             'CLAUDE_SESSION_ID': 'test_session_456'
         },
         capture_output=True,
@@ -106,7 +106,7 @@ def test_manual_save_path_validation():
         [sys.executable, str(MANUAL_SAVE_SCRIPT)],
         env={
             **os.environ,
-            'BMAD_INSTALL_DIR': '/tmp/invalid_bmad_dir_12345',
+            'AI_MEMORY_INSTALL_DIR': '/tmp/invalid_bmad_dir_12345',
             'CLAUDE_SESSION_ID': 'test_validation'
         },
         capture_output=True,

@@ -30,7 +30,7 @@ from memory.config import get_config
 logger = logging.getLogger("backfill_reclassify")
 
 # Checkpoint file location
-CHECKPOINT_FILE = Path.home() / ".bmad-memory" / "queue" / "backfill_checkpoint.json"
+CHECKPOINT_FILE = Path.home() / ".ai-memory" / "queue" / "backfill_checkpoint.json"
 
 
 def save_checkpoint(memory_type: str, offset: str, stats: dict):

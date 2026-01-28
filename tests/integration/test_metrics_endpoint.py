@@ -64,8 +64,8 @@ async def test_metrics_endpoint_prometheus_format():
             assert "# TYPE" in text, "Missing TYPE declarations"
 
             # Verify our custom metrics are present (AC 6.1.2)
-            assert "bmad_memory_captures_total" in text
-            assert "bmad_memory_retrievals_total" in text
+            assert "ai_memory_captures_total" in text
+            assert "ai_memory_retrievals_total" in text
             assert "bmad_embedding_requests_total" in text
             assert "bmad_deduplication_events_total" in text
             assert "bmad_collection_size" in text
@@ -74,7 +74,7 @@ async def test_metrics_endpoint_prometheus_format():
             assert "bmad_embedding_duration_seconds" in text
             assert "bmad_retrieval_duration_seconds" in text
             assert "bmad_failure_events_total" in text
-            assert "bmad_memory_system_info" in text
+            assert "ai_memory_system_info" in text
 
         except httpx.ConnectError:
             pytest.skip("Embedding service not running - start with docker compose up")

@@ -23,7 +23,7 @@ def test_generate_hook_config_basic():
     """Test basic hook configuration structure."""
     from generate_settings import generate_hook_config
 
-    hooks_dir = "/home/user/.bmad-memory/.claude/hooks/scripts"
+    hooks_dir = "/home/user/.ai-memory/.claude/hooks/scripts"
     config = generate_hook_config(hooks_dir)
 
     assert "hooks" in config, "Config must have 'hooks' top-level key"

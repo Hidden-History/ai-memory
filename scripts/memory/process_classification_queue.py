@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import List, Optional
 
 # Setup Python path for imports
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.hooks_common import setup_hook_logging
@@ -59,7 +59,7 @@ POLL_INTERVAL = 5.0  # Seconds between queue checks when empty
 MAX_BACKOFF = 60.0  # Max backoff seconds on repeated errors
 PUSHGATEWAY_URL = os.getenv("PUSHGATEWAY_URL", "localhost:29091")
 PUSHGATEWAY_ENABLED = os.getenv("PUSHGATEWAY_ENABLED", "true").lower() == "true"
-JOB_NAME = "bmad_memory_classifier"
+JOB_NAME = "ai_memory_classifier"
 DLQ_FILE = QUEUE_DIR / "classification_queue_dlq.jsonl"  # Dead letter queue
 
 # Setup logging
