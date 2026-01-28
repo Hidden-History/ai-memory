@@ -3,7 +3,7 @@
   "transcript_path": "/tmp/test_transcript_pre_compact.jsonl",
   "event_type": "pre_compact",
   "trigger_type": "auto",
-  "cwd": "/mnt/e/projects/bmad-memory-module",
+  "cwd": "/mnt/e/projects/ai-memory-module",
   "transcript_entries": [
     {
       "role": "user",

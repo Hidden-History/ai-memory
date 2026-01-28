@@ -110,8 +110,8 @@ def main():
         assert f.should_store("build/output.js", content, "Write") is False
 
     def test_environment_variable_min_lines(self):
-        """Should respect BMAD_FILTER_MIN_LINES environment variable."""
-        with patch.dict(os.environ, {'BMAD_FILTER_MIN_LINES': '20'}):
+        """Should respect AI_MEMORY_FILTER_MIN_LINES environment variable."""
+        with patch.dict(os.environ, {'AI_MEMORY_FILTER_MIN_LINES': '20'}):
             f = ImplementationFilter()
             assert f.min_lines == 20
 
@@ -129,8 +129,8 @@ def main():
             assert f.should_store("test.py", significant_short, "Write") is True
 
     def test_environment_variable_skip_extensions(self):
-        """Should respect BMAD_FILTER_SKIP_EXTENSIONS environment variable."""
-        with patch.dict(os.environ, {'BMAD_FILTER_SKIP_EXTENSIONS': 'xyz,abc'}):
+        """Should respect AI_MEMORY_FILTER_SKIP_EXTENSIONS environment variable."""
+        with patch.dict(os.environ, {'AI_MEMORY_FILTER_SKIP_EXTENSIONS': 'xyz,abc'}):
             f = ImplementationFilter()
             assert '.xyz' in f.skip_extensions
             assert '.abc' in f.skip_extensions

@@ -125,12 +125,12 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
     } catch (e) {}
 
     // Navigate to Overview dashboard
-    await page.goto('http://localhost:23000/d/bmad-memory-overview/bmad-memory-overview');
+    await page.goto('http://localhost:23000/d/ai-memory-overview/ai-memory-overview');
 
     await waitForDashboardLoad(page);
 
     // Take screenshot
-    const screenshotPath = path.join(screenshotDir, 'bmad-memory-overview.png');
+    const screenshotPath = path.join(screenshotDir, 'ai-memory-overview.png');
     await page.screenshot({ path: screenshotPath, fullPage: true });
     console.log(`Screenshot saved: ${screenshotPath}`);
 
@@ -193,12 +193,12 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
     } catch (e) {}
 
     // Navigate to Performance dashboard
-    await page.goto('http://localhost:23000/d/bmad-memory-performance/bmad-memory-performance');
+    await page.goto('http://localhost:23000/d/ai-memory-performance/ai-memory-performance');
 
     await waitForDashboardLoad(page);
 
     // Take screenshot
-    const screenshotPath = path.join(screenshotDir, 'bmad-memory-performance.png');
+    const screenshotPath = path.join(screenshotDir, 'ai-memory-performance.png');
     await page.screenshot({ path: screenshotPath, fullPage: true });
     console.log(`Screenshot saved: ${screenshotPath}`);
 
@@ -253,7 +253,7 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
 
     // Check Overview dashboard panels
     console.log('\n=== BMAD Memory Overview Dashboard ===');
-    await page.goto('http://localhost:23000/d/bmad-memory-overview/bmad-memory-overview');
+    await page.goto('http://localhost:23000/d/ai-memory-overview/ai-memory-overview');
     await waitForDashboardLoad(page);
 
     // Check if we can access panel edit mode (indicates proper panel configuration)
@@ -266,7 +266,7 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
 
     // Check Performance dashboard panels
     console.log('\n=== BMAD Memory Performance Dashboard ===');
-    await page.goto('http://localhost:23000/d/bmad-memory-performance/bmad-memory-performance');
+    await page.goto('http://localhost:23000/d/ai-memory-performance/ai-memory-performance');
     await waitForDashboardLoad(page);
 
     const perfPanelMenus = page.locator('[data-testid="data-testid panel-menu"]');
@@ -277,8 +277,8 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
     expect(perfMenuCount, 'Performance dashboard should have at least 4 panels').toBeGreaterThanOrEqual(4);
   });
 
-  test('should check for bmad_* metrics in panel queries', async ({ page }) => {
-    console.log('Test: Verify bmad_* metrics usage');
+  test('should check for ai_memory_* metrics in panel queries', async ({ page }) => {
+    console.log('Test: Verify ai_memory_* metrics usage');
 
     // Login first
     await page.goto('http://localhost:23000/login');
@@ -294,7 +294,7 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
     } catch (e) {}
 
     // Navigate to Overview dashboard
-    await page.goto('http://localhost:23000/d/bmad-memory-overview/bmad-memory-overview');
+    await page.goto('http://localhost:23000/d/ai-memory-overview/ai-memory-overview');
     await waitForDashboardLoad(page);
 
     console.log('\nAttempting to inspect panel queries...');
@@ -318,10 +318,10 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
 
     console.log('\nNote: Full query inspection requires dashboard JSON export or API access');
     console.log('Verify queries include metrics like:');
-    console.log('  - bmad_memories_stored_total');
-    console.log('  - bmad_embedding_duration_seconds');
-    console.log('  - bmad_retrieval_duration_seconds');
-    console.log('  - bmad_hook_duration_seconds');
+    console.log('  - ai_memory_memories_stored_total');
+    console.log('  - ai_memory_embedding_duration_seconds');
+    console.log('  - ai_memory_retrieval_duration_seconds');
+    console.log('  - ai_memory_hook_duration_seconds');
   });
 
   test('should generate comprehensive test report', async ({ page }) => {
@@ -347,7 +347,7 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
 
     // Test Overview Dashboard
     console.log('\n=== Testing BMAD Memory Overview Dashboard ===');
-    await page.goto('http://localhost:23000/d/bmad-memory-overview/bmad-memory-overview');
+    await page.goto('http://localhost:23000/d/ai-memory-overview/ai-memory-overview');
     await waitForDashboardLoad(page);
 
     const overviewPanels = [
@@ -360,7 +360,7 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
     ];
 
     report.dashboards['overview'] = {
-      url: 'http://localhost:23000/d/bmad-memory-overview/bmad-memory-overview',
+      url: 'http://localhost:23000/d/ai-memory-overview/ai-memory-overview',
       panels: {} as Record<string, any>
     };
 
@@ -379,7 +379,7 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
 
     // Test Performance Dashboard
     console.log('\n=== Testing BMAD Memory Performance Dashboard ===');
-    await page.goto('http://localhost:23000/d/bmad-memory-performance/bmad-memory-performance');
+    await page.goto('http://localhost:23000/d/ai-memory-performance/ai-memory-performance');
     await waitForDashboardLoad(page);
 
     const performancePanels = [
@@ -390,7 +390,7 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
     ];
 
     report.dashboards['performance'] = {
-      url: 'http://localhost:23000/d/bmad-memory-performance/bmad-memory-performance',
+      url: 'http://localhost:23000/d/ai-memory-performance/ai-memory-performance',
       panels: {} as Record<string, any>
     };
 

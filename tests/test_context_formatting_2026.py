@@ -342,7 +342,7 @@ class TestPerformanceRequirements:
 
         # Measure formatting time
         start = time.perf_counter()
-        formatted = format_context(results, "bmad-memory-module", token_budget=2000)
+        formatted = format_context(results, "ai-memory-module", token_budget=2000)
         duration_ms = (time.perf_counter() - start) * 1000
 
         # Should complete in <100ms (NFR-P3 component)

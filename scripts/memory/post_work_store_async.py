@@ -35,7 +35,7 @@ dev_src = Path(__file__).parent.parent.parent / "src"
 if dev_src.exists():
     sys.path.insert(0, str(dev_src))
 else:
-    INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+    INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
     sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.config import get_config, COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS
@@ -71,7 +71,7 @@ def _log_to_activity(message: str) -> None:
     if dev_src.exists():
         install_dir = str(dev_src.parent)
     else:
-        install_dir = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+        install_dir = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
     log_dir = Path(install_dir) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "activity.log"

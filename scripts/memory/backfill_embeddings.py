@@ -38,7 +38,7 @@ from pathlib import Path
 # Add project src to path for local imports
 # Try multiple paths for flexibility (installed vs development)
 for path in [
-    os.path.expanduser("~/.bmad-memory/src"),  # Installed location
+    os.path.expanduser("~/.ai-memory/src"),  # Installed location
     str(Path(__file__).parent.parent.parent / "src"),  # Development location
 ]:
     if os.path.exists(path):

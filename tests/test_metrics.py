@@ -191,7 +191,7 @@ def test_system_info_has_version_metadata():
     # We can't directly access the info dict in the current API, but we can
     # verify it's an Info type metric with the correct name
     assert isinstance(system_info, Info)
-    assert system_info._name == "bmad_memory_system"
+    assert system_info._name == "ai_memory_system"
 
 
 def test_counter_can_increment_with_labels():

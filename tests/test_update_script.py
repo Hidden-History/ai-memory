@@ -20,7 +20,7 @@ class TestUpdateScript:
     @pytest.fixture
     def temp_install_dir(self, tmp_path):
         """Create a mock installation directory."""
-        install_dir = tmp_path / "bmad-memory"
+        install_dir = tmp_path / "ai-memory"
         install_dir.mkdir()
 
         # Create directory structure
@@ -38,14 +38,14 @@ class TestUpdateScript:
 
     def test_update_script_exists_and_executable(self):
         """Test that update.sh exists and is executable."""
-        update_script = Path("/mnt/e/projects/bmad-memory-module/update.sh")
+        update_script = Path("/mnt/e/projects/ai-memory-module/update.sh")
 
         assert update_script.exists(), "update.sh must exist"
         assert update_script.stat().st_mode & 0o111, "update.sh must be executable"
 
     def test_update_script_has_strict_error_handling(self):
         """Test that update.sh uses set -euo pipefail."""
-        update_script = Path("/mnt/e/projects/bmad-memory-module/update.sh")
+        update_script = Path("/mnt/e/projects/ai-memory-module/update.sh")
         content = update_script.read_text()
 
         assert "set -euo pipefail" in content, "Must use strict error handling"
@@ -53,7 +53,7 @@ class TestUpdateScript:
 
     def test_update_script_has_signal_trap(self):
         """Test that update.sh has signal trap for cleanup."""
-        update_script = Path("/mnt/e/projects/bmad-memory-module/update.sh")
+        update_script = Path("/mnt/e/projects/ai-memory-module/update.sh")
         content = update_script.read_text()
 
         assert "trap" in content.lower(), "Must have signal trap"

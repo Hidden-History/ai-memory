@@ -21,7 +21,7 @@ storage = MemoryStorage(config)
 storage.store(
     content='Error: ModuleNotFoundError - Fix: pip install missing-module',
     collection=COLLECTION_CODE_PATTERNS,
-    group_id='bmad-memory-module',
+    group_id='ai-memory-module',
     memory_type='error_fix',
     metadata={'error_signature': 'ModuleNotFoundError'}
 )
@@ -33,7 +33,7 @@ echo ""
 # Test 2: Test bash_code_context.py (PreToolUse)
 echo "Test 2: Test bash_code_context.py (direct invocation)"
 echo '{"tool_name":"Bash","tool_input":{"command":"python3 src/memory/config.py"},"cwd":"'$(pwd)'","session_id":"test123"}' | \
-    BMAD_INSTALL_DIR=$(pwd) python3 .claude/hooks/scripts/bash_code_context.py 2>&1 | \
+    AI_MEMORY_INSTALL_DIR=$(pwd) python3 .claude/hooks/scripts/bash_code_context.py 2>&1 | \
     head -20
 echo "✓ bash_code_context.py executed (check output above)"
 echo ""
@@ -41,7 +41,7 @@ echo ""
 # Test 3: Test error_detection.py with simulated error
 echo "Test 3: Test error_detection.py (simulated error)"
 echo '{"tool_name":"Bash","tool_input":{"command":"python3 broken.py"},"tool_response":{"output":"Traceback (most recent call last):\n  File \"broken.py\", line 1\nModuleNotFoundError: No module named foo","exitCode":1},"cwd":"'$(pwd)'","session_id":"test123"}' | \
-    BMAD_INSTALL_DIR=$(pwd) python3 .claude/hooks/scripts/error_detection.py 2>&1 | \
+    AI_MEMORY_INSTALL_DIR=$(pwd) python3 .claude/hooks/scripts/error_detection.py 2>&1 | \
     head -30
 echo "✓ error_detection.py executed (should show 'SIMILAR ERROR FIXES FOUND' if seeded memory exists)"
 echo ""
@@ -51,12 +51,12 @@ echo "Test 4: Test dedup in error_pattern_capture.py"
 ERROR_INPUT='{"tool_name":"Bash","tool_input":{"command":"python3 fail.py"},"tool_response":{"output":"Error: test error","exitCode":1},"cwd":"'$(pwd)'","session_id":"test123"}'
 
 echo "First invocation (should store):"
-echo "$ERROR_INPUT" | BMAD_INSTALL_DIR=$(pwd) python3 .claude/hooks/scripts/error_pattern_capture.py 2>&1 | grep -E "error_pattern_forked|error_duplicate_skipped" || echo "Check logs manually"
+echo "$ERROR_INPUT" | AI_MEMORY_INSTALL_DIR=$(pwd) python3 .claude/hooks/scripts/error_pattern_capture.py 2>&1 | grep -E "error_pattern_forked|error_duplicate_skipped" || echo "Check logs manually"
 
 sleep 2
 
 echo "Second invocation (should skip due to dedup):"
-echo "$ERROR_INPUT" | BMAD_INSTALL_DIR=$(pwd) python3 .claude/hooks/scripts/error_pattern_capture.py 2>&1 | grep -E "error_pattern_forked|error_duplicate_skipped" || echo "Check logs manually"
+echo "$ERROR_INPUT" | AI_MEMORY_INSTALL_DIR=$(pwd) python3 .claude/hooks/scripts/error_pattern_capture.py 2>&1 | grep -E "error_pattern_forked|error_duplicate_skipped" || echo "Check logs manually"
 echo ""
 
 echo "================================"

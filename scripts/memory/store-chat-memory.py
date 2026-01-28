@@ -41,7 +41,7 @@ from pathlib import Path
 # Use project root during development, installed location in production
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 
 # Prefer local src if running from project, fallback to installed
 if (PROJECT_ROOT / "src" / "memory").exists():

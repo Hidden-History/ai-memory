@@ -734,7 +734,7 @@ class TestGracefulDegradation:
         )
 
         # AC 2.5.6: Verify queue file exists
-        queue_path = Path.home() / ".bmad-memory" / ".memory_queue"
+        queue_path = Path.home() / ".ai-memory" / ".memory_queue"
         queue_files = list(queue_path.glob("*.json"))
         assert len(queue_files) > 0, "No queue files created for failed storage"
 

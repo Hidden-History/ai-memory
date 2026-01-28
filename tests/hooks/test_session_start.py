@@ -46,7 +46,7 @@ def mock_config():
     config = MagicMock()
     config.qdrant_host = "localhost"
     config.qdrant_port = 26350
-    config.project_name = "bmad-memory-module"
+    config.project_name = "ai-memory-module"
     return config
 
 
@@ -82,7 +82,7 @@ class TestSessionStartHook:
                     "content": "Implemented error handling and logging in storage module",
                     "type": "session",
                     "session_id": session_id,
-                    "group_id": "bmad-memory-module",
+                    "group_id": "ai-memory-module",
                     "created_at": "2026-01-21T10:00:00Z",
                     "first_user_prompt": "Add error handling to the storage module",
                     "last_user_prompts": [
@@ -110,7 +110,7 @@ class TestSessionStartHook:
                 context = get_conversation_context(
                     config=mock_config,
                     session_id=session_id,
-                    project_name="bmad-memory-module",
+                    project_name="ai-memory-module",
                     limit=5
                 )
 
@@ -145,7 +145,7 @@ class TestSessionStartHook:
                     "content": "Implemented search functionality",
                     "type": "session",
                     "session_id": session_id,
-                    "group_id": "bmad-memory-module",
+                    "group_id": "ai-memory-module",
                     "created_at": "2026-01-21T09:00:00Z",
                     "first_user_prompt": "Implement the search functionality",
                     "last_user_prompts": [
@@ -166,7 +166,7 @@ class TestSessionStartHook:
                 context = get_conversation_context(
                     config=mock_config,
                     session_id=session_id,
-                    project_name="bmad-memory-module",
+                    project_name="ai-memory-module",
                     limit=5
                 )
 
@@ -187,7 +187,7 @@ class TestSessionStartHook:
                 context = get_conversation_context(
                     config=mock_config,
                     session_id="nonexistent_session",
-                    project_name="bmad-memory-module",
+                    project_name="ai-memory-module",
                     limit=5
                 )
 
@@ -215,7 +215,7 @@ class TestSessionStartHook:
                     "content": "Session with long user prompt",
                     "type": "session",
                     "session_id": session_id,
-                    "group_id": "bmad-memory-module",
+                    "group_id": "ai-memory-module",
                     "created_at": "2026-01-21T10:00:00Z",
                     "first_user_prompt": "Long prompt",
                     "last_user_prompts": [
@@ -236,7 +236,7 @@ class TestSessionStartHook:
                 context = get_conversation_context(
                     config=mock_config,
                     session_id=session_id,
-                    project_name="bmad-memory-module",
+                    project_name="ai-memory-module",
                     limit=5
                 )
 
@@ -266,7 +266,7 @@ class TestSessionStartHook:
                     "content": "Session with long agent response",
                     "type": "session",
                     "session_id": session_id,
-                    "group_id": "bmad-memory-module",
+                    "group_id": "ai-memory-module",
                     "created_at": "2026-01-21T10:02:00Z",
                     "first_user_prompt": "Implement feature",
                     "last_user_prompts": [],
@@ -287,7 +287,7 @@ class TestSessionStartHook:
                 context = get_conversation_context(
                     config=mock_config,
                     session_id=session_id,
-                    project_name="bmad-memory-module",
+                    project_name="ai-memory-module",
                     limit=5
                 )
 
@@ -317,7 +317,7 @@ class TestSessionStartHook:
                 context = get_conversation_context(
                     config=mock_config,
                     session_id="test_session",
-                    project_name="bmad-memory-module",
+                    project_name="ai-memory-module",
                     limit=5
                 )
 

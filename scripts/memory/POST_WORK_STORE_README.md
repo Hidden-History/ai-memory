@@ -172,7 +172,7 @@ cat > /tmp/impl_metadata.json << EOF
 EOF
 
 # Store memory (non-blocking)
-python3 ~/.bmad-memory/scripts/memory/post-work-store.py \
+python3 ~/.ai-memory/scripts/memory/post-work-store.py \
   --content-file /tmp/impl_summary.txt \
   --metadata-file /tmp/impl_metadata.json
 

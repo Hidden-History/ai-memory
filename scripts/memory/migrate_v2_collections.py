@@ -42,7 +42,7 @@ from typing import Optional, List, Dict, Any
 # CRITICAL: Check development location FIRST for testing unreleased changes
 for path in [
     str(Path(__file__).parent.parent.parent / "src"),  # Development location (priority)
-    os.path.expanduser("~/.bmad-memory/src"),  # Installed location (fallback)
+    os.path.expanduser("~/.ai-memory/src"),  # Installed location (fallback)
 ]:
     if os.path.exists(path):
         sys.path.insert(0, path)

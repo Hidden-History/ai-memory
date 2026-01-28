@@ -398,7 +398,7 @@ class TestEndToEndMonitoring:
         # Get baseline metrics using public REGISTRY API (best practice)
         from prometheus_client import REGISTRY
         baseline = REGISTRY.get_sample_value(
-            'bmad_memory_captures_total',
+            'ai_memory_captures_total',
             {'hook_type': 'PostToolUse', 'status': 'success', 'project': 'e2e-test'}
         ) or 0  # None if metric not yet initialized
 
@@ -421,7 +421,7 @@ class TestEndToEndMonitoring:
 
         # Verify metrics incremented using public REGISTRY API
         updated = REGISTRY.get_sample_value(
-            'bmad_memory_captures_total',
+            'ai_memory_captures_total',
             {'hook_type': 'PostToolUse', 'status': 'success', 'project': 'e2e-test'}
         ) or 0
         assert updated > baseline, f"Metrics not incremented: {baseline} -> {updated}"
@@ -440,7 +440,7 @@ class TestEndToEndMonitoring:
                     timeout=5.0,
                     follow_redirects=True
                 )
-                assert "bmad_memory_captures_total" in response.text, \
+                assert "ai_memory_captures_total" in response.text, \
                     "Metrics not exposed on endpoint"
             except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError):
                 pytest.skip("Embedding service not running - start with docker compose up")

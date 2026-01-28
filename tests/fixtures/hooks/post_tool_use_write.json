@@ -4,10 +4,10 @@
   "event_type": "post_tool_use",
   "tool_name": "Write",
   "tool_input": {
-    "file_path": "/mnt/e/projects/bmad-memory-module/src/memory/deduplication.py",
+    "file_path": "/mnt/e/projects/ai-memory-module/src/memory/deduplication.py",
     "content": "import hashlib\n\ndef compute_hash(content: str) -> str:\n    \"\"\"Compute SHA-256 hash of content.\"\"\"\n    return hashlib.sha256(content.encode('utf-8')).hexdigest()"
   },
   "tool_output": "File created successfully",
-  "cwd": "/mnt/e/projects/bmad-memory-module",
+  "cwd": "/mnt/e/projects/ai-memory-module",
   "turn_number": 12
 }

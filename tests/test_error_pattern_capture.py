@@ -33,7 +33,7 @@ def test_error_pattern_detection(hook_script):
 ZeroDivisionError: division by zero""",
             "exitCode": 1
         },
-        "cwd": "/mnt/e/projects/bmad-memory-module",
+        "cwd": "/mnt/e/projects/ai-memory-module",
         "session_id": "test_session_123"
     }
 
@@ -64,7 +64,7 @@ def test_no_error_pattern_for_success(hook_script):
             "output": "Hello World\n",
             "exitCode": 0
         },
-        "cwd": "/mnt/e/projects/bmad-memory-module",
+        "cwd": "/mnt/e/projects/ai-memory-module",
         "session_id": "test_session_456"
     }
 
@@ -94,7 +94,7 @@ Actual: 24
 File "tests/test_foo.py", line 25, in test_calculation""",
             "exitCode": 1
         },
-        "cwd": "/mnt/e/projects/bmad-memory-module",
+        "cwd": "/mnt/e/projects/ai-memory-module",
         "session_id": "test_session_789"
     }
 
@@ -135,7 +135,7 @@ def test_non_bash_tool_skipped(hook_script):
         "tool_response": {
             "filePath": "/path/to/file.py"
         },
-        "cwd": "/mnt/e/projects/bmad-memory-module",
+        "cwd": "/mnt/e/projects/ai-memory-module",
         "session_id": "test_session_edit"
     }
 

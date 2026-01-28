@@ -463,7 +463,7 @@ Examples:
             templates_dir = config.install_dir / "templates" / "conventions"
         except Exception:
             # Fallback if config fails
-            templates_dir = Path.home() / ".bmad-memory" / "templates" / "conventions"
+            templates_dir = Path.home() / ".ai-memory" / "templates" / "conventions"
 
     logger.info(
         "seeding_started", extra={"templates_dir": str(templates_dir), "dry_run": args.dry_run}

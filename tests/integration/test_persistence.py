@@ -9,7 +9,7 @@ Tests verify that memories persist correctly through:
 Per Story 5.3: Persistence Verification Tests
 
 Requirements:
-- Docker Compose file at ~/.bmad-memory/docker/docker-compose.yml
+- Docker Compose file at ~/.ai-memory/docker/docker-compose.yml
 - Qdrant service running on port 16350
 - Named volume (not bind mount) for /qdrant/storage
 
@@ -27,7 +27,7 @@ Test Execution:
     pytest tests/integration/test_persistence.py --cov=src/memory --cov-report=html
 
 Troubleshooting:
-    - "Docker Compose file not found": Install module or configure ~/.bmad-memory/
+    - "Docker Compose file not found": Install module or configure ~/.ai-memory/
     - "Qdrant health check timeout": Check docker ps, restart manually if needed
     - "Data loss detected": Verify named volume exists (docker volume ls)
     - "Permission error on queue file": Check file mode is 0600
@@ -172,7 +172,7 @@ def test_data_persists_across_docker_restart(qdrant_client, tmp_path, cleanup_te
 
     # 3. Restart Qdrant container
     # Try installed location first, then project root (local dev)
-    compose_file = Path.home() / ".bmad-memory" / "docker" / "docker-compose.yml"
+    compose_file = Path.home() / ".ai-memory" / "docker" / "docker-compose.yml"
     if not compose_file.exists():
         # Fallback to project root for local development
         compose_file = Path(__file__).parent.parent.parent / "docker" / "docker-compose.yml"
@@ -255,7 +255,7 @@ def test_qdrant_volume_mount_configured(tmp_path):
     import yaml
 
     # Try installed location first, then project root (local dev)
-    compose_file = Path.home() / ".bmad-memory" / "docker" / "docker-compose.yml"
+    compose_file = Path.home() / ".ai-memory" / "docker" / "docker-compose.yml"
     if not compose_file.exists():
         # Fallback to project root for local development
         compose_file = Path(__file__).parent.parent.parent / "docker" / "docker-compose.yml"
@@ -438,7 +438,7 @@ def test_data_persists_through_multiple_restarts(qdrant_client, tmp_path, cleanu
     search = MemorySearch()
 
     # Try installed location first, then project root (local dev)
-    compose_file = Path.home() / ".bmad-memory" / "docker" / "docker-compose.yml"
+    compose_file = Path.home() / ".ai-memory" / "docker" / "docker-compose.yml"
     if not compose_file.exists():
         # Fallback to project root for local development
         compose_file = Path(__file__).parent.parent.parent / "docker" / "docker-compose.yml"

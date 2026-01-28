@@ -4,11 +4,11 @@
   "event_type": "post_tool_use",
   "tool_name": "Edit",
   "tool_input": {
-    "file_path": "/mnt/e/projects/bmad-memory-module/src/memory/storage.py",
+    "file_path": "/mnt/e/projects/ai-memory-module/src/memory/storage.py",
     "old_string": "def store_memory(data):\n    pass",
     "new_string": "def store_memory(data):\n    \"\"\"Store memory with deduplication check.\"\"\"\n    if is_duplicate(data):\n        return None\n    return client.upsert(data)"
   },
   "tool_output": "File edited successfully",
-  "cwd": "/mnt/e/projects/bmad-memory-module",
+  "cwd": "/mnt/e/projects/ai-memory-module",
   "turn_number": 8
 }

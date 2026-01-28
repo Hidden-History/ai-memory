@@ -5,7 +5,7 @@ Processes items in the unified retry queue (pending_queue.jsonl) that failed
 due to Qdrant unavailability, timeouts, or other transient errors.
 
 Architecture:
-- Reads from $BMAD_INSTALL_DIR/queue/pending_queue.jsonl
+- Reads from $AI_MEMORY_INSTALL_DIR/queue/pending_queue.jsonl
 - Attempts to re-store each item using MemoryStorage
 - On success: removes from queue
 - On failure: increments retry_count (exponential backoff)
@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Setup Python path
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.hooks_common import setup_hook_logging

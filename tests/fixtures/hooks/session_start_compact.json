@@ -2,7 +2,7 @@
   "session_id": "sess_compact_test_001",
   "transcript_path": "/tmp/test_transcript_compact.jsonl",
   "event_type": "compact",
-  "cwd": "/mnt/e/projects/bmad-memory-module",
+  "cwd": "/mnt/e/projects/ai-memory-module",
   "transcript_entries": [
     {
       "role": "user",

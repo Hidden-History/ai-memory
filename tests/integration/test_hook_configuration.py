@@ -29,7 +29,7 @@ def test_new_installation_creates_settings(tmp_path):
     from generate_settings import main as generate_main
 
     settings_file = tmp_path / "settings.json"
-    hooks_dir = "/home/user/.bmad-memory/.claude/hooks/scripts"
+    hooks_dir = "/home/user/.ai-memory/.claude/hooks/scripts"
 
     sys.argv = ["generate_settings.py", str(settings_file), hooks_dir]
     generate_main()

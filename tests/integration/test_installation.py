@@ -32,7 +32,7 @@ def installer_script():
 @pytest.fixture
 def temp_install_dir(tmp_path):
     """Temporary installation directory"""
-    install_dir = tmp_path / "bmad-memory-test"
+    install_dir = tmp_path / "ai-memory-test"
     return str(install_dir)
 
 
@@ -194,15 +194,15 @@ def test_environment_variable_configuration(installer_script):
 
     GIVEN the installer script
     WHEN I examine configuration handling
-    THEN it supports BMAD_* environment variables
+    THEN it supports AI_MEMORY_* environment variables
     """
     with open(installer_script, 'r') as f:
         content = f.read()
 
         # Verify environment variable support
-        assert 'BMAD_INSTALL_DIR' in content, "Missing INSTALL_DIR env var"
-        assert 'BMAD_QDRANT_PORT' in content, "Missing QDRANT_PORT env var"
-        assert 'BMAD_EMBEDDING_PORT' in content, "Missing EMBEDDING_PORT env var"
+        assert 'AI_MEMORY_INSTALL_DIR' in content, "Missing INSTALL_DIR env var"
+        assert 'AI_MEMORY_QDRANT_PORT' in content, "Missing QDRANT_PORT env var"
+        assert 'AI_MEMORY_EMBEDDING_PORT' in content, "Missing EMBEDDING_PORT env var"
 
         # Verify defaults
         assert '26350' in content, "Missing Qdrant default port"
@@ -361,13 +361,13 @@ def test_installer_creates_directories(temp_install_dir):
 
     GIVEN a clean environment
     WHEN I run ./install.sh
-    THEN ~/.bmad-memory structure is created
+    THEN ~/.ai-memory structure is created
     """
     result = subprocess.run(
         ["./scripts/install.sh"],
         capture_output=True,
         text=True,
-        env={**os.environ, "BMAD_INSTALL_DIR": temp_install_dir}
+        env={**os.environ, "AI_MEMORY_INSTALL_DIR": temp_install_dir}
     )
 
     assert result.returncode == 0, f"Installer failed: {result.stderr}"
@@ -409,7 +409,7 @@ def test_hooks_configured_in_settings():
     assert "Stop" in hooks, "Stop hook not configured"
 
     # Verify hook scripts exist
-    install_dir = os.environ.get("BMAD_INSTALL_DIR", os.path.expanduser("~/.bmad-memory"))
+    install_dir = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
     hooks_dir = os.path.join(install_dir, ".claude/hooks/scripts")
 
     required_scripts = ["session_start.py", "post_tool_capture.py", "session_stop.py"]
@@ -427,7 +427,7 @@ def test_health_check_passes():
     WHEN I run health-check.py
     THEN all checks pass
     """
-    install_dir = os.environ.get("BMAD_INSTALL_DIR", os.path.expanduser("~/.bmad-memory"))
+    install_dir = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
     health_check_script = os.path.join(install_dir, "scripts/health-check.py")
 
     if not os.path.exists(health_check_script):
@@ -452,7 +452,7 @@ def test_docker_services_running():
     WHEN I check Docker services
     THEN qdrant and embedding containers are running
     """
-    install_dir = os.environ.get("BMAD_INSTALL_DIR", os.path.expanduser("~/.bmad-memory"))
+    install_dir = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
     compose_file = os.path.join(install_dir, "docker/docker-compose.yml")
 
     if not os.path.exists(compose_file):
@@ -493,7 +493,7 @@ def test_qdrant_collections_exist():
     """
     import httpx
 
-    qdrant_port = int(os.environ.get("BMAD_QDRANT_PORT", "26350"))
+    qdrant_port = int(os.environ.get("AI_MEMORY_QDRANT_PORT", "26350"))
 
     try:
         response = httpx.get(
@@ -523,7 +523,7 @@ def test_embedding_service_responds():
     """
     import httpx
 
-    embedding_port = int(os.environ.get("BMAD_EMBEDDING_PORT", "28080"))
+    embedding_port = int(os.environ.get("AI_MEMORY_EMBEDDING_PORT", "28080"))
 
     try:
         response = httpx.post(

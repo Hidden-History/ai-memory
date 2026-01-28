@@ -23,8 +23,8 @@ class TestGrafanaDashboards:
 
     GRAFANA_BASE_URL = "http://localhost:23000"
     FOLDER_NAME = "BMAD Memory Module"
-    OVERVIEW_DASHBOARD_UID = "bmad-memory-overview"
-    PERFORMANCE_DASHBOARD_UID = "bmad-memory-performance"
+    OVERVIEW_DASHBOARD_UID = "ai-memory-overview"
+    PERFORMANCE_DASHBOARD_UID = "ai-memory-performance"
 
     @pytest.fixture(autouse=True)
     def setup_console_monitoring(self, grafana_page: Page):
@@ -51,7 +51,7 @@ class TestGrafanaDashboards:
         login_form = grafana_page.locator('form[name="loginForm"]')
         expect(login_form).not_to_be_visible()
 
-    def test_bmad_memory_module_folder_exists(self, grafana_page: Page):
+    def test_ai_memory_module_folder_exists(self, grafana_page: Page):
         """Verify 'BMAD Memory Module' folder exists in dashboard list."""
         # Navigate to dashboards page
         grafana_page.goto(f"{self.GRAFANA_BASE_URL}/dashboards")
