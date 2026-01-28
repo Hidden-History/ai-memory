@@ -50,7 +50,8 @@ class HealthCheckResult:
 def check_qdrant(
     host: str = "localhost",
     port: int = 26350,
-    timeout: int = 5
+    timeout: int = 5,
+    api_key: Optional[str] = None
 ) -> HealthCheckResult:
     """
     Check Qdrant is running and collections exist.
@@ -60,9 +61,16 @@ def check_qdrant(
     """
     # Granular timeout: fast connect, reasonable read time
     timeout_config = httpx.Timeout(connect=3.0, read=float(timeout), write=5.0, pool=3.0)
+
+    # BUG-041: Use API key for authenticated Qdrant access
+    # Load from environment if not explicitly provided
+    if api_key is None:
+        api_key = os.environ.get("QDRANT_API_KEY", "")
+    headers = {"api-key": api_key} if api_key else {}
+
     start = time.perf_counter()
     try:
-        # Check Qdrant health endpoint
+        # Check Qdrant health endpoint (doesn't require auth)
         response = httpx.get(
             f"http://{host}:{port}/healthz",
             timeout=timeout_config
@@ -70,10 +78,11 @@ def check_qdrant(
         latency = (time.perf_counter() - start) * 1000
 
         if response.status_code == 200:
-            # Verify collections exist
+            # Verify collections exist (requires auth if API key is set)
             collections_response = httpx.get(
                 f"http://{host}:{port}/collections",
-                timeout=timeout_config
+                timeout=timeout_config,
+                headers=headers
             )
 
             if collections_response.status_code != 200:
@@ -334,7 +343,8 @@ def check_hook_scripts() -> HealthCheckResult:
     install_dir = os.environ.get("BMAD_INSTALL_DIR", os.path.expanduser("~/.bmad-memory"))
     hooks_dir = os.path.join(install_dir, ".claude/hooks/scripts")
 
-    required_scripts = ["session_start.py", "post_tool_capture.py", "session_stop.py"]
+    # BUG-041: session_stop.py deprecated (Phase 5.1), removed from required list
+    required_scripts = ["session_start.py", "post_tool_capture.py"]
     missing = []
     not_executable = []
 
