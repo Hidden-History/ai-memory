@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "BMAD_INSTALL_DIR": "/mnt/e/projects/bmad-memory-module",
+    "BMAD_PROJECT_ID": "bmad-memory-module",
+    "QDRANT_HOST": "localhost",
+    "QDRANT_PORT": "26350",
+    "QDRANT_API_KEY": "sWqsqDyn5jo5WvogvITehaAl",
+    "EMBEDDING_HOST": "localhost",
+    "EMBEDDING_PORT": "28080",
+    "SIMILARITY_THRESHOLD": "0.4",
+    "LOG_LEVEL": "INFO",
+    "PUSHGATEWAY_URL": "localhost:29091",
+    "PUSHGATEWAY_ENABLED": "true"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/session_start.py\"",
+            "timeout": 30000
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/user_prompt_capture.py\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/unified_keyword_trigger.py\"",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/new_file_trigger.py\"",
+            "timeout": 2000
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/first_edit_trigger.py\"",
+            "timeout": 2000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/error_detection.py\"",
+            "timeout": 2000
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/error_pattern_capture.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/post_tool_capture.py\""
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto|manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/pre_compact_save.py\"",
+            "timeout": 10000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$BMAD_INSTALL_DIR/.claude/hooks/scripts/agent_response_capture.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "BMAD_INSTALL_DIR": "/home/parzival/.bmad-memory",
+    "STATUSLINE_FEATURES": "all",
+    "STATUSLINE_COLORS": "256",
+    "QDRANT_HOST": "localhost",
+    "QDRANT_PORT": "26350",
+    "QDRANT_API_KEY": "sWqsqDyn5jo5WvogvITehaAl",
+    "EMBEDDING_HOST": "localhost",
+    "EMBEDDING_PORT": "28080",
+    "SIMILARITY_THRESHOLD": "0.4",
+    "LOG_LEVEL": "INFO",
+    "PUSHGATEWAY_URL": "localhost:29091",
+    "PUSHGATEWAY_ENABLED": "true"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline-examples/statusline-advanced.sh",
+    "padding": 0
+  },
+  "mcpServers": {
+    "Context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    },
+    "motion": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "https://api.motion.dev/registry.tgz?package=motion-studio-mcp&version=latest"
+      ]
+    }
+  }
+}
