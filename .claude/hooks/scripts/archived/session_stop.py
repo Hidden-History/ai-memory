@@ -51,7 +51,7 @@ from typing import Any, Dict, Optional
 
 # Add src to path for imports
 # Use INSTALL_DIR to find installed module (fixes path calculation bug)
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.config import get_config
@@ -67,7 +67,7 @@ from memory.embeddings import EmbeddingClient, EmbeddingError
 # Configure structured logging (Story 6.2)
 handler = logging.StreamHandler()
 handler.setFormatter(StructuredFormatter())
-logger = logging.getLogger("bmad.memory.hooks")
+logger = logging.getLogger("ai_memory.hooks")
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False
@@ -481,7 +481,7 @@ def main() -> int:
                 }
             )
             # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
-            print(json.dumps({"systemMessage": "📤 BMAD Memory: No session transcript to save"}))
+            print(json.dumps({"systemMessage": "📤 AI Memory: No session transcript to save"}))
             sys.stdout.flush()  # Ensure output is flushed before exit
             return 0  # AC 2.4.1: Exit 0 immediately if no transcript
 
@@ -525,11 +525,11 @@ def main() -> int:
         # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
         # Icon: 📤 for session summary (matches 🧠 retrieval, 📥 capture)
         project = summary_data.get("group_id", "unknown")
-        message = f"📤 BMAD Memory: Session summary saved for {project} [{duration_ms:.0f}ms]"
+        message = f"📤 AI Memory: Session summary saved for {project} [{duration_ms:.0f}ms]"
         print(json.dumps({"systemMessage": message}))
         sys.stdout.flush()  # Ensure output is flushed before exit
 
-        # Activity log (reliable visibility via tail -f ~/.bmad-memory/logs/activity.log)
+        # Activity log (reliable visibility via tail -f ~/.ai-memory/logs/activity.log)
         log_session_end(project, duration_ms, stored=True)
 
         # AC 2.4.1: Exit 0 after storage (success)

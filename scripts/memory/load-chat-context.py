@@ -30,7 +30,7 @@ Graceful Degradation:
     - Always exits with code 0 (never blocks workflow)
 
 Created: 2026-01-17
-BMAD Memory Module - Session Continuity
+AI Memory Module - Session Continuity
 """
 
 import os

@@ -35,7 +35,7 @@ from memory.logging_config import configure_logging
 
 # Configure structured logging
 configure_logging()
-logger = logging.getLogger("bmad.memory.hnsw_optimizer")
+logger = logging.getLogger("ai_memory.hnsw_optimizer")
 
 
 def get_hnsw_config(client: QdrantClient, collection_name: str) -> dict:

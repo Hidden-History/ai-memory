@@ -71,7 +71,7 @@ lsof -i :28000  # Monitoring API
 **Error:**
 
 ```
-Error response from daemon: driver failed programming external connectivity on endpoint bmad-qdrant: Bind for 0.0.0.0:26350 failed: port is already allocated
+Error response from daemon: driver failed programming external connectivity on endpoint ai-memory-qdrant: Bind for 0.0.0.0:26350 failed: port is already allocated
 ```
 
 **Cause:** Port conflict - another process is using the port.
@@ -142,12 +142,12 @@ On WSL (Windows Subsystem for Linux), the installer automatically uses file copi
 
 **Behavior:**
 
-- **Native Linux/macOS:** Symlinks point to shared installation (`~/.bmad-memory/.claude/hooks/scripts/`)
+- **Native Linux/macOS:** Symlinks point to shared installation (`~/.ai-memory/.claude/hooks/scripts/`)
 - **WSL:** Copies of hook scripts are placed in project directory
 
 **Trade-off:**
 
-When using file copies on WSL, updates to the shared installation do NOT automatically propagate to projects. After updating the BMAD Memory Module, re-run the installer for each project:
+When using file copies on WSL, updates to the shared installation do NOT automatically propagate to projects. After updating the AI Memory Module, re-run the installer for each project:
 
 ```bash
 # Re-run installer to sync updated hooks
@@ -160,11 +160,11 @@ When using file copies on WSL, updates to the shared installation do NOT automat
 # Check if files are symlinks or copies
 ls -la .claude/hooks/scripts/
 
-# Symlinks show: session_start.py -> /home/user/.bmad-memory/.claude/hooks/scripts/session_start.py
+# Symlinks show: session_start.py -> /home/user/.ai-memory/.claude/hooks/scripts/session_start.py
 # Copies show: session_start.py (no arrow)
 ```
 
-**Note:** The copies are for **visibility** in Windows apps (VS Code, Explorer). The hooks themselves execute from the shared installation (`~/.bmad-memory/`) via `settings.json`. Edit scripts in the shared location, not the project copies.
+**Note:** The copies are for **visibility** in Windows apps (VS Code, Explorer). The hooks themselves execute from the shared installation (`~/.ai-memory/`) via `settings.json`. Edit scripts in the shared location, not the project copies.
 
 ### Symptom: Permission Denied
 
@@ -284,7 +284,7 @@ docker ps  # Should not require sudo
 **Error from docker ps:**
 
 ```
-memory-classifier-worker    Up 15 minutes (unhealthy)
+ai-memory-classifier-worker    Up 15 minutes (unhealthy)
 ```
 
 **Cause:** Health check looks for `/tmp/worker.health` file which was only created after the first batch processed. If the queue is empty at startup, the health file never gets created.
@@ -297,7 +297,7 @@ Fixed in v2.0.1+. The worker now creates the health file immediately at startup 
 
 Manually create the health file:
 ```bash
-docker exec memory-classifier-worker touch /tmp/worker.health
+docker exec ai-memory-classifier-worker touch /tmp/worker.health
 ```
 
 **Verification:**
@@ -308,7 +308,7 @@ docker ps | grep classifier-worker
 # Should show: (healthy) after 60 seconds
 
 # Check health file exists
-docker exec memory-classifier-worker ls -la /tmp/worker.health
+docker exec ai-memory-classifier-worker ls -la /tmp/worker.health
 # Should show: -rw-r--r-- 1 classifier users 0 ...
 ```
 
@@ -343,7 +343,7 @@ SessionStart hooks with JSON `additionalContext` output appear to not inject con
 ```bash
 # Manual test shows hooks work and retrieve correct memories
 echo '{"session_id":"test","cwd":"/mnt/e/projects/ai-memory-test","source":"startup"}' | \
-  python3 /home/parzival/.bmad-memory/.claude/hooks/scripts/session_start.py
+  python3 /home/parzival/.ai-memory/.claude/hooks/scripts/session_start.py
 
 # Output: Valid JSON with 4 memories including Grafana guides at 42% relevance
 ```
@@ -352,7 +352,7 @@ But in live Claude Code session, Claude ignores this and searches files.
 
 **Potential Solution (NOT YET VERIFIED):**
 
-Based on working reference architecture (`bmad-qdrant-knowledge-management`), use **PreToolUse hooks with STDERR output** instead of SessionStart with JSON:
+Based on working reference architecture (`ai-memory-qdrant-knowledge-management`), use **PreToolUse hooks with STDERR output** instead of SessionStart with JSON:
 
 1. **Create PreToolUse hook** that outputs to STDERR before tool execution:
    ```python
@@ -450,8 +450,8 @@ Based on working reference architecture (`bmad-qdrant-knowledge-management`), us
 4. Enable hook logging:
    ```bash
    export MEMORY_LOG_LEVEL=DEBUG
-   # Logs will appear in ~/.bmad-memory/logs/hook.log
-   tail -f ~/.bmad-memory/logs/hook.log
+   # Logs will appear in ~/.ai-memory/logs/hook.log
+   tail -f ~/.ai-memory/logs/hook.log
    ```
 
 ### Symptom: Permission Denied Writing to Installation Directory
@@ -459,17 +459,17 @@ Based on working reference architecture (`bmad-qdrant-knowledge-management`), us
 **Error in logs:**
 
 ```
-PermissionError: [Errno 13] Permission denied: '/home/user/.bmad-memory/logs/hook.log'
+PermissionError: [Errno 13] Permission denied: '/home/user/.ai-memory/logs/hook.log'
 ```
 
 **Solution:**
 
 ```bash
 # Fix permissions on installation directory
-chmod -R u+w ~/.bmad-memory
+chmod -R u+w ~/.ai-memory
 
 # Verify
-ls -la ~/.bmad-memory
+ls -la ~/.ai-memory
 # All directories should be writable by user
 ```
 
@@ -523,7 +523,7 @@ embedding_timeout: timeout_seconds=30
 
 1. Check embedding service resource usage:
    ```bash
-   docker stats bmad-embedding
+   docker stats ai-memory-embedding
    # CPU should be <80%, MEM should have headroom
    ```
 
@@ -558,13 +558,13 @@ embedding_timeout: timeout_seconds=30
 
 2. Check if Qdrant is overloaded:
    ```bash
-   docker stats bmad-qdrant
+   docker stats ai-memory-qdrant
    # If CPU >90% or MEM maxed out, restart
    ```
 
 3. Clear cache if corrupted:
    ```bash
-   rm -rf ~/.bmad-memory/cache/*
+   rm -rf ~/.ai-memory/cache/*
    ```
 
 ### Symptom: Qdrant Slow Queries
@@ -686,10 +686,10 @@ See [HOOKS.md - SessionStart Troubleshooting](docs/HOOKS.md#sessionstart) for co
 **Diagnosis:**
 ```bash
 # Check if background process is forking
-grep "background_forked" ~/.bmad-memory/logs/hooks.log
+grep "background_forked" ~/.ai-memory/logs/hooks.log
 
 # Check if memories are being stored
-grep "memory_stored" ~/.bmad-memory/logs/hooks.log
+grep "memory_stored" ~/.ai-memory/logs/hooks.log
 ```
 
 **Common Causes:**
@@ -872,7 +872,7 @@ python3 -c "from memory.triggers import detect_decision_keywords; print(detect_d
 **Check**:
 ```bash
 # Verify Pushgateway is receiving metrics
-curl -s http://localhost:29091/metrics | grep bmad_
+curl -s http://localhost:29091/metrics | grep ai_memory_
 
 # Verify Prometheus is scraping
 curl -s http://localhost:29090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.job == "pushgateway")'
@@ -916,19 +916,19 @@ V2.0 introduces 5 automatic triggers that retrieve memories based on specific si
 
 ```bash
 # Error Detection trigger
-grep "error_detection" ~/.bmad-memory/logs/hooks.log
+grep "error_detection" ~/.ai-memory/logs/hooks.log
 
 # New File trigger
-grep "new_file_trigger" ~/.bmad-memory/logs/hooks.log
+grep "new_file_trigger" ~/.ai-memory/logs/hooks.log
 
 # First Edit trigger
-grep "first_edit_trigger" ~/.bmad-memory/logs/hooks.log
+grep "first_edit_trigger" ~/.ai-memory/logs/hooks.log
 
 # Decision Keywords trigger
-grep "decision_keyword" ~/.bmad-memory/logs/hooks.log
+grep "decision_keyword" ~/.ai-memory/logs/hooks.log
 
 # Best Practices trigger
-grep "best_practices_keyword" ~/.bmad-memory/logs/hooks.log
+grep "best_practices_keyword" ~/.ai-memory/logs/hooks.log
 ```
 
 ### Error Detection Trigger Not Working
@@ -986,7 +986,7 @@ curl -X POST http://localhost:26350/collections/code-patterns/points/scroll \
   | jq '.result.points'
 
 # 2. Check session tracking (first edit only triggers once per session)
-grep "first_edit" ~/.bmad-memory/logs/hooks.log | grep "$(date +%Y-%m-%d)"
+grep "first_edit" ~/.ai-memory/logs/hooks.log | grep "$(date +%Y-%m-%d)"
 ```
 
 **Common Causes:**
@@ -1058,7 +1058,7 @@ done
 
 # Check recent hook activity
 echo -e "\n3. Recent Hook Activity:"
-grep -E "trigger|retrieval" ~/.bmad-memory/logs/hooks.log 2>/dev/null | tail -5 || echo "  No recent activity"
+grep -E "trigger|retrieval" ~/.ai-memory/logs/hooks.log 2>/dev/null | tail -5 || echo "  No recent activity"
 
 echo -e "\n=== Verification Complete ==="
 ```
@@ -1089,7 +1089,7 @@ export MEMORY_SESSION_WINDOW_HOURS=24
 **Diagnosis:**
 ```bash
 # Check hook duration
-grep "hook_duration" ~/.bmad-memory/logs/hooks.log | tail -20
+grep "hook_duration" ~/.ai-memory/logs/hooks.log | tail -20
 ```
 
 See [CONFIGURATION.md - Performance Tuning](docs/CONFIGURATION.md#performance-tuning) for complete guide.
@@ -1103,10 +1103,10 @@ See [CONFIGURATION.md - Performance Tuning](docs/CONFIGURATION.md#performance-tu
 **Diagnosis:**
 ```bash
 # Check if fork is working
-grep "background_forked" ~/.bmad-memory/logs/hooks.log
+grep "background_forked" ~/.ai-memory/logs/hooks.log
 
 # If missing, fork failed - check logs
-grep "ERROR" ~/.bmad-memory/logs/hooks.log
+grep "ERROR" ~/.ai-memory/logs/hooks.log
 ```
 
 **Solution:**
@@ -1127,7 +1127,7 @@ For comprehensive configuration troubleshooting, see [docs/CONFIGURATION.md](doc
 **Diagnosis:**
 ```bash
 # Check if .env exists
-ls -la ~/.bmad-memory/.env
+ls -la ~/.ai-memory/.env
 
 # Verify variable is loaded
 python3 -c "from memory.config import get_config; print(get_config().qdrant_url)"
@@ -1142,7 +1142,7 @@ QDRANT_URL="http://localhost:26350"
 QDRANT_URL=http://localhost:26350
 ```
 
-**File Location:** Must be `~/.bmad-memory/.env` (absolute path)
+**File Location:** Must be `~/.ai-memory/.env` (absolute path)
 
 ---
 
@@ -1179,7 +1179,7 @@ See [CONFIGURATION.md - Port Mapping](docs/CONFIGURATION.md#docker-configuration
 export MEMORY_LOG_LEVEL=DEBUG
 
 # Restart Claude Code session
-# Logs will be verbose in ~/.bmad-memory/logs/
+# Logs will be verbose in ~/.ai-memory/logs/
 ```
 
 ### Collect Diagnostic Information
@@ -1200,7 +1200,7 @@ python3 --version > /tmp/bmad-diagnostics/python-version.txt
 uname -a > /tmp/bmad-diagnostics/system-info.txt
 
 # Collect config
-cp ~/.bmad-memory/.env /tmp/bmad-diagnostics/.env 2>/dev/null || echo "No .env file"
+cp ~/.ai-memory/.env /tmp/bmad-diagnostics/.env 2>/dev/null || echo "No .env file"
 cp .claude/settings.json /tmp/bmad-diagnostics/settings.json 2>/dev/null || echo "No settings.json"
 
 # Create archive

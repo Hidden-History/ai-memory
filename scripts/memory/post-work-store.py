@@ -70,7 +70,7 @@ except ImportError:
 # Configure structured logging
 handler = logging.StreamHandler(sys.stderr)
 handler.setFormatter(StructuredFormatter())
-logger = logging.getLogger("bmad.memory.post_work_store")
+logger = logging.getLogger("ai_memory.post_work_store")
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False

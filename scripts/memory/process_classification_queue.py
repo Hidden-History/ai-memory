@@ -63,7 +63,7 @@ JOB_NAME = "ai_memory_classifier"
 DLQ_FILE = QUEUE_DIR / "classification_queue_dlq.jsonl"  # Dead letter queue
 
 # Setup logging
-logger = setup_hook_logging("bmad.memory.classifier.processor")
+logger = setup_hook_logging("ai_memory.classifier.processor")
 
 # =============================================================================
 # PROMETHEUS METRICS

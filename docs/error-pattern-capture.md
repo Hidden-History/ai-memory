@@ -89,7 +89,7 @@ Error patterns are stored with:
 {
   "content": "[error_pattern]\nCommand: pytest tests/\nError: AssertionError...",
   "content_hash": "sha256:...",
-  "group_id": "bmad-memory-module",
+  "group_id": "ai-memory",
   "type": "error_pattern",
   "source_hook": "PostToolUse_ErrorCapture",
   "session_id": "sess_abc123",
@@ -158,7 +158,7 @@ Add to `.claude/settings.json`:
 
 ### Environment Variables
 
-Uses standard BMAD Memory configuration:
+Uses standard AI Memory configuration:
 
 ```bash
 QDRANT_HOST=localhost
@@ -258,7 +258,7 @@ Prometheus metrics (if enabled):
 hook_duration_seconds{hook_type="PostToolUse_Error"}
 
 # Capture success/failure
-memory_captures_total{hook_type="PostToolUse_Error",status="success|failed|queued",project="bmad-memory-module"}
+memory_captures_total{hook_type="PostToolUse_Error",status="success|failed|queued",project="ai-memory"}
 ```
 
 ## Future Enhancements

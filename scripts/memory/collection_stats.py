@@ -60,7 +60,7 @@ def main():
         )
 
         print("=" * 60)
-        print("BMAD Memory Collection Statistics")
+        print("AI Memory Collection Statistics")
         print("=" * 60)
 
         # Analyze all V2.0 collections

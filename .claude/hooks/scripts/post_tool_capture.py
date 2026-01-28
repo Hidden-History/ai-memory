@@ -28,14 +28,14 @@ from typing import Any, Dict, Optional
 
 # Add src to path for imports
 # Use INSTALL_DIR to find installed module (fixes path calculation bug)
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Configure structured logging (Story 6.2)
 from memory.logging_config import StructuredFormatter
 handler = logging.StreamHandler()
 handler.setFormatter(StructuredFormatter())
-logger = logging.getLogger("bmad.memory.hooks")
+logger = logging.getLogger("ai_memory.hooks")
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False
@@ -51,7 +51,7 @@ def _log_to_activity(message: str) -> None:
     """Log to activity file for Streamlit visibility.
 
     Activity log provides user-visible feedback about memory operations.
-    Located at $BMAD_INSTALL_DIR/logs/activity.log
+    Located at $AI_MEMORY_INSTALL_DIR/logs/activity.log
 
     Args:
         message: Message to log (can be multi-line)
@@ -315,7 +315,7 @@ def main() -> int:
         file_path = hook_input.get("tool_response", {}).get("filePath", "")
         file_name = file_path.split("/")[-1] if file_path else "file"
         tool_name = hook_input.get("tool_name", "Edit")
-        message = f"📥 BMAD Memory: Capturing {file_name} (via {tool_name})"
+        message = f"📥 AI Memory: Capturing {file_name} (via {tool_name})"
         print(json.dumps({"systemMessage": message}))
         sys.stdout.flush()  # Ensure output is flushed before exit
 

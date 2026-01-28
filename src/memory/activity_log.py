@@ -1,7 +1,7 @@
-"""Activity logging for BMAD Memory hooks.
+"""Activity logging for AI Memory hooks.
 
 Writes user-visible activity to a log file that can be monitored with:
-    tail -f $BMAD_INSTALL_DIR/logs/activity.log
+    tail -f $AI_MEMORY_INSTALL_DIR/logs/activity.log
 
 This provides reliable visibility into hook execution since STDERR
 output from Claude Code hooks is not consistently displayed.
@@ -32,8 +32,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Any
 
-# Log file location - use BMAD_INSTALL_DIR if available
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+# Log file location - use AI_MEMORY_INSTALL_DIR if available
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 LOG_DIR = Path(INSTALL_DIR) / "logs"
 ACTIVITY_LOG = LOG_DIR / "activity.log"
 

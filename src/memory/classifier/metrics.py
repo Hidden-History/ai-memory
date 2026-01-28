@@ -6,7 +6,7 @@ TECH-DEBT-069: Classification monitoring per spec section 5.1.
 import logging
 from prometheus_client import Counter, Histogram, Gauge
 
-logger = logging.getLogger("bmad.memory.classifier.metrics")
+logger = logging.getLogger("ai_memory.classifier.metrics")
 
 __all__ = [
     "classifier_requests_total",

@@ -32,7 +32,7 @@ from .storage import MemoryStorage
 
 __all__ = ["SDKWrapper", "ConversationCapture"]
 
-logger = logging.getLogger("bmad.memory.sdk_wrapper")
+logger = logging.getLogger("ai_memory.sdk_wrapper")
 
 
 class ConversationCapture:

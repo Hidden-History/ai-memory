@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug or unexpected behavior in BMAD Memory Module
+description: Report a bug or unexpected behavior in AI Memory Module
 title: "[Bug]: "
 labels: ["type: bug", "status: needs-triage"]
 body:
@@ -11,7 +11,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: BMAD Memory Module Version
+      label: AI Memory Module Version
       description: Run `git describe --tags` or check your installation
       placeholder: "v1.0.0"
     validations:
@@ -89,7 +89,7 @@ body:
       label: Health Check Output
       description: Run `python3 scripts/health-check.py` and paste the output
       placeholder: |
-        === BMAD Memory Module - Health Check ===
+        === AI Memory Module - Health Check ===
         ...
       render: shell
 

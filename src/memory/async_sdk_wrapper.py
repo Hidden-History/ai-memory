@@ -58,15 +58,15 @@ from .models import MemoryType
 from .storage import MemoryStorage
 
 # Prometheus Metrics
-sdk_rate_limit_hits = Counter('bmad_sdk_rate_limit_hits_total', 'Rate limit 429 errors')
-sdk_queue_depth = Gauge('bmad_sdk_queue_depth', 'Current queue depth')
+sdk_rate_limit_hits = Counter('ai_memory_sdk_rate_limit_hits_total', 'Rate limit 429 errors')
+sdk_queue_depth = Gauge('ai_memory_sdk_queue_depth', 'Current queue depth')
 sdk_api_duration = Histogram(
-    'bmad_sdk_api_duration_seconds',
+    'ai_memory_sdk_api_duration_seconds',
     'API call duration',
     buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]
 )
-sdk_tokens_used = Counter('bmad_sdk_tokens_total', 'Tokens used', ['type'])  # input/output
-sdk_storage_tasks = Counter('bmad_sdk_storage_tasks_total', 'Storage tasks', ['status'])  # created/failed
+sdk_tokens_used = Counter('ai_memory_sdk_tokens_total', 'Tokens used', ['type'])  # input/output
+sdk_storage_tasks = Counter('ai_memory_sdk_storage_tasks_total', 'Storage tasks', ['status'])  # created/failed
 
 __all__ = [
     "AsyncSDKWrapper",
@@ -76,7 +76,7 @@ __all__ = [
     "QueueDepthExceededError",
 ]
 
-logger = logging.getLogger("bmad.memory.async_sdk_wrapper")
+logger = logging.getLogger("ai_memory.async_sdk_wrapper")
 
 # Token estimation: average ~1.3 tokens per word for English text
 TOKENS_PER_WORD_MULTIPLIER = 1.3

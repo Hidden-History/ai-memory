@@ -140,7 +140,7 @@ cd ai-memory
 1. ✅ Validates prerequisites (Python, Docker, Claude Code project)
 2. ✅ Copies `.claude/hooks/` and `.claude/skills/` to target project
 3. ✅ Updates `.claude/settings.json` with hook configuration
-4. ✅ Creates `~/.bmad-memory/` installation directory
+4. ✅ Creates `~/.ai-memory/` installation directory
 5. ✅ Installs Python dependencies (qdrant-client, httpx, pydantic)
 6. ✅ Starts Docker services (Qdrant, embedding, monitoring)
 7. ✅ Runs health check to verify all services
@@ -149,10 +149,10 @@ cd ai-memory
 
 ```
 ═══════════════════════════════════════════════════════════
-  BMAD Memory Module Installation
+  AI Memory Module Installation
 ═══════════════════════════════════════════════════════════
 Target Project: /home/user/projects/my-app
-Install Directory: /home/user/.bmad-memory
+Install Directory: /home/user/.ai-memory
 
 [1/7] Validating prerequisites...
   ✅ Python 3.11.0 found
@@ -167,7 +167,7 @@ Install Directory: /home/user/.bmad-memory
   ✅ Hook configuration added
 
 [4/7] Creating installation directory...
-  ✅ Created /home/user/.bmad-memory
+  ✅ Created /home/user/.ai-memory
 
 [5/7] Installing Python dependencies...
   ✅ Installed: qdrant-client==1.12.1, httpx==0.27.0, pydantic==2.10.3
@@ -234,7 +234,7 @@ AI Memory uses a **single Docker stack** for all projects. Memories are isolated
 
 **How Multi-Project Isolation Works:**
 
-1. Each project gets unique `BMAD_PROJECT_ID` in `.claude/settings.json`
+1. Each project gets unique `AI_MEMORY_PROJECT_ID` in `.claude/settings.json`
 2. Hooks use this ID as `group_id` when storing memories
 3. SessionStart retrieves only memories matching the current project
 4. One Qdrant instance, multiple isolated memory spaces
@@ -315,7 +315,7 @@ Add hook configuration to `$TARGET_PROJECT/.claude/settings.json`:
 **Step 4: Create installation directory**
 
 ```bash
-mkdir -p ~/.bmad-memory/{logs,cache,templates/conventions}
+mkdir -p ~/.ai-memory/{logs,cache,templates/conventions}
 ```
 
 **Step 5: Install Python dependencies**
@@ -392,9 +392,9 @@ docker compose -f docker/docker-compose.yml ps
 
 ```
 NAME                  STATUS              PORTS
-bmad-qdrant           running             0.0.0.0:26350->6333/tcp
-bmad-embedding        running             0.0.0.0:28080->8080/tcp
-bmad-monitoring-api   running             0.0.0.0:28000->8000/tcp
+ai-memory-qdrant           running             0.0.0.0:26350->6333/tcp
+ai-memory-embedding        running             0.0.0.0:28080->8080/tcp
+ai-memory-monitoring-api   running             0.0.0.0:28000->8000/tcp
 ```
 
 ### 2. 🏥 Run Health Check
@@ -407,7 +407,7 @@ python scripts/health-check.py
 
 ```
 ═══════════════════════════════════════════════════════════
-  BMAD Memory Module Health Check
+  AI Memory Module Health Check
 ═══════════════════════════════════════════════════════════
 
 [1/3] Checking Qdrant (localhost:26350)...
@@ -489,7 +489,7 @@ This starts:
 
 1. Open http://localhost:23000
 2. Login: admin / admin
-3. Navigate to Dashboards → BMAD Memory
+3. Navigate to Dashboards → AI Memory
 
 ### Verify Metrics Flow
 
@@ -562,9 +562,9 @@ docker compose -f docker/docker-compose.yml restart
 docker compose -f docker/docker-compose.yml --profile monitoring restart
 
 # Restart a specific service
-docker compose -f docker/docker-compose.yml restart bmad-qdrant
-docker compose -f docker/docker-compose.yml restart bmad-embedding
-docker compose -f docker/docker-compose.yml restart bmad-prometheus  # monitoring profile only
+docker compose -f docker/docker-compose.yml restart ai-memory-qdrant
+docker compose -f docker/docker-compose.yml restart ai-memory-embedding
+docker compose -f docker/docker-compose.yml restart ai-memory-prometheus  # monitoring profile only
 ```
 
 ### Checking Status
@@ -591,8 +591,8 @@ docker compose -f docker/docker-compose.yml logs
 docker compose -f docker/docker-compose.yml logs -f
 
 # Specific service logs
-docker compose -f docker/docker-compose.yml logs bmad-qdrant
-docker compose -f docker/docker-compose.yml logs bmad-embedding
+docker compose -f docker/docker-compose.yml logs ai-memory-qdrant
+docker compose -f docker/docker-compose.yml logs ai-memory-embedding
 ```
 
 ### After System Restart
@@ -610,7 +610,7 @@ To enable auto-start on boot, configure Docker Desktop (macOS/Windows) or system
 
 ### 🌍 Environment Variables
 
-Create `~/.bmad-memory/.env` to override defaults:
+Create `~/.ai-memory/.env` to override defaults:
 
 ```bash
 # Service endpoints
@@ -620,7 +620,7 @@ EMBEDDING_HOST=localhost
 EMBEDDING_PORT=28080
 
 # Installation directory
-MEMORY_INSTALL_DIR=/home/user/.bmad-memory
+AI_MEMORY_INSTALL_DIR=/home/user/.ai-memory
 
 # Logging
 MEMORY_LOG_LEVEL=INFO  # DEBUG for verbose
@@ -678,12 +678,12 @@ See [docs/HOOKS.md](docs/HOOKS.md) for comprehensive hook documentation.
 docker compose -f docker/docker-compose.yml down -v
 
 # 2. Remove installation directory
-rm -rf ~/.bmad-memory
+rm -rf ~/.ai-memory
 
 # 3. Remove hooks from target project
 cd /path/to/target/project
 rm -rf .claude/hooks/scripts/{session_start,post_tool_capture,stop_hook}.py
-rm -rf .claude/skills/bmad-memory-*
+rm -rf .claude/skills/ai-memory-*
 
 # 4. Remove hook configuration from .claude/settings.json
 # (Manual edit required - remove hooks section)

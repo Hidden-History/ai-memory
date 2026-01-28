@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Pre-Storage Validator for BMAD Memory System
+Pre-Storage Validator for AI Memory System
 
 Implements proven validation patterns:
 1. Wrapper Script Bridge - Python interface for validation
@@ -22,7 +22,7 @@ Usage:
     python validate_storage.py --content "..." --metadata '{...}'
 
 Created: 2026-01-17
-Adapted from proven patterns for BMAD Memory Module
+Adapted from proven patterns for AI Memory Module
 """
 
 import os

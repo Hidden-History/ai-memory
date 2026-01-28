@@ -33,7 +33,7 @@ AI Memory Module provides slash commands for manual memory operations. These com
 
 ### /memory-status
 
-**Check BMAD Memory System Status**
+**Check AI Memory System Status**
 
 #### Purpose
 Displays comprehensive health check of all memory system components including Qdrant, embedding service, and collection statistics.
@@ -70,7 +70,7 @@ No arguments required.
 #### Example Output
 
 ```markdown
-## 🧠 BMAD Memory System Status
+## 🧠 AI Memory System Status
 
 ### ✅ Services Health
 

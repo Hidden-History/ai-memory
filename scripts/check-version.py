@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # scripts/check-version.py
-"""Check for available BMAD Memory Module updates.
+"""Check for available AI Memory Module updates.
 
 2026 Best Practices Applied:
 - httpx with proper timeout handling (Source: HTTPX Timeout Docs)
@@ -24,9 +24,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from memory.__version__ import __version__
 
 # Configuration via environment variables
-GITHUB_OWNER = os.environ.get("BMAD_GITHUB_OWNER", "bmad-sim")
-GITHUB_REPO = os.environ.get("BMAD_GITHUB_REPO", "bmad-memory-module")
-MAX_RETRIES = int(os.environ.get("BMAD_VERSION_CHECK_RETRIES", "3"))
+GITHUB_OWNER = os.environ.get("AI_MEMORY_GITHUB_OWNER", "bmad-sim")
+GITHUB_REPO = os.environ.get("AI_MEMORY_GITHUB_REPO", "ai-memory-module")
+MAX_RETRIES = int(os.environ.get("AI_MEMORY_VERSION_CHECK_RETRIES", "3"))
 
 
 def get_latest_version() -> Optional[str]:
@@ -170,7 +170,7 @@ def compare_versions(current: str, latest: str) -> int:
 def main() -> None:
     """Check for updates and display status."""
     print("\n" + "=" * 50)
-    print("  BMAD Memory Module Version Check")
+    print("  AI Memory Module Version Check")
     print("=" * 50 + "\n")
 
     print(f"  Current version: {__version__}")
@@ -191,7 +191,7 @@ def main() -> None:
     if comparison < 0:
         print(f"\n  📦 Update available: {__version__} → {latest}")
         print("\n  To update:")
-        print("    cd /path/to/bmad-memory-module")
+        print("    cd /path/to/ai-memory-module")
         print("    ./update.sh")
     elif comparison == 0:
         print(f"\n  ✅ You have the latest version ({__version__})")

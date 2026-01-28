@@ -1,6 +1,6 @@
-# BMAD Memory Module - Complete Architecture Reference
+# AI Memory Module - Complete Architecture Reference
 
-**Purpose:** This document defines the complete architecture of the BMAD Memory Module. It explains WHAT we're building, WHY each component exists, and HOW they work together. This is the authoritative reference to prevent implementation mistakes.
+**Purpose:** This document defines the complete architecture of the AI Memory Module. It explains WHAT we're building, WHY each component exists, and HOW they work together. This is the authoritative reference to prevent implementation mistakes.
 
 **Last Updated:** 2026-01-26 (V2.0 collection names)
 
@@ -33,7 +33,7 @@ BMAD (BMad Method) is a structured AI-assisted development methodology that uses
 
 ### Module Structure
 
-The BMAD Memory Module follows the cohesive module pattern:
+The AI Memory Module follows the cohesive module pattern:
 
 ```
 bmad-memory-module/
@@ -114,7 +114,7 @@ Workflow Step 7:    Complete
 
 ```yaml
 code: bmm-memory
-name: BMAD Memory Module
+name: AI Memory Module
 version: 1.0.0
 description: Persistent semantic memory for Claude Code and BMAD workflows
 author: BMAD Community
@@ -271,7 +271,7 @@ Session summaries are **fundamentally different** from implementation patterns:
 ```json
 {
   "content": "Session summary: Fixed Grafana dashboards by updating Prometheus queries. Modified memory-overview.json to use correct metric names. Verified dashboards show data.",
-  "group_id": "bmad-memory-module",
+  "group_id": "ai-memory",
   "type": "session_summary",
   "session_id": "sess_abc123",
   "timestamp": "2026-01-15T20:30:00Z",
@@ -512,7 +512,7 @@ These hooks are triggered by BMAD workflows during structured work:
       "matcher": "auto|manual",
       "hooks": [{
         "type": "command",
-        "command": "python3 ~/.bmad-memory/.claude/hooks/scripts/pre_compact_save.py",
+        "command": "python3 ~/.ai-memory/.claude/hooks/scripts/pre_compact_save.py",
         "timeout": 10000
       }]
     }
@@ -1181,4 +1181,4 @@ A three-tier memory system:
 **Document Version:** 1.1.0
 **Last Updated:** 2026-01-26 (V2.0 collection names)
 **Changes:** Added PreCompact hook, slash commands, fixed Stop hook description
-**Author:** Architecture documentation from BMAD Memory Module development
+**Author:** Architecture documentation from AI Memory Module development

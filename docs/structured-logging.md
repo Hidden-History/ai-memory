@@ -4,7 +4,7 @@
 **Last Updated:** 2026-01-14
 **Status:** Canonical Reference
 
-Comprehensive guide to structured logging patterns in BMAD Memory Module. Established in Story 6.2 (Logging Infrastructure) and required for all Python code.
+Comprehensive guide to structured logging patterns in AI Memory Module. Established in Story 6.2 (Logging Infrastructure) and required for all Python code.
 
 ---
 
@@ -27,11 +27,11 @@ All logs use JSON structured format by default:
 {
   "timestamp": "2026-01-14T15:30:45.123Z",
   "level": "INFO",
-  "logger": "bmad.memory.storage",
+  "logger": "ai_memory.storage",
   "message": "memory_stored",
   "context": {
     "memory_id": "uuid-123",
-    "project": "bmad-memory-module",
+    "project": "ai-memory",
     "type": "implementation",
     "duration_ms": 42.5
   }
@@ -67,7 +67,7 @@ logger.info("memory_stored", extra={
     "duration_ms": 42.5
 })
 
-# Benefit: Query logs by project="bmad-memory-module" in Loki/ELK
+# Benefit: Query logs by project="ai-memory" in Loki/ELK
 ```
 
 **Rule:** Message is operation name. Data goes in `extra` dict.
@@ -156,7 +156,7 @@ from contextlib import contextmanager
 import time
 import logging
 
-logger = logging.getLogger("bmad.memory")
+logger = logging.getLogger("ai_memory")
 
 @contextmanager
 def log_timing(operation: str, **extra_fields):
@@ -342,7 +342,7 @@ Use consistent `snake_case` field names across all logs:
 | Field | Type | Purpose | Example |
 |-------|------|---------|---------|
 | `memory_id` | str | Unique memory identifier | `"uuid-123-abc"` |
-| `project` | str | Project name (group_id) | `"bmad-memory-module"` |
+| `project` | str | Project name (group_id) | `"ai-memory"` |
 | `session_id` | str | Claude session identifier | `"sess_abc123"` |
 | `operation` | str | Operation name | `"memory_search"` |
 | `duration_ms` | float | Operation duration | `142.5` |
@@ -485,14 +485,14 @@ Logs and Prometheus metrics use **shared label fields** for correlation:
 ```python
 # Logging
 logger.info("memory_stored", extra={
-    "project": "bmad-memory-module",
+    "project": "ai-memory",
     "type": "implementation",
     "status": "success"
 })
 
 # Prometheus metrics (same labels)
 memory_captures_total.labels(
-    project="bmad-memory-module",
+    project="ai-memory",
     hook_type="PostToolUse",
     status="success"
 ).inc()
@@ -513,39 +513,39 @@ See `docs/prometheus-queries.md` for detailed query patterns.
 ```promql
 # Prometheus: 95th percentile retrieval time by project
 histogram_quantile(0.95,
-  rate(bmad_retrieval_duration_seconds_bucket[5m])
+  rate(ai_memory_retrieval_duration_seconds_bucket[5m])
 )
 
 # Then query Loki for corresponding logs:
-{logger="bmad.memory.hooks"}
+{logger="ai_memory.hooks"}
   | json
   | message="session_retrieval_completed"
   | duration_ms > 3000
-  | project="bmad-memory-module"
+  | project="ai-memory"
 ```
 
 ### Loki Query Examples (Grafana Cloud)
 
 ```logql
 # All errors in the last hour
-{logger=~"bmad.memory.*"}
+{logger=~"ai_memory.*"}
   | json
   | level="ERROR"
 
 # Memory storage operations for specific project
-{logger="bmad.memory.storage"}
+{logger="ai_memory.storage"}
   | json
   | message="memory_stored"
-  | project="bmad-memory-module"
+  | project="ai-memory"
 
 # Slow operations (>500ms)
-{logger=~"bmad.memory.*"}
+{logger=~"ai_memory.*"}
   | json
   | duration_ms > 500
   | line_format "{{.message}} took {{.duration_ms}}ms"
 
 # Hook failures by type
-{logger="bmad.memory.hooks"}
+{logger="ai_memory.hooks"}
   | json
   | level="ERROR"
   | line_format "{{.hook}} failed: {{.error}}"
@@ -559,14 +559,14 @@ Combine logs and metrics for alerting:
 # Prometheus alert rule
 - alert: HighMemoryFailureRate
   expr: |
-    rate(bmad_failure_events_total[5m]) > 0.1
+    rate(ai_memory_failure_events_total[5m]) > 0.1
   annotations:
     summary: "High failure rate detected"
-    loki_query: '{logger="bmad.memory.*"} | json | level="ERROR"'
+    loki_query: '{logger="ai_memory.*"} | json | level="ERROR"'
 ```
 
 **Workflow:**
-1. Prometheus detects elevated `bmad_failure_events_total`
+1. Prometheus detects elevated `ai_memory_failure_events_total`
 2. Alert fires with embedded Loki query
 3. On-call engineer clicks Loki link
 4. JSON logs show exact errors with full context
@@ -585,7 +585,7 @@ configure_logging()
 
 # Get logger
 import logging
-logger = logging.getLogger("bmad.memory.mymodule")
+logger = logging.getLogger("ai_memory.mymodule")
 ```
 
 ### Pattern Cheatsheet

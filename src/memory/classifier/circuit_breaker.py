@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Dict
 from enum import Enum
 
-logger = logging.getLogger("bmad.memory.classifier.circuit_breaker")
+logger = logging.getLogger("ai_memory.classifier.circuit_breaker")
 
 __all__ = ["CircuitBreaker", "CircuitState", "circuit_breaker"]
 

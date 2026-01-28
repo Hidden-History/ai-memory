@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-We actively support the following versions of BMAD Memory Module with security updates:
+We actively support the following versions of AI Memory Module with security updates:
 
 | Version | Supported          | End of Support |
 | ------- | ------------------ | -------------- |
@@ -15,7 +15,7 @@ We actively support the following versions of BMAD Memory Module with security u
 
 ## Reporting a Vulnerability
 
-We take security seriously. If you discover a security vulnerability in BMAD Memory Module, please help us address it responsibly.
+We take security seriously. If you discover a security vulnerability in AI Memory Module, please help us address it responsibly.
 
 ### ⚠️ DO NOT create a public GitHub issue for security vulnerabilities
 
@@ -23,7 +23,7 @@ We take security seriously. If you discover a security vulnerability in BMAD Mem
 
 **Email:** security@wbsolutions.ca
 
-**Subject Line:** `[SECURITY] BMAD Memory Module - [Brief Description]`
+**Subject Line:** `[SECURITY] AI Memory Module - [Brief Description]`
 
 **Include in your report:**
 
@@ -77,13 +77,13 @@ Typical timeline: **90 days** from initial report to public disclosure
 
 ## Security Best Practices
 
-When deploying BMAD Memory Module, follow these security best practices:
+When deploying AI Memory Module, follow these security best practices:
 
 ### 1. Network Security
 
-- **Isolate Docker network:** Use a dedicated Docker network for BMAD services
+- **Isolate Docker network:** Use a dedicated Docker network for AI Memory services
   ```bash
-  docker network create bmad-memory-net
+  docker network create ai-memory-net
   ```
 
 - **Firewall rules:** Restrict access to service ports (26350, 28080, 28501)
@@ -174,7 +174,7 @@ export QDRANT_API_KEY="$(openssl rand -hex 32)"
 
 ## Security Features
 
-BMAD Memory Module includes these security features:
+AI Memory Module includes these security features:
 
 ### Built-in Protections
 
@@ -242,7 +242,7 @@ Planned security improvements (see ROADMAP.md):
 
 We thank the following security researchers for responsibly disclosing vulnerabilities:
 
-_No reported vulnerabilities yet - you could be the first to help secure BMAD Memory Module!_
+_No reported vulnerabilities yet - you could be the first to help secure AI Memory Module!_
 
 ---
 

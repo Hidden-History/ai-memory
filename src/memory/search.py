@@ -35,7 +35,7 @@ from .metrics_push import push_retrieval_metrics_async, push_failure_metrics_asy
 
 __all__ = ["MemorySearch", "retrieve_best_practices", "search_memories", "format_attribution"]
 
-logger = logging.getLogger("bmad.memory.retrieve")
+logger = logging.getLogger("ai_memory.retrieve")
 
 
 def format_attribution(

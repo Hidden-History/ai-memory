@@ -25,7 +25,7 @@ from memory.classifier.queue import dequeue_batch, get_queue_size, Classificatio
 from memory.classifier.config import CLASSIFIER_ENABLED
 from memory.storage import update_point_payload
 
-logger = logging.getLogger("bmad.memory.classifier.worker")
+logger = logging.getLogger("ai_memory.classifier.worker")
 
 # Resource limits
 POLL_INTERVAL = 5  # seconds

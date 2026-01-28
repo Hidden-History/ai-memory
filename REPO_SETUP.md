@@ -1,12 +1,12 @@
 # GitHub Repository Setup Guide
 
-This guide provides step-by-step instructions for configuring the BMAD Memory Module public repository on GitHub. These are **manual settings** that cannot be configured via Git files alone.
+This guide provides step-by-step instructions for configuring the AI Memory Module public repository on GitHub. These are **manual settings** that cannot be configured via Git files alone.
 
 ---
 
 ## Prerequisites
 
-- [ ] Administrative access to `https://github.com/wbsolutions-ca/bmad-memory`
+- [ ] Administrative access to `https://github.com/Hidden-History/ai-memory`
 - [ ] GitHub CLI installed (optional but recommended): `gh --version`
 - [ ] v1.0.0 release already published
 
@@ -25,7 +25,7 @@ Navigate to: **Settings → General**
 
 - **Website:**
   ```
-  https://github.com/wbsolutions-ca/bmad-memory
+  https://github.com/Hidden-History/ai-memory
   ```
 
 - **Topics:** (Add these tags for discoverability)
@@ -61,22 +61,22 @@ Create these teams in your organization:
 
 ```bash
 # Via GitHub CLI
-gh api orgs/wbsolutions-ca/teams -f name='bmad-maintainers' -f description='BMAD Memory Module core maintainers' -f privacy='closed'
-gh api orgs/wbsolutions-ca/teams -f name='docker-experts' -f description='Docker and infrastructure specialists' -f privacy='closed'
-gh api orgs/wbsolutions-ca/teams -f name='python-core' -f description='Python core development team' -f privacy='closed'
-gh api orgs/wbsolutions-ca/teams -f name='monitoring-team' -f description='Monitoring experts' -f privacy='closed'
-gh api orgs/wbsolutions-ca/teams -f name='security-team' -f description='Security review team' -f privacy='closed'
+gh api orgs/Hidden-History/teams -f name='bmad-maintainers' -f description='AI Memory Module core maintainers' -f privacy='closed'
+gh api orgs/Hidden-History/teams -f name='docker-experts' -f description='Docker and infrastructure specialists' -f privacy='closed'
+gh api orgs/Hidden-History/teams -f name='python-core' -f description='Python core development team' -f privacy='closed'
+gh api orgs/Hidden-History/teams -f name='monitoring-team' -f description='Monitoring experts' -f privacy='closed'
+gh api orgs/Hidden-History/teams -f name='security-team' -f description='Security review team' -f privacy='closed'
 ```
 
 ### Assign Team Permissions
 
 | Team | Permission | Purpose |
 |------|------------|---------|
-| `@wbsolutions-ca/bmad-maintainers` | **Admin** | Full repo access |
-| `@wbsolutions-ca/docker-experts` | **Write** | Docker/infrastructure PRs |
-| `@wbsolutions-ca/python-core` | **Write** | Python core PRs |
-| `@wbsolutions-ca/monitoring-team` | **Write** | Monitoring PRs |
-| `@wbsolutions-ca/security-team` | **Write** | Security reviews |
+| `@Hidden-History/bmad-maintainers` | **Admin** | Full repo access |
+| `@Hidden-History/docker-experts` | **Write** | Docker/infrastructure PRs |
+| `@Hidden-History/python-core` | **Write** | Python core PRs |
+| `@Hidden-History/monitoring-team` | **Write** | Monitoring PRs |
+| `@Hidden-History/security-team` | **Write** | Security reviews |
 
 ---
 

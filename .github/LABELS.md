@@ -1,4 +1,4 @@
-# GitHub Labels for BMAD Memory Module
+# GitHub Labels for AI Memory Module
 
 This document defines the label system for organizing issues and pull requests.
 
@@ -92,9 +92,9 @@ For repository administrators, here's a script to create all labels:
 
 ```bash
 #!/usr/bin/env bash
-# create-labels.sh - Create GitHub labels for BMAD Memory Module
+# create-labels.sh - Create GitHub labels for AI Memory Module
 
-REPO="wbsolutions-ca/bmad-memory"
+REPO="Hidden-History/ai-memory"
 
 # Type Labels
 gh label create "type: bug" --color d73a4a --description "Something isn't working correctly" --repo "$REPO"

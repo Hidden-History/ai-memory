@@ -31,7 +31,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass, field
 
 # Path setup
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.config import COLLECTION_DISCUSSIONS, COLLECTION_CONVENTIONS, get_config

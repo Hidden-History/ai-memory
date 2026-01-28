@@ -19,16 +19,16 @@ from pathlib import Path
 
 
 def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
-    """Generate hook configuration with dynamic BMAD_INSTALL_DIR paths.
+    """Generate hook configuration with dynamic AI_MEMORY_INSTALL_DIR paths.
 
     Args:
         hooks_dir: Absolute path to hooks scripts directory
                    Expected format: /path/to/install/.claude/hooks/scripts
-        project_name: Name of the project for BMAD_PROJECT_ID
+        project_name: Name of the project for AI_MEMORY_PROJECT_ID
 
     Returns:
         Dict with complete V2.0 hook configuration:
-        - 'env' section with BMAD_INSTALL_DIR, BMAD_PROJECT_ID, service ports, API keys
+        - 'env' section with AI_MEMORY_INSTALL_DIR, AI_MEMORY_PROJECT_ID, service ports, API keys
         - 'hooks' section with all 6 hook types
 
     2026 Best Practice: Complete Claude Code V2.0 hook structure
@@ -38,7 +38,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
     - PostToolUse: Wrapper with 'matcher' + nested 'hooks' array (Bash errors, Edit/Write capture)
     - PreCompact: Wrapper with 'matcher' for auto|manual triggers
     - Stop: Captures agent responses
-    - Uses $BMAD_INSTALL_DIR for portability across installations
+    - Uses $AI_MEMORY_INSTALL_DIR for portability across installations
     Source: https://code.claude.com/docs/en/hooks, AC 7.2.2
     """
     # Extract install directory from hooks_dir
@@ -50,7 +50,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
 
     # Use environment variable reference for portability
     # Quotes go around the full path including script name
-    hooks_base = '$BMAD_INSTALL_DIR/.claude/hooks/scripts'
+    hooks_base = '$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts'
 
     session_start_hook = {
         "type": "command",
@@ -61,10 +61,10 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
     # Build env section - only include QDRANT_API_KEY if it has a value
     # (empty string vs omitted key matters for some consumers)
     env_section = {
-        # BMAD Memory Module installation directory (dynamic)
-        "BMAD_INSTALL_DIR": install_dir,
+        # AI Memory Module installation directory (dynamic)
+        "AI_MEMORY_INSTALL_DIR": install_dir,
         # Project identification for multi-tenancy
-        "BMAD_PROJECT_ID": project_name,
+        "AI_MEMORY_PROJECT_ID": project_name,
         # Service configuration - ports per CLAUDE.md
         "QDRANT_HOST": "localhost",
         "QDRANT_PORT": "26350",

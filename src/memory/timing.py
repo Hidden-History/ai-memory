@@ -39,7 +39,7 @@ def timed_operation(
         None
 
     Example:
-        >>> logger = logging.getLogger("bmad.memory.storage")
+        >>> logger = logging.getLogger("ai_memory.storage")
         >>> with timed_operation("store_memory", logger, extra={"id": "abc"}):
         ...     # operation code here
         ...     pass

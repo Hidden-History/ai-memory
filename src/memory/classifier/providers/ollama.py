@@ -14,7 +14,7 @@ import httpx
 from .base import BaseProvider, ProviderResponse
 from ..config import OLLAMA_BASE_URL, OLLAMA_MODEL, MAX_OUTPUT_TOKENS
 
-logger = logging.getLogger("bmad.memory.classifier.providers.ollama")
+logger = logging.getLogger("ai_memory.classifier.providers.ollama")
 
 __all__ = ["OllamaProvider"]
 

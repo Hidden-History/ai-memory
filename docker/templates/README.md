@@ -1,6 +1,6 @@
 # Docker Security Templates
 
-**Purpose**: Reusable security hardening patterns for Docker services in BMAD Memory Module.
+**Purpose**: Reusable security hardening patterns for Docker services in AI Memory Module.
 
 ---
 

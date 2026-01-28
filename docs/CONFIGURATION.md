@@ -38,7 +38,7 @@ Defaults → Environment Variables → Runtime Overrides
 
 | File/Location | Purpose | Tracked in Git |
 |---------------|---------|----------------|
-| `~/.bmad-memory/.env` | User environment variables | ❌ No (gitignored) |
+| `~/.ai-memory/.env` | User environment variables | ❌ No (gitignored) |
 | `.claude/settings.json` | Hook configuration | ✅ Yes (project-specific) |
 | `docker/docker-compose.yml` | Docker service config | ✅ Yes |
 | `docker/.env` | Docker environment overrides | ❌ No (gitignored) |
@@ -48,11 +48,11 @@ Defaults → Environment Variables → Runtime Overrides
 
 ## 📁 Configuration Files
 
-### ~/.bmad-memory/.env
+### ~/.ai-memory/.env
 
 **Purpose:** User-level environment variables (highest priority)
 
-**Location:** `~/.bmad-memory/.env`
+**Location:** `~/.ai-memory/.env`
 
 **Format:**
 ```bash
@@ -101,16 +101,16 @@ EMBEDDING_MEMORY_LIMIT=1g
 
 ### Core Settings
 
-#### BMAD_INSTALL_DIR
+#### AI_MEMORY_INSTALL_DIR
 **Purpose:** Installation directory for AI Memory Module
 
-**Default:** `~/.bmad-memory`
+**Default:** `~/.ai-memory`
 
 **Format:** Absolute path
 
 **Example:**
 ```bash
-export BMAD_INSTALL_DIR=/opt/bmad-memory
+export AI_MEMORY_INSTALL_DIR=/opt/ai-memory
 ```
 
 **When to change:**
@@ -120,7 +120,7 @@ export BMAD_INSTALL_DIR=/opt/bmad-memory
 
 ---
 
-#### BMAD_PROJECT_ID
+#### AI_MEMORY_PROJECT_ID
 **Purpose:** Project identifier for memory isolation (group_id in Qdrant)
 
 **Default:** Directory name of the project
@@ -130,7 +130,7 @@ export BMAD_INSTALL_DIR=/opt/bmad-memory
 **Example:**
 ```bash
 # Set in .claude/settings.json env section
-export BMAD_PROJECT_ID=my-awesome-project
+export AI_MEMORY_PROJECT_ID=my-awesome-project
 
 # Or via installer CLI
 ./install.sh ~/projects/my-app my-awesome-project
@@ -156,8 +156,8 @@ export BMAD_PROJECT_ID=my-awesome-project
 {
   "hooks": { ... },
   "env": {
-    "BMAD_PROJECT_ID": "my-awesome-project",
-    "BMAD_INSTALL_DIR": "/home/user/.bmad-memory"
+    "AI_MEMORY_PROJECT_ID": "my-awesome-project",
+    "AI_MEMORY_INSTALL_DIR": "/home/user/.ai-memory"
   }
 }
 ```
@@ -245,7 +245,7 @@ export QDRANT_API_KEY=your-api-key-here
 
 **Security:**
 ⚠️ **Never commit API keys to git!**
-- Use `~/.bmad-memory/.env` (gitignored)
+- Use `~/.ai-memory/.env` (gitignored)
 - Use environment variables
 - Use secrets management (Vault, AWS Secrets Manager)
 
@@ -254,14 +254,14 @@ export QDRANT_API_KEY=your-api-key-here
 #### QDRANT_COLLECTION_PREFIX
 **Purpose:** Prefix for collection names (multi-tenancy)
 
-**Default:** `bmad_` (results in `bmad_code-patterns`, `bmad_discussions`, etc.)
+**Default:** `ai_memory_` (results in `ai_memory_code-patterns`, `ai_memory_discussions`, etc.)
 
 **Format:** String (alphanumeric + underscore)
 
 **Example:**
 ```bash
 # Default
-export QDRANT_COLLECTION_PREFIX=bmad_
+export QDRANT_COLLECTION_PREFIX=ai_memory_
 
 # Testing
 export QDRANT_COLLECTION_PREFIX=test_
@@ -723,7 +723,7 @@ AGENT_TOKEN_BUDGETS = {
 ### Development Configuration
 
 ```bash
-# ~/.bmad-memory/.env
+# ~/.ai-memory/.env
 
 # Verbose logging
 MEMORY_LOG_LEVEL=DEBUG
@@ -741,7 +741,7 @@ MEMORY_CACHE_TTL=0
 ### Production Configuration
 
 ```bash
-# ~/.bmad-memory/.env
+# ~/.ai-memory/.env
 
 # Standard logging
 MEMORY_LOG_LEVEL=INFO
@@ -762,7 +762,7 @@ MEMORY_STRUCTURED_LOGGING=true
 ### Testing Configuration
 
 ```bash
-# ~/.bmad-memory/.env
+# ~/.ai-memory/.env
 
 # Test collection prefix
 QDRANT_COLLECTION_PREFIX=test_
@@ -780,7 +780,7 @@ EMBEDDING_TIMEOUT=5
 ### Remote Qdrant Cloud
 
 ```bash
-# ~/.bmad-memory/.env
+# ~/.ai-memory/.env
 
 # Qdrant Cloud URL
 QDRANT_URL=https://xyz-abc.qdrant.io
@@ -805,14 +805,14 @@ JINA_API_KEY=your-jina-key
 **Diagnosis:**
 ```bash
 # Check if .env file exists
-ls -la ~/.bmad-memory/.env
+ls -la ~/.ai-memory/.env
 
 # Verify variable is set
 python3 -c "from memory.config import get_config; print(get_config().qdrant_url)"
 ```
 
 **Solutions:**
-1. **File location**: Must be `~/.bmad-memory/.env` (absolute path)
+1. **File location**: Must be `~/.ai-memory/.env` (absolute path)
 2. **Format**: No quotes around values
    ```bash
    # Correct

@@ -1,15 +1,15 @@
 {
-  "uid": "bmad-memory-performance-v2",
-  "title": "BMAD Memory Performance",
+  "uid": "ai-memory-performance-v2",
+  "title": "AI Memory Performance",
   "tags": [
-    "bmad",
+    "ai-memory",
     "memory",
     "performance",
     "v2"
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 6,
+  "version": 7,
   "refresh": "30s",
   "time": {
     "from": "now-1h",
@@ -161,14 +161,14 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "# BMAD Memory Performance Dashboard\n\n**Purpose:** Performance debugging - answering \"Which hooks are slow?\", \"Are we meeting NFRs?\", \"Where are bottlenecks?\"\n\n**Audience:** Engineers, Performance Debugging\n\n**NFR Thresholds:** Hook duration <500ms | Embedding <2s | Retrieval <3s | Success rate >95%\n\n\n**Template Variables:** Use dropdowns above to filter by hook or change quantile (p50/p95/p99)\n\n**Template Variables:** Use dropdowns above to filter by hook type or trigger type"
+        "content": "# AI Memory Performance Dashboard\n\n**Purpose:** Performance debugging - answering \"Which hooks are slow?\", \"Are we meeting NFRs?\", \"Where are bottlenecks?\"\n\n**Audience:** Engineers, Performance Debugging\n\n**NFR Thresholds:** Hook duration <500ms | Embedding <2s | Retrieval <3s | Success rate >95%\n\n\n**Template Variables:** Use dropdowns above to filter by hook or change quantile (p50/p95/p99)\n\n**Template Variables:** Use dropdowns above to filter by hook type or trigger type"
       }
     },
     {
       "id": 1,
       "type": "timeseries",
       "title": "Hook Latency (p95)",
-      "description": "**Metric:** `bmad_hook_duration_seconds_bucket`\n**Measures:** 95th percentile hook execution time by hook\n**Formula:** `histogram_quantile(0.95, sum by (le, hook_type) (rate(bmad_hook_duration_seconds_bucket{hook_type=~\"$hook\"}[5m])))`\n**NFR:** <500ms per BP-022 (NFR-P2)\n**Thresholds:** Green <500ms | Yellow 500-750ms | Red >750ms\n**Note:** Uses histogram_quantile with sum by (le) per BP-041\n**See:** BP-022 (NFR-P2), BP-041 (Histogram Quantiles), docs/prometheus-queries.md",
+      "description": "**Metric:** `ai_memory_hook_latency_bucket`\n**Measures:** 95th percentile hook execution time by hook\n**Formula:** `histogram_quantile(0.95, sum by (le, hook_type) (rate(ai_memory_hook_latency_bucket{hook_type=~\"$hook\"}[5m])))`\n**NFR:** <500ms per BP-022 (NFR-P2)\n**Thresholds:** Green <500ms | Yellow 500-750ms | Red >750ms\n**Note:** Uses histogram_quantile with sum by (le) per BP-041\n**See:** BP-022 (NFR-P2), BP-041 (Histogram Quantiles), docs/prometheus-queries.md",
       "gridPos": {
         "x": 0,
         "y": 6,
@@ -177,7 +177,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, hook_type) (rate(bmad_hook_duration_seconds_bucket{hook_type=~\"$hook\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, hook_type) (rate(ai_memory_hook_latency_bucket{hook_type=~\"$hook\"}[5m])))",
           "refId": "A",
           "legendFormat": "{{hook_type}}"
         },
@@ -275,7 +275,7 @@
       "id": 2,
       "type": "timeseries",
       "title": "Embedding Duration (p95)",
-      "description": "**Metric:** `bmad_embedding_duration_seconds_bucket`\n**Measures:** 95th percentile embedding generation time by type\n**Formula:** `histogram_quantile(0.95, sum by (le, embedding_type) (rate(bmad_embedding_duration_seconds_bucket[5m])))`\n**NFR:** <2s per BP-022 (NFR-P2)\n**Thresholds:** Green <2s | Yellow 2-3s | Red >3s\n**Embedding Types:** dense (required, Jina v2) | sparse_bm25 (optional, fast <100ms) | sparse_splade (optional, slower 500ms-1s)\n**See:** BP-022 (NFR-P2), BP-041 (Histogram Quantiles), BP-017 (Multi-Embedding)",
+      "description": "**Metric:** `ai_memory_embedding_latency_bucket`\n**Measures:** 95th percentile embedding generation time by type\n**Formula:** `histogram_quantile(0.95, sum by (le, embedding_type) (rate(ai_memory_embedding_latency_bucket[5m])))`\n**NFR:** <2s per BP-022 (NFR-P2)\n**Thresholds:** Green <2s | Yellow 2-3s | Red >3s\n**Embedding Types:** dense (required, Jina v2) | sparse_bm25 (optional, fast <100ms) | sparse_splade (optional, slower 500ms-1s)\n**See:** BP-022 (NFR-P2), BP-041 (Histogram Quantiles), BP-017 (Multi-Embedding)",
       "gridPos": {
         "x": 0,
         "y": 16,
@@ -284,7 +284,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, embedding_type) (rate(bmad_embedding_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, embedding_type) (rate(ai_memory_embedding_latency_bucket[5m])))",
           "refId": "A",
           "legendFormat": "{{embedding_type}}"
         },
@@ -382,7 +382,7 @@
       "id": 3,
       "type": "stat",
       "title": "Slowest Hook (p95)",
-      "description": "**Metric:** `bmad_hook_duration_seconds_bucket`\n**Measures:** Hook with highest p95 latency\n**Formula:** `topk(1, histogram_quantile(0.95, sum by (le, hook_type) (rate(bmad_hook_duration_seconds_bucket[5m]))))`\n**NFR:** <500ms per BP-022\n**Thresholds:** Green <500ms | Yellow 500-750ms | Red >750ms\n**Action:** If red, investigate hook bottlenecks\n**See:** BP-022 (NFR-P2)",
+      "description": "**Metric:** `ai_memory_hook_latency_bucket`\n**Measures:** Hook with highest p95 latency\n**Formula:** `topk(1, histogram_quantile(0.95, sum by (le, hook_type) (rate(ai_memory_hook_latency_bucket[5m]))))`\n**NFR:** <500ms per BP-022\n**Thresholds:** Green <500ms | Yellow 500-750ms | Red >750ms\n**Action:** If red, investigate hook bottlenecks\n**See:** BP-022 (NFR-P2)",
       "gridPos": {
         "x": 0,
         "y": 26,
@@ -391,7 +391,7 @@
       },
       "targets": [
         {
-          "expr": "topk(1, histogram_quantile(0.95, sum by (le, hook_type) (rate(bmad_hook_duration_seconds_bucket[5m]))))",
+          "expr": "topk(1, histogram_quantile(0.95, sum by (le, hook_type) (rate(ai_memory_hook_latency_bucket[5m]))))",
           "refId": "A",
           "legendFormat": "{{hook_type}}"
         }
@@ -443,7 +443,7 @@
       "id": 4,
       "type": "stat",
       "title": "Slowest Embedding (p95)",
-      "description": "**Metric:** `bmad_embedding_duration_seconds_bucket`\n**Measures:** Embedding type with highest p95 latency\n**Formula:** `topk(1, histogram_quantile(0.95, sum by (le, embedding_type) (rate(bmad_embedding_duration_seconds_bucket[5m]))))`\n**NFR:** <2s per BP-022\n**Thresholds:** Green <2s | Yellow 2-3s | Red >3s\n**Action:** If red, check embedding service health\n**See:** BP-022 (NFR-P2), BP-017 (Multi-Embedding)",
+      "description": "**Metric:** `ai_memory_embedding_latency_bucket`\n**Measures:** Embedding type with highest p95 latency\n**Formula:** `topk(1, histogram_quantile(0.95, sum by (le, embedding_type) (rate(ai_memory_embedding_latency_bucket[5m]))))`\n**NFR:** <2s per BP-022\n**Thresholds:** Green <2s | Yellow 2-3s | Red >3s\n**Action:** If red, check embedding service health\n**See:** BP-022 (NFR-P2), BP-017 (Multi-Embedding)",
       "gridPos": {
         "x": 12,
         "y": 26,
@@ -452,7 +452,7 @@
       },
       "targets": [
         {
-          "expr": "topk(1, histogram_quantile(0.95, sum by (le, embedding_type) (rate(bmad_embedding_duration_seconds_bucket[5m]))))",
+          "expr": "topk(1, histogram_quantile(0.95, sum by (le, embedding_type) (rate(ai_memory_embedding_latency_bucket[5m]))))",
           "refId": "A",
           "legendFormat": "{{embedding_type}}"
         }
@@ -504,7 +504,7 @@
       "id": 5,
       "type": "timeseries",
       "title": "Trigger Latency (Retrieval Operations)",
-      "description": "**Metric:** `bmad_hook_duration_seconds_bucket` (for retrieval hooks)\n**Measures:** 95th percentile latency for retrieval triggers\n**Formula:** `histogram_quantile($quantile, sum by (le, hook_type) (rate(bmad_hook_duration_seconds_bucket{hook_type=~\"error_detection|new_file_trigger|first_edit_trigger|decision_keyword_trigger|best_practices_keyword_trigger|session_start\"}[5m])))`\n**NFR:** <3s for full retrieval operation per BP-022 (NFR-P2)\n**Thresholds:** Green <3s | Yellow 3-4.5s | Red >4.5s\n**Note:** Retrieval triggers include search + context injection\n**See:** BP-022 (NFR-P2), Core-Architecture-Principle-V2.md",
+      "description": "**Metric:** `ai_memory_hook_latency_bucket` (for retrieval hooks)\n**Measures:** 95th percentile latency for retrieval triggers\n**Formula:** `histogram_quantile($quantile, sum by (le, hook_type) (rate(ai_memory_hook_latency_bucket{hook_type=~\"error_detection|new_file_trigger|first_edit_trigger|decision_keyword_trigger|best_practices_keyword_trigger|session_start\"}[5m])))`\n**NFR:** <3s for full retrieval operation per BP-022 (NFR-P2)\n**Thresholds:** Green <3s | Yellow 3-4.5s | Red >4.5s\n**Note:** Retrieval triggers include search + context injection\n**See:** BP-022 (NFR-P2), Core-Architecture-Principle-V2.md",
       "gridPos": {
         "x": 0,
         "y": 32,
@@ -513,7 +513,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile($quantile, sum by (le, hook_type) (rate(bmad_hook_duration_seconds_bucket{hook_type=~\"error_detection|new_file_trigger|first_edit_trigger|decision_keyword_trigger|best_practices_keyword_trigger|session_start\"}[5m])))",
+          "expr": "histogram_quantile($quantile, sum by (le, hook_type) (rate(ai_memory_hook_latency_bucket{hook_type=~\"error_detection|new_file_trigger|first_edit_trigger|decision_keyword_trigger|best_practices_keyword_trigger|session_start\"}[5m])))",
           "refId": "A",
           "legendFormat": "{{hook_type}}"
         },

@@ -1,6 +1,6 @@
 """Claude Agent SDK wrapper with memory integration (TECH-DEBT-035 Phase 3).
 
-Integrates claude-agent-sdk with the BMAD memory system to enable:
+Integrates claude-agent-sdk with the AI Memory system to enable:
 - Automatic memory capture via SDK hooks
 - Session continuity with conversation context
 - Tool execution pattern capture
@@ -53,11 +53,11 @@ from .project import detect_project
 from .storage import MemoryStorage
 
 # Prometheus Metrics
-agent_sdk_hook_fires = Counter('bmad_agent_sdk_hook_fires_total', 'SDK hook invocations', ['hook_type'])
-agent_sdk_storage_tasks = Counter('bmad_agent_sdk_storage_tasks_total', 'Storage tasks', ['status'])
-agent_sdk_sessions = Gauge('bmad_agent_sdk_active_sessions', 'Active SDK sessions')
+agent_sdk_hook_fires = Counter('ai_memory_agent_sdk_hook_fires_total', 'SDK hook invocations', ['hook_type'])
+agent_sdk_storage_tasks = Counter('ai_memory_agent_sdk_storage_tasks_total', 'Storage tasks', ['status'])
+agent_sdk_sessions = Gauge('ai_memory_agent_sdk_active_sessions', 'Active SDK sessions')
 agent_sdk_dedup_checks = Counter(
-    'bmad_agent_sdk_dedup_checks_total',
+    'ai_memory_agent_sdk_dedup_checks_total',
     'Deduplication checks',
     ['result']  # 'duplicate', 'unique', 'error'
 )
@@ -68,7 +68,7 @@ __all__ = [
     "create_memory_enhanced_client",
 ]
 
-logger = logging.getLogger("bmad.memory.agent_sdk_wrapper")
+logger = logging.getLogger("ai_memory.agent_sdk_wrapper")
 
 
 @dataclass
@@ -215,7 +215,7 @@ class AgentSDKWrapper:
         suitable for Qdrant group_id filtering.
 
         Returns:
-            Normalized project name (e.g., "bmad-memory-module")
+            Normalized project name (e.g., "ai-memory-module")
         """
         return detect_project(self.cwd)
 

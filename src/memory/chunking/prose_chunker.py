@@ -18,7 +18,7 @@ from typing import Optional
 # Import shared models from parent module
 from . import ChunkResult, ChunkMetadata, CHARS_PER_TOKEN
 
-logger = logging.getLogger("bmad.memory.chunking.prose")
+logger = logging.getLogger("ai_memory.chunking.prose")
 
 # Paragraph boundary - handles all newline variants (MED-1)
 PARAGRAPH_PATTERN = re.compile(r'(\r\n|\r|\n)\s*(\r\n|\r|\n)')

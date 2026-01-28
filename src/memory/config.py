@@ -1,10 +1,10 @@
-"""Configuration management with pydantic-settings for BMAD Memory Module.
+"""Configuration management with pydantic-settings for AI Memory Module.
 
 2026 Best Practices Applied:
 - pydantic-settings v2.6+ for type-safe configuration
 - Automatic .env file loading with proper precedence
 - Validation with clear error messages
-- Environment variable prefixes (BMAD_)
+- Environment variable prefixes for clarity and namespacing
 - SecretStr for sensitive data
 - Frozen config (thread-safe, immutable after load)
 
@@ -63,7 +63,7 @@ EMBEDDING_MODEL = "jina-embeddings-v2-base-en"
 
 
 class MemoryConfig(BaseSettings):
-    """Configuration for BMAD Memory Module.
+    """Configuration for AI Memory Module.
 
     Loads from (in order of precedence):
     1. Environment variables (highest priority)
@@ -228,17 +228,17 @@ class MemoryConfig(BaseSettings):
 
     # Paths
     install_dir: Path = Field(
-        default_factory=lambda: Path.home() / ".bmad-memory",
+        default_factory=lambda: Path.home() / ".ai-memory",
         description="Installation directory"
     )
 
     queue_path: Path = Field(
-        default_factory=lambda: Path.home() / ".claude-memory" / "pending_queue.jsonl",
+        default_factory=lambda: Path.home() / ".ai-memory" / "pending_queue.jsonl",
         description="Queue file for pending operations"
     )
 
     session_log_path: Path = Field(
-        default_factory=lambda: Path.home() / ".claude-memory" / "sessions.jsonl",
+        default_factory=lambda: Path.home() / ".ai-memory" / "sessions.jsonl",
         description="Session logs"
     )
 

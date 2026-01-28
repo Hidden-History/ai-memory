@@ -1,4 +1,4 @@
-"""Qdrant client wrapper for BMAD Memory Module.
+"""Qdrant client wrapper for AI Memory Module.
 
 Provides singleton-pattern Qdrant client with health checking and structured logging.
 Implements 2025 best practices for connection management and error handling.
@@ -22,7 +22,7 @@ __all__ = [
     "QdrantUnavailable",
 ]
 
-logger = logging.getLogger("bmad.memory.storage")
+logger = logging.getLogger("ai_memory.storage")
 
 
 class QdrantUnavailable(Exception):

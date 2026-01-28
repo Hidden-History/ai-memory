@@ -62,7 +62,7 @@ from qdrant_client.models import PointStruct
 # Configure structured logging (Story 6.2)
 handler = logging.StreamHandler()
 handler.setFormatter(StructuredFormatter())
-logger = logging.getLogger("bmad.memory.scripts")
+logger = logging.getLogger("ai_memory.scripts")
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False
@@ -255,7 +255,7 @@ def main() -> int:
                     "session_id": args.session_id
                 }
             )
-            print(f"⚠️  BMAD Memory: Content too short ({content_len} chars, minimum 10)", file=sys.stderr)
+            print(f"⚠️  AI Memory: Content too short ({content_len} chars, minimum 10)", file=sys.stderr)
             return 0  # Graceful exit
 
         if content_len > 100000:
@@ -279,13 +279,13 @@ def main() -> int:
 
         if success:
             print(
-                f"💬 BMAD Memory: Chat memory stored for {args.agent} "
+                f"💬 AI Memory: Chat memory stored for {args.agent} "
                 f"({len(args.content)} chars)",
                 file=sys.stderr
             )
         else:
             print(
-                f"⚠️  BMAD Memory: Chat memory storage failed (graceful degradation)",
+                f"⚠️  AI Memory: Chat memory storage failed (graceful degradation)",
                 file=sys.stderr
             )
 
@@ -300,7 +300,7 @@ def main() -> int:
                 "error_type": type(e).__name__
             }
         )
-        print(f"⚠️  BMAD Memory: Script error (graceful degradation)", file=sys.stderr)
+        print(f"⚠️  AI Memory: Script error (graceful degradation)", file=sys.stderr)
         return 0  # Always exit 0
 
 

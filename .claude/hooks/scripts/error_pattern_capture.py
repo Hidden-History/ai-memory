@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Configure structured logging
@@ -41,7 +41,7 @@ from memory.hooks_common import log_to_activity
 
 handler = logging.StreamHandler()
 handler.setFormatter(StructuredFormatter())
-logger = logging.getLogger("bmad.memory.hooks")
+logger = logging.getLogger("ai_memory.hooks")
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False
@@ -388,7 +388,7 @@ def main() -> int:
 
         # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
         error_msg = error_context["error_message"]
-        message = f"🔴 BMAD Memory: Captured error pattern: {error_msg}"
+        message = f"🔴 AI Memory: Captured error pattern: {error_msg}"
         print(json.dumps({"systemMessage": message}))
         sys.stdout.flush()  # Ensure output is flushed before exit
 

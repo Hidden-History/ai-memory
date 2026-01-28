@@ -192,7 +192,7 @@ curl http://localhost:26350/collections/discussions/points/scroll | jq '.result.
 **Solution:**
 ```bash
 # Check hook logs for project detection
-grep "project_detected" ~/.bmad-memory/logs/hooks.log
+grep "project_detected" ~/.ai-memory/logs/hooks.log
 
 # Lower similarity threshold temporarily
 export MEMORY_SIMILARITY_THRESHOLD=0.3
@@ -210,7 +210,7 @@ export MEMORY_SIMILARITY_THRESHOLD=0.3
 **Diagnosis:**
 ```bash
 # Check hook duration logs
-grep "hook_duration" ~/.bmad-memory/logs/hooks.log | tail -20
+grep "hook_duration" ~/.ai-memory/logs/hooks.log | tail -20
 ```
 
 **Solution:**
@@ -346,11 +346,11 @@ sys.exit(0)  # Return immediately
 **Diagnosis:**
 ```bash
 # Check background process logs
-grep "background_forked" ~/.bmad-memory/logs/hooks.log
-grep "memory_stored" ~/.bmad-memory/logs/hooks.log
+grep "background_forked" ~/.ai-memory/logs/hooks.log
+grep "memory_stored" ~/.ai-memory/logs/hooks.log
 
 # Check for deduplication
-grep "duplicate_memory_skipped" ~/.bmad-memory/logs/hooks.log
+grep "duplicate_memory_skipped" ~/.ai-memory/logs/hooks.log
 ```
 
 **Possible Causes:**
@@ -375,7 +375,7 @@ curl http://localhost:26350/collections/code-patterns/points/scroll \
 **Diagnosis:**
 ```bash
 # Check hook duration
-grep "post_tool_duration" ~/.bmad-memory/logs/hooks.log | tail -10
+grep "post_tool_duration" ~/.ai-memory/logs/hooks.log | tail -10
 ```
 
 **Performance Targets:**
@@ -532,7 +532,7 @@ Errors Encountered:
 **Diagnosis:**
 ```bash
 # Check hook duration
-grep "pre_compact_duration" ~/.bmad-memory/logs/hooks.log
+grep "pre_compact_duration" ~/.ai-memory/logs/hooks.log
 ```
 
 **Solution:**
@@ -566,7 +566,7 @@ curl http://localhost:26350/collections/discussions/points/scroll \
 grep -A 10 "PreCompact" .claude/settings.json
 
 # Check logs for storage confirmation
-grep "session_summary_stored" ~/.bmad-memory/logs/hooks.log
+grep "session_summary_stored" ~/.ai-memory/logs/hooks.log
 ```
 </details>
 
@@ -624,7 +624,7 @@ Fires after each response Claude generates.
 
 ## 📊 Activity Logging Hooks
 
-Activity logging hooks track session events for analytics and debugging. They write to `~/.bmad-memory/logs/activity.log` asynchronously.
+Activity logging hooks track session events for analytics and debugging. They write to `~/.ai-memory/logs/activity.log` asynchronously.
 
 ### SessionEnd
 
@@ -874,7 +874,7 @@ python3 .claude/hooks/scripts/session_start.py <<< '{"session_id": "test", "cwd"
 **Diagnosis:**
 ```bash
 # Check hook logs
-tail -f ~/.bmad-memory/logs/hooks.log
+tail -f ~/.ai-memory/logs/hooks.log
 
 # Check Python errors
 python3 .claude/hooks/scripts/session_start.py <<< '...' 2>&1
@@ -897,7 +897,7 @@ python3 .claude/hooks/scripts/session_start.py <<< '...' 2>&1
 **Diagnosis:**
 ```bash
 # Check hook durations
-grep "duration" ~/.bmad-memory/logs/hooks.log | tail -20
+grep "duration" ~/.ai-memory/logs/hooks.log | tail -20
 ```
 
 **Solutions:**
@@ -914,7 +914,7 @@ grep "duration" ~/.bmad-memory/logs/hooks.log | tail -20
 ## 📚 See Also
 
 - [claude-code-hooks-best-practices.md](claude-code-hooks-best-practices.md) - Complete hook configuration guide
-- [BMAD_MEMORY_ARCHITECTURE.md](BMAD_MEMORY_ARCHITECTURE.md) - System architecture
+- [AI_MEMORY_ARCHITECTURE.md](AI_MEMORY_ARCHITECTURE.md) - System architecture
 - [prometheus-queries.md](prometheus-queries.md) - Hook performance metrics
 - [structured-logging.md](structured-logging.md) - Hook logging patterns
 

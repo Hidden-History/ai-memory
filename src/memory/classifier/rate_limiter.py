@@ -16,7 +16,7 @@ import threading
 from dataclasses import dataclass
 from typing import Dict
 
-logger = logging.getLogger("bmad.memory.classifier.rate_limiter")
+logger = logging.getLogger("ai_memory.classifier.rate_limiter")
 
 __all__ = ["RateLimiter", "rate_limiter"]
 

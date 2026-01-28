@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 # BUG-044: Add memory module to path before imports
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 src_path = os.path.join(INSTALL_DIR, 'src')
 
 # Validate path exists for graceful degradation
@@ -50,7 +50,7 @@ from memory.embeddings import EmbeddingClient, EmbeddingError
 from memory.activity_log import log_manual_save
 
 # Configure structured logging using shared utility (CR-4 Wave 2)
-logger = setup_hook_logging("bmad.memory.manual")
+logger = setup_hook_logging("ai_memory.manual")
 
 # Log successful path setup (F7: telemetry)
 logger.debug("python_path_configured", extra={"install_dir": INSTALL_DIR, "src_path": src_path})

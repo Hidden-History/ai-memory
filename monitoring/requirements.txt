@@ -1,4 +1,4 @@
-# BMAD Memory Module - Monitoring API
+# AI Memory Module - Monitoring API
 # Last audited: 2026-01-23
 # All versions pinned per ACT-003
 

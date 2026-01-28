@@ -27,7 +27,7 @@ Pattern: Sync storage with zero vector, background embedding generation
 Sources:
 - Qdrant Python client: https://python-client.qdrant.tech/
 - Claude Hooks reference: oversight/research/Claude_Hooks_reference.md
-- Architecture: docs/memory settings/BMAD_MEMORY_ARCHITECTURE.md
+- Architecture: docs/memory settings/AI_MEMORY_ARCHITECTURE.md
 """
 
 import json
@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Add src to path for imports (must be inline before importing from memory)
-INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # CR-3.3: Use consolidated logging and transcript reading
@@ -682,7 +682,7 @@ def main() -> int:
                 }
             )
             # User notification - no transcript to save
-            print("📤 BMAD Memory: No session transcript to save (empty transcript)", file=sys.stderr)
+            print("📤 AI Memory: No session transcript to save (empty transcript)", file=sys.stderr)
             return 0  # Allow compaction to proceed
 
         # Analyze transcript
@@ -705,7 +705,7 @@ def main() -> int:
                     "reason": "no_activity"
                 }
             )
-            print(f"📤 BMAD Memory: Skipping empty session summary for {project}", file=sys.stderr)
+            print(f"📤 AI Memory: Skipping empty session summary for {project}", file=sys.stderr)
             return 0  # Allow compaction to proceed
 
         # Validation 2: Check for duplicate content hash
@@ -727,7 +727,7 @@ def main() -> int:
                         "reason": "duplicate_hash"
                     }
                 )
-                print(f"📤 BMAD Memory: Skipping duplicate session summary for {project}", file=sys.stderr)
+                print(f"📤 AI Memory: Skipping duplicate session summary for {project}", file=sys.stderr)
                 return 0  # Allow compaction to proceed
         except Exception as e:
             # Fail open on duplicate check error - allow storage
@@ -776,7 +776,7 @@ def main() -> int:
         # User notification via stderr (visible to user, not Claude)
         project = summary_data.get("group_id", "unknown")
         trigger = hook_input["trigger"]
-        print(f"📤 BMAD Memory: Session summary saved for {project} (trigger: {trigger}) [{duration_ms:.0f}ms]", file=sys.stderr)
+        print(f"📤 AI Memory: Session summary saved for {project} (trigger: {trigger}) [{duration_ms:.0f}ms]", file=sys.stderr)
 
         # Activity log with full content
         tools_list = ", ".join(transcript_analysis["tools_used"]) if transcript_analysis["tools_used"] else "None"

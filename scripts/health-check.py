@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive health check for BMAD Memory Module.
+Comprehensive health check for AI Memory Module.
 
 2026 Best Practices Applied:
 - Python-based checks (no bash/curl dependency)
@@ -34,7 +34,7 @@ except ImportError:
 
 # Configuration from environment (DEC-010: Jina Embeddings v2 Base Code = 768 dimensions)
 EXPECTED_EMBEDDING_DIMENSIONS = int(os.environ.get("VECTOR_DIMENSIONS", "768"))
-MONITORING_PORT = int(os.environ.get("BMAD_MONITORING_PORT", "28000"))
+MONITORING_PORT = int(os.environ.get("AI_MEMORY_MONITORING_PORT", "28000"))
 
 
 @dataclass
@@ -338,7 +338,7 @@ def check_hook_scripts() -> HealthCheckResult:
 
     2026 Best Practice: Verify permissions, not just existence.
     """
-    install_dir = os.environ.get("BMAD_INSTALL_DIR", os.path.expanduser("~/.bmad-memory"))
+    install_dir = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
     hooks_dir = os.path.join(install_dir, ".claude/hooks/scripts")
 
     # BUG-041: session_stop.py deprecated (Phase 5.1), removed from required list
@@ -478,7 +478,7 @@ def print_results(results: list[HealthCheckResult]) -> bool:
     Warnings are informational - they indicate non-critical issues.
     """
     print("\n" + "=" * 70)
-    print("  BMAD Memory Module Health Check")
+    print("  AI Memory Module Health Check")
     print("=" * 70 + "\n")
 
     has_failures = False

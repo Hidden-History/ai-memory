@@ -1,8 +1,8 @@
 {
-  "uid": "bmad-system-health-v2",
-  "title": "BMAD System Health",
+  "uid": "ai-memory-system-health-v2",
+  "title": "AI Memory System Health",
   "tags": [
-    "bmad",
+    "ai-memory",
     "system",
     "health",
     "infrastructure",
@@ -10,7 +10,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 5,
+  "version": 6,
   "refresh": "30s",
   "time": {
     "from": "now-1h",
@@ -34,7 +34,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "query": "label_values(bmad_memory_captures_total, project)",
+        "query": "label_values(ai_memory_captures_total, project)",
         "multi": true,
         "includeAll": true,
         "allValue": ".*",
@@ -58,7 +58,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "# BMAD System Health Dashboard\n\n**Purpose:** Infrastructure health monitoring - answering \"Are services healthy?\", \"How big are collections?\", \"Is deduplication working?\"\n\n**Audience:** SREs, DevOps, Capacity Planning\n\n**Services:** Qdrant (vector DB) | Embedding Service | Prometheus | Pushgateway | Grafana | Classifier Worker\n\n**Collections:** code-patterns (HOW) | conventions (WHAT) | discussions (WHY)\n\n\n**Template Variables:** Use dropdown above to filter by project (group_id)"
+        "content": "# AI Memory System Health Dashboard\n\n**Purpose:** Infrastructure health monitoring - answering \"Are services healthy?\", \"How big are collections?\", \"Is deduplication working?\"\n\n**Audience:** SREs, DevOps, Capacity Planning\n\n**Services:** Qdrant (vector DB) | Embedding Service | Prometheus | Pushgateway | Grafana | Classifier Worker\n\n**Collections:** code-patterns (HOW) | conventions (WHAT) | discussions (WHY)\n\n\n**Template Variables:** Use dropdown above to filter by project (group_id)"
       }
     },
     {
@@ -491,7 +491,7 @@
       "id": 7,
       "type": "timeseries",
       "title": "Collection Sizes",
-      "description": "**Metric:** `bmad_collection_size`\n**Measures:** Number of memory points in each V2.0 collection\n**Formula:** `max by (collection) (bmad_collection_size{...})` (max to avoid double-counting across project labels)\n**Collections:**\n- **code-patterns**: Implementation patterns, error fixes, refactorings\n- **conventions**: Rules, guidelines, ports, naming conventions\n- **discussions**: Decisions, sessions, preferences, messages\n\n**Expected Growth:**\n- code-patterns: Grows with code changes (PostToolUse hooks)\n- conventions: Relatively stable (seeded from templates)\n- discussions: Grows fastest (every user/agent message)\n\n**Current Verified Totals (via Qdrant API):**\n- code-patterns: 339 points\n- conventions: 160 points\n- discussions: 1,942 points",
+      "description": "**Metric:** `ai_memory_collection_size`\n**Measures:** Number of memory points in each V2.0 collection\n**Formula:** `max by (collection) (ai_memory_collection_size{...})` (max to avoid double-counting across project labels)\n**Collections:**\n- **code-patterns**: Implementation patterns, error fixes, refactorings\n- **conventions**: Rules, guidelines, ports, naming conventions\n- **discussions**: Decisions, sessions, preferences, messages\n\n**Expected Growth:**\n- code-patterns: Grows with code changes (PostToolUse hooks)\n- conventions: Relatively stable (seeded from templates)\n- discussions: Grows fastest (every user/agent message)\n\n**Current Verified Totals (via Qdrant API):**\n- code-patterns: 339 points\n- conventions: 160 points\n- discussions: 1,942 points",
       "gridPos": {
         "x": 0,
         "y": 10,
@@ -500,7 +500,7 @@
       },
       "targets": [
         {
-          "expr": "max by (collection) (bmad_collection_size{collection=~\"code-patterns|conventions|discussions\"})",
+          "expr": "max by (collection) (ai_memory_collection_size{collection=~\"code-patterns|conventions|discussions\"})",
           "refId": "A",
           "legendFormat": "{{collection}}"
         }
@@ -544,7 +544,7 @@
       "id": 8,
       "type": "timeseries",
       "title": "Deduplication Activity (No Duplicates Detected Yet - EXPECTED)",
-      "description": "**Metric:** `bmad_dedup_events_total{action, collection}`\n**Measures:** Deduplication events over time by action (stored vs skipped_duplicate)\n**Formula:** `sum by (action, collection) (bmad_dedup_events_total{...})`\n\n**Why \"No data\" is NORMAL:**\nThis metric only shows data when duplicate memories are detected. Duplication happens when:\n1. **Hash Match**: Exact same content stored twice (same SHA-256 hash)\n2. **Semantic Match**: Similar content with >0.95 similarity score\n\n**When this will show data:**\n- Storing identical code patterns multiple times\n- Re-capturing same user messages\n- Duplicate API responses or error messages\n\n**Current Status:** No duplicates detected yet - this is GOOD! It means:\n- Content is unique across captures\n- Deduplication system is working (not triggering on unique content)\n- Memory is growing organically without redundancy\n\n**Note:** Code fix deployed (BUG-021) - metric will populate when duplicates occur.",
+      "description": "**Metric:** `ai_memory_dedup_matches{action, collection}`\n**Measures:** Deduplication events over time by action (stored vs skipped_duplicate)\n**Formula:** `sum by (action, collection) (ai_memory_dedup_matches{...})`\n\n**Why \"No data\" is NORMAL:**\nThis metric only shows data when duplicate memories are detected. Duplication happens when:\n1. **Hash Match**: Exact same content stored twice (same SHA-256 hash)\n2. **Semantic Match**: Similar content with >0.95 similarity score\n\n**When this will show data:**\n- Storing identical code patterns multiple times\n- Re-capturing same user messages\n- Duplicate API responses or error messages\n\n**Current Status:** No duplicates detected yet - this is GOOD! It means:\n- Content is unique across captures\n- Deduplication system is working (not triggering on unique content)\n- Memory is growing organically without redundancy\n\n**Note:** Code fix deployed (BUG-021) - metric will populate when duplicates occur.",
       "gridPos": {
         "x": 0,
         "y": 20,
@@ -553,7 +553,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (action, collection) (bmad_dedup_events_total{collection=~\"code-patterns|conventions|discussions\"})",
+          "expr": "sum by (action, collection) (ai_memory_dedup_matches{collection=~\"code-patterns|conventions|discussions\"})",
           "refId": "A",
           "legendFormat": "{{action}} - {{collection}}"
         }

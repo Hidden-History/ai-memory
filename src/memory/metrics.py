@@ -1,5 +1,5 @@
 """
-Prometheus metrics definitions for BMAD Memory Module.
+Prometheus metrics definitions for AI Memory Module.
 
 Defines Counter, Gauge, Histogram, and Info metrics for monitoring
 memory capture, retrieval, embedding generation, and system health.
@@ -9,7 +9,7 @@ Complies with:
 - AC 6.1.4: Failure event counters for alerting
 - AC 6.6.3: Collection statistics gauge updates
 - prometheus_client v0.24.0 best practices (2026)
-- Project naming conventions: snake_case, bmad_ prefix
+- Project naming conventions: snake_case, ai_memory_ prefix
 """
 
 from prometheus_client import Counter, Gauge, Histogram, Info
@@ -19,7 +19,7 @@ from prometheus_client import Counter, Gauge, Histogram, Info
 # ==============================================================================
 
 memory_captures_total = Counter(
-    "bmad_memory_captures_total",
+    "ai_memory_captures_total",
     "Total memory capture attempts",
     ["hook_type", "status", "project"]
     # status: success, queued, failed
@@ -27,7 +27,7 @@ memory_captures_total = Counter(
 )
 
 memory_retrievals_total = Counter(
-    "bmad_memory_retrievals_total",
+    "ai_memory_retrievals_total",
     "Total memory retrieval attempts",
     ["collection", "status"]
     # status: success, empty, failed
@@ -35,7 +35,7 @@ memory_retrievals_total = Counter(
 )
 
 embedding_requests_total = Counter(
-    "bmad_embedding_requests_total",
+    "ai_memory_embedding_requests_total",
     "Total embedding generation requests",
     ["status", "embedding_type"]
     # status: success, timeout, failed
@@ -43,7 +43,7 @@ embedding_requests_total = Counter(
 )
 
 deduplication_events_total = Counter(
-    "bmad_deduplication_events_total",
+    "ai_memory_dedup_matches",
     "Memories deduplicated (not stored)",
     ["action", "collection", "project"]  # BUG-021: Added action/collection for dashboard granularity
     # action: skipped_duplicate (when dedup detected), stored (when unique)
@@ -51,7 +51,7 @@ deduplication_events_total = Counter(
 )
 
 failure_events_total = Counter(
-    "bmad_failure_events_total",
+    "ai_memory_failure_events_total",
     "Total failure events for alerting",
     ["component", "error_code"]
     # component: qdrant, embedding, queue, hook
@@ -63,7 +63,7 @@ failure_events_total = Counter(
 # ==============================================================================
 
 tokens_consumed_total = Counter(
-    "bmad_tokens_consumed_total",
+    "ai_memory_tokens_consumed_total",
     "Total tokens consumed by memory operations",
     ["operation", "direction", "project"]
     # operation: capture, retrieval, trigger, injection
@@ -76,7 +76,7 @@ tokens_consumed_total = Counter(
 # ==============================================================================
 
 trigger_fires_total = Counter(
-    "bmad_trigger_fires_total",
+    "ai_memory_trigger_fires_total",
     "Total trigger activations by type",
     ["trigger_type", "status", "project"]
     # trigger_type: decision_keywords, best_practices_keywords, session_history_keywords,
@@ -86,7 +86,7 @@ trigger_fires_total = Counter(
 )
 
 trigger_results_returned = Histogram(
-    "bmad_trigger_results_returned",
+    "ai_memory_trigger_results_returned",
     "Number of results returned per trigger",
     ["trigger_type"],
     buckets=[0, 1, 2, 3, 5, 10, 20]
@@ -97,13 +97,13 @@ trigger_results_returned = Histogram(
 # ==============================================================================
 
 collection_size = Gauge(
-    "bmad_collection_size",
+    "ai_memory_collection_size",
     "Number of memories in collection",
     ["collection", "project"]
 )
 
 queue_size = Gauge(
-    "bmad_queue_size",
+    "ai_memory_queue_size",
     "Pending items in retry queue",
     ["status"]
     # status: pending, exhausted
@@ -114,7 +114,7 @@ queue_size = Gauge(
 # ==============================================================================
 
 hook_duration_seconds = Histogram(
-    "bmad_hook_duration_seconds",
+    "ai_memory_hook_latency",
     "Hook execution time in seconds",
     ["hook_type"],
     buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
@@ -122,7 +122,7 @@ hook_duration_seconds = Histogram(
 )
 
 embedding_duration_seconds = Histogram(
-    "bmad_embedding_duration_seconds",
+    "ai_memory_embedding_latency",
     "Embedding generation time in seconds",
     ["embedding_type"],
     buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
@@ -131,14 +131,14 @@ embedding_duration_seconds = Histogram(
 )
 
 retrieval_duration_seconds = Histogram(
-    "bmad_retrieval_duration_seconds",
+    "ai_memory_search_latency",
     "Memory retrieval time in seconds",
     buckets=[0.1, 0.5, 1.0, 2.0, 3.0, 5.0]
     # Buckets optimized for SessionStart <3s target
 )
 
 context_injection_tokens = Histogram(
-    "bmad_context_injection_tokens",
+    "ai_memory_context_injection_tokens",
     "Tokens injected into Claude context per hook",
     ["hook_type", "collection"],
     buckets=[100, 250, 500, 1000, 1500, 2000, 3000, 5000]
@@ -151,7 +151,7 @@ context_injection_tokens = Histogram(
 # ==============================================================================
 
 system_info = Info(
-    "bmad_memory_system",
+    "ai_memory_system",
     "Memory system configuration"
 )
 

@@ -1,8 +1,8 @@
-"""Structured logging configuration for BMAD Memory Module.
+"""Structured logging configuration for AI Memory Module.
 
 Implements AC 6.2.1 and AC 6.2.2:
 - JSON structured logging with StructuredFormatter
-- Logger hierarchy under bmad.memory namespace
+- Logger hierarchy under ai_memory namespace
 - Environment variable control (BMAD_LOG_LEVEL, BMAD_LOG_FORMAT)
 
 Research sources:
@@ -31,7 +31,7 @@ class StructuredFormatter(logging.Formatter):
     Outputs logs in JSON format with:
     - timestamp: UTC ISO 8601 format with 'Z' suffix
     - level: Log level name (INFO, ERROR, etc.)
-    - logger: Logger name (bmad.memory hierarchy)
+    - logger: Logger name (ai_memory hierarchy)
     - message: Log message
     - context: Extras dict merged from LogRecord attributes
 
@@ -108,7 +108,7 @@ class TextFormatter(logging.Formatter):
 
 
 def configure_logging(level: Optional[str] = None) -> None:
-    """Configure structured logging for all bmad.memory loggers.
+    """Configure structured logging for all ai_memory loggers.
 
     Implements AC 6.2.1, AC 6.2.2, and AC 6.2.5.
 
@@ -134,9 +134,9 @@ def configure_logging(level: Optional[str] = None) -> None:
     else:
         formatter = StructuredFormatter()
 
-    # Configure root logger for bmad.memory hierarchy
-    # Per AC 6.2.2: logger names follow bmad.memory hierarchy
-    logger = logging.getLogger("bmad.memory")
+    # Configure root logger for ai_memory hierarchy
+    # Per AC 6.2.2: logger names follow ai_memory hierarchy
+    logger = logging.getLogger("ai_memory")
     logger.setLevel(log_level)
 
     # Idempotency check: only add handler if none exist (prevents memory leak)

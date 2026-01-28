@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# update.sh - BMAD Memory Module Updater
+# update.sh - AI Memory Module Updater
 # Version: 1.0.0
 # 2026 Best Practices: set -euo pipefail, signal traps, comprehensive backup
 
@@ -13,10 +13,10 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Configuration
-INSTALL_DIR="${BMAD_INSTALL_DIR:-$HOME/.bmad-memory}"
-BACKUP_RETENTION_DAYS="${BMAD_BACKUP_RETENTION:-30}"
+INSTALL_DIR="${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}"
+BACKUP_RETENTION_DAYS="${AI_MEMORY_BACKUP_RETENTION:-30}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEBUG="${BMAD_DEBUG:-0}"
+DEBUG="${AI_MEMORY_DEBUG:-0}"
 
 # Initialize BACKUP_DIR to prevent unbound variable in cleanup trap
 BACKUP_DIR=""
@@ -58,7 +58,7 @@ fi
 main() {
     echo ""
     echo "========================================"
-    echo "  BMAD Memory Module Updater"
+    echo "  AI Memory Module Updater"
     echo "========================================"
     echo ""
 
@@ -399,7 +399,7 @@ show_success_message() {
     echo ""
     echo "┌─────────────────────────────────────────────────────────────┐"
     echo "│                                                             │"
-    echo "│   ${GREEN}✓ BMAD Memory Module updated successfully!${NC}              │"
+    echo "│   ${GREEN}✓ AI Memory Module updated successfully!${NC}              │"
     echo "│                                                             │"
     echo "├─────────────────────────────────────────────────────────────┤"
     echo "│                                                             │"

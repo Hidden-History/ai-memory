@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List
 
-logger = logging.getLogger("bmad.memory.classifier.providers")
+logger = logging.getLogger("ai_memory.classifier.providers")
 
 __all__ = ["ProviderResponse", "BaseProvider"]
 

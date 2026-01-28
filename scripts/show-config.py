@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Display current BMAD Memory Module configuration.
+"""Display current AI Memory Module configuration.
 
 2026 Best Practices:
 - Read-only operation (no side effects)
@@ -25,7 +25,7 @@ def main() -> None:
         sys.exit(1)
 
     print("\n" + "=" * 70)
-    print("  BMAD Memory Module Configuration")
+    print("  AI Memory Module Configuration")
     print("=" * 70 + "\n")
 
     print("  Core Thresholds:")

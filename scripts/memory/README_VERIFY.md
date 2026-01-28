@@ -2,7 +2,7 @@
 
 ## Overview
 
-`verify_hooks_e2e.py` is a comprehensive end-to-end verification tool that tests the entire BMAD Memory hooks system to ensure all components work together correctly.
+`verify_hooks_e2e.py` is a comprehensive end-to-end verification tool that tests the entire AI Memory hooks system to ensure all components work together correctly.
 
 ## Features
 
@@ -86,7 +86,7 @@ python scripts/memory/verify_hooks_e2e.py --verbose --skip-docker
 ```
 ╔════════════════════════════════════════════════════════════════════╗
 ║                                                                    ║
-║    BMAD Memory Module - Hooks System E2E Verification             ║
+║    AI Memory Module - Hooks System E2E Verification             ║
 ║                                                                    ║
 ╚════════════════════════════════════════════════════════════════════╝
 
@@ -125,7 +125,7 @@ Summary:
   Duration:      2.34s
 
 ✓ ALL CHECKS PASSED
-BMAD Memory hooks system is fully functional!
+AI Memory hooks system is fully functional!
 ```
 
 ## Troubleshooting

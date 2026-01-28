@@ -1,15 +1,15 @@
 # GitHub Milestones Setup
 
-This document provides the configuration for GitHub milestones to track progress on planned releases.
+This document provides the configuration for GitHub milestones to track progress on planned releases for AI Memory Module.
 
 ## How to Create Milestones
 
-Navigate to: `https://github.com/wbsolutions-ca/bmad-memory/milestones/new`
+Navigate to: `https://github.com/Hidden-History/ai-memory/milestones/new`
 
 Or use the GitHub CLI:
 
 ```bash
-gh milestone create "TITLE" --repo wbsolutions-ca/bmad-memory --due-date YYYY-MM-DD --description "DESCRIPTION"
+gh milestone create "TITLE" --repo Hidden-History/ai-memory --due-date YYYY-MM-DD --description "DESCRIPTION"
 ```
 
 ---
@@ -96,7 +96,7 @@ To create all milestones at once:
 #!/usr/bin/env bash
 # create-milestones.sh
 
-REPO="wbsolutions-ca/bmad-memory"
+REPO="Hidden-History/ai-memory"
 
 echo "Creating v1.1.0 milestone..."
 gh milestone create "v1.1.0 - Performance & Stability" \
@@ -126,21 +126,21 @@ echo "✅ Milestones created successfully!"
 When creating or triaging issues, assign them to the appropriate milestone:
 
 ```bash
-gh issue edit ISSUE_NUMBER --milestone "v1.1.0 - Performance & Stability" --repo wbsolutions-ca/bmad-memory
+gh issue edit ISSUE_NUMBER --milestone "v1.1.0 - Performance & Stability" --repo Hidden-History/ai-memory
 ```
 
 ### Checking Progress
 View milestone progress:
 
 ```bash
-gh milestone view "v1.1.0 - Performance & Stability" --repo wbsolutions-ca/bmad-memory
+gh milestone view "v1.1.0 - Performance & Stability" --repo Hidden-History/ai-memory
 ```
 
 ### Updating Due Dates
 If a milestone needs to be delayed:
 
 ```bash
-gh api repos/wbsolutions-ca/bmad-memory/milestones/MILESTONE_NUMBER \
+gh api repos/Hidden-History/ai-memory/milestones/MILESTONE_NUMBER \
   --method PATCH \
   -f due_on='2026-04-30T00:00:00Z'
 ```
@@ -149,7 +149,7 @@ gh api repos/wbsolutions-ca/bmad-memory/milestones/MILESTONE_NUMBER \
 When all issues are resolved and the release is published:
 
 ```bash
-gh api repos/wbsolutions-ca/bmad-memory/milestones/MILESTONE_NUMBER \
+gh api repos/Hidden-History/ai-memory/milestones/MILESTONE_NUMBER \
   --method PATCH \
   -f state='closed'
 ```
@@ -168,4 +168,4 @@ gh api repos/wbsolutions-ca/bmad-memory/milestones/MILESTONE_NUMBER \
 
 **See Also:**
 - [ROADMAP.md](../ROADMAP.md) - Detailed feature roadmap
-- [GitHub Milestones](https://github.com/wbsolutions-ca/bmad-memory/milestones) - Live milestone tracking
+- [GitHub Milestones](https://github.com/Hidden-History/ai-memory/milestones) - Live milestone tracking

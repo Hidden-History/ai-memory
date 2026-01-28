@@ -71,7 +71,7 @@ def normalize_hook_command(command: str) -> str:
     Normalize a hook command for deduplication comparison.
 
     Extracts the script filename from commands that may use either:
-    - $BMAD_INSTALL_DIR variable: python3 "$BMAD_INSTALL_DIR/.claude/hooks/scripts/session_start.py"
+    - $AI_MEMORY_INSTALL_DIR variable: python3 "$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/session_start.py"
     - Absolute paths: python3 "/path/to/install/.claude/hooks/scripts/session_start.py"
 
     This allows deduplication to work regardless of path format.
@@ -121,7 +121,7 @@ def merge_lists(existing: list, new: list) -> list:
         """Extract all normalized command identifiers from a hook wrapper or direct hook.
 
         BUG-039 Fix: Uses normalize_hook_command() to ensure commands are compared
-        regardless of whether they use $BMAD_INSTALL_DIR or absolute paths.
+        regardless of whether they use $AI_MEMORY_INSTALL_DIR or absolute paths.
         """
         commands = set()
         if "command" in item:
@@ -181,7 +181,7 @@ def merge_settings(settings_path: str, hooks_dir: str, project_name: str = "defa
     Args:
         settings_path: Path to settings.json
         hooks_dir: Absolute path to hooks scripts directory
-        project_name: Name of the project for BMAD_PROJECT_ID (default: "default")
+        project_name: Name of the project for AI_MEMORY_PROJECT_ID (default: "default")
 
     Side effects:
         - Creates backup of existing settings.json

@@ -1,7 +1,7 @@
 """Classification queue for async processing.
 
 Uses file-based queue (not Redis) for simplicity.
-Queue file: ~/.bmad-memory/queue/classification_queue.jsonl
+Queue file: ~/.ai-memory/queue/classification_queue.jsonl
 
 RESOURCE LIMITS:
 - File locking timeout: 5 seconds
@@ -18,11 +18,11 @@ from dataclasses import dataclass, asdict
 from typing import Optional, List
 import logging
 
-logger = logging.getLogger("bmad.memory.classifier.queue")
+logger = logging.getLogger("ai_memory.classifier.queue")
 
 # Queue location (configurable via env for Docker deployment)
-_default_queue_dir = os.path.expanduser("~/.bmad-memory/queue")
-QUEUE_DIR = Path(os.environ.get("BMAD_QUEUE_DIR", _default_queue_dir))
+_default_queue_dir = os.path.expanduser("~/.ai-memory/queue")
+QUEUE_DIR = Path(os.environ.get("AI_MEMORY_QUEUE_DIR", _default_queue_dir))
 QUEUE_FILE = QUEUE_DIR / "classification_queue.jsonl"
 
 # Resource limits

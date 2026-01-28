@@ -1,4 +1,4 @@
-"""Agent-friendly memory interface for BMAD Memory System.
+"""Agent-friendly memory interface for AI Memory System.
 
 Provides MemorySubagent class that wraps MemorySearch with:
 - Intent detection for automatic collection routing
@@ -24,7 +24,7 @@ from .search import MemorySearch
 from .storage import MemoryStorage
 from .config import get_config, COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS
 
-logger = logging.getLogger("bmad.memory.subagent")
+logger = logging.getLogger("ai_memory.subagent")
 
 DEFAULT_LIMIT = 5
 

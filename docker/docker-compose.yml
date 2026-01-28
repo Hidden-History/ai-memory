@@ -3,7 +3,7 @@ name: ai-memory
 services:
   qdrant:
     image: qdrant/qdrant:v1.16.3
-    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-qdrant
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-qdrant
     ports:
       - "127.0.0.1:${QDRANT_PORT:-26350}:6333"
       - "127.0.0.1:${QDRANT_GRPC_PORT:-26351}:6334"
@@ -26,7 +26,7 @@ services:
     build:
       context: ..
       dockerfile: docker/embedding/Dockerfile
-    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-embedding
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-embedding
     ports:
       - "127.0.0.1:${EMBEDDING_PORT:-28080}:8080"
     volumes:
@@ -54,7 +54,7 @@ services:
     build:
       context: ..
       dockerfile: monitoring/Dockerfile
-    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-monitoring-api
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-monitoring-api
     profiles: ["testing", "monitoring"]
     ports:
       - "127.0.0.1:28000:8000"
@@ -84,7 +84,7 @@ services:
 
   prometheus:
     image: prom/prometheus:v2.55.1
-    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-prometheus
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-prometheus
     profiles: ["monitoring"]
     ports:
       - "127.0.0.1:29090:9090"
@@ -119,7 +119,7 @@ services:
 
   pushgateway:
     image: prom/pushgateway:v1.9.0
-    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-pushgateway
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-pushgateway
     profiles: ["monitoring"]
     # Enable persistence to retain metrics across restarts (BP-028)
     command:
@@ -146,7 +146,7 @@ services:
 
   grafana:
     image: grafana/grafana:12.0.0
-    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-grafana
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-grafana
     profiles: ["monitoring"]
     ports:
       - "127.0.0.1:23000:3000"
@@ -156,7 +156,7 @@ services:
       - grafana_data:/var/lib/grafana
     environment:
       # Admin Credentials (BP-040) - Only applies on FIRST LAUNCH
-      # To change existing password: docker exec -it memory-grafana grafana-cli admin reset-admin-password <new_password>
+      # To change existing password: docker exec -it ai-memory-grafana grafana-cli admin reset-admin-password <new_password>
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       # Prometheus datasource auth (BP-040) - used by provisioning file env substitution
@@ -197,19 +197,19 @@ services:
     build:
       context: ./streamlit
       dockerfile: Dockerfile
-    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-streamlit
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-streamlit
     profiles: ["monitoring"]
     # Authentication: Deferred to Phase 2 (TECH-DEBT-076)
     # Requires streamlit-authenticator library or OIDC (BP-040 Section 4)
     ports:
       - "127.0.0.1:28501:8501"
     volumes:
-      # Use BMAD_INSTALL_DIR for project-specific logs (multi-project support)
+      # Use AI_MEMORY_INSTALL_DIR for project-specific logs (multi-project support)
       # logs: read-write (hooks need write access for activity logging)
       # queue: read-only (Streamlit only reads pending operations)
       # QUEUE-UNIFY: All queues now use unified pending_queue.jsonl in /app/queue
-      - ${BMAD_INSTALL_DIR:-${HOME}/.bmad-memory}/logs:/app/logs
-      - ${BMAD_INSTALL_DIR:-${HOME}/.bmad-memory}/queue:/app/queue:ro
+      - ${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/logs:/app/logs
+      - ${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/queue:/app/queue:ro
       # Mount src/ for memory.models import (DRY - single source of truth for types)
       - ../src:/app/src:ro
     environment:
@@ -220,7 +220,7 @@ services:
       - QDRANT_EXTERNAL_PORT=26350
       - EMBEDDING_SERVICE_URL=http://embedding:8080
       # Pass install dir for activity log path
-      - BMAD_INSTALL_DIR=/app
+      - AI_MEMORY_INSTALL_DIR=/app
     depends_on:
       qdrant:
         condition: service_healthy
@@ -262,7 +262,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.worker
-    container_name: ${BMAD_CONTAINER_PREFIX:-memory}-classifier-worker
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-classifier-worker
     profiles: ["monitoring"]  # Only runs with monitoring profile
     restart: unless-stopped
     environment:
@@ -271,7 +271,7 @@ services:
       - QDRANT_PORT=6333
       - QDRANT_API_KEY=${QDRANT_API_KEY}
       - PUSHGATEWAY_URL=pushgateway:9091
-      - BMAD_QUEUE_DIR=/app/queue
+      - AI_MEMORY_QUEUE_DIR=/app/queue
       # Classifier configuration
       - MEMORY_CLASSIFIER_ENABLED=${MEMORY_CLASSIFIER_ENABLED:-true}
       - MEMORY_CLASSIFIER_PRIMARY_PROVIDER=${MEMORY_CLASSIFIER_PRIMARY_PROVIDER:-ollama}
@@ -293,7 +293,7 @@ services:
     volumes:
       - ../src:/app/src:ro
       - ../scripts:/app/scripts:ro
-      - ${BMAD_QUEUE_DIR:-~/.bmad-memory/queue}:/app/queue
+      - ${AI_MEMORY_QUEUE_DIR:-~/.ai-memory/queue}:/app/queue
     depends_on:
       qdrant:
         condition: service_healthy

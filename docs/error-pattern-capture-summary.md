@@ -229,7 +229,7 @@ Performance: Hook <50ms, background <3s
 - All scripts are executable (chmod +x applied)
 - JSON configuration validated
 - Test suite passes cleanly
-- Follows BMAD Memory conventions (snake_case, structured logging)
+- Follows AI Memory conventions (snake_case, structured logging)
 - Adheres to performance requirements (NFR-P1: <500ms)
 - Implements fork pattern for non-blocking execution
 - Uses established patterns from existing hooks

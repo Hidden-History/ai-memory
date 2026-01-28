@@ -15,7 +15,7 @@ import httpx
 from .base import BaseProvider, ProviderResponse
 from ..config import OPENROUTER_BASE_URL, OPENROUTER_MODEL, MAX_OUTPUT_TOKENS
 
-logger = logging.getLogger("bmad.memory.classifier.providers.openrouter")
+logger = logging.getLogger("ai_memory.classifier.providers.openrouter")
 
 __all__ = ["OpenRouterProvider"]
 
@@ -53,7 +53,7 @@ class OpenRouterProvider(BaseProvider):
                 "Content-Type": "application/json",
                 # Required OpenRouter headers for proper routing
                 "HTTP-Referer": "https://github.com/Hidden-History/ai-memory",
-                "X-Title": "BMAD Memory Module",
+                "X-Title": "AI Memory Module",
             },
         )
 

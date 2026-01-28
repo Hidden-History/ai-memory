@@ -1,4 +1,4 @@
-"""Embedding service client for BMAD Memory Module.
+"""Embedding service client for AI Memory Module.
 
 Provides httpx-based client for Nomic Embed Code service with connection pooling,
 structured logging, and graceful error handling.
@@ -31,7 +31,7 @@ except ImportError:
 
 __all__ = ["EmbeddingClient", "EmbeddingError"]
 
-logger = logging.getLogger("bmad.memory.embed")
+logger = logging.getLogger("ai_memory.embed")
 
 
 class EmbeddingError(Exception):

@@ -14,8 +14,8 @@ This module provides two filtering systems:
    - Used by session_start.py for context injection quality
 
 Environment Variables:
-- BMAD_FILTER_MIN_LINES: Minimum lines to store (default: 10)
-- BMAD_FILTER_SKIP_EXTENSIONS: Additional extensions to skip (comma-separated)
+- AI_MEMORY_FILTER_MIN_LINES: Minimum lines to store (default: 10)
+- AI_MEMORY_FILTER_SKIP_EXTENSIONS: Additional extensions to skip (comma-separated)
 """
 
 import logging
@@ -38,7 +38,7 @@ __all__ = [
     "is_duplicate_message",
 ]
 
-logger = logging.getLogger("bmad.memory.filters")
+logger = logging.getLogger("ai_memory.filters")
 
 
 class ImplementationFilter:
@@ -61,7 +61,7 @@ class ImplementationFilter:
     def __init__(self):
         """Initialize filter with environment-based configuration."""
         # Load min_lines from environment (default: 10)
-        self.min_lines = int(os.environ.get('BMAD_FILTER_MIN_LINES', '10'))
+        self.min_lines = int(os.environ.get('AI_MEMORY_FILTER_MIN_LINES', '10'))
 
         # Load skip extensions (with user overrides)
         self.skip_extensions = self._load_skip_extensions()
@@ -113,7 +113,7 @@ class ImplementationFilter:
         }
 
         # Check for user overrides (extends defaults, doesn't replace)
-        user_extensions = os.environ.get('BMAD_FILTER_SKIP_EXTENSIONS', '')
+        user_extensions = os.environ.get('AI_MEMORY_FILTER_SKIP_EXTENSIONS', '')
         if user_extensions:
             for ext in user_extensions.split(','):
                 ext = ext.strip()

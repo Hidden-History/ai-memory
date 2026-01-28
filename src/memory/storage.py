@@ -35,7 +35,7 @@ except ImportError:
 
 __all__ = ["MemoryStorage", "store_best_practice", "update_point_payload"]
 
-logger = logging.getLogger("bmad.memory.storage")
+logger = logging.getLogger("ai_memory.storage")
 
 
 def _enforce_content_limit(content: str, memory_type: MemoryType) -> str:
