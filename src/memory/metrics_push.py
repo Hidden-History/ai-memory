@@ -365,6 +365,7 @@ except Exception as e:
 def push_context_injection_metrics_async(
     hook_type: str,
     collection: str,
+    project: str,
     token_count: int
 ):
     """Push context injection token metrics asynchronously (fire-and-forget).
@@ -374,7 +375,12 @@ def push_context_injection_metrics_async(
     Args:
         hook_type: SessionStart, UserPromptSubmit, PreToolUse
         collection: code-patterns, conventions, discussions, combined
+        project: Project name for filtering in dashboards
         token_count: Tokens injected into context
+
+    Note:
+        Cardinality: 3 hook_types × 4 collections × N projects = 12N time series.
+        Monitor Prometheus/Pushgateway memory usage if project count is high (>100).
     """
     if not PUSHGATEWAY_ENABLED:
         return
@@ -382,12 +388,14 @@ def push_context_injection_metrics_async(
     # Validate labels (HIGH-1)
     hook_type = _validate_label(hook_type, "hook_type", VALID_HOOK_TYPES)
     collection = _validate_label(collection, "collection")
+    project = _validate_label(project, "project")
 
     try:
         # Serialize metrics data for background process
         metrics_data = {
             'hook_type': hook_type,
             'collection': collection,
+            'project': project,
             'token_count': token_count
         }
 
@@ -403,13 +411,14 @@ registry = CollectorRegistry()
 injection = Histogram(
     "bmad_context_injection_tokens",
     "Tokens injected per hook",
-    ["hook_type", "collection"],
+    ["hook_type", "collection", "project"],
     registry=registry,
     buckets=(100, 250, 500, 1000, 1500, 2000, 3000, 5000)
 )
 injection.labels(
     hook_type=data["hook_type"],
-    collection=data["collection"]
+    collection=data["collection"],
+    project=data["project"]
 ).observe(data["token_count"])
 
 try:

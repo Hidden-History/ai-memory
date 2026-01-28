@@ -157,8 +157,14 @@ def _touch_health_file() -> None:
     """Create health check marker for Docker (non-blocking, graceful degradation)."""
     try:
         Path("/tmp/worker.health").touch()
-    except Exception:
-        pass  # Non-critical, don't fail batch on health file error
+        logger.debug("health_file_updated", extra={"path": "/tmp/worker.health"})
+    except Exception as e:
+        # F3: Log failure for debugging (non-blocking, graceful degradation)
+        logger.warning("health_file_update_failed", extra={
+            "path": "/tmp/worker.health",
+            "error": str(e),
+            "error_type": type(e).__name__
+        })
 
 
 def _move_to_dlq(task: ClassificationTask, error: str) -> None:
@@ -468,6 +474,11 @@ class ClassificationWorker:
             "pushgateway": PUSHGATEWAY_URL,
             "pushgateway_enabled": PUSHGATEWAY_ENABLED
         })
+
+        # BUG-045: Create health file at startup (not just after first batch)
+        # Root cause: Health file only created after batch processing completed.
+        # If queue is empty at startup, no batches run, so health check never passes.
+        _touch_health_file()
 
         try:
             await self.process_queue()

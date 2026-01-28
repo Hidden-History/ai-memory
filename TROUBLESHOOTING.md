@@ -277,6 +277,41 @@ docker ps  # Should not require sudo
    # Expected: {"embeddings": [[0.123, -0.456, ...]]}
    ```
 
+### Symptom: Classifier Worker Unhealthy (BUG-045)
+
+**Fixed in**: v2.0.1+ (BUG-045)
+
+**Error from docker ps:**
+
+```
+memory-classifier-worker    Up 15 minutes (unhealthy)
+```
+
+**Cause:** Health check looks for `/tmp/worker.health` file which was only created after the first batch processed. If the queue is empty at startup, the health file never gets created.
+
+**Solution:**
+
+Fixed in v2.0.1+. The worker now creates the health file immediately at startup (not just after processing batches).
+
+**Workaround for v2.0.0:**
+
+Manually create the health file:
+```bash
+docker exec memory-classifier-worker touch /tmp/worker.health
+```
+
+**Verification:**
+
+```bash
+# Check container status
+docker ps | grep classifier-worker
+# Should show: (healthy) after 60 seconds
+
+# Check health file exists
+docker exec memory-classifier-worker ls -la /tmp/worker.health
+# Should show: -rw-r--r-- 1 classifier users 0 ...
+```
+
 ## Context Injection Issues (NOT YET VERIFIED SOLUTION)
 
 ### Symptom: Hooks Execute But Claude Doesn't Use Context

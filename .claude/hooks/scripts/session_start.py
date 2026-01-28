@@ -811,6 +811,7 @@ def main():
                         push_context_injection_metrics_async(
                             hook_type="SessionStart",
                             collection=COLLECTION_DISCUSSIONS,
+                            project=project_name,
                             token_count=session_tokens
                         )
                     # Other memories by their source collection
@@ -821,6 +822,7 @@ def main():
                                 push_context_injection_metrics_async(
                                     hook_type="SessionStart",
                                     collection=collection,
+                                    project=project_name,
                                     token_count=collection_tokens
                                 )
                 else:
@@ -828,6 +830,7 @@ def main():
                     push_context_injection_metrics_async(
                         hook_type="SessionStart",
                         collection=COLLECTION_DISCUSSIONS,
+                        project=project_name,
                         token_count=token_count
                     )
 

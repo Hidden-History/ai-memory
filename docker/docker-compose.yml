@@ -329,6 +329,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 60s  # F2/F9: Allow time for Python startup, logger init, and first health file creation (typically <5s, buffer for slow systems)
 
 volumes:
   qdrant_storage:
