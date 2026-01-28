@@ -72,7 +72,7 @@ BMAD Memory Module exposes metrics on port **28000** at `/metrics` endpoint. All
 | **Histogram** | `bmad_hook_duration_seconds` | Hook execution time | `hook_type` |
 | **Histogram** | `bmad_embedding_duration_seconds` | Embedding generation time | `embedding_type` |
 | **Histogram** | `bmad_retrieval_duration_seconds` | Memory retrieval time | None |
-| **Histogram** | `bmad_context_injection_tokens` | Context injection token counts | `hook_type`, `collection` |
+| **Histogram** | `bmad_context_injection_tokens` | Context injection token counts | `hook_type`, `collection`, `project` |
 | **Histogram** | `bmad_trigger_results_returned` | Results returned per trigger | `trigger_type` |
 | **Info** | `bmad_memory_system_info` | Static system metadata | `version`, `embedding_model`, `vector_dimensions`, `collections` |
 
@@ -562,12 +562,19 @@ histogram_quantile(0.95, sum by (le, hook_type) (rate(bmad_context_injection_tok
 
 # By collection
 histogram_quantile(0.95, sum by (le, collection) (rate(bmad_context_injection_tokens_bucket[5m])))
+
+# By project (BUG-046 fix)
+histogram_quantile(0.95, sum by (le, project) (rate(bmad_context_injection_tokens_bucket[5m])))
+
+# Specific project filtering
+histogram_quantile(0.95, sum by (le, hook_type) (rate(bmad_context_injection_tokens_bucket{project="my-project"}[5m])))
 ```
 
 **Use Cases:**
 - Monitor context window usage (target: 70-80% of available tokens)
 - Track token consumption patterns by operation type
 - Alert on excessive token usage
+- Per-project token injection monitoring (BUG-046)
 
 ---
 

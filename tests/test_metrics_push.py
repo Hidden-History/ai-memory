@@ -69,8 +69,26 @@ class TestPushContextInjectionMetrics:
     def test_async_push_uses_subprocess(self):
         """Verify fork pattern is used (CRIT-1 fix verification)."""
         with patch("subprocess.Popen") as mock_popen:
-            push_context_injection_metrics_async("SessionStart", "discussions", 500)
+            push_context_injection_metrics_async("SessionStart", "discussions", "test-project", 500)
             mock_popen.assert_called_once()
+
+    def test_project_label_included_in_metrics(self):
+        """Verify project label is passed to subprocess (BUG-046 fix verification)."""
+        with patch("subprocess.Popen") as mock_popen:
+            push_context_injection_metrics_async("SessionStart", "code-patterns", "my-project", 1500)
+
+            # Verify subprocess was called
+            assert mock_popen.called
+
+            # Extract the command passed to subprocess
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]  # [sys.executable, '-c', '<script>']
+
+            # Verify the metrics data dict includes all required fields
+            assert '"hook_type": "SessionStart"' in inline_script
+            assert '"collection": "code-patterns"' in inline_script
+            assert '"project": "my-project"' in inline_script
+            assert '"token_count": 1500' in inline_script
 
 
 class TestPushCaptureMetrics:

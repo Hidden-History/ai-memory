@@ -27,11 +27,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-# Setup Python path and import shared utilities (CR-4 Wave 2)
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))) + "/src")
-from memory.hooks_common import setup_python_path, setup_hook_logging
+# BUG-044: Add memory module to path before imports
+INSTALL_DIR = os.environ.get('BMAD_INSTALL_DIR', os.path.expanduser('~/.bmad-memory'))
+src_path = os.path.join(INSTALL_DIR, 'src')
 
-INSTALL_DIR = setup_python_path()
+# Validate path exists for graceful degradation
+if not os.path.exists(src_path):
+    print(f"⚠️  Warning: Memory module not found at {src_path}", file=sys.stderr)
+    print(f"⚠️  /save-memory will not function without proper installation", file=sys.stderr)
+    sys.exit(1)  # Non-blocking error - graceful degradation
+
+sys.path.insert(0, src_path)
+
+# Now memory module imports will work
+from memory.hooks_common import setup_hook_logging
 
 from memory.config import get_config, COLLECTION_DISCUSSIONS, EMBEDDING_DIMENSIONS, EMBEDDING_MODEL
 from memory.queue import queue_operation
@@ -42,6 +51,9 @@ from memory.activity_log import log_manual_save
 
 # Configure structured logging using shared utility (CR-4 Wave 2)
 logger = setup_hook_logging("bmad.memory.manual")
+
+# Log successful path setup (F7: telemetry)
+logger.debug("python_path_configured", extra={"install_dir": INSTALL_DIR, "src_path": src_path})
 
 # Import Qdrant-specific exceptions
 try:
