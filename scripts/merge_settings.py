@@ -66,12 +66,47 @@ def deep_merge(base: dict, overlay: dict) -> dict:
     return result
 
 
+def normalize_hook_command(command: str) -> str:
+    """
+    Normalize a hook command for deduplication comparison.
+
+    Extracts the script filename from commands that may use either:
+    - $BMAD_INSTALL_DIR variable: python3 "$BMAD_INSTALL_DIR/.claude/hooks/scripts/session_start.py"
+    - Absolute paths: python3 "/path/to/install/.claude/hooks/scripts/session_start.py"
+
+    This allows deduplication to work regardless of path format.
+
+    Args:
+        command: The command string from a hook configuration
+
+    Returns:
+        Normalized command identifier (script filename for BMAD hooks, original for others)
+
+    BUG-039 Fix: Enables deduplication when paths differ in format but reference same script.
+    """
+    import re
+
+    # Pattern to match BMAD hook commands with either path format
+    # Matches: python3 "path/.claude/hooks/scripts/scriptname.py"
+    # Captures the script filename
+    pattern = r'python3\s+"[^"]*?\.claude/hooks/scripts/([^"]+)"'
+    match = re.search(pattern, command)
+    if match:
+        # Return just the script name as the normalized identifier
+        # e.g., "session_start.py" instead of full path
+        return f"bmad-hook:{match.group(1)}"
+
+    # For non-BMAD hooks, return the original command
+    return command
+
+
 def merge_lists(existing: list, new: list) -> list:
     """
     Merge lists with deduplication for hook configurations.
 
     Deduplicates by 'command' field if objects are dicts.
     Handles both old format (direct command) and new nested format (hooks array).
+    Uses normalized paths to detect duplicates even when path formats differ.
 
     Args:
         existing: Existing list
@@ -83,16 +118,20 @@ def merge_lists(existing: list, new: list) -> list:
     result = existing.copy()
 
     def get_commands_from_item(item: dict) -> set:
-        """Extract all command strings from a hook wrapper or direct hook."""
+        """Extract all normalized command identifiers from a hook wrapper or direct hook.
+
+        BUG-039 Fix: Uses normalize_hook_command() to ensure commands are compared
+        regardless of whether they use $BMAD_INSTALL_DIR or absolute paths.
+        """
         commands = set()
         if "command" in item:
             # Direct hook format: {"command": "...", "type": "..."}
-            commands.add(item["command"])
+            commands.add(normalize_hook_command(item["command"]))
         if "hooks" in item and isinstance(item["hooks"], list):
             # Nested format: {"hooks": [{"command": "...", "type": "..."}]}
             for hook in item["hooks"]:
                 if isinstance(hook, dict) and "command" in hook:
-                    commands.add(hook["command"])
+                    commands.add(normalize_hook_command(hook["command"]))
         return commands
 
     # Build set of existing commands for O(1) lookup

@@ -111,7 +111,8 @@ def store_agent_response(store_data: Dict[str, Any]) -> bool:
 
         if existing[0]:  # Duplicate found
             # CR-1.2: Use consolidated log function
-            log_to_activity("⏭️  AgentResponse skipped: Duplicate", INSTALL_DIR)
+            # BUG-036: Include project name for multi-project visibility
+            log_to_activity(f"⏭️  AgentResponse skipped: Duplicate [{group_id}]", INSTALL_DIR)
             logger.info(
                 "duplicate_agent_response_skipped",
                 extra={
@@ -180,7 +181,8 @@ def store_agent_response(store_data: Dict[str, Any]) -> bool:
             ]
         )
 
-        log_to_activity(f"✅ AgentResponse stored: Turn {turn_number}", INSTALL_DIR)
+        # BUG-036: Include project name for multi-project visibility
+        log_to_activity(f"✅ AgentResponse stored: Turn {turn_number} [{group_id}]", INSTALL_DIR)
         logger.info(
             "agent_response_stored",
             extra={
@@ -230,10 +232,21 @@ def store_agent_response(store_data: Dict[str, Any]) -> bool:
                 project=group_id or "unknown"
             ).inc()
 
+        # BUG-037: Push capture metrics to Pushgateway for Grafana visibility
         # TECH-DEBT-071: Push token count for stored agent response
         # HIGH-3: Token estimation ~25-50% error margin (4 chars/token approximation)
         try:
-            from memory.metrics_push import push_token_metrics_async
+            from memory.metrics_push import push_capture_metrics_async, push_token_metrics_async
+
+            # BUG-037: Push capture count for Grafana project visibility
+            push_capture_metrics_async(
+                hook_type="Stop",
+                status="success",
+                project=group_id or "unknown",
+                collection=COLLECTION_DISCUSSIONS,
+                count=1
+            )
+
             token_count = len(response_text) // 4  # Fast estimation, consider tiktoken if accuracy critical
             if token_count > 0:
                 push_token_metrics_async(
@@ -248,7 +261,9 @@ def store_agent_response(store_data: Dict[str, Any]) -> bool:
         return True
 
     except (ResponseHandlingException, UnexpectedResponse, ApiException, QdrantUnavailable) as e:
-        log_to_activity("📥 AgentResponse queued: Qdrant unavailable", INSTALL_DIR)
+        # BUG-036: Include project name for multi-project visibility
+        project_name = detect_project(os.getcwd())
+        log_to_activity(f"📥 AgentResponse queued: Qdrant unavailable [{project_name}]", INSTALL_DIR)
         logger.warning(
             "qdrant_error_queuing",
             extra={
@@ -278,7 +293,9 @@ def store_agent_response(store_data: Dict[str, Any]) -> bool:
         return False
 
     except Exception as e:
-        log_to_activity(f"❌ AgentResponse failed: {type(e).__name__}", INSTALL_DIR)
+        # BUG-036: Include project name for multi-project visibility
+        project_name = detect_project(os.getcwd()) if 'group_id' not in dir() else group_id
+        log_to_activity(f"❌ AgentResponse failed: {type(e).__name__} [{project_name}]", INSTALL_DIR)
         logger.error(
             "storage_failed",
             extra={
