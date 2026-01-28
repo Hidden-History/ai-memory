@@ -1213,6 +1213,12 @@ print(f'✓ BMAD_PROJECT_ID set to: {project_id}')
 run_health_check() {
     log_info "Running health checks..."
 
+    # BUG-041: Export QDRANT_API_KEY from docker/.env for authenticated health check
+    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
+        QDRANT_API_KEY=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
+        export QDRANT_API_KEY
+    fi
+
     # Call Python health check script
     if python3 "$INSTALL_DIR/scripts/health-check.py"; then
         log_success "All health checks passed"
