@@ -1,0 +1,131 @@
+---
+name: search-memory
+description: 'Search memory system with advanced filtering and intent detection'
+allowed-tools: Read, Bash
+---
+
+# Search Memory - Advanced Memory Retrieval
+
+Search the AI Memory Module using semantic similarity with advanced filtering by collection, type, and intent detection.
+
+## Memory System V2.0
+
+The memory system has 3 collections:
+- **code-patterns** - HOW things are built (implementation, error_fix, refactor, file_pattern)
+- **conventions** - WHAT rules to follow (rule, guideline, port, naming, structure)
+- **discussions** - WHY things were decided (decision, session, blocker, preference, context)
+
+## Usage
+
+```bash
+# Basic semantic search (searches code-patterns by default)
+/search-memory "how do I implement authentication"
+
+# Search specific collection
+/search-memory "error handling patterns" --collection conventions
+
+# Filter by memory type
+/search-memory "recent bugs" --type error_fix
+
+# Filter by multiple types
+/search-memory "code patterns" --type implementation,refactor
+
+# Use intent detection with cascading search
+/search-memory "how do I implement auth" --intent how
+
+# Limit results
+/search-memory "database patterns" --limit 10
+```
+
+## Options
+
+- `--collection <name>` - Target specific collection (code-patterns, conventions, discussions)
+- `--type <type>` - Filter by memory type (see types below)
+- `--intent <intent>` - Use intent detection (how, what, why)
+- `--limit <n>` - Maximum results to return (default: 5)
+- `--group-id <id>` - Filter by project (default: auto-detect from cwd)
+
+## Memory Types by Collection
+
+### code-patterns
+- `implementation` - How features/components were built
+- `error_fix` - Errors encountered and solutions
+- `refactor` - Refactoring patterns applied
+- `file_pattern` - File or module-specific patterns
+
+### conventions
+- `rule` - Hard rules that MUST be followed
+- `guideline` - Soft guidelines (SHOULD follow)
+- `port` - Port configuration rules
+- `naming` - Naming conventions
+- `structure` - File and folder structure conventions
+
+### discussions
+- `decision` - Architectural/design decisions (DEC-xxx)
+- `session` - Session summaries
+- `blocker` - Blockers and resolutions (BLK-xxx)
+- `preference` - User preferences and working style
+- `context` - Important conversation context
+
+## Intent Detection
+
+When using `--intent`, the system routes to the appropriate primary collection:
+- `how` → code-patterns (implementation examples)
+- `what` → conventions (rules and guidelines)
+- `why` → discussions (decisions and context)
+
+If primary collection has insufficient results, automatically expands to secondary collections.
+
+## Examples
+
+```bash
+# Find implementation examples in current project
+/search-memory "authentication implementation"
+
+# Find shared conventions across all projects
+/search-memory "naming conventions" --collection conventions
+
+# Find specific error fixes
+/search-memory "database connection" --type error_fix
+
+# Use cascading search with intent
+/search-memory "why did we choose postgres" --intent why
+
+# Find architectural decisions
+/search-memory "database choice" --type decision --collection discussions
+
+# Search multiple types
+/search-memory "auth patterns" --type implementation,error_fix --limit 10
+```
+
+## Python Implementation Reference
+
+This skill uses `search_memories()` from `src/memory/search.py`:
+
+```python
+from src.memory.search import search_memories
+
+results = search_memories(
+    query="your search query",
+    collection="code-patterns",  # Optional
+    memory_type="implementation",  # Optional, can be list
+    use_cascading=True,  # Enable cascading search
+    intent="how",  # Optional: auto-detects from query
+    limit=5
+)
+```
+
+## Technical Details
+
+- **Semantic Search**: Uses jina-embeddings-v2-base-en for vector similarity
+- **Project Scoping**: Automatically detects project from current working directory
+- **Cascading**: Searches primary collection first, expands only if insufficient results
+- **Attribution**: All results include collection and type attribution
+- **Performance**: < 2s for typical searches (NFR-P1)
+
+## Notes
+
+- Results sorted by relevance score (highest first)
+- Score threshold defaults to 0.7 (configurable in .env)
+- Project auto-detection uses git repository root
+- code-patterns filtered by project, conventions/discussions are cross-project
