@@ -7,21 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+(Nothing yet)
+
+## [2.0.0] - 2026-01-29
+
 ### Added
-- **Comprehensive hook documentation**: Created `docs/HOOKS.md` documenting all 12+ hooks (SessionStart, PostToolUse, PreCompact, Stop, activity logging, error handling, best practices)
-- **Slash commands reference**: Created `docs/COMMANDS.md` documenting `/memory-status`, `/save-memory`, and `/search-memory` commands
-- **Configuration guide**: Created `docs/CONFIGURATION.md` with complete environment variables reference and agent token budgets
-- **Expandable troubleshooting sections**: Added inline `<details>` blocks in INSTALL.md for common issues
+- **V2.0 Memory System** with 3 specialized collections (code-patterns, conventions, discussions)
+- **15 Memory Types** for precise categorization
+- **5 Automatic Triggers** (error detection, new file, first edit, decision keywords, best practices)
+- **Intent Detection** - Routes queries to the right collection automatically
+- **Knowledge Discovery** features:
+  - `best-practices-researcher` skill - Web research with local caching
+  - `skill-creator` agent - Generates Claude Code skills from research
+  - `search-memory` skill - Semantic search across collections
+  - `memory-status` skill - System health and diagnostics
+  - `memory-settings` skill - Configuration display
+- **Quick Start section** in README.md with git clone instructions
+- **"Install ONCE, Add Projects" warning** - Prevents common installation mistake
+- **Comprehensive hook documentation**: Created `docs/HOOKS.md` documenting all 12+ hooks
+- **Slash commands reference**: Created `docs/COMMANDS.md` with Skills & Agents section
+- **Configuration guide**: Created `docs/CONFIGURATION.md`
 
 ### Changed
-- **README.md**: Applied 2026 documentation best practices with consistent emoji icons, added PreCompact hook to architecture diagram, updated manual commands from `/bmad-memory:*` to `/search-memory` format, improved multi-project explanation
-- **INSTALL.md**: Added PreCompact hook configuration examples, SessionStart matcher requirement clarification, updated repository URLs, applied visual hierarchy improvements
-- **TROUBLESHOOTING.md**: Added dedicated sections for Hook Issues, Memory & Search Issues, Command Issues, Performance Issues, and Configuration Issues with links to detailed documentation
-- **Repository URLs**: Updated all documentation from `wbsolutions-ca/bmad-memory` to `Hidden-History/ai-memory`
+- **Major architecture update** - Three-collection system replaces single collection
+- **README.md** - Added Quick Start, Knowledge Discovery section, clarified BMAD relationship
+- **INSTALL.md** - Added warning about installing once, emphasized cd to existing directory
+- **docs/COMMANDS.md** - Added Skills & Agents section (best-practices-researcher, skill-creator, search-memory, memory-status, memory-settings)
+- **Repository URLs**: Updated from `wbsolutions-ca/bmad-memory` to `Hidden-History/ai-memory`
 
 ### Fixed
-- **PreCompact hook documentation**: Added missing PreCompact hook throughout README.md and INSTALL.md (critical for session summary persistence before context compaction)
-- **SessionStart matcher requirement**: Explicitly documented that SessionStart hooks require `matcher` field (`startup|resume|compact`)
+- **PreCompact hook documentation**: Added missing documentation
+- **Multi-project installation clarity**: Emphasized using same ai-memory directory
 
 ## [1.0.1] - 2026-01-14
 

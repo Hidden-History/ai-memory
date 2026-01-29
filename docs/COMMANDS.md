@@ -819,6 +819,67 @@ ls -la .claude/skills/
 
 ---
 
+## 🔬 Skills & Agents
+
+In addition to slash commands, AI-Memory includes skills (auto-activated by Claude) and agents (invoked via Task tool).
+
+### best-practices-researcher (Skill)
+
+**Activation:** Automatic when you ask about best practices, conventions, or "how should I" questions.
+
+**What It Does:**
+1. Searches local conventions collection
+2. Performs web research (2024-2026 sources)
+3. Saves findings to `oversight/knowledge/best-practices/`
+4. Stores in Qdrant for future retrieval
+5. Evaluates if a reusable skill should be created
+
+**Location:** `.claude/skills/best-practices-researcher/`
+
+### skill-creator (Agent)
+
+**Activation:** Invoked by best-practices-researcher when findings warrant a skill, or manually.
+
+**What It Does:**
+1. Takes research findings as input
+2. Applies BP-044 (Claude Skill authoring best practices)
+3. Generates properly formatted SKILL.md
+4. Creates skill in `.claude/skills/[name]/`
+
+**Location:** `.claude/agents/skill-creator.md`
+
+### memory-settings (Skill)
+
+**Activation:** When you ask about memory configuration or settings.
+
+**What It Does:** Displays current memory system configuration and settings.
+
+**Location:** `.claude/skills/memory-settings/`
+
+### search-memory (Skill)
+
+**Activation:** When you ask to search memories, recall past decisions, or find previous discussions.
+
+**What It Does:**
+1. Searches across all memory collections (code-patterns, conventions, discussions)
+2. Uses semantic search to find relevant memories
+3. Returns formatted results with source and confidence
+
+**Location:** `.claude/skills/search-memory/`
+
+### memory-status (Skill)
+
+**Activation:** When you ask about memory system health, statistics, or diagnostics.
+
+**What It Does:**
+1. Checks Docker service health (Qdrant, Embedding, Monitoring)
+2. Reports collection sizes and memory counts
+3. Shows recent activity and system status
+
+**Location:** `.claude/skills/memory-status/`
+
+---
+
 ## 📚 See Also
 
 - [HOOKS.md](HOOKS.md) - Comprehensive hooks documentation
