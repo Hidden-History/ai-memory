@@ -27,6 +27,22 @@
   "templating": {
     "list": [
       {
+        "name": "project",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(ai_memory_captures_total, project)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
         "name": "hook",
         "type": "custom",
         "options": [
@@ -611,7 +627,7 @@
       "id": 6,
       "type": "timeseries",
       "title": "Classifier Latency by Provider",
-      "description": "**Metric:** `memory_classifier_latency_seconds_bucket`\n**Measures:** 95th percentile classification latency by provider\n**Formula:** `histogram_quantile($quantile, sum by (le, provider) (rate(memory_classifier_latency_seconds_bucket[5m])))`\n**Providers:** ollama (local), openrouter (API), openai (API), claude (API)\n**Expected:** Ollama fastest (local), API providers slower (network latency)\n**Note:** Classification latency impacts hook performance if classification is synchronous\n**See:** src/memory/classifier.py, BP-041 (Histogram Quantiles)",
+      "description": "**Metric:** `ai_memory_classifier_latency_seconds_bucket`\n**Measures:** 95th percentile classification latency by provider\n**Formula:** `histogram_quantile($quantile, sum by (le, provider) (rate(ai_memory_classifier_latency_seconds_bucket[5m])))`\n**Providers:** ollama (local), openrouter (API), openai (API), claude (API)\n**Expected:** Ollama fastest (local), API providers slower (network latency)\n**Note:** Classification latency impacts hook performance if classification is synchronous\n**See:** src/memory/classifier.py, BP-041 (Histogram Quantiles)",
       "gridPos": {
         "x": 0,
         "y": 42,
@@ -620,7 +636,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile($quantile, sum by (le, provider) (rate(memory_classifier_latency_seconds_bucket[5m])))",
+          "expr": "histogram_quantile($quantile, sum by (le, provider) (rate(ai_memory_classifier_latency_seconds_bucket[5m])))",
           "refId": "A",
           "legendFormat": "{{provider}}"
         }

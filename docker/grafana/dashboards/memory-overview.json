@@ -9,7 +9,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 8,
+  "version": 9,
   "refresh": "30s",
   "time": {
     "from": "now-1h",
@@ -43,33 +43,6 @@
         }
       },
       {
-        "name": "collection",
-        "type": "custom",
-        "options": [
-          {
-            "text": "code-patterns",
-            "value": "code-patterns"
-          },
-          {
-            "text": "conventions",
-            "value": "conventions"
-          },
-          {
-            "text": "discussions",
-            "value": "discussions"
-          }
-        ],
-        "multi": true,
-        "includeAll": true,
-        "current": {
-          "text": "All",
-          "value": [
-            "$__all"
-          ]
-        },
-        "allValue": ".*"
-      },
-      {
         "name": "hook",
         "type": "custom",
         "options": [
@@ -94,67 +67,8 @@
             "value": "pre_compact_save"
           },
           {
-            "text": "error_detection",
-            "value": "error_detection"
-          },
-          {
-            "text": "new_file_trigger",
-            "value": "new_file_trigger"
-          },
-          {
-            "text": "first_edit_trigger",
-            "value": "first_edit_trigger"
-          },
-          {
-            "text": "decision_keyword_trigger",
-            "value": "decision_keyword_trigger"
-          },
-          {
-            "text": "best_practices_keyword_trigger",
-            "value": "best_practices_keyword_trigger"
-          },
-          {
             "text": "session_start",
             "value": "session_start"
-          }
-        ],
-        "multi": true,
-        "includeAll": true,
-        "current": {
-          "text": "All",
-          "value": [
-            "$__all"
-          ]
-        },
-        "allValue": ".*"
-      },
-      {
-        "name": "trigger",
-        "type": "custom",
-        "options": [
-          {
-            "text": "error_detection",
-            "value": "error_detection"
-          },
-          {
-            "text": "new_file",
-            "value": "new_file"
-          },
-          {
-            "text": "first_edit",
-            "value": "first_edit"
-          },
-          {
-            "text": "decision_keywords",
-            "value": "decision_keywords"
-          },
-          {
-            "text": "best_practices_keywords",
-            "value": "best_practices_keywords"
-          },
-          {
-            "text": "session_start_context",
-            "value": "session_start_context"
           }
         ],
         "multi": true,
@@ -178,29 +92,29 @@
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 6
+        "h": 5
       },
       "options": {
         "mode": "markdown",
-        "content": "# AI Memory System - Overview Dashboard\n\n**Purpose:** Daily operational monitoring - answering \"How many memories captured?\", \"What's the success rate?\", \"Which collections growing?\"\n\n**Audience:** Operators, Engineering Leads\n\n**V2.0 Architecture:** 3 collections (code-patterns, conventions, discussions) | 11 hooks (5 capture + 6 retrieval) | 6 triggers\n\n\n**Template Variables:** Use dropdowns above to filter by project, collection, or hook\n\n**Template Variables:** Use dropdowns above to filter by project, collection, hook, or trigger"
+        "content": "# AI Memory System - Overview Dashboard\n\n**Purpose:** Daily operational monitoring - answering \"How many memories captured?\", \"What's the success rate?\", \"What's the latency?\"\n\n**Audience:** Operators, Engineering Leads\n\n**Available Metrics:** `ai_memory_captures_total`, `ai_memory_hook_latency_bucket`, `ai_memory_embedding_latency_bucket`, `ai_memory_search_latency_bucket`, `ai_memory_tokens_consumed_total`\n\n**Template Variables:** Use dropdowns above to filter by project or hook type"
       }
     },
     {
       "id": 1,
       "type": "stat",
-      "title": "Total Memories",
-      "description": "**Metric:** `ai_memory_collection_size`\n**Measures:** Total number of memory points across all 3 collections\n**Formula:** `sum(ai_memory_collection_size)`\n**Collections:** code-patterns (implementation, error_fix, refactor, file_pattern) + conventions (rule, guideline, port, naming, structure) + discussions (decision, session, blocker, preference, user_message, agent_response)\n**Thresholds:** Blue=info | No thresholds (growth expected)\n**See:** Core-Architecture-Principle-V2.md",
+      "title": "Total Captures",
+      "description": "**Metric:** `ai_memory_captures_total`\n**Measures:** Total number of memory capture attempts\n**Formula:** `sum(ai_memory_captures_total)`\n**Thresholds:** Blue=info (growth expected)\n**See:** Core-Architecture-Principle-V2.md",
       "gridPos": {
         "x": 0,
-        "y": 6,
-        "w": 8,
-        "h": 6
+        "y": 5,
+        "w": 6,
+        "h": 5
       },
       "targets": [
         {
-          "expr": "sum(ai_memory_collection_size)",
+          "expr": "sum(ai_memory_captures_total{project=~\"$project\"})",
           "refId": "A",
-          "legendFormat": "Total Memories"
+          "legendFormat": "Total Captures"
         }
       ],
       "fieldConfig": {
@@ -242,16 +156,16 @@
       "id": 2,
       "type": "stat",
       "title": "Capture Success Rate",
-      "description": "**Metric:** `ai_memory_captures_total`\n**Measures:** Percentage of successful memory captures\n**Formula:** `sum(ai_memory_captures_total{status=\"success\"}) / sum(ai_memory_captures_total) * 100`\n**NFR:** >95% success rate (BP-022)\n**Thresholds:** Green >95% | Yellow 90-95% | Red <90%\n**Note:** Pushgateway counter - NO rate() per BP-028\n**See:** BP-022 (NFR-P3), BP-028 (Pushgateway)",
+      "description": "**Metric:** `ai_memory_captures_total`\n**Measures:** Percentage of successful memory captures\n**Formula:** `sum(ai_memory_captures_total{status=\"success\"}) / sum(ai_memory_captures_total) * 100`\n**NFR:** >95% success rate (BP-022)\n**Thresholds:** Green >95% | Yellow 90-95% | Red <90%",
       "gridPos": {
-        "x": 8,
-        "y": 6,
-        "w": 8,
-        "h": 6
+        "x": 6,
+        "y": 5,
+        "w": 6,
+        "h": 5
       },
       "targets": [
         {
-          "expr": "sum(ai_memory_captures_total{status=\"success\"}) / sum(ai_memory_captures_total) * 100",
+          "expr": "sum(ai_memory_captures_total{status=\"success\", project=~\"$project\"}) / sum(ai_memory_captures_total{project=~\"$project\"}) * 100",
           "refId": "A",
           "legendFormat": "Success Rate"
         }
@@ -304,17 +218,80 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Active Hooks",
-      "description": "**Metric:** `ai_memory_captures_total`\n**Measures:** Number of hooks that have captured at least one memory\n**Formula:** `count(count by (hook_type) (ai_memory_captures_total))`\n**Expected:** 11 hooks total (5 capture + 6 retrieval)\n**Hooks:** user_prompt_capture, agent_response_capture, post_tool_capture, error_pattern_capture, pre_compact_save, error_detection, new_file_trigger, first_edit_trigger, decision_keyword_trigger, best_practices_keyword_trigger, session_start\n**See:** Core-Architecture-Principle-V2.md",
+      "title": "Embedding Success Rate",
+      "description": "**Metric:** `ai_memory_embedding_requests_total`\n**Measures:** Percentage of successful embedding requests\n**Formula:** `sum(ai_memory_embedding_requests_total{status=\"success\"}) / sum(ai_memory_embedding_requests_total) * 100`\n**Thresholds:** Green >95% | Yellow 90-95% | Red <90%",
       "gridPos": {
-        "x": 16,
-        "y": 6,
-        "w": 8,
-        "h": 6
+        "x": 12,
+        "y": 5,
+        "w": 6,
+        "h": 5
       },
       "targets": [
         {
-          "expr": "count(count by (hook_type) (ai_memory_captures_total))",
+          "expr": "sum(ai_memory_embedding_requests_total{status=\"success\"}) / sum(ai_memory_embedding_requests_total) * 100",
+          "refId": "A",
+          "legendFormat": "Embedding Success Rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#F2495C"
+              },
+              {
+                "value": 90,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 95,
+                "color": "#73BF69"
+              }
+            ]
+          },
+          "min": 0,
+          "max": 100
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Active Hooks",
+      "description": "**Metric:** `ai_memory_captures_total`\n**Measures:** Number of hooks that have captured at least one memory\n**Formula:** `count(count by (hook_type) (ai_memory_captures_total))`\n**Expected:** Multiple hook types active",
+      "gridPos": {
+        "x": 18,
+        "y": 5,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "count(count by (hook_type) (ai_memory_captures_total{project=~\"$project\"}))",
           "refId": "A",
           "legendFormat": "Active Hooks"
         }
@@ -355,13 +332,13 @@
       }
     },
     {
-      "id": 4,
+      "id": 5,
       "type": "timeseries",
       "title": "Memory Captures by Hook",
-      "description": "**Metric:** `ai_memory_captures_total`\n**Labels:** `[hook_type, status, project]` (NO collection label)\n**Why:** Collection is determined by classifier AFTER capture\n**Shows:** Capture attempts by hook type (PostToolUse, PreCompact, Stop, etc.)\n**Note:** Does NOT show which collection memories went to (unknown at capture time)",
+      "description": "**Metric:** `ai_memory_captures_total`\n**Labels:** `[hook_type, status, project]`\n**Shows:** Capture attempts by hook type over time",
       "gridPos": {
         "x": 0,
-        "y": 12,
+        "y": 10,
         "w": 24,
         "h": 8
       },
@@ -369,7 +346,7 @@
         {
           "expr": "sum by (hook_type, status) (ai_memory_captures_total{hook_type=~\"$hook\", project=~\"$project\"})",
           "refId": "A",
-          "legendFormat": "{{hook_type}} - {{status}} - {{collection}}"
+          "legendFormat": "{{hook_type}} - {{status}}"
         }
       ],
       "fieldConfig": {
@@ -400,55 +377,6 @@
         }
       },
       "maxDataPoints": 5000,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      }
-    },
-    {
-      "id": 5,
-      "type": "timeseries",
-      "title": "Collection Sizes",
-      "description": "**Metric:** `ai_memory_collection_size`\n**Query:** `max by (collection)` to avoid double-counting across project labels\n**Shows:** True collection sizes (code-patterns, conventions, discussions)\n**Note:** Uses max() not sum() because metric has multiple project labels",
-      "gridPos": {
-        "x": 0,
-        "y": 20,
-        "w": 24,
-        "h": 8
-      },
-      "targets": [
-        {
-          "expr": "max by (collection) (ai_memory_collection_size{collection=~\"$collection\"})",
-          "refId": "A",
-          "legendFormat": "{{collection}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 20,
-            "showPoints": "never"
-          }
-        }
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
-        }
-      },
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -457,31 +385,60 @@
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Memory Retrievals by Collection",
-      "description": "**Metric:** `ai_memory_retrievals_total`\n**Labels:** `[collection, status]` (HAS collection label)\n**Shows:** Retrieval operations per collection\n**Status values:**\n  - success: Results found and returned\n  - empty: Search succeeded but no results\n  - failed: Search operation failed\n**Note:** This is the actual retrieval metric, not trigger fires",
+      "title": "Hook Latency (p50/p95/p99)",
+      "description": "**Metric:** `ai_memory_hook_latency_bucket`\n**Measures:** Hook execution time percentiles\n**NFR:** p95 < 500ms (BP-022)\n**Thresholds:** Green <500ms | Yellow 500ms-1s | Red >1s",
       "gridPos": {
         "x": 0,
-        "y": 28,
-        "w": 24,
+        "y": 18,
+        "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "sum by (collection, status) (ai_memory_retrievals_total{collection=~\"$collection\"})",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ai_memory_hook_latency_bucket[5m])))",
           "refId": "A",
-          "legendFormat": "{{collection}} ({{status}})"
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_memory_hook_latency_bucket[5m])))",
+          "refId": "B",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(ai_memory_hook_latency_bucket[5m])))",
+          "refId": "C",
+          "legendFormat": "p99"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "s",
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "stepAfter",
+            "lineInterpolation": "smooth",
             "lineWidth": 2,
             "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false
+            "showPoints": "never"
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 0.5,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 1.0,
+                "color": "#F2495C"
+              }
+            ]
           }
         }
       },
@@ -499,7 +456,6 @@
           ]
         }
       },
-      "maxDataPoints": 5000,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -508,19 +464,177 @@
     {
       "id": 7,
       "type": "timeseries",
-      "title": "Context Tokens by Hook Type",
-      "description": "**Metric:** `ai_memory_context_injection_tokens_sum`\n**Measures:** Cumulative context tokens injected by hook type\n**Formula:** `sum by (hook_type, collection) (ai_memory_context_injection_tokens_sum{hook_type=~\"$hook\", collection=~\"$collection\", project=~\"$project\"})`\n**Purpose:** Track how much context each hook is injecting into sessions\n**Note:** Pushgateway counter - NO rate() per BP-028\n**See:** BP-028 (Pushgateway), BP-002 (Context Injection)",
+      "title": "Embedding Latency (p50/p95/p99)",
+      "description": "**Metric:** `ai_memory_embedding_latency_bucket`\n**Measures:** Embedding generation time percentiles\n**NFR:** p95 < 2s (BP-022)\n**Thresholds:** Green <2s | Yellow 2-5s | Red >5s",
       "gridPos": {
-        "x": 0,
-        "y": 36,
+        "x": 12,
+        "y": 18,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "sum by (hook_type, collection) (ai_memory_context_injection_tokens_sum{hook_type=~\"$hook\", collection=~\"$collection\", project=~\"$project\"})",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ai_memory_embedding_latency_bucket[5m])))",
           "refId": "A",
-          "legendFormat": "{{hook_type}} - {{collection}}"
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_memory_embedding_latency_bucket[5m])))",
+          "refId": "B",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(ai_memory_embedding_latency_bucket[5m])))",
+          "refId": "C",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 2.0,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 5.0,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Search Latency (p50/p95/p99)",
+      "description": "**Metric:** `ai_memory_search_latency_bucket`\n**Measures:** Memory search time percentiles\n**NFR:** p95 < 100ms\n**Thresholds:** Green <100ms | Yellow 100-500ms | Red >500ms",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ai_memory_search_latency_bucket[5m])))",
+          "refId": "A",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_memory_search_latency_bucket[5m])))",
+          "refId": "B",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(ai_memory_search_latency_bucket[5m])))",
+          "refId": "C",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 0.1,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 0.5,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Token Consumption",
+      "description": "**Metric:** `ai_memory_tokens_consumed_total`\n**Measures:** Tokens consumed by operation and direction\n**Labels:** `[operation, direction, project]`\n**Shows:** Token usage trends for context injection",
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (operation, direction) (ai_memory_tokens_consumed_total{project=~\"$project\"})",
+          "refId": "A",
+          "legendFormat": "{{operation}} - {{direction}}"
         }
       ],
       "fieldConfig": {
@@ -533,6 +647,9 @@
             "fillOpacity": 10,
             "showPoints": "never",
             "spanNulls": false
+          },
+          "color": {
+            "mode": "palette-classic"
           }
         }
       },
@@ -557,79 +674,21 @@
       }
     },
     {
-      "id": 8,
+      "id": 10,
       "type": "timeseries",
-      "title": "Context Tokens by Collection",
-      "description": "**Metric:** `ai_memory_context_injection_tokens_sum`\n**Measures:** Cumulative context tokens injected by collection\n**Formula:** `sum by (collection) (ai_memory_context_injection_tokens_sum{collection=~\"$collection\", project=~\"$project\"})`\n**Purpose:** Track which collections are providing the most context\n**Expected:** Balanced distribution across code-patterns, conventions, discussions\n**See:** BP-002 (Context Injection), Core-Architecture-Principle-V2.md",
-      "gridPos": {
-        "x": 12,
-        "y": 36,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "expr": "sum by (collection) (ai_memory_context_injection_tokens_sum{collection=~\"$collection\", project=~\"$project\"})",
-          "refId": "A",
-          "legendFormat": "{{collection}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 20,
-            "showPoints": "never"
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        }
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "sum",
-            "mean"
-          ]
-        }
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      }
-    },
-    {
-      "id": 9,
-      "type": "timeseries",
-      "title": "Failures (Captures + Retrievals)",
-      "description": "**Metrics:** `ai_memory_captures_total{status=\"error\"}` + `ai_memory_trigger_fires_total{status=\"error\"}`\n**Shows:** Failure events over time\n**Expected:** Flat line at zero (no failures)\n**Note:** Uses OR vector(0) to show zero instead of \"No data\"",
+      "title": "Capture Failures",
+      "description": "**Metric:** `ai_memory_captures_total{status=\"error\"}`\n**Shows:** Failed capture attempts over time\n**Expected:** Flat line at zero (no failures)",
       "gridPos": {
         "x": 0,
-        "y": 44,
+        "y": 34,
         "w": 24,
         "h": 8
       },
       "targets": [
         {
-          "expr": "sum by (hook_type) (ai_memory_captures_total{status=\"error\", hook_type=~\"$hook\", collection=~\"$collection\", project=~\"$project\"}) OR vector(0)",
+          "expr": "sum by (hook_type) (ai_memory_captures_total{status=\"error\", hook_type=~\"$hook\", project=~\"$project\"}) OR vector(0)",
           "refId": "A",
-          "legendFormat": "Capture Failed - {{hook_type}}"
-        },
-        {
-          "expr": "sum by (trigger_type) (ai_memory_trigger_fires_total{status=\"error\", trigger_type=~\"$trigger\", collection=~\"$collection\", project=~\"$project\"}) OR vector(0)",
-          "refId": "B",
-          "legendFormat": "Retrieval Failed - {{trigger_type}}"
+          "legendFormat": "{{hook_type}}"
         }
       ],
       "fieldConfig": {
@@ -672,59 +731,12 @@
       }
     },
     {
-      "id": 10,
-      "type": "timeseries",
-      "title": "Trigger Activations by Type",
-      "description": "**Metric:** `ai_memory_trigger_fires_total`\n**Labels:** `[trigger_type, status, project]` (NO collection label)\n**Shows:** When triggers fired (not what they retrieved)\n**Trigger types:**\n  - decision_keywords: \"why did we\", \"what was decided\"\n  - best_practices_keywords: \"best practice\", \"convention\"\n  - session_keywords: Session history queries\n  - error_detection: Bash errors (exit code != 0)\n  - new_file: Write to new file path\n  - first_edit: First edit to file in session\n**Note:** One trigger can search multiple collections",
-      "gridPos": {
-        "x": 0,
-        "y": 50,
-        "w": 24,
-        "h": 8
-      },
-      "targets": [
-        {
-          "expr": "sum by (trigger_type, status) (ai_memory_trigger_fires_total{trigger_type=~\"$trigger\", project=~\"$project\"})",
-          "refId": "A",
-          "legendFormat": "{{trigger_type}} ({{status}})"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "drawStyle": "line",
-            "spanNulls": false
-          }
-        }
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ]
-        }
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      }
-    },
-    {
       "id": 11,
       "type": "row",
-      "title": "Retry Queue",
+      "title": "Classifier Queue (Future)",
       "gridPos": {
         "x": 0,
-        "y": 58,
+        "y": 42,
         "w": 24,
         "h": 1
       },
@@ -733,19 +745,19 @@
     {
       "id": 12,
       "type": "stat",
-      "title": "Queue - Ready",
-      "description": "**Metric:** `ai_memory_queue_size{status=\"ready\"}`\n**Measures:** Items ready for immediate retry (next_retry_at <= now)\n**Thresholds:** Green=0 | Yellow 1-5 | Red >5\n**Action:** If >0, click 'Process Queue' in Streamlit dashboard",
+      "title": "Classifier Queue Size",
+      "description": "**Metric:** `ai_memory_classifier_queue_size`\n**Measures:** Items awaiting classification\n**Thresholds:** Green=0 | Yellow 1-5 | Red >5\n**Note:** Metric available after classifier worker T2 implementation",
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 43,
         "w": 8,
         "h": 5
       },
       "targets": [
         {
-          "expr": "ai_memory_queue_size{status=\"ready\"} OR vector(0)",
+          "expr": "ai_memory_classifier_queue_size OR vector(0)",
           "refId": "A",
-          "legendFormat": "Ready"
+          "legendFormat": "Queue Size"
         }
       ],
       "fieldConfig": {
@@ -792,26 +804,41 @@
     {
       "id": 13,
       "type": "stat",
-      "title": "Queue - Pending",
-      "description": "**Metric:** `ai_memory_queue_size{status=\"pending\"}`\n**Measures:** Items awaiting backoff timer (retry_count < max_retries, next_retry_at > now)\n**Thresholds:** Green=0 | Yellow 1-10 | Red >10\n**Note:** Will become 'ready' after backoff expires (1min → 5min → 15min)",
+      "title": "Classifier Status",
+      "description": "**Metric:** `ai_memory_classifier_last_success_timestamp`\n**Measures:** Classifier worker liveness\n**Formula:** `time() - ai_memory_classifier_last_success_timestamp < 300`\n**Value Mapping:** 1=UP (green), 0=DOWN (red)",
       "gridPos": {
         "x": 8,
-        "y": 59,
+        "y": 43,
         "w": 8,
         "h": 5
       },
       "targets": [
         {
-          "expr": "ai_memory_queue_size{status=\"pending\"} OR vector(0)",
+          "expr": "time() - ai_memory_classifier_last_success_timestamp < 300",
           "refId": "A",
-          "legendFormat": "Pending"
+          "legendFormat": "Classifier"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
-          "noValue": "0",
+          "noValue": "DOWN",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
           "color": {
             "mode": "thresholds"
           },
@@ -820,15 +847,11 @@
             "steps": [
               {
                 "value": null,
-                "color": "#73BF69"
+                "color": "#F2495C"
               },
               {
                 "value": 1,
-                "color": "#FADE2A"
-              },
-              {
-                "value": 10,
-                "color": "#F2495C"
+                "color": "#73BF69"
               }
             ]
           }
@@ -839,9 +862,8 @@
           "values": false,
           "calcs": ["lastNotNull"]
         },
-        "textMode": "value_and_name",
-        "colorMode": "value",
-        "graphMode": "area"
+        "textMode": "value",
+        "colorMode": "background"
       },
       "datasource": {
         "type": "prometheus",
@@ -851,19 +873,19 @@
     {
       "id": 14,
       "type": "stat",
-      "title": "Queue - Exhausted",
-      "description": "**Metric:** `ai_memory_queue_size{status=\"exhausted\"}`\n**Measures:** Items that exceeded max_retries (3 attempts)\n**Thresholds:** Green=0 | Red >0\n**Action:** Review in Streamlit dashboard, fix underlying issue, clear queue",
+      "title": "Classifier Requests",
+      "description": "**Metric:** `ai_memory_classifier_requests_total`\n**Measures:** Total classification requests\n**Labels:** `[provider, status, classified_type]`\n**Note:** Metric available after classifier worker T2 implementation",
       "gridPos": {
         "x": 16,
-        "y": 59,
+        "y": 43,
         "w": 8,
         "h": 5
       },
       "targets": [
         {
-          "expr": "ai_memory_queue_size{status=\"exhausted\"} OR vector(0)",
+          "expr": "sum(ai_memory_classifier_requests_total) OR vector(0)",
           "refId": "A",
-          "legendFormat": "Exhausted"
+          "legendFormat": "Total Requests"
         }
       ],
       "fieldConfig": {
@@ -879,11 +901,7 @@
             "steps": [
               {
                 "value": null,
-                "color": "#73BF69"
-              },
-              {
-                "value": 1,
-                "color": "#F2495C"
+                "color": "#5794F2"
               }
             ]
           }
@@ -906,48 +924,46 @@
     {
       "id": 15,
       "type": "timeseries",
-      "title": "Queue Size Over Time",
-      "description": "**Metric:** `ai_memory_queue_size`\n**Shows:** Queue size trend by status\n**Statuses:**\n  - ready: Items ready for immediate retry\n  - pending: Items awaiting backoff timer\n  - exhausted: Items that exceeded max_retries\n**Expected:** All lines at 0 (healthy system)\n**Alert:** Investigate if any line consistently >0",
+      "title": "Classifier Latency (p50/p95/p99)",
+      "description": "**Metric:** `ai_memory_classifier_latency_seconds_bucket`\n**Measures:** Classification time percentiles\n**Note:** Metric available after classifier worker T2 implementation",
       "gridPos": {
         "x": 0,
-        "y": 64,
+        "y": 48,
         "w": 24,
         "h": 8
       },
       "targets": [
         {
-          "expr": "ai_memory_queue_size",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ai_memory_classifier_latency_seconds_bucket[5m])))",
           "refId": "A",
-          "legendFormat": "{{status}}"
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_memory_classifier_latency_seconds_bucket[5m])))",
+          "refId": "B",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(ai_memory_classifier_latency_seconds_bucket[5m])))",
+          "refId": "C",
+          "legendFormat": "p99"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "s",
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "stepAfter",
+            "lineInterpolation": "smooth",
             "lineWidth": 2,
-            "fillOpacity": 20,
-            "showPoints": "auto",
-            "spanNulls": false
+            "fillOpacity": 10,
+            "showPoints": "never"
           },
-          "min": 0
-        },
-        "overrides": [
-          {
-            "matcher": {"id": "byName", "options": "ready"},
-            "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]
+          "color": {
+            "mode": "palette-classic"
           },
-          {
-            "matcher": {"id": "byName", "options": "pending"},
-            "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "blue"}}]
-          },
-          {
-            "matcher": {"id": "byName", "options": "exhausted"},
-            "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]
-          }
-        ]
+          "noValue": "No data (classifier T2 pending)"
+        }
       },
       "options": {
         "tooltip": {
@@ -957,7 +973,10 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["lastNotNull", "max", "sum"]
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
         }
       },
       "datasource": {
