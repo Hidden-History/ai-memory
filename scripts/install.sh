@@ -627,7 +627,7 @@ create_directories() {
         echo "     ├── .claude/hooks/scripts/ (Hook implementations)"
         echo "     └── logs/                (Application logs)"
         echo ""
-        echo "  📁 $HOME/.claude-memory/   (Private queue/logs, chmod 700)"
+        echo "  📁 \$INSTALL_DIR/queue/    (Private queue, chmod 700)"
         echo ""
         read -p "Proceed with directory creation? [Y/n]: " confirm
         if [[ "$confirm" =~ ^[Nn]$ ]]; then
@@ -639,14 +639,14 @@ create_directories() {
     fi
 
     # Create main installation directory and subdirectories
-    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,logs}
+    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,logs,queue}
 
     # Create queue directory with restricted permissions (security best practice 2026)
-    mkdir -p "$HOME/.claude-memory"
-    chmod 700 "$HOME/.claude-memory"  # Private queue/logs directory
+    # Queue is shared across all projects - single classifier worker processes all
+    chmod 700 "$INSTALL_DIR/queue"  # Private queue directory (already created above)
 
     log_success "Directory structure created at $INSTALL_DIR"
-    log_info "Private queue directory: $HOME/.claude-memory (chmod 700)"
+    log_info "Private queue directory: $INSTALL_DIR/queue (chmod 700)"
 }
 
 # File copying (AC 7.1.6)
@@ -763,7 +763,7 @@ STREAMLIT_PORT=$STREAMLIT_PORT
 
 # Installation Paths
 AI_MEMORY_INSTALL_DIR=$INSTALL_DIR
-QUEUE_DIR=$HOME/.claude-memory
+QUEUE_DIR=$INSTALL_DIR/queue
 
 # Platform Information
 PLATFORM=$PLATFORM
