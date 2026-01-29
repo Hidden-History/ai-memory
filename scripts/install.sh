@@ -639,7 +639,7 @@ create_directories() {
     fi
 
     # Create main installation directory and subdirectories
-    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,logs}
+    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,logs}
 
     # Create queue directory with restricted permissions (security best practice 2026)
     mkdir -p "$HOME/.claude-memory"
@@ -691,6 +691,18 @@ copy_files() {
 
     log_info "Copying Claude Code hooks..."
     cp -r "$SOURCE_DIR/.claude/hooks/"* "$INSTALL_DIR/.claude/hooks/"
+
+    # Copy Claude Code skills (core ai-memory functionality)
+    if [[ -d "$SOURCE_DIR/.claude/skills" ]]; then
+        log_info "Copying Claude Code skills..."
+        cp -r "$SOURCE_DIR/.claude/skills/"* "$INSTALL_DIR/.claude/skills/" 2>/dev/null || true
+    fi
+
+    # Copy Claude Code agents (core ai-memory functionality)
+    if [[ -d "$SOURCE_DIR/.claude/agents" ]]; then
+        log_info "Copying Claude Code agents..."
+        cp -r "$SOURCE_DIR/.claude/agents/"* "$INSTALL_DIR/.claude/agents/" 2>/dev/null || true
+    fi
 
     # Copy templates for best practices seeding
     if [[ -d "$SOURCE_DIR/templates" ]]; then
