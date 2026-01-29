@@ -119,16 +119,18 @@ Follow official Claude Code installation: [claude.ai/code](https://claude.ai/cod
 
 ## 🚀 Installation
 
+> **⚠️ Install ONCE, Add Projects:** AI-Memory is installed to a single location. Clone the repository once, then run the installer for each project you want to add. **Do NOT clone ai-memory into each project!**
+
 ### Method 1: Automated Installer (Recommended)
 
 The installer handles all setup automatically:
 
 ```bash
-# 1. Clone repository
+# 1. Clone repository (DO THIS ONCE!)
 git clone https://github.com/Hidden-History/ai-memory.git
 cd ai-memory
 
-# 2. Run installer
+# 2. Run installer for your first project
 ./scripts/install.sh /path/to/target-project
 
 # Example:
@@ -195,12 +197,17 @@ Next steps:
 
 ### Adding Additional Projects
 
+> **⚠️ Do NOT clone ai-memory again!** Navigate to your existing ai-memory directory and run the installer from there.
+
 AI Memory uses a **single Docker stack** for all projects. Memories are isolated using `group_id` (project name) in Qdrant.
 
 **Adding a second (or third, etc.) project:**
 
 ```bash
-# Run installer on a new project directory
+# Navigate to your EXISTING ai-memory directory (where you cloned it)
+cd /path/to/ai-memory
+
+# Run installer on the new project directory
 ./scripts/install.sh ~/projects/my-second-app
 
 # The installer auto-detects existing installation and:

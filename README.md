@@ -5,6 +5,7 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/version-2.0.0-green?style=flat-square" alt="Version 2.0.0">
   <a href="https://github.com/Hidden-History/ai-memory/stargazers"><img src="https://img.shields.io/github/stars/Hidden-History/ai-memory?color=blue&style=flat-square" alt="Stars"></a>
   <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
   <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
@@ -76,6 +77,65 @@ Traditional knowledge bases require upfront schema design and manual curation. A
 
 ---
 
+## 🚀 Quick Start
+
+### First-Time Installation (Do This ONCE)
+
+```bash
+# 1. Clone the AI-Memory module (one time only!)
+git clone https://github.com/Hidden-History/ai-memory.git
+cd ai-memory
+
+# 2. Install to your first project
+./scripts/install.sh /path/to/your-project
+```
+
+### Adding More Projects (From Same Directory)
+
+> **Important:** AI-Memory is installed ONCE. To add more projects, run the installer again from the **same ai-memory directory**.
+
+```bash
+# Navigate to your AI-Memory installation (where you cloned it)
+cd /path/to/ai-memory
+
+# Add another project to the memory system
+./scripts/install.sh /path/to/another-project
+```
+
+All projects share the same Docker services but have isolated memory spaces via `group_id`.
+
+See [INSTALL.md](INSTALL.md) for detailed installation guide and multi-project setup.
+
+---
+
+## 🔬 Knowledge Discovery
+
+### Best Practices Researcher
+
+When you ask "how should I..." or "what's the best way to...", AI-Memory's best-practices-researcher activates:
+
+1. **Search Local Knowledge** - Checks the conventions collection first
+2. **Web Research** - Searches 2024-2026 sources if needed
+3. **Save Findings** - Stores to `oversight/knowledge/best-practices/BP-XXX.md`
+4. **Database Storage** - Adds to Qdrant for future retrieval
+5. **Skill Evaluation** - Determines if findings warrant a reusable skill
+
+### Skill Creator Agent
+
+When research reveals a repeatable process, the skill-creator agent can generate a Claude Code skill:
+
+```
+User: "Research best practices for writing commit messages"
+→ Best Practices Researcher finds patterns
+→ Evaluates: "This is a repeatable process with clear steps"
+→ User confirms: "Yes, create a skill"
+→ Skill Creator generates .claude/skills/writing-commits/SKILL.md
+```
+
+**The Result:** Your AI agents continuously discover and codify knowledge into reusable skills.
+
+---
+
 ## 🛡️ Complete Your AI Stack: Parzival Oversight Agent
 
 <table>
@@ -115,7 +175,7 @@ Memory + Oversight = Reliable AI
 </tr>
 </table>
 
-> **Part of the [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD) ecosystem** — Multi-agent workflows with persistent memory and quality gates.
+> **Works with [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD)** — Enhances BMAD workflows with persistent memory, but works standalone with any Claude Code project.
 
 ---
 
