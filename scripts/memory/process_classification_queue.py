@@ -74,20 +74,20 @@ registry = CollectorRegistry()
 
 # Queue processing metrics
 classifier_queue_processed_total = Counter(
-    'memory_classifier_queue_processed_total',
+    'ai_memory_classifier_queue_processed_total',
     'Total tasks processed from queue',
     ['status'],  # success, failed, skipped
     registry=registry
 )
 
 classifier_last_success_timestamp = Gauge(
-    'memory_classifier_last_success_timestamp',
+    'ai_memory_classifier_last_success_timestamp',
     'Last successful batch timestamp',
     registry=registry
 )
 
 classifier_batch_duration_seconds = Histogram(
-    'memory_classifier_batch_duration_seconds',
+    'ai_memory_classifier_batch_duration_seconds',
     'Time to process batch',
     registry=registry,
     # Buckets for LLM classification latency: 500ms - 60s
@@ -96,14 +96,14 @@ classifier_batch_duration_seconds = Histogram(
 )
 
 classifier_queue_size_gauge = Gauge(
-    'memory_classifier_queue_size',
+    'ai_memory_classifier_queue_size',
     'Current queue size',
     registry=registry
 )
 
 # LOW #9: Queue throughput metrics for trend analysis
 classifier_queue_dequeued_total = Counter(
-    'memory_classifier_queue_dequeued_total',
+    'ai_memory_classifier_queue_dequeued_total',
     'Total tasks dequeued from queue',
     registry=registry
 )
@@ -339,7 +339,9 @@ class ClassificationWorker:
         batch_duration = time.time() - start_time
         classifier_batch_duration_seconds.observe(batch_duration)
 
-        if success_count > 0:
+        # BUG-048: Update timestamp when ANY task is processed (success OR skipped)
+        # Skipped tasks (no reclassification needed) are still successful processing
+        if success_count > 0 or skipped_count > 0:
             classifier_last_success_timestamp.set_to_current_time()
 
         logger.info(

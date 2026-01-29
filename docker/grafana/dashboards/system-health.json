@@ -420,7 +420,7 @@
       "id": 6,
       "type": "stat",
       "title": "Classifier Worker Status",
-      "description": "**Metric:** `memory_classifier_last_success_timestamp`\n**Measures:** Classifier worker liveness (1=active, 0=stalled)\n**Formula:** `time() - memory_classifier_last_success_timestamp < 300` (pushed within last 5 minutes)\n**Expected:** Always 1 (active)\n**Action:** If 0, check worker logs: `docker logs memory-classifier-worker`\n**Note:** Worker doesn't expose /metrics endpoint, it pushes to Pushgateway",
+      "description": "**Metric:** `ai_memory_classifier_last_success_timestamp`\n**Measures:** Classifier worker liveness (1=active, 0=stalled)\n**Formula:** `time() - ai_memory_classifier_last_success_timestamp < 300` (pushed within last 5 minutes)\n**Expected:** Always 1 (active)\n**Action:** If 0, check worker logs: `docker logs memory-classifier-worker`\n**Note:** Worker doesn't expose /metrics endpoint, it pushes to Pushgateway",
       "gridPos": {
         "x": 20,
         "y": 6,
@@ -429,7 +429,7 @@
       },
       "targets": [
         {
-          "expr": "time() - memory_classifier_last_success_timestamp < 300",
+          "expr": "time() - ai_memory_classifier_last_success_timestamp < 300",
           "refId": "A",
           "legendFormat": "Classifier"
         }
@@ -489,110 +489,35 @@
     },
     {
       "id": 7,
-      "type": "timeseries",
-      "title": "Collection Sizes",
-      "description": "**Metric:** `ai_memory_collection_size`\n**Measures:** Number of memory points in each V2.0 collection\n**Formula:** `max by (collection) (ai_memory_collection_size{...})` (max to avoid double-counting across project labels)\n**Collections:**\n- **code-patterns**: Implementation patterns, error fixes, refactorings\n- **conventions**: Rules, guidelines, ports, naming conventions\n- **discussions**: Decisions, sessions, preferences, messages\n\n**Expected Growth:**\n- code-patterns: Grows with code changes (PostToolUse hooks)\n- conventions: Relatively stable (seeded from templates)\n- discussions: Grows fastest (every user/agent message)\n\n**Current Verified Totals (via Qdrant API):**\n- code-patterns: 339 points\n- conventions: 160 points\n- discussions: 1,942 points",
+      "type": "text",
+      "title": "Collection Sizes (Future Enhancement)",
+      "description": "Collection size metrics not yet implemented.",
       "gridPos": {
         "x": 0,
         "y": 10,
         "w": 24,
-        "h": 10
-      },
-      "targets": [
-        {
-          "expr": "max by (collection) (ai_memory_collection_size{collection=~\"code-patterns|conventions|discussions\"})",
-          "refId": "A",
-          "legendFormat": "{{collection}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 20,
-            "showPoints": "never"
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        }
+        "h": 4
       },
       "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "max",
-            "mean"
-          ]
-        }
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "mode": "markdown",
+        "content": "**Note:** Collection size panel temporarily disabled.\n\n**Reason:** `ai_memory_collection_size` metric not yet implemented.\n\n**Current workaround:** Query Qdrant API directly:\n```bash\ncurl -s http://localhost:26350/collections | jq '.result.collections[] | {name, vectors_count}'\n```\n\n**Future:** Collection size metrics will be pushed by the classifier worker."
       }
     },
     {
       "id": 8,
-      "type": "timeseries",
-      "title": "Deduplication Activity (No Duplicates Detected Yet - EXPECTED)",
-      "description": "**Metric:** `ai_memory_dedup_matches{action, collection}`\n**Measures:** Deduplication events over time by action (stored vs skipped_duplicate)\n**Formula:** `sum by (action, collection) (ai_memory_dedup_matches{...})`\n\n**Why \"No data\" is NORMAL:**\nThis metric only shows data when duplicate memories are detected. Duplication happens when:\n1. **Hash Match**: Exact same content stored twice (same SHA-256 hash)\n2. **Semantic Match**: Similar content with >0.95 similarity score\n\n**When this will show data:**\n- Storing identical code patterns multiple times\n- Re-capturing same user messages\n- Duplicate API responses or error messages\n\n**Current Status:** No duplicates detected yet - this is GOOD! It means:\n- Content is unique across captures\n- Deduplication system is working (not triggering on unique content)\n- Memory is growing organically without redundancy\n\n**Note:** Code fix deployed (BUG-021) - metric will populate when duplicates occur.",
+      "type": "text",
+      "title": "Deduplication Activity (Future Enhancement)",
+      "description": "Deduplication metrics not yet implemented.",
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 14,
         "w": 24,
-        "h": 10
-      },
-      "targets": [
-        {
-          "expr": "sum by (action, collection) (ai_memory_dedup_matches{collection=~\"code-patterns|conventions|discussions\"})",
-          "refId": "A",
-          "legendFormat": "{{action}} - {{collection}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "stepAfter",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false
-          },
-          "noValue": "No duplicates detected - Memory is unique \u2713"
-        }
+        "h": 4
       },
       "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull",
-            "sum"
-          ],
-          "showLegend": true
-        }
-      },
-      "maxDataPoints": 5000,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "transparent": false
+        "mode": "markdown",
+        "content": "**Note:** Deduplication panel temporarily disabled.\n\n**Reason:** `ai_memory_dedup_matches` metric not yet implemented.\n\n**Future:** Deduplication metrics will track:\n- Hash matches (exact duplicates)\n- Semantic matches (>0.95 similarity)\n- Stored vs skipped counts per collection"
+      }
     },
     {
       "id": 9,
@@ -606,7 +531,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "**Note:** Queue status panels (classification queue size, pending operations queue) will be added when queue metrics are implemented.\n\n**Future Metrics:**\n- `memory_classifier_queue_size` - Classification requests awaiting processing\n- `memory_operations_pending_total` - Background operations queue size\n\n**Expected Behavior:** Queue sizes should be near-zero under normal load. Large queues indicate backpressure or service issues.\n\n**Reference:** Architect prompt Row 4 (Queue Status panels)"
+        "content": "**Note:** Queue status panels (classification queue size, pending operations queue) will be added when queue metrics are implemented.\n\n**Future Metrics:**\n- `ai_memory_classifier_queue_size` - Classification requests awaiting processing\n- `ai_memory_operations_pending_total` - Background operations queue size\n\n**Expected Behavior:** Queue sizes should be near-zero under normal load. Large queues indicate backpressure or service issues.\n\n**Reference:** Architect prompt Row 4 (Queue Status panels)"
       }
     }
   ],
