@@ -1043,13 +1043,17 @@ create_project_symlinks() {
         echo "  $PROJECT_PATH/.claude/"
         if [[ "$link_method" == "copy" ]]; then
             echo "     hooks/scripts/       (Copies of shared hooks - WSL mode)"
+            echo "     skills/              (Best practices researcher, etc.)"
+            echo "     agents/              (Skill creator agent)"
             echo ""
             echo "NOTE: On WSL, we copy files instead of creating symlinks."
             echo "      This ensures hooks are visible from Windows applications."
             echo "      If you update the shared installation, re-run this installer"
-            echo "      to update the project hooks."
+            echo "      to update the project files."
         else
             echo "     hooks/scripts/       (Symlinks to shared hooks)"
+            echo "     skills/              (Best practices researcher, etc.)"
+            echo "     agents/              (Skill creator agent)"
         fi
         echo ""
         echo "This allows Claude Code to use the memory system in your project."
@@ -1145,6 +1149,52 @@ create_project_symlinks() {
         log_info "WSL note: Re-run installer after updating shared hooks to sync changes"
     else
         log_success "Created $file_count symlinks in $PROJECT_PATH/.claude/hooks/scripts/"
+    fi
+
+    # Copy skills to project (core ai-memory functionality)
+    if [[ -d "$INSTALL_DIR/.claude/skills" ]]; then
+        local skills_count=0
+        for skill_dir in "$INSTALL_DIR/.claude/skills"/*/; do
+            if [[ -d "$skill_dir" ]]; then
+                skill_name=$(basename "$skill_dir")
+                target_skill="$PROJECT_PATH/.claude/skills/$skill_name"
+                mkdir -p "$target_skill"
+
+                if [[ "$link_method" == "copy" ]]; then
+                    cp -r "$skill_dir"* "$target_skill/" 2>/dev/null || true
+                else
+                    # Symlink entire skill directory
+                    rm -rf "$target_skill"
+                    ln -sf "$skill_dir" "$PROJECT_PATH/.claude/skills/"
+                fi
+                ((skills_count++)) || true
+            fi
+        done
+        if [[ $skills_count -gt 0 ]]; then
+            log_success "Installed $skills_count skill(s) to $PROJECT_PATH/.claude/skills/"
+        fi
+    fi
+
+    # Copy agents to project (core ai-memory functionality)
+    if [[ -d "$INSTALL_DIR/.claude/agents" ]]; then
+        mkdir -p "$PROJECT_PATH/.claude/agents"
+        local agents_count=0
+        for agent_file in "$INSTALL_DIR/.claude/agents"/*.md; do
+            if [[ -f "$agent_file" ]]; then
+                agent_name=$(basename "$agent_file")
+                target_agent="$PROJECT_PATH/.claude/agents/$agent_name"
+
+                if [[ "$link_method" == "copy" ]]; then
+                    cp "$agent_file" "$target_agent"
+                else
+                    ln -sf "$agent_file" "$target_agent"
+                fi
+                ((agents_count++)) || true
+            fi
+        done
+        if [[ $agents_count -gt 0 ]]; then
+            log_success "Installed $agents_count agent(s) to $PROJECT_PATH/.claude/agents/"
+        fi
     fi
 }
 
