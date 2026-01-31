@@ -141,6 +141,7 @@ ignore = ["E501"]  # Line length handled by black
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "ARG"]
+"src/memory/__init__.py" = ["E402", "RUF022"]  # E402: configure_logging() before imports; RUF022: __all__ grouped by story
 
 # Black configuration
 [tool.black]

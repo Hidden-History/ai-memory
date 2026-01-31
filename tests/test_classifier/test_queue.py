@@ -11,7 +11,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-from memory.classifier.queue import (
+from src.memory.classifier.queue import (
     enqueue_for_classification,
     dequeue_batch,
     get_queue_size,
@@ -25,7 +25,7 @@ from memory.classifier.queue import (
 @pytest.fixture(autouse=True)
 def temp_queue_dir(tmp_path, monkeypatch):
     """Use temporary directory for queue during tests."""
-    import memory.classifier.queue as queue_module
+    import src.memory.classifier.queue as queue_module
 
     monkeypatch.setattr(queue_module, "QUEUE_DIR", tmp_path)
     monkeypatch.setattr(queue_module, "QUEUE_FILE", tmp_path / "test_queue.jsonl")
@@ -112,7 +112,7 @@ def test_empty_queue_dequeue():
 def test_lock_timeout_enqueue(temp_queue_dir, monkeypatch):
     """Verify enqueue returns False when lock cannot be acquired (HIGH-2)."""
     import fcntl
-    import memory.classifier.queue as queue_module
+    import src.memory.classifier.queue as queue_module
 
     task = make_task("lock-test")
 
@@ -139,7 +139,7 @@ def test_lock_timeout_enqueue(temp_queue_dir, monkeypatch):
 def test_lock_timeout_dequeue(temp_queue_dir, monkeypatch):
     """Verify dequeue returns empty list when lock unavailable (HIGH-2)."""
     import fcntl
-    import memory.classifier.queue as queue_module
+    import src.memory.classifier.queue as queue_module
 
     queue_file = temp_queue_dir / "test_queue.jsonl"
 
