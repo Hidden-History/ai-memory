@@ -1,0 +1,154 @@
+# BMAD Memory Module - Project Configuration
+# Python 3.10+
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-memory"
+version = "1.0.0"
+description = "BMAD AI Memory Module - Vector-based memory system for AI agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "BMAD Team"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    # Vector Database
+    "qdrant-client>=1.12.0,<2.0.0",
+    # HTTP Client
+    "httpx>=0.27.0,<1.0.0",
+    # Environment Configuration
+    "pydantic>=2.0.0,<3.0.0",
+    "pydantic-settings>=2.0.0,<3.0.0",
+    # Logging
+    "structlog>=24.0.0,<25.0.0",
+    # Monitoring
+    "prometheus-client>=0.21.0,<1.0.0",
+    # Anthropic SDK for conversation capture
+    "anthropic>=0.61.0,<1.0.0",
+    # Retry logic with exponential backoff
+    "tenacity>=8.0.0,<9.0.0",
+    # AST-based code chunking
+    "tree-sitter>=0.21.0,<1.0.0",
+    "tree-sitter-python>=0.21.0,<1.0.0",
+    "tree-sitter-javascript>=0.21.0,<1.0.0",
+    "tree-sitter-typescript>=0.21.0,<1.0.0",
+    "tree-sitter-go>=0.21.0,<1.0.0",
+    "tree-sitter-rust>=0.21.0,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Testing
+    "pytest>=9.0.0,<10.0.0",
+    "pytest-asyncio>=1.0.0,<2.0.0",
+    "pytest-cov>=7.0.0,<8.0.0",
+    "pytest-mock>=3.15.0,<4.0.0",
+    "pytest-timeout>=2.4.0,<3.0.0",
+    "requests>=2.32.0,<3.0.0",
+    "psutil>=7.0.0,<8.0.0",
+    # E2E Testing
+    "pytest-playwright>=0.7.0,<1.0.0",
+    "playwright>=1.50.0,<2.0.0",
+    # Code Quality
+    "black>=25.0.0,<26.0.0",
+    "ruff>=0.14.0,<1.0.0",
+    "isort>=5.13.0,<6.0.0",
+    "mypy>=1.19.0,<2.0.0",
+    # Security Scanning
+    "bandit[toml]>=1.7.0,<2.0.0",
+    # Structured logging
+    "python-json-logger>=4.0.0,<5.0.0",
+    # YAML processing with format preservation
+    "ruamel.yaml>=0.19.0,<1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Hidden-History/ai-memory"
+Documentation = "https://github.com/Hidden-History/ai-memory#readme"
+Repository = "https://github.com/Hidden-History/ai-memory"
+
+# Setuptools configuration for src layout
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
+
+# Pytest configuration (migrated from pytest.ini)
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "integration: integration tests requiring Docker stack",
+    "slow: marks tests as slow running (may require Docker services)",
+    "performance: performance/benchmark tests (NFR validation)",
+    "requires_qdrant: Tests requiring Qdrant service on port 26350",
+    "requires_embedding: Tests requiring Embedding service on port 28080",
+    "requires_docker_stack: Tests requiring full Docker stack",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src/memory"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/conftest.py",
+]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+
+# Ruff configuration
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+exclude = [".git", ".venv", "__pycache__", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "SIM", "RUF"]
+ignore = ["E501"]  # Line length handled by black
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "ARG"]
+
+# Black configuration
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311", "py312"]
+
+# isort configuration (Black-compatible)
+[tool.isort]
+profile = "black"
+line_length = 88
+known_first_party = ["memory"]

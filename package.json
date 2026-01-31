@@ -1,7 +1,7 @@
 {
-  "name": "bmad-memory-module",
+  "name": "ai-memory",
   "version": "1.0.0",
-  "description": "[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/wbsolutions-ca/bmad-memory/releases) [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![Docker](https://img.shields.io/badge/docker-20.10+-blue.svg)](https://www.docker.com/)",
+  "description": "BMAD AI Memory Module - Vector-based memory system for AI agents",
   "main": "index.js",
   "directories": {
     "doc": "docs",
@@ -16,15 +16,22 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wbsolutions-ca/bmad-memory-module.git"
+    "url": "git+https://github.com/Hidden-History/ai-memory.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "ai",
+    "memory",
+    "vector-database",
+    "qdrant",
+    "embeddings",
+    "claude"
+  ],
+  "author": "BMAD Team",
+  "license": "MIT",
   "bugs": {
-    "url": "https://github.com/wbsolutions-ca/bmad-memory-module/issues"
+    "url": "https://github.com/Hidden-History/ai-memory/issues"
   },
-  "homepage": "https://github.com/wbsolutions-ca/bmad-memory-module#readme",
+  "homepage": "https://github.com/Hidden-History/ai-memory#readme",
   "devDependencies": {
     "@playwright/test": "^1.57.0",
     "@types/node": "^25.0.9",
