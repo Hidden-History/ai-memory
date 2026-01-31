@@ -139,40 +139,63 @@ jobs:
 
       - name: Kimi Verification via OpenRouter
         id: kimi
-        uses: appleboy/llm-action@v1
-        with:
-          base_url: https://openrouter.ai/api/v1
-          api_key: ${{ secrets.OPENROUTER_API_KEY }}
-          model: moonshotai/kimi-k2
-          input_prompt: |
-            A different AI (Claude) just reviewed this code.
-            You are providing a SECOND OPINION as a verification check.
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          # Build the prompt with diff content
+          DIFF_CONTENT=$(cat /tmp/diff.txt | head -500 | jq -Rs .)
 
-            Focus on:
-            1. Edge cases that might be missed
-            2. Security vulnerabilities
-            3. Error handling gaps
-            4. Performance concerns
-            5. Logic errors
+          PROMPT="A different AI (Claude) just reviewed this code. You are providing a SECOND OPINION as a verification check.
 
-            Only report NEW issues that are not obvious from the code.
-            Be concise. If nothing significant to add, say so.
+          Focus on:
+          1. Edge cases that might be missed
+          2. Security vulnerabilities
+          3. Error handling gaps
+          4. Performance concerns
+          5. Logic errors
 
-            Code changes:
-            ${{ steps.diff.outputs.diff_content }}
+          Only report NEW issues that are not obvious from the code.
+          Be concise. If nothing significant to add, say so.
+
+          Code changes:
+          $(cat /tmp/diff.txt | head -500)"
+
+          # Call OpenRouter API
+          RESPONSE=$(curl -s https://openrouter.ai/api/v1/chat/completions \
+            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg prompt "$PROMPT" '{
+              "model": "moonshotai/kimi-k2",
+              "messages": [{"role": "user", "content": $prompt}],
+              "max_tokens": 1000
+            }')")
+
+          # Extract the response content
+          REVIEW=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+
+          if [ -n "$REVIEW" ]; then
+            echo "review<<EOF" >> $GITHUB_OUTPUT
+            echo "$REVIEW" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "Kimi review received: ${#REVIEW} chars"
+          else
+            echo "No review content received"
+            echo "API Response: $RESPONSE"
+          fi
         continue-on-error: true
 
       - name: Post Kimi review as comment
-        if: steps.kimi.outputs.response != ''
+        if: steps.kimi.outputs.review != ''
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const review = `${{ steps.kimi.outputs.review }}`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `## Kimi K2 Verification Review\n\n${{ steps.kimi.outputs.response }}`
+              body: `## 🔍 Kimi K2 Verification Review\n\n${review}`
             });
 
   # ============================================================
@@ -194,32 +217,47 @@ jobs:
 
       - name: Classify PR type
         id: classify
-        uses: appleboy/llm-action@v1
-        with:
-          base_url: https://openrouter.ai/api/v1
-          api_key: ${{ secrets.OPENROUTER_API_KEY }}
-          model: meta-llama/llama-3.3-70b-instruct
-          input_prompt: |
-            Based on this PR title, classify as ONE of:
-            - bug (fixing something broken)
-            - feature (new functionality)
-            - docs (documentation)
-            - refactor (code improvement, no behavior change)
-            - test (test changes)
-            - chore (maintenance)
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          PR_TITLE="${{ github.event.issue.title }}"
 
-            Title: ${{ steps.pr-info.outputs.title }}
+          PROMPT="Based on this PR title, classify as ONE of:
+          - bug (fixing something broken)
+          - feature (new functionality)
+          - docs (documentation)
+          - refactor (code improvement, no behavior change)
+          - test (test changes)
+          - chore (maintenance)
 
-            Return ONLY the single word label, nothing else.
+          Title: $PR_TITLE
+
+          Return ONLY the single word label, nothing else."
+
+          # Call OpenRouter API with Llama
+          RESPONSE=$(curl -s https://openrouter.ai/api/v1/chat/completions \
+            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg prompt "$PROMPT" '{
+              "model": "meta-llama/llama-3.3-70b-instruct",
+              "messages": [{"role": "user", "content": $prompt}],
+              "max_tokens": 10
+            }')")
+
+          # Extract the label
+          LABEL=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+
+          echo "Classified as: $LABEL"
+          echo "label=$LABEL" >> $GITHUB_OUTPUT
         continue-on-error: true
 
       - name: Apply label
-        if: steps.classify.outputs.response != ''
+        if: steps.classify.outputs.label != ''
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const label = '${{ steps.classify.outputs.response }}'.trim().toLowerCase();
+            const label = '${{ steps.classify.outputs.label }}'.trim().toLowerCase();
             const validLabels = ['bug', 'feature', 'docs', 'refactor', 'test', 'chore'];
             if (validLabels.includes(label)) {
               await github.rest.issues.addLabels({
