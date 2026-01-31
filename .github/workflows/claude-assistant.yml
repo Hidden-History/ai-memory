@@ -25,15 +25,10 @@ permissions:
   pull-requests: write
 
 jobs:
-  # ============================================================
-  # ACCESS CONTROL - Only authorized users can trigger AI
-  # ============================================================
   access-control:
     name: Check Authorization
     runs-on: ubuntu-latest
-    if: |
-      contains(github.event.comment.body, '@claude') ||
-      contains(github.event.comment.body, '@ai-review')
+    if: contains(github.event.comment.body, '@claude') || contains(github.event.comment.body, '@ai-review')
     outputs:
       authorized: ${{ steps.check.outputs.authorized }}
       trigger_type: ${{ steps.check.outputs.trigger_type }}
@@ -42,9 +37,7 @@ jobs:
       - name: Check if user is authorized
         id: check
         run: |
-          # Allowed users list - add more as needed
           ALLOWED_USERS="Hidden-History"
-
           ACTOR="${{ github.actor }}"
           echo "Checking authorization for: $ACTOR"
 
@@ -56,14 +49,12 @@ jobs:
             echo "User $ACTOR is NOT authorized"
           fi
 
-          # Determine trigger type
           if echo "${{ github.event.comment.body }}" | grep -q "@ai-review"; then
             echo "trigger_type=full-review" >> $GITHUB_OUTPUT
           else
             echo "trigger_type=assist" >> $GITHUB_OUTPUT
           fi
 
-          # Check if this is a PR
           if [ -n "${{ github.event.issue.pull_request }}" ]; then
             echo "is_pr=true" >> $GITHUB_OUTPUT
           else
@@ -80,13 +71,9 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `Sorry @${{ github.actor }}, you are not authorized to trigger the AI assistant.\n\nOnly repository maintainers can use this feature.`
+              body: 'Sorry @${{ github.actor }}, you are not authorized to trigger the AI assistant.\n\nOnly repository maintainers can use this feature.'
             });
 
-  # ============================================================
-  # AI REVIEW - Ollama Cloud (kimi-k2.5:cloud)
-  # Triggered by @claude or @ai-review
-  # ============================================================
   ai-review:
     name: AI Review (Ollama)
     needs: access-control
@@ -104,92 +91,62 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           IS_PR="${{ needs.access-control.outputs.is_pr }}"
-          COMMENT_BODY=$(cat <<'COMMENT_EOF'
-          ${{ github.event.comment.body }}
-          COMMENT_EOF
-          )
 
-          # Get issue/PR details
           ISSUE_NUMBER="${{ github.event.issue.number }}"
           ISSUE_TITLE="${{ github.event.issue.title }}"
           ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body -q '.body' 2>/dev/null | head -100 || echo "")
 
-          # Get diff if PR
           if [ "$IS_PR" = "true" ]; then
             gh pr diff $ISSUE_NUMBER > /tmp/diff.txt 2>/dev/null || echo "No diff available" > /tmp/diff.txt
-            DIFF_CONTENT=$(cat /tmp/diff.txt | head -300)
           else
-            DIFF_CONTENT=""
+            echo "" > /tmp/diff.txt
           fi
 
-          # Save context to files for the next step
           echo "$ISSUE_TITLE" > /tmp/issue_title.txt
           echo "$ISSUE_BODY" > /tmp/issue_body.txt
-          echo "$COMMENT_BODY" > /tmp/comment.txt
-          echo "$DIFF_CONTENT" > /tmp/diff_content.txt
+          echo "${{ github.event.comment.body }}" > /tmp/comment.txt
 
           echo "Context gathered for issue #$ISSUE_NUMBER"
-          echo "Is PR: $IS_PR"
 
       - name: AI Analysis via Ollama Cloud
         id: ollama
         env:
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
         run: |
-          # Read context
           ISSUE_TITLE=$(cat /tmp/issue_title.txt)
           ISSUE_BODY=$(cat /tmp/issue_body.txt | head -50)
           USER_REQUEST=$(cat /tmp/comment.txt)
-          DIFF_CONTENT=$(cat /tmp/diff_content.txt)
+          DIFF_CONTENT=$(cat /tmp/diff.txt | head -300)
           IS_PR="${{ needs.access-control.outputs.is_pr }}"
 
-          # Build context-aware prompt
-          if [ "$IS_PR" = "true" ] && [ -n "$DIFF_CONTENT" ]; then
-            PROMPT="You are an AI code reviewer. Analyze this pull request and respond to the user's request.
+          # Build prompt based on context
+          if [ "$IS_PR" = "true" ] && [ -s /tmp/diff.txt ]; then
+            PROMPT="You are an AI code reviewer. Analyze this PR and respond to the request.
 
-## PR Title
-$ISSUE_TITLE
+          PR Title: $ISSUE_TITLE
 
-## PR Description
-$ISSUE_BODY
+          PR Description: $ISSUE_BODY
 
-## Code Changes
-\`\`\`diff
-$DIFF_CONTENT
-\`\`\`
+          Code Changes:
+          $DIFF_CONTENT
 
-## User Request
-$USER_REQUEST
+          User Request: $USER_REQUEST
 
-Provide a helpful, concise response. If reviewing code, focus on:
-1. Potential bugs or logic errors
-2. Security concerns
-3. Edge cases
-4. Suggestions for improvement
-
-Format your response in markdown."
+          Focus on: bugs, security, edge cases, improvements. Format in markdown."
           else
-            PROMPT="You are an AI assistant helping with a GitHub issue. Analyze and respond to the request.
+            PROMPT="You are an AI assistant for GitHub issues. Analyze and respond.
 
-## Issue Title
-$ISSUE_TITLE
+          Issue Title: $ISSUE_TITLE
 
-## Issue Description
-$ISSUE_BODY
+          Issue Description: $ISSUE_BODY
 
-## User Request
-$USER_REQUEST
+          User Request: $USER_REQUEST
 
-Provide a helpful, concise response. If this is a bug report:
-1. Analyze the root cause
-2. Suggest a fix approach
-3. Identify affected files if possible
-
-Format your response in markdown."
+          If bug report: analyze root cause, suggest fix, identify affected files. Format in markdown."
           fi
 
-          # Call Ollama Cloud API
           echo "Calling Ollama Cloud API..."
+
           RESPONSE=$(curl -s -w "\n%{http_code}" https://ollama.com/api/chat \
             -H "Authorization: Bearer $OLLAMA_API_KEY" \
             -H "Content-Type: application/json" \
@@ -199,7 +156,6 @@ Format your response in markdown."
               "stream": false
             }')")
 
-          # Extract HTTP status code and response body
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
           BODY=$(echo "$RESPONSE" | sed '$d')
 
@@ -207,15 +163,13 @@ Format your response in markdown."
 
           if [ "$HTTP_CODE" != "200" ]; then
             echo "API Error: $BODY"
-            echo "review=API request failed with status $HTTP_CODE" >> $GITHUB_OUTPUT
+            echo "review_ready=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Extract the response content
           REVIEW=$(echo "$BODY" | jq -r '.message.content // empty')
 
           if [ -n "$REVIEW" ]; then
-            # Save to file to avoid output escaping issues
             echo "$REVIEW" > /tmp/review.txt
             echo "review_ready=true" >> $GITHUB_OUTPUT
             echo "Review received: $(wc -c < /tmp/review.txt) chars"
@@ -225,7 +179,7 @@ Format your response in markdown."
             echo "review_ready=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Post AI response as comment
+      - name: Post AI response
         if: steps.ollama.outputs.review_ready == 'true'
         uses: actions/github-script@v7
         with:
@@ -237,10 +191,10 @@ Format your response in markdown."
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `## 🤖 AI Analysis (Ollama kimi-k2.5:cloud)\n\n${review}\n\n---\n*Triggered by @${{ github.actor }}*`
+              body: '## 🤖 AI Analysis (Ollama kimi-k2.5:cloud)\n\n' + review + '\n\n---\n*Triggered by @${{ github.actor }}*'
             });
 
-      - name: Post error message if review failed
+      - name: Post error message
         if: steps.ollama.outputs.review_ready != 'true'
         uses: actions/github-script@v7
         with:
@@ -250,19 +204,13 @@ Format your response in markdown."
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `## ⚠️ AI Review Failed\n\nThe AI analysis could not be completed. This might be due to:\n- API rate limits\n- Service unavailability\n- Invalid API key\n\nPlease try again later or check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).`
+              body: '## ⚠️ AI Review Failed\n\nCould not complete AI analysis. Check [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).'
             });
 
-  # ============================================================
-  # AUTO-LABELING - Ollama Cloud (llama3.3:70b)
-  # Only runs on PRs
-  # ============================================================
   auto-label:
     name: Auto-Label PR
     needs: access-control
-    if: |
-      needs.access-control.outputs.authorized == 'true' &&
-      needs.access-control.outputs.is_pr == 'true'
+    if: needs.access-control.outputs.authorized == 'true' && needs.access-control.outputs.is_pr == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Classify PR type
@@ -272,19 +220,8 @@ Format your response in markdown."
         run: |
           PR_TITLE="${{ github.event.issue.title }}"
 
-          PROMPT="Based on this PR title, classify as ONE of:
-          - bug (fixing something broken)
-          - feature (new functionality)
-          - docs (documentation)
-          - refactor (code improvement, no behavior change)
-          - test (test changes)
-          - chore (maintenance)
+          PROMPT="Classify this PR title as ONE of: bug, feature, docs, refactor, test, chore. Title: $PR_TITLE. Return ONLY the single word."
 
-          Title: $PR_TITLE
-
-          Return ONLY the single word label, nothing else."
-
-          # Call Ollama Cloud API
           RESPONSE=$(curl -s https://ollama.com/api/chat \
             -H "Authorization: Bearer $OLLAMA_API_KEY" \
             -H "Content-Type: application/json" \
@@ -294,7 +231,6 @@ Format your response in markdown."
               "stream": false
             }')")
 
-          # Extract the label
           LABEL=$(echo "$RESPONSE" | jq -r '.message.content // empty' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
 
           echo "Classified as: $LABEL"
@@ -315,12 +251,11 @@ Format your response in markdown."
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: context.issue.number,
-                  labels: [`type:${label}`]
+                  labels: ['type:' + label]
                 });
-                console.log(`Applied label: type:${label}`);
+                console.log('Applied label: type:' + label);
               } catch (e) {
-                console.log(`Could not apply label (may not exist): ${e.message}`);
+                console.log('Could not apply label: ' + e.message);
               }
-            } else {
-              console.log(`Invalid label from LLM: ${label}`);
             }
+
