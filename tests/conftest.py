@@ -39,6 +39,27 @@ if str(tests_dir) not in sys.path:
 
 
 # =============================================================================
+# Pytest CLI Options (BP-031: GitHub Actions CI for Docker-Dependent Tests)
+# =============================================================================
+
+
+def pytest_addoption(parser):
+    """Add custom command line options for test selection."""
+    parser.addoption(
+        "--run-integration",
+        action="store_true",
+        default=False,
+        help="Run integration tests requiring external services (Qdrant)"
+    )
+    parser.addoption(
+        "--run-e2e",
+        action="store_true",
+        default=False,
+        help="Run end-to-end tests requiring Playwright browsers"
+    )
+
+
+# =============================================================================
 # Service Availability Check (TECH-DEBT-019)
 # =============================================================================
 
@@ -113,14 +134,42 @@ def pytest_sessionstart(session):
 
 
 def pytest_collection_modifyitems(session, config, items):
-    """Hook called after test collection to fix module pollution.
+    """Hook called after test collection to manage test selection.
 
-    Story 6.5: test_session_retrieval_logging.py mocks memory.session_logger at
-    import time (during collection), which pollutes sys.modules for other tests.
-    This hook runs after collection but before tests, allowing us to restore
-    the real module.
+    BP-031: GitHub Actions CI for Docker-Dependent Tests
+    - Skip integration tests unless --run-integration is provided
+    - Skip E2E tests unless --run-e2e is provided
+    - Clean up mocked modules from collection phase
+
+    Story 6.5: Fix module pollution from mocking during collection.
     """
-    # Check if memory.session_logger was mocked during collection
+    run_integration = config.getoption("--run-integration", default=False)
+    run_e2e = config.getoption("--run-e2e", default=False)
+
+    skip_integration = pytest.mark.skip(
+        reason="Need --run-integration option to run integration tests"
+    )
+    skip_e2e = pytest.mark.skip(
+        reason="Need --run-e2e option to run E2E tests"
+    )
+
+    for item in items:
+        # Skip integration tests unless explicitly requested
+        if "integration" in item.keywords and not run_integration:
+            item.add_marker(skip_integration)
+
+        # Skip E2E tests unless explicitly requested
+        if "e2e" in item.keywords and not run_e2e:
+            item.add_marker(skip_e2e)
+
+        # Also check for path-based detection (tests in e2e/ or integration/ folders)
+        item_path = str(item.fspath)
+        if "/e2e/" in item_path and not run_e2e:
+            item.add_marker(skip_e2e)
+        if "/integration/" in item_path and not run_integration:
+            item.add_marker(skip_integration)
+
+    # Story 6.5: Clean up mocked modules from collection phase
     from unittest.mock import Mock
     if 'memory.session_logger' in sys.modules:
         mod = sys.modules['memory.session_logger']
