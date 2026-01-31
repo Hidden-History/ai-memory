@@ -1,10 +1,10 @@
 # AI Code Review Pipeline
-# Multi-model approach: Claude (primary) + Kimi (verification) + Llama (labeling)
+# Multi-model approach: Claude (primary) + Ollama Cloud (verification + labeling)
 # Access controlled: Only Hidden-History can trigger @claude
 #
 # API Providers:
-#   - ANTHROPIC_API_KEY: Claude (primary review via claude-code-action)
-#   - OPENROUTER_API_KEY: Multi-model gateway (Kimi verification, Llama labeling)
+#   - ANTHROPIC_API_KEY: Claude (primary review via claude-code-action) [optional]
+#   - OLLAMA_API_KEY: Ollama Cloud (verification with gpt-oss:120b, labeling with llama3.3:70b)
 #
 # Documentation: oversight/plans/GITHUB-SOURCE-OF-TRUTH.md
 
@@ -101,11 +101,11 @@ jobs:
         run: echo "complete=true" >> $GITHUB_OUTPUT
 
   # ============================================================
-  # TIER 2: VERIFICATION - Kimi via OpenRouter API
+  # TIER 2: VERIFICATION - Ollama Cloud API
   # Uses different model to catch Claude's blind spots
   # ============================================================
   verification-review:
-    name: Kimi Verification Review
+    name: AI Verification Review
     needs: [access-control, primary-review]
     if: |
       needs.access-control.outputs.authorized == 'true' &&
@@ -137,69 +137,71 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Kimi Verification via OpenRouter
-        id: kimi
+      - name: AI Verification via Ollama Cloud
+        id: ollama
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
         run: |
-          # Build the prompt with diff content
-          DIFF_CONTENT=$(cat /tmp/diff.txt | head -500 | jq -Rs .)
+          # Get diff content and escape for JSON
+          DIFF_CONTENT=$(cat /tmp/diff.txt | head -500)
 
-          PROMPT="A different AI (Claude) just reviewed this code. You are providing a SECOND OPINION as a verification check.
-
-          Focus on:
+          # Build the prompt
+          PROMPT="You are a code reviewer providing a second opinion. Focus on:
           1. Edge cases that might be missed
           2. Security vulnerabilities
           3. Error handling gaps
           4. Performance concerns
           5. Logic errors
 
-          Only report NEW issues that are not obvious from the code.
-          Be concise. If nothing significant to add, say so.
+          Only report significant issues. Be concise.
 
           Code changes:
-          $(cat /tmp/diff.txt | head -500)"
+          $DIFF_CONTENT"
 
-          # Call OpenRouter API
-          RESPONSE=$(curl -s https://openrouter.ai/api/v1/chat/completions \
-            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+          # Call Ollama Cloud API
+          RESPONSE=$(curl -s https://ollama.com/api/chat \
+            -H "Authorization: Bearer $OLLAMA_API_KEY" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg prompt "$PROMPT" '{
-              "model": "moonshotai/kimi-k2",
+              "model": "gpt-oss:120b",
               "messages": [{"role": "user", "content": $prompt}],
-              "max_tokens": 1000
+              "stream": false
             }')")
 
-          # Extract the response content
-          REVIEW=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+          # Extract the response content (Ollama format: message.content)
+          REVIEW=$(echo "$RESPONSE" | jq -r '.message.content // .choices[0].message.content // empty')
 
           if [ -n "$REVIEW" ]; then
-            echo "review<<EOF" >> $GITHUB_OUTPUT
+            # Use a unique delimiter to avoid issues with special characters
+            DELIMITER=$(openssl rand -hex 8)
+            echo "review<<$DELIMITER" >> $GITHUB_OUTPUT
             echo "$REVIEW" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-            echo "Kimi review received: ${#REVIEW} chars"
+            echo "$DELIMITER" >> $GITHUB_OUTPUT
+            echo "Review received: ${#REVIEW} chars"
           else
             echo "No review content received"
             echo "API Response: $RESPONSE"
           fi
         continue-on-error: true
 
-      - name: Post Kimi review as comment
-        if: steps.kimi.outputs.review != ''
+      - name: Post AI review as comment
+        if: steps.ollama.outputs.review != ''
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const review = `${{ steps.kimi.outputs.review }}`;
+            const review = process.env.REVIEW_CONTENT;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `## 🔍 Kimi K2 Verification Review\n\n${review}`
+              body: `## 🔍 AI Verification Review (Ollama Cloud)\n\n${review}`
             });
+        env:
+          REVIEW_CONTENT: ${{ steps.ollama.outputs.review }}
 
   # ============================================================
-  # TIER 3: AUTO-LABELING - Cheap model for classification
+  # TIER 3: AUTO-LABELING - Ollama Cloud (llama3.3:70b)
   # ============================================================
   auto-label:
     name: Auto-Label PR
@@ -218,7 +220,7 @@ jobs:
       - name: Classify PR type
         id: classify
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
         run: |
           PR_TITLE="${{ github.event.issue.title }}"
 
@@ -234,18 +236,18 @@ jobs:
 
           Return ONLY the single word label, nothing else."
 
-          # Call OpenRouter API with Llama
-          RESPONSE=$(curl -s https://openrouter.ai/api/v1/chat/completions \
-            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+          # Call Ollama Cloud API
+          RESPONSE=$(curl -s https://ollama.com/api/chat \
+            -H "Authorization: Bearer $OLLAMA_API_KEY" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg prompt "$PROMPT" '{
-              "model": "meta-llama/llama-3.3-70b-instruct",
+              "model": "llama3.3:70b",
               "messages": [{"role": "user", "content": $prompt}],
-              "max_tokens": 10
+              "stream": false
             }')")
 
-          # Extract the label
-          LABEL=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+          # Extract the label (Ollama format: message.content)
+          LABEL=$(echo "$RESPONSE" | jq -r '.message.content // .choices[0].message.content // empty' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
 
           echo "Classified as: $LABEL"
           echo "label=$LABEL" >> $GITHUB_OUTPUT
