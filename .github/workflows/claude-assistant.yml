@@ -1,0 +1,234 @@
+# AI Code Review Pipeline
+# Multi-model approach: Claude (primary) + Kimi (verification) + Llama (labeling)
+# Access controlled: Only Hidden-History can trigger @claude
+#
+# API Providers:
+#   - ANTHROPIC_API_KEY: Claude (primary review via claude-code-action)
+#   - OPENROUTER_API_KEY: Multi-model gateway (Kimi verification, Llama labeling)
+#
+# Documentation: oversight/plans/GITHUB-SOURCE-OF-TRUTH.md
+
+name: AI Code Review Pipeline
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+# Limit permissions for security
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  # ============================================================
+  # ACCESS CONTROL - Only authorized users can trigger AI
+  # ============================================================
+  access-control:
+    name: Check Authorization
+    runs-on: ubuntu-latest
+    if: |
+      contains(github.event.comment.body, '@claude') ||
+      contains(github.event.comment.body, '@ai-review')
+    outputs:
+      authorized: ${{ steps.check.outputs.authorized }}
+      trigger_type: ${{ steps.check.outputs.trigger_type }}
+    steps:
+      - name: Check if user is authorized
+        id: check
+        run: |
+          # Allowed users list - add more as needed
+          ALLOWED_USERS="Hidden-History"
+
+          ACTOR="${{ github.actor }}"
+          echo "Checking authorization for: $ACTOR"
+
+          if echo "$ALLOWED_USERS" | grep -qw "$ACTOR"; then
+            echo "authorized=true" >> $GITHUB_OUTPUT
+            echo "User $ACTOR is authorized"
+          else
+            echo "authorized=false" >> $GITHUB_OUTPUT
+            echo "User $ACTOR is NOT authorized"
+          fi
+
+          # Determine trigger type
+          if echo "${{ github.event.comment.body }}" | grep -q "@ai-review"; then
+            echo "trigger_type=full-review" >> $GITHUB_OUTPUT
+          else
+            echo "trigger_type=assist" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post unauthorized message
+        if: steps.check.outputs.authorized == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `Sorry @${{ github.actor }}, you are not authorized to trigger the AI assistant.\n\nOnly repository maintainers can use this feature.`
+            });
+
+  # ============================================================
+  # TIER 1: PRIMARY REVIEW - Claude via Anthropic API
+  # ============================================================
+  primary-review:
+    name: Claude Primary Review
+    needs: access-control
+    if: needs.access-control.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      review_complete: ${{ steps.review.outputs.complete }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude Code Review
+        id: review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Model is configured in the action
+        continue-on-error: true
+
+      - name: Set review status
+        run: echo "complete=true" >> $GITHUB_OUTPUT
+
+  # ============================================================
+  # TIER 2: VERIFICATION - Kimi via OpenRouter API
+  # Uses different model to catch Claude's blind spots
+  # ============================================================
+  verification-review:
+    name: Kimi Verification Review
+    needs: [access-control, primary-review]
+    if: |
+      needs.access-control.outputs.authorized == 'true' &&
+      needs.access-control.outputs.trigger_type == 'full-review'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          # Get diff from PR or fallback to recent commit
+          if [ -n "${{ github.event.issue.pull_request.url }}" ]; then
+            PR_NUMBER="${{ github.event.issue.number }}"
+            gh pr diff $PR_NUMBER > /tmp/diff.txt || git diff HEAD~1 > /tmp/diff.txt
+          else
+            git diff HEAD~1 > /tmp/diff.txt
+          fi
+
+          # Store diff content as output (max 500 lines to avoid token limits)
+          DIFF_CONTENT=$(cat /tmp/diff.txt | head -500)
+          echo "diff_content<<EOF" >> $GITHUB_OUTPUT
+          echo "$DIFF_CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "Diff captured: $(wc -l < /tmp/diff.txt) lines"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Kimi Verification via OpenRouter
+        id: kimi
+        uses: appleboy/llm-action@v1
+        with:
+          base_url: https://openrouter.ai/api/v1
+          api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          model: moonshotai/kimi-k2
+          input_prompt: |
+            A different AI (Claude) just reviewed this code.
+            You are providing a SECOND OPINION as a verification check.
+
+            Focus on:
+            1. Edge cases that might be missed
+            2. Security vulnerabilities
+            3. Error handling gaps
+            4. Performance concerns
+            5. Logic errors
+
+            Only report NEW issues that are not obvious from the code.
+            Be concise. If nothing significant to add, say so.
+
+            Code changes:
+            ${{ steps.diff.outputs.diff_content }}
+        continue-on-error: true
+
+      - name: Post Kimi review as comment
+        if: steps.kimi.outputs.response != ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## Kimi K2 Verification Review\n\n${{ steps.kimi.outputs.response }}`
+            });
+
+  # ============================================================
+  # TIER 3: AUTO-LABELING - Cheap model for classification
+  # ============================================================
+  auto-label:
+    name: Auto-Label PR
+    needs: access-control
+    if: |
+      needs.access-control.outputs.authorized == 'true' &&
+      github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get PR info
+        id: pr-info
+        run: |
+          PR_TITLE="${{ github.event.issue.title }}"
+          echo "title=$PR_TITLE" >> $GITHUB_OUTPUT
+
+      - name: Classify PR type
+        id: classify
+        uses: appleboy/llm-action@v1
+        with:
+          base_url: https://openrouter.ai/api/v1
+          api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          model: meta-llama/llama-3.3-70b-instruct
+          input_prompt: |
+            Based on this PR title, classify as ONE of:
+            - bug (fixing something broken)
+            - feature (new functionality)
+            - docs (documentation)
+            - refactor (code improvement, no behavior change)
+            - test (test changes)
+            - chore (maintenance)
+
+            Title: ${{ steps.pr-info.outputs.title }}
+
+            Return ONLY the single word label, nothing else.
+        continue-on-error: true
+
+      - name: Apply label
+        if: steps.classify.outputs.response != ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const label = '${{ steps.classify.outputs.response }}'.trim().toLowerCase();
+            const validLabels = ['bug', 'feature', 'docs', 'refactor', 'test', 'chore'];
+            if (validLabels.includes(label)) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: [`type:${label}`]
+              });
+              console.log(`Applied label: type:${label}`);
+            } else {
+              console.log(`Invalid label from LLM: ${label}`);
+            }
