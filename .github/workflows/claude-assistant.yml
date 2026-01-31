@@ -1,10 +1,13 @@
-# AI Code Review Pipeline
-# Multi-model approach: Claude (primary) + Ollama Cloud (verification + labeling)
+# AI Code Review Pipeline (Ollama-Only)
+# Uses Ollama Cloud API for all AI operations
 # Access controlled: Only Hidden-History can trigger @claude
 #
-# API Providers:
-#   - ANTHROPIC_API_KEY: Claude (primary review via claude-code-action) [optional]
-#   - OLLAMA_API_KEY: Ollama Cloud (verification with gpt-oss:120b, labeling with llama3.3:70b)
+# API Provider:
+#   - OLLAMA_API_KEY: Ollama Cloud (kimi-k2.5:cloud for review, llama3.3:70b for labeling)
+#
+# Triggers:
+#   - @claude: Quick assist/analysis on issues or PRs
+#   - @ai-review: Full code review (for PRs)
 #
 # Documentation: oversight/plans/GITHUB-SOURCE-OF-TRUTH.md
 
@@ -16,12 +19,10 @@ on:
   pull_request_review_comment:
     types: [created]
 
-# Permissions for security + OIDC token for Claude Code Action
 permissions:
   contents: read
   issues: write
   pull-requests: write
-  id-token: write
 
 jobs:
   # ============================================================
@@ -36,6 +37,7 @@ jobs:
     outputs:
       authorized: ${{ steps.check.outputs.authorized }}
       trigger_type: ${{ steps.check.outputs.trigger_type }}
+      is_pr: ${{ steps.check.outputs.is_pr }}
     steps:
       - name: Check if user is authorized
         id: check
@@ -61,6 +63,13 @@ jobs:
             echo "trigger_type=assist" >> $GITHUB_OUTPUT
           fi
 
+          # Check if this is a PR
+          if [ -n "${{ github.event.issue.pull_request }}" ]; then
+            echo "is_pr=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_pr=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Post unauthorized message
         if: steps.check.outputs.authorized == 'false'
         uses: actions/github-script@v7
@@ -75,149 +84,187 @@ jobs:
             });
 
   # ============================================================
-  # TIER 1: PRIMARY REVIEW - Claude via Anthropic API
+  # AI REVIEW - Ollama Cloud (kimi-k2.5:cloud)
+  # Triggered by @claude or @ai-review
   # ============================================================
-  primary-review:
-    name: Claude Primary Review
+  ai-review:
+    name: AI Review (Ollama)
     needs: access-control
     if: needs.access-control.outputs.authorized == 'true'
     runs-on: ubuntu-latest
-    outputs:
-      review_complete: ${{ steps.review.outputs.complete }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Claude Code Review
-        id: review
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Model is configured in the action
-        continue-on-error: true
-
-      - name: Set review status
-        run: echo "complete=true" >> $GITHUB_OUTPUT
-
-  # ============================================================
-  # TIER 2: VERIFICATION - Ollama Cloud API
-  # Uses different model to catch Claude's blind spots
-  # ============================================================
-  verification-review:
-    name: AI Verification Review
-    needs: [access-control, primary-review]
-    if: |
-      needs.access-control.outputs.authorized == 'true' &&
-      needs.access-control.outputs.trigger_type == 'full-review'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Get PR diff
-        id: diff
-        run: |
-          # Get diff from PR or fallback to recent commit
-          if [ -n "${{ github.event.issue.pull_request.url }}" ]; then
-            PR_NUMBER="${{ github.event.issue.number }}"
-            gh pr diff $PR_NUMBER > /tmp/diff.txt || git diff HEAD~1 > /tmp/diff.txt
-          else
-            git diff HEAD~1 > /tmp/diff.txt
-          fi
-
-          # Store diff content as output (max 500 lines to avoid token limits)
-          DIFF_CONTENT=$(cat /tmp/diff.txt | head -500)
-          echo "diff_content<<EOF" >> $GITHUB_OUTPUT
-          echo "$DIFF_CONTENT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "Diff captured: $(wc -l < /tmp/diff.txt) lines"
+      - name: Get context for review
+        id: context
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IS_PR="${{ needs.access-control.outputs.is_pr }}"
+          COMMENT_BODY=$(cat <<'COMMENT_EOF'
+          ${{ github.event.comment.body }}
+          COMMENT_EOF
+          )
 
-      - name: AI Verification via Ollama Cloud
+          # Get issue/PR details
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+          ISSUE_TITLE="${{ github.event.issue.title }}"
+          ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body -q '.body' 2>/dev/null | head -100 || echo "")
+
+          # Get diff if PR
+          if [ "$IS_PR" = "true" ]; then
+            gh pr diff $ISSUE_NUMBER > /tmp/diff.txt 2>/dev/null || echo "No diff available" > /tmp/diff.txt
+            DIFF_CONTENT=$(cat /tmp/diff.txt | head -300)
+          else
+            DIFF_CONTENT=""
+          fi
+
+          # Save context to files for the next step
+          echo "$ISSUE_TITLE" > /tmp/issue_title.txt
+          echo "$ISSUE_BODY" > /tmp/issue_body.txt
+          echo "$COMMENT_BODY" > /tmp/comment.txt
+          echo "$DIFF_CONTENT" > /tmp/diff_content.txt
+
+          echo "Context gathered for issue #$ISSUE_NUMBER"
+          echo "Is PR: $IS_PR"
+
+      - name: AI Analysis via Ollama Cloud
         id: ollama
         env:
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
         run: |
-          # Get diff content and escape for JSON
-          DIFF_CONTENT=$(cat /tmp/diff.txt | head -500)
+          # Read context
+          ISSUE_TITLE=$(cat /tmp/issue_title.txt)
+          ISSUE_BODY=$(cat /tmp/issue_body.txt | head -50)
+          USER_REQUEST=$(cat /tmp/comment.txt)
+          DIFF_CONTENT=$(cat /tmp/diff_content.txt)
+          IS_PR="${{ needs.access-control.outputs.is_pr }}"
 
-          # Build the prompt
-          PROMPT="You are a code reviewer providing a second opinion. Focus on:
-          1. Edge cases that might be missed
-          2. Security vulnerabilities
-          3. Error handling gaps
-          4. Performance concerns
-          5. Logic errors
+          # Build context-aware prompt
+          if [ "$IS_PR" = "true" ] && [ -n "$DIFF_CONTENT" ]; then
+            PROMPT="You are an AI code reviewer. Analyze this pull request and respond to the user's request.
 
-          Only report significant issues. Be concise.
+## PR Title
+$ISSUE_TITLE
 
-          Code changes:
-          $DIFF_CONTENT"
+## PR Description
+$ISSUE_BODY
+
+## Code Changes
+\`\`\`diff
+$DIFF_CONTENT
+\`\`\`
+
+## User Request
+$USER_REQUEST
+
+Provide a helpful, concise response. If reviewing code, focus on:
+1. Potential bugs or logic errors
+2. Security concerns
+3. Edge cases
+4. Suggestions for improvement
+
+Format your response in markdown."
+          else
+            PROMPT="You are an AI assistant helping with a GitHub issue. Analyze and respond to the request.
+
+## Issue Title
+$ISSUE_TITLE
+
+## Issue Description
+$ISSUE_BODY
+
+## User Request
+$USER_REQUEST
+
+Provide a helpful, concise response. If this is a bug report:
+1. Analyze the root cause
+2. Suggest a fix approach
+3. Identify affected files if possible
+
+Format your response in markdown."
+          fi
 
           # Call Ollama Cloud API
-          RESPONSE=$(curl -s https://ollama.com/api/chat \
+          echo "Calling Ollama Cloud API..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" https://ollama.com/api/chat \
             -H "Authorization: Bearer $OLLAMA_API_KEY" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg prompt "$PROMPT" '{
-              "model": "gpt-oss:120b",
+              "model": "kimi-k2.5:cloud",
               "messages": [{"role": "user", "content": $prompt}],
               "stream": false
             }')")
 
-          # Extract the response content (Ollama format: message.content)
-          REVIEW=$(echo "$RESPONSE" | jq -r '.message.content // .choices[0].message.content // empty')
+          # Extract HTTP status code and response body
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "HTTP Status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "API Error: $BODY"
+            echo "review=API request failed with status $HTTP_CODE" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Extract the response content
+          REVIEW=$(echo "$BODY" | jq -r '.message.content // empty')
 
           if [ -n "$REVIEW" ]; then
-            # Use a unique delimiter to avoid issues with special characters
-            DELIMITER=$(openssl rand -hex 8)
-            echo "review<<$DELIMITER" >> $GITHUB_OUTPUT
-            echo "$REVIEW" >> $GITHUB_OUTPUT
-            echo "$DELIMITER" >> $GITHUB_OUTPUT
-            echo "Review received: ${#REVIEW} chars"
+            # Save to file to avoid output escaping issues
+            echo "$REVIEW" > /tmp/review.txt
+            echo "review_ready=true" >> $GITHUB_OUTPUT
+            echo "Review received: $(wc -c < /tmp/review.txt) chars"
           else
             echo "No review content received"
-            echo "API Response: $RESPONSE"
+            echo "Raw response: $BODY"
+            echo "review_ready=false" >> $GITHUB_OUTPUT
           fi
-        continue-on-error: true
 
-      - name: Post AI review as comment
-        if: steps.ollama.outputs.review != ''
+      - name: Post AI response as comment
+        if: steps.ollama.outputs.review_ready == 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const review = process.env.REVIEW_CONTENT;
+            const fs = require('fs');
+            const review = fs.readFileSync('/tmp/review.txt', 'utf8');
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `## 🔍 AI Verification Review (Ollama Cloud)\n\n${review}`
+              body: `## 🤖 AI Analysis (Ollama kimi-k2.5:cloud)\n\n${review}\n\n---\n*Triggered by @${{ github.actor }}*`
             });
-        env:
-          REVIEW_CONTENT: ${{ steps.ollama.outputs.review }}
+
+      - name: Post error message if review failed
+        if: steps.ollama.outputs.review_ready != 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## ⚠️ AI Review Failed\n\nThe AI analysis could not be completed. This might be due to:\n- API rate limits\n- Service unavailability\n- Invalid API key\n\nPlease try again later or check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).`
+            });
 
   # ============================================================
-  # TIER 3: AUTO-LABELING - Ollama Cloud (llama3.3:70b)
+  # AUTO-LABELING - Ollama Cloud (llama3.3:70b)
+  # Only runs on PRs
   # ============================================================
   auto-label:
     name: Auto-Label PR
     needs: access-control
     if: |
       needs.access-control.outputs.authorized == 'true' &&
-      github.event.issue.pull_request != null
+      needs.access-control.outputs.is_pr == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Get PR info
-        id: pr-info
-        run: |
-          PR_TITLE="${{ github.event.issue.title }}"
-          echo "title=$PR_TITLE" >> $GITHUB_OUTPUT
-
       - name: Classify PR type
         id: classify
         env:
@@ -247,8 +294,8 @@ jobs:
               "stream": false
             }')")
 
-          # Extract the label (Ollama format: message.content)
-          LABEL=$(echo "$RESPONSE" | jq -r '.message.content // .choices[0].message.content // empty' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+          # Extract the label
+          LABEL=$(echo "$RESPONSE" | jq -r '.message.content // empty' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
 
           echo "Classified as: $LABEL"
           echo "label=$LABEL" >> $GITHUB_OUTPUT
@@ -263,13 +310,17 @@ jobs:
             const label = '${{ steps.classify.outputs.label }}'.trim().toLowerCase();
             const validLabels = ['bug', 'feature', 'docs', 'refactor', 'test', 'chore'];
             if (validLabels.includes(label)) {
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                labels: [`type:${label}`]
-              });
-              console.log(`Applied label: type:${label}`);
+              try {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  labels: [`type:${label}`]
+                });
+                console.log(`Applied label: type:${label}`);
+              } catch (e) {
+                console.log(`Could not apply label (may not exist): ${e.message}`);
+              }
             } else {
               console.log(`Invalid label from LLM: ${label}`);
             }
