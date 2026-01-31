@@ -158,9 +158,7 @@ def reset_metrics_registry():
                         if k.startswith('src.memory.classifier.metrics')
                         or k.startswith('memory.classifier.metrics')
                         or k.startswith('src.memory.metrics')
-                        or k.startswith('memory.metrics')
-                        or k == 'memory'
-                        or k == 'src.memory']
+                        or k.startswith('memory.metrics')]
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 
@@ -178,9 +176,7 @@ def reset_metrics_registry():
                         if k.startswith('src.memory.classifier.metrics')
                         or k.startswith('memory.classifier.metrics')
                         or k.startswith('src.memory.metrics')
-                        or k.startswith('memory.metrics')
-                        or k == 'memory'
-                        or k == 'src.memory']
+                        or k.startswith('memory.metrics')]
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 
