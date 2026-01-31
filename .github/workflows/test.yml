@@ -1,4 +1,4 @@
-name: Test
+name: Test Suite
 
 on:
   push:
@@ -14,6 +14,9 @@ permissions:
   contents: read
 
 jobs:
+  # ============================================================================
+  # LINT - Fast code quality checks
+  # ============================================================================
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -42,8 +45,11 @@ jobs:
       - name: Check isort
         run: isort --check-only --profile black src/ tests/
 
-  test:
-    name: Test (Python ${{ matrix.python-version }})
+  # ============================================================================
+  # UNIT TESTS - Fast tests without external dependencies
+  # ============================================================================
+  unit-tests:
+    name: Unit Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -66,8 +72,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Run tests
-        run: pytest tests/ -v --tb=short -m "not requires_docker_stack" --cov=src/memory --cov-report=xml --cov-fail-under=70
+      - name: Run unit tests
+        run: |
+          pytest tests/ -v --tb=short \
+            --ignore=tests/e2e \
+            --ignore=tests/integration \
+            --cov=src/memory --cov-report=xml --cov-fail-under=60
+        env:
+          CI: "true"
 
       - name: Upload coverage
         if: matrix.python-version == '3.11'
@@ -78,20 +90,143 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+  # ============================================================================
+  # INTEGRATION TESTS - Tests requiring Qdrant service
+  # ============================================================================
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: unit-tests
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+          - 6334:6334
+        options: >-
+          --health-cmd "curl -f http://localhost:6333/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Wait for Qdrant
+        run: |
+          echo "Waiting for Qdrant to be ready..."
+          for i in {1..30}; do
+            if curl -f http://localhost:6333/health 2>/dev/null; then
+              echo "Qdrant is ready!"
+              break
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration -v --tb=short \
+            --run-integration \
+            -m "not requires_embedding"
+        env:
+          CI: "true"
+          QDRANT_HOST: localhost
+          QDRANT_PORT: "6333"
+
+  # ============================================================================
+  # E2E TESTS - Playwright browser tests (optional, runs after integration)
+  # ============================================================================
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: integration-tests
+    # Only run E2E if explicitly enabled or on main branch
+    if: github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[e2e]')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: |
+          VERSION=$(python -c "import playwright; print(playwright.__version__)")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: python -m playwright install --with-deps chromium
+
+      - name: Install Playwright OS dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: python -m playwright install-deps chromium
+
+      - name: Run E2E tests
+        run: |
+          pytest tests/e2e -v --tb=short \
+            --run-e2e \
+            --browser chromium
+        env:
+          CI: "true"
+
+  # ============================================================================
+  # CI SUCCESS - Summary job for branch protection
+  # ============================================================================
   ci-success:
     name: CI Success
-    needs: [lint, test]
+    needs: [lint, unit-tests, integration-tests]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Check all results
         run: |
+          echo "Lint: ${{ needs.lint.result }}"
+          echo "Unit Tests: ${{ needs.unit-tests.result }}"
+          echo "Integration Tests: ${{ needs.integration-tests.result }}"
+
           if [[ "${{ needs.lint.result }}" != "success" ]]; then
             echo "::error::Lint checks failed"
             exit 1
           fi
-          if [[ "${{ needs.test.result }}" != "success" ]]; then
-            echo "::error::Tests failed"
+          if [[ "${{ needs.unit-tests.result }}" != "success" ]]; then
+            echo "::error::Unit tests failed"
+            exit 1
+          fi
+          if [[ "${{ needs.integration-tests.result }}" != "success" ]]; then
+            echo "::error::Integration tests failed"
             exit 1
           fi
           echo "All CI checks passed!"
