@@ -126,4 +126,10 @@ def qdrant_client():
     from memory.config import get_config
 
     config = get_config()
-    return QdrantClient(host=config.qdrant_host, port=config.qdrant_port)
+    # Strip protocol if present (qdrant-client 1.12+ validation)
+    host = config.qdrant_host
+    if host.startswith("http://"):
+        host = host[7:]
+    elif host.startswith("https://"):
+        host = host[8:]
+    return QdrantClient(host=host, port=config.qdrant_port)

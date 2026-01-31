@@ -13,11 +13,11 @@ class TestEmbeddingService:
     """Test embedding service endpoints and performance."""
 
     @pytest.fixture
-    def base_url(self):
+    def embedding_base_url(self):
         """Embedding service base URL."""
         return "http://localhost:28080"
 
-    def test_health_endpoint(self, base_url):
+    def test_health_endpoint(self, embedding_base_url):
         """
         Embedding service health check returns correct model info (AC 1.2.3).
 
@@ -27,7 +27,7 @@ class TestEmbeddingService:
         - Model name is jina-embeddings-v2-base-code
         - Dimensions = 768
         """
-        response = httpx.get(f"{base_url}/health", timeout=30.0)
+        response = httpx.get(f"{embedding_base_url}/health", timeout=30.0)
 
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
@@ -38,7 +38,7 @@ class TestEmbeddingService:
         assert data["model_loaded"] is True, "Model should be loaded"
         assert "uptime_seconds" in data, "Uptime should be included"
 
-    def test_embed_single_text(self, base_url):
+    def test_embed_single_text(self, embedding_base_url):
         """
         Single text embedding returns 768-dimensional vector (AC 1.2.3).
 
@@ -49,7 +49,7 @@ class TestEmbeddingService:
         - Values are normalized floats
         """
         response = httpx.post(
-            f"{base_url}/embed",
+            f"{embedding_base_url}/embed",
             json={"texts": ["def hello(): return 'world'"]},
             timeout=30.0
         )
@@ -67,7 +67,7 @@ class TestEmbeddingService:
         assert all(isinstance(val, float) for val in embedding), "All values should be floats"
         assert all(-1.0 <= val <= 1.0 for val in embedding), "Values should be normalized between -1 and 1"
 
-    def test_embed_batch(self, base_url):
+    def test_embed_batch(self, embedding_base_url):
         """
         Batch embedding returns correct number of vectors (AC 1.2.3).
 
@@ -83,7 +83,7 @@ class TestEmbeddingService:
         ]
 
         response = httpx.post(
-            f"{base_url}/embed",
+            f"{embedding_base_url}/embed",
             json={"texts": texts},
             timeout=30.0
         )
@@ -94,7 +94,7 @@ class TestEmbeddingService:
         assert len(data["embeddings"]) == 3, f"Expected 3 embeddings, got {len(data['embeddings'])}"
         assert all(len(emb) == 768 for emb in data["embeddings"]), "All embeddings should have 768 dimensions"
 
-    def test_embed_performance(self, base_url):
+    def test_embed_performance(self, embedding_base_url):
         """
         Embedding generation completes within expected time (AC 1.2.4 / NFR-P2).
 
@@ -109,7 +109,7 @@ class TestEmbeddingService:
         start = time.time()
 
         response = httpx.post(
-            f"{base_url}/embed",
+            f"{embedding_base_url}/embed",
             json={"texts": ["test code snippet"]},
             timeout=60.0  # CPU requires longer timeout
         )
@@ -124,7 +124,7 @@ class TestEmbeddingService:
         # GPU performance check (uncomment for GPU testing)
         # assert duration < 2.0, f"Embedding took {duration:.2f}s, expected <2s (NFR-P2 with GPU)"
 
-    def test_embed_normalization(self, base_url):
+    def test_embed_normalization(self, embedding_base_url):
         """
         Embeddings are normalized float arrays (AC 1.2.4).
 
@@ -133,7 +133,7 @@ class TestEmbeddingService:
         - Values are between -1 and 1 (normalized)
         """
         response = httpx.post(
-            f"{base_url}/embed",
+            f"{embedding_base_url}/embed",
             json={"texts": ["sample code for normalization test"]},
             timeout=30.0
         )
@@ -147,7 +147,7 @@ class TestEmbeddingService:
         assert all(isinstance(val, float) for val in embedding), "All values must be floats"
         assert all(-1.0 <= val <= 1.0 for val in embedding), "Values must be normalized between -1 and 1"
 
-    def test_empty_texts_error(self, base_url):
+    def test_empty_texts_error(self, embedding_base_url):
         """
         Empty texts list returns 400 error (AC 1.2.3).
 
@@ -157,7 +157,7 @@ class TestEmbeddingService:
         - Error message is meaningful
         """
         response = httpx.post(
-            f"{base_url}/embed",
+            f"{embedding_base_url}/embed",
             json={"texts": []},
             timeout=30.0
         )
@@ -168,7 +168,7 @@ class TestEmbeddingService:
         assert "detail" in data, "Error response should include detail"
         assert "No texts provided" in data["detail"], "Error should mention no texts provided"
 
-    def test_root_endpoint(self, base_url):
+    def test_root_endpoint(self, embedding_base_url):
         """
         Root endpoint provides service info.
 
@@ -176,7 +176,7 @@ class TestEmbeddingService:
         - GET / returns service metadata
         - Includes model and endpoint information
         """
-        response = httpx.get(f"{base_url}/", timeout=30.0)
+        response = httpx.get(f"{embedding_base_url}/", timeout=30.0)
 
         assert response.status_code == 200
 
