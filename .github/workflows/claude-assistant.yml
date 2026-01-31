@@ -16,11 +16,12 @@ on:
   pull_request_review_comment:
     types: [created]
 
-# Limit permissions for security
+# Permissions for security + OIDC token for Claude Code Action
 permissions:
   contents: read
   issues: write
   pull-requests: write
+  id-token: write
 
 jobs:
   # ============================================================
