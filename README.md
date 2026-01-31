@@ -23,7 +23,7 @@
 
 ## 🚀 Key Features
 
-* **💾 Long-Term Persistence:** Stop re-explaining your codebase. Agents retrieve past context automatically.
+* **💾 Long-Term Persistence:** Stop re-explaining your codebase. Agents retrieve past context automatically at session start.
 * **📂 Structured BMAD Integration:** Purpose-built for BMAD workflows and multi-agent "Party Mode."
 * **🔍 Semantic Retrieval:** Uses vector embeddings to find relevant memories based on intent, not just keywords.
 * **⚖️ Decision Tracking:** Automatically captures "lessons learned" and integration rules during the dev cycle.
