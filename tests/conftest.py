@@ -102,7 +102,7 @@ def pytest_sessionstart(session):
     """
     try:
         from prometheus_client import REGISTRY
-        collectors = list(REGISTRY._collector_to_names.keys())
+        collectors = list(REGISTRY._names_to_collectors.values())
         for collector in collectors:
             try:
                 REGISTRY.unregister(collector)
@@ -146,29 +146,41 @@ def reset_metrics_registry():
     from prometheus_client import REGISTRY
 
     # Clear all collectors from the registry before test
-    collectors = list(REGISTRY._collector_to_names.keys())
+    collectors = list(REGISTRY._names_to_collectors.values())
     for collector in collectors:
         try:
             REGISTRY.unregister(collector)
         except Exception:
             pass
 
-    # Remove metrics module from sys.modules
-    modules_to_remove = [k for k in sys.modules.keys() if 'memory.metrics' in k or k == 'memory']
+    # Remove metrics modules from sys.modules (both src.memory and memory paths)
+    modules_to_remove = [k for k in sys.modules.keys()
+                        if k.startswith('src.memory.classifier.metrics')
+                        or k.startswith('memory.classifier.metrics')
+                        or k.startswith('src.memory.metrics')
+                        or k.startswith('memory.metrics')
+                        or k == 'memory'
+                        or k == 'src.memory']
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 
     yield
 
     # Clean up after test - clear registry again
-    collectors = list(REGISTRY._collector_to_names.keys())
+    collectors = list(REGISTRY._names_to_collectors.values())
     for collector in collectors:
         try:
             REGISTRY.unregister(collector)
         except Exception:
             pass
 
-    modules_to_remove = [k for k in sys.modules.keys() if 'memory.metrics' in k or k == 'memory']
+    modules_to_remove = [k for k in sys.modules.keys()
+                        if k.startswith('src.memory.classifier.metrics')
+                        or k.startswith('memory.classifier.metrics')
+                        or k.startswith('src.memory.metrics')
+                        or k.startswith('memory.metrics')
+                        or k == 'memory'
+                        or k == 'src.memory']
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 
