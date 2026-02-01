@@ -8,12 +8,7 @@ TECH-DEBT-069: LLM-based memory classification system.
 import logging
 import re
 
-from .config import (
-    LOW_PATTERNS,
-    MIN_CONTENT_LENGTH,
-    SKIP_PATTERNS,
-    Significance,
-)
+from .config import LOW_PATTERNS, MIN_CONTENT_LENGTH, SKIP_PATTERNS, Significance
 
 logger = logging.getLogger("ai_memory.classifier.significance")
 

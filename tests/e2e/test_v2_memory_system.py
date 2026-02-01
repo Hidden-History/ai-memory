@@ -32,11 +32,7 @@ from src.memory.config import (
     COLLECTION_DISCUSSIONS,
 )
 from src.memory.embeddings import EmbeddingClient
-from src.memory.intent import (
-    IntentType,
-    detect_intent,
-    get_target_collection,
-)
+from src.memory.intent import IntentType, detect_intent, get_target_collection
 from src.memory.models import MemoryType
 from src.memory.search import search_memories
 from src.memory.storage import MemoryStorage

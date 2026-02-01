@@ -43,11 +43,7 @@ from .health import check_services, get_fallback_mode
 
 # Models and Validation
 from .models import EmbeddingStatus, MemoryPayload, MemoryType
-from .qdrant_client import (
-    QdrantUnavailable,
-    check_qdrant_health,
-    get_qdrant_client,
-)
+from .qdrant_client import QdrantUnavailable, check_qdrant_health, get_qdrant_client
 from .queue import (
     LOCK_TIMEOUT_SECONDS,
     LockedFileAppend,

@@ -337,7 +337,6 @@ class TestThresholdWarnings:
         import src.memory.warnings
 
         # Record original values
-
         # Patch within test scope
         monkeypatch.setattr(src.memory.warnings, "COLLECTION_SIZE_WARNING", 999)
         monkeypatch.setattr(src.memory.warnings, "COLLECTION_SIZE_CRITICAL", 9999)

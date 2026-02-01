@@ -16,10 +16,7 @@ import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from qdrant_client.http.exceptions import (
-    ResponseHandlingException,
-    UnexpectedResponse,
-)
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
 from src.memory.config import reset_config
 from src.memory.deduplication import (
