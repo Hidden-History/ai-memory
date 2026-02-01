@@ -42,17 +42,17 @@ class TestQdrantClient:
             patch("src.memory.qdrant_client.QdrantClient") as MockQdrantClient,
             patch("src.memory.qdrant_client.get_config") as mock_get_config,
         ):
-                mock_config = MemoryConfig()
-                mock_get_config.return_value = mock_config
-                mock_instance = Mock()
-                MockQdrantClient.return_value = mock_instance
+            mock_config = MemoryConfig()
+            mock_get_config.return_value = mock_config
+            mock_instance = Mock()
+            MockQdrantClient.return_value = mock_instance
 
-                get_qdrant_client()
+            get_qdrant_client()
 
-                # Verify get_config() was called
-                mock_get_config.assert_called_once()
-                # Verify client was created
-                assert MockQdrantClient.called
+            # Verify get_config() was called
+            mock_get_config.assert_called_once()
+            # Verify client was created
+            assert MockQdrantClient.called
 
     def test_get_qdrant_client_sets_timeout(self):
         """AC 1.4.3: Sets appropriate timeout values."""

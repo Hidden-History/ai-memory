@@ -66,7 +66,9 @@ def _create_mock_log_session_retrieval(session_start_mod):
                 "medium_relevance_count": medium_relevance,
                 "low_relevance_count": low_relevance,
                 "duration_ms": round(duration_ms, 2),
-                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "timestamp": datetime.now(timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z"),
             },
         )
 

@@ -42,7 +42,14 @@ class IntelligentChunker:
         ".h",
     }
     PROSE_EXTENSIONS: ClassVar[set[str]] = {".md", ".txt", ".rst"}
-    CONFIG_EXTENSIONS: ClassVar[set[str]] = {".json", ".yaml", ".yml", ".toml", ".ini", ".cfg"}
+    CONFIG_EXTENSIONS: ClassVar[set[str]] = {
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".cfg",
+    }
 
     def __init__(self, max_chunk_tokens: int = 512, overlap_pct: float = 0.15):
         """Initialize chunker with configuration.

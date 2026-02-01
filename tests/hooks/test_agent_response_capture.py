@@ -68,24 +68,21 @@ class TestAgentResponseCapture:
             patch("memory.config.get_config", return_value=mock_config),
             patch("memory.storage.MemoryStorage") as mock_storage_class,
         ):
-                    mock_storage = MagicMock()
-                    mock_storage_class.return_value = mock_storage
+            mock_storage = MagicMock()
+            mock_storage_class.return_value = mock_storage
 
-                    # Import and execute the hook logic
-                    # (Simplified test - just verify storage is called)
-                    mock_storage.store.return_value = "test-id"
+            # Import and execute the hook logic
+            # (Simplified test - just verify storage is called)
+            mock_storage.store.return_value = "test-id"
 
-                    # Simulate hook execution
-                    mock_storage.store.assert_not_called()  # Not called yet
+            # Simulate hook execution
+            mock_storage.store.assert_not_called()  # Not called yet
 
-                    # Verify that when hook runs, it would call store
-                    # with correct parameters
-                    expected_content = agent_response
-                    assert len(expected_content) > 0
-                    assert (
-                        "implementation" in expected_content
-                        or "storage" in expected_content
-                    )
+            # Verify that when hook runs, it would call store
+            # with correct parameters
+            expected_content = agent_response
+            assert len(expected_content) > 0
+            assert "implementation" in expected_content or "storage" in expected_content
 
     def test_graceful_degradation_on_storage_failure(self, stop_event, mock_config):
         """Test that hook exits gracefully if storage fails.

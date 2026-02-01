@@ -318,9 +318,12 @@ class TestSessionStartHook:
         failing_client = MagicMock()
         failing_client.scroll.side_effect = Exception("Connection refused")
 
-        with patch(
-            "memory.qdrant_client.get_qdrant_client", return_value=failing_client
-        ), patch("memory.config.get_config", return_value=mock_config):
+        with (
+            patch(
+                "memory.qdrant_client.get_qdrant_client", return_value=failing_client
+            ),
+            patch("memory.config.get_config", return_value=mock_config),
+        ):
             from session_start import get_conversation_context
 
             # Should not raise, should return empty
@@ -400,8 +403,7 @@ class TestSessionStartHook:
                 or "Decision: Use Qdrant" not in result
             )
             assert (
-                result.find("structured logging")
-                < result.find("Pattern: Always apply")
+                result.find("structured logging") < result.find("Pattern: Always apply")
                 or "Pattern: Always apply" not in result
             )
 

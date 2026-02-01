@@ -240,8 +240,9 @@ class TestLogOutputFormat:
         logger.setLevel(logging.ERROR)
 
         # Simulate an operation that fails
-        with pytest.raises(ValueError), timed_operation(
-            "failing_op", logger, extra={"attempt": 1}
+        with (
+            pytest.raises(ValueError),
+            timed_operation("failing_op", logger, extra={"attempt": 1}),
         ):
             raise ValueError("Test error")
 

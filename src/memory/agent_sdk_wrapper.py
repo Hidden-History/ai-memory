@@ -160,7 +160,9 @@ class AgentSDKWrapper:
         self._batch_size = 10  # Flush when queue reaches this size
         self._batch_flush_interval = 5.0  # Seconds between auto-flushes
         self._flush_task: asyncio.Task | None = None
-        self._pending_flush_task: asyncio.Task | None = None  # Track pending batch flushes
+        self._pending_flush_task: asyncio.Task | None = (
+            None  # Track pending batch flushes
+        )
 
         # Set ANTHROPIC_API_KEY for SDK
         os.environ["ANTHROPIC_API_KEY"] = self.api_key

@@ -100,7 +100,9 @@ def skip_without_services(request):
     """
     if request.node.get_closest_marker("requires_qdrant") and not _is_port_open(26350):
         pytest.skip("Qdrant not available on port 26350")
-    if request.node.get_closest_marker("requires_embedding") and not _is_port_open(28080):
+    if request.node.get_closest_marker("requires_embedding") and not _is_port_open(
+        28080
+    ):
         pytest.skip("Embedding service not available on port 28080")
     if request.node.get_closest_marker("requires_docker_stack") and not (
         _is_port_open(26350) and _is_port_open(28080)
