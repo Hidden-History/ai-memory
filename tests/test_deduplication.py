@@ -364,17 +364,17 @@ class TestIsDuplicate:
             # No hash match
             mock_client.scroll.return_value = ([], None)
 
-        # Simulate embedding failure
-        with patch("src.memory.deduplication.EmbeddingClient") as mock_embed_class:
-            mock_embed = MagicMock()
-            mock_embed_class.return_value.__enter__.return_value = mock_embed
-            mock_embed.embed.side_effect = Exception("Service unavailable")
+            # Simulate embedding failure - NESTED inside Qdrant patch
+            with patch("src.memory.deduplication.EmbeddingClient") as mock_embed_class:
+                mock_embed = MagicMock()
+                mock_embed_class.return_value.__enter__.return_value = mock_embed
+                mock_embed.embed.side_effect = Exception("Service unavailable")
 
-            result = await is_duplicate(content, group_id)
+                result = await is_duplicate(content, group_id)
 
-            # Should return False (hash check passed, similarity skipped)
-            assert result.is_duplicate is False
-            assert result.reason == "embedding_failed_hash_only"
+                # Should return False (hash check passed, similarity skipped)
+                assert result.is_duplicate is False
+                assert result.reason == "embedding_failed_hash_only"
 
     async def test_never_crashes_on_exception(self):
         """AC 2.2.6: NEVER throws unhandled exceptions."""
