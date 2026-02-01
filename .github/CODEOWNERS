@@ -1,46 +1,61 @@
 # Code Owners for AI Memory Module
 # These users/teams will be automatically requested for review when someone opens a PR that modifies code they own.
 # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# NOTE: Update @Hidden-History with your GitHub username or create teams as project grows.
+# Teams can be created at: https://github.com/orgs/Hidden-History/teams
 
-# Default owners for everything in the repo
-# This will be the fallback if no specific owner is matched
-* @Hidden-History/bmad-maintainers
+# Default owners for everything in the repo (fallback)
+* @Hidden-History
 
-# Docker services and infrastructure
-/docker/ @Hidden-History/docker-experts @Hidden-History/bmad-maintainers
-docker-compose.yml @Hidden-History/docker-experts
-docker-compose.*.yml @Hidden-History/docker-experts
+# ============================================================================
+# SECURITY-SENSITIVE (require owner review)
+# ============================================================================
 
-# Python core modules (storage, search, embeddings, etc.)
-/src/memory/ @Hidden-History/python-core @Hidden-History/bmad-maintainers
+# CI/CD workflows - can expose secrets, modify deployments
+/.github/workflows/ @Hidden-History
+
+# Docker and infrastructure - can expose ports, credentials
+/docker/ @Hidden-History
+docker-compose*.yml @Hidden-History
+
+# Environment configuration
+.env* @Hidden-History
+*.env @Hidden-History
+
+# ============================================================================
+# CORE SYSTEM (require careful review)
+# ============================================================================
+
+# Python core modules (storage, search, embeddings)
+/src/memory/ @Hidden-History
 
 # Hook scripts (critical for Claude Code integration)
-/.claude/hooks/ @Hidden-History/bmad-maintainers
+/.claude/hooks/ @Hidden-History
 
 # Installation and setup scripts
-/scripts/install.sh @Hidden-History/bmad-maintainers
-/scripts/rollback.sh @Hidden-History/bmad-maintainers
-/scripts/generate_settings.py @Hidden-History/bmad-maintainers
-/scripts/merge_settings.py @Hidden-History/bmad-maintainers
+/scripts/ @Hidden-History
+install.sh @Hidden-History
+update.sh @Hidden-History
+
+# ============================================================================
+# STANDARD REVIEW
+# ============================================================================
+
+# Tests
+/tests/ @Hidden-History
+
+# Documentation
+*.md @Hidden-History
+/docs/ @Hidden-History
 
 # Monitoring configuration
-/docker/grafana/ @Hidden-History/monitoring-team
-/docker/prometheus/ @Hidden-History/monitoring-team
-/monitoring/ @Hidden-History/monitoring-team
+/monitoring/ @Hidden-History
 
-# Documentation (requires careful review for accuracy)
-*.md @Hidden-History/bmad-maintainers
-/docs/ @Hidden-History/bmad-maintainers
-
-# GitHub workflows and actions
-/.github/workflows/ @Hidden-History/bmad-maintainers
-
-# Test files (test experts should review)
-/tests/ @Hidden-History/python-core
-
-# Release and version management (requires maintainer approval)
-CHANGELOG.md @Hidden-History/bmad-maintainers
-
-# Security-sensitive files (requires security review)
-/scripts/health-check.py @Hidden-History/security-team @Hidden-History/bmad-maintainers
-/.github/workflows/ @Hidden-History/security-team @Hidden-History/bmad-maintainers
+# ============================================================================
+# FUTURE TEAMS (uncomment when teams are created)
+# ============================================================================
+# /docker/ @Hidden-History/infrastructure
+# /src/memory/ @Hidden-History/core-developers
+# /.github/workflows/ @Hidden-History/devops
+# /tests/ @Hidden-History/qa
