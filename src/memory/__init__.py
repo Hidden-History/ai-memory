@@ -75,11 +75,6 @@ from .timing import timed_operation
 from .validation import ValidationError, compute_content_hash, validate_payload
 from .warnings import check_collection_thresholds
 
-# Submodule exports for test mocking compatibility (Python 3.10+)
-# These must be imported as modules (not just their contents) to support
-# patch("memory.metrics.collection_size") style mocking
-from . import metrics, stats, warnings
-
 __all__ = [
     # Configuration (Story 1.4)
     "MemoryConfig",
@@ -139,4 +134,14 @@ __all__ = [
     "CollectionStats",
     "get_collection_stats",
     "check_collection_thresholds",
+    # Submodules (for test mocking compatibility - Python 3.10+)
+    "metrics",
+    "stats",
+    "warnings",
 ]
+
+# Submodule exports for test mocking compatibility (Python 3.10+)
+# These must be imported as modules (not just their contents) to support
+# patch("memory.metrics.collection_size") style mocking in tests.
+# Import AFTER __all__ to ensure proper module initialization order.
+from . import metrics, stats, warnings
