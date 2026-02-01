@@ -3,29 +3,29 @@
 Tests code pattern capture on PostToolUse events.
 """
 
-import pytest
 import json
 import sys
-from unittest.mock import patch, MagicMock
-from datetime import datetime
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 sys.path.insert(0, "tests")
 from mocks.qdrant_mock import MockQdrantClient
 
-sys.path.insert(0, '.claude/hooks/scripts')
+sys.path.insert(0, ".claude/hooks/scripts")
 
 
 @pytest.fixture
 def post_tool_edit_event():
     """Load PostToolUse Edit event fixture."""
-    with open('tests/fixtures/hooks/post_tool_use_edit.json') as f:
+    with open("tests/fixtures/hooks/post_tool_use_edit.json") as f:
         return json.load(f)
 
 
 @pytest.fixture
 def post_tool_write_event():
     """Load PostToolUse Write event fixture."""
-    with open('tests/fixtures/hooks/post_tool_use_write.json') as f:
+    with open("tests/fixtures/hooks/post_tool_use_write.json") as f:
         return json.load(f)
 
 
@@ -53,11 +53,11 @@ class TestPostToolCapture:
     @pytest.fixture(autouse=True)
     def setup_method(self):
         """Reset module state before each test."""
-        if 'post_tool_capture' in sys.modules:
-            del sys.modules['post_tool_capture']
+        if "post_tool_capture" in sys.modules:
+            del sys.modules["post_tool_capture"]
         yield
-        if 'post_tool_capture' in sys.modules:
-            del sys.modules['post_tool_capture']
+        if "post_tool_capture" in sys.modules:
+            del sys.modules["post_tool_capture"]
 
     def test_captures_edit_tool_changes(self, post_tool_edit_event):
         """Test that Edit tool changes are captured.
@@ -125,7 +125,7 @@ class TestPostToolCapture:
             "session_id": "test_session",
             "tool_name": "Edit",
             "tool_input": {},  # Missing required fields
-            "cwd": "/test/path"
+            "cwd": "/test/path",
         }
 
         # Hook should handle missing fields without crashing
@@ -137,7 +137,7 @@ class TestPostToolCapture:
 
         V2.0: Implementation patterns go to code-patterns collection.
         """
-        with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.config.get_config", return_value=mock_config):
             from memory.config import COLLECTION_CODE_PATTERNS
 
             assert COLLECTION_CODE_PATTERNS == "code-patterns"

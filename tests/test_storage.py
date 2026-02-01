@@ -4,15 +4,14 @@ Tests MemoryStorage with mocked dependencies (Qdrant, embedding service).
 Implements Story 1.5 Task 5.
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timezone
+from unittest.mock import MagicMock, Mock
 
-from src.memory.storage import MemoryStorage
-from src.memory.models import MemoryType, EmbeddingStatus
+import pytest
+
 from src.memory.embeddings import EmbeddingError
+from src.memory.models import MemoryType
 from src.memory.qdrant_client import QdrantUnavailable
-from src.memory.validation import ValidationError
+from src.memory.storage import MemoryStorage
 
 
 @pytest.fixture
@@ -46,7 +45,9 @@ def mock_embedding_client(monkeypatch):
     return mock_ec
 
 
-def test_store_memory_success(mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch):
+def test_store_memory_success(
+    mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+):
     """Test successful memory storage (AC 1.5.1)."""
     # Mock detect_project to avoid real project detection (imported inside store_memory)
     mock_detect = Mock(return_value="test-project")
@@ -69,7 +70,9 @@ def test_store_memory_success(mock_config, mock_qdrant_client, mock_embedding_cl
     mock_qdrant_client.upsert.assert_called_once()
 
 
-def test_store_memory_embedding_failure(mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch):
+def test_store_memory_embedding_failure(
+    mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+):
     """Test storage with embedding failure - graceful degradation (AC 1.5.4)."""
     mock_embedding_client.embed.side_effect = EmbeddingError("Service down")
     monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
@@ -91,7 +94,9 @@ def test_store_memory_embedding_failure(mock_config, mock_qdrant_client, mock_em
     assert call_args[1]["points"][0].vector == [0.0] * 768
 
 
-def test_store_memory_qdrant_failure(mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch):
+def test_store_memory_qdrant_failure(
+    mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+):
     """Test Qdrant failure raises exception (AC 1.5.4)."""
     mock_qdrant_client.upsert.side_effect = Exception("Connection refused")
     monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "proj")
@@ -108,7 +113,9 @@ def test_store_memory_qdrant_failure(mock_config, mock_qdrant_client, mock_embed
         )
 
 
-def test_store_memory_duplicate(mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch):
+def test_store_memory_duplicate(
+    mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+):
     """Test duplicate detection skips storage and returns existing memory_id (AC 1.5.3)."""
     monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
     # Mock metrics to avoid Prometheus label errors in tests
@@ -133,11 +140,15 @@ def test_store_memory_duplicate(mock_config, mock_qdrant_client, mock_embedding_
     )
 
     assert result["status"] == "duplicate"
-    assert result["memory_id"] == "existing-uuid-12345"  # AC 1.5.3: Returns existing memory_id
+    assert (
+        result["memory_id"] == "existing-uuid-12345"
+    )  # AC 1.5.3: Returns existing memory_id
     storage.qdrant_client.upsert.assert_not_called()
 
 
-def test_store_memory_validation_failure(mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch):
+def test_store_memory_validation_failure(
+    mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+):
     """Test validation failure raises ValueError."""
     monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
 
@@ -185,7 +196,9 @@ def test_store_memories_batch(mock_config, mock_qdrant_client, mock_embedding_cl
     mock_qdrant_client.upsert.assert_called_once()
 
 
-def test_store_memories_batch_embedding_failure(mock_config, mock_qdrant_client, mock_embedding_client):
+def test_store_memories_batch_embedding_failure(
+    mock_config, mock_qdrant_client, mock_embedding_client
+):
     """Test batch storage with embedding failure - graceful degradation (AC 1.5.4)."""
     mock_embedding_client.embed.side_effect = EmbeddingError("Service down")
 
@@ -209,7 +222,9 @@ def test_store_memories_batch_embedding_failure(mock_config, mock_qdrant_client,
     assert all(p.vector == [0.0] * 768 for p in call_args[1]["points"])
 
 
-def test_check_duplicate_found(mock_config, mock_qdrant_client, mock_embedding_client, monkeypatch):
+def test_check_duplicate_found(
+    mock_config, mock_qdrant_client, mock_embedding_client, monkeypatch
+):
     """Test duplicate check returns existing memory_id when hash exists."""
     # Mock metrics to avoid Prometheus label errors in tests
     monkeypatch.setattr("src.memory.storage.deduplication_events_total", None)
@@ -227,7 +242,9 @@ def test_check_duplicate_found(mock_config, mock_qdrant_client, mock_embedding_c
     assert existing_id == "found-memory-uuid"
 
 
-def test_check_duplicate_not_found(mock_config, mock_qdrant_client, mock_embedding_client):
+def test_check_duplicate_not_found(
+    mock_config, mock_qdrant_client, mock_embedding_client
+):
     """Test duplicate check returns None when hash not found."""
     mock_qdrant_client.scroll.return_value = ([], None)
 
@@ -237,7 +254,9 @@ def test_check_duplicate_not_found(mock_config, mock_qdrant_client, mock_embeddi
     assert existing_id is None
 
 
-def test_check_duplicate_query_failure(mock_config, mock_qdrant_client, mock_embedding_client):
+def test_check_duplicate_query_failure(
+    mock_config, mock_qdrant_client, mock_embedding_client
+):
     """Test duplicate check fails open when query fails."""
     mock_qdrant_client.scroll.side_effect = Exception("Query error")
 

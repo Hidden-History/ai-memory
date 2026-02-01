@@ -14,14 +14,13 @@ Complies with:
 - project-context.md: structured logging patterns
 """
 
-import pytest
-import os
-from unittest.mock import Mock, patch, call
+from unittest.mock import patch
+
 from memory.stats import CollectionStats
 from memory.warnings import (
-    check_collection_thresholds,
-    COLLECTION_SIZE_WARNING,
     COLLECTION_SIZE_CRITICAL,
+    COLLECTION_SIZE_WARNING,
+    check_collection_thresholds,
 )
 
 
@@ -64,7 +63,10 @@ class TestCheckCollectionThresholds:
 
             # Verify warnings returned (collection + per-project)
             assert len(warnings) == 2
-            assert any("WARNING" in w and "code-patterns" in w and "10000" in w for w in warnings)
+            assert any(
+                "WARNING" in w and "code-patterns" in w and "10000" in w
+                for w in warnings
+            )
             assert any("proj-a" in w for w in warnings)
 
             # Verify structured logging (2 calls: collection + project)

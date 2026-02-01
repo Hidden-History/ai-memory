@@ -9,14 +9,13 @@ RESOURCE LIMITS:
 - No unbounded loops
 """
 
-import json
-import os
 import fcntl
-import time
-from pathlib import Path
-from dataclasses import dataclass, asdict
-from typing import Optional, List
+import json
 import logging
+import os
+import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 logger = logging.getLogger("ai_memory.classifier.queue")
 
@@ -30,14 +29,14 @@ MAX_BATCH_SIZE = 10
 LOCK_TIMEOUT_SECONDS = 5.0
 
 __all__ = [
-    "ClassificationTask",
-    "enqueue_for_classification",
-    "dequeue_batch",
-    "get_queue_size",
-    "clear_queue",
+    "MAX_BATCH_SIZE",
     "QUEUE_DIR",
     "QUEUE_FILE",
-    "MAX_BATCH_SIZE",
+    "ClassificationTask",
+    "clear_queue",
+    "dequeue_batch",
+    "enqueue_for_classification",
+    "get_queue_size",
 ]
 
 
@@ -53,7 +52,7 @@ class ClassificationTask:
     source_hook: str
     created_at: str
     retry_count: int = 0
-    last_error: Optional[str] = None
+    last_error: str | None = None
 
 
 def _acquire_lock(file_handle, timeout: float = LOCK_TIMEOUT_SECONDS) -> bool:
@@ -95,11 +94,13 @@ def enqueue_for_classification(task: ClassificationTask) -> bool:
             finally:
                 _release_lock(f)
     except Exception as e:
-        logger.error("enqueue_failed", extra={"error": str(e), "point_id": task.point_id})
+        logger.error(
+            "enqueue_failed", extra={"error": str(e), "point_id": task.point_id}
+        )
         return False
 
 
-def dequeue_batch(batch_size: int = MAX_BATCH_SIZE) -> List[ClassificationTask]:
+def dequeue_batch(batch_size: int = MAX_BATCH_SIZE) -> list[ClassificationTask]:
     """Get batch of tasks from queue (FIFO, thread-safe, atomic).
 
     Uses atomic temp file + rename to prevent queue corruption on crash.
@@ -116,8 +117,8 @@ def dequeue_batch(batch_size: int = MAX_BATCH_SIZE) -> List[ClassificationTask]:
     if not QUEUE_FILE.exists():
         return []
 
-    tasks: List[ClassificationTask] = []
-    remaining_lines: List[str] = []
+    tasks: list[ClassificationTask] = []
+    remaining_lines: list[str] = []
 
     try:
         with open(QUEUE_FILE, "r+") as f:
@@ -142,18 +143,18 @@ def dequeue_batch(batch_size: int = MAX_BATCH_SIZE) -> List[ClassificationTask]:
                         except (json.JSONDecodeError, TypeError) as e:
                             logger.warning(
                                 "invalid_queue_entry",
-                                extra={"line": i, "error": str(e)}
+                                extra={"line": i, "error": str(e)},
                             )
                             # Keep invalid entries for manual inspection
-                            remaining_lines.append(line + '\n')
+                            remaining_lines.append(line + "\n")
                     else:
-                        remaining_lines.append(line + '\n')
+                        remaining_lines.append(line + "\n")
 
                 # Atomic update: write to temp file, then rename
                 # Only modify queue if we successfully dequeued something
                 if tasks:
-                    temp_file = QUEUE_FILE.with_suffix('.tmp')
-                    temp_file.write_text(''.join(remaining_lines))
+                    temp_file = QUEUE_FILE.with_suffix(".tmp")
+                    temp_file.write_text("".join(remaining_lines))
                     temp_file.rename(QUEUE_FILE)
 
             finally:
@@ -164,8 +165,7 @@ def dequeue_batch(batch_size: int = MAX_BATCH_SIZE) -> List[ClassificationTask]:
         return []
 
     logger.info(
-        "batch_dequeued",
-        extra={"count": len(tasks), "remaining": len(remaining_lines)}
+        "batch_dequeued", extra={"count": len(tasks), "remaining": len(remaining_lines)}
     )
     return tasks
 
@@ -175,7 +175,7 @@ def get_queue_size() -> int:
     if not QUEUE_FILE.exists():
         return 0
     try:
-        with open(QUEUE_FILE, "r") as f:
+        with open(QUEUE_FILE) as f:
             return sum(1 for _ in f)
     except Exception as e:
         logger.warning("queue_size_check_failed", extra={"error": str(e)})

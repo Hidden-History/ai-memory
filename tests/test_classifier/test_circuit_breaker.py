@@ -5,10 +5,9 @@ TECH-DEBT-069: Circuit breaker thread safety and state management.
 
 import threading
 import time
-import pytest
+
 from src.memory.classifier.circuit_breaker import (
     CircuitBreaker,
-    CircuitState,
 )
 
 
@@ -153,9 +152,9 @@ class TestCircuitBreakerThreadSafety:
         assert len(results) == 10
 
         # All should get the same state object (same identity)
-        assert all(r is results[0] for r in results), (
-            "Threads got different state objects - race condition detected!"
-        )
+        assert all(
+            r is results[0] for r in results
+        ), "Threads got different state objects - race condition detected!"
 
     def test_concurrent_failure_recording(self):
         """Verify thread-safe failure recording."""

@@ -3,7 +3,6 @@
 TECH-DEBT-069: LLM-based memory classification system tests.
 """
 
-import pytest
 from src.memory.classifier.rules import classify_by_rules
 
 
@@ -26,7 +25,7 @@ class TestRuleClassification:
         result = classify_by_rules(content, "code-patterns")
 
         assert result is not None
-        classified_type, confidence = result
+        classified_type, _confidence = result
         assert classified_type == "error_fix"
 
     def test_error_fix_pattern_multiline(self):
@@ -39,7 +38,7 @@ class TestRuleClassification:
         result = classify_by_rules(content, "code-patterns")
 
         assert result is not None
-        classified_type, confidence = result
+        classified_type, _confidence = result
         assert classified_type == "error_fix"
 
     def test_port_pattern_colon(self):
@@ -58,7 +57,7 @@ class TestRuleClassification:
         result = classify_by_rules(content, "conventions")
 
         assert result is not None
-        classified_type, confidence = result
+        classified_type, _confidence = result
         assert classified_type == "port"
 
     def test_rule_pattern_must(self):
@@ -77,7 +76,7 @@ class TestRuleClassification:
         result = classify_by_rules(content, "conventions")
 
         assert result is not None
-        classified_type, confidence = result
+        classified_type, _confidence = result
         assert classified_type == "rule"
 
     def test_rule_pattern_always(self):
@@ -86,7 +85,7 @@ class TestRuleClassification:
         result = classify_by_rules(content, "conventions")
 
         assert result is not None
-        classified_type, confidence = result
+        classified_type, _confidence = result
         assert classified_type == "rule"
 
     def test_rule_pattern_lowercase_no_match(self):
@@ -115,7 +114,7 @@ class TestRuleClassification:
         result = classify_by_rules(content, "discussions")
 
         assert result is not None
-        classified_type, confidence = result
+        classified_type, _confidence = result
         assert classified_type == "blocker"
 
     def test_decision_pattern_reference(self):
@@ -134,7 +133,7 @@ class TestRuleClassification:
         result = classify_by_rules(content, "discussions")
 
         assert result is not None
-        classified_type, confidence = result
+        classified_type, _confidence = result
         assert classified_type == "decision"
 
     def test_no_pattern_match(self):
@@ -165,6 +164,6 @@ class TestRuleClassification:
 
         # Should match decision (higher confidence pattern)
         assert result is not None
-        classified_type, confidence = result
+        classified_type, _confidence = result
         # Either error_fix or decision is valid, depending on pattern order
         assert classified_type in ["error_fix", "decision"]

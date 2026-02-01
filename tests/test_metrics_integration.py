@@ -12,8 +12,8 @@ Complies with:
 - project-context.md: test naming
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch
+
 from memory.stats import CollectionStats
 
 
@@ -39,9 +39,7 @@ class TestUpdateCollectionMetrics:
             update_collection_metrics(stats)
 
             # Verify overall collection gauge set
-            mock_gauge.labels.assert_any_call(
-                collection="code-patterns", project="all"
-            )
+            mock_gauge.labels.assert_any_call(collection="code-patterns", project="all")
             mock_gauge.labels.return_value.set.assert_any_call(1500)
 
     def test_update_collection_metrics_sets_per_project_gauges(self):
@@ -102,12 +100,8 @@ class TestUpdateCollectionMetrics:
             update_collection_metrics(stats_best)
 
             # Verify both collections updated with correct labels
-            mock_gauge.labels.assert_any_call(
-                collection="code-patterns", project="all"
-            )
-            mock_gauge.labels.assert_any_call(
-                collection="conventions", project="all"
-            )
+            mock_gauge.labels.assert_any_call(collection="code-patterns", project="all")
+            mock_gauge.labels.assert_any_call(collection="conventions", project="all")
 
     def test_update_collection_metrics_empty_collection(self):
         """update_collection_metrics() handles empty collection (0 points)."""

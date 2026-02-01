@@ -6,17 +6,16 @@ Implements Story 1.3 AC 1.3.2 with BMAD agent enrichment.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, List
 
 # Import VALID_AGENTS from config to avoid duplication (CR-4.27)
 from .config import VALID_AGENTS
 
 __all__ = [
-    "MemoryType",
+    "VALID_AGENTS",
     "EmbeddingStatus",
     "ImportanceLevel",
     "MemoryPayload",
-    "VALID_AGENTS",
+    "MemoryType",
 ]
 
 
@@ -114,7 +113,9 @@ class MemoryPayload:
     source_hook: str  # PostToolUse, Stop, SessionStart, seed_script
     session_id: str
     timestamp: str  # ISO 8601 format
-    created_at: Optional[str] = None  # ISO 8601 format, auto-generated if not provided (TECH-DEBT-012)
+    created_at: str | None = (
+        None  # ISO 8601 format, auto-generated if not provided (TECH-DEBT-012)
+    )
 
     # Optional enrichment
     domain: str = "general"
@@ -123,21 +124,23 @@ class MemoryPayload:
     embedding_model: str = "jina-embeddings-v2-base-en"
 
     # Relationships and tags
-    relationships: List[str] = field(default_factory=list)
-    tags: List[str] = field(default_factory=list)
+    relationships: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
     # BMAD agent enrichment (DEC-018)
-    agent: Optional[str] = None  # dev, architect, pm, tea, etc.
-    component: Optional[str] = None  # auth, database, api, etc.
-    story_id: Optional[str] = None  # AUTH-12, DB-05, etc.
+    agent: str | None = None  # dev, architect, pm, tea, etc.
+    component: str | None = None  # auth, database, api, etc.
+    story_id: str | None = None  # AUTH-12, DB-05, etc.
 
     # Research provenance fields (BUG-006)
     # WHY: Enables best-practices-researcher agent to store web-sourced guidelines
     # with full attribution (source URL, publication date, capture method).
     # WHEN TO USE: Set these when storing researched best practices from external sources.
     # Template-seeded practices (from templates/conventions/) should omit or use defaults.
-    source: Optional[str] = None  # URL or reference (web link, DOI, book citation, file path)
-    source_date: Optional[str] = None  # ISO 8601 date when source was published/updated
+    source: str | None = (
+        None  # URL or reference (web link, DOI, book citation, file path)
+    )
+    source_date: str | None = None  # ISO 8601 date when source was published/updated
     auto_seeded: bool = False  # True = auto-captured by agent, False = manually seeded
 
     def to_dict(self) -> dict:
@@ -156,9 +159,7 @@ class MemoryPayload:
             "content_hash": self.content_hash,
             "group_id": self.group_id,
             "type": (
-                self.type.value
-                if isinstance(self.type, MemoryType)
-                else self.type
+                self.type.value if isinstance(self.type, MemoryType) else self.type
             ),
             "source_hook": self.source_hook,
             "session_id": self.session_id,

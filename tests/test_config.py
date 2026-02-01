@@ -4,10 +4,11 @@ Tests Story 7.4 - Environment Variable Configuration with pydantic-settings v2.6
 """
 
 import os
-import tempfile
 from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
+
 from src.memory.config import MemoryConfig, get_config, reset_config
 
 
@@ -18,7 +19,24 @@ class TestMemoryConfig:
         """AC 7.4.1: Default configuration values are correct."""
         # Clear any environment variables that might interfere
         for key in list(os.environ.keys()):
-            if any(k in key.upper() for k in ["SIMILARITY", "DEDUP", "RETRIEVAL", "TOKEN", "QDRANT", "EMBEDDING", "MONITORING", "LOG_LEVEL", "LOG_FORMAT", "COLLECTION_SIZE", "INSTALL_DIR", "QUEUE_PATH", "SESSION_LOG"]):
+            if any(
+                k in key.upper()
+                for k in [
+                    "SIMILARITY",
+                    "DEDUP",
+                    "RETRIEVAL",
+                    "TOKEN",
+                    "QDRANT",
+                    "EMBEDDING",
+                    "MONITORING",
+                    "LOG_LEVEL",
+                    "LOG_FORMAT",
+                    "COLLECTION_SIZE",
+                    "INSTALL_DIR",
+                    "QUEUE_PATH",
+                    "SESSION_LOG",
+                ]
+            ):
                 monkeypatch.delenv(key, raising=False)
 
         reset_config()
@@ -94,25 +112,41 @@ class TestMemoryConfig:
         """AC 7.4.1: .env file loading with pydantic-settings SettingsConfigDict."""
         # Save current directory
         import os
+
         original_cwd = os.getcwd()
 
         # Clear environment variables
         for key in list(os.environ.keys()):
-            if any(k in key.upper() for k in ["SIMILARITY", "DEDUP", "RETRIEVAL", "TOKEN", "QDRANT", "EMBEDDING", "MONITORING", "LOG_LEVEL", "LOG_FORMAT"]):
+            if any(
+                k in key.upper()
+                for k in [
+                    "SIMILARITY",
+                    "DEDUP",
+                    "RETRIEVAL",
+                    "TOKEN",
+                    "QDRANT",
+                    "EMBEDDING",
+                    "MONITORING",
+                    "LOG_LEVEL",
+                    "LOG_FORMAT",
+                ]
+            ):
                 monkeypatch.delenv(key, raising=False)
 
         reset_config()
 
         # Create temporary .env file
         env_file = tmp_path / ".env"
-        env_file.write_text("""
+        env_file.write_text(
+            """
 SIMILARITY_THRESHOLD=0.82
 DEDUP_THRESHOLD=0.92
 MAX_RETRIEVALS=7
 TOKEN_BUDGET=2500
 QDRANT_PORT=26351
 LOG_LEVEL=WARNING
-        """.strip())
+        """.strip()
+        )
 
         # Point to the .env file (Note: pydantic-settings looks in current dir)
         monkeypatch.chdir(tmp_path)
@@ -396,8 +430,7 @@ LOG_LEVEL=WARNING
 
         # Custom values
         custom = MemoryConfig(
-            collection_size_warning=5000,
-            collection_size_critical=25000
+            collection_size_warning=5000, collection_size_critical=25000
         )
         assert custom.collection_size_warning == 5000
         assert custom.collection_size_critical == 25000
@@ -416,9 +449,7 @@ LOG_LEVEL=WARNING
 
         # Correct types work
         config = MemoryConfig(
-            similarity_threshold=0.8,
-            max_retrievals=10,
-            qdrant_host="example.com"
+            similarity_threshold=0.8, max_retrievals=10, qdrant_host="example.com"
         )
         assert isinstance(config.similarity_threshold, float)
         assert isinstance(config.max_retrievals, int)

@@ -33,47 +33,52 @@ References:
 import asyncio
 import logging
 import os
-import random
 import time
 from collections import deque
-from datetime import datetime, timezone, timedelta
-from functools import wraps
-from typing import AsyncIterator, Optional, Dict, Any, List, Callable, TypeVar
+from collections.abc import AsyncIterator
+from datetime import datetime, timedelta, timezone
+from typing import Any
 from uuid import uuid4
 
-from anthropic import AsyncAnthropic, APIError, RateLimitError, APIStatusError
-from anthropic.types import Message, ContentBlock, TextBlock
-from prometheus_client import Counter, Histogram, Gauge
+from anthropic import APIStatusError, AsyncAnthropic, RateLimitError
+from anthropic.types import Message, TextBlock
+from prometheus_client import Counter, Gauge, Histogram
 from tenacity import (
     AsyncRetrying,
     RetryCallState,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
     wait_random,
-    retry_if_exception,
 )
 
-from .config import COLLECTION_DISCUSSIONS, get_config
+from .config import COLLECTION_DISCUSSIONS
 from .models import MemoryType
 from .storage import MemoryStorage
 
 # Prometheus Metrics
-sdk_rate_limit_hits = Counter('ai_memory_sdk_rate_limit_hits_total', 'Rate limit 429 errors')
-sdk_queue_depth = Gauge('ai_memory_sdk_queue_depth', 'Current queue depth')
-sdk_api_duration = Histogram(
-    'ai_memory_sdk_api_duration_seconds',
-    'API call duration',
-    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]
+sdk_rate_limit_hits = Counter(
+    "ai_memory_sdk_rate_limit_hits_total", "Rate limit 429 errors"
 )
-sdk_tokens_used = Counter('ai_memory_sdk_tokens_total', 'Tokens used', ['type'])  # input/output
-sdk_storage_tasks = Counter('ai_memory_sdk_storage_tasks_total', 'Storage tasks', ['status'])  # created/failed
+sdk_queue_depth = Gauge("ai_memory_sdk_queue_depth", "Current queue depth")
+sdk_api_duration = Histogram(
+    "ai_memory_sdk_api_duration_seconds",
+    "API call duration",
+    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
+)
+sdk_tokens_used = Counter(
+    "ai_memory_sdk_tokens_total", "Tokens used", ["type"]
+)  # input/output
+sdk_storage_tasks = Counter(
+    "ai_memory_sdk_storage_tasks_total", "Storage tasks", ["status"]
+)  # created/failed
 
 __all__ = [
-    "AsyncSDKWrapper",
     "AsyncConversationCapture",
-    "RateLimitQueue",
-    "QueueTimeoutError",
+    "AsyncSDKWrapper",
     "QueueDepthExceededError",
+    "QueueTimeoutError",
+    "RateLimitQueue",
 ]
 
 logger = logging.getLogger("ai_memory.async_sdk_wrapper")
@@ -93,7 +98,6 @@ class QueueDepthExceededError(Exception):
     """Queue depth exceeded maximum limit (circuit breaker)."""
 
     pass
-
 
 
 class RateLimitQueue:
@@ -149,7 +153,7 @@ class RateLimitQueue:
 
         # Circuit breaker state (consecutive failures)
         self._consecutive_failures = 0
-        self._circuit_open_until: Optional[datetime] = None
+        self._circuit_open_until: datetime | None = None
         self._failure_threshold = 5  # Open circuit after 5 consecutive failures
         self._cooldown_seconds = 60.0  # Auto-close after 60s
 
@@ -254,13 +258,15 @@ class RateLimitQueue:
         """Record a failed request for circuit breaker tracking."""
         self._consecutive_failures += 1
         if self._consecutive_failures >= self._failure_threshold:
-            self._circuit_open_until = datetime.now(timezone.utc) + timedelta(seconds=self._cooldown_seconds)
+            self._circuit_open_until = datetime.now(timezone.utc) + timedelta(
+                seconds=self._cooldown_seconds
+            )
             logger.warning(
                 "circuit_breaker_opened",
                 extra={
                     "consecutive_failures": self._consecutive_failures,
                     "cooldown_seconds": self._cooldown_seconds,
-                }
+                },
             )
 
     def record_success(self) -> None:
@@ -279,7 +285,7 @@ class RateLimitQueue:
             return False
         return True
 
-    def update_from_headers(self, headers: Dict[str, str]):
+    def update_from_headers(self, headers: dict[str, str]):
         """Update tracking from API response headers.
 
         Args:
@@ -308,11 +314,16 @@ class RateLimitQueue:
             self.available_requests = float(requests_rem)
         if input_tokens_rem is not None and output_tokens_rem is not None:
             # Use minimum as conservative estimate
-            self.available_tokens = min(float(input_tokens_rem), float(output_tokens_rem))
-            logger.debug("rate_limit_state_synced", extra={
-                "available_requests": self.available_requests,
-                "available_tokens": self.available_tokens
-            })
+            self.available_tokens = min(
+                float(input_tokens_rem), float(output_tokens_rem)
+            )
+            logger.debug(
+                "rate_limit_state_synced",
+                extra={
+                    "available_requests": self.available_requests,
+                    "available_tokens": self.available_tokens,
+                },
+            )
 
 
 class AsyncConversationCapture:
@@ -332,7 +343,7 @@ class AsyncConversationCapture:
         self,
         storage: MemoryStorage,
         cwd: str,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
     ):
         """Initialize async conversation capture.
 
@@ -345,9 +356,9 @@ class AsyncConversationCapture:
         self.cwd = cwd
         self.session_id = session_id or f"sdk_sess_{uuid4().hex[:8]}"
         self.turn_number = 0
-        self._storage_tasks: List[asyncio.Task] = []
+        self._storage_tasks: list[asyncio.Task] = []
 
-    async def capture_user_message(self, content: str) -> Dict[str, Any]:
+    async def capture_user_message(self, content: str) -> dict[str, Any]:
         """Capture user message in background (non-blocking).
 
         Args:
@@ -361,7 +372,7 @@ class AsyncConversationCapture:
         # Create background task
         task = asyncio.create_task(self._store_user_message(content))
         self._storage_tasks.append(task)
-        sdk_storage_tasks.labels(status='created').inc()
+        sdk_storage_tasks.labels(status="created").inc()
 
         return {
             "status": "queued",
@@ -369,7 +380,7 @@ class AsyncConversationCapture:
             "task_id": id(task),
         }
 
-    async def capture_agent_response(self, content: str) -> Dict[str, Any]:
+    async def capture_agent_response(self, content: str) -> dict[str, Any]:
         """Capture agent response in background (non-blocking).
 
         Args:
@@ -381,7 +392,7 @@ class AsyncConversationCapture:
         # Create background task
         task = asyncio.create_task(self._store_agent_response(content))
         self._storage_tasks.append(task)
-        sdk_storage_tasks.labels(status='created').inc()
+        sdk_storage_tasks.labels(status="created").inc()
 
         return {
             "status": "queued",
@@ -416,7 +427,7 @@ class AsyncConversationCapture:
                 },
             )
         except Exception as e:
-            sdk_storage_tasks.labels(status='failed').inc()
+            sdk_storage_tasks.labels(status="failed").inc()
             logger.warning(
                 "user_message_capture_failed",
                 extra={
@@ -453,7 +464,7 @@ class AsyncConversationCapture:
                 },
             )
         except Exception as e:
-            sdk_storage_tasks.labels(status='failed').inc()
+            sdk_storage_tasks.labels(status="failed").inc()
             logger.warning(
                 "agent_response_capture_failed",
                 extra={
@@ -526,9 +537,9 @@ class AsyncSDKWrapper:
     def __init__(
         self,
         cwd: str,
-        api_key: Optional[str] = None,
-        storage: Optional[MemoryStorage] = None,
-        session_id: Optional[str] = None,
+        api_key: str | None = None,
+        storage: MemoryStorage | None = None,
+        session_id: str | None = None,
         requests_per_minute: int = 50,
         tokens_per_minute: int = 30000,
     ):
@@ -594,6 +605,7 @@ class AsyncSDKWrapper:
         logger.info(
             "async_sdk_wrapper_closed", extra={"session_id": self.capture.session_id}
         )
+
     def _should_retry_api_error(self, exception: Exception) -> bool:
         """Determine if exception should trigger retry (DEC-029, TECH-DEBT-041 #1).
 
@@ -622,7 +634,7 @@ class AsyncSDKWrapper:
         return False
 
     @staticmethod
-    def _extract_retry_after(exception: Exception) -> Optional[float]:
+    def _extract_retry_after(exception: Exception) -> float | None:
         """Extract retry-after header from exception (TECH-DEBT-041 #2).
 
         Args:
@@ -631,10 +643,10 @@ class AsyncSDKWrapper:
         Returns:
             Retry-after delay in seconds, or None if not present
         """
-        if not hasattr(exception, 'response') or exception.response is None:
+        if not hasattr(exception, "response") or exception.response is None:
             return None
 
-        retry_after_header = exception.response.headers.get('retry-after')
+        retry_after_header = exception.response.headers.get("retry-after")
         if not retry_after_header:
             return None
 
@@ -677,9 +689,8 @@ class AsyncSDKWrapper:
                 },
             )
 
-
     async def _create_message(
-        self, model: str, max_tokens: int, messages: List[Dict[str, str]], **kwargs
+        self, model: str, max_tokens: int, messages: list[dict[str, str]], **kwargs
     ) -> Message:
         """Internal method to create message with Tenacity retry logic (TECH-DEBT-041 #1).
 
@@ -722,7 +733,7 @@ class AsyncSDKWrapper:
         model: str = "claude-3-5-sonnet-20241022",
         max_tokens: int = 1024,
         **kwargs,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Send a message with rate limiting, retry, and capture.
 
         Implements exponential backoff retry (DEC-029):

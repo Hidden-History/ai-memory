@@ -6,19 +6,21 @@ Validates hook registration, memory capture, and graceful degradation.
 
 import asyncio
 import sys
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock, call
-from datetime import datetime, timezone
 
 # Mock claude_agent_sdk before importing AgentSDKWrapper
-sys.modules['claude_agent_sdk'] = MagicMock()
+sys.modules["claude_agent_sdk"] = MagicMock()
+
+import contextlib
 
 from src.memory.agent_sdk_wrapper import (
     AgentSDKWrapper,
     create_memory_enhanced_client,
 )
+from src.memory.config import COLLECTION_CODE_PATTERNS, COLLECTION_DISCUSSIONS
 from src.memory.models import MemoryType
-from src.memory.config import COLLECTION_DISCUSSIONS, COLLECTION_CODE_PATTERNS
 
 
 @pytest.fixture
@@ -602,10 +604,8 @@ async def test_periodic_flush():
 
             # Cleanup
             wrapper._flush_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await wrapper._flush_task
-            except asyncio.CancelledError:
-                pass
 
 
 @pytest.mark.asyncio

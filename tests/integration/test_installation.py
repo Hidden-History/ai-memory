@@ -15,8 +15,9 @@ AC: 7.1.3 (Prerequisites), 7.1.4 (Platform), 7.1.8 (Error Messages)
 import json
 import os
 import subprocess
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 # Fixtures
@@ -54,7 +55,7 @@ def test_installer_script_exists_and_executable(installer_script):
     assert os.access(script_path, os.X_OK), "install.sh is not executable"
 
     # Verify shebang
-    with open(script_path, 'r') as f:
+    with open(script_path) as f:
         first_line = f.readline().strip()
         assert first_line == "#!/usr/bin/env bash", f"Invalid shebang: {first_line}"
 
@@ -67,9 +68,9 @@ def test_installer_has_set_flags(installer_script):
     WHEN I read the script content
     THEN it contains 'set -euo pipefail' for 2026 best practices
     """
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
-        assert 'set -euo pipefail' in content, "Missing strict error handling flags"
+        assert "set -euo pipefail" in content, "Missing strict error handling flags"
 
 
 # Test 2: Prerequisite checks
@@ -83,11 +84,11 @@ def test_docker_check(installer_script, monkeypatch, capsys):
     """
     # This test verifies the check logic exists
     # Full integration would require Docker to be stopped
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
-        assert 'command -v docker' in content, "Missing Docker check"
-        assert 'docker info' in content, "Missing Docker daemon check"
-        assert 'docker compose version' in content, "Missing Docker Compose V2 check"
+        assert "command -v docker" in content, "Missing Docker check"
+        assert "docker info" in content, "Missing Docker daemon check"
+        assert "docker compose version" in content, "Missing Docker Compose V2 check"
 
 
 def test_python_version_check(installer_script):
@@ -98,10 +99,10 @@ def test_python_version_check(installer_script):
     WHEN I examine the Python version check
     THEN it requires Python 3.10+
     """
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
-        assert 'python3' in content, "Missing Python check"
-        assert '(3, 10)' in content, "Missing Python 3.10 version requirement"
+        assert "python3" in content, "Missing Python check"
+        assert "(3, 10)" in content, "Missing Python 3.10 version requirement"
 
 
 def test_port_availability_check_using_lsof(installer_script):
@@ -112,14 +113,18 @@ def test_port_availability_check_using_lsof(installer_script):
     WHEN I examine the port checking logic
     THEN it uses lsof for precise port detection
     """
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
-        assert 'lsof -i' in content, "Missing lsof port check"
-        assert 'check_port_available' in content, "Missing port check function"
+        assert "lsof -i" in content, "Missing lsof port check"
+        assert "check_port_available" in content, "Missing port check function"
 
         # Verify all critical ports are checked
-        assert '26350' in content or 'QDRANT_PORT' in content, "Missing Qdrant port check"
-        assert '28080' in content or 'EMBEDDING_PORT' in content, "Missing Embedding port check"
+        assert (
+            "26350" in content or "QDRANT_PORT" in content
+        ), "Missing Qdrant port check"
+        assert (
+            "28080" in content or "EMBEDDING_PORT" in content
+        ), "Missing Embedding port check"
 
 
 # Test 3: Platform detection
@@ -131,16 +136,16 @@ def test_platform_detection_logic(installer_script):
     WHEN I examine platform detection logic
     THEN it detects Linux, macOS (Intel/Apple Silicon), and WSL2
     """
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
 
         # Check for platform detection patterns
-        assert 'uname -s' in content, "Missing OS detection"
-        assert 'uname -m' in content, "Missing architecture detection"
-        assert 'Linux*' in content, "Missing Linux detection"
-        assert 'Darwin*' in content, "Missing macOS detection"
-        assert 'microsoft' in content or 'WSL' in content, "Missing WSL2 detection"
-        assert 'arm64' in content, "Missing Apple Silicon detection"
+        assert "uname -s" in content, "Missing OS detection"
+        assert "uname -m" in content, "Missing architecture detection"
+        assert "Linux*" in content, "Missing Linux detection"
+        assert "Darwin*" in content, "Missing macOS detection"
+        assert "microsoft" in content or "WSL" in content, "Missing WSL2 detection"
+        assert "arm64" in content, "Missing Apple Silicon detection"
 
 
 # Test 4: Error message templates
@@ -152,17 +157,25 @@ def test_error_message_templates_exist(installer_script):
     WHEN I examine error handling
     THEN clear error message templates exist
     """
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
 
         # Verify error message functions exist
-        assert 'show_docker_not_running_error' in content, "Missing Docker error message"
-        assert 'show_port_conflict_error' in content, "Missing port conflict error message"
-        assert 'show_disk_space_error' in content, "Missing disk space error message"
-        assert 'show_python_version_error' in content, "Missing Python version error message"
+        assert (
+            "show_docker_not_running_error" in content
+        ), "Missing Docker error message"
+        assert (
+            "show_port_conflict_error" in content
+        ), "Missing port conflict error message"
+        assert "show_disk_space_error" in content, "Missing disk space error message"
+        assert (
+            "show_python_version_error" in content
+        ), "Missing Python version error message"
 
         # Verify NO FALLBACK warnings (strict fail-fast principle)
-        assert content.count('NO FALLBACK') >= 4, "Missing NO FALLBACK warnings in error messages"
+        assert (
+            content.count("NO FALLBACK") >= 4
+        ), "Missing NO FALLBACK warnings in error messages"
 
 
 def test_error_messages_are_clear_and_actionable(installer_script):
@@ -173,18 +186,20 @@ def test_error_messages_are_clear_and_actionable(installer_script):
     WHEN I examine error message content
     THEN each provides actionable guidance
     """
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
 
         # Docker error provides start commands
-        assert 'sudo systemctl start docker' in content, "Missing Docker start command"
-        assert 'Open Docker Desktop' in content, "Missing Docker Desktop instruction"
+        assert "sudo systemctl start docker" in content, "Missing Docker start command"
+        assert "Open Docker Desktop" in content, "Missing Docker Desktop instruction"
 
         # Port error provides lsof diagnostic
-        assert 'lsof -i :' in content, "Missing port diagnostic command"
+        assert "lsof -i :" in content, "Missing port diagnostic command"
 
         # Python error explains why 3.10+ is needed
-        assert 'Async support' in content or 'async' in content, "Missing Python async justification"
+        assert (
+            "Async support" in content or "async" in content
+        ), "Missing Python async justification"
 
 
 # Test 5: Configuration and environment
@@ -196,17 +211,17 @@ def test_environment_variable_configuration(installer_script):
     WHEN I examine configuration handling
     THEN it supports AI_MEMORY_* environment variables
     """
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
 
         # Verify environment variable support
-        assert 'AI_MEMORY_INSTALL_DIR' in content, "Missing INSTALL_DIR env var"
-        assert 'AI_MEMORY_QDRANT_PORT' in content, "Missing QDRANT_PORT env var"
-        assert 'AI_MEMORY_EMBEDDING_PORT' in content, "Missing EMBEDDING_PORT env var"
+        assert "AI_MEMORY_INSTALL_DIR" in content, "Missing INSTALL_DIR env var"
+        assert "AI_MEMORY_QDRANT_PORT" in content, "Missing QDRANT_PORT env var"
+        assert "AI_MEMORY_EMBEDDING_PORT" in content, "Missing EMBEDDING_PORT env var"
 
         # Verify defaults
-        assert '26350' in content, "Missing Qdrant default port"
-        assert '28080' in content, "Missing Embedding default port"
+        assert "26350" in content, "Missing Qdrant default port"
+        assert "28080" in content, "Missing Embedding default port"
 
 
 # Test 6: Security best practices (2026)
@@ -218,13 +233,15 @@ def test_security_best_practices_applied(installer_script):
     WHEN I examine service startup logic
     THEN it references security hardening patterns
     """
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
 
         # Verify security references
-        assert '127.0.0.1' in content, "Missing localhost-only binding reference"
-        assert 'service_healthy' in content, "Missing health check reference"
-        assert 'security' in content.lower(), "Missing security best practices reference"
+        assert "127.0.0.1" in content, "Missing localhost-only binding reference"
+        assert "service_healthy" in content, "Missing health check reference"
+        assert (
+            "security" in content.lower()
+        ), "Missing security best practices reference"
 
 
 # Test 7: Service health checks
@@ -236,17 +253,19 @@ def test_service_health_check_logic(installer_script):
     WHEN I examine wait_for_services logic
     THEN it polls health endpoints with timeout
     """
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
 
         # Verify health check patterns
-        assert 'curl' in content, "Missing curl for health checks"
-        assert '/health' in content, "Missing health endpoint"
-        assert 'max_attempts' in content or 'timeout' in content, "Missing timeout logic"
+        assert "curl" in content, "Missing curl for health checks"
+        assert "/health" in content, "Missing health endpoint"
+        assert (
+            "max_attempts" in content or "timeout" in content
+        ), "Missing timeout logic"
 
         # Verify checks for critical services
-        assert 'Qdrant' in content, "Missing Qdrant health check"
-        assert 'Embedding' in content, "Missing Embedding health check"
+        assert "Qdrant" in content, "Missing Qdrant health check"
+        assert "Embedding" in content, "Missing Embedding health check"
 
 
 # Test 8: Script main flow
@@ -258,23 +277,25 @@ def test_main_orchestration_function(installer_script):
     WHEN I examine main() function
     THEN steps execute in proper sequence
     """
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
 
         # Find main function
-        assert 'main() {' in content or 'main () {' in content, "Missing main() function"
+        assert (
+            "main() {" in content or "main () {" in content
+        ), "Missing main() function"
 
         # Verify key steps in order
-        main_section = content[content.find('main'):]
+        main_section = content[content.find("main") :]
 
         steps = [
-            'check_prerequisites',
-            'detect_platform',
-            'create_directories',
-            'copy_files',
-            'configure_environment',
-            'start_services',
-            'wait_for_services'
+            "check_prerequisites",
+            "detect_platform",
+            "create_directories",
+            "copy_files",
+            "configure_environment",
+            "start_services",
+            "wait_for_services",
         ]
 
         last_pos = 0
@@ -294,20 +315,20 @@ def test_colored_logging_functions(installer_script):
     WHEN I examine logging functions
     THEN log_info, log_success, log_warning, log_error exist
     """
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
 
         # Verify logging functions
-        assert 'log_info()' in content, "Missing log_info function"
-        assert 'log_success()' in content, "Missing log_success function"
-        assert 'log_warning()' in content, "Missing log_warning function"
-        assert 'log_error()' in content, "Missing log_error function"
+        assert "log_info()" in content, "Missing log_info function"
+        assert "log_success()" in content, "Missing log_success function"
+        assert "log_warning()" in content, "Missing log_warning function"
+        assert "log_error()" in content, "Missing log_error function"
 
         # Verify color codes
-        assert 'RED=' in content, "Missing RED color"
-        assert 'GREEN=' in content, "Missing GREEN color"
-        assert 'YELLOW=' in content, "Missing YELLOW color"
-        assert 'BLUE=' in content, "Missing BLUE color"
+        assert "RED=" in content, "Missing RED color"
+        assert "GREEN=" in content, "Missing GREEN color"
+        assert "YELLOW=" in content, "Missing YELLOW color"
+        assert "BLUE=" in content, "Missing BLUE color"
 
 
 # Test 10: Success message
@@ -319,16 +340,19 @@ def test_success_message_shows_next_steps(installer_script):
     WHEN success message is shown
     THEN it includes service URLs and next steps
     """
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
 
         # Verify success message function
-        assert 'show_success_message' in content, "Missing success message function"
+        assert "show_success_message" in content, "Missing success message function"
 
         # Verify next steps references
-        assert 'What happens next' in content or 'Next steps' in content or 'next steps' in content, \
-            "Missing next steps guidance"
-        assert 'health-check' in content, "Missing health check reference"
+        assert (
+            "What happens next" in content
+            or "Next steps" in content
+            or "next steps" in content
+        ), "Missing next steps guidance"
+        assert "health-check" in content, "Missing health check reference"
 
 
 # Test 11: File structure validation
@@ -340,13 +364,14 @@ def test_file_structure_validation(installer_script):
     WHEN it copies files
     THEN it validates expected structure exists
     """
-    with open(installer_script, 'r') as f:
+    with open(installer_script) as f:
         content = f.read()
 
         # Verify structure validation
-        assert 'docker-compose.yml' in content, "Missing docker-compose.yml check"
-        assert 'Expected structure' in content or 'Cannot find source files' in content, \
-            "Missing file structure validation"
+        assert "docker-compose.yml" in content, "Missing docker-compose.yml check"
+        assert (
+            "Expected structure" in content or "Cannot find source files" in content
+        ), "Missing file structure validation"
 
 
 # ==============================================================================
@@ -354,6 +379,7 @@ def test_file_structure_validation(installer_script):
 # ==============================================================================
 # The tests above verify script structure (static analysis).
 # The tests below verify actual installation behavior (E2E).
+
 
 def test_installer_creates_directories(temp_install_dir):
     """
@@ -367,7 +393,7 @@ def test_installer_creates_directories(temp_install_dir):
         ["./scripts/install.sh"],
         capture_output=True,
         text=True,
-        env={**os.environ, "AI_MEMORY_INSTALL_DIR": temp_install_dir}
+        env={**os.environ, "AI_MEMORY_INSTALL_DIR": temp_install_dir},
     )
 
     assert result.returncode == 0, f"Installer failed: {result.stderr}"
@@ -409,7 +435,9 @@ def test_hooks_configured_in_settings():
     assert "Stop" in hooks, "Stop hook not configured"
 
     # Verify hook scripts exist
-    install_dir = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
+    install_dir = os.environ.get(
+        "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+    )
     hooks_dir = os.path.join(install_dir, ".claude/hooks/scripts")
 
     required_scripts = ["session_start.py", "post_tool_capture.py", "session_stop.py"]
@@ -427,20 +455,21 @@ def test_health_check_passes():
     WHEN I run health-check.py
     THEN all checks pass
     """
-    install_dir = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
+    install_dir = os.environ.get(
+        "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+    )
     health_check_script = os.path.join(install_dir, "scripts/health-check.py")
 
     if not os.path.exists(health_check_script):
         pytest.skip(f"Health check script not found: {health_check_script}")
 
     result = subprocess.run(
-        ["python3", health_check_script],
-        capture_output=True,
-        text=True,
-        timeout=60
+        ["python3", health_check_script], capture_output=True, text=True, timeout=60
     )
 
-    assert result.returncode == 0, f"Health check failed:\n{result.stdout}\n{result.stderr}"
+    assert (
+        result.returncode == 0
+    ), f"Health check failed:\n{result.stdout}\n{result.stderr}"
     assert "All checks passed" in result.stdout or "healthy" in result.stdout.lower()
 
 
@@ -452,7 +481,9 @@ def test_docker_services_running():
     WHEN I check Docker services
     THEN qdrant and embedding containers are running
     """
-    install_dir = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
+    install_dir = os.environ.get(
+        "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+    )
     compose_file = os.path.join(install_dir, "docker/docker-compose.yml")
 
     if not os.path.exists(compose_file):
@@ -462,20 +493,23 @@ def test_docker_services_running():
         ["docker", "compose", "-f", compose_file, "ps", "--format", "json"],
         capture_output=True,
         text=True,
-        timeout=30
+        timeout=30,
     )
 
     assert result.returncode == 0, f"docker compose ps failed: {result.stderr}"
 
     # Parse service status
     import json as json_lib
+
     services_raw = result.stdout.strip()
 
     # Handle both single JSON object and newline-delimited JSON
-    if services_raw.startswith('['):
+    if services_raw.startswith("["):
         services = json_lib.loads(services_raw)
     else:
-        services = [json_lib.loads(line) for line in services_raw.split('\n') if line.strip()]
+        services = [
+            json_lib.loads(line) for line in services_raw.split("\n") if line.strip()
+        ]
 
     running_services = {s["Service"] for s in services if s.get("State") == "running"}
 
@@ -496,10 +530,7 @@ def test_qdrant_collections_exist():
     qdrant_port = int(os.environ.get("AI_MEMORY_QDRANT_PORT", "26350"))
 
     try:
-        response = httpx.get(
-            f"http://localhost:{qdrant_port}/collections",
-            timeout=10
-        )
+        response = httpx.get(f"http://localhost:{qdrant_port}/collections", timeout=10)
     except httpx.ConnectError:
         pytest.skip(f"Cannot connect to Qdrant on port {qdrant_port}")
 
@@ -529,7 +560,7 @@ def test_embedding_service_responds():
         response = httpx.post(
             f"http://localhost:{embedding_port}/embed",
             json={"texts": ["test embedding generation"]},
-            timeout=30
+            timeout=30,
         )
     except httpx.ConnectError:
         pytest.skip(f"Cannot connect to embedding service on port {embedding_port}")
@@ -540,8 +571,10 @@ def test_embedding_service_responds():
     embeddings = data.get("embeddings", [])
 
     assert len(embeddings) == 1, f"Expected 1 embedding, got {len(embeddings)}"
-    assert len(embeddings[0]) == 768, f"Expected 768 dimensions, got {len(embeddings[0])}"
+    assert (
+        len(embeddings[0]) == 768
+    ), f"Expected 768 dimensions, got {len(embeddings[0])}"
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

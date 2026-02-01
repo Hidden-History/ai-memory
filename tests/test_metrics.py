@@ -5,9 +5,11 @@ Tests that all metrics are properly defined with correct types,
 labels, and metadata according to AC 6.1.2 and AC 6.1.4.
 """
 
-import pytest
+import contextlib
 import sys
-from prometheus_client import Counter, Gauge, Histogram, Info, CollectorRegistry
+
+import pytest
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, Info
 
 
 @pytest.fixture(autouse=True)
@@ -18,13 +20,13 @@ def reset_metrics_module():
     # Clear all collectors from the registry
     collectors = list(REGISTRY._collector_to_names.keys())
     for collector in collectors:
-        try:
+        with contextlib.suppress(Exception):
             REGISTRY.unregister(collector)
-        except Exception:
-            pass
 
     # Remove metrics module from sys.modules
-    modules_to_remove = [k for k in sys.modules.keys() if 'memory.metrics' in k or k == 'memory']
+    modules_to_remove = [
+        k for k in sys.modules if "memory.metrics" in k or k == "memory"
+    ]
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 
@@ -33,12 +35,12 @@ def reset_metrics_module():
     # Clean up after test - clear registry again
     collectors = list(REGISTRY._collector_to_names.keys())
     for collector in collectors:
-        try:
+        with contextlib.suppress(Exception):
             REGISTRY.unregister(collector)
-        except Exception:
-            pass
 
-    modules_to_remove = [k for k in sys.modules.keys() if 'memory.metrics' in k or k == 'memory']
+    modules_to_remove = [
+        k for k in sys.modules if "memory.metrics" in k or k == "memory"
+    ]
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 
@@ -46,16 +48,16 @@ def reset_metrics_module():
 def test_metrics_module_imports():
     """Test that metrics module can be imported and contains expected metrics."""
     from memory.metrics import (
+        collection_size,
+        deduplication_events_total,
+        embedding_duration_seconds,
+        embedding_requests_total,
+        failure_events_total,
+        hook_duration_seconds,
         memory_captures_total,
         memory_retrievals_total,
-        embedding_requests_total,
-        deduplication_events_total,
-        collection_size,
         queue_size,
-        hook_duration_seconds,
-        embedding_duration_seconds,
         retrieval_duration_seconds,
-        failure_events_total,
         system_info,
     )
 
@@ -79,11 +81,11 @@ def test_metrics_module_imports():
 def test_counter_metrics_have_correct_labels():
     """Test that Counter metrics have the correct label names defined."""
     from memory.metrics import (
+        deduplication_events_total,
+        embedding_requests_total,
+        failure_events_total,
         memory_captures_total,
         memory_retrievals_total,
-        embedding_requests_total,
-        deduplication_events_total,
-        failure_events_total,
     )
 
     # memory_captures_total: ["hook_type", "status", "project"]
@@ -116,8 +118,8 @@ def test_gauge_metrics_have_correct_labels():
 def test_histogram_metrics_have_correct_buckets():
     """Test that Histogram metrics have appropriate bucket definitions."""
     from memory.metrics import (
-        hook_duration_seconds,
         embedding_duration_seconds,
+        hook_duration_seconds,
         retrieval_duration_seconds,
     )
 
@@ -126,7 +128,17 @@ def test_histogram_metrics_have_correct_buckets():
     assert hook_duration_seconds._upper_bounds == expected_hook_buckets
 
     # embedding_duration_seconds: buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0] - per production
-    expected_embedding_buckets = [0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, float("inf")]
+    expected_embedding_buckets = [
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.0,
+        5.0,
+        10.0,
+        float("inf"),
+    ]
     assert embedding_duration_seconds._upper_bounds == expected_embedding_buckets
 
     # retrieval_duration_seconds: buckets=[0.1, 0.5, 1.0, 2.0, 3.0, 5.0] - per production
@@ -137,8 +149,8 @@ def test_histogram_metrics_have_correct_buckets():
 def test_histogram_metrics_have_correct_labels():
     """Test that Histogram metrics have the correct label names defined."""
     from memory.metrics import (
-        hook_duration_seconds,
         embedding_duration_seconds,
+        hook_duration_seconds,
         retrieval_duration_seconds,
     )
 
@@ -176,11 +188,13 @@ def test_metric_naming_follows_snake_case_convention():
 
         # Check Prometheus metric name starts with ai_memory_ (project renamed from bmad)
         if hasattr(metric, "_name"):
-            assert metric._name.startswith("ai_memory_"), \
-                f"Metric {name} should have Prometheus name starting with 'ai_memory_'"
+            assert metric._name.startswith(
+                "ai_memory_"
+            ), f"Metric {name} should have Prometheus name starting with 'ai_memory_'"
             # Check snake_case (no uppercase letters)
-            assert metric._name.islower() or "_" in metric._name, \
-                f"Metric {name} Prometheus name should be snake_case"
+            assert (
+                metric._name.islower() or "_" in metric._name
+            ), f"Metric {name} Prometheus name should be snake_case"
 
 
 def test_system_info_has_version_metadata():
@@ -196,8 +210,6 @@ def test_system_info_has_version_metadata():
 
 def test_counter_can_increment_with_labels():
     """Test that counters can be incremented with proper labels."""
-    from memory.metrics import memory_captures_total
-    from prometheus_client import REGISTRY
 
     # Create a test registry to avoid polluting global state
     test_registry = CollectorRegistry()
@@ -205,12 +217,16 @@ def test_counter_can_increment_with_labels():
         "test_memory_captures_total",
         "Test counter",
         ["hook_type", "status", "project"],
-        registry=test_registry
+        registry=test_registry,
     )
 
     # Increment with labels
-    test_counter.labels(hook_type="PostToolUse", status="success", project="test-project").inc()
-    test_counter.labels(hook_type="SessionStart", status="queued", project="test-project").inc(2)
+    test_counter.labels(
+        hook_type="PostToolUse", status="success", project="test-project"
+    ).inc()
+    test_counter.labels(
+        hook_type="SessionStart", status="queued", project="test-project"
+    ).inc(2)
 
     # Verify increments (by checking the metric was created successfully)
     metrics = test_registry.collect()
@@ -219,7 +235,6 @@ def test_counter_can_increment_with_labels():
 
 def test_gauge_can_be_set_and_incremented():
     """Test that gauges can be set to values and incremented/decremented."""
-    from prometheus_client import REGISTRY
     from prometheus_client import Gauge as TestGauge
 
     # Create a test registry to avoid polluting global state
@@ -228,7 +243,7 @@ def test_gauge_can_be_set_and_incremented():
         "test_collection_size",
         "Test gauge",
         ["collection", "project"],
-        registry=test_registry
+        registry=test_registry,
     )
 
     # Set gauge value
@@ -245,7 +260,8 @@ def test_gauge_can_be_set_and_incremented():
 
 def test_histogram_can_observe_durations():
     """Test that histograms can observe timing values."""
-    from prometheus_client import Histogram as TestHistogram, CollectorRegistry
+    from prometheus_client import CollectorRegistry
+    from prometheus_client import Histogram as TestHistogram
 
     # Create a test registry
     test_registry = CollectorRegistry()
@@ -254,7 +270,7 @@ def test_histogram_can_observe_durations():
         "Test histogram",
         ["hook_type"],
         buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0],
-        registry=test_registry
+        registry=test_registry,
     )
 
     # Observe durations

@@ -14,19 +14,20 @@ Complies with:
 - project-context.md: integration test patterns
 """
 
-import pytest
-import time
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+import pytest
 
 # Add src to path
 src_path = Path(__file__).parent.parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
+from memory.metrics import update_collection_metrics
 from memory.stats import get_collection_stats
 from memory.warnings import check_collection_thresholds
-from memory.metrics import update_collection_metrics, collection_size
 
 
 class TestCollectionStatsScript:
@@ -34,7 +35,12 @@ class TestCollectionStatsScript:
 
     def test_collection_stats_script_runs(self):
         """collection_stats.py script executes successfully."""
-        script_path = Path(__file__).parent.parent.parent / "scripts" / "memory" / "collection_stats.py"
+        script_path = (
+            Path(__file__).parent.parent.parent
+            / "scripts"
+            / "memory"
+            / "collection_stats.py"
+        )
 
         # Note: This will fail if Qdrant is not running, which is expected
         # In CI/CD, Qdrant should be running via docker-compose
@@ -42,7 +48,7 @@ class TestCollectionStatsScript:
             [sys.executable, str(script_path)],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         # Script should either succeed (exit 0) or fail gracefully (exit 1)
@@ -50,7 +56,9 @@ class TestCollectionStatsScript:
 
         # Output should contain expected sections
         output = result.stdout + result.stderr
-        assert "BMAD Memory Collection Statistics" in output or "error" in output.lower()
+        assert (
+            "BMAD Memory Collection Statistics" in output or "error" in output.lower()
+        )
 
 
 class TestStatisticsPerformance:
@@ -64,15 +72,19 @@ class TestStatisticsPerformance:
 
         start_time = time.perf_counter()
         try:
-            stats = get_collection_stats(qdrant_client, "code-patterns")
+            get_collection_stats(qdrant_client, "code-patterns")
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
             # NFR-M4: Statistics queries MUST complete <100ms
-            assert elapsed_ms < 100, f"Stats calculation took {elapsed_ms:.2f}ms (limit: 100ms)"
-        except Exception as e:
+            assert (
+                elapsed_ms < 100
+            ), f"Stats calculation took {elapsed_ms:.2f}ms (limit: 100ms)"
+        except Exception:
             # If collection doesn't exist, test still validates performance of the check
             elapsed_ms = (time.perf_counter() - start_time) * 1000
-            assert elapsed_ms < 100, f"Stats check took {elapsed_ms:.2f}ms (limit: 100ms)"
+            assert (
+                elapsed_ms < 100
+            ), f"Stats check took {elapsed_ms:.2f}ms (limit: 100ms)"
 
 
 class TestMetricsIntegration:
@@ -123,6 +135,7 @@ class TestWarningsIntegration:
 def qdrant_client():
     """Provide QdrantClient for integration tests."""
     from qdrant_client import QdrantClient
+
     from memory.config import get_config
 
     config = get_config()

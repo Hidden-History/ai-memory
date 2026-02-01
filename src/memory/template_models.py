@@ -13,7 +13,7 @@ Sources:
 
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field, TypeAdapter, field_validator
 
@@ -76,19 +76,19 @@ class BestPracticeTemplate(BaseModel):
         description="Searchable tags (max 10)",
     )
 
-    source: Optional[str] = Field(
+    source: str | None = Field(
         default=None,
         max_length=500,
         description="Optional reference URL or citation",
     )
 
     # Timestamp fields (TECH-DEBT-028)
-    source_date: Optional[datetime] = Field(
+    source_date: datetime | None = Field(
         default=None,
         description="When the source was published (ISO 8601, e.g. 2026-01-15)",
     )
 
-    last_verified: Optional[datetime] = Field(
+    last_verified: datetime | None = Field(
         default=None,
         description="When this practice was last verified as accurate",
     )
@@ -222,7 +222,7 @@ class BestPracticeTemplate(BaseModel):
 
     @field_validator("source")
     @classmethod
-    def validate_source_url(cls, v: Optional[str]) -> Optional[str]:
+    def validate_source_url(cls, v: str | None) -> str | None:
         """Validate source URL if provided."""
         if v is None:
             return None

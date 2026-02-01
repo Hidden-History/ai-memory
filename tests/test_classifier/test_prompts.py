@@ -3,7 +3,6 @@
 TECH-DEBT-069: Ensure file_path is correctly included in prompts.
 """
 
-import pytest
 from src.memory.classifier.prompts import build_classification_prompt
 
 

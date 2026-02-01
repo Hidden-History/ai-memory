@@ -9,21 +9,21 @@ Tests verify 2026 best practices:
 
 import sys
 from pathlib import Path
-import pytest
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
 
 # Add scripts to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from memory.__version__ import __version__, __version_info__
-import httpx
 import importlib.util
+
+import httpx
+
+from memory.__version__ import __version__, __version_info__
 
 # Load check-version.py module (has hyphen, can't import normally)
 spec = importlib.util.spec_from_file_location(
-    "check_version",
-    Path(__file__).parent.parent / "scripts" / "check-version.py"
+    "check_version", Path(__file__).parent.parent / "scripts" / "check-version.py"
 )
 check_version = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(check_version)
@@ -137,7 +137,7 @@ class TestCheckVersionScript:
         """Test successful version fetch from GitHub API."""
         get_latest_version = check_version.get_latest_version
 
-        with patch.object(httpx, 'get') as mock_get:
+        with patch.object(httpx, "get") as mock_get:
             # Mock successful response
             mock_response = Mock()
             mock_response.json.return_value = {"tag_name": "v1.0.1"}
@@ -149,17 +149,21 @@ class TestCheckVersionScript:
 
             # Verify httpx.Timeout was used
             call_kwargs = mock_get.call_args.kwargs
-            assert 'timeout' in call_kwargs, "Must use timeout parameter"
-            timeout_obj = call_kwargs['timeout']
-            assert isinstance(timeout_obj, httpx.Timeout), "Must use httpx.Timeout object"
+            assert "timeout" in call_kwargs, "Must use timeout parameter"
+            timeout_obj = call_kwargs["timeout"]
+            assert isinstance(
+                timeout_obj, httpx.Timeout
+            ), "Must use httpx.Timeout object"
 
     def test_get_latest_version_timeout_with_retry(self):
         """Test retry logic on timeout errors with exponential backoff."""
         get_latest_version = check_version.get_latest_version
 
-        with patch.object(httpx, 'get') as mock_get, \
-             patch.object(check_version.time, 'sleep') as mock_sleep, \
-             patch.object(check_version, 'MAX_RETRIES', 2):
+        with (
+            patch.object(httpx, "get") as mock_get,
+            patch.object(check_version.time, "sleep"),
+            patch.object(check_version, "MAX_RETRIES", 2),
+        ):
             mock_get.side_effect = httpx.TimeoutException("Connection timeout")
 
             version = get_latest_version()
@@ -171,7 +175,7 @@ class TestCheckVersionScript:
         """Test that 4xx errors don't trigger retry (client errors)."""
         get_latest_version = check_version.get_latest_version
 
-        with patch.object(httpx, 'get') as mock_get:
+        with patch.object(httpx, "get") as mock_get:
             mock_response = Mock()
             mock_response.status_code = 404
             mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
@@ -187,9 +191,11 @@ class TestCheckVersionScript:
         """Test graceful handling of network errors with retry."""
         get_latest_version = check_version.get_latest_version
 
-        with patch.object(httpx, 'get') as mock_get, \
-             patch.object(check_version.time, 'sleep') as mock_sleep, \
-             patch.object(check_version, 'MAX_RETRIES', 2):
+        with (
+            patch.object(httpx, "get") as mock_get,
+            patch.object(check_version.time, "sleep"),
+            patch.object(check_version, "MAX_RETRIES", 2),
+        ):
             mock_get.side_effect = httpx.RequestError("Network unreachable")
 
             version = get_latest_version()
@@ -199,7 +205,7 @@ class TestCheckVersionScript:
         """Test graceful handling of invalid API response (no retry)."""
         get_latest_version = check_version.get_latest_version
 
-        with patch.object(httpx, 'get') as mock_get:
+        with patch.object(httpx, "get") as mock_get:
             mock_response = Mock()
             mock_response.json.return_value = {"invalid": "response"}
             mock_response.raise_for_status = Mock()
@@ -212,14 +218,16 @@ class TestCheckVersionScript:
     def test_configurable_github_repo(self):
         """Test that GitHub owner/repo is configurable via env vars."""
         # Verify the module has configurable constants
-        assert hasattr(check_version, 'GITHUB_OWNER'), "Must have GITHUB_OWNER constant"
-        assert hasattr(check_version, 'GITHUB_REPO'), "Must have GITHUB_REPO constant"
-        assert hasattr(check_version, 'MAX_RETRIES'), "Must have MAX_RETRIES constant"
+        assert hasattr(check_version, "GITHUB_OWNER"), "Must have GITHUB_OWNER constant"
+        assert hasattr(check_version, "GITHUB_REPO"), "Must have GITHUB_REPO constant"
+        assert hasattr(check_version, "MAX_RETRIES"), "Must have MAX_RETRIES constant"
 
     def test_httpx_timeout_granular_control(self):
         """Test that httpx.Timeout uses granular timeout control (2026 best practice)."""
         # This test verifies the code uses httpx.Timeout with connect/read/write/pool
-        check_version_path = Path(__file__).parent.parent / "scripts" / "check-version.py"
+        check_version_path = (
+            Path(__file__).parent.parent / "scripts" / "check-version.py"
+        )
         content = check_version_path.read_text()
 
         assert "httpx.Timeout(" in content, "Must use httpx.Timeout object"
@@ -261,7 +269,9 @@ class TestRollbackScript:
         content = rollback_script.read_text()
 
         assert "confirm" in content.lower(), "Must have confirmation step"
-        assert "yes/no" in content.lower() or "y/n" in content.lower(), "Must require explicit confirmation"
+        assert (
+            "yes/no" in content.lower() or "y/n" in content.lower()
+        ), "Must require explicit confirmation"
 
     def test_rollback_script_has_signal_trap(self):
         """Test that rollback.sh has signal trap for cleanup (2026 best practice)."""

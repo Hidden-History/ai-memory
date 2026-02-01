@@ -17,9 +17,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
-
 # Add scripts to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
@@ -70,8 +67,10 @@ def test_merge_with_existing_settings(tmp_path):
     existing = {
         "user_preference": "dark_mode",
         "hooks": {
-            "CustomHook": [{"hooks": [{"type": "command", "command": "custom-script.sh"}]}]
-        }
+            "CustomHook": [
+                {"hooks": [{"type": "command", "command": "custom-script.sh"}]}
+            ]
+        },
     }
     settings_file.write_text(json.dumps(existing, indent=2))
 
@@ -155,7 +154,7 @@ def test_verification_catches_invalid_json(tmp_path):
     # Verify using Python (simulating verify_hooks bash function)
     result = subprocess.run(
         ["python3", "-c", f"import json; json.load(open('{settings_file}'))"],
-        capture_output=True
+        capture_output=True,
     )
 
     assert result.returncode != 0, "Must detect invalid JSON"
@@ -168,14 +167,18 @@ def test_verification_catches_missing_hooks_section(tmp_path):
 
     # Verify using Python (simulating verify_hooks bash function)
     result = subprocess.run(
-        ["python3", "-c", f"""
+        [
+            "python3",
+            "-c",
+            f"""
 import json
 import sys
 settings = json.load(open('{settings_file}'))
 if 'hooks' not in settings:
     sys.exit(1)
-"""],
-        capture_output=True
+""",
+        ],
+        capture_output=True,
     )
 
     assert result.returncode != 0, "Must detect missing hooks section"
@@ -194,7 +197,10 @@ def test_verification_catches_missing_required_hooks(tmp_path):
 
     # Verify using Python
     result = subprocess.run(
-        ["python3", "-c", f"""
+        [
+            "python3",
+            "-c",
+            f"""
 import json
 import sys
 settings = json.load(open('{settings_file}'))
@@ -202,8 +208,9 @@ required_hooks = ['SessionStart', 'PostToolUse', 'Stop']
 missing = [h for h in required_hooks if h not in settings['hooks']]
 if missing:
     sys.exit(1)
-"""],
-        capture_output=True
+""",
+        ],
+        capture_output=True,
     )
 
     assert result.returncode != 0, "Must detect missing hooks"

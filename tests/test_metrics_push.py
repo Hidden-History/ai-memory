@@ -4,27 +4,23 @@ Tests verify async fork pattern and graceful degradation.
 Note: PUSHGATEWAY_ENABLED tests require env var set before import.
 """
 
-import sys
 import os
-import pytest
+import sys
 from unittest.mock import patch
 
 # Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from memory.metrics_push import (
-    push_trigger_metrics_async,
-    push_token_metrics_async,
-    push_context_injection_metrics_async,
-    push_capture_metrics_async,
-    push_embedding_metrics_async,
-    push_retrieval_metrics_async,
-    push_failure_metrics_async,
-    _validate_label,
     VALID_STATUSES,
-    VALID_EMBEDDING_TYPES,
-    VALID_COLLECTIONS,
-    VALID_COMPONENTS,
+    _validate_label,
+    push_capture_metrics_async,
+    push_context_injection_metrics_async,
+    push_embedding_metrics_async,
+    push_failure_metrics_async,
+    push_retrieval_metrics_async,
+    push_token_metrics_async,
+    push_trigger_metrics_async,
 )
 
 
@@ -69,13 +65,17 @@ class TestPushContextInjectionMetrics:
     def test_async_push_uses_subprocess(self):
         """Verify fork pattern is used (CRIT-1 fix verification)."""
         with patch("subprocess.Popen") as mock_popen:
-            push_context_injection_metrics_async("SessionStart", "discussions", "test-project", 500)
+            push_context_injection_metrics_async(
+                "SessionStart", "discussions", "test-project", 500
+            )
             mock_popen.assert_called_once()
 
     def test_project_label_included_in_metrics(self):
         """Verify project label is passed to subprocess (BUG-046 fix verification)."""
         with patch("subprocess.Popen") as mock_popen:
-            push_context_injection_metrics_async("SessionStart", "code-patterns", "my-project", 1500)
+            push_context_injection_metrics_async(
+                "SessionStart", "code-patterns", "my-project", 1500
+            )
 
             # Verify subprocess was called
             assert mock_popen.called
@@ -97,7 +97,9 @@ class TestPushCaptureMetrics:
     def test_async_push_uses_subprocess(self):
         """Verify fork pattern is used (CRIT-1 fix verification)."""
         with patch("subprocess.Popen") as mock_popen:
-            push_capture_metrics_async("PostToolUse", "success", "test-project", "code-patterns", 1)
+            push_capture_metrics_async(
+                "PostToolUse", "success", "test-project", "code-patterns", 1
+            )
             mock_popen.assert_called_once()
 
 
@@ -134,9 +136,7 @@ class TestPushEmbeddingMetrics:
         """Verify fork pattern is used."""
         with patch("subprocess.Popen") as mock_popen:
             push_embedding_metrics_async(
-                status="success",
-                embedding_type="dense",
-                duration_seconds=0.5
+                status="success", embedding_type="dense", duration_seconds=0.5
             )
             mock_popen.assert_called_once()
 
@@ -154,7 +154,7 @@ class TestPushEmbeddingMetrics:
             push_embedding_metrics_async(
                 status="success",
                 embedding_type="unknown_type",  # Not in VALID_EMBEDDING_TYPES
-                duration_seconds=0.5
+                duration_seconds=0.5,
             )
             assert "unexpected_label_value" in caplog.text
 
@@ -163,9 +163,7 @@ class TestPushEmbeddingMetrics:
         with patch("subprocess.Popen", side_effect=OSError("fork failed")):
             # Should not raise exception
             push_embedding_metrics_async(
-                status="success",
-                embedding_type="dense",
-                duration_seconds=0.5
+                status="success", embedding_type="dense", duration_seconds=0.5
             )
             assert "metrics_fork_failed" in caplog.text
 
@@ -177,9 +175,7 @@ class TestPushRetrievalMetrics:
         """Verify fork pattern is used."""
         with patch("subprocess.Popen") as mock_popen:
             push_retrieval_metrics_async(
-                collection="code-patterns",
-                status="success",
-                duration_seconds=0.3
+                collection="code-patterns", status="success", duration_seconds=0.3
             )
             mock_popen.assert_called_once()
 
@@ -189,7 +185,7 @@ class TestPushRetrievalMetrics:
             push_retrieval_metrics_async(
                 collection="unknown-collection",  # Not in VALID_COLLECTIONS
                 status="success",
-                duration_seconds=0.3
+                duration_seconds=0.3,
             )
             assert "unexpected_label_value" in caplog.text
 
@@ -197,9 +193,7 @@ class TestPushRetrievalMetrics:
         """Verify fork failures are logged gracefully."""
         with patch("subprocess.Popen", side_effect=OSError("fork failed")):
             push_retrieval_metrics_async(
-                collection="code-patterns",
-                status="success",
-                duration_seconds=0.3
+                collection="code-patterns", status="success", duration_seconds=0.3
             )
             assert "metrics_fork_failed" in caplog.text
 
@@ -211,8 +205,7 @@ class TestPushFailureMetrics:
         """Verify fork pattern is used."""
         with patch("subprocess.Popen") as mock_popen:
             push_failure_metrics_async(
-                component="embedding",
-                error_code="EMBEDDING_TIMEOUT"
+                component="embedding", error_code="EMBEDDING_TIMEOUT"
             )
             mock_popen.assert_called_once()
 
@@ -221,7 +214,7 @@ class TestPushFailureMetrics:
         with patch("subprocess.Popen"):
             push_failure_metrics_async(
                 component="unknown_component",  # Not in VALID_COMPONENTS
-                error_code="EMBEDDING_TIMEOUT"
+                error_code="EMBEDDING_TIMEOUT",
             )
             assert "unexpected_label_value" in caplog.text
 
@@ -229,7 +222,6 @@ class TestPushFailureMetrics:
         """Verify fork failures are logged gracefully."""
         with patch("subprocess.Popen", side_effect=OSError("fork failed")):
             push_failure_metrics_async(
-                component="embedding",
-                error_code="EMBEDDING_TIMEOUT"
+                component="embedding", error_code="EMBEDDING_TIMEOUT"
             )
             assert "metrics_fork_failed" in caplog.text

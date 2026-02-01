@@ -10,11 +10,10 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List
 
 logger = logging.getLogger("ai_memory.classifier.providers")
 
-__all__ = ["ProviderResponse", "BaseProvider"]
+__all__ = ["BaseProvider", "ProviderResponse"]
 
 
 @dataclass
@@ -33,7 +32,7 @@ class ProviderResponse:
     classified_type: str
     confidence: float
     reasoning: str
-    tags: List[str]
+    tags: list[str]
     input_tokens: int
     output_tokens: int
 
@@ -120,9 +119,7 @@ class BaseProvider(ABC):
             pass
 
         # Try extracting from markdown code block
-        code_block_match = re.search(
-            r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL
-        )
+        code_block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
         if code_block_match:
             try:
                 result = json.loads(code_block_match.group(1))
@@ -132,9 +129,7 @@ class BaseProvider(ABC):
                 pass
 
         # Try finding JSON object with classified_type
-        json_match = re.search(
-            r'\{[^{}]*"classified_type"[^{}]*\}', text, re.DOTALL
-        )
+        json_match = re.search(r'\{[^{}]*"classified_type"[^{}]*\}', text, re.DOTALL)
         if json_match:
             try:
                 result = json.loads(json_match.group(0))
@@ -153,9 +148,7 @@ class BaseProvider(ABC):
             except json.JSONDecodeError:
                 pass
 
-        logger.warning(
-            "json_parse_failed", extra={"response_preview": text[:200]}
-        )
+        logger.warning("json_parse_failed", extra={"response_preview": text[:200]})
         raise ValueError(f"Could not parse JSON from response: {text[:100]}...")
 
     def _validate_response_fields(self, result: dict) -> None:
@@ -177,9 +170,7 @@ class BaseProvider(ABC):
         try:
             result["confidence"] = float(result["confidence"])
         except (ValueError, TypeError):
-            raise ValueError(
-                f"Invalid confidence value: {result.get('confidence')}"
-            )
+            raise ValueError(f"Invalid confidence value: {result.get('confidence')}")
 
         # Ensure tags is list
         if "tags" not in result:

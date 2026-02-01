@@ -6,15 +6,15 @@ Requires: docker compose -f docker/docker-compose.yml up -d
 Implements Story 1.5 Task 6.
 """
 
-import pytest
 from datetime import datetime, timezone
 
-from qdrant_client.models import Filter, FieldCondition, MatchText
+import pytest
+from qdrant_client.models import FieldCondition, Filter, MatchText
 
-from src.memory.storage import MemoryStorage
-from src.memory.models import MemoryType, EmbeddingStatus
 from src.memory.config import get_config
+from src.memory.models import MemoryType
 from src.memory.qdrant_client import get_qdrant_client
+from src.memory.storage import MemoryStorage
 
 
 @pytest.mark.requires_qdrant
@@ -33,8 +33,8 @@ class TestStorageIntegration:
     def cleanup(self):
         """Clean up test data before and after each test."""
         # Setup: Query and delete test data before test
-        from src.memory.qdrant_client import get_qdrant_client
         from src.memory.config import get_config
+        from src.memory.qdrant_client import get_qdrant_client
 
         config = get_config()
         client = get_qdrant_client(config)
@@ -181,7 +181,9 @@ class TestStorageIntegration:
         """Test deduplication with real Qdrant (AC 1.5.3)."""
         storage = MemoryStorage()
 
-        unique_content = f"Unique test content for dedup {datetime.now(timezone.utc).isoformat()}"
+        unique_content = (
+            f"Unique test content for dedup {datetime.now(timezone.utc).isoformat()}"
+        )
 
         # Store first time
         result1 = storage.store_memory(

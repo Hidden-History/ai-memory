@@ -21,18 +21,19 @@ References:
     - https://rinaarts.com/declutter-python-code-with-error-handling-decorators/
 """
 
-import sys
 import logging
-from typing import Callable, Any, Optional
+import sys
+from collections.abc import Callable
 from functools import wraps
+from typing import Any
 
 # Configure logger for hook operations
 logger = logging.getLogger("ai_memory.hooks")
 
 # Exit codes per project-context.md and Claude Code hook specification
-EXIT_SUCCESS = 0       # Normal completion
+EXIT_SUCCESS = 0  # Normal completion
 EXIT_NON_BLOCKING = 1  # Error but Claude continues (graceful degradation)
-EXIT_BLOCKING = 2      # Block Claude action (rarely used, intentional only)
+EXIT_BLOCKING = 2  # Block Claude action (rarely used, intentional only)
 
 
 def graceful_hook(func: Callable) -> Callable:
@@ -68,17 +69,21 @@ def graceful_hook(func: Callable) -> Callable:
         - Never intentionally raise from hook after wrapping with decorator
         - Log business logic errors before decorator catches them
     """
+
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return func(*args, **kwargs)
         except Exception as e:
             # Log with structured extras (no f-strings per project-context.md)
-            logger.error("hook_failed", extra={
-                "hook": func.__name__,
-                "error": str(e),
-                "error_type": type(e).__name__
-            })
+            logger.error(
+                "hook_failed",
+                extra={
+                    "hook": func.__name__,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
             # Always exit 1 (non-blocking) on unexpected error
             # Claude continues, memory system gracefully degrades
             sys.exit(EXIT_NON_BLOCKING)
@@ -100,7 +105,7 @@ def exit_success() -> None:
     sys.exit(EXIT_SUCCESS)
 
 
-def exit_graceful(message: Optional[str] = None) -> None:
+def exit_graceful(message: str | None = None) -> None:
     """Exit hook with non-blocking error code 1.
 
     Use when hook encounters expected error but should allow Claude to continue.
@@ -125,10 +130,10 @@ def exit_graceful(message: Optional[str] = None) -> None:
 
 # Export public API
 __all__ = [
-    "EXIT_SUCCESS",
-    "EXIT_NON_BLOCKING",
     "EXIT_BLOCKING",
-    "graceful_hook",
-    "exit_success",
+    "EXIT_NON_BLOCKING",
+    "EXIT_SUCCESS",
     "exit_graceful",
+    "exit_success",
+    "graceful_hook",
 ]

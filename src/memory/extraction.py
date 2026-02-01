@@ -22,7 +22,6 @@ import ast
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
 
 # Configure structured logging
 logger = logging.getLogger(__name__)
@@ -76,7 +75,7 @@ HIGH_IMPORTANCE_PATHS = ["auth", "security", "config", "model"]
 LOW_IMPORTANCE_PATHS = ["test", "example", "tmp"]
 
 
-def extract_patterns(content: str, file_path: str) -> Optional[Dict]:
+def extract_patterns(content: str, file_path: str) -> dict | None:
     """Extract meaningful patterns from code content.
 
     Main entry point for pattern extraction. Orchestrates language detection,
@@ -92,33 +91,32 @@ def extract_patterns(content: str, file_path: str) -> Optional[Dict]:
 
     Performance: Target <100ms total extraction time
     """
-    logger.info("pattern_extraction_started", extra={
-        "file_path": file_path,
-        "content_length": len(content)
-    })
+    logger.info(
+        "pattern_extraction_started",
+        extra={"file_path": file_path, "content_length": len(content)},
+    )
 
     # Edge case: empty content
     if not content:
-        logger.info("invalid_content_skipped", extra={
-            "reason": "empty",
-            "content_length": 0
-        })
+        logger.info(
+            "invalid_content_skipped", extra={"reason": "empty", "content_length": 0}
+        )
         return None
 
     # Edge case: content too short (< 10 chars)
     if len(content) < 10:
-        logger.info("invalid_content_skipped", extra={
-            "reason": "too_short",
-            "content_length": len(content)
-        })
+        logger.info(
+            "invalid_content_skipped",
+            extra={"reason": "too_short", "content_length": len(content)},
+        )
         return None
 
     # Edge case: binary content detection
     if "\x00" in content:
-        logger.info("invalid_content_skipped", extra={
-            "reason": "binary",
-            "content_length": len(content)
-        })
+        logger.info(
+            "invalid_content_skipped",
+            extra={"reason": "binary", "content_length": len(content)},
+        )
         return None
 
     # Detect language from file extension
@@ -146,13 +144,16 @@ def extract_patterns(content: str, file_path: str) -> Optional[Dict]:
             if python_structure.get("has_async"):
                 tags.append("has_async")
 
-    logger.info("pattern_extraction_complete", extra={
-        "language": language,
-        "framework": framework,
-        "importance": importance,
-        "tag_count": len(tags),
-        "enriched_length": len(enriched_content)
-    })
+    logger.info(
+        "pattern_extraction_complete",
+        extra={
+            "language": language,
+            "framework": framework,
+            "importance": importance,
+            "tag_count": len(tags),
+            "enriched_length": len(enriched_content),
+        },
+    )
 
     return {
         "content": enriched_content,
@@ -161,7 +162,7 @@ def extract_patterns(content: str, file_path: str) -> Optional[Dict]:
         "tags": tags,
         "language": language,
         "framework": framework,
-        "file_path": file_path
+        "file_path": file_path,
     }
 
 
@@ -177,11 +178,10 @@ def detect_language(file_path: str) -> str:
     suffix = Path(file_path).suffix.lower()
     language = LANGUAGE_MAP.get(suffix, "unknown")
 
-    logger.debug("language_detected", extra={
-        "language": language,
-        "suffix": suffix,
-        "file_path": file_path
-    })
+    logger.debug(
+        "language_detected",
+        extra={"language": language, "suffix": suffix, "file_path": file_path},
+    )
 
     return language
 
@@ -223,10 +223,9 @@ def detect_framework(content: str, language: str) -> str:
         elif re.search(r"express\(", content):
             framework = "express"
 
-    logger.debug("framework_detected", extra={
-        "framework": framework,
-        "language": language
-    })
+    logger.debug(
+        "framework_detected", extra={"framework": framework, "language": language}
+    )
 
     return framework
 
@@ -265,7 +264,7 @@ def assess_importance(content: str, file_path: str) -> str:
     return "normal"
 
 
-def extract_tags(content: str, language: str, framework: str) -> List[str]:
+def extract_tags(content: str, language: str, framework: str) -> list[str]:
     """Extract relevant tags from content and code structure.
 
     Args:
@@ -301,7 +300,9 @@ def extract_tags(content: str, language: str, framework: str) -> List[str]:
     return tags
 
 
-def build_enriched_content(content: str, file_path: str, language: str, framework: str) -> str:
+def build_enriched_content(
+    content: str, file_path: str, language: str, framework: str
+) -> str:
     """Build enriched content with context header for LLM retrieval.
 
     Format: [language/framework] file_path\n\ncontent
@@ -325,7 +326,7 @@ def build_enriched_content(content: str, file_path: str, language: str, framewor
     return enriched
 
 
-def extract_python_structure(code: str) -> Optional[Dict]:
+def extract_python_structure(code: str) -> dict | None:
     """Extract code structure from Python using AST.
 
     Uses Python stdlib ast module for zero-dependency structure extraction.
@@ -341,11 +342,10 @@ def extract_python_structure(code: str) -> Optional[Dict]:
     try:
         tree = ast.parse(code)
     except SyntaxError as e:
-        logger.warning("ast_parse_failed", extra={
-            "language": "python",
-            "error": str(e),
-            "fallback": "regex"
-        })
+        logger.warning(
+            "ast_parse_failed",
+            extra={"language": "python", "error": str(e), "fallback": "regex"},
+        )
         return None
 
     functions = []
@@ -360,7 +360,7 @@ def extract_python_structure(code: str) -> Optional[Dict]:
                 "name": node.name,
                 "args": [arg.arg for arg in node.args.args],
                 "decorators": [ast.unparse(d) for d in node.decorator_list],
-                "returns": ast.unparse(node.returns) if node.returns else None
+                "returns": ast.unparse(node.returns) if node.returns else None,
             }
             functions.append(func_info)
 
@@ -372,7 +372,7 @@ def extract_python_structure(code: str) -> Optional[Dict]:
                 "args": [arg.arg for arg in node.args.args],
                 "decorators": [ast.unparse(d) for d in node.decorator_list],
                 "returns": ast.unparse(node.returns) if node.returns else None,
-                "async": True
+                "async": True,
             }
             functions.append(func_info)
 
@@ -380,8 +380,14 @@ def extract_python_structure(code: str) -> Optional[Dict]:
         elif isinstance(node, ast.ClassDef):
             class_info = {
                 "name": node.name,
-                "methods": [m.name for m in node.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))],
-                "bases": [b.id if isinstance(b, ast.Name) else str(b) for b in node.bases]
+                "methods": [
+                    m.name
+                    for m in node.body
+                    if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+                ],
+                "bases": [
+                    b.id if isinstance(b, ast.Name) else str(b) for b in node.bases
+                ],
             }
             classes.append(class_info)
 
@@ -399,5 +405,5 @@ def extract_python_structure(code: str) -> Optional[Dict]:
         "classes": classes,
         "imports": imports,
         "has_classes": len(classes) > 0,
-        "has_async": has_async
+        "has_async": has_async,
     }

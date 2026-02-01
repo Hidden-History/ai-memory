@@ -12,17 +12,15 @@ Requires Docker stack running:
 Story: 2.2 - Deduplication Module
 """
 
-import asyncio
 import statistics
 import time
-from typing import List
 
 import pytest
 
-from src.memory.config import get_config, reset_config
-from src.memory.deduplication import is_duplicate, compute_content_hash
-from src.memory.storage import MemoryStorage
+from src.memory.config import get_config
+from src.memory.deduplication import compute_content_hash, is_duplicate
 from src.memory.models import MemoryType
+from src.memory.storage import MemoryStorage
 
 
 class TestHashPerformance:
@@ -46,9 +44,7 @@ class TestHashPerformance:
         assert (
             avg_latency < 50
         ), f"Average hash latency {avg_latency:.2f}ms exceeds 50ms"
-        assert (
-            p95_latency < 100
-        ), f"P95 hash latency {p95_latency:.2f}ms exceeds 100ms"
+        assert p95_latency < 100, f"P95 hash latency {p95_latency:.2f}ms exceeds 100ms"
 
         print(
             f"\n  Small content hash - Avg: {avg_latency:.2f}ms, P95: {p95_latency:.2f}ms"
@@ -119,12 +115,8 @@ class TestDeduplicationPerformance:
         p95_latency = statistics.quantiles(latencies, n=20)[18]
 
         # AC 2.2.4: <50ms average for hash check
-        assert (
-            avg_latency < 100
-        ), f"Hash check avg {avg_latency:.2f}ms exceeds 100ms"
-        assert (
-            p95_latency < 150
-        ), f"Hash check p95 {p95_latency:.2f}ms exceeds 150ms"
+        assert avg_latency < 100, f"Hash check avg {avg_latency:.2f}ms exceeds 100ms"
+        assert p95_latency < 150, f"Hash check p95 {p95_latency:.2f}ms exceeds 150ms"
 
         print(
             f"\n  Hash check (100 memories) - Avg: {avg_latency:.2f}ms, P50: {p50_latency:.2f}ms, P95: {p95_latency:.2f}ms"
@@ -219,8 +211,9 @@ class TestDeduplicationPerformance:
 
     async def test_no_memory_leaks_sustained_operation(self):
         """AC 2.2.4: No memory leaks during sustained operation."""
-        import psutil
         import os
+
+        import psutil
 
         process = psutil.Process(os.getpid())
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB

@@ -9,36 +9,36 @@ import hashlib
 import logging
 import time
 from dataclasses import dataclass
-from typing import List, Optional
 
+from .circuit_breaker import circuit_breaker  # FIX-10
 from .config import (
     CLASSIFIER_ENABLED,
-    PRIMARY_PROVIDER,
-    FALLBACK_PROVIDERS,
     CONFIDENCE_THRESHOLD,
+    FALLBACK_PROVIDERS,
+    PRIMARY_PROVIDER,
     SKIP_RECLASSIFICATION_TYPES,
     TIMEOUT_SECONDS,
     VALID_TYPES,
 )
-from .significance import check_significance, Significance
-from .rules import classify_by_rules
-from .providers import (
-    OllamaProvider,
-    OpenRouterProvider,
-    ClaudeProvider,
-    OpenAIProvider,
-    BaseProvider,
-)
-from .circuit_breaker import circuit_breaker  # FIX-10
-from .rate_limiter import rate_limiter  # FIX-11
 from .metrics import record_classification, record_fallback  # FIX-4
+from .providers import (
+    BaseProvider,
+    ClaudeProvider,
+    OllamaProvider,
+    OpenAIProvider,
+    OpenRouterProvider,
+)
+from .rate_limiter import rate_limiter  # FIX-11
+from .rules import classify_by_rules
+from .significance import Significance, check_significance
 
 # TECH-DEBT-071: Import token metrics push for Pushgateway
 try:
-    import sys
     import os
+    import sys
+
     # Add src to path for metrics_push import
-    src_path = os.path.join(os.path.dirname(__file__), '..', '..')
+    src_path = os.path.join(os.path.dirname(__file__), "..", "..")
     if src_path not in sys.path:
         sys.path.insert(0, src_path)
     from memory.metrics_push import push_token_metrics_async
@@ -52,8 +52,8 @@ logger = logging.getLogger("ai_memory.classifier.llm_classifier")
 __all__ = ["ClassificationResult", "classify"]
 
 # Module-level provider chain cache for performance
-_provider_chain_cache: Optional[List[BaseProvider]] = None
-_provider_chain_config_hash: Optional[str] = None
+_provider_chain_cache: list[BaseProvider] | None = None
+_provider_chain_config_hash: str | None = None
 
 # Valid collections for validation
 VALID_COLLECTIONS = set(VALID_TYPES.keys())
@@ -139,7 +139,7 @@ class ClassificationResult:
     classified_type: str
     confidence: float
     reasoning: str
-    tags: List[str]
+    tags: list[str]
     provider_used: str
     was_reclassified: bool
 
@@ -148,7 +148,7 @@ def classify(
     content: str,
     collection: str,
     current_type: str,
-    file_path: Optional[str] = None,
+    file_path: str | None = None,
 ) -> ClassificationResult:
     """Classify content using rules first, then LLM if needed.
 
@@ -260,7 +260,7 @@ def _classify_with_llm(
     content: str,
     collection: str,
     current_type: str,
-    file_path: Optional[str] = None,
+    file_path: str | None = None,
 ) -> ClassificationResult:
     """Classify using LLM provider chain with fallback.
 
@@ -302,7 +302,9 @@ def _classify_with_llm(
                 )
                 # Record fallback if there's a next provider
                 if idx < len(providers) - 1:
-                    record_fallback(provider_name, providers[idx + 1].name, "circuit_open")
+                    record_fallback(
+                        provider_name, providers[idx + 1].name, "circuit_open"
+                    )
                 continue
 
             # FIX-11: Check rate limit
@@ -313,7 +315,9 @@ def _classify_with_llm(
                 )
                 # Record fallback if there's a next provider
                 if idx < len(providers) - 1:
-                    record_fallback(provider_name, providers[idx + 1].name, "rate_limited")
+                    record_fallback(
+                        provider_name, providers[idx + 1].name, "rate_limited"
+                    )
                 continue
 
             # Check provider availability
@@ -324,7 +328,9 @@ def _classify_with_llm(
                 )
                 circuit_breaker.record_failure(provider_name, "unavailable")
                 if idx < len(providers) - 1:
-                    record_fallback(provider_name, providers[idx + 1].name, "unavailable")
+                    record_fallback(
+                        provider_name, providers[idx + 1].name, "unavailable"
+                    )
                 continue
 
             logger.info(
@@ -363,22 +369,34 @@ def _classify_with_llm(
                 # TECH-DEBT-071: Push token metrics to Pushgateway
                 # CRITICAL-3: Type validation to prevent metric corruption
                 # HIGH-2: Use detected project name instead of hardcoded "classifier"
-                if push_token_metrics_async and isinstance(response.input_tokens, int) and response.input_tokens > 0:
-                    project_name = detect_project(os.getcwd()) if detect_project else "unknown"
+                if (
+                    push_token_metrics_async
+                    and isinstance(response.input_tokens, int)
+                    and response.input_tokens > 0
+                ):
+                    project_name = (
+                        detect_project(os.getcwd()) if detect_project else "unknown"
+                    )
                     push_token_metrics_async(
                         operation="classification",
                         direction="input",
                         project=project_name,
-                        token_count=response.input_tokens
+                        token_count=response.input_tokens,
                     )
 
-                if push_token_metrics_async and isinstance(response.output_tokens, int) and response.output_tokens > 0:
-                    project_name = detect_project(os.getcwd()) if detect_project else "unknown"
+                if (
+                    push_token_metrics_async
+                    and isinstance(response.output_tokens, int)
+                    and response.output_tokens > 0
+                ):
+                    project_name = (
+                        detect_project(os.getcwd()) if detect_project else "unknown"
+                    )
                     push_token_metrics_async(
                         operation="classification",
                         direction="output",
                         project=project_name,
-                        token_count=response.output_tokens
+                        token_count=response.output_tokens,
                     )
 
                 logger.info(
@@ -423,7 +441,9 @@ def _classify_with_llm(
                 provider=provider_name,
                 classified_type=current_type,  # Kept original type
                 success=False,
-                latency_seconds=time.time() - start_time if 'start_time' in locals() else 0,
+                latency_seconds=(
+                    time.time() - start_time if "start_time" in locals() else 0
+                ),
             )
 
             # Record fallback if there's a next provider
@@ -451,7 +471,7 @@ def _classify_with_llm(
         original_type=current_type,
         classified_type=current_type,
         confidence=1.0,
-        reasoning=f"All providers failed, kept original type",
+        reasoning="All providers failed, kept original type",
         tags=[],
         provider_used="fallback",
         was_reclassified=False,
@@ -468,7 +488,7 @@ def _get_config_hash() -> str:
     return hashlib.md5(config_str.encode()).hexdigest()
 
 
-def _get_provider_chain() -> List[BaseProvider]:
+def _get_provider_chain() -> list[BaseProvider]:
     """Get cached provider chain, rebuilding if config changed.
 
     Returns:
@@ -491,7 +511,7 @@ def _get_provider_chain() -> List[BaseProvider]:
     return _provider_chain_cache
 
 
-def _build_provider_chain() -> List[BaseProvider]:
+def _build_provider_chain() -> list[BaseProvider]:
     """Build provider chain from configuration.
 
     Returns:

@@ -3,13 +3,14 @@
 TECH-DEBT-052: Implements code chunking per Chunking-Strategy-V1.md Section 2.1.
 """
 
-from dataclasses import dataclass
-from typing import List, Optional, Set
-from pathlib import Path
+from __future__ import annotations
+
 import logging
+from pathlib import Path
 
 try:
-    from tree_sitter import Language, Parser, Node
+    from tree_sitter import Language, Node, Parser
+
     TREE_SITTER_AVAILABLE = True
 except ImportError:
     TREE_SITTER_AVAILABLE = False
@@ -19,7 +20,7 @@ except ImportError:
     Node = None  # type: ignore
 
 # Use existing models from chunking module
-from . import ChunkResult, ChunkMetadata, CHARS_PER_TOKEN
+from . import CHARS_PER_TOKEN, ChunkMetadata, ChunkResult
 
 logger = logging.getLogger("ai_memory.chunking.ast")
 
@@ -50,10 +51,26 @@ class ASTChunker:
     # Node types that represent chunk boundaries
     CHUNK_NODE_TYPES = {
         "python": {"function_definition", "class_definition"},
-        "javascript": {"function_declaration", "class_declaration", "method_definition", "arrow_function"},
-        "typescript": {"function_declaration", "class_declaration", "method_definition", "arrow_function"},
+        "javascript": {
+            "function_declaration",
+            "class_declaration",
+            "method_definition",
+            "arrow_function",
+        },
+        "typescript": {
+            "function_declaration",
+            "class_declaration",
+            "method_definition",
+            "arrow_function",
+        },
         "go": {"function_declaration", "method_declaration", "type_declaration"},
-        "rust": {"function_item", "impl_item", "struct_item", "enum_item", "trait_item"},
+        "rust": {
+            "function_item",
+            "impl_item",
+            "struct_item",
+            "enum_item",
+            "trait_item",
+        },
     }
 
     # Node types for context extraction
@@ -80,7 +97,7 @@ class ASTChunker:
         self._languages = {}
         logger.info("ast_chunker_initialized")
 
-    def _get_parser(self, language: str) -> Optional[Parser]:
+    def _get_parser(self, language: str) -> Parser | None:
         """Get or create parser for language.
 
         Args:
@@ -96,18 +113,23 @@ class ASTChunker:
             # Import language-specific module
             if language == "python":
                 from tree_sitter_python import language as py_lang
+
                 lang = Language(py_lang())
             elif language == "javascript":
                 from tree_sitter_javascript import language as js_lang
+
                 lang = Language(js_lang())
             elif language == "typescript":
                 from tree_sitter_typescript import language_typescript as ts_lang
+
                 lang = Language(ts_lang())
             elif language == "go":
                 from tree_sitter_go import language as go_lang
+
                 lang = Language(go_lang())
             elif language == "rust":
                 from tree_sitter_rust import language as rust_lang
+
                 lang = Language(rust_lang())
             else:
                 logger.warning("unsupported_language", extra={"language": language})
@@ -129,7 +151,7 @@ class ASTChunker:
             )
             return None
 
-    def chunk(self, content: str, file_path: str) -> List[ChunkResult]:
+    def chunk(self, content: str, file_path: str) -> list[ChunkResult]:
         """Chunk code content using AST parsing.
 
         Args:
@@ -217,7 +239,7 @@ class ASTChunker:
         root_node: "Node",
         language: str,
         file_path: str,
-    ) -> List[ChunkResult]:
+    ) -> list[ChunkResult]:
         """Extract chunks from parsed AST.
 
         Args:
@@ -260,7 +282,7 @@ class ASTChunker:
                         "max_chars": self.MAX_CHARS,
                         "file_path": file_path,
                         "node_type": node.type,
-                    }
+                    },
                 )
                 # Split large node into multiple chunks
                 sub_chunk_texts = self._split_large_node(node, content, language)
@@ -272,8 +294,7 @@ class ASTChunker:
 
                     # Calculate overlap
                     sub_overlap_chars = max(
-                        int(sub_non_ws * self.OVERLAP_PCT),
-                        self.MIN_OVERLAP_CHARS
+                        int(sub_non_ws * self.OVERLAP_PCT), self.MIN_OVERLAP_CHARS
                     )
                     sub_overlap_tokens = sub_overlap_chars // CHARS_PER_TOKEN
 
@@ -316,7 +337,9 @@ class ASTChunker:
                         section_header=f"{self._get_node_name(node)}_part{sub_idx + 1}",
                     )
 
-                    chunks.append(ChunkResult(content=sub_chunk_content, metadata=sub_metadata))
+                    chunks.append(
+                        ChunkResult(content=sub_chunk_content, metadata=sub_metadata)
+                    )
 
                 # Skip processing the original oversized node
                 continue
@@ -326,7 +349,9 @@ class ASTChunker:
             end_line = node.end_point[0] + 1
 
             # FIX-1: Calculate 20% overlap per Chunking-Strategy-V1.md Section 2.1
-            overlap_chars = max(int(non_ws_chars * self.OVERLAP_PCT), self.MIN_OVERLAP_CHARS)
+            overlap_chars = max(
+                int(non_ws_chars * self.OVERLAP_PCT), self.MIN_OVERLAP_CHARS
+            )
             overlap_tokens = overlap_chars // CHARS_PER_TOKEN
 
             # Prepend overlap from previous chunk (if not first chunk)
@@ -379,11 +404,13 @@ class ASTChunker:
                 end_line=chunk.metadata.end_line,
                 section_header=chunk.metadata.section_header,
             )
-            final_chunks.append(ChunkResult(content=chunk.content, metadata=updated_metadata))
+            final_chunks.append(
+                ChunkResult(content=chunk.content, metadata=updated_metadata)
+            )
 
         return final_chunks
 
-    def _find_chunk_nodes(self, root_node: "Node", language: str) -> List["Node"]:
+    def _find_chunk_nodes(self, root_node: "Node", language: str) -> list["Node"]:
         """Find all top-level nodes that represent chunk boundaries.
 
         Only extracts top-level functions/classes. Methods inside classes
@@ -415,7 +442,7 @@ class ASTChunker:
 
         return chunk_nodes
 
-    def _find_import_nodes(self, root_node: "Node", language: str) -> List["Node"]:
+    def _find_import_nodes(self, root_node: "Node", language: str) -> list["Node"]:
         """Find all import nodes for context extraction.
 
         Only extracts top-level imports (direct children of root).
@@ -444,7 +471,7 @@ class ASTChunker:
 
         return import_nodes
 
-    def _extract_node_text(self, content: str, nodes: List["Node"]) -> str:
+    def _extract_node_text(self, content: str, nodes: list["Node"]) -> str:
         """Extract text from multiple nodes.
 
         Args:
@@ -473,7 +500,7 @@ class ASTChunker:
         end_byte = node.end_byte
         return content[start_byte:end_byte]
 
-    def _get_node_name(self, node: "Node") -> Optional[str]:
+    def _get_node_name(self, node: "Node") -> str | None:
         """Extract function/class name from node.
 
         Args:
@@ -490,9 +517,7 @@ class ASTChunker:
 
         return None
 
-    def _split_large_node(
-        self, node: "Node", content: str, language: str
-    ) -> List[str]:
+    def _split_large_node(self, node: "Node", content: str, language: str) -> list[str]:
         """Split a large AST node into smaller chunks at statement boundaries.
 
         FIX-5: Implements recursive splitting per Chunking-Strategy-V1.md.
@@ -518,7 +543,7 @@ class ASTChunker:
                 "node_type": node.type,
                 "size_chars": non_ws_chars,
                 "max_chars": self.MAX_CHARS,
-            }
+            },
         )
 
         # Split at child statement boundaries
@@ -527,10 +552,12 @@ class ASTChunker:
 
         for child in node.children:
             child_text = self._get_node_text(content, child)
-            child_non_ws = sum(1 for c in child_text if not c.isspace())
+            sum(1 for c in child_text if not c.isspace())
 
             # Check if adding this child would exceed limit
-            combined = current_chunk + "\n" + child_text if current_chunk else child_text
+            combined = (
+                current_chunk + "\n" + child_text if current_chunk else child_text
+            )
             combined_non_ws = sum(1 for c in combined if not c.isspace())
 
             if combined_non_ws > self.MAX_CHARS and current_chunk:
@@ -548,7 +575,7 @@ class ASTChunker:
 
     def _fallback_whole_content(
         self, content: str, file_path: str
-    ) -> List[ChunkResult]:
+    ) -> list[ChunkResult]:
         """Fallback to whole-content chunk when parsing fails.
 
         Args:

@@ -11,9 +11,10 @@ from enum import Enum
 
 class IntentType(str, Enum):
     """User query intent types."""
-    HOW = "how"      # How to implement, how did we build
-    WHAT = "what"    # What port, what rule, what convention
-    WHY = "why"      # Why did we decide, why this approach
+
+    HOW = "how"  # How to implement, how did we build
+    WHAT = "what"  # What port, what rule, what convention
+    WHY = "why"  # Why did we decide, why this approach
     UNKNOWN = "unknown"
 
 
@@ -44,12 +45,30 @@ def detect_intent(query: str) -> IntentType:
         return IntentType.WHY
 
     # WHAT: Second priority
-    what_keywords = ["what port", "what is", "which", "should i", "convention", "rule", "standard"]
+    what_keywords = [
+        "what port",
+        "what is",
+        "which",
+        "should i",
+        "convention",
+        "rule",
+        "standard",
+    ]
     if any(keyword in query_lower for keyword in what_keywords):
         return IntentType.WHAT
 
     # HOW: Third priority
-    how_keywords = ["how do", "how did", "how to", "implement", "build", "create", "fix", "error", "bug"]
+    how_keywords = [
+        "how do",
+        "how did",
+        "how to",
+        "implement",
+        "build",
+        "create",
+        "fix",
+        "error",
+        "bug",
+    ]
     if any(keyword in query_lower for keyword in how_keywords):
         return IntentType.HOW
 
@@ -66,7 +85,11 @@ def get_target_collection(intent: IntentType) -> str:
     Returns:
         Collection name to search
     """
-    from .config import COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS
+    from .config import (
+        COLLECTION_CODE_PATTERNS,
+        COLLECTION_CONVENTIONS,
+        COLLECTION_DISCUSSIONS,
+    )
 
     mapping = {
         IntentType.HOW: COLLECTION_CODE_PATTERNS,

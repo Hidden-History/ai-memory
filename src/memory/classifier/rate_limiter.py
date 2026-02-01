@@ -10,11 +10,10 @@ Pattern based on:
 TECH-DEBT-069: LLM classification cost control.
 """
 
-import time
 import logging
 import threading
+import time
 from dataclasses import dataclass
-from typing import Dict
 
 logger = logging.getLogger("ai_memory.classifier.rate_limiter")
 
@@ -31,6 +30,7 @@ class TokenBucket:
         refill_rate: Tokens added per second
         last_refill: Timestamp of last refill
     """
+
     capacity: float
     tokens: float
     refill_rate: float  # Tokens per second
@@ -70,7 +70,7 @@ class RateLimiter:
         # Convert to tokens per second
         self.refill_rate = requests_per_minute / 60.0
 
-        self._buckets: Dict[str, TokenBucket] = {}
+        self._buckets: dict[str, TokenBucket] = {}
         self._global_lock = threading.Lock()
 
         logger.info(
@@ -79,7 +79,7 @@ class RateLimiter:
                 "requests_per_minute": requests_per_minute,
                 "burst_size": burst_size,
                 "refill_rate_per_second": self.refill_rate,
-            }
+            },
         )
 
     def _get_bucket(self, provider: str) -> TokenBucket:
@@ -142,7 +142,7 @@ class RateLimiter:
                         "provider": provider,
                         "tokens_consumed": tokens,
                         "tokens_remaining": bucket.tokens,
-                    }
+                    },
                 )
                 return True
             else:
@@ -156,11 +156,13 @@ class RateLimiter:
                         "tokens_needed": tokens,
                         "tokens_available": bucket.tokens,
                         "wait_seconds": wait_time,
-                    }
+                    },
                 )
                 return False
 
-    def wait_for_token(self, provider: str, tokens: int = 1, timeout: float = 30.0) -> bool:
+    def wait_for_token(
+        self, provider: str, tokens: int = 1, timeout: float = 30.0
+    ) -> bool:
         """Wait for tokens to become available (blocking).
 
         Args:
@@ -186,7 +188,7 @@ class RateLimiter:
                             "provider": provider,
                             "tokens": tokens,
                             "wait_seconds": time.time() - start_time,
-                        }
+                        },
                     )
                     return True
 
@@ -198,7 +200,7 @@ class RateLimiter:
             extra={
                 "provider": provider,
                 "timeout_seconds": timeout,
-            }
+            },
         )
         return False
 
@@ -224,7 +226,7 @@ class RateLimiter:
                 "utilization_pct": (1 - bucket.tokens / bucket.capacity) * 100,
             }
 
-    def reset(self, provider: str = None):
+    def reset(self, provider: str | None = None):
         """Reset rate limiter for provider or all providers.
 
         Args:
@@ -238,7 +240,7 @@ class RateLimiter:
                 logger.info("rate_limiter_reset", extra={"provider": provider})
         else:
             with self._global_lock:
-                for p, bucket in self._buckets.items():
+                for _p, bucket in self._buckets.items():
                     with bucket.lock:
                         bucket.tokens = bucket.capacity
                         bucket.last_refill = time.time()

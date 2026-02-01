@@ -66,17 +66,17 @@ import unittest.mock
 from pathlib import Path
 
 import pytest
-from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, FieldCondition, MatchValue
-
-from src.memory.storage import MemoryStorage
-from src.memory.search import MemorySearch
-from src.memory.queue import MemoryQueue
-from src.memory.validation import ValidationError
-from src.memory.models import MemoryType
 
 # Issue 7 fix: Import from conftest instead of sys.path.insert anti-pattern
-from conftest import wait_for_qdrant_healthy, cleanup_edge_case_memories
+from conftest import wait_for_qdrant_healthy
+from qdrant_client import QdrantClient
+from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+from src.memory.models import MemoryType
+from src.memory.queue import MemoryQueue
+from src.memory.search import MemorySearch
+from src.memory.storage import MemoryStorage
+from src.memory.validation import ValidationError
 
 # 2026 Best Practice: Use pytest-timeout to detect hanging tests
 pytestmark = [
@@ -160,7 +160,9 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
     # Core test: System didn't crash under concurrent load
 
     # Verify all memory IDs are unique (no collision)
-    memory_ids = [r["memory_id"] for r in results if r["memory_id"] and r["status"] == "stored"]
+    memory_ids = [
+        r["memory_id"] for r in results if r["memory_id"] and r["status"] == "stored"
+    ]
     assert len(set(memory_ids)) == len(memory_ids), (
         f"Memory ID collision detected: {len(set(memory_ids))} unique IDs from "
         f"{len(memory_ids)} writes"
@@ -168,9 +170,9 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
 
     # Verify all stores succeeded or were duplicates (no errors)
     statuses = [r["status"] for r in results]
-    assert all(s in ["stored", "duplicate"] for s in statuses), (
-        f"Not all stores succeeded: {statuses}"
-    )
+    assert all(
+        s in ["stored", "duplicate"] for s in statuses
+    ), f"Not all stores succeeded: {statuses}"
 
     # Verify at least some memories were stored (not all duplicates)
     stored_count = sum(1 for s in statuses if s == "stored")
@@ -196,10 +198,12 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
         # Embedding service unavailable - skip search verification with warning
         # Core concurrent write test still validates data integrity
         import warnings
+
         warnings.warn(
             f"Search verification skipped due to embedding service error: {e}. "
             "Core concurrent write test passed - memories stored successfully.",
-            UserWarning
+            UserWarning,
+            stacklevel=2,
         )
 
 
@@ -212,7 +216,9 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
         # Issue 1 fix: Added None test case per AC 5.4.2
         pytest.param(None, r"None|type|NoneType|required|content", id="none-content"),
         # Issue 1 fix: Added dict test case per AC 5.4.2
-        pytest.param({"key": "value"}, r"str|type|string|dict", id="dict-instead-of-string"),
+        pytest.param(
+            {"key": "value"}, r"str|type|string|dict", id="dict-instead-of-string"
+        ),
     ],
 )
 @pytest.mark.timeout(10)
@@ -266,28 +272,31 @@ def test_malformed_input_handled_gracefully(malformed_input, error_pattern):
     )
 
     # Should be empty - no malformed data stored
-    assert len(results[0]) == 0, (
-        f"Malformed data was stored despite validation error: {results[0]}"
-    )
+    assert (
+        len(results[0]) == 0
+    ), f"Malformed data was stored despite validation error: {results[0]}"
 
 
 @pytest.mark.parametrize(
     "invalid_field,value,error_pattern",
     [
         pytest.param(
-            "memory_type", "invalid_type",
+            "memory_type",
+            "invalid_type",
             r"Invalid type|Must be one of",  # Issue 2 fix: Match actual error message
-            id="invalid-memory-type-string"
+            id="invalid-memory-type-string",
         ),
         pytest.param(
-            "memory_type", 123,
+            "memory_type",
+            123,
             r"str|type|string|int|MemoryType",
-            id="wrong-type-for-memory-type"
+            id="wrong-type-for-memory-type",
         ),
         pytest.param(
-            "source_hook", "InvalidHook",
+            "source_hook",
+            "InvalidHook",
             r"Invalid source_hook|Must be one of",  # Issue 2 fix: Match actual error message
-            id="invalid-source-hook"
+            id="invalid-source-hook",
         ),
     ],
 )
@@ -319,9 +328,7 @@ def test_invalid_metadata_fields(invalid_field, value, error_pattern):
     }
 
     # Override with invalid value
-    if invalid_field == "memory_type":
-        kwargs[invalid_field] = value
-    elif invalid_field == "source_hook":
+    if invalid_field == "memory_type" or invalid_field == "source_hook":
         kwargs[invalid_field] = value
 
     # Issue 8 fix: Use specific ValidationError
@@ -329,7 +336,9 @@ def test_invalid_metadata_fields(invalid_field, value, error_pattern):
         storage.store_memory(**kwargs)
 
 
-@pytest.mark.skip(reason="DANGEROUS: Stops real Qdrant container. Run manually with --no-skip flag")
+@pytest.mark.skip(
+    reason="DANGEROUS: Stops real Qdrant container. Run manually with --no-skip flag"
+)
 @pytest.mark.timeout(60)
 def test_qdrant_unavailable_queues_memory(cleanup_edge_case_memories):
     """Verify Qdrant unavailable results in queue, not crash (FR30, FR34, NFR-R5).
@@ -352,9 +361,7 @@ def test_qdrant_unavailable_queues_memory(cleanup_edge_case_memories):
     - https://moldstud.com/articles/p-advanced-integration-testing-techniques-for-python-developers-expert-guide-2025
     """
     # Use tmp queue for test isolation
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".jsonl", delete=False
-    ) as tmp:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as tmp:
         test_queue_path = tmp.name
 
     compose_file = None
@@ -401,21 +408,23 @@ def test_qdrant_unavailable_queues_memory(cleanup_edge_case_memories):
             if result.get("status") == "queued":
                 # Issue 4 fix: Verify queue contains the memory
                 final_stats = queue.get_stats()
-                assert final_stats.get("total_items", 0) > initial_queue_count, (
-                    "Memory should be queued when Qdrant unavailable"
-                )
+                assert (
+                    final_stats.get("total_items", 0) > initial_queue_count
+                ), "Memory should be queued when Qdrant unavailable"
         except Exception as e:
             # Expected: QdrantUnavailable or similar
             # The exception name might vary based on implementation
             error_msg = str(e).lower()
-            assert "qdrant" in error_msg or "unavailable" in error_msg or "connect" in error_msg, (
-                f"Unexpected exception type: {type(e).__name__}: {e}"
-            )
+            assert (
+                "qdrant" in error_msg
+                or "unavailable" in error_msg
+                or "connect" in error_msg
+            ), f"Unexpected exception type: {type(e).__name__}: {e}"
 
     finally:
         # Always restart Qdrant (cleanup)
         if compose_file and compose_file.exists():
-            start_result = subprocess.run(
+            subprocess.run(
                 ["docker", "compose", "-f", str(compose_file), "start", "qdrant"],
                 capture_output=True,
                 text=True,
@@ -472,11 +481,12 @@ def test_embedding_timeout_queues_with_pending_status(cleanup_edge_case_memories
             collection="code-patterns",
         )
 
-        assert result["status"] in ["stored", "pending"], (
-            f"Expected stored/pending status, got: {result['status']}"
-        )
+        assert result["status"] in [
+            "stored",
+            "pending",
+        ], f"Expected stored/pending status, got: {result['status']}"
 
-        memory_id = result["memory_id"]
+        result["memory_id"]
 
     # Verify memory stored (even without embedding)
     client = QdrantClient(url=QDRANT_URL, timeout=5.0)
@@ -494,9 +504,9 @@ def test_embedding_timeout_queues_with_pending_status(cleanup_edge_case_memories
     # Verify embedding_status = pending
     point = results[0][0]
 
-    assert point.payload.get("embedding_status") == "pending", (
-        f"Expected embedding_status=pending, got: {point.payload.get('embedding_status')}"
-    )
+    assert (
+        point.payload.get("embedding_status") == "pending"
+    ), f"Expected embedding_status=pending, got: {point.payload.get('embedding_status')}"
 
 
 @pytest.mark.timeout(60)
@@ -554,19 +564,19 @@ def test_queue_concurrent_access_no_corruption(tmp_path):
         assert len(queue_ids) == 50, f"Expected 50 queue IDs, got {len(queue_ids)}"
 
         # Verify all IDs unique (no collision)
-        assert len(set(queue_ids)) == 50, (
-            f"Queue ID collision: {len(set(queue_ids))} unique from 50 enqueues"
-        )
+        assert (
+            len(set(queue_ids)) == 50
+        ), f"Queue ID collision: {len(set(queue_ids))} unique from 50 enqueues"
 
         # Verify queue stats
         stats = queue.get_stats()
 
-        assert stats["total_items"] >= 50, (
-            f"Expected 50+ items in queue, got {stats['total_items']} - DATA LOSS!"
-        )
+        assert (
+            stats["total_items"] >= 50
+        ), f"Expected 50+ items in queue, got {stats['total_items']} - DATA LOSS!"
 
         # Verify all entries parseable (no corrupt JSON)
-        with open(test_queue_path, "r") as f:
+        with open(test_queue_path) as f:
             line_count = 0
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
@@ -577,18 +587,16 @@ def test_queue_concurrent_access_no_corruption(tmp_path):
 
                         # Verify entry has required fields
                         assert "id" in entry, f"Line {line_num}: Missing 'id' field"
-                        assert "memory_data" in entry, (
-                            f"Line {line_num}: Missing 'memory_data' field"
-                        )
+                        assert (
+                            "memory_data" in entry
+                        ), f"Line {line_num}: Missing 'memory_data' field"
 
                     except json.JSONDecodeError as e:
                         pytest.fail(
                             f"Corrupt queue entry at line {line_num}: {line[:50]}... Error: {e}"
                         )
 
-        assert line_count >= 50, (
-            f"Expected 50+ parseable entries, found {line_count}"
-        )
+        assert line_count >= 50, f"Expected 50+ parseable entries, found {line_count}"
 
         # Cleanup - dequeue all items
         for qid in queue_ids:

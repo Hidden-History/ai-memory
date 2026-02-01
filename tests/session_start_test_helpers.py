@@ -7,21 +7,23 @@ Once .claude/hooks/scripts/session_start.py is implemented,
 these imports will work.
 """
 
-import sys
 import os
+import sys
 
 # Add hooks scripts to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".claude", "hooks", "scripts"))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(__file__), "..", ".claude", "hooks", "scripts")
+)
 
 # Import actual V2 functions from session_start.py
 try:
     from session_start import (
-        parse_hook_input,
         estimate_tokens,
-        inject_with_priority,
-        retrieve_session_summaries,
         get_conversation_context,
-        log_empty_session
+        inject_with_priority,
+        log_empty_session,
+        parse_hook_input,
+        retrieve_session_summaries,
     )
 
     # Create adapter functions for old test API
@@ -44,7 +46,7 @@ try:
         filtered = [r for r in results if r.get("score", 0) >= 0.20]
 
         if not filtered:
-            return "## Relevant Memories for {}\n".format(project_name)
+            return f"## Relevant Memories for {project_name}\n"
 
         # Sort by score descending
         sorted_results = sorted(filtered, key=lambda x: x.get("score", 0), reverse=True)
@@ -104,7 +106,7 @@ try:
         score = memory.get("score", 0) or 0  # Handle None
         memory_type = memory.get("type", "unknown")
         source_hook = memory.get("source_hook", "")
-        collection = memory.get("collection", "")
+        memory.get("collection", "")
 
         # Map type to display collection
         display_collection = _type_to_collection(memory_type)
@@ -123,21 +125,25 @@ try:
     def log_session_retrieval(session_id, project, query, results, duration_ms):
         """Adapter: V2 uses log_empty_session() for structured logging."""
         import logging
+
         logger = logging.getLogger("ai_memory.hooks")
 
         # Calculate relevance counts
         high_relevance = sum(1 for r in results if r.get("score", 0) >= 0.9)
         medium_relevance = sum(1 for r in results if 0.5 <= r.get("score", 0) < 0.9)
 
-        logger.info("session_retrieval_completed", extra={
-            "session_id": session_id,
-            "project": project,
-            "query_preview": query[:100] if query else "",
-            "results_count": len(results),
-            "high_relevance_count": high_relevance,
-            "medium_relevance_count": medium_relevance,
-            "duration_ms": round(duration_ms, 2)
-        })
+        logger.info(
+            "session_retrieval_completed",
+            extra={
+                "session_id": session_id,
+                "project": project,
+                "query_preview": query[:100] if query else "",
+                "results_count": len(results),
+                "high_relevance_count": high_relevance,
+                "medium_relevance_count": medium_relevance,
+                "duration_ms": round(duration_ms, 2),
+            },
+        )
 
 except ImportError:
     # Hook script doesn't exist yet - tests will fail as expected (RED phase)

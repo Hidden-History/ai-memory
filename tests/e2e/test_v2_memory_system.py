@@ -18,30 +18,33 @@ Requirements:
 Reference: oversight/specs/MEMORY-SYSTEM-REDESIGN-v2.md Section 15.7
 """
 
-import pytest
 import uuid
-from typing import Generator
+from collections.abc import Generator
 
+import pytest
 from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, FieldCondition, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from src.memory.config import (
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
     COLLECTION_DISCUSSIONS,
 )
-from src.memory.intent import detect_intent, IntentType, get_target_collection, get_target_types
+from src.memory.embeddings import EmbeddingClient
+from src.memory.intent import (
+    IntentType,
+    detect_intent,
+    get_target_collection,
+)
+from src.memory.models import MemoryType
 from src.memory.search import search_memories
 from src.memory.storage import MemoryStorage
 from src.memory.triggers import (
-    detect_error_signal,
     detect_decision_keywords,
-    is_new_file,
+    detect_error_signal,
     is_first_edit_in_session,
+    is_new_file,
 )
-from src.memory.embeddings import EmbeddingClient
-from src.memory.models import MemoryType, EmbeddingStatus
-
 
 # =============================================================================
 # Fixtures
@@ -98,13 +101,21 @@ def clean_test_data(e2e_qdrant_client: QdrantClient, test_group_id: str):
     to ensure tests don't pollute each other.
     """
     # Cleanup before test
-    for collection in [COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS]:
+    for collection in [
+        COLLECTION_CODE_PATTERNS,
+        COLLECTION_CONVENTIONS,
+        COLLECTION_DISCUSSIONS,
+    ]:
         try:
             e2e_qdrant_client.delete(
                 collection_name=collection,
                 points_selector=Filter(
-                    must=[FieldCondition(key="group_id", match=MatchValue(value=test_group_id))]
-                )
+                    must=[
+                        FieldCondition(
+                            key="group_id", match=MatchValue(value=test_group_id)
+                        )
+                    ]
+                ),
             )
         except Exception:
             # Collection may not exist yet - acceptable
@@ -113,13 +124,21 @@ def clean_test_data(e2e_qdrant_client: QdrantClient, test_group_id: str):
     yield
 
     # Cleanup after test
-    for collection in [COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS]:
+    for collection in [
+        COLLECTION_CODE_PATTERNS,
+        COLLECTION_CONVENTIONS,
+        COLLECTION_DISCUSSIONS,
+    ]:
         try:
             e2e_qdrant_client.delete(
                 collection_name=collection,
                 points_selector=Filter(
-                    must=[FieldCondition(key="group_id", match=MatchValue(value=test_group_id))]
-                )
+                    must=[
+                        FieldCondition(
+                            key="group_id", match=MatchValue(value=test_group_id)
+                        )
+                    ]
+                ),
             )
         except Exception:
             # Best effort cleanup - don't fail test
@@ -160,8 +179,10 @@ def test_collection_type_system_e2e(
         session_id=session_id,
         collection=COLLECTION_CODE_PATTERNS,
     )
-    assert impl_result["status"] in ["stored", "duplicate"], \
-        f"Failed to store implementation: {impl_result}"
+    assert impl_result["status"] in [
+        "stored",
+        "duplicate",
+    ], f"Failed to store implementation: {impl_result}"
 
     # 2. Store to conventions with naming type
     naming_content = "Use snake_case for Python function names"
@@ -174,8 +195,10 @@ def test_collection_type_system_e2e(
         session_id=session_id,
         collection=COLLECTION_CONVENTIONS,
     )
-    assert naming_result["status"] in ["stored", "duplicate"], \
-        f"Failed to store naming convention: {naming_result}"
+    assert naming_result["status"] in [
+        "stored",
+        "duplicate",
+    ], f"Failed to store naming convention: {naming_result}"
 
     # 3. Store to discussions with decision type
     decision_content = "Decided to use PostgreSQL because it supports JSON columns and has better ACID guarantees"
@@ -188,8 +211,10 @@ def test_collection_type_system_e2e(
         session_id=session_id,
         collection=COLLECTION_DISCUSSIONS,
     )
-    assert decision_result["status"] in ["stored", "duplicate"], \
-        f"Failed to store decision: {decision_result}"
+    assert decision_result["status"] in [
+        "stored",
+        "duplicate",
+    ], f"Failed to store decision: {decision_result}"
 
     # 4. Verify type filtering returns only matching types
     # Search code-patterns for implementation type
@@ -201,8 +226,9 @@ def test_collection_type_system_e2e(
         limit=5,
     )
     assert len(impl_results) >= 1, "Should find implementation memory"
-    assert all(r["type"] == MemoryType.IMPLEMENTATION.value for r in impl_results), \
-        "Type filter should only return implementation memories"
+    assert all(
+        r["type"] == MemoryType.IMPLEMENTATION.value for r in impl_results
+    ), "Type filter should only return implementation memories"
 
     # Search conventions for naming type
     naming_results = search_memories(
@@ -213,8 +239,9 @@ def test_collection_type_system_e2e(
         limit=5,
     )
     assert len(naming_results) >= 1, "Should find naming convention"
-    assert all(r["type"] == MemoryType.NAMING.value for r in naming_results), \
-        "Type filter should only return naming memories"
+    assert all(
+        r["type"] == MemoryType.NAMING.value for r in naming_results
+    ), "Type filter should only return naming memories"
 
     # 5. Verify cross-collection isolation
     # Search code-patterns should NOT find convention memory
@@ -252,7 +279,9 @@ def test_intent_detection_search_flow_e2e(
     test_cwd = "/tmp/e2e-test-project"
 
     # Store test memories in each collection
-    impl_content = "Implement error handling using try-except with specific exception types"
+    impl_content = (
+        "Implement error handling using try-except with specific exception types"
+    )
     e2e_storage.store_memory(
         content=impl_content,
         cwd=test_cwd,
@@ -291,8 +320,9 @@ def test_intent_detection_search_flow_e2e(
     assert how_intent == IntentType.HOW, f"Expected HOW intent, got {how_intent}"
 
     how_collection = get_target_collection(how_intent)
-    assert how_collection == COLLECTION_CODE_PATTERNS, \
-        f"HOW should route to {COLLECTION_CODE_PATTERNS}, got {how_collection}"
+    assert (
+        how_collection == COLLECTION_CODE_PATTERNS
+    ), f"HOW should route to {COLLECTION_CODE_PATTERNS}, got {how_collection}"
 
     how_results = search_memories(
         query=how_query,
@@ -308,8 +338,9 @@ def test_intent_detection_search_flow_e2e(
     assert what_intent == IntentType.WHAT, f"Expected WHAT intent, got {what_intent}"
 
     what_collection = get_target_collection(what_intent)
-    assert what_collection == COLLECTION_CONVENTIONS, \
-        f"WHAT should route to {COLLECTION_CONVENTIONS}, got {what_collection}"
+    assert (
+        what_collection == COLLECTION_CONVENTIONS
+    ), f"WHAT should route to {COLLECTION_CONVENTIONS}, got {what_collection}"
 
     what_results = search_memories(
         query=what_query,
@@ -325,8 +356,9 @@ def test_intent_detection_search_flow_e2e(
     assert why_intent == IntentType.WHY, f"Expected WHY intent, got {why_intent}"
 
     why_collection = get_target_collection(why_intent)
-    assert why_collection == COLLECTION_DISCUSSIONS, \
-        f"WHY should route to {COLLECTION_DISCUSSIONS}, got {why_collection}"
+    assert (
+        why_collection == COLLECTION_DISCUSSIONS
+    ), f"WHY should route to {COLLECTION_DISCUSSIONS}, got {why_collection}"
 
     why_results = search_memories(
         query=why_query,
@@ -392,18 +424,22 @@ def test_cascading_search_e2e(
     )
 
     # Should find the memory even though it's in secondary collection
-    assert len(results) >= 1, "Cascading search should find memory in secondary collection"
+    assert (
+        len(results) >= 1
+    ), "Cascading search should find memory in secondary collection"
 
     # 4. Verify attribution shows collection
     found_in_conventions = False
     for result in results:
         if result.get("collection") == COLLECTION_CONVENTIONS:
             found_in_conventions = True
-            assert "type hints" in result.get("content", "").lower(), \
-                "Should find the type hints guideline"
+            assert (
+                "type hints" in result.get("content", "").lower()
+            ), "Should find the type hints guideline"
 
-    assert found_in_conventions, \
-        "Results should include attribution showing expansion to conventions collection"
+    assert (
+        found_in_conventions
+    ), "Results should include attribution showing expansion to conventions collection"
 
 
 # =============================================================================
@@ -452,10 +488,13 @@ def test_trigger_new_file_detection_e2e(clean_test_data):
         f.write("# test file")
 
     try:
-        assert not is_new_file(existing_file_path), "Existing file should NOT be detected as new"
+        assert not is_new_file(
+            existing_file_path
+        ), "Existing file should NOT be detected as new"
     finally:
         # Cleanup
         import os
+
         if os.path.exists(existing_file_path):
             os.remove(existing_file_path)
 
@@ -474,16 +513,19 @@ def test_trigger_first_edit_detection_e2e(clean_test_data):
 
     # 1. Session A edits file X → should trigger (first edit)
     # Note: is_first_edit_in_session tracks automatically
-    assert is_first_edit_in_session(file_path, session_a), \
-        "First edit in session A should trigger"
+    assert is_first_edit_in_session(
+        file_path, session_a
+    ), "First edit in session A should trigger"
 
     # 2. Session B edits file X → should trigger (different session)
-    assert is_first_edit_in_session(file_path, session_b), \
-        "First edit in session B should trigger (different session)"
+    assert is_first_edit_in_session(
+        file_path, session_b
+    ), "First edit in session B should trigger (different session)"
 
     # 3. Session A edits file X again → should NOT trigger (already tracked)
-    assert not is_first_edit_in_session(file_path, session_a), \
-        "Second edit in session A should NOT trigger"
+    assert not is_first_edit_in_session(
+        file_path, session_a
+    ), "Second edit in session A should NOT trigger"
 
 
 @pytest.mark.requires_qdrant
@@ -493,20 +535,26 @@ def test_trigger_decision_keywords_e2e(clean_test_data):
     Verifies that decision keywords are detected in user questions.
     """
     # Test decision keyword patterns
-    assert detect_decision_keywords("why did we choose PostgreSQL"), \
-        "Should detect 'why did we' pattern"
-    assert detect_decision_keywords("why do we use async patterns"), \
-        "Should detect 'why do we' pattern"
-    assert detect_decision_keywords("what was decided about the API design"), \
-        "Should detect 'what was decided' pattern"
-    assert detect_decision_keywords("what did we decide for error handling"), \
-        "Should detect 'what did we decide' pattern"
+    assert detect_decision_keywords(
+        "why did we choose PostgreSQL"
+    ), "Should detect 'why did we' pattern"
+    assert detect_decision_keywords(
+        "why do we use async patterns"
+    ), "Should detect 'why do we' pattern"
+    assert detect_decision_keywords(
+        "what was decided about the API design"
+    ), "Should detect 'what was decided' pattern"
+    assert detect_decision_keywords(
+        "what did we decide for error handling"
+    ), "Should detect 'what did we decide' pattern"
 
     # Verify NO false positives
-    assert not detect_decision_keywords("how do I implement this feature"), \
-        "HOW questions should not trigger decision keywords"
-    assert not detect_decision_keywords("what is the port number"), \
-        "Generic WHAT questions should not trigger"
+    assert not detect_decision_keywords(
+        "how do I implement this feature"
+    ), "HOW questions should not trigger decision keywords"
+    assert not detect_decision_keywords(
+        "what is the port number"
+    ), "Generic WHAT questions should not trigger"
 
 
 # =============================================================================
@@ -529,23 +577,28 @@ def test_session_isolation_e2e(clean_test_data):
 
     # 1. Session 1 edits file X
     # Note: is_first_edit_in_session tracks automatically
-    assert is_first_edit_in_session(file_path, session_1), \
-        "First edit in session 1 should trigger"
+    assert is_first_edit_in_session(
+        file_path, session_1
+    ), "First edit in session 1 should trigger"
 
     # 2. Session 2 edits file X → different session, should trigger
-    assert is_first_edit_in_session(file_path, session_2), \
-        "Session 2 should trigger on same file (different session)"
+    assert is_first_edit_in_session(
+        file_path, session_2
+    ), "Session 2 should trigger on same file (different session)"
 
     # 3. Session 1 edits file X again → already tracked in session 1
-    assert not is_first_edit_in_session(file_path, session_1), \
-        "Session 1 second edit should not trigger"
+    assert not is_first_edit_in_session(
+        file_path, session_1
+    ), "Session 1 second edit should not trigger"
 
     # Verify session 2 is still isolated
-    assert not is_first_edit_in_session(file_path, session_2), \
-        "Session 2 already tracked this file"
+    assert not is_first_edit_in_session(
+        file_path, session_2
+    ), "Session 2 already tracked this file"
 
     # Test concurrent access with threading
     import threading
+
     results = []
 
     def session_worker(session_id: str, file: str):
@@ -568,8 +621,9 @@ def test_session_isolation_e2e(clean_test_data):
 
     # All sessions should see it as first edit (different sessions)
     assert len(results) == 5, "All threads should complete"
-    assert all(is_first for _, is_first in results), \
-        "All sessions should see first edit (different sessions)"
+    assert all(
+        is_first for _, is_first in results
+    ), "All sessions should see first edit (different sessions)"
 
 
 # =============================================================================
@@ -625,8 +679,10 @@ def set_cached(key, value, ttl_seconds=300):
         session_id=session_id,
         collection=COLLECTION_CODE_PATTERNS,
     )
-    assert result["status"] in ["stored", "duplicate"], \
-        f"Failed to store pattern: {result}"
+    assert result["status"] in [
+        "stored",
+        "duplicate",
+    ], f"Failed to store pattern: {result}"
 
     # 2. User asks "how do I implement similar feature"
     user_query = "how do I implement a cache with expiration in Python"
@@ -664,5 +720,6 @@ def set_cached(key, value, ttl_seconds=300):
     estimated_tokens = content_length / 4
 
     # Single result should be under 500 tokens (as per spec requirement)
-    assert estimated_tokens < 500, \
-        f"Single result should be <500 tokens, got ~{estimated_tokens} tokens"
+    assert (
+        estimated_tokens < 500
+    ), f"Single result should be <500 tokens, got ~{estimated_tokens} tokens"

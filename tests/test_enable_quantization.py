@@ -3,11 +3,11 @@
 Tests idempotency, error handling, and CLI flags for the INT8 quantization script.
 """
 
-import pytest
 import sys
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch, call
-from io import StringIO
+from unittest.mock import Mock, patch
+
+import pytest
 
 # Add scripts to path
 scripts_path = Path(__file__).parent.parent / "scripts" / "memory"
@@ -140,7 +140,9 @@ class TestEnableQuantization:
             updated_info,  # After update
         ]
 
-        success, status = enable_quantization(mock_client_no_quantization, "code-patterns")
+        success, status = enable_quantization(
+            mock_client_no_quantization, "code-patterns"
+        )
 
         assert success is True
         assert status == "enabled"
@@ -150,14 +152,18 @@ class TestEnableQuantization:
         """Skips already-quantized collection (idempotency)."""
         from enable_quantization import enable_quantization
 
-        success, status = enable_quantization(mock_client_already_quantized, "code-patterns")
+        success, status = enable_quantization(
+            mock_client_already_quantized, "code-patterns"
+        )
 
         assert success is True
         assert status == "already_enabled"
         # Should NOT call update_collection
         mock_client_already_quantized.update_collection.assert_not_called()
 
-    def test_enable_quantization_updates_wrong_config(self, mock_client_wrong_quantization):
+    def test_enable_quantization_updates_wrong_config(
+        self, mock_client_wrong_quantization
+    ):
         """Re-applies quantization when config doesn't match expected."""
         from enable_quantization import enable_quantization
 
@@ -180,21 +186,29 @@ class TestEnableQuantization:
             updated_info,  # After update (INT8)
         ]
 
-        success, status = enable_quantization(mock_client_wrong_quantization, "code-patterns")
+        success, status = enable_quantization(
+            mock_client_wrong_quantization, "code-patterns"
+        )
 
         assert success is True
         assert status == "enabled"
         # Should call update_collection to fix config
         mock_client_wrong_quantization.update_collection.assert_called_once()
 
-    def test_enable_quantization_collection_not_found(self, mock_client_no_quantization):
+    def test_enable_quantization_collection_not_found(
+        self, mock_client_no_quantization
+    ):
         """Handles missing collection gracefully."""
         from enable_quantization import enable_quantization
 
         # Simulate collection not found
-        mock_client_no_quantization.get_collection.side_effect = Exception("Collection not found")
+        mock_client_no_quantization.get_collection.side_effect = Exception(
+            "Collection not found"
+        )
 
-        success, status = enable_quantization(mock_client_no_quantization, "missing-collection")
+        success, status = enable_quantization(
+            mock_client_no_quantization, "missing-collection"
+        )
 
         assert success is False
         assert status == "failed"
@@ -222,7 +236,9 @@ class TestEnableQuantization:
             updated_info,
         ]
 
-        success, status = enable_quantization(mock_client_no_quantization, "code-patterns")
+        success, status = enable_quantization(
+            mock_client_no_quantization, "code-patterns"
+        )
 
         assert success is False
         assert status == "config_mismatch"
@@ -235,7 +251,7 @@ class TestParseArgs:
         """Default args have no flags set."""
         from enable_quantization import parse_args
 
-        with patch('sys.argv', ['enable_quantization.py']):
+        with patch("sys.argv", ["enable_quantization.py"]):
             args = parse_args()
             assert args.dry_run is False
             assert args.yes is False
@@ -244,7 +260,7 @@ class TestParseArgs:
         """--dry-run flag sets dry_run to True."""
         from enable_quantization import parse_args
 
-        with patch('sys.argv', ['enable_quantization.py', '--dry-run']):
+        with patch("sys.argv", ["enable_quantization.py", "--dry-run"]):
             args = parse_args()
             assert args.dry_run is True
             assert args.yes is False
@@ -253,7 +269,7 @@ class TestParseArgs:
         """- flag sets yes to True."""
         from enable_quantization import parse_args
 
-        with patch('sys.argv', ['enable_quantization.py', '-y']):
+        with patch("sys.argv", ["enable_quantization.py", "-y"]):
             args = parse_args()
             assert args.dry_run is False
             assert args.yes is True
@@ -262,7 +278,7 @@ class TestParseArgs:
         """--yes flag sets yes to True."""
         from enable_quantization import parse_args
 
-        with patch('sys.argv', ['enable_quantization.py', '--yes']):
+        with patch("sys.argv", ["enable_quantization.py", "--yes"]):
             args = parse_args()
             assert args.dry_run is False
             assert args.yes is True
@@ -271,7 +287,7 @@ class TestParseArgs:
         """Multiple flags can be combined."""
         from enable_quantization import parse_args
 
-        with patch('sys.argv', ['enable_quantization.py', '--dry-run', '-y']):
+        with patch("sys.argv", ["enable_quantization.py", "--dry-run", "-y"]):
             args = parse_args()
             assert args.dry_run is True
             assert args.yes is True
@@ -280,11 +296,13 @@ class TestParseArgs:
 class TestMainFunction:
     """Test main() function orchestration."""
 
-    @patch('enable_quantization.get_qdrant_client')
-    @patch('enable_quantization.get_config')
-    @patch('enable_quantization.enable_quantization')
-    @patch('sys.argv', ['enable_quantization.py', '-y'])
-    def test_main_all_collections_exist(self, mock_enable_quant, mock_get_config, mock_get_client):
+    @patch("enable_quantization.get_qdrant_client")
+    @patch("enable_quantization.get_config")
+    @patch("enable_quantization.enable_quantization")
+    @patch("sys.argv", ["enable_quantization.py", "-y"])
+    def test_main_all_collections_exist(
+        self, mock_enable_quant, mock_get_config, mock_get_client
+    ):
         """Main processes all collections when they all exist."""
         from enable_quantization import main
 
@@ -312,18 +330,20 @@ class TestMainFunction:
             success = True
         except SystemExit as e:
             # Also acceptable if it explicitly exits with 0
-            success = (e.code == 0)
+            success = e.code == 0
 
         assert success, "Main should complete successfully when all collections succeed"
 
         # Should process all 3 collections
         assert mock_enable_quant.call_count == 3
 
-    @patch('enable_quantization.get_qdrant_client')
-    @patch('enable_quantization.get_config')
-    @patch('enable_quantization.enable_quantization')
-    @patch('sys.argv', ['enable_quantization.py', '-y'])
-    def test_main_partial_success(self, mock_enable_quant, mock_get_config, mock_get_client):
+    @patch("enable_quantization.get_qdrant_client")
+    @patch("enable_quantization.get_config")
+    @patch("enable_quantization.enable_quantization")
+    @patch("sys.argv", ["enable_quantization.py", "-y"])
+    def test_main_partial_success(
+        self, mock_enable_quant, mock_get_config, mock_get_client
+    ):
         """Main exits 0 on partial success (CRIT-1 fix)."""
         from enable_quantization import main
 
@@ -351,10 +371,10 @@ class TestMainFunction:
             main()
         assert exc_info.value.code == 0
 
-    @patch('enable_quantization.get_qdrant_client')
-    @patch('enable_quantization.get_config')
-    @patch('enable_quantization.enable_quantization')
-    @patch('sys.argv', ['enable_quantization.py', '-y'])
+    @patch("enable_quantization.get_qdrant_client")
+    @patch("enable_quantization.get_config")
+    @patch("enable_quantization.enable_quantization")
+    @patch("sys.argv", ["enable_quantization.py", "-y"])
     def test_main_all_failed(self, mock_enable_quant, mock_get_config, mock_get_client):
         """Main exits 1 when all collections fail."""
         from enable_quantization import main
@@ -379,9 +399,9 @@ class TestMainFunction:
             main()
         assert exc_info.value.code == 1
 
-    @patch('enable_quantization.get_qdrant_client')
-    @patch('enable_quantization.get_config')
-    @patch('sys.argv', ['enable_quantization.py', '--dry-run'])
+    @patch("enable_quantization.get_qdrant_client")
+    @patch("enable_quantization.get_config")
+    @patch("sys.argv", ["enable_quantization.py", "--dry-run"])
     def test_main_dry_run(self, mock_get_config, mock_get_client, capsys):
         """Dry run mode doesn't call enable_quantization."""
         from enable_quantization import main
@@ -407,12 +427,11 @@ class TestMainFunction:
         captured = capsys.readouterr()
         assert "[DRY RUN]" in captured.out
 
-    @patch('enable_quantization.get_qdrant_client')
-    @patch('enable_quantization.get_config')
-    @patch('sys.argv', ['enable_quantization.py', '-y'])
+    @patch("enable_quantization.get_qdrant_client")
+    @patch("enable_quantization.get_config")
+    @patch("sys.argv", ["enable_quantization.py", "-y"])
     def test_main_missing_collections(self, mock_get_config, mock_get_client):
         """Main skips missing collections (CRIT-3 fix)."""
-        from enable_quantization import main
 
         # Setup mocks
         mock_config = Mock()

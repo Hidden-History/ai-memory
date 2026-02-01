@@ -5,13 +5,13 @@ All models defined in __init__.py to avoid circular imports.
 """
 
 from memory.chunking import (
-    ContentType,
     ChunkMetadata,
     ChunkResult,
+    ContentType,
 )
 
 __all__ = [
-    "ContentType",
     "ChunkMetadata",
     "ChunkResult",
+    "ContentType",
 ]

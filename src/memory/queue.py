@@ -36,10 +36,9 @@ import os
 import tempfile
 import time
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("ai_memory.queue")
 
@@ -54,11 +53,15 @@ LOCK_TIMEOUT_SECONDS = 5.0
 
 # Default queue file path - uses AI_MEMORY_INSTALL_DIR for multi-project support
 # Use MemoryQueue(queue_path=...) or MEMORY_QUEUE_PATH env var for custom paths
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 QUEUE_FILE = Path(INSTALL_DIR) / "queue" / "pending_queue.jsonl"
 
 
-def _acquire_lock_with_timeout(fd: int, timeout_seconds: float = LOCK_TIMEOUT_SECONDS) -> bool:
+def _acquire_lock_with_timeout(
+    fd: int, timeout_seconds: float = LOCK_TIMEOUT_SECONDS
+) -> bool:
     """Acquire exclusive lock with timeout.
 
     Uses non-blocking lock with retry loop per AC 5.1.4.
@@ -123,7 +126,9 @@ class QueueEntry:
     def __post_init__(self):
         """Initialize timestamps if not provided."""
         if not self.queued_at:
-            self.queued_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            self.queued_at = (
+                datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            )
         if not self.next_retry_at:
             self.next_retry_at = self._calculate_next_retry()
 
@@ -176,7 +181,7 @@ class MemoryQueue:
                 queue.mark_failed(entry["id"])
     """
 
-    def __init__(self, queue_path: Optional[str] = None):
+    def __init__(self, queue_path: str | None = None):
         """Initialize queue with optional custom path.
 
         Args:
@@ -223,11 +228,14 @@ class MemoryQueue:
         # Push to Pushgateway for dashboard visibility
         try:
             from .metrics_push import push_queue_metrics_async
+
             push_queue_metrics_async(pending_count, exhausted_count, ready_count)
         except ImportError:
             pass  # Graceful degradation if push module not available
 
-    def enqueue(self, memory_data: dict, failure_reason: str, immediate: bool = False) -> str:
+    def enqueue(
+        self, memory_data: dict, failure_reason: str, immediate: bool = False
+    ) -> str:
         """Add memory operation to queue.
 
         Args:
@@ -248,7 +256,7 @@ class MemoryQueue:
             id=str(uuid.uuid4()),
             memory_data=memory_data,
             failure_reason=failure_reason,
-            next_retry_at=next_retry  # Override default backoff if immediate
+            next_retry_at=next_retry,  # Override default backoff if immediate
         )
 
         with self._locked_append() as f:
@@ -282,7 +290,9 @@ class MemoryQueue:
         # Metrics: Update queue_size gauge after dequeue (Story 6.1, AC 6.1.3)
         self._update_queue_metrics()
 
-    def get_pending(self, limit: int = 10, include_exhausted: bool = False) -> list[dict]:
+    def get_pending(
+        self, limit: int = 10, include_exhausted: bool = False
+    ) -> list[dict]:
         """Get entries ready for retry (next_retry_at <= now).
 
         Filters for:
@@ -327,7 +337,9 @@ class MemoryQueue:
                     delays = [1, 5, 15]
                     delay = delays[min(entry["retry_count"], len(delays) - 1)]
                     next_time = datetime.now(timezone.utc) + timedelta(minutes=delay)
-                    entry["next_retry_at"] = next_time.isoformat().replace("+00:00", "Z")
+                    entry["next_retry_at"] = next_time.isoformat().replace(
+                        "+00:00", "Z"
+                    )
                     break
             write_fn(entries)
 
@@ -361,7 +373,9 @@ class MemoryQueue:
                 for e in entries
                 if e["next_retry_at"] > now and e["retry_count"] < e["max_retries"]
             ),
-            "exhausted": sum(1 for e in entries if e["retry_count"] >= e["max_retries"]),
+            "exhausted": sum(
+                1 for e in entries if e["retry_count"] >= e["max_retries"]
+            ),
             "by_failure_reason": self._count_by_reason(entries),
         }
 
@@ -413,16 +427,14 @@ class MemoryQueue:
             return []
 
         entries = []
-        with open(self.queue_path, "r") as f:
+        with open(self.queue_path) as f:
             for line in f:
                 line = line.strip()
                 if line:
                     try:
                         entries.append(json.loads(line))
                     except json.JSONDecodeError:
-                        logger.warning(
-                            "corrupt_queue_entry", extra={"line": line[:50]}
-                        )
+                        logger.warning("corrupt_queue_entry", extra={"line": line[:50]})
         return entries
 
     def _write_all(self, entries: list[dict]) -> None:
@@ -575,7 +587,9 @@ class LockedReadModifyWrite:
             self.lock_file.close()
 
 
-def queue_operation(data: dict, reason: str = "HOOK_STORAGE_FAILED", immediate: bool = False) -> bool:
+def queue_operation(
+    data: dict, reason: str = "HOOK_STORAGE_FAILED", immediate: bool = False
+) -> bool:
     """Queue a memory operation for later retry.
 
     Simple wrapper for hooks that need to queue failed operations.
@@ -607,11 +621,11 @@ def queue_operation(data: dict, reason: str = "HOOK_STORAGE_FAILED", immediate: 
 
 # Export public API
 __all__ = [
-    "MemoryQueue",
-    "QueueEntry",
+    "LOCK_TIMEOUT_SECONDS",
+    "LockTimeoutError",
     "LockedFileAppend",
     "LockedReadModifyWrite",
-    "LockTimeoutError",
-    "LOCK_TIMEOUT_SECONDS",
+    "MemoryQueue",
+    "QueueEntry",
     "queue_operation",
 ]

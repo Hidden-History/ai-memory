@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-
 # Import the module we're testing
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 

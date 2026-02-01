@@ -18,9 +18,9 @@ import time
 
 import pytest
 
-from src.memory.storage import store_best_practice
-from src.memory.search import retrieve_best_practices, MemorySearch
 from src.memory.models import MemoryType
+from src.memory.search import MemorySearch, retrieve_best_practices
+from src.memory.storage import store_best_practice
 
 
 class TestBestPracticesSharing:
@@ -66,7 +66,7 @@ class TestBestPracticesSharing:
         # Use default=None to handle collection pollution where match isn't in top results
         type_hints_result = next(
             (r for r in results if "type hints" in r["content"].lower()),
-            None  # Default to avoid StopIteration on collection pollution
+            None,  # Default to avoid StopIteration on collection pollution
         )
 
         if type_hints_result:
@@ -106,13 +106,9 @@ class TestBestPracticesSharing:
         )
 
         # Best practice should NOT appear in implementations collection
-        assert not any(
-            "Best practice:" in r.get("content", "") for r in impl_results
-        )
+        assert not any("Best practice:" in r.get("content", "") for r in impl_results)
 
-    def test_implementations_not_in_best_practices_collection(
-        self, qdrant_client
-    ):
+    def test_implementations_not_in_best_practices_collection(self, qdrant_client):
         """Test that implementations don't leak into best practices collection.
 
         Implements AC 4.3.3 (Collection Isolation Verification).
@@ -123,6 +119,7 @@ class TestBestPracticesSharing:
         """
         # Store project-specific implementation
         from src.memory.storage import MemoryStorage
+
         storage = MemoryStorage()
         storage.store_memory(
             content="Implemented OAuth2 login flow using FastAPI for project-a",
@@ -143,9 +140,7 @@ class TestBestPracticesSharing:
         )
 
         # Implementation should NOT appear in best practices collection
-        assert not any(
-            "project-a" in r.get("content", "").lower() for r in bp_results
-        )
+        assert not any("project-a" in r.get("content", "").lower() for r in bp_results)
 
     def test_best_practices_query_performance(self, qdrant_client):
         """Verify unfiltered best practices queries meet performance requirements.
@@ -290,9 +285,7 @@ class TestBestPracticesRetrieval:
         time.sleep(2)
 
         # Call without explicit limit (should default to 3)
-        results = retrieve_best_practices(
-            query="Python pattern efficiency"
-        )
+        results = retrieve_best_practices(query="Python pattern efficiency")
 
         # Should return exactly 3 results (default limit)
         assert len(results) <= 3
@@ -365,6 +358,4 @@ class TestFilterConstructionWithNone:
             # Success - no exception raised
             assert isinstance(results, list)
         except Exception as e:
-            pytest.fail(
-                f"group_id=None should not raise exception, but got: {e}"
-            )
+            pytest.fail(f"group_id=None should not raise exception, but got: {e}")

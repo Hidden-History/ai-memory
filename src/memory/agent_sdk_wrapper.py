@@ -27,39 +27,42 @@ References:
 import asyncio
 import logging
 import os
-import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+from typing import Any
 from uuid import uuid4
 
 from claude_agent_sdk import (
-    ClaudeSDKClient,
     ClaudeAgentOptions,
-    HookMatcher,
-    PostToolUseHookInput,
-    StopHookInput,
-    HookContext,
+    ClaudeSDKClient,
     ClaudeSDKError,
     CLINotFoundError,
+    HookContext,
+    HookMatcher,
+    PostToolUseHookInput,
     ProcessError,
+    StopHookInput,
 )
 from prometheus_client import Counter, Gauge
 
-from .config import COLLECTION_DISCUSSIONS, COLLECTION_CODE_PATTERNS, get_config
+from .config import COLLECTION_CODE_PATTERNS, COLLECTION_DISCUSSIONS
 from .deduplication import compute_content_hash, is_duplicate
 from .models import MemoryType
 from .project import detect_project
 from .storage import MemoryStorage
 
 # Prometheus Metrics
-agent_sdk_hook_fires = Counter('ai_memory_agent_sdk_hook_fires_total', 'SDK hook invocations', ['hook_type'])
-agent_sdk_storage_tasks = Counter('ai_memory_agent_sdk_storage_tasks_total', 'Storage tasks', ['status'])
-agent_sdk_sessions = Gauge('ai_memory_agent_sdk_active_sessions', 'Active SDK sessions')
+agent_sdk_hook_fires = Counter(
+    "ai_memory_agent_sdk_hook_fires_total", "SDK hook invocations", ["hook_type"]
+)
+agent_sdk_storage_tasks = Counter(
+    "ai_memory_agent_sdk_storage_tasks_total", "Storage tasks", ["status"]
+)
+agent_sdk_sessions = Gauge("ai_memory_agent_sdk_active_sessions", "Active SDK sessions")
 agent_sdk_dedup_checks = Counter(
-    'ai_memory_agent_sdk_dedup_checks_total',
-    'Deduplication checks',
-    ['result']  # 'duplicate', 'unique', 'error'
+    "ai_memory_agent_sdk_dedup_checks_total",
+    "Deduplication checks",
+    ["result"],  # 'duplicate', 'unique', 'error'
 )
 
 __all__ = [
@@ -119,10 +122,10 @@ class AgentSDKWrapper:
     def __init__(
         self,
         cwd: str,
-        api_key: Optional[str] = None,
-        storage: Optional[MemoryStorage] = None,
-        session_id: Optional[str] = None,
-        options: Optional[ClaudeAgentOptions] = None,
+        api_key: str | None = None,
+        storage: MemoryStorage | None = None,
+        session_id: str | None = None,
+        options: ClaudeAgentOptions | None = None,
     ):
         """Initialize Agent SDK wrapper with memory hooks.
 
@@ -149,14 +152,14 @@ class AgentSDKWrapper:
         self.session_id = session_id or f"agent_sdk_{uuid4().hex[:8]}"
         self.turn_number = 0
         self._turn_lock = asyncio.Lock()  # MEDIUM-9: Prevent race condition
-        self._storage_tasks: List[asyncio.Task] = []
+        self._storage_tasks: list[asyncio.Task] = []
 
         # Batching configuration (TECH-DEBT-042, TECH-DEBT-043)
-        self._batch_queue: List[PendingMemory] = []
+        self._batch_queue: list[PendingMemory] = []
         self._batch_lock = asyncio.Lock()
         self._batch_size = 10  # Flush when queue reaches this size
         self._batch_flush_interval = 5.0  # Seconds between auto-flushes
-        self._flush_task: Optional[asyncio.Task] = None
+        self._flush_task: asyncio.Task | None = None
 
         # Set ANTHROPIC_API_KEY for SDK
         os.environ["ANTHROPIC_API_KEY"] = self.api_key
@@ -279,6 +282,7 @@ class AgentSDKWrapper:
                 loop = asyncio.get_running_loop()
 
                 from functools import partial
+
                 store_func = partial(
                     self.storage.store_memory,
                     memory.content,
@@ -310,7 +314,7 @@ class AgentSDKWrapper:
                         "error": str(e),
                     },
                 )
-                agent_sdk_storage_tasks.labels(status='batch_error').inc()
+                agent_sdk_storage_tasks.labels(status="batch_error").inc()
 
     async def _queue_memory(
         self,
@@ -349,8 +353,8 @@ class AgentSDKWrapper:
                             "collection": collection,
                         },
                     )
-                    agent_sdk_dedup_checks.labels(result='duplicate').inc()
-                    agent_sdk_storage_tasks.labels(status='skipped_duplicate').inc()
+                    agent_sdk_dedup_checks.labels(result="duplicate").inc()
+                    agent_sdk_storage_tasks.labels(status="skipped_duplicate").inc()
                     return
 
             # Stage 2b: Check Qdrant (slower but necessary)
@@ -370,11 +374,11 @@ class AgentSDKWrapper:
                             "collection": collection,
                         },
                     )
-                    agent_sdk_dedup_checks.labels(result='duplicate').inc()
-                    agent_sdk_storage_tasks.labels(status='skipped_duplicate').inc()
+                    agent_sdk_dedup_checks.labels(result="duplicate").inc()
+                    agent_sdk_storage_tasks.labels(status="skipped_duplicate").inc()
                     return
 
-                agent_sdk_dedup_checks.labels(result='unique').inc()
+                agent_sdk_dedup_checks.labels(result="unique").inc()
 
             except Exception as e:
                 # Graceful degradation: queue anyway if dedup check fails
@@ -382,7 +386,7 @@ class AgentSDKWrapper:
                     "dedup_check_failed_queueing_anyway",
                     extra={"error": str(e)},
                 )
-                agent_sdk_dedup_checks.labels(result='error').inc()
+                agent_sdk_dedup_checks.labels(result="error").inc()
 
             # Stage 3: Add to queue
             self._batch_queue.append(
@@ -422,9 +426,9 @@ class AgentSDKWrapper:
     async def _post_tool_use_hook(
         self,
         input_data: PostToolUseHookInput,
-        tool_use_id: Optional[str],
+        tool_use_id: str | None,
         context: HookContext,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Capture tool use patterns in background (PostToolUse hook).
 
         Maps tool executions to memory types:
@@ -439,7 +443,7 @@ class AgentSDKWrapper:
         Returns:
             Empty dict (hook doesn't modify flow)
         """
-        agent_sdk_hook_fires.labels(hook_type='PostToolUse').inc()
+        agent_sdk_hook_fires.labels(hook_type="PostToolUse").inc()
 
         try:
             tool_name = input_data.get("tool_name", "")
@@ -460,8 +464,9 @@ class AgentSDKWrapper:
                             exit_code = None
 
                 # Detect error: non-zero exit code OR explicit error in structured response
-                is_error = (exit_code is not None and exit_code != 0) or \
-                           (isinstance(tool_response, dict) and tool_response.get("error"))
+                is_error = (exit_code is not None and exit_code != 0) or (
+                    isinstance(tool_response, dict) and tool_response.get("error")
+                )
 
                 if is_error:
                     memory_type = MemoryType.ERROR_FIX
@@ -487,7 +492,7 @@ class AgentSDKWrapper:
                 )
             )
             self._storage_tasks.append(task)
-            agent_sdk_storage_tasks.labels(status='created').inc()
+            agent_sdk_storage_tasks.labels(status="created").inc()
 
         except Exception as e:
             # Graceful degradation - log and continue
@@ -504,9 +509,9 @@ class AgentSDKWrapper:
     async def _stop_hook(
         self,
         input_data: StopHookInput,
-        tool_use_id: Optional[str],
+        tool_use_id: str | None,
         context: HookContext,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Capture final agent response at session end (Stop hook).
 
         Args:
@@ -517,7 +522,7 @@ class AgentSDKWrapper:
         Returns:
             Empty dict (hook doesn't modify flow)
         """
-        agent_sdk_hook_fires.labels(hook_type='Stop').inc()
+        agent_sdk_hook_fires.labels(hook_type="Stop").inc()
 
         try:
             # Extract transcript path to read final response
@@ -530,7 +535,7 @@ class AgentSDKWrapper:
                     self._extract_and_store_response(transcript_path)
                 )
                 self._storage_tasks.append(task)
-                agent_sdk_storage_tasks.labels(status='created').inc()
+                agent_sdk_storage_tasks.labels(status="created").inc()
 
         except Exception as e:
             logger.warning(
@@ -548,7 +553,7 @@ class AgentSDKWrapper:
         try:
             # MEDIUM-11: Wrap file read with proper error handling
             try:
-                with open(transcript_path, "r", encoding="utf-8") as f:
+                with open(transcript_path, encoding="utf-8") as f:
                     transcript = f.read()
             except (FileNotFoundError, PermissionError, OSError) as file_err:
                 logger.warning(
@@ -570,7 +575,7 @@ class AgentSDKWrapper:
             )
 
         except Exception as e:
-            agent_sdk_storage_tasks.labels(status='failed').inc()
+            agent_sdk_storage_tasks.labels(status="failed").inc()
             logger.warning(
                 "response_extraction_failed",
                 extra={
@@ -616,11 +621,11 @@ class AgentSDKWrapper:
                             "collection": collection,
                         },
                     )
-                    agent_sdk_dedup_checks.labels(result='duplicate').inc()
-                    agent_sdk_storage_tasks.labels(status='skipped_duplicate').inc()
+                    agent_sdk_dedup_checks.labels(result="duplicate").inc()
+                    agent_sdk_storage_tasks.labels(status="skipped_duplicate").inc()
                     return None
 
-                agent_sdk_dedup_checks.labels(result='unique').inc()
+                agent_sdk_dedup_checks.labels(result="unique").inc()
 
             except Exception as e:
                 # Graceful degradation: store anyway if dedup check fails
@@ -628,7 +633,7 @@ class AgentSDKWrapper:
                     "dedup_check_failed_storing_anyway",
                     extra={"error": str(e)},
                 )
-                agent_sdk_dedup_checks.labels(result='error').inc()
+                agent_sdk_dedup_checks.labels(result="error").inc()
 
             # Stage 3: Store if not duplicate
             # MEDIUM-9: Thread-safe turn_number increment
@@ -642,6 +647,7 @@ class AgentSDKWrapper:
 
             # Partial function to pass kwargs correctly through executor
             from functools import partial
+
             store_func = partial(
                 self.storage.store_memory,
                 content,
@@ -667,7 +673,7 @@ class AgentSDKWrapper:
             )
 
         except Exception as e:
-            agent_sdk_storage_tasks.labels(status='failed').inc()
+            agent_sdk_storage_tasks.labels(status="failed").inc()
             logger.warning(
                 "background_storage_failed",
                 extra={
@@ -827,8 +833,8 @@ class AgentSDKWrapper:
 async def create_memory_enhanced_client(
     project_id: str,
     cwd: str,
-    api_key: Optional[str] = None,
-    storage: Optional[MemoryStorage] = None,
+    api_key: str | None = None,
+    storage: MemoryStorage | None = None,
 ) -> AgentSDKWrapper:
     """Factory for memory-enhanced Agent SDK client (BP-003 recommended pattern).
 

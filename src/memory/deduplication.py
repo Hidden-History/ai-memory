@@ -11,9 +11,7 @@ Best Practices: https://github.com/MinishLab/semhash (SemHash 2025 patterns)
 import asyncio
 import hashlib
 import logging
-import os
 from dataclasses import dataclass
-from typing import Optional, Union
 
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http.exceptions import (
@@ -21,7 +19,7 @@ from qdrant_client.http.exceptions import (
     ResponseHandlingException,
     UnexpectedResponse,
 )
-from qdrant_client.models import Filter, FieldCondition, MatchValue, SearchRequest
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from .config import get_config
 from .embeddings import EmbeddingClient, EmbeddingError
@@ -29,12 +27,14 @@ from .embeddings import EmbeddingClient, EmbeddingError
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
 try:
     from .metrics import deduplication_events_total
-    from .metrics_push import push_deduplication_metrics_async  # BUG-021: Push to Pushgateway
+    from .metrics_push import (
+        push_deduplication_metrics_async,  # BUG-021: Push to Pushgateway
+    )
 except ImportError:
     deduplication_events_total = None
     push_deduplication_metrics_async = None
 
-__all__ = ["compute_content_hash", "is_duplicate", "DuplicationCheckResult"]
+__all__ = ["DuplicationCheckResult", "compute_content_hash", "is_duplicate"]
 
 logger = logging.getLogger("ai_memory.dedup")
 
@@ -51,12 +51,12 @@ class DuplicationCheckResult:
     """
 
     is_duplicate: bool
-    reason: Optional[str] = None
-    existing_id: Optional[str] = None
-    similarity_score: Optional[float] = None
+    reason: str | None = None
+    existing_id: str | None = None
+    similarity_score: float | None = None
 
 
-def compute_content_hash(content: Union[str, bytes]) -> str:
+def compute_content_hash(content: str | bytes) -> str:
     """Compute SHA-256 hash of content.
 
     Implements AC 2.2.5 (Content Hash Function).
@@ -82,10 +82,7 @@ def compute_content_hash(content: Union[str, bytes]) -> str:
     hash_obj = hashlib.sha256()
 
     # AC 2.2.5: Handle both string and bytes input
-    if isinstance(content, bytes):
-        content_bytes = content
-    else:
-        content_bytes = content.encode("utf-8")
+    content_bytes = content if isinstance(content, bytes) else content.encode("utf-8")
 
     # Chunk size: 4096 bytes (standard for file I/O)
     chunk_size = 4096
@@ -100,7 +97,7 @@ async def is_duplicate(
     content: str,
     group_id: str,
     collection: str = "memories",
-    threshold: Optional[float] = None,
+    threshold: float | None = None,
 ) -> DuplicationCheckResult:
     """Check if content is duplicate using dual-stage approach.
 
@@ -183,9 +180,7 @@ async def is_duplicate(
             collection_name=collection,
             scroll_filter=Filter(
                 must=[
-                    FieldCondition(
-                        key="group_id", match=MatchValue(value=group_id)
-                    ),
+                    FieldCondition(key="group_id", match=MatchValue(value=group_id)),
                     FieldCondition(
                         key="content_hash", match=MatchValue(value=content_hash)
                     ),
@@ -209,9 +204,7 @@ async def is_duplicate(
             # BUG-021: Push to Pushgateway with action/collection labels
             if push_deduplication_metrics_async:
                 push_deduplication_metrics_async(
-                    action="skipped_duplicate",
-                    collection=collection,
-                    project=group_id
+                    action="skipped_duplicate", collection=collection, project=group_id
                 )
 
             return DuplicationCheckResult(
@@ -242,9 +235,7 @@ async def is_duplicate(
                 query_vector=query_vector,
                 query_filter=Filter(
                     must=[
-                        FieldCondition(
-                            key="group_id", match=MatchValue(value=group_id)
-                        )
+                        FieldCondition(key="group_id", match=MatchValue(value=group_id))
                     ]
                 ),
                 limit=1,
@@ -272,7 +263,7 @@ async def is_duplicate(
                     push_deduplication_metrics_async(
                         action="skipped_duplicate",
                         collection=collection,
-                        project=group_id
+                        project=group_id,
                     )
 
                 return DuplicationCheckResult(

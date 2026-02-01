@@ -4,11 +4,10 @@ TECH-DEBT-051: v2.1 MVP implementation with AST-based code chunking (TECH-DEBT-0
 Routes content by type to appropriate chunking strategy.
 """
 
+import logging
 from dataclasses import dataclass
-from typing import List, Optional
 from enum import Enum
 from pathlib import Path
-import logging
 
 logger = logging.getLogger("ai_memory.chunking")
 
@@ -35,10 +34,10 @@ class ChunkMetadata:
     total_chunks: int  # Total chunks from source
     chunk_size_tokens: int  # Approximate token count
     overlap_tokens: int  # Overlap with previous chunk
-    source_file: Optional[str] = None
-    start_line: Optional[int] = None
-    end_line: Optional[int] = None
-    section_header: Optional[str] = None
+    source_file: str | None = None
+    start_line: int | None = None
+    end_line: int | None = None
+    section_header: str | None = None
 
 
 @dataclass(frozen=True)
@@ -60,7 +59,19 @@ class IntelligentChunker:
     """
 
     # File extension to content type mapping
-    CODE_EXTENSIONS = {".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs", ".cpp", ".c", ".h"}
+    CODE_EXTENSIONS = {
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".java",
+        ".go",
+        ".rs",
+        ".cpp",
+        ".c",
+        ".h",
+    }
     PROSE_EXTENSIONS = {".md", ".txt", ".rst"}
     CONFIG_EXTENSIONS = {".json", ".yaml", ".yml", ".toml", ".ini", ".cfg"}
 
@@ -86,6 +97,7 @@ class IntelligentChunker:
         self._ast_chunker = None
         try:
             from .ast_chunker import ASTChunker
+
             self._ast_chunker = ASTChunker()
             logger.info(
                 "chunker_initialized",
@@ -156,7 +168,7 @@ class IntelligentChunker:
             )
             return ContentType.UNKNOWN
 
-    def chunk(self, content: str, file_path: str) -> List[ChunkResult]:
+    def chunk(self, content: str, file_path: str) -> list[ChunkResult]:
         """Chunk content using appropriate strategy.
 
         Routes to specialized chunkers based on content type:
@@ -209,7 +221,7 @@ class IntelligentChunker:
                     "file_path": file_path,
                     "reason": "no_functions_or_classes_found",
                     "fallback_strategy": "whole_content",
-                    "content_length": len(content)
+                    "content_length": len(content),
                 },
             )
         elif content_type == ContentType.CODE and not self._ast_chunker:
@@ -219,7 +231,7 @@ class IntelligentChunker:
                 extra={
                     "file_path": file_path,
                     "reason": "tree_sitter_not_installed",
-                    "fallback_strategy": "whole_content"
+                    "fallback_strategy": "whole_content",
                 },
             )
 
@@ -253,24 +265,25 @@ from .prose_chunker import ProseChunker, ProseChunkerConfig
 # Conditional export of ASTChunker
 try:
     from .ast_chunker import ASTChunker
+
     __all__ = [
-        "IntelligentChunker",
-        "ASTChunker",
-        "ChunkResult",
-        "ChunkMetadata",
-        "ContentType",
         "CHARS_PER_TOKEN",
+        "ASTChunker",
+        "ChunkMetadata",
+        "ChunkResult",
+        "ContentType",
+        "IntelligentChunker",
         "ProseChunker",
         "ProseChunkerConfig",
     ]
 except ImportError:
     # Tree-sitter not available
     __all__ = [
-        "IntelligentChunker",
-        "ChunkResult",
-        "ChunkMetadata",
-        "ContentType",
         "CHARS_PER_TOKEN",
+        "ChunkMetadata",
+        "ChunkResult",
+        "ContentType",
+        "IntelligentChunker",
         "ProseChunker",
         "ProseChunkerConfig",
     ]

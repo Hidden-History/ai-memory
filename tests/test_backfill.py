@@ -12,19 +12,20 @@ Per project-context.md:
 """
 
 import fcntl
-import pytest
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import patch
+
+import pytest
 
 # Import backfill module functions
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts" / "memory"))
 import backfill_embeddings as backfill
 
+from memory.embeddings import EmbeddingError
+from memory.qdrant_client import QdrantUnavailable
 from memory.queue import MemoryQueue
 from memory.storage import MemoryStorage
-from memory.qdrant_client import QdrantUnavailable
-from memory.embeddings import EmbeddingError
 
 
 class TestAcquireLock:
@@ -94,7 +95,7 @@ class TestProcessQueueItem:
         mock_storage.store_memory.return_value = {
             "memory_id": "test-memory-id",
             "status": "stored",
-            "embedding_status": "complete"
+            "embedding_status": "complete",
         }
 
         # Mock queue
@@ -109,8 +110,8 @@ class TestProcessQueueItem:
                 "group_id": "test-project",
                 "type": "implementation",
                 "source_hook": "PostToolUse",
-                "session_id": "sess-456"
-            }
+                "session_id": "sess-456",
+            },
         }
 
         # Process item
@@ -156,8 +157,8 @@ class TestProcessQueueItem:
                 "group_id": "proj",
                 "type": "implementation",
                 "source_hook": "test",
-                "session_id": "sess"
-            }
+                "session_id": "sess",
+            },
         }
 
         # Mock logger to verify warning
@@ -181,7 +182,9 @@ class TestProcessQueueItem:
         """
         # Mock storage that raises EmbeddingError
         mock_storage = mocker.MagicMock(spec=MemoryStorage)
-        mock_storage.store_memory.side_effect = EmbeddingError("Timeout generating embedding")
+        mock_storage.store_memory.side_effect = EmbeddingError(
+            "Timeout generating embedding"
+        )
 
         # Mock queue
         mock_queue = mocker.MagicMock(spec=MemoryQueue)
@@ -194,8 +197,8 @@ class TestProcessQueueItem:
                 "group_id": "proj",
                 "type": "implementation",
                 "source_hook": "test",
-                "session_id": "sess"
-            }
+                "session_id": "sess",
+            },
         }
 
         result = backfill.process_queue_item(item, mock_storage, mock_queue)
@@ -215,7 +218,9 @@ class TestProcessQueueItem:
         """
         # Mock storage that raises unexpected error
         mock_storage = mocker.MagicMock(spec=MemoryStorage)
-        mock_storage.store_memory.side_effect = ValueError("Unexpected validation error")
+        mock_storage.store_memory.side_effect = ValueError(
+            "Unexpected validation error"
+        )
 
         # Mock queue
         mock_queue = mocker.MagicMock(spec=MemoryQueue)
@@ -228,8 +233,8 @@ class TestProcessQueueItem:
                 "group_id": "proj",
                 "type": "implementation",
                 "source_hook": "test",
-                "session_id": "sess"
-            }
+                "session_id": "sess",
+            },
         }
 
         # Mock logger to verify exception logging

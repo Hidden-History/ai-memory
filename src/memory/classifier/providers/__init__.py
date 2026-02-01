@@ -6,16 +6,16 @@ TECH-DEBT-069: LLM-based memory classification system.
 """
 
 from .base import BaseProvider, ProviderResponse
-from .ollama import OllamaProvider
-from .openrouter import OpenRouterProvider
 from .claude import ClaudeProvider
+from .ollama import OllamaProvider
 from .openai import OpenAIProvider
+from .openrouter import OpenRouterProvider
 
 __all__ = [
     "BaseProvider",
-    "ProviderResponse",
-    "OllamaProvider",
-    "OpenRouterProvider",
     "ClaudeProvider",
+    "OllamaProvider",
     "OpenAIProvider",
+    "OpenRouterProvider",
+    "ProviderResponse",
 ]

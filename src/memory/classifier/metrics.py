@@ -4,20 +4,21 @@ TECH-DEBT-069: Classification monitoring per spec section 5.1.
 """
 
 import logging
-from prometheus_client import Counter, Histogram, Gauge
+
+from prometheus_client import Counter, Gauge, Histogram
 
 logger = logging.getLogger("ai_memory.classifier.metrics")
 
 __all__ = [
-    "classifier_requests_total",
-    "classifier_tokens_total",
+    "classifier_confidence",
     "classifier_cost_microdollars",
-    "classifier_latency_seconds",
     "classifier_fallbacks_total",
+    "classifier_latency_seconds",
+    "classifier_queue_size",
+    "classifier_requests_total",
     "classifier_rule_matches_total",
     "classifier_significance_skips_total",
-    "classifier_queue_size",
-    "classifier_confidence",
+    "classifier_tokens_total",
     "record_classification",
     "record_fallback",
     "record_rule_match",
@@ -30,66 +31,65 @@ __all__ = [
 
 # Request tracking
 classifier_requests_total = Counter(
-    'ai_memory_classifier_requests_total',
-    'Total classification requests',
-    ['provider', 'status', 'classified_type']
+    "ai_memory_classifier_requests_total",
+    "Total classification requests",
+    ["provider", "status", "classified_type"],
 )
 
 # Token usage
 classifier_tokens_total = Counter(
-    'ai_memory_classifier_tokens_total',
-    'Total tokens used by classifier',
-    ['provider', 'direction']  # direction: input/output
+    "ai_memory_classifier_tokens_total",
+    "Total tokens used by classifier",
+    ["provider", "direction"],  # direction: input/output
 )
 
 # Cost tracking (in micro-dollars for precision)
 classifier_cost_microdollars = Counter(
-    'ai_memory_classifier_cost_microdollars_total',
-    'Estimated cost in micro-dollars (divide by 1e6 for USD)',
-    ['provider']
+    "ai_memory_classifier_cost_microdollars_total",
+    "Estimated cost in micro-dollars (divide by 1e6 for USD)",
+    ["provider"],
 )
 
 # Latency
 classifier_latency_seconds = Histogram(
-    'ai_memory_classifier_latency_seconds',
-    'Classification latency',
-    ['provider'],
-    buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]
+    "ai_memory_classifier_latency_seconds",
+    "Classification latency",
+    ["provider"],
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
 )
 
 # Fallbacks
 classifier_fallbacks_total = Counter(
-    'ai_memory_classifier_fallbacks_total',
-    'Provider fallback events',
-    ['from_provider', 'to_provider', 'reason']
+    "ai_memory_classifier_fallbacks_total",
+    "Provider fallback events",
+    ["from_provider", "to_provider", "reason"],
 )
 
 # Rule-based classification (no LLM needed)
 classifier_rule_matches_total = Counter(
-    'ai_memory_classifier_rule_matches_total',
-    'Successful rule-based classifications',
-    ['rule_type']
+    "ai_memory_classifier_rule_matches_total",
+    "Successful rule-based classifications",
+    ["rule_type"],
 )
 
 # Significance filtering
 classifier_significance_skips_total = Counter(
-    'ai_memory_classifier_significance_skips_total',
-    'Content skipped due to low significance',
-    ['level']
+    "ai_memory_classifier_significance_skips_total",
+    "Content skipped due to low significance",
+    ["level"],
 )
 
 # Queue status
 classifier_queue_size = Gauge(
-    'ai_memory_classifier_queue_size',
-    'Current size of classification retry queue'
+    "ai_memory_classifier_queue_size", "Current size of classification retry queue"
 )
 
 # Confidence distribution
 classifier_confidence = Histogram(
-    'ai_memory_classifier_confidence',
-    'Classification confidence scores',
-    ['classified_type'],
-    buckets=[0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0]
+    "ai_memory_classifier_confidence",
+    "Classification confidence scores",
+    ["classified_type"],
+    buckets=[0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0],
 )
 
 # =============================================================================
@@ -135,9 +135,7 @@ def record_classification(
 
     # Increment request counter
     classifier_requests_total.labels(
-        provider=provider,
-        status=status,
-        classified_type=classified_type
+        provider=provider, status=status, classified_type=classified_type
     ).inc()
 
     # Record latency
@@ -145,16 +143,14 @@ def record_classification(
 
     # Record token usage
     if input_tokens > 0:
-        classifier_tokens_total.labels(
-            provider=provider,
-            direction="input"
-        ).inc(input_tokens)
+        classifier_tokens_total.labels(provider=provider, direction="input").inc(
+            input_tokens
+        )
 
     if output_tokens > 0:
-        classifier_tokens_total.labels(
-            provider=provider,
-            direction="output"
-        ).inc(output_tokens)
+        classifier_tokens_total.labels(provider=provider, direction="output").inc(
+            output_tokens
+        )
 
     # Record cost
     if cost_microdollars > 0:
@@ -162,7 +158,9 @@ def record_classification(
 
     # Record confidence distribution (only on success)
     if success and confidence > 0:
-        classifier_confidence.labels(classified_type=classified_type).observe(confidence)
+        classifier_confidence.labels(classified_type=classified_type).observe(
+            confidence
+        )
 
     logger.debug(
         "classification_recorded",
@@ -172,7 +170,7 @@ def record_classification(
             "success": success,
             "latency_seconds": latency_seconds,
             "confidence": confidence,
-        }
+        },
     )
 
 
@@ -188,9 +186,7 @@ def record_fallback(from_provider: str, to_provider: str, reason: str):
         >>> record_fallback("ollama", "openrouter", "timeout")
     """
     classifier_fallbacks_total.labels(
-        from_provider=from_provider,
-        to_provider=to_provider,
-        reason=reason
+        from_provider=from_provider, to_provider=to_provider, reason=reason
     ).inc()
 
     logger.info(
@@ -199,7 +195,7 @@ def record_fallback(from_provider: str, to_provider: str, reason: str):
             "from": from_provider,
             "to": to_provider,
             "reason": reason,
-        }
+        },
     )
 
 

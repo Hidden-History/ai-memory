@@ -303,7 +303,7 @@ class TestTimedOperation:
 
         # Very short operation - perf_counter should capture sub-millisecond
         with timed_operation("fast_op", logger):
-            x = 1 + 1  # Fast operation
+            pass  # Fast operation
 
         output = stream.getvalue()
         log_data = json.loads(output.strip())

@@ -11,10 +11,11 @@ does not violate NFR-P1 performance requirements:
 Task 7: Add performance benchmarks for monitoring overhead
 """
 
-import pytest
-import time
 import logging
+import time
 from io import StringIO
+
+import pytest
 
 
 @pytest.mark.integration
@@ -29,9 +30,9 @@ class TestMonitoringPerformance:
         histograms completes within 1ms to avoid impacting hot paths.
         """
         from src.memory.metrics import (
-            memory_captures_total,
             collection_size,
             hook_duration_seconds,
+            memory_captures_total,
         )
 
         iterations = 100
@@ -123,7 +124,7 @@ class TestMonitoringPerformance:
 
         for _ in range(iterations):
             # Simulate stats checking
-            warnings = check_collection_thresholds(stats)
+            check_collection_thresholds(stats)
 
         elapsed_ms = (time.perf_counter() - start) * 1000
         avg_per_operation = elapsed_ms / iterations
@@ -145,12 +146,12 @@ class TestMonitoringPerformance:
         - Stats: <10ms
         - Total monitoring: <20ms (~4% of 500ms budget)
         """
+        from src.memory.logging_config import StructuredFormatter
         from src.memory.metrics import (
-            memory_captures_total,
             collection_size,
             hook_duration_seconds,
+            memory_captures_total,
         )
-        from src.memory.logging_config import StructuredFormatter
 
         # Setup logging
         logger = logging.getLogger("bmad.memory.nfr_test")
@@ -200,7 +201,7 @@ class TestMonitoringPerformance:
                 projects=["test"],
                 points_by_project={"test": i * 100},
             )
-            warnings = check_collection_thresholds(stats)
+            check_collection_thresholds(stats)
 
             elapsed_ms = (time.perf_counter() - start) * 1000
             overhead_samples.append(elapsed_ms)
@@ -230,9 +231,10 @@ async def test_metrics_endpoint_response_time_stress():
     Verifies that /metrics endpoint maintains <100ms response time
     even under concurrent request load (NFR-I4 compliance).
     """
-    import httpx
-    import os
     import asyncio
+    import os
+
+    import httpx
 
     metrics_port = os.environ.get("METRICS_PORT", "28080")
     metrics_url = f"http://localhost:{metrics_port}/metrics"

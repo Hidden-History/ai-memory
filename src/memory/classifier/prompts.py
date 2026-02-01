@@ -5,8 +5,6 @@ Provides structured prompts for LLM-based memory classification.
 TECH-DEBT-069: LLM-based memory classification system.
 """
 
-from typing import Optional
-
 __all__ = ["CLASSIFICATION_PROMPT", "build_classification_prompt"]
 
 CLASSIFICATION_PROMPT = """You are a memory classifier for a software development AI assistant.
@@ -69,7 +67,7 @@ def build_classification_prompt(
     content: str,
     collection: str,
     current_type: str,
-    file_path: Optional[str] = None,
+    file_path: str | None = None,
 ) -> str:
     """Build classification prompt with content.
 

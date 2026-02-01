@@ -13,6 +13,7 @@ AC: 7.8.2 (Platform-Specific Tests)
 import os
 import platform
 import subprocess
+
 import pytest
 
 
@@ -28,7 +29,7 @@ def get_platform():
     if system == "Linux":
         # Check for WSL2
         try:
-            with open("/proc/version", "r") as f:
+            with open("/proc/version") as f:
                 version_info = f.read().lower()
                 if "microsoft" in version_info or "wsl" in version_info:
                     return "wsl"
@@ -53,8 +54,9 @@ def test_platform_detection():
     detected_platform = get_platform()
     valid_platforms = ["linux", "macos", "wsl", "unknown"]
 
-    assert detected_platform in valid_platforms, \
-        f"Invalid platform detected: {detected_platform}"
+    assert (
+        detected_platform in valid_platforms
+    ), f"Invalid platform detected: {detected_platform}"
 
 
 @pytest.mark.skipif(get_platform() != "linux", reason="Linux only")
@@ -68,24 +70,20 @@ def test_linux_docker_socket():
     """
     socket_path = "/var/run/docker.sock"
 
-    assert os.path.exists(socket_path), \
-        f"Docker socket not found at {socket_path}"
+    assert os.path.exists(socket_path), f"Docker socket not found at {socket_path}"
 
     # Check if socket is actually a socket
     import stat
+
     mode = os.stat(socket_path).st_mode
-    assert stat.S_ISSOCK(mode), \
-        f"{socket_path} exists but is not a socket"
+    assert stat.S_ISSOCK(mode), f"{socket_path} exists but is not a socket"
 
     # Verify Docker daemon is reachable
-    result = subprocess.run(
-        ["docker", "info"],
-        capture_output=True,
-        timeout=10
-    )
+    result = subprocess.run(["docker", "info"], capture_output=True, timeout=10)
 
-    assert result.returncode == 0, \
-        f"Docker daemon not accessible: {result.stderr.decode()}"
+    assert (
+        result.returncode == 0
+    ), f"Docker daemon not accessible: {result.stderr.decode()}"
 
 
 @pytest.mark.skipif(get_platform() != "macos", reason="macOS only")
@@ -99,24 +97,21 @@ def test_macos_docker_desktop():
     """
     # Check if Docker Desktop is installed
     docker_app = "/Applications/Docker.app"
-    assert os.path.exists(docker_app), \
-        f"Docker Desktop not found at {docker_app}"
+    assert os.path.exists(docker_app), f"Docker Desktop not found at {docker_app}"
 
     # Verify Docker daemon is running
-    result = subprocess.run(
-        ["docker", "info"],
-        capture_output=True,
-        timeout=10
-    )
+    result = subprocess.run(["docker", "info"], capture_output=True, timeout=10)
 
-    assert result.returncode == 0, \
-        "Docker Desktop daemon not running. Start Docker Desktop."
+    assert (
+        result.returncode == 0
+    ), "Docker Desktop daemon not running. Start Docker Desktop."
 
     # Check for Docker.sock (macOS uses different path)
-    mac_socket = os.path.expanduser("~/Library/Containers/com.docker.docker/Data/docker.sock")
+    mac_socket = os.path.expanduser(
+        "~/Library/Containers/com.docker.docker/Data/docker.sock"
+    )
     if os.path.exists(mac_socket):
-        assert os.path.exists(mac_socket), \
-            "Docker Desktop socket not accessible"
+        assert os.path.exists(mac_socket), "Docker Desktop socket not accessible"
 
 
 @pytest.mark.skipif(get_platform() != "wsl", reason="WSL only")
@@ -129,26 +124,23 @@ def test_wsl_docker_integration():
     THEN Docker Desktop is accessible from WSL2
     """
     # Verify we're in WSL
-    with open("/proc/version", "r") as f:
+    with open("/proc/version") as f:
         version_info = f.read().lower()
-        assert "microsoft" in version_info or "wsl" in version_info, \
-            "Not running in WSL environment"
+        assert (
+            "microsoft" in version_info or "wsl" in version_info
+        ), "Not running in WSL environment"
 
     # Check Docker daemon is accessible
-    result = subprocess.run(
-        ["docker", "info"],
-        capture_output=True,
-        timeout=10
-    )
+    result = subprocess.run(["docker", "info"], capture_output=True, timeout=10)
 
-    assert result.returncode == 0, \
-        "Docker Desktop not accessible from WSL2. Enable WSL integration in Docker Desktop settings."
+    assert (
+        result.returncode == 0
+    ), "Docker Desktop not accessible from WSL2. Enable WSL integration in Docker Desktop settings."
 
     # Verify Docker socket exists (WSL2 typically uses /var/run/docker.sock)
     wsl_socket = "/var/run/docker.sock"
     if os.path.exists(wsl_socket):
-        assert os.path.exists(wsl_socket), \
-            "Docker socket not found in WSL2"
+        assert os.path.exists(wsl_socket), "Docker socket not found in WSL2"
 
 
 def test_docker_version_compatibility():
@@ -163,7 +155,7 @@ def test_docker_version_compatibility():
         ["docker", "version", "--format", "{{.Server.Version}}"],
         capture_output=True,
         text=True,
-        timeout=10
+        timeout=10,
     )
 
     if result.returncode != 0:
@@ -173,9 +165,10 @@ def test_docker_version_compatibility():
 
     # Parse version (e.g., "24.0.7" -> 24)
     try:
-        major_version = int(version_str.split('.')[0])
-        assert major_version >= 20, \
-            f"Docker version {version_str} is too old. Requires 20.10+"
+        major_version = int(version_str.split(".")[0])
+        assert (
+            major_version >= 20
+        ), f"Docker version {version_str} is too old. Requires 20.10+"
     except (ValueError, IndexError):
         pytest.skip(f"Could not parse Docker version: {version_str}")
 
@@ -189,17 +182,16 @@ def test_docker_compose_v2_available():
     THEN 'docker compose' command is available (not 'docker-compose')
     """
     result = subprocess.run(
-        ["docker", "compose", "version"],
-        capture_output=True,
-        text=True,
-        timeout=10
+        ["docker", "compose", "version"], capture_output=True, text=True, timeout=10
     )
 
-    assert result.returncode == 0, \
-        "Docker Compose V2 not available. Install docker-compose-plugin."
+    assert (
+        result.returncode == 0
+    ), "Docker Compose V2 not available. Install docker-compose-plugin."
 
-    assert "Docker Compose version" in result.stdout, \
-        f"Unexpected compose version output: {result.stdout}"
+    assert (
+        "Docker Compose version" in result.stdout
+    ), f"Unexpected compose version output: {result.stdout}"
 
 
 def test_architecture_detection():
@@ -217,9 +209,8 @@ def test_architecture_detection():
     if arch == "amd64":
         arch = "x86_64"
 
-    assert arch in valid_archs, \
-        f"Unsupported architecture: {arch}"
+    assert arch in valid_archs, f"Unsupported architecture: {arch}"
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

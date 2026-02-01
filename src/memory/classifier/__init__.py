@@ -14,24 +14,24 @@ Public API:
 """
 
 from .config import CLASSIFIER_ENABLED, CONFIDENCE_THRESHOLD
-from .significance import Significance, check_significance
-from .rules import classify_by_rules
-from .llm_classifier import classify, ClassificationResult
+from .llm_classifier import ClassificationResult, classify
 from .metrics import (
     record_classification,
     record_fallback,
     record_rule_match,
     record_significance_skip,
 )
+from .rules import classify_by_rules
+from .significance import Significance, check_significance
 
 __all__ = [
-    "classify",
+    "CLASSIFIER_ENABLED",
+    "CONFIDENCE_THRESHOLD",
     "ClassificationResult",
     "Significance",
     "check_significance",
+    "classify",
     "classify_by_rules",
-    "CLASSIFIER_ENABLED",
-    "CONFIDENCE_THRESHOLD",
     # Metrics
     "record_classification",
     "record_fallback",

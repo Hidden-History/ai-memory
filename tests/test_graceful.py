@@ -4,17 +4,17 @@ Test suite for src/memory/graceful.py - Exit codes, decorator, helper functions.
 Follows 2025 best practices for decorator testing and exception handling.
 """
 
-import pytest
-import sys
 import logging
-from unittest.mock import Mock, patch
+
+import pytest
+
 from src.memory.graceful import (
-    graceful_hook,
-    exit_success,
-    exit_graceful,
-    EXIT_SUCCESS,
+    EXIT_BLOCKING,
     EXIT_NON_BLOCKING,
-    EXIT_BLOCKING
+    EXIT_SUCCESS,
+    exit_graceful,
+    exit_success,
+    graceful_hook,
 )
 
 
@@ -39,6 +39,7 @@ class TestGracefulHookDecorator:
 
     def test_successful_function(self):
         """Decorator should pass through successful function calls."""
+
         @graceful_hook
         def successful_func():
             return "success"
@@ -48,6 +49,7 @@ class TestGracefulHookDecorator:
 
     def test_successful_function_with_args(self):
         """Decorator should pass through args and kwargs."""
+
         @graceful_hook
         def func_with_args(a, b, keyword=None):
             return f"{a}-{b}-{keyword}"
@@ -57,6 +59,7 @@ class TestGracefulHookDecorator:
 
     def test_preserves_function_metadata(self):
         """Decorator should preserve __name__ and __doc__ using functools.wraps."""
+
         @graceful_hook
         def documented_func():
             """This is a docstring."""
@@ -67,6 +70,7 @@ class TestGracefulHookDecorator:
 
     def test_catches_value_error(self):
         """Decorator should catch ValueError and exit with code 1."""
+
         @graceful_hook
         def failing_func():
             raise ValueError("Test error")
@@ -78,6 +82,7 @@ class TestGracefulHookDecorator:
 
     def test_catches_runtime_error(self):
         """Decorator should catch RuntimeError and exit with code 1."""
+
         @graceful_hook
         def failing_func():
             raise RuntimeError("Runtime failure")
@@ -89,6 +94,7 @@ class TestGracefulHookDecorator:
 
     def test_catches_generic_exception(self):
         """Decorator should catch any Exception and exit with code 1."""
+
         @graceful_hook
         def failing_func():
             raise Exception("Generic failure")
@@ -191,10 +197,10 @@ class TestRealWorldScenarios:
 
     def test_hook_with_network_timeout(self):
         """Simulate network timeout in hook."""
+
         @graceful_hook
         def network_hook():
-            import socket
-            raise socket.timeout("Connection timed out")
+            raise TimeoutError("Connection timed out")
 
         with pytest.raises(SystemExit) as exc_info:
             network_hook()
@@ -203,6 +209,7 @@ class TestRealWorldScenarios:
 
     def test_hook_with_file_not_found(self):
         """Simulate file operation failure in hook."""
+
         @graceful_hook
         def file_hook():
             raise FileNotFoundError("Config file missing")
@@ -214,6 +221,7 @@ class TestRealWorldScenarios:
 
     def test_hook_with_nested_function_calls(self):
         """Decorator should catch exceptions from nested calls."""
+
         def inner_func():
             raise ValueError("Inner failure")
 

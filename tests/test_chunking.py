@@ -5,16 +5,18 @@ TECH-DEBT-052: AST-based code chunking with Tree-sitter.
 """
 
 import pytest
+
 from src.memory.chunking import (
-    IntelligentChunker,
-    ChunkResult,
     ChunkMetadata,
+    ChunkResult,
     ContentType,
+    IntelligentChunker,
 )
 
 # Try to import AND instantiate ASTChunker (tree-sitter must be installed)
 try:
     from src.memory.chunking import ASTChunker
+
     # Actually test if we can create an instance - this is where tree-sitter is required
     _test_chunker = ASTChunker()
     del _test_chunker
@@ -39,7 +41,9 @@ class TestContentTypeDetection:
 
     def test_detect_typescript_file(self):
         chunker = IntelligentChunker()
-        content_type = chunker.detect_content_type("main.ts", "const x: string = 'test'")
+        content_type = chunker.detect_content_type(
+            "main.ts", "const x: string = 'test'"
+        )
         assert content_type == ContentType.CODE
 
     def test_detect_markdown_file(self):
@@ -214,7 +218,9 @@ class TestEdgeCases:
         assert chunker.detect_content_type("README", "content") == ContentType.UNKNOWN
         # Known config files without extension
         assert chunker.detect_content_type("Makefile", "content") == ContentType.CONFIG
-        assert chunker.detect_content_type("Dockerfile", "content") == ContentType.CONFIG
+        assert (
+            chunker.detect_content_type("Dockerfile", "content") == ContentType.CONFIG
+        )
 
     def test_detect_content_type_dot_in_directory(self):
         """Dot in directory path doesn't confuse extension detection."""
@@ -234,12 +240,12 @@ class TestASTChunker:
     def test_python_function_chunking(self):
         """Chunk Python file at function boundaries."""
         chunker = ASTChunker()
-        code = '''def foo():
+        code = """def foo():
     return "hello"
 
 def bar():
     return "world"
-'''
+"""
         chunks = chunker.chunk(code, "test.py")
 
         assert len(chunks) == 2
@@ -252,14 +258,14 @@ def bar():
     def test_python_class_chunking(self):
         """Chunk Python file at class boundaries."""
         chunker = ASTChunker()
-        code = '''class Foo:
+        code = """class Foo:
     def method(self):
         pass
 
 class Bar:
     def method(self):
         pass
-'''
+"""
         chunks = chunker.chunk(code, "test.py")
 
         assert len(chunks) == 2
@@ -273,7 +279,7 @@ class Bar:
         in every chunk for context, not just the first one.
         """
         chunker = ASTChunker()
-        code = '''import os
+        code = """import os
 import sys
 from pathlib import Path
 
@@ -282,7 +288,7 @@ def foo():
 
 def bar():
     return "world"
-'''
+"""
         chunks = chunker.chunk(code, "test.py")
 
         # ALL chunks should include imports for context
@@ -310,9 +316,9 @@ def bar():
     def test_small_file_single_function(self):
         """Small file with single function returns single chunk."""
         chunker = ASTChunker()
-        code = '''def foo():
+        code = """def foo():
     return "hello"
-'''
+"""
         chunks = chunker.chunk(code, "test.py")
 
         assert len(chunks) == 1
@@ -331,12 +337,12 @@ def bar():
     def test_chunk_metadata_populated(self):
         """Chunk metadata should be complete."""
         chunker = ASTChunker()
-        code = '''def foo():
+        code = """def foo():
     return "hello"
 
 def bar():
     return "world"
-'''
+"""
         chunks = chunker.chunk(code, "test.py")
 
         # Check first chunk metadata
@@ -355,14 +361,14 @@ def bar():
     def test_javascript_function_chunking(self):
         """Chunk JavaScript file at function boundaries."""
         chunker = ASTChunker()
-        code = '''function foo() {
+        code = """function foo() {
     return "hello";
 }
 
 function bar() {
     return "world";
 }
-'''
+"""
         chunks = chunker.chunk(code, "test.js")
 
         assert len(chunks) == 2
@@ -372,14 +378,14 @@ function bar() {
     def test_typescript_class_chunking(self):
         """Chunk TypeScript file at class boundaries."""
         chunker = ASTChunker()
-        code = '''class Foo {
+        code = """class Foo {
     method(): void {}
 }
 
 class Bar {
     method(): void {}
 }
-'''
+"""
         chunks = chunker.chunk(code, "test.ts")
 
         assert len(chunks) == 2
@@ -398,9 +404,9 @@ class Bar {
     def test_file_with_only_imports(self):
         """File with only imports returns whole-content (no chunk nodes)."""
         chunker = ASTChunker()
-        code = '''import os
+        code = """import os
 import sys
-'''
+"""
         chunks = chunker.chunk(code, "test.py")
 
         # No functions/classes, so fallback to whole-content
@@ -410,7 +416,7 @@ import sys
     def test_mixed_functions_and_classes(self):
         """File with both functions and classes chunks both."""
         chunker = ASTChunker()
-        code = '''def standalone_function():
+        code = """def standalone_function():
     pass
 
 class MyClass:
@@ -419,7 +425,7 @@ class MyClass:
 
 def another_function():
     pass
-'''
+"""
         chunks = chunker.chunk(code, "test.py")
 
         # Should have 3 chunks: function, class, function
@@ -431,13 +437,13 @@ def another_function():
     def test_line_numbers_accurate(self):
         """Line numbers should match source code."""
         chunker = ASTChunker()
-        code = '''# Line 1
+        code = """# Line 1
 def foo():  # Line 2
     return "hello"  # Line 3
 
 def bar():  # Line 5
     return "world"  # Line 6
-'''
+"""
         chunks = chunker.chunk(code, "test.py")
 
         # First function (foo) should be lines 2-3
@@ -459,12 +465,12 @@ class TestIntelligentChunkerIntegration:
     def test_routes_python_to_ast_chunker(self):
         """Python files should be routed to AST chunker."""
         chunker = IntelligentChunker()
-        code = '''def foo():
+        code = """def foo():
     return "hello"
 
 def bar():
     return "world"
-'''
+"""
         chunks = chunker.chunk(code, "test.py")
 
         # Should use AST chunking, not whole-content
@@ -587,17 +593,19 @@ def func_b():
         for idx, chunk in enumerate(chunks):
             assert "import os" in chunk.content, f"Chunk {idx} missing 'import os'"
             assert "import sys" in chunk.content, f"Chunk {idx} missing 'import sys'"
-            assert "from typing import List" in chunk.content, f"Chunk {idx} missing typing import"
+            assert (
+                "from typing import List" in chunk.content
+            ), f"Chunk {idx} missing typing import"
 
     def test_overlap_with_short_function(self):
         """Overlap should handle short functions gracefully."""
         chunker = ASTChunker()
-        code = '''def short():
+        code = """def short():
     return 1
 
 def another_short():
     return 2
-'''
+"""
         chunks = chunker.chunk(code, "test.py")
 
         # Should chunk successfully even with short functions
@@ -715,7 +723,9 @@ class TestLargeNodeSplitting:
         if len(chunks) > 1:
             # Each chunk after the first should have overlap_tokens > 0
             for i in range(1, len(chunks)):
-                assert chunks[i].metadata.overlap_tokens > 0, f"Chunk {i} missing overlap"
+                assert (
+                    chunks[i].metadata.overlap_tokens > 0
+                ), f"Chunk {i} missing overlap"
 
     def test_small_function_not_split(self):
         """Verify small functions are NOT split unnecessarily."""

@@ -7,14 +7,13 @@ Architecture Reference: architecture.md:747-863 (Search Module)
 """
 
 import logging
+from unittest.mock import Mock
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
-from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-from src.memory.search import MemorySearch
 from src.memory.embeddings import EmbeddingError
 from src.memory.qdrant_client import QdrantUnavailable
+from src.memory.search import MemorySearch
 
 
 @pytest.fixture
@@ -54,9 +53,7 @@ def mock_qdrant_client(monkeypatch):
     mock_response.points = [mock_result]
 
     mock_client.query_points = Mock(return_value=mock_response)
-    monkeypatch.setattr(
-        "src.memory.search.get_qdrant_client", lambda x: mock_client
-    )
+    monkeypatch.setattr("src.memory.search.get_qdrant_client", lambda x: mock_client)
     return mock_client
 
 
@@ -123,7 +120,9 @@ class TestMemorySearchBasic:
         # Verify defaults from config were used
         call_args = mock_qdrant_client.query_points.call_args
         assert call_args.kwargs["limit"] == 5  # mock_config.max_retrievals
-        assert call_args.kwargs["score_threshold"] == 0.7  # mock_config.similarity_threshold
+        assert (
+            call_args.kwargs["score_threshold"] == 0.7
+        )  # mock_config.similarity_threshold
 
     def test_search_overrides_limit_and_threshold(
         self, mock_config, mock_qdrant_client, mock_embedding_client
@@ -179,9 +178,7 @@ class TestMemorySearchFiltering:
         """Test search combines group_id and memory_type filters."""
         search = MemorySearch()
 
-        search.search(
-            query="test", group_id="project-123", memory_type="pattern"
-        )
+        search.search(query="test", group_id="project-123", memory_type="pattern")
 
         call_args = mock_qdrant_client.query_points.call_args
         query_filter = call_args.kwargs["query_filter"]
@@ -241,9 +238,7 @@ class TestMemorySearchDualCollection:
 
         mock_qdrant_client.query_points = Mock(side_effect=track_query_points)
 
-        search.search_both_collections(
-            query="test", group_id="test-project", limit=3
-        )
+        search.search_both_collections(query="test", group_id="test-project", limit=3)
 
         # First call should be implementations with group_id
         impl_call = search_calls[0]
@@ -268,7 +263,11 @@ class TestMemorySearchTieredFormatting:
         results = [
             {"score": 0.95, "type": "implementation", "content": "High relevance"},
             {"score": 0.85, "type": "pattern", "content": "Medium relevance"},
-            {"score": 0.45, "type": "decision", "content": "Below threshold"},  # DEC-009: Below 50% excluded
+            {
+                "score": 0.45,
+                "type": "decision",
+                "content": "Below threshold",
+            },  # DEC-009: Below 50% excluded
         ]
 
         formatted = search.format_tiered_results(results)
@@ -546,8 +545,8 @@ class TestSearchMemories:
         self, mock_config, mock_qdrant_client, mock_embedding_client
     ):
         """search_memories() works with explicit collection (backward compatible)."""
-        from src.memory.search import search_memories
         from src.memory.config import COLLECTION_CODE_PATTERNS
+        from src.memory.search import search_memories
 
         results = search_memories(
             "test query",

@@ -10,7 +10,6 @@ Best Practices: https://medium.com/@sparknp1/8-httpx-asyncio-patterns-for-safer-
 import logging
 import os
 import time
-from typing import Optional
 
 import httpx
 
@@ -20,8 +19,8 @@ from .metrics_push import push_embedding_metrics_async, push_failure_metrics_asy
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
 try:
     from .metrics import (
-        embedding_requests_total,
         embedding_duration_seconds,
+        embedding_requests_total,
         failure_events_total,
     )
 except ImportError:
@@ -61,7 +60,7 @@ class EmbeddingClient:
         768  # DEC-010: Jina Embeddings v2 Base Code dimensions
     """
 
-    def __init__(self, config: Optional[MemoryConfig] = None):
+    def __init__(self, config: MemoryConfig | None = None):
         """Initialize embedding client with configuration.
 
         Args:
@@ -83,18 +82,18 @@ class EmbeddingClient:
         # GPU mode: <2s (NFR-P2 compliant)
         read_timeout = float(os.getenv("EMBEDDING_READ_TIMEOUT", "15.0"))
         timeout_config = httpx.Timeout(
-            connect=3.0,   # Connection establishment timeout
+            connect=3.0,  # Connection establishment timeout
             read=read_timeout,  # Read timeout - configurable for CPU vs GPU mode
-            write=5.0,     # Write timeout for request body
-            pool=3.0,      # Pool acquisition timeout
+            write=5.0,  # Write timeout for request body
+            pool=3.0,  # Pool acquisition timeout
         )
 
         # Connection pooling with 2025 recommended defaults
         # Source: https://www.python-httpx.org/advanced/resource-limits/
         limits = httpx.Limits(
             max_keepalive_connections=20,  # Keep-alive pool size
-            max_connections=100,           # Total connection limit
-            keepalive_expiry=10.0,         # Idle timeout - reduced from 30s to avoid stale connections
+            max_connections=100,  # Total connection limit
+            keepalive_expiry=10.0,  # Idle timeout - reduced from 30s to avoid stale connections
         )
 
         self.client = httpx.Client(timeout=timeout_config, limits=limits)
@@ -137,15 +136,19 @@ class EmbeddingClient:
             # TECH-DEBT-067: Add embedding_type label (always "dense" for now)
             duration_seconds = time.perf_counter() - start_time
             if embedding_requests_total:
-                embedding_requests_total.labels(status="success", embedding_type="dense").inc()
+                embedding_requests_total.labels(
+                    status="success", embedding_type="dense"
+                ).inc()
             if embedding_duration_seconds:
-                embedding_duration_seconds.labels(embedding_type="dense").observe(duration_seconds)
+                embedding_duration_seconds.labels(embedding_type="dense").observe(
+                    duration_seconds
+                )
 
             # Push to Pushgateway for hook subprocess visibility
             push_embedding_metrics_async(
                 status="success",
                 embedding_type="dense",
-                duration_seconds=duration_seconds
+                duration_seconds=duration_seconds,
             )
 
             return embeddings
@@ -164,9 +167,13 @@ class EmbeddingClient:
             # TECH-DEBT-067: Add embedding_type label (always "dense" for now)
             duration_seconds = time.perf_counter() - start_time
             if embedding_requests_total:
-                embedding_requests_total.labels(status="timeout", embedding_type="dense").inc()
+                embedding_requests_total.labels(
+                    status="timeout", embedding_type="dense"
+                ).inc()
             if embedding_duration_seconds:
-                embedding_duration_seconds.labels(embedding_type="dense").observe(duration_seconds)
+                embedding_duration_seconds.labels(embedding_type="dense").observe(
+                    duration_seconds
+                )
 
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
@@ -178,11 +185,10 @@ class EmbeddingClient:
             push_embedding_metrics_async(
                 status="timeout",
                 embedding_type="dense",
-                duration_seconds=duration_seconds
+                duration_seconds=duration_seconds,
             )
             push_failure_metrics_async(
-                component="embedding",
-                error_code="EMBEDDING_TIMEOUT"
+                component="embedding", error_code="EMBEDDING_TIMEOUT"
             )
 
             raise EmbeddingError("EMBEDDING_TIMEOUT") from e
@@ -201,9 +207,13 @@ class EmbeddingClient:
             # TECH-DEBT-067: Add embedding_type label (always "dense" for now)
             duration_seconds = time.perf_counter() - start_time
             if embedding_requests_total:
-                embedding_requests_total.labels(status="failed", embedding_type="dense").inc()
+                embedding_requests_total.labels(
+                    status="failed", embedding_type="dense"
+                ).inc()
             if embedding_duration_seconds:
-                embedding_duration_seconds.labels(embedding_type="dense").observe(duration_seconds)
+                embedding_duration_seconds.labels(embedding_type="dense").observe(
+                    duration_seconds
+                )
 
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
@@ -215,11 +225,10 @@ class EmbeddingClient:
             push_embedding_metrics_async(
                 status="failed",
                 embedding_type="dense",
-                duration_seconds=duration_seconds
+                duration_seconds=duration_seconds,
             )
             push_failure_metrics_async(
-                component="embedding",
-                error_code="EMBEDDING_ERROR"
+                component="embedding", error_code="EMBEDDING_ERROR"
             )
 
             raise EmbeddingError(f"EMBEDDING_ERROR: {e}") from e

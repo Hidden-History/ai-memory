@@ -28,9 +28,9 @@ References:
 
 import logging
 import socket
-from typing import Dict
-from .qdrant_client import get_qdrant_client, check_qdrant_health
+
 from .embeddings import EmbeddingClient
+from .qdrant_client import check_qdrant_health, get_qdrant_client
 
 # Health check timeout per NFR-P1 (2s max for all checks)
 HEALTH_CHECK_TIMEOUT = 2.0
@@ -39,7 +39,7 @@ HEALTH_CHECK_TIMEOUT = 2.0
 logger = logging.getLogger("ai_memory.health")
 
 
-def check_services() -> Dict[str, bool]:
+def check_services() -> dict[str, bool]:
     """Check all service availability quickly.
 
     Performs fast health checks on Qdrant and embedding service.
@@ -87,10 +87,10 @@ def check_services() -> Dict[str, bool]:
             qdrant_ok = check_qdrant_health(client)
         except Exception as e:
             # Never raise from health check - return False status
-            logger.warning("qdrant_health_check_failed", extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            })
+            logger.warning(
+                "qdrant_health_check_failed",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
             qdrant_ok = False
 
         # Check Embedding service health
@@ -99,30 +99,33 @@ def check_services() -> Dict[str, bool]:
             embedding_ok = ec.health_check()
         except Exception as e:
             # Never raise from health check - return False status
-            logger.warning("embedding_health_check_failed", extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            })
+            logger.warning(
+                "embedding_health_check_failed",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
             embedding_ok = False
     finally:
         # Restore original socket timeout
         socket.setdefaulttimeout(old_timeout)
 
     # Log overall health status
-    logger.info("service_health", extra={
-        "qdrant": qdrant_ok,
-        "embedding": embedding_ok,
-        "all_healthy": qdrant_ok and embedding_ok
-    })
+    logger.info(
+        "service_health",
+        extra={
+            "qdrant": qdrant_ok,
+            "embedding": embedding_ok,
+            "all_healthy": qdrant_ok and embedding_ok,
+        },
+    )
 
     return {
         "qdrant": qdrant_ok,
         "embedding": embedding_ok,
-        "all_healthy": qdrant_ok and embedding_ok
+        "all_healthy": qdrant_ok and embedding_ok,
     }
 
 
-def get_fallback_mode(health: Dict[str, bool]) -> str:
+def get_fallback_mode(health: dict[str, bool]) -> str:
     """Determine fallback mode based on service health status.
 
     Implements graceful degradation decision logic based on which
@@ -181,7 +184,7 @@ def get_fallback_mode(health: Dict[str, bool]) -> str:
 
 # Export public API
 __all__ = [
+    "HEALTH_CHECK_TIMEOUT",
     "check_services",
     "get_fallback_mode",
-    "HEALTH_CHECK_TIMEOUT",
 ]

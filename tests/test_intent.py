@@ -3,18 +3,16 @@
 Tests intent detection, collection mapping, and type filtering for V2.0 cascading search.
 """
 
-import pytest
-
+from src.memory.config import (
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+    COLLECTION_DISCUSSIONS,
+)
 from src.memory.intent import (
     IntentType,
     detect_intent,
     get_target_collection,
     get_target_types,
-)
-from src.memory.config import (
-    COLLECTION_CODE_PATTERNS,
-    COLLECTION_CONVENTIONS,
-    COLLECTION_DISCUSSIONS,
 )
 
 

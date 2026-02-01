@@ -8,19 +8,18 @@ Tests verify:
 5. Edge cases (None, negative, zero, very large token counts)
 """
 
-import sys
 import os
-import pytest
-from unittest.mock import patch, MagicMock
+import sys
+from unittest.mock import patch
 
 # Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from memory.metrics_push import (
-    push_token_metrics_async,
-    _validate_label,
-    VALID_OPERATIONS,
     VALID_DIRECTIONS,
+    VALID_OPERATIONS,
+    _validate_label,
+    push_token_metrics_async,
 )
 
 
@@ -38,7 +37,7 @@ class TestClassificationTokenPush:
                 operation="classification",
                 direction="input",
                 project="classifier",
-                token_count=450
+                token_count=450,
             )
             mock_popen.assert_called_once()
 
@@ -57,7 +56,7 @@ class TestClassificationTokenPush:
                 operation="classification",
                 direction="output",
                 project="classifier",
-                token_count=75
+                token_count=75,
             )
             mock_popen.assert_called_once()
 
@@ -69,7 +68,7 @@ class TestClassificationTokenPush:
                 operation="classification",
                 direction="input",
                 project="classifier",
-                token_count=100
+                token_count=100,
             )
             assert "metrics_fork_failed" in caplog.text
 
@@ -88,7 +87,7 @@ class TestCaptureTokenPush:
                 operation="capture",
                 direction="stored",
                 project="test-project",
-                token_count=1234
+                token_count=1234,
             )
             mock_popen.assert_called_once()
 
@@ -100,7 +99,7 @@ class TestCaptureTokenPush:
                 operation="capture",
                 direction="stored",
                 project="test-project",
-                token_count=500
+                token_count=500,
             )
             assert "metrics_fork_failed" in caplog.text
 
@@ -120,7 +119,9 @@ class TestTokenEstimation:
 
         for content, expected_tokens in test_cases:
             estimated = len(content) // 4
-            assert estimated == expected_tokens, f"Failed for content length {len(content)}"
+            assert (
+                estimated == expected_tokens
+            ), f"Failed for content length {len(content)}"
 
     def test_token_estimation_realistic_code(self):
         """Test token estimation on realistic code samples."""
@@ -200,7 +201,7 @@ class TestIntegrationScenarios:
                 operation="classification",
                 direction="input",
                 project="classifier",
-                token_count=input_tokens
+                token_count=input_tokens,
             )
 
             # Push output tokens
@@ -208,7 +209,7 @@ class TestIntegrationScenarios:
                 operation="classification",
                 direction="output",
                 project="classifier",
-                token_count=output_tokens
+                token_count=output_tokens,
             )
 
             # Should have been called twice (once for input, once for output)
@@ -225,14 +226,14 @@ class TestIntegrationScenarios:
                 operation="capture",
                 direction="stored",
                 project="test-project",
-                token_count=token_count
+                token_count=token_count,
             )
 
             mock_popen.assert_called_once()
 
     def test_zero_tokens_not_pushed(self):
         """Verify zero token counts are handled gracefully."""
-        with patch("subprocess.Popen") as mock_popen:
+        with patch("subprocess.Popen"):
             # Implementation should skip pushing 0 tokens
             # (this would be checked in the actual hook scripts)
             token_count = len("") // 4
@@ -244,7 +245,7 @@ class TestIntegrationScenarios:
                     operation="capture",
                     direction="stored",
                     project="test-project",
-                    token_count=token_count
+                    token_count=token_count,
                 )
 
 
@@ -259,7 +260,7 @@ class TestPerformanceRequirements:
                 operation="classification",
                 direction="input",
                 project="classifier",
-                token_count=100
+                token_count=100,
             )
 
             # Verify start_new_session=True for detached process
@@ -274,7 +275,7 @@ class TestPerformanceRequirements:
                 operation="classification",
                 direction="input",
                 project="classifier",
-                token_count=100
+                token_count=100,
             )
             # Error should be logged
             assert "metrics_fork_failed" in caplog.text
@@ -302,7 +303,7 @@ class TestTokenMetricsEdgeCases:
                     operation="capture",
                     direction="stored",
                     project="test",
-                    token_count=token_count
+                    token_count=token_count,
                 )
             # Should NOT have been called
             mock_popen.assert_not_called()
@@ -317,7 +318,7 @@ class TestTokenMetricsEdgeCases:
                     operation="capture",
                     direction="stored",
                     project="test",
-                    token_count=token_count
+                    token_count=token_count,
                 )
             # Should NOT have been called
             mock_popen.assert_not_called()
@@ -330,6 +331,6 @@ class TestTokenMetricsEdgeCases:
                 operation="capture",
                 direction="stored",
                 project="test",
-                token_count=1_000_000_000  # 1 billion tokens
+                token_count=1_000_000_000,  # 1 billion tokens
             )
             mock_popen.assert_called_once()

@@ -14,22 +14,22 @@ References:
     - pytest-mock patterns: https://www.datacamp.com/tutorial/pytest-mock
 """
 
+import contextlib
 import os
 import socket
 import sys
 import time
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 from unittest.mock import Mock
 
-import httpx
 import httpcore
+import httpx
 import pytest
 from qdrant_client import QdrantClient
-from qdrant_client.http.exceptions import UnexpectedResponse, ResponseHandlingException
-from qdrant_client.models import Filter, FieldCondition, MatchValue
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
-from src.memory.models import MemoryPayload, MemoryType, EmbeddingStatus
+from src.memory.models import EmbeddingStatus, MemoryType
 
 # Add tests directory to sys.path so test_session_start.py can import
 # session_start_test_helpers from tests directory
@@ -49,13 +49,13 @@ def pytest_addoption(parser):
         "--run-integration",
         action="store_true",
         default=False,
-        help="Run integration tests requiring external services (Qdrant)"
+        help="Run integration tests requiring external services (Qdrant)",
     )
     parser.addoption(
         "--run-e2e",
         action="store_true",
         default=False,
-        help="Run end-to-end tests requiring Playwright browsers"
+        help="Run end-to-end tests requiring Playwright browsers",
     )
 
 
@@ -77,7 +77,7 @@ def _is_port_open(port: int, host: str = "localhost") -> bool:
     try:
         with socket.create_connection((host, port), timeout=1):
             return True
-    except (socket.timeout, ConnectionRefusedError, OSError):
+    except (TimeoutError, ConnectionRefusedError, OSError):
         return False
 
 
@@ -98,13 +98,13 @@ def skip_without_services(request):
             # Will skip if Qdrant not available on port 26350
             pass
     """
-    if request.node.get_closest_marker('requires_qdrant'):
+    if request.node.get_closest_marker("requires_qdrant"):
         if not _is_port_open(26350):
             pytest.skip("Qdrant not available on port 26350")
-    if request.node.get_closest_marker('requires_embedding'):
+    if request.node.get_closest_marker("requires_embedding"):
         if not _is_port_open(28080):
             pytest.skip("Embedding service not available on port 28080")
-    if request.node.get_closest_marker('requires_docker_stack'):
+    if request.node.get_closest_marker("requires_docker_stack"):
         if not (_is_port_open(26350) and _is_port_open(28080)):
             pytest.skip("Docker stack not fully available")
 
@@ -123,12 +123,11 @@ def pytest_sessionstart(session):
     """
     try:
         from prometheus_client import REGISTRY
+
         collectors = list(REGISTRY._names_to_collectors.values())
         for collector in collectors:
-            try:
+            with contextlib.suppress(Exception):
                 REGISTRY.unregister(collector)
-            except Exception:
-                pass
     except ImportError:
         pass  # prometheus_client not installed
 
@@ -149,9 +148,7 @@ def pytest_collection_modifyitems(session, config, items):
     skip_integration = pytest.mark.skip(
         reason="Need --run-integration option to run integration tests"
     )
-    skip_e2e = pytest.mark.skip(
-        reason="Need --run-e2e option to run E2E tests"
-    )
+    skip_e2e = pytest.mark.skip(reason="Need --run-e2e option to run E2E tests")
 
     for item in items:
         # Skip integration tests unless explicitly requested
@@ -174,22 +171,34 @@ def pytest_collection_modifyitems(session, config, items):
     # which pollutes sys.modules for other test files during collection.
     # Clean up ALL modules that may have been mocked.
     modules_to_check = [
-        'memory.search', 'memory.config', 'memory.qdrant_client',
-        'memory.health', 'memory.project', 'memory.logging_config',
-        'memory.metrics', 'memory.session_logger',
+        "memory.search",
+        "memory.config",
+        "memory.qdrant_client",
+        "memory.health",
+        "memory.project",
+        "memory.logging_config",
+        "memory.metrics",
+        "memory.session_logger",
         # Also check src.memory.* paths for compatibility
-        'src.memory.search', 'src.memory.config', 'src.memory.qdrant_client',
-        'src.memory.health', 'src.memory.project', 'src.memory.logging_config',
-        'src.memory.metrics', 'src.memory.session_logger',
+        "src.memory.search",
+        "src.memory.config",
+        "src.memory.qdrant_client",
+        "src.memory.health",
+        "src.memory.project",
+        "src.memory.logging_config",
+        "src.memory.metrics",
+        "src.memory.session_logger",
     ]
     for module_path in modules_to_check:
         if module_path in sys.modules:
             mod = sys.modules[module_path]
             # Check if it's a Mock (mocks have _mock_name or spec attributes)
-            if isinstance(mod, Mock) or hasattr(mod, '_mock_name'):
+            if isinstance(mod, Mock) or hasattr(mod, "_mock_name"):
                 del sys.modules[module_path]
                 # Also delete any sub-modules
-                keys_to_delete = [k for k in sys.modules if k.startswith(f'{module_path}.')]
+                keys_to_delete = [
+                    k for k in sys.modules if k.startswith(f"{module_path}.")
+                ]
                 for k in keys_to_delete:
                     del sys.modules[k]
 
@@ -209,18 +218,19 @@ def reset_metrics_registry():
     # Clear all collectors from the registry before test
     collectors = list(REGISTRY._names_to_collectors.values())
     for collector in collectors:
-        try:
+        with contextlib.suppress(Exception):
             REGISTRY.unregister(collector)
-        except Exception:
-            pass
 
     # Remove metrics modules from sys.modules (both src.memory and memory paths)
-    modules_to_remove = [k for k in sys.modules.keys()
-                        if k.startswith('src.memory.classifier.metrics')
-                        or k.startswith('memory.classifier.metrics')
-                        or k.startswith('src.memory.metrics')
-                        or k.startswith('memory.metrics')
-                        or k.startswith('ai_memory.')]
+    modules_to_remove = [
+        k
+        for k in sys.modules
+        if k.startswith("src.memory.classifier.metrics")
+        or k.startswith("memory.classifier.metrics")
+        or k.startswith("src.memory.metrics")
+        or k.startswith("memory.metrics")
+        or k.startswith("ai_memory.")
+    ]
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 
@@ -229,17 +239,18 @@ def reset_metrics_registry():
     # Clean up after test - clear registry again
     collectors = list(REGISTRY._names_to_collectors.values())
     for collector in collectors:
-        try:
+        with contextlib.suppress(Exception):
             REGISTRY.unregister(collector)
-        except Exception:
-            pass
 
-    modules_to_remove = [k for k in sys.modules.keys()
-                        if k.startswith('src.memory.classifier.metrics')
-                        or k.startswith('memory.classifier.metrics')
-                        or k.startswith('src.memory.metrics')
-                        or k.startswith('memory.metrics')
-                        or k.startswith('ai_memory.')]
+    modules_to_remove = [
+        k
+        for k in sys.modules
+        if k.startswith("src.memory.classifier.metrics")
+        or k.startswith("memory.classifier.metrics")
+        or k.startswith("src.memory.metrics")
+        or k.startswith("memory.metrics")
+        or k.startswith("ai_memory.")
+    ]
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 
@@ -310,9 +321,7 @@ def mock_qdrant_client(mocker):
     mock.search.return_value = []
     mock.upsert.return_value = Mock(status="completed")
     mock.get_collection.return_value = Mock(
-        vectors_count=0,
-        points_count=0,
-        status="green"
+        vectors_count=0, points_count=0, status="green"
     )
 
     return mock
@@ -334,7 +343,7 @@ def mock_embedding_client(mocker):
             # Test using mock...
             mock_embedding_client.generate_embedding.assert_called_once()
     """
-    mock = mocker.patch('src.memory.embeddings.EmbeddingClient', autospec=True)
+    mock = mocker.patch("src.memory.embeddings.EmbeddingClient", autospec=True)
 
     # Configure default embeddings (768d zero vector for testing - DEC-010)
     mock.return_value.generate_embedding.return_value = [0.0] * 768
@@ -377,8 +386,8 @@ def sample_memory_payload():
         "metadata": {
             "tags": ["python", "backend", "testing"],
             "domain": "backend",
-            "importance": "high"
-        }
+            "importance": "high",
+        },
     }
 
 
@@ -402,8 +411,8 @@ def sample_best_practice_payload():
         "metadata": {
             "tags": ["logging", "python", "best-practice"],
             "domain": "observability",
-            "importance": "high"
-        }
+            "importance": "high",
+        },
     }
 
 
@@ -435,9 +444,9 @@ def sample_search_result():
             "metadata": {
                 "domain": "backend",
                 "importance": "high",
-                "tags": ["python", "testing"]
-            }
-        }
+                "tags": ["python", "testing"],
+            },
+        },
     }
 
 
@@ -476,9 +485,7 @@ def temp_queue_dir(tmp_path):
 @pytest.fixture(scope="session")
 def docker_compose_path() -> str:
     """Return path to docker-compose.yml."""
-    return os.path.join(
-        os.path.dirname(__file__), "../docker/docker-compose.yml"
-    )
+    return os.path.join(os.path.dirname(__file__), "../docker/docker-compose.yml")
 
 
 @pytest.fixture(scope="session")
@@ -503,6 +510,7 @@ def qdrant_client(qdrant_base_url: str) -> Generator:
     """
     # Parse host and port from URL
     import re
+
     match = re.match(r"http://([^:]+):(\d+)", qdrant_base_url)
     if not match:
         pytest.fail(f"Invalid Qdrant base URL: {qdrant_base_url}")
@@ -603,12 +611,13 @@ def docker_services_available():
     """
     try:
         import subprocess
+
         result = subprocess.run(
             ["docker", "compose", "ps", "-q"],
             cwd=os.path.join(os.path.dirname(__file__), "../docker"),
             capture_output=True,
             timeout=5,
-            check=False
+            check=False,
         )
         services_running = len(result.stdout.strip()) > 0
         yield services_running
@@ -764,9 +773,17 @@ def wait_for_qdrant_healthy(timeout: int = 60) -> None:
             client = QdrantClient(url=qdrant_url, timeout=5.0)
             client.get_collections()
             return  # Success - Qdrant is healthy
-        except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadError,
-                httpcore.ReadError, httpcore.ConnectError,
-                ConnectionRefusedError, UnexpectedResponse, ResponseHandlingException, OSError):
+        except (
+            httpx.ConnectError,
+            httpx.TimeoutException,
+            httpx.ReadError,
+            httpcore.ReadError,
+            httpcore.ConnectError,
+            ConnectionRefusedError,
+            UnexpectedResponse,
+            ResponseHandlingException,
+            OSError,
+        ):
             # Specific connection-related exceptions only
             # ResponseHandlingException wraps underlying connection errors in qdrant-client
             pass
@@ -776,9 +793,7 @@ def wait_for_qdrant_healthy(timeout: int = 60) -> None:
         time.sleep(wait_time)
         interval_index += 1
 
-    raise TimeoutError(
-        f"Qdrant did not become healthy within {timeout}s after restart"
-    )
+    raise TimeoutError(f"Qdrant did not become healthy within {timeout}s after restart")
 
 
 # Edge case test content patterns for cleanup (TECH-DEBT-024 fix)
@@ -833,7 +848,7 @@ def cleanup_edge_case_memories():
                 collection_name="code-patterns",
                 limit=500,  # Reasonable limit for test data
                 with_payload=True,
-                with_vectors=False  # Optimization: don't fetch vectors
+                with_vectors=False,  # Optimization: don't fetch vectors
             )
 
             # Filter points by content patterns (test data has recognizable patterns)
@@ -851,8 +866,14 @@ def cleanup_edge_case_memories():
                 # Also match by group_id prefix (handles dynamic timestamps)
                 group_id_match = any(
                     group_id.startswith(prefix)
-                    for prefix in ["concurrent-test-", "malformed-test-", "metadata-test-",
-                                   "outage-test-", "timeout-test-", "edge-case-"]
+                    for prefix in [
+                        "concurrent-test-",
+                        "malformed-test-",
+                        "metadata-test-",
+                        "outage-test-",
+                        "timeout-test-",
+                        "edge-case-",
+                    ]
                 )
 
                 if content_match or group_id_match:
@@ -861,8 +882,7 @@ def cleanup_edge_case_memories():
             # Delete identified test points
             if test_point_ids:
                 cleanup_client.delete(
-                    collection_name="code-patterns",
-                    points_selector=test_point_ids
+                    collection_name="code-patterns", points_selector=test_point_ids
                 )
         except Exception:
             # Best effort cleanup - don't fail test if cleanup fails

@@ -5,7 +5,6 @@ Integration tests (full retrieval flow) are in Story 3.4.
 """
 
 import json
-import pytest
 from unittest.mock import Mock, patch
 
 
@@ -68,7 +67,7 @@ def test_format_context_high_relevance():
             "score": 0.95,
             "type": "implementation",
             "content": "Test implementation content",
-            "source_hook": "PostToolUse"
+            "source_hook": "PostToolUse",
         }
     ]
 
@@ -89,7 +88,7 @@ def test_format_context_medium_relevance():
             "score": 0.85,
             "type": "guideline",  # V2 uses actual MemoryType values
             "content": "A" * 600,  # Long content to test truncation
-            "source_hook": "seed_script"
+            "source_hook": "seed_script",
         }
     ]
 
@@ -113,7 +112,7 @@ def test_format_context_below_threshold():
             "score": 0.15,  # Low score but still included in V2
             "type": "implementation",
             "content": "Low relevance content",
-            "source_hook": "PostToolUse"
+            "source_hook": "PostToolUse",
         }
     ]
 
@@ -134,7 +133,7 @@ def test_format_context_token_budget():
             "score": 0.95,
             "type": "implementation",  # V2 uses valid MemoryType
             "content": "A" * 1000,  # Large content
-            "source_hook": "PostToolUse"
+            "source_hook": "PostToolUse",
         }
         for i in range(10)
     ]
@@ -157,7 +156,7 @@ def test_format_memory_entry_full():
         "score": 0.95,
         "content": "Test content",
         "source_hook": "PostToolUse",
-        "collection": "code-patterns"
+        "collection": "code-patterns",
     }
 
     entry = format_memory_entry(memory, truncate=False)
@@ -178,7 +177,7 @@ def test_format_memory_entry_truncated():
         "type": "pattern",
         "score": 0.85,
         "content": "A" * 600,  # Long content
-        "source_hook": "PostToolUse"
+        "source_hook": "PostToolUse",
     }
 
     entry = format_memory_entry(memory, truncate=True, max_chars=500)
@@ -236,7 +235,7 @@ def test_log_session_retrieval():
     results = [
         {"id": "mem1", "score": 0.95},
         {"id": "mem2", "score": 0.85},
-        {"id": "mem3", "score": 0.80}
+        {"id": "mem3", "score": 0.80},
     ]
 
     with patch("logging.Logger.info") as mock_log:
@@ -245,7 +244,7 @@ def test_log_session_retrieval():
             project="test-project",
             query="test query",
             results=results,
-            duration_ms=250.5
+            duration_ms=250.5,
         )
 
         # Verify structured logging call

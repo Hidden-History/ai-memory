@@ -3,8 +3,7 @@
 Verifies mock implementation matches QdrantClient interface behavior.
 """
 
-import pytest
-from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from .qdrant_mock import MockQdrantClient
 
@@ -20,7 +19,7 @@ class TestMockQdrantClient:
             PointStruct(
                 id="test-1",
                 vector=[0.1, 0.2, 0.3],
-                payload={"content": "test content", "type": "implementation"}
+                payload={"content": "test content", "type": "implementation"},
             )
         ]
 
@@ -29,7 +28,9 @@ class TestMockQdrantClient:
         assert result["status"] == "completed"
         assert "test_collection" in client.points
         assert len(client.points["test_collection"]) == 1
-        assert client.points["test_collection"][0]["payload"]["content"] == "test content"
+        assert (
+            client.points["test_collection"][0]["payload"]["content"] == "test content"
+        )
 
     def test_search_returns_scored_points(self):
         """Test that search returns ScoredPoint objects."""
@@ -40,7 +41,7 @@ class TestMockQdrantClient:
             PointStruct(
                 id=f"test-{i}",
                 vector=[0.1, 0.2, 0.3],
-                payload={"content": f"content {i}", "type": "implementation"}
+                payload={"content": f"content {i}", "type": "implementation"},
             )
             for i in range(5)
         ]
@@ -48,16 +49,16 @@ class TestMockQdrantClient:
 
         # Search
         results = client.search(
-            collection_name="test_collection",
-            query_vector=[0.1, 0.2, 0.3],
-            limit=3
+            collection_name="test_collection", query_vector=[0.1, 0.2, 0.3], limit=3
         )
 
         assert len(results) <= 3
         assert all(hasattr(r, "score") for r in results)
         assert all(hasattr(r, "payload") for r in results)
         # Scores should be sorted descending
-        assert all(results[i].score >= results[i+1].score for i in range(len(results)-1))
+        assert all(
+            results[i].score >= results[i + 1].score for i in range(len(results) - 1)
+        )
 
     def test_search_with_filter(self):
         """Test that search respects filter conditions."""
@@ -68,36 +69,43 @@ class TestMockQdrantClient:
             PointStruct(
                 id="impl-1",
                 vector=[0.1, 0.2, 0.3],
-                payload={"content": "impl", "type": "implementation", "group_id": "project-a"}
+                payload={
+                    "content": "impl",
+                    "type": "implementation",
+                    "group_id": "project-a",
+                },
             ),
             PointStruct(
                 id="error-1",
                 vector=[0.1, 0.2, 0.3],
-                payload={"content": "error", "type": "error_fix", "group_id": "project-a"}
+                payload={
+                    "content": "error",
+                    "type": "error_fix",
+                    "group_id": "project-a",
+                },
             ),
             PointStruct(
                 id="impl-2",
                 vector=[0.1, 0.2, 0.3],
-                payload={"content": "impl2", "type": "implementation", "group_id": "project-b"}
+                payload={
+                    "content": "impl2",
+                    "type": "implementation",
+                    "group_id": "project-b",
+                },
             ),
         ]
         client.upsert("test_collection", points=points)
 
         # Filter by type
         query_filter = Filter(
-            must=[
-                FieldCondition(
-                    key="type",
-                    match=MatchValue(value="implementation")
-                )
-            ]
+            must=[FieldCondition(key="type", match=MatchValue(value="implementation"))]
         )
 
         results = client.search(
             collection_name="test_collection",
             query_vector=[0.1, 0.2, 0.3],
             query_filter=query_filter,
-            limit=10
+            limit=10,
         )
 
         # Should only return implementation types
@@ -113,7 +121,7 @@ class TestMockQdrantClient:
             PointStruct(
                 id=f"test-{i}",
                 vector=[0.1, 0.2, 0.3],
-                payload={"content": f"content {i}"}
+                payload={"content": f"content {i}"},
             )
             for i in range(15)
         ]
@@ -144,7 +152,7 @@ class TestMockQdrantClient:
                 PointStruct(
                     id=f"{collection}-1",
                     vector=[0.1, 0.2, 0.3],
-                    payload={"content": "test"}
+                    payload={"content": "test"},
                 )
             ]
             client.upsert(collection, points=points)
@@ -161,9 +169,7 @@ class TestMockQdrantClient:
         client = MockQdrantClient()
 
         results = client.search(
-            collection_name="nonexistent",
-            query_vector=[0.1, 0.2, 0.3],
-            limit=5
+            collection_name="nonexistent", query_vector=[0.1, 0.2, 0.3], limit=5
         )
 
         assert results == []
@@ -175,9 +181,7 @@ class TestMockQdrantClient:
         # Add data
         points = [
             PointStruct(
-                id="test-1",
-                vector=[0.1, 0.2, 0.3],
-                payload={"content": "test"}
+                id="test-1", vector=[0.1, 0.2, 0.3], payload={"content": "test"}
             )
         ]
         client.upsert("test_collection", points=points)
@@ -199,7 +203,7 @@ class TestMockQdrantClient:
             PointStruct(
                 id=f"test-{i}",
                 vector=[0.1, 0.2, 0.3],
-                payload={"content": f"content {i}"}
+                payload={"content": f"content {i}"},
             )
             for i in range(10)
         ]
@@ -210,7 +214,7 @@ class TestMockQdrantClient:
             collection_name="test_collection",
             query_vector=[0.1, 0.2, 0.3],
             limit=10,
-            score_threshold=0.90
+            score_threshold=0.90,
         )
 
         # Search with low threshold (should return more)
@@ -218,7 +222,7 @@ class TestMockQdrantClient:
             collection_name="test_collection",
             query_vector=[0.1, 0.2, 0.3],
             limit=10,
-            score_threshold=0.70
+            score_threshold=0.70,
         )
 
         # High threshold should return fewer or equal results

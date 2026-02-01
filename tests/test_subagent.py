@@ -7,18 +7,16 @@ Comprehensive test suite covering:
 - MemorySubagent query and store operations
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-import pytest_asyncio
-from unittest.mock import Mock, patch, MagicMock
 
 from src.memory.subagent import (
-    MemorySubagent,
     MemoryResult,
     MemorySource,
+    MemorySubagent,
     QueryContext,
-    DEFAULT_LIMIT,
 )
-from src.memory.intent import IntentType
 
 
 class TestQueryContext:
@@ -30,7 +28,7 @@ class TestQueryContext:
             current_file="/path/to/file.py",
             current_task="implement auth",
             session_id="sess-123",
-            project_id="my-project"
+            project_id="my-project",
         )
         assert context.current_file == "/path/to/file.py"
         assert context.current_task == "implement auth"
@@ -51,19 +49,13 @@ class TestMemorySource:
 
     def test_required_fields(self):
         """MemorySource should require collection and memory_type."""
-        source = MemorySource(
-            collection="code-patterns",
-            memory_type="implementation"
-        )
+        source = MemorySource(collection="code-patterns", memory_type="implementation")
         assert source.collection == "code-patterns"
         assert source.memory_type == "implementation"
 
     def test_optional_fields_default(self):
         """Optional fields should have sensible defaults."""
-        source = MemorySource(
-            collection="code-patterns",
-            memory_type="implementation"
-        )
+        source = MemorySource(collection="code-patterns", memory_type="implementation")
         assert source.file_path is None
         assert source.line_number is None
         assert source.score == 0.0
@@ -169,7 +161,7 @@ class TestMemorySubagent:
         subagent = MemorySubagent(search_client=mock_search)
         result = await subagent.query(
             "how do I implement auth?",
-            collection="conventions"  # Override detected intent
+            collection="conventions",  # Override detected intent
         )
 
         assert result.collection_searched == "conventions"
@@ -183,7 +175,7 @@ class TestMemorySubagent:
         mock_search.search.return_value = []
 
         subagent = MemorySubagent(search_client=mock_search)
-        result = await subagent.query("test", limit=10)
+        await subagent.query("test", limit=10)
 
         call_args = mock_search.search.call_args
         assert call_args.kwargs["limit"] == 10
@@ -226,7 +218,11 @@ class TestMemorySubagent:
         """Formatted answer should include result content."""
         mock_search = Mock()
         mock_search.search.return_value = [
-            {"score": 0.95, "content": "Implementation details here", "type": "implementation"},
+            {
+                "score": 0.95,
+                "content": "Implementation details here",
+                "type": "implementation",
+            },
         ]
 
         subagent = MemorySubagent(search_client=mock_search)
@@ -245,14 +241,14 @@ class TestMemorySubagent:
                 "score": 0.95,
                 "content": "Test",
                 "type": "implementation",
-                "file_path": "/src/auth.py"
+                "file_path": "/src/auth.py",
             },
             {
                 "score": 0.85,
                 "content": "Test 2",
                 "type": "error_fix",
-                "file_path": None
-            }
+                "file_path": None,
+            },
         ]
 
         subagent = MemorySubagent(search_client=mock_search)
@@ -273,7 +269,7 @@ class TestMemorySubagent:
         mock_storage_instance.store_memory.return_value = {
             "memory_id": "mem-123",
             "status": "stored",
-            "embedding_status": "complete"
+            "embedding_status": "complete",
         }
         MockStorage.return_value = mock_storage_instance
 
@@ -282,7 +278,7 @@ class TestMemorySubagent:
             content="Test implementation",
             memory_type="implementation",
             tags=["auth", "security"],
-            source="agent:dev"
+            source="agent:dev",
         )
 
         assert memory_id == "mem-123"
@@ -294,13 +290,10 @@ class TestMemorySubagent:
         mock_search = Mock()
         mock_search.search.return_value = []
 
-        context = QueryContext(
-            current_file="/src/auth.py",
-            project_id="my-project"
-        )
+        context = QueryContext(current_file="/src/auth.py", project_id="my-project")
 
         subagent = MemorySubagent(search_client=mock_search)
-        result = await subagent.query("test", context=context)
+        await subagent.query("test", context=context)
 
         call_args = mock_search.search.call_args
         assert call_args.kwargs["group_id"] == "my-project"
@@ -342,10 +335,7 @@ class TestMemorySubagent:
         MockStorage.return_value = mock_storage_instance
 
         subagent = MemorySubagent()
-        memory_id = await subagent.store(
-            content="Test",
-            memory_type="implementation"
-        )
+        memory_id = await subagent.store(content="Test", memory_type="implementation")
 
         # Should not raise, should return empty string
         assert memory_id == ""

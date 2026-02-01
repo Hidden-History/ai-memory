@@ -3,9 +3,8 @@
 TECH-DEBT-069: LLM-based memory classification system tests.
 """
 
-import pytest
-from src.memory.classifier.significance import check_significance
 from src.memory.classifier.config import Significance
+from src.memory.classifier.significance import check_significance
 
 
 class TestSignificance:
@@ -125,6 +124,5 @@ class TestSignificance:
         assert check_significance("  ok  ") == Significance.SKIP
         assert check_significance("\n\nyes\n\n") == Significance.SKIP
         assert (
-            check_significance("  This is meaningful content  ")
-            == Significance.MEDIUM
+            check_significance("  This is meaningful content  ") == Significance.MEDIUM
         )

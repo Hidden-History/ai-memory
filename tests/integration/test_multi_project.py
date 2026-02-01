@@ -58,14 +58,13 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List
 
 import pytest
 from qdrant_client import QdrantClient
 
-from src.memory.storage import MemoryStorage, store_best_practice
-from src.memory.search import MemorySearch, retrieve_best_practices
 from src.memory.models import MemoryType
+from src.memory.search import MemorySearch, retrieve_best_practices
+from src.memory.storage import MemoryStorage, store_best_practice
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +76,9 @@ logger = logging.getLogger(__name__)
 
 @pytest.mark.integration
 @pytest.mark.requires_qdrant
-def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path, monkeypatch) -> None:
+def test_project_isolation(
+    qdrant_client: QdrantClient, tmp_path: Path, monkeypatch
+) -> None:
     """
     Test that implementations are isolated between projects (FR14, FR15).
 
@@ -125,8 +126,10 @@ def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path, monkeypa
         source_hook="PostToolUse",
     )
 
-    assert result_a["status"] in ["stored", "duplicate"], \
-        f"Project A storage failed: {result_a}"
+    assert result_a["status"] in [
+        "stored",
+        "duplicate",
+    ], f"Project A storage failed: {result_a}"
 
     # Store memory in project B
     result_b = storage.store_memory(
@@ -138,8 +141,10 @@ def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path, monkeypa
         source_hook="PostToolUse",
     )
 
-    assert result_b["status"] in ["stored", "duplicate"], \
-        f"Project B storage failed: {result_b}"
+    assert result_b["status"] in [
+        "stored",
+        "duplicate",
+    ], f"Project B storage failed: {result_b}"
 
     # Wait for embeddings to complete (CPU mode: 20-30s per embedding x 2 memories = 40-60s min)
     time.sleep(60)
@@ -154,10 +159,12 @@ def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path, monkeypa
 
     # Verify project A isolation
     assert len(results_a) > 0, "Project A should have at least one result"
-    assert any("Project A" in r["content"] for r in results_a), \
-        "Project A results should contain Project A content"
-    assert not any("Project B" in r["content"] for r in results_a), \
-        "Project A results should NOT contain Project B content (ISOLATION VIOLATION)"
+    assert any(
+        "Project A" in r["content"] for r in results_a
+    ), "Project A results should contain Project A content"
+    assert not any(
+        "Project B" in r["content"] for r in results_a
+    ), "Project A results should NOT contain Project B content (ISOLATION VIOLATION)"
 
     # Retrieve from project B - should ONLY get project B memories
     results_b = search.search(
@@ -169,10 +176,12 @@ def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path, monkeypa
 
     # Verify project B isolation
     assert len(results_b) > 0, "Project B should have at least one result"
-    assert any("Project B" in r["content"] for r in results_b), \
-        "Project B results should contain Project B content"
-    assert not any("Project A" in r["content"] for r in results_b), \
-        "Project B results should NOT contain Project A content (ISOLATION VIOLATION)"
+    assert any(
+        "Project B" in r["content"] for r in results_b
+    ), "Project B results should contain Project B content"
+    assert not any(
+        "Project A" in r["content"] for r in results_b
+    ), "Project B results should NOT contain Project A content (ISOLATION VIOLATION)"
 
     logger.info(
         "test_completed",
@@ -193,7 +202,9 @@ def test_project_isolation(qdrant_client: QdrantClient, tmp_path: Path, monkeypa
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.requires_qdrant
-def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path, monkeypatch) -> None:
+def test_project_switching(
+    qdrant_client: QdrantClient, tmp_path: Path, monkeypatch
+) -> None:
     """
     Test seamless switching between projects without manual intervention (FR17).
 
@@ -279,8 +290,9 @@ def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path, monkeypa
     )
 
     # Verify project A context is consistent before/after switch
-    assert len(context_a1) > 0 and len(context_a2) > 0, \
-        "Project A should have results before and after switch"
+    assert (
+        len(context_a1) > 0 and len(context_a2) > 0
+    ), "Project A should have results before and after switch"
 
     # Extract ids for comparison (content may vary by relevance)
     # Note: search.py returns "id" not "memory_id" (fix per code review)
@@ -288,13 +300,13 @@ def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path, monkeypa
     ids_a2 = {r["id"] for r in context_a2}
 
     # Same memories should be available after switching away and back
-    assert ids_a1 == ids_a2, \
-        "Project A context should be consistent after switching to B and back"
+    assert (
+        ids_a1 == ids_a2
+    ), "Project A context should be consistent after switching to B and back"
 
     # Verify project B has different memories
     ids_b = {r["id"] for r in context_b}
-    assert ids_b != ids_a1, \
-        "Project B should have different memories than Project A"
+    assert ids_b != ids_a1, "Project B should have different memories than Project A"
 
     logger.info(
         "test_completed",
@@ -316,7 +328,9 @@ def test_project_switching(qdrant_client: QdrantClient, tmp_path: Path, monkeypa
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.requires_qdrant
-def test_concurrent_projects(qdrant_client: QdrantClient, tmp_path: Path, monkeypatch) -> None:
+def test_concurrent_projects(
+    qdrant_client: QdrantClient, tmp_path: Path, monkeypatch
+) -> None:
     """
     Test 2-3 concurrent projects without interference (FR15, NFR-SC2).
 
@@ -349,19 +363,22 @@ def test_concurrent_projects(qdrant_client: QdrantClient, tmp_path: Path, monkey
     projects = [
         {
             "name": "concurrent-project-1",
-            "dir": tmp_path / "concurrent-project-1",  # Fix: dir name must match group_id
+            "dir": tmp_path
+            / "concurrent-project-1",  # Fix: dir name must match group_id
             "content": "concurrent-project-1: E-commerce checkout implementation pattern",
             "query": "e-commerce checkout implementation",
         },
         {
             "name": "concurrent-project-2",
-            "dir": tmp_path / "concurrent-project-2",  # Fix: dir name must match group_id
+            "dir": tmp_path
+            / "concurrent-project-2",  # Fix: dir name must match group_id
             "content": "concurrent-project-2: Authentication microservice patterns",
             "query": "authentication microservice patterns",
         },
         {
             "name": "concurrent-project-3",
-            "dir": tmp_path / "concurrent-project-3",  # Fix: dir name must match group_id
+            "dir": tmp_path
+            / "concurrent-project-3",  # Fix: dir name must match group_id
             "content": "concurrent-project-3: Real-time chat websocket handling",
             "query": "real-time chat websocket",
         },
@@ -378,8 +395,10 @@ def test_concurrent_projects(qdrant_client: QdrantClient, tmp_path: Path, monkey
             session_id=f"{proj['name']}-session",
             source_hook="PostToolUse",
         )
-        assert result["status"] in ["stored", "duplicate"], \
-            f"Storage failed for {proj['name']}: {result}"
+        assert result["status"] in [
+            "stored",
+            "duplicate",
+        ], f"Storage failed for {proj['name']}: {result}"
 
     # Wait for all embeddings (CPU mode: 20-30s per embedding x 3 memories = 60-90s min)
     time.sleep(90)
@@ -398,11 +417,8 @@ def test_concurrent_projects(qdrant_client: QdrantClient, tmp_path: Path, monkey
         assert len(results) > 0, f"No results for {proj['name']}"
 
         # Should contain own content
-        own_content_found = any(
-            proj["content"][:30] in r["content"] for r in results
-        )
-        assert own_content_found, \
-            f"Project {proj['name']} should find its own memory"
+        own_content_found = any(proj["content"][:30] in r["content"] for r in results)
+        assert own_content_found, f"Project {proj['name']} should find its own memory"
 
         # Should NOT contain other projects' content
         for other in projects:
@@ -410,8 +426,9 @@ def test_concurrent_projects(qdrant_client: QdrantClient, tmp_path: Path, monkey
                 other_content_leaked = any(
                     other["content"][:30] in r["content"] for r in results
                 )
-                assert not other_content_leaked, \
-                    f"Content from {other['name']} leaked into {proj['name']} (ISOLATION VIOLATION)"
+                assert (
+                    not other_content_leaked
+                ), f"Content from {other['name']} leaked into {proj['name']} (ISOLATION VIOLATION)"
 
     logger.info(
         "test_completed",
@@ -485,7 +502,7 @@ def test_concurrent_projects_performance(
     time.sleep(150)
 
     # Measure retrieval performance for each project
-    retrieval_times: List[float] = []
+    retrieval_times: list[float] = []
 
     for proj in projects:
         start = time.time()
@@ -499,10 +516,10 @@ def test_concurrent_projects_performance(
         retrieval_times.append(elapsed_ms)
 
         # Verify isolation still working under load
-        assert len(results) > 0, \
-            f"No results for {proj['name']} under load"
-        assert any(proj["name"] in r["content"] for r in results), \
-            f"Own content not found for {proj['name']} under load"
+        assert len(results) > 0, f"No results for {proj['name']} under load"
+        assert any(
+            proj["name"] in r["content"] for r in results
+        ), f"Own content not found for {proj['name']} under load"
 
     # Performance verification: <10% latency increase per NFR-SC1
     avg_latency = sum(retrieval_times) / len(retrieval_times)
@@ -510,8 +527,9 @@ def test_concurrent_projects_performance(
     # Should complete in <200ms even with 5 concurrent projects
     # Note: Relaxed from 150ms to 200ms for CPU-mode embedding service (GPU mode: <50ms)
     # The NFR-SC2 requirement is for production GPU environment; test environment uses CPU
-    assert avg_latency < 200, \
-        f"Average retrieval latency {avg_latency:.1f}ms exceeds 200ms threshold (NFR-SC2 violation)"
+    assert (
+        avg_latency < 200
+    ), f"Average retrieval latency {avg_latency:.1f}ms exceeds 200ms threshold (NFR-SC2 violation)"
 
     # Variance should be low (consistent performance)
     # Note: Relaxed to 200ms to account for Docker/WSL2/CPU-embedding environmental variance
@@ -521,8 +539,9 @@ def test_concurrent_projects_performance(
     min_latency = min(retrieval_times)
     variance = max_latency - min_latency
 
-    assert variance < 200, \
-        f"Latency variance {variance:.1f}ms too high (inconsistent performance)"
+    assert (
+        variance < 200
+    ), f"Latency variance {variance:.1f}ms too high (inconsistent performance)"
 
     logger.info(
         "test_completed",
@@ -566,7 +585,7 @@ def test_best_practices_shared_across_projects(
     )
 
     # Create search instance
-    search = MemorySearch()
+    MemorySearch()
 
     # Store best practice (simulating project-a context)
     bp_result = store_best_practice(
@@ -575,31 +594,30 @@ def test_best_practices_shared_across_projects(
         source_hook="PostToolUse",
     )
 
-    assert bp_result["status"] in ["stored", "duplicate"], \
-        f"Best practice storage failed: {bp_result}"
+    assert bp_result["status"] in [
+        "stored",
+        "duplicate",
+    ], f"Best practice storage failed: {bp_result}"
 
     # Wait for embedding to complete (CPU mode: 20-30s per embedding)
     time.sleep(30)
 
     # Retrieve from project-b context (different project)
-    results_b = retrieve_best_practices(
-        query="pytest test isolation best practice"
-    )
+    results_b = retrieve_best_practices(query="pytest test isolation best practice")
 
     # Best practice should be accessible from different project
-    assert len(results_b) > 0, \
-        "Best practices should be accessible from any project"
+    assert len(results_b) > 0, "Best practices should be accessible from any project"
 
-    found_best_practice = any(
-        "tmp_path" in r["content"].lower() for r in results_b
-    )
-    assert found_best_practice, \
-        "Shared best practice should be found from different project"
+    found_best_practice = any("tmp_path" in r["content"].lower() for r in results_b)
+    assert (
+        found_best_practice
+    ), "Shared best practice should be found from different project"
 
     # All results should have group_id="shared"
     for result in results_b:
-        assert result["group_id"] == "shared", \
-            f"Best practice has wrong group_id: {result['group_id']}"
+        assert (
+            result["group_id"] == "shared"
+        ), f"Best practice has wrong group_id: {result['group_id']}"
 
     logger.info(
         "test_completed",
@@ -635,7 +653,7 @@ def test_implementations_not_in_best_practices_collection(
 
     # Create storage and search instances
     storage = MemoryStorage()
-    search = MemorySearch()
+    MemorySearch()
 
     # Create project directory
     impl_proj_dir = tmp_path / "impl-project"
@@ -651,16 +669,16 @@ def test_implementations_not_in_best_practices_collection(
         source_hook="PostToolUse",
     )
 
-    assert impl_result["status"] in ["stored", "duplicate"], \
-        f"Implementation storage failed: {impl_result}"
+    assert impl_result["status"] in [
+        "stored",
+        "duplicate",
+    ], f"Implementation storage failed: {impl_result}"
 
     # Wait for embedding to complete (CPU mode: 20-30s per embedding)
     time.sleep(30)
 
     # Search best practices collection
-    bp_results = retrieve_best_practices(
-        query="OAuth2 FastAPI implementation"
-    )
+    bp_results = retrieve_best_practices(query="OAuth2 FastAPI implementation")
 
     # Implementation should NOT appear in best practices
     impl_leaked = any(
@@ -669,8 +687,9 @@ def test_implementations_not_in_best_practices_collection(
         for r in bp_results
     )
 
-    assert not impl_leaked, \
-        "Implementation leaked into best practices collection (COLLECTION ISOLATION VIOLATION)"
+    assert (
+        not impl_leaked
+    ), "Implementation leaked into best practices collection (COLLECTION ISOLATION VIOLATION)"
 
     logger.info(
         "test_completed",
@@ -750,8 +769,10 @@ def test_hooks_multi_project_integration(
         )
 
         # Hook should succeed (exit code 0 or 1, never crash)
-        assert result_a.returncode in [0, 1], \
-            f"PostToolUse hook failed with exit code {result_a.returncode}\nstdout: {result_a.stdout}\nstderr: {result_a.stderr}"
+        assert result_a.returncode in [
+            0,
+            1,
+        ], f"PostToolUse hook failed with exit code {result_a.returncode}\nstdout: {result_a.stdout}\nstderr: {result_a.stderr}"
 
         if result_a.returncode != 0:
             logger.warning(
@@ -763,7 +784,9 @@ def test_hooks_multi_project_integration(
                 },
             )
     else:
-        pytest.skip("PostToolUse hook script not found - skipping hook integration test")
+        pytest.skip(
+            "PostToolUse hook script not found - skipping hook integration test"
+        )
 
     # Simulate PostToolUse hook for project B
     hook_input_b = {
@@ -786,8 +809,10 @@ def test_hooks_multi_project_integration(
             timeout=10,
         )
 
-        assert result_b.returncode in [0, 1], \
-            f"PostToolUse hook failed for project B with exit code {result_b.returncode}\nstdout: {result_b.stdout}\nstderr: {result_b.stderr}"
+        assert result_b.returncode in [
+            0,
+            1,
+        ], f"PostToolUse hook failed for project B with exit code {result_b.returncode}\nstdout: {result_b.stdout}\nstderr: {result_b.stderr}"
 
     # Wait for background storage + embeddings to complete
     # Hooks fork to background: Per NFR-P1 <500ms overhead
@@ -815,25 +840,31 @@ def test_hooks_multi_project_integration(
     # At least one memory should exist per project (if hooks executed successfully)
     # Note: Hooks may fail gracefully (exit 1), so we only assert if exit was 0
     if hook_script.exists() and result_a.returncode == 0:
-        assert len(memories_a) > 0, \
-            "Hook-project-a should have captured memory (hook exited 0)"
+        assert (
+            len(memories_a) > 0
+        ), "Hook-project-a should have captured memory (hook exited 0)"
 
     if hook_script.exists() and result_b.returncode == 0:
-        assert len(memories_b) > 0, \
-            "Hook-project-b should have captured memory (hook exited 0)"
+        assert (
+            len(memories_b) > 0
+        ), "Hook-project-b should have captured memory (hook exited 0)"
 
     # Verify isolation (only if memories exist)
     if len(memories_a) > 0:
-        assert any("Hook test A" in m["content"] for m in memories_a), \
-            "Project A memory not found"
-        assert not any("Hook test B" in m["content"] for m in memories_a), \
-            "Project B memory leaked into A (ISOLATION VIOLATION)"
+        assert any(
+            "Hook test A" in m["content"] for m in memories_a
+        ), "Project A memory not found"
+        assert not any(
+            "Hook test B" in m["content"] for m in memories_a
+        ), "Project B memory leaked into A (ISOLATION VIOLATION)"
 
     if len(memories_b) > 0:
-        assert any("Hook test B" in m["content"] for m in memories_b), \
-            "Project B memory not found"
-        assert not any("Hook test A" in m["content"] for m in memories_b), \
-            "Project A memory leaked into B (ISOLATION VIOLATION)"
+        assert any(
+            "Hook test B" in m["content"] for m in memories_b
+        ), "Project B memory not found"
+        assert not any(
+            "Hook test A" in m["content"] for m in memories_b
+        ), "Project A memory leaked into B (ISOLATION VIOLATION)"
 
     logger.info(
         "test_completed",

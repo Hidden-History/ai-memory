@@ -17,12 +17,11 @@ Example:
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Any
 
-from .intent import detect_intent, get_target_collection, get_target_types, IntentType
+from .intent import IntentType, detect_intent, get_target_collection
 from .search import MemorySearch
 from .storage import MemoryStorage
-from .config import get_config, COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS
 
 logger = logging.getLogger("ai_memory.subagent")
 
@@ -32,31 +31,34 @@ DEFAULT_LIMIT = 5
 @dataclass
 class QueryContext:
     """Context for memory query."""
-    current_file: Optional[str] = None
-    current_task: Optional[str] = None
-    session_id: Optional[str] = None
-    project_id: Optional[str] = None
+
+    current_file: str | None = None
+    current_task: str | None = None
+    session_id: str | None = None
+    project_id: str | None = None
 
 
 @dataclass
 class MemorySource:
     """Source attribution for a memory result."""
+
     collection: str
     memory_type: str
-    file_path: Optional[str] = None
-    line_number: Optional[int] = None
+    file_path: str | None = None
+    line_number: int | None = None
     score: float = 0.0
 
 
 @dataclass
 class MemoryResult:
     """Result from memory query."""
-    answer: str                          # Formatted answer text
-    sources: List[MemorySource] = field(default_factory=list)
-    confidence: float = 0.0              # 0.0 to 1.0
-    intent_detected: Optional[str] = None
-    collection_searched: Optional[str] = None
-    raw_results: List[Dict[str, Any]] = field(default_factory=list)
+
+    answer: str  # Formatted answer text
+    sources: list[MemorySource] = field(default_factory=list)
+    confidence: float = 0.0  # 0.0 to 1.0
+    intent_detected: str | None = None
+    collection_searched: str | None = None
+    raw_results: list[dict[str, Any]] = field(default_factory=list)
 
 
 class MemorySubagent:
@@ -73,7 +75,7 @@ class MemorySubagent:
         >>> print(result.confidence)
     """
 
-    def __init__(self, search_client: Optional[MemorySearch] = None):
+    def __init__(self, search_client: MemorySearch | None = None):
         """Initialize subagent.
 
         Args:
@@ -85,9 +87,9 @@ class MemorySubagent:
     async def query(
         self,
         question: str,
-        context: Optional[QueryContext] = None,
-        collection: Optional[str] = None,
-        limit: int = DEFAULT_LIMIT
+        context: QueryContext | None = None,
+        collection: str | None = None,
+        limit: int = DEFAULT_LIMIT,
     ) -> MemoryResult:
         """Query memory with natural language question.
 
@@ -118,7 +120,7 @@ class MemorySubagent:
                 query=question,
                 collection=target_collection,
                 group_id=group_id,
-                limit=limit
+                limit=limit,
             )
 
             # Format answer from results
@@ -137,7 +139,7 @@ class MemorySubagent:
                     "collection": target_collection,
                     "results_count": len(results),
                     "confidence": confidence,
-                }
+                },
             )
 
             return MemoryResult(
@@ -156,15 +158,17 @@ class MemorySubagent:
                     "question": question[:50],
                     "error": str(e),
                     "error_type": type(e).__name__,
-                }
+                },
             )
             # Return empty result on failure (graceful degradation)
             return MemoryResult(
                 answer="No relevant memories found.",
                 sources=[],
                 confidence=0.0,
-                intent_detected=intent.value if 'intent' in locals() else None,
-                collection_searched=target_collection if 'target_collection' in locals() else None,
+                intent_detected=intent.value if "intent" in locals() else None,
+                collection_searched=(
+                    target_collection if "target_collection" in locals() else None
+                ),
                 raw_results=[],
             )
 
@@ -172,8 +176,8 @@ class MemorySubagent:
         self,
         content: str,
         memory_type: str,
-        tags: Optional[List[str]] = None,
-        source: Optional[str] = None
+        tags: list[str] | None = None,
+        source: str | None = None,
     ) -> str:
         """Store memory from agent context.
 
@@ -199,7 +203,7 @@ class MemorySubagent:
                     extra={
                         "provided": memory_type,
                         "valid_types": valid_types,
-                    }
+                    },
                 )
                 return ""  # Graceful degradation
 
@@ -223,7 +227,7 @@ class MemorySubagent:
                     "memory_id": memory_id,
                     "memory_type": memory_type,
                     "status": result.get("status"),
-                }
+                },
             )
 
             return memory_id
@@ -235,17 +239,19 @@ class MemorySubagent:
                     "memory_type": memory_type,
                     "error": str(e),
                     "error_type": type(e).__name__,
-                }
+                },
             )
             return ""
 
-    def _detect_target(self, question: str, collection: Optional[str]) -> tuple[str, IntentType]:
+    def _detect_target(
+        self, question: str, collection: str | None
+    ) -> tuple[str, IntentType]:
         """Detect target collection and intent."""
         # If collection explicitly provided, use it with UNKNOWN intent
         if collection is not None:
             logger.debug(
                 "collection_override",
-                extra={"collection": collection, "question": question[:50]}
+                extra={"collection": collection, "question": question[:50]},
             )
             return collection, IntentType.UNKNOWN
 
@@ -259,12 +265,12 @@ class MemorySubagent:
                 "intent": intent.value,
                 "collection": target_collection,
                 "question": question[:50],
-            }
+            },
         )
 
         return target_collection, intent
 
-    def _format_answer(self, results: List[Dict], intent: IntentType) -> str:
+    def _format_answer(self, results: list[dict], intent: IntentType) -> str:
         """Format search results into agent-friendly answer."""
         if not results:
             return "No relevant memories found."
@@ -282,7 +288,7 @@ class MemorySubagent:
 
         return "\n".join(lines)
 
-    def _score_confidence(self, results: List[Dict]) -> float:
+    def _score_confidence(self, results: list[dict]) -> float:
         """Calculate confidence score based on result quality.
 
         Confidence factors:
@@ -305,7 +311,9 @@ class MemorySubagent:
         confidence = avg_score * 0.7 + result_factor * 0.3
         return min(confidence, 1.0)
 
-    def _build_sources(self, results: List[Dict], collection: str) -> List[MemorySource]:
+    def _build_sources(
+        self, results: list[dict], collection: str
+    ) -> list[MemorySource]:
         """Build source attribution list from search results."""
         sources = []
         for result in results:

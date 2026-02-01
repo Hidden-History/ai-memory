@@ -115,7 +115,7 @@ class TestMagicMoment:
 
         try:
             print(f"\n{'=' * 70}")
-            print(f"  THE MAGIC MOMENT TEST")
+            print("  THE MAGIC MOMENT TEST")
             print(f"  Project: {unique_project}")
             print(f"  Content: {unique_content[:60]}...")
             print(f"{'=' * 70}\n")
@@ -135,9 +135,7 @@ class TestMagicMoment:
             storage_time = time.perf_counter() - start_time
 
             assert result["status"] == "stored", f"Storage failed: {result}"
-            assert (
-                result["embedding_status"] == "complete"
-            ), "Embeddings not generated"
+            assert result["embedding_status"] == "complete", "Embeddings not generated"
 
             print(f"✓ Memory stored with embeddings in {storage_time:.2f}s")
             print(f"  Memory ID: {result['memory_id']}")
@@ -194,7 +192,9 @@ class TestMagicMoment:
                 or "High Relevance" in context_output
                 or len(context_output.strip()) > 0
             )
-            assert has_formatting, "Context should have formatted memories or be validly empty"
+            assert (
+                has_formatting
+            ), "Context should have formatted memories or be validly empty"
 
             print("✓ Memory found in context!")
             print(f"  Context preview:\n{context_output[:300]}...")
@@ -225,12 +225,14 @@ class TestMagicMoment:
             )
 
             mode_label = "CPU mode" if cpu_mode else "GPU mode (NFR-P3 ✓)"
-            print(f"✓ Performance: Retrieval {retrieval_time:.2f}s < {max_retrieval_time}s ({mode_label})")
+            print(
+                f"✓ Performance: Retrieval {retrieval_time:.2f}s < {max_retrieval_time}s ({mode_label})"
+            )
 
             # Success!
             print(f"\n{'=' * 70}")
-            print(f"  🎉 THE MAGIC MOMENT VERIFIED 🎉")
-            print(f"  Claude remembers across sessions!")
+            print("  🎉 THE MAGIC MOMENT VERIFIED 🎉")
+            print("  Claude remembers across sessions!")
             print(f"{'=' * 70}\n")
 
         finally:

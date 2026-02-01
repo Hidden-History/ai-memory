@@ -9,13 +9,10 @@ Tests AC 2.1.1-2.1.5:
 """
 
 import json
-import os
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -36,10 +33,10 @@ def valid_edit_input():
         "tool_input": {
             "file_path": "/path/to/file.py",
             "old_string": "def old_func():\n    pass",
-            "new_string": "def new_func():\n    return True"
+            "new_string": "def new_func():\n    return True",
         },
         "cwd": "/path/to/project",
-        "session_id": "sess-test-123"
+        "session_id": "sess-test-123",
     }
 
 
@@ -51,10 +48,10 @@ def valid_write_input():
         "tool_status": "success",
         "tool_input": {
             "file_path": "/path/to/new_file.py",
-            "content": "def new_function():\n    return 42"
+            "content": "def new_function():\n    return 42",
         },
         "cwd": "/path/to/project",
-        "session_id": "sess-test-456"
+        "session_id": "sess-test-456",
     }
 
 
@@ -72,7 +69,7 @@ def invalid_tool_name_input():
         "tool_status": "success",
         "tool_input": {},
         "cwd": "/path",
-        "session_id": "sess-123"
+        "session_id": "sess-123",
     }
 
 
@@ -84,7 +81,7 @@ def failed_tool_input():
         "tool_status": "failed",
         "tool_input": {},
         "cwd": "/path",
-        "session_id": "sess-123"
+        "session_id": "sess-123",
     }
 
 
@@ -103,7 +100,7 @@ class TestHookInfrastructure:
             input=json.dumps(invalid_tool_name_input),
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         # Should exit 0 (non-blocking error, not disrupt Claude)
         assert result.returncode == 0, "Hook should exit 0 for invalid tool_name"
@@ -115,12 +112,14 @@ class TestHookInfrastructure:
             input=json.dumps(failed_tool_input),
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         # Should exit 0 (no capture for failed tools)
         assert result.returncode == 0, "Hook should exit 0 for non-success status"
 
-    def test_hook_forks_to_background(self, hook_script_path, valid_edit_input, monkeypatch):
+    def test_hook_forks_to_background(
+        self, hook_script_path, valid_edit_input, monkeypatch
+    ):
         """Hook must fork to background using subprocess.Popen with start_new_session=True."""
         # This test verifies the hook returns quickly without waiting for storage
         start_time = time.time()
@@ -130,7 +129,7 @@ class TestHookInfrastructure:
             input=json.dumps(valid_edit_input),
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
 
         elapsed = time.time() - start_time
@@ -148,7 +147,7 @@ class TestHookInfrastructure:
             input=json.dumps(valid_edit_input),
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
 
         # Check stderr for log output (structured format)
@@ -176,14 +175,16 @@ class TestAsyncStorageScript:
             input=json.dumps(valid_edit_input),
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
         )
 
         # Should exit 0 on success
         assert result.returncode == 0, f"Storage script failed: {result.stderr}"
 
     @pytest.mark.slow
-    def test_graceful_degradation_qdrant_unavailable(self, valid_edit_input, monkeypatch):
+    def test_graceful_degradation_qdrant_unavailable(
+        self, valid_edit_input, monkeypatch
+    ):
         """Storage script must queue to file when Qdrant unavailable (AC 2.1.2)."""
         # Set invalid Qdrant URL to simulate service down
         monkeypatch.setenv("QDRANT_URL", "http://localhost:99999")
@@ -194,7 +195,7 @@ class TestAsyncStorageScript:
             input=json.dumps(valid_edit_input),
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
         )
 
         # Must exit 0 (graceful degradation, no Claude disruption)
@@ -215,7 +216,7 @@ class TestInputSchemaValidation:
             input=malformed_json_input,
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
 
         # Must exit 0 for invalid input (no Claude disruption)
@@ -230,7 +231,7 @@ class TestInputSchemaValidation:
             input=json.dumps(incomplete_input),
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
 
         # Must exit 0 (graceful handling)
@@ -253,7 +254,7 @@ class TestPerformanceRequirements:
                 input=json.dumps(valid_edit_input),
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
             elapsed = time.time() - start_time
             times.append(elapsed)
@@ -289,7 +290,9 @@ class TestTimeoutHandling:
         """HOOK_TIMEOUT must be configurable via env var."""
         # Set very short timeout to test handling
         monkeypatch.setenv("HOOK_TIMEOUT", "1")
-        monkeypatch.setenv("QDRANT_URL", "http://localhost:99999")  # Simulate slow service
+        monkeypatch.setenv(
+            "QDRANT_URL", "http://localhost:99999"
+        )  # Simulate slow service
 
         script_path = Path(".claude/hooks/scripts/store_async.py")
 
@@ -299,9 +302,9 @@ class TestTimeoutHandling:
             input=json.dumps(valid_edit_input),
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
-        elapsed = time.time() - start_time
+        time.time() - start_time
 
         # Should timeout and exit gracefully
         assert result.returncode in [0, 1], "Must exit 0 or 1 on timeout"

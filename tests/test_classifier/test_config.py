@@ -3,9 +3,6 @@
 TECH-DEBT-069: LLM-based memory classification system tests.
 """
 
-import os
-import pytest
-
 
 class TestClassifierConfig:
     """Test classifier configuration loading and defaults."""
@@ -35,6 +32,7 @@ class TestClassifierConfig:
 
         # Reload module to pick up new env vars
         import importlib
+
         from src.memory.classifier import config
 
         importlib.reload(config)
@@ -78,7 +76,7 @@ class TestClassifierConfig:
         from src.memory.classifier.config import RULE_PATTERNS
 
         # Check each rule has required fields
-        for rule_type, rule_config in RULE_PATTERNS.items():
+        for _rule_type, rule_config in RULE_PATTERNS.items():
             assert "patterns" in rule_config
             assert "confidence" in rule_config
             assert isinstance(rule_config["patterns"], list)
@@ -104,7 +102,7 @@ class TestClassifierConfig:
         assert "claude" in COST_PER_MILLION
 
         # Check each provider has input/output costs
-        for provider, costs in COST_PER_MILLION.items():
+        for _provider, costs in COST_PER_MILLION.items():
             assert "input" in costs
             assert "output" in costs
             assert isinstance(costs["input"], (int, float))

@@ -3,8 +3,7 @@
 Tests AC 1.3.2 from Story 1.3.
 """
 
-import pytest
-from src.memory.models import MemoryPayload, MemoryType, EmbeddingStatus
+from src.memory.models import EmbeddingStatus, MemoryPayload, MemoryType
 
 
 class TestMemoryType:

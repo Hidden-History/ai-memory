@@ -4,31 +4,34 @@ Provides in-memory mock implementation of QdrantClient interface for unit tests.
 Simulates vector search, scoring, and collection management without external dependencies.
 """
 
-from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass
-from uuid import UUID, uuid4
 import random
+from dataclasses import dataclass
+from typing import Any
+from uuid import uuid4
 
 
 @dataclass
 class ScoredPoint:
     """Mock ScoredPoint matching qdrant_client.models.ScoredPoint."""
+
     id: str
     score: float
-    payload: Dict[str, Any]
-    vector: Optional[List[float]] = None
+    payload: dict[str, Any]
+    vector: list[float] | None = None
 
 
 @dataclass
 class CollectionInfo:
     """Mock CollectionInfo matching qdrant_client.models.CollectionInfo."""
+
     name: str
 
 
 @dataclass
 class CollectionsResponse:
     """Mock CollectionsResponse."""
-    collections: List[CollectionInfo]
+
+    collections: list[CollectionInfo]
 
 
 class MockQdrantClient:
@@ -46,18 +49,14 @@ class MockQdrantClient:
     def __init__(self):
         """Initialize mock client with empty collections."""
         # Collection -> list of points
-        self.points: Dict[str, List[Dict[str, Any]]] = {}
+        self.points: dict[str, list[dict[str, Any]]] = {}
         # Track upsert calls for test assertions
-        self.upsert_calls: List[Dict[str, Any]] = []
-        self.search_calls: List[Dict[str, Any]] = []
+        self.upsert_calls: list[dict[str, Any]] = []
+        self.search_calls: list[dict[str, Any]] = []
 
     def upsert(
-        self,
-        collection_name: str,
-        points: List[Any],
-        wait: bool = True,
-        **kwargs
-    ) -> Dict[str, Any]:
+        self, collection_name: str, points: list[Any], wait: bool = True, **kwargs
+    ) -> dict[str, Any]:
         """Store points in collection.
 
         Args:
@@ -73,11 +72,13 @@ class MockQdrantClient:
             self.points[collection_name] = []
 
         # Track call for test assertions
-        self.upsert_calls.append({
-            "collection_name": collection_name,
-            "points": points,
-            "wait": wait,
-        })
+        self.upsert_calls.append(
+            {
+                "collection_name": collection_name,
+                "points": points,
+                "wait": wait,
+            }
+        )
 
         # Convert PointStruct to dict and store
         for point in points:
@@ -93,14 +94,14 @@ class MockQdrantClient:
     def search(
         self,
         collection_name: str,
-        query_vector: List[float],
+        query_vector: list[float],
         limit: int = 5,
-        query_filter: Optional[Any] = None,
+        query_filter: Any | None = None,
         with_payload: bool = True,
         with_vectors: bool = False,
-        score_threshold: Optional[float] = None,
-        **kwargs
-    ) -> List[ScoredPoint]:
+        score_threshold: float | None = None,
+        **kwargs,
+    ) -> list[ScoredPoint]:
         """Search collection with simulated scoring.
 
         Args:
@@ -117,12 +118,14 @@ class MockQdrantClient:
             List of ScoredPoint objects with simulated scores
         """
         # Track call for test assertions
-        self.search_calls.append({
-            "collection_name": collection_name,
-            "query_vector": query_vector,
-            "limit": limit,
-            "query_filter": query_filter,
-        })
+        self.search_calls.append(
+            {
+                "collection_name": collection_name,
+                "query_vector": query_vector,
+                "limit": limit,
+                "query_filter": query_filter,
+            }
+        )
 
         if collection_name not in self.points:
             return []
@@ -158,12 +161,12 @@ class MockQdrantClient:
         self,
         collection_name: str,
         limit: int = 10,
-        offset: Optional[str] = None,
-        scroll_filter: Optional[Any] = None,
+        offset: str | None = None,
+        scroll_filter: Any | None = None,
         with_payload: bool = True,
         with_vectors: bool = False,
-        **kwargs
-    ) -> Tuple[List[Any], Optional[str]]:
+        **kwargs,
+    ) -> tuple[list[Any], str | None]:
         """Paginate through collection.
 
         Args:
@@ -195,11 +198,15 @@ class MockQdrantClient:
         # Convert to result objects
         results = []
         for point in page:
-            result = type('Point', (), {
-                'id': point["id"],
-                'payload': point["payload"] if with_payload else {},
-                'vector': point["vector"] if with_vectors else None,
-            })
+            result = type(
+                "Point",
+                (),
+                {
+                    "id": point["id"],
+                    "payload": point["payload"] if with_payload else {},
+                    "vector": point["vector"] if with_vectors else None,
+                },
+            )
             results.append(result)
 
         # Calculate next offset
@@ -213,17 +220,12 @@ class MockQdrantClient:
         Returns:
             CollectionsResponse with collection names
         """
-        collections = [
-            CollectionInfo(name=name)
-            for name in self.points.keys()
-        ]
+        collections = [CollectionInfo(name=name) for name in self.points]
         return CollectionsResponse(collections=collections)
 
     def _apply_filter(
-        self,
-        points: List[Dict[str, Any]],
-        query_filter: Any
-    ) -> List[Dict[str, Any]]:
+        self, points: list[dict[str, Any]], query_filter: Any
+    ) -> list[dict[str, Any]]:
         """Apply filter conditions to points.
 
         Simplified filter implementation for testing.
@@ -236,7 +238,7 @@ class MockQdrantClient:
         Returns:
             Filtered points list
         """
-        if not hasattr(query_filter, 'must'):
+        if not hasattr(query_filter, "must"):
             return points
 
         filtered = []
@@ -244,15 +246,15 @@ class MockQdrantClient:
             matches = True
             for condition in query_filter.must:
                 # Support both FieldCondition objects and dict-like conditions
-                if hasattr(condition, 'key'):
+                if hasattr(condition, "key"):
                     key = condition.key
                     # Handle different match types
-                    if hasattr(condition, 'match'):
-                        if hasattr(condition.match, 'value'):
+                    if hasattr(condition, "match"):
+                        if hasattr(condition.match, "value"):
                             expected = condition.match.value
                         else:
                             # MatchAny case
-                            expected = getattr(condition.match, 'any', None)
+                            expected = getattr(condition.match, "any", None)
                     else:
                         expected = None
 

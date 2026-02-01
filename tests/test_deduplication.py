@@ -23,9 +23,9 @@ from qdrant_client.http.exceptions import (
 
 from src.memory.config import reset_config
 from src.memory.deduplication import (
+    DuplicationCheckResult,
     compute_content_hash,
     is_duplicate,
-    DuplicationCheckResult,
 )
 
 
@@ -337,7 +337,7 @@ class TestIsDuplicate:
                 status_code=500,
                 reason_phrase="Internal Server Error",
                 content=b"Malformed response",
-                headers={}
+                headers={},
             )
 
             result = await is_duplicate(content, group_id)

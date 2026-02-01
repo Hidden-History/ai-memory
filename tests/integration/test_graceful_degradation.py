@@ -108,7 +108,7 @@ class TestRetrievalGracefulDegradation:
             f"Context: {context[:500]}"
         )
 
-        print(f"✓ New project handled gracefully (exit 0, no errors)")
+        print("✓ New project handled gracefully (exit 0, no errors)")
         print(f"  Context length: {len(context)} chars")
 
     def test_sessionstart_handles_malformed_input(self):
@@ -140,11 +140,10 @@ class TestRetrievalGracefulDegradation:
         # Context should be empty or minimal (no error propagated to Claude)
         context = proc.stdout
         assert "Error" not in context and "Exception" not in context, (
-            f"Error leaked into context!\n"
-            f"Context: {context}"
+            f"Error leaked into context!\n" f"Context: {context}"
         )
 
-        print(f"✓ Malformed input handled gracefully (exit 0)")
+        print("✓ Malformed input handled gracefully (exit 0)")
         print(f"  Context length: {len(context)} chars")
         print(f"  Errors logged to stderr: {len(proc.stderr)} chars")
 
@@ -181,9 +180,8 @@ class TestRetrievalGracefulDegradation:
 
         context = proc.stdout
         assert "Error" not in context and "Exception" not in context, (
-            f"Error in context!\n"
-            f"Context: {context}"
+            f"Error in context!\n" f"Context: {context}"
         )
 
-        print(f"✓ Missing cwd handled gracefully (exit 0)")
+        print("✓ Missing cwd handled gracefully (exit 0)")
         print(f"  Context length: {len(context)} chars")

@@ -5,15 +5,14 @@ Filters out low-value content before classification to reduce token usage.
 TECH-DEBT-069: LLM-based memory classification system.
 """
 
-import re
 import logging
-from typing import Optional
+import re
 
 from .config import (
-    Significance,
+    LOW_PATTERNS,
     MIN_CONTENT_LENGTH,
     SKIP_PATTERNS,
-    LOW_PATTERNS,
+    Significance,
 )
 
 logger = logging.getLogger("ai_memory.classifier.significance")
@@ -21,7 +20,7 @@ logger = logging.getLogger("ai_memory.classifier.significance")
 __all__ = ["check_significance"]
 
 
-def check_significance(content: str, current_type: Optional[str] = None) -> Significance:
+def check_significance(content: str, current_type: str | None = None) -> Significance:
     """Check content significance level.
 
     Args:

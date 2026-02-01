@@ -14,14 +14,20 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Optional
-
 
 # Sensitive keys that should be redacted in log output (2026 security best practice)
 # Per: https://www.apriorit.com/dev-blog/cybersecurity-logging-python
 SENSITIVE_KEYS = {
-    "password", "token", "secret", "apikey", "api_key",
-    "authorization", "credential", "auth", "key", "bearer",
+    "password",
+    "token",
+    "secret",
+    "apikey",
+    "api_key",
+    "authorization",
+    "credential",
+    "auth",
+    "key",
+    "bearer",
 }
 
 
@@ -107,7 +113,7 @@ class TextFormatter(logging.Formatter):
         )
 
 
-def configure_logging(level: Optional[str] = None) -> None:
+def configure_logging(level: str | None = None) -> None:
     """Configure structured logging for all ai_memory loggers.
 
     Implements AC 6.2.1, AC 6.2.2, and AC 6.2.5.
@@ -129,10 +135,7 @@ def configure_logging(level: Optional[str] = None) -> None:
     # Determine formatter from environment variable
     log_format = os.getenv("BMAD_LOG_FORMAT", "json").lower()
 
-    if log_format == "text":
-        formatter = TextFormatter()
-    else:
-        formatter = StructuredFormatter()
+    formatter = TextFormatter() if log_format == "text" else StructuredFormatter()
 
     # Configure root logger for ai_memory hierarchy
     # Per AC 6.2.2: logger names follow ai_memory hierarchy

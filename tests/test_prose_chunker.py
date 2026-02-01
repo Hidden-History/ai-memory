@@ -1,6 +1,7 @@
 """Tests for ProseChunker (TECH-DEBT-053)."""
 
 import pytest
+
 from memory.chunking import ProseChunker, ProseChunkerConfig
 
 
@@ -59,7 +60,9 @@ Third paragraph here with some extra text."""
         chunks = chunker.chunk(text)
 
         assert len(chunks) >= 2
-        assert all(len(c.content) <= 150 for c in chunks)  # Allow some overflow for overlap
+        assert all(
+            len(c.content) <= 150 for c in chunks
+        )  # Allow some overflow for overlap
 
     def test_overlap_between_chunks(self):
         """Consecutive chunks have overlap for context."""
@@ -165,7 +168,9 @@ code block
         chunks = chunker.chunk(text)
 
         for chunk in chunks:
-            assert len(chunk.content) <= 100, f"Chunk exceeded max: {len(chunk.content)}"
+            assert (
+                len(chunk.content) <= 100
+            ), f"Chunk exceeded max: {len(chunk.content)}"
 
     def test_very_long_word_split(self):
         """Words longer than max_chunk_size are split."""

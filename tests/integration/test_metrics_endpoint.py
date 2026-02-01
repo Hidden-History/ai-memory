@@ -6,8 +6,9 @@ Tests that the endpoint is accessible and returns properly formatted metrics.
 """
 
 import os
-import pytest
+
 import httpx
+import pytest
 
 # Use environment variable for port configuration (consistent with other integration tests)
 METRICS_PORT = os.environ.get("METRICS_PORT", "28080")
@@ -19,10 +20,7 @@ async def test_metrics_endpoint_accessible():
     """Test that /metrics endpoint is accessible and returns 200 OK."""
     async with httpx.AsyncClient(follow_redirects=True) as client:
         try:
-            response = await client.get(
-                METRICS_URL,
-                timeout=5.0
-            )
+            response = await client.get(METRICS_URL, timeout=5.0)
             assert response.status_code == 200
         except httpx.ConnectError:
             pytest.skip("Embedding service not running - start with docker compose up")
@@ -33,10 +31,7 @@ async def test_metrics_endpoint_content_type():
     """Test that /metrics returns correct Content-Type header (AC 6.1.1)."""
     async with httpx.AsyncClient(follow_redirects=True) as client:
         try:
-            response = await client.get(
-                METRICS_URL,
-                timeout=5.0
-            )
+            response = await client.get(METRICS_URL, timeout=5.0)
 
             # AC 6.1.1: Content-Type is "text/plain; charset=utf-8"
             content_type = response.headers.get("content-type", "")
@@ -52,10 +47,7 @@ async def test_metrics_endpoint_prometheus_format():
     """Test that /metrics returns valid Prometheus exposition format."""
     async with httpx.AsyncClient(follow_redirects=True) as client:
         try:
-            response = await client.get(
-                METRICS_URL,
-                timeout=5.0
-            )
+            response = await client.get(METRICS_URL, timeout=5.0)
 
             text = response.text
 
@@ -85,15 +77,15 @@ async def test_metrics_include_default_process_metrics():
     """Test that default process metrics are included."""
     async with httpx.AsyncClient(follow_redirects=True) as client:
         try:
-            response = await client.get(
-                METRICS_URL,
-                timeout=5.0
-            )
+            response = await client.get(METRICS_URL, timeout=5.0)
 
             text = response.text
 
             # Default prometheus_client metrics should be present
-            assert "process_cpu_seconds_total" in text or "process_virtual_memory_bytes" in text
+            assert (
+                "process_cpu_seconds_total" in text
+                or "process_virtual_memory_bytes" in text
+            )
 
         except httpx.ConnectError:
             pytest.skip("Embedding service not running - start with docker compose up")
@@ -105,10 +97,7 @@ async def test_metrics_endpoint_no_authentication_required():
     async with httpx.AsyncClient(follow_redirects=True) as client:
         try:
             # No auth headers
-            response = await client.get(
-                METRICS_URL,
-                timeout=5.0
-            )
+            response = await client.get(METRICS_URL, timeout=5.0)
 
             # Should succeed without auth
             assert response.status_code == 200
@@ -145,15 +134,14 @@ async def test_metric_value_increments_on_operations():
             # Extract baseline counter value for embedding_requests_total
             # Format: bmad_embedding_requests_total{status="success"} VALUE
             baseline_embedding_requests = _extract_metric_value(
-                text_before,
-                'bmad_embedding_requests_total{status="success"}'
+                text_before, 'bmad_embedding_requests_total{status="success"}'
             )
 
             # Trigger an embedding request by calling the embedding endpoint
             embed_response = await client.post(
                 f"http://localhost:{METRICS_PORT}/embed",
                 json={"text": "test memory content for metrics validation"},
-                timeout=10.0
+                timeout=10.0,
             )
 
             # If embedding service is functional, this should succeed
@@ -164,16 +152,21 @@ async def test_metric_value_increments_on_operations():
 
                 # Extract updated counter value
                 updated_embedding_requests = _extract_metric_value(
-                    text_after,
-                    'bmad_embedding_requests_total{status="success"}'
+                    text_after, 'bmad_embedding_requests_total{status="success"}'
                 )
 
                 # Verify counter incremented
-                if baseline_embedding_requests is not None and updated_embedding_requests is not None:
-                    assert updated_embedding_requests > baseline_embedding_requests, \
-                        f"Counter did not increment: before={baseline_embedding_requests}, after={updated_embedding_requests}"
+                if (
+                    baseline_embedding_requests is not None
+                    and updated_embedding_requests is not None
+                ):
+                    assert (
+                        updated_embedding_requests > baseline_embedding_requests
+                    ), f"Counter did not increment: before={baseline_embedding_requests}, after={updated_embedding_requests}"
             else:
-                pytest.skip(f"Embedding endpoint not functional: {embed_response.status_code}")
+                pytest.skip(
+                    f"Embedding endpoint not functional: {embed_response.status_code}"
+                )
 
         except httpx.ConnectError:
             pytest.skip("Embedding service not running - start with docker compose up")
@@ -198,27 +191,36 @@ async def test_histogram_bucket_configurations():
             text = response.text
 
             # Verify histogram TYPE declarations exist (proves metrics are registered)
-            assert "# TYPE bmad_hook_duration_seconds histogram" in text, \
-                "hook_duration_seconds histogram not registered"
-            assert "# TYPE bmad_embedding_duration_seconds histogram" in text, \
-                "embedding_duration_seconds histogram not registered"
-            assert "# TYPE bmad_retrieval_duration_seconds histogram" in text, \
-                "retrieval_duration_seconds histogram not registered"
+            assert (
+                "# TYPE bmad_hook_duration_seconds histogram" in text
+            ), "hook_duration_seconds histogram not registered"
+            assert (
+                "# TYPE bmad_embedding_duration_seconds histogram" in text
+            ), "embedding_duration_seconds histogram not registered"
+            assert (
+                "# TYPE bmad_retrieval_duration_seconds histogram" in text
+            ), "retrieval_duration_seconds histogram not registered"
 
             # Parse histogram buckets (only present after observations)
-            embedding_buckets = _extract_histogram_buckets(text, "bmad_embedding_duration_seconds")
-            retrieval_buckets = _extract_histogram_buckets(text, "bmad_retrieval_duration_seconds")
+            embedding_buckets = _extract_histogram_buckets(
+                text, "bmad_embedding_duration_seconds"
+            )
+            retrieval_buckets = _extract_histogram_buckets(
+                text, "bmad_retrieval_duration_seconds"
+            )
 
             # Embedding and retrieval histograms should have buckets (have data from service startup)
             expected_embedding_buckets = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, "+Inf"]
             if embedding_buckets:  # Only assert if buckets exist
-                assert set(expected_embedding_buckets).issubset(set(embedding_buckets)), \
-                    f"embedding_duration_seconds missing expected buckets. Expected: {expected_embedding_buckets}, Got: {embedding_buckets}"
+                assert set(expected_embedding_buckets).issubset(
+                    set(embedding_buckets)
+                ), f"embedding_duration_seconds missing expected buckets. Expected: {expected_embedding_buckets}, Got: {embedding_buckets}"
 
             expected_retrieval_buckets = [0.1, 0.5, 1.0, 2.0, 3.0, 5.0, "+Inf"]
             if retrieval_buckets:  # Only assert if buckets exist
-                assert set(expected_retrieval_buckets).issubset(set(retrieval_buckets)), \
-                    f"retrieval_duration_seconds missing expected buckets. Expected: {expected_retrieval_buckets}, Got: {retrieval_buckets}"
+                assert set(expected_retrieval_buckets).issubset(
+                    set(retrieval_buckets)
+                ), f"retrieval_duration_seconds missing expected buckets. Expected: {expected_retrieval_buckets}, Got: {retrieval_buckets}"
 
             # hook_duration may not have buckets yet (only populated during hook execution)
             # We verified the TYPE declaration above, which is sufficient
@@ -244,10 +246,12 @@ async def test_gauge_updates_reflect_real_state():
             text = response.text
 
             # Verify gauge TYPE declarations exist (proves metrics are registered)
-            assert "# TYPE bmad_collection_size gauge" in text, \
-                "bmad_collection_size gauge not registered"
-            assert "# TYPE bmad_queue_size gauge" in text, \
-                "bmad_queue_size gauge not registered"
+            assert (
+                "# TYPE bmad_collection_size gauge" in text
+            ), "bmad_collection_size gauge not registered"
+            assert (
+                "# TYPE bmad_queue_size gauge" in text
+            ), "bmad_queue_size gauge not registered"
 
             # Extract gauge values (may be empty if stats haven't been collected yet)
             collection_sizes = _extract_gauge_values(text, "bmad_collection_size")
@@ -258,7 +262,9 @@ async def test_gauge_updates_reflect_real_state():
                 assert value >= 0, f"Gauge has negative value: {metric_line} = {value}"
 
             for metric_line, value in queue_sizes:
-                assert value >= 0, f"Queue gauge has negative value: {metric_line} = {value}"
+                assert (
+                    value >= 0
+                ), f"Queue gauge has negative value: {metric_line} = {value}"
 
             # Success: Gauges are registered, and any values present are valid
 
@@ -282,8 +288,9 @@ async def test_metrics_endpoint_response_time():
             elapsed_ms = (time.perf_counter() - start) * 1000
 
             assert response.status_code == 200
-            assert elapsed_ms < 100, \
-                f"Metrics endpoint took {elapsed_ms:.2f}ms, exceeds 100ms threshold (NFR-I4)"
+            assert (
+                elapsed_ms < 100
+            ), f"Metrics endpoint took {elapsed_ms:.2f}ms, exceeds 100ms threshold (NFR-I4)"
 
         except httpx.ConnectError:
             pytest.skip("Embedding service not running - start with docker compose up")
@@ -304,22 +311,24 @@ async def test_failure_event_counters():
             text = response.text
 
             # Verify failure_events_total metric exists
-            assert "bmad_failure_events_total" in text, \
-                "bmad_failure_events_total counter not exposed"
+            assert (
+                "bmad_failure_events_total" in text
+            ), "bmad_failure_events_total counter not exposed"
 
             # Extract all failure event counter lines
             failure_lines = [
-                line for line in text.split('\n')
-                if line.startswith('bmad_failure_events_total{')
+                line
+                for line in text.split("\n")
+                if line.startswith("bmad_failure_events_total{")
             ]
 
             # Verify label structure if any failures have occurred
             # Format: bmad_failure_events_total{component="X",error_code="Y"} VALUE
             for line in failure_lines:
-                if '{' in line and '}' in line:
-                    labels = line.split('{')[1].split('}')[0]
-                    assert 'component=' in labels, f"Missing component label: {line}"
-                    assert 'error_code=' in labels, f"Missing error_code label: {line}"
+                if "{" in line and "}" in line:
+                    labels = line.split("{")[1].split("}")[0]
+                    assert "component=" in labels, f"Missing component label: {line}"
+                    assert "error_code=" in labels, f"Missing error_code label: {line}"
 
             # Note: We don't assert failures > 0 because a healthy system may have 0 failures
             # But we verify the metric structure is correct
@@ -343,7 +352,7 @@ def _extract_metric_value(text: str, metric_pattern: str) -> float | None:
     Returns:
         Float value of the metric, or None if not found
     """
-    for line in text.split('\n'):
+    for line in text.split("\n"):
         if line.startswith(metric_pattern):
             try:
                 # Format: metric_name{labels} VALUE
@@ -369,12 +378,12 @@ def _extract_histogram_buckets(text: str, metric_name: str) -> list[float]:
         This is expected for histograms that haven't recorded any data.
     """
     buckets = []
-    bucket_pattern = f'{metric_name}_bucket{{'
+    bucket_pattern = f"{metric_name}_bucket{{"
 
-    for line in text.split('\n'):
+    for line in text.split("\n"):
         if line.startswith(bucket_pattern):
             # Format: metric_name_bucket{labels,le="X.X"} VALUE
-            if 'le=' in line:
+            if "le=" in line:
                 try:
                     le_value = line.split('le="')[1].split('"')[0]
                     if le_value == "+Inf":
@@ -384,7 +393,7 @@ def _extract_histogram_buckets(text: str, metric_name: str) -> list[float]:
                 except (IndexError, ValueError):
                     continue
 
-    return sorted(buckets, key=lambda x: float('inf') if x == "+Inf" else x)
+    return sorted(buckets, key=lambda x: float("inf") if x == "+Inf" else x)
 
 
 def _extract_gauge_values(text: str, metric_name: str) -> list[tuple[str, float]]:
@@ -399,8 +408,8 @@ def _extract_gauge_values(text: str, metric_name: str) -> list[tuple[str, float]
     """
     gauges = []
 
-    for line in text.split('\n'):
-        if line.startswith(metric_name + '{') or line.startswith(metric_name + ' '):
+    for line in text.split("\n"):
+        if line.startswith(metric_name + "{") or line.startswith(metric_name + " "):
             try:
                 # Format: metric_name{labels} VALUE or metric_name VALUE
                 parts = line.split()

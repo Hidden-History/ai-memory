@@ -4,10 +4,11 @@ Tests optimize_hnsw_multitenancy.py functionality with mocked Qdrant client.
 Implements TECH-DEBT-064.
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-from pathlib import Path
 import sys
+from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
 
 # Add scripts/memory to path for import
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts" / "memory"))
@@ -17,6 +18,7 @@ from optimize_hnsw_multitenancy import (
     optimize_collection,
 )
 from qdrant_client.models import HnswConfigDiff
+
 from src.memory.config import (
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
@@ -141,6 +143,7 @@ def test_optimize_collection_not_exists(mock_qdrant_client):
 
 def test_optimize_all_collections(mock_qdrant_client):
     """Test optimizing all three collections."""
+
     # Mock to return optimized config after update
     def get_collection_side_effect(collection_name):
         mock_collection = Mock()
@@ -162,7 +165,11 @@ def test_optimize_all_collections(mock_qdrant_client):
     mock_qdrant_client.get_collection.side_effect = get_collection_side_effect
 
     # Optimize each collection
-    for collection_name in [COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS]:
+    for collection_name in [
+        COLLECTION_CODE_PATTERNS,
+        COLLECTION_CONVENTIONS,
+        COLLECTION_DISCUSSIONS,
+    ]:
         optimize_collection(mock_qdrant_client, collection_name, dry_run=False)
 
     # Verify update_collection called 3 times

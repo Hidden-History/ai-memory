@@ -20,7 +20,6 @@ import re
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("ai_memory.triggers")
 
@@ -46,23 +45,23 @@ TRIGGER_CONFIG = {
             "Exception:",
             "Traceback",
             "FAILED:",  # All-caps for test failures
-            "error:",   # Lowercase structured form
+            "error:",  # Lowercase structured form
         ],
         "collection": "code-patterns",
         "type_filter": "error_fix",
-        "max_results": 3
+        "max_results": 3,
     },
     "new_file": {
         "enabled": True,
         "collection": "conventions",
         "type_filter": ["naming", "structure"],
-        "max_results": 2
+        "max_results": 2,
     },
     "first_edit": {
         "enabled": True,
         "collection": "code-patterns",
         "type_filter": None,  # Search all types - implementation patterns are relevant to first edits
-        "max_results": 3
+        "max_results": 3,
     },
     "decision_keywords": {
         "enabled": True,
@@ -93,7 +92,7 @@ TRIGGER_CONFIG = {
         ],
         "collection": "discussions",
         "type_filter": None,  # Search ALL discussion types (decision, session, blocker, preference, user_message, agent_response)
-        "max_results": 3
+        "max_results": 3,
     },
     "session_history_keywords": {
         "enabled": True,
@@ -120,7 +119,7 @@ TRIGGER_CONFIG = {
         ],
         "collection": "discussions",
         "type_filter": "session",  # Session summaries
-        "max_results": 3
+        "max_results": 3,
     },
     "best_practices_keywords": {
         "enabled": True,
@@ -158,18 +157,18 @@ TRIGGER_CONFIG = {
         ],
         "collection": "conventions",
         "type_filter": None,  # All types in conventions
-        "max_results": 3
+        "max_results": 3,
     },
     "read_context": {
         "enabled": True,
         "collection": "conventions",
         "type_filter": None,
-        "max_results": 3
-    }
+        "max_results": 3,
+    },
 }
 
 
-def detect_error_signal(text: str) -> Optional[str]:
+def detect_error_signal(text: str) -> str | None:
     """Detect error patterns in text and return error signature.
 
     Scans text for error patterns from TRIGGER_CONFIG["error_detection"]["patterns"].
@@ -194,27 +193,27 @@ def detect_error_signal(text: str) -> Optional[str]:
 
     # Check for structured exception patterns FIRST (e.g., "TypeError:", "ValueError:")
     # These take priority over generic "Error:" pattern
-    exc_match = re.search(r'\b(\w+(?:Error|Exception)):\s*(.+?)(?:\n|$)', text)
+    exc_match = re.search(r"\b(\w+(?:Error|Exception)):\s*(.+?)(?:\n|$)", text)
     if exc_match:
         exc_type = exc_match.group(1)
         exc_msg = exc_match.group(2).strip()[:100]
         signature = f"{exc_type}: {exc_msg}"
         logger.debug(
             "error_signal_detected",
-            extra={"exception_type": exc_type, "signature": signature[:50]}
+            extra={"exception_type": exc_type, "signature": signature[:50]},
         )
         return signature
 
     # Check for Traceback
     if "Traceback" in text:
         # Try to find the last exception line
-        lines = text.split('\n')
+        lines = text.split("\n")
         for line in reversed(lines):
-            if re.match(r'^\w+(?:Error|Exception):', line.strip()):
+            if re.match(r"^\w+(?:Error|Exception):", line.strip()):
                 signature = line.strip()[:150]
                 logger.debug(
                     "error_signal_detected",
-                    extra={"pattern": "Traceback", "signature": signature[:50]}
+                    extra={"pattern": "Traceback", "signature": signature[:50]},
                 )
                 return signature
         # If no exception line found, return generic traceback message
@@ -229,18 +228,18 @@ def detect_error_signal(text: str) -> Optional[str]:
         if pattern in text:
             # Extract text after pattern
             idx = text.find(pattern)
-            signature = text[idx:].split('\n')[0].strip()[:150]
+            signature = text[idx:].split("\n")[0].strip()[:150]
             if signature:
                 logger.debug(
                     "error_signal_detected",
-                    extra={"pattern": pattern, "signature": signature[:50]}
+                    extra={"pattern": pattern, "signature": signature[:50]},
                 )
                 return signature
 
     return None
 
 
-def detect_best_practices_keywords(text: str) -> Optional[str]:
+def detect_best_practices_keywords(text: str) -> str | None:
     """Detect best practices keywords in text and extract topic.
 
     Scans text for best practices patterns from TRIGGER_CONFIG["best_practices_keywords"]["patterns"].
@@ -278,21 +277,31 @@ def detect_best_practices_keywords(text: str) -> Optional[str]:
                 # Get text after pattern - find end of pattern word (handle "practices" vs "practice")
                 after_pos = pattern_pos + len(pattern)
                 # Skip any trailing 's' or 'es' that might be part of pluralization
-                while after_pos < len(text) and text[after_pos].lower() in 'es':
+                while after_pos < len(text) and text[after_pos].lower() in "es":
                     after_pos += 1
                 after_pattern = text[after_pos:].strip()
 
                 # Clean up common filler words
-                for filler in ["for", "in", "to", "the", "a", "an", "about", "on", "with"]:
+                for filler in [
+                    "for",
+                    "in",
+                    "to",
+                    "the",
+                    "a",
+                    "an",
+                    "about",
+                    "on",
+                    "with",
+                ]:
                     if after_pattern.lower().startswith(filler + " "):
-                        after_pattern = after_pattern[len(filler) + 1:]
+                        after_pattern = after_pattern[len(filler) + 1 :]
                 # Remove question mark if present
-                topic = after_pattern.rstrip('?').strip()
+                topic = after_pattern.rstrip("?").strip()
 
                 if topic:
                     logger.debug(
                         "best_practices_keyword_detected",
-                        extra={"pattern": pattern, "topic": topic[:50]}
+                        extra={"pattern": pattern, "topic": topic[:50]},
                     )
                     return topic
                 else:
@@ -302,14 +311,14 @@ def detect_best_practices_keywords(text: str) -> Optional[str]:
                     if before_pattern:
                         logger.debug(
                             "best_practices_keyword_detected_context",
-                            extra={"pattern": pattern, "using_context": True}
+                            extra={"pattern": pattern, "using_context": True},
                         )
                         return " ".join(before_pattern)
 
     return None
 
 
-def detect_decision_keywords(text: str) -> Optional[str]:
+def detect_decision_keywords(text: str) -> str | None:
     """Detect decision-related keywords in text and extract topic.
 
     Scans text for decision question patterns from TRIGGER_CONFIG["decision_keywords"]["patterns"].
@@ -343,29 +352,29 @@ def detect_decision_keywords(text: str) -> Optional[str]:
             pattern_pos = text_lower.find(pattern)
             if pattern_pos != -1:
                 # Get text after pattern
-                after_pattern = text[pattern_pos + len(pattern):].strip()
+                after_pattern = text[pattern_pos + len(pattern) :].strip()
                 # Remove question mark if present
-                topic = after_pattern.rstrip('?').strip()
+                topic = after_pattern.rstrip("?").strip()
 
                 # If no topic extracted but pattern matched, use full text as fallback
                 if topic:
                     logger.debug(
                         "decision_keyword_detected",
-                        extra={"pattern": pattern, "topic": topic[:50]}
+                        extra={"pattern": pattern, "topic": topic[:50]},
                     )
                     return topic
                 else:
                     # Pattern matched but no topic - use full query as fallback
                     logger.debug(
                         "decision_keyword_detected_no_topic",
-                        extra={"pattern": pattern, "using_fallback": True}
+                        extra={"pattern": pattern, "using_fallback": True},
                     )
-                    return text.rstrip('?').strip()
+                    return text.rstrip("?").strip()
 
     return None
 
 
-def detect_session_history_keywords(text: str) -> Optional[str]:
+def detect_session_history_keywords(text: str) -> str | None:
     """Detect session history keywords in text and extract topic.
 
     Scans text for session/project history patterns from
@@ -403,22 +412,22 @@ def detect_session_history_keywords(text: str) -> Optional[str]:
             pattern_pos = text_lower.find(pattern)
             if pattern_pos != -1:
                 # Get text after pattern
-                after_pattern = text[pattern_pos + len(pattern):].strip()
+                after_pattern = text[pattern_pos + len(pattern) :].strip()
                 # Remove question mark if present
-                topic = after_pattern.rstrip('?').strip()
+                topic = after_pattern.rstrip("?").strip()
 
                 # If no topic extracted but pattern matched, use pattern as topic
                 if topic:
                     logger.debug(
                         "session_history_keyword_detected",
-                        extra={"pattern": pattern, "topic": topic[:50]}
+                        extra={"pattern": pattern, "topic": topic[:50]},
                     )
                     return topic
                 else:
                     # Pattern matched but no topic - use pattern itself as topic
                     logger.debug(
                         "session_history_keyword_detected_no_topic",
-                        extra={"pattern": pattern, "using_pattern": True}
+                        extra={"pattern": pattern, "using_pattern": True},
                     )
                     return pattern
 
@@ -435,8 +444,7 @@ def _cleanup_old_sessions() -> None:
 
     # Remove expired sessions (older than SESSION_TTL)
     expired = [
-        sid for sid, ts in _session_last_access.items()
-        if now - ts > SESSION_TTL
+        sid for sid, ts in _session_last_access.items() if now - ts > SESSION_TTL
     ]
     for sid in expired:
         _session_edited_files.pop(sid, None)
@@ -453,8 +461,8 @@ def _cleanup_old_sessions() -> None:
             "session_cleanup",
             extra={
                 "expired_count": len(expired),
-                "total_sessions": len(_session_edited_files)
-            }
+                "total_sessions": len(_session_edited_files),
+            },
         )
 
 
@@ -491,7 +499,7 @@ def detect_read_context(file_path: str, tool_name: str) -> dict:
             "should_trigger": False,
             "file_type": "",
             "component": "",
-            "search_query": ""
+            "search_query": "",
         }
 
     # Only trigger for Read tool
@@ -500,7 +508,7 @@ def detect_read_context(file_path: str, tool_name: str) -> dict:
             "should_trigger": False,
             "file_type": "",
             "component": "",
-            "search_query": ""
+            "search_query": "",
         }
 
     # Check if file exists
@@ -509,18 +517,18 @@ def detect_read_context(file_path: str, tool_name: str) -> dict:
             "should_trigger": False,
             "file_type": "",
             "component": "",
-            "search_query": ""
+            "search_query": "",
         }
 
     # Extract file extension
-    file_extension = os.path.splitext(file_path)[1].lstrip('.')
+    file_extension = os.path.splitext(file_path)[1].lstrip(".")
     if not file_extension:
         # No extension - skip trigger
         return {
             "should_trigger": False,
             "file_type": "",
             "component": "",
-            "search_query": ""
+            "search_query": "",
         }
 
     # Extract component from directory path
@@ -528,8 +536,7 @@ def detect_read_context(file_path: str, tool_name: str) -> dict:
         path_parts = Path(file_path).parts
     except (ValueError, OSError) as e:
         logger.debug(
-            "path_parsing_error",
-            extra={"file_path": file_path, "error": str(e)}
+            "path_parsing_error", extra={"file_path": file_path, "error": str(e)}
         )
         path_parts = []
 
@@ -537,9 +544,27 @@ def detect_read_context(file_path: str, tool_name: str) -> dict:
 
     # Common component directories to look for
     component_indicators = [
-        "src", "tests", "scripts", "hooks", "memory", "docker", "monitoring",
-        "lib", "pkg", "cmd", "app", "internal", "api", "components", "pages",
-        "controllers", "models", "views", "services", "utils", "helpers"
+        "src",
+        "tests",
+        "scripts",
+        "hooks",
+        "memory",
+        "docker",
+        "monitoring",
+        "lib",
+        "pkg",
+        "cmd",
+        "app",
+        "internal",
+        "api",
+        "components",
+        "pages",
+        "controllers",
+        "models",
+        "views",
+        "services",
+        "utils",
+        "helpers",
     ]
 
     for i, part in enumerate(path_parts):
@@ -578,13 +603,15 @@ def detect_read_context(file_path: str, tool_name: str) -> dict:
         "ini": "INI",
         "css": "CSS",
         "html": "HTML",
-        "sql": "SQL"
+        "sql": "SQL",
     }
 
     file_type_display = file_type_names.get(file_extension, file_extension.upper())
 
     if component:
-        search_query = f"Best practices for {file_type_display} files in {component} component"
+        search_query = (
+            f"Best practices for {file_type_display} files in {component} component"
+        )
     else:
         search_query = f"Best practices for {file_type_display} files"
 
@@ -592,7 +619,7 @@ def detect_read_context(file_path: str, tool_name: str) -> dict:
         "should_trigger": True,
         "file_type": file_extension,
         "component": component,
-        "search_query": search_query
+        "search_query": search_query,
     }
 
     logger.debug(
@@ -601,8 +628,8 @@ def detect_read_context(file_path: str, tool_name: str) -> dict:
             "file_path": file_path,
             "file_type": file_extension,
             "component": component,
-            "query": search_query[:50]
-        }
+            "query": search_query[:50],
+        },
     )
 
     return result
@@ -631,7 +658,7 @@ def is_new_file(file_path: str) -> bool:
     exists = os.path.exists(file_path)
     logger.debug(
         "new_file_check",
-        extra={"file_path": file_path, "exists": exists, "is_new": not exists}
+        extra={"file_path": file_path, "exists": exists, "is_new": not exists},
     )
     return not exists
 
@@ -692,8 +719,8 @@ def is_first_edit_in_session(file_path: str, session_id: str) -> bool:
                 extra={
                     "file_path": file_path,
                     "session_id": session_id,
-                    "session_file_count": len(edited_files)
-                }
+                    "session_file_count": len(edited_files),
+                },
             )
         else:
             logger.debug(
@@ -701,8 +728,8 @@ def is_first_edit_in_session(file_path: str, session_id: str) -> bool:
                 extra={
                     "file_path": file_path,
                     "session_id": session_id,
-                    "session_file_count": len(edited_files)
-                }
+                    "session_file_count": len(edited_files),
+                },
             )
 
         return is_first

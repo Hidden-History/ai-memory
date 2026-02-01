@@ -3,8 +3,9 @@
 import importlib
 import os
 import sys
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 def _get_real_project_module():
@@ -14,14 +15,15 @@ def _get_real_project_module():
     sys.modules. This function ensures we get the real implementation.
     """
     # Remove any mocked version
-    if 'memory.project' in sys.modules:
-        mod = sys.modules['memory.project']
+    if "memory.project" in sys.modules:
+        mod = sys.modules["memory.project"]
         # Check if it's a mock (mocks have _mock_name attribute)
-        if hasattr(mod, '_mock_name') or str(type(mod).__name__) == 'Mock':
-            del sys.modules['memory.project']
+        if hasattr(mod, "_mock_name") or str(type(mod).__name__) == "Mock":
+            del sys.modules["memory.project"]
 
     # Import fresh
     import memory.project
+
     return importlib.reload(memory.project)
 
 
@@ -87,14 +89,17 @@ class TestNormalizeProjectName:
         assert normalize_project_name("   ") == "unnamed-project"
         assert normalize_project_name("---") == "unnamed-project"
 
-    @pytest.mark.parametrize("input_name,expected", [
-        ("my-app", "my-app"),
-        ("MyApp", "myapp"),
-        ("my_app", "my-app"),
-        ("my.app", "my-app"),
-        ("my app", "my-app"),
-        ("MY-APP", "my-app"),
-    ])
+    @pytest.mark.parametrize(
+        "input_name,expected",
+        [
+            ("my-app", "my-app"),
+            ("MyApp", "myapp"),
+            ("my_app", "my-app"),
+            ("my.app", "my-app"),
+            ("my app", "my-app"),
+            ("MY-APP", "my-app"),
+        ],
+    )
     def test_normalization_examples(self, input_name, expected):
         """Test various normalization examples."""
         assert normalize_project_name(input_name) == expected
@@ -257,11 +262,14 @@ class TestDetectProject:
         result = detect_project("..")
         assert result == "parent"
 
-    @pytest.mark.parametrize("path,expected", [
-        ("/home/user/projects/my-app", "my-app"),
-        ("/home/user/work/client/webapp", "webapp"),
-        ("/", "root-project"),
-    ])
+    @pytest.mark.parametrize(
+        "path,expected",
+        [
+            ("/home/user/projects/my-app", "my-app"),
+            ("/home/user/work/client/webapp", "webapp"),
+            ("/", "root-project"),
+        ],
+    )
     def test_edge_case_examples(self, path, expected):
         """Test documented edge cases."""
         # Skip if path doesn't exist (except root)

@@ -4,26 +4,27 @@ Tests SDKWrapper and ConversationCapture with mocked dependencies.
 Validates prompt→response→capture flow and graceful degradation.
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timezone
+from unittest.mock import MagicMock, Mock, patch
 
+import pytest
 from anthropic.types import Message, TextBlock, Usage
 
-from src.memory.sdk_wrapper import SDKWrapper, ConversationCapture
-from src.memory.models import MemoryType
 from src.memory.config import COLLECTION_DISCUSSIONS
+from src.memory.models import MemoryType
+from src.memory.sdk_wrapper import ConversationCapture, SDKWrapper
 
 
 @pytest.fixture
 def mock_storage():
     """Mock MemoryStorage."""
     mock_store = Mock()
-    mock_store.store_memory = Mock(return_value={
-        "status": "stored",
-        "memory_id": "test_mem_123",
-        "embedding_status": "complete"
-    })
+    mock_store.store_memory = Mock(
+        return_value={
+            "status": "stored",
+            "memory_id": "test_mem_123",
+            "embedding_status": "complete",
+        }
+    )
     return mock_store
 
 
@@ -66,9 +67,7 @@ def mock_stream_manager():
 def conversation_capture(mock_storage, tmp_path):
     """ConversationCapture instance with mocked storage."""
     return ConversationCapture(
-        storage=mock_storage,
-        cwd=str(tmp_path),
-        session_id="test_session_123"
+        storage=mock_storage, cwd=str(tmp_path), session_id="test_session_123"
     )
 
 
@@ -152,10 +151,7 @@ def test_capture_user_message_graceful_degradation(conversation_capture, mock_st
 @patch("src.memory.sdk_wrapper.MemoryStorage")
 def test_sdk_wrapper_initialization(MockStorage, MockAnthropic, tmp_path):
     """Test SDKWrapper initializes with correct dependencies."""
-    wrapper = SDKWrapper(
-        cwd=str(tmp_path),
-        api_key="test_api_key"
-    )
+    wrapper = SDKWrapper(cwd=str(tmp_path), api_key="test_api_key")
 
     # Verify Anthropic client created with API key
     MockAnthropic.assert_called_once_with(api_key="test_api_key")
@@ -172,7 +168,7 @@ def test_sdk_wrapper_initialization(MockStorage, MockAnthropic, tmp_path):
 @patch("src.memory.sdk_wrapper.MemoryStorage")
 def test_sdk_wrapper_uses_env_api_key(MockStorage, MockAnthropic, tmp_path):
     """Test SDKWrapper uses ANTHROPIC_API_KEY from environment if not provided."""
-    wrapper = SDKWrapper(cwd=str(tmp_path))
+    SDKWrapper(cwd=str(tmp_path))
 
     MockAnthropic.assert_called_once_with(api_key="env_api_key")
 
@@ -185,19 +181,19 @@ def test_sdk_wrapper_raises_without_api_key(MockAnthropic, tmp_path):
         SDKWrapper(cwd=str(tmp_path))
 
 
-def test_send_message_captures_conversation(mock_storage, mock_anthropic_client, tmp_path):
+def test_send_message_captures_conversation(
+    mock_storage, mock_anthropic_client, tmp_path
+):
     """Test send_message captures both user message and agent response (AC Phase1.3)."""
     with patch("src.memory.sdk_wrapper.Anthropic", return_value=mock_anthropic_client):
         wrapper = SDKWrapper(
-            cwd=str(tmp_path),
-            api_key="test_key",
-            storage=mock_storage
+            cwd=str(tmp_path), api_key="test_key", storage=mock_storage
         )
 
         result = wrapper.send_message(
             prompt="What is the capital of France?",
             model="claude-3-5-sonnet-20241022",
-            max_tokens=1024
+            max_tokens=1024,
         )
 
     # Verify API called
@@ -245,9 +241,7 @@ def test_send_message_extracts_text_from_blocks(mock_storage, tmp_path):
 
     with patch("src.memory.sdk_wrapper.Anthropic", return_value=mock_client):
         wrapper = SDKWrapper(
-            cwd=str(tmp_path),
-            api_key="test_key",
-            storage=mock_storage
+            cwd=str(tmp_path), api_key="test_key", storage=mock_storage
         )
 
         result = wrapper.send_message(prompt="Test")
@@ -267,16 +261,15 @@ def test_send_message_streaming(mock_storage, mock_stream_manager, tmp_path):
 
     with patch("src.memory.sdk_wrapper.Anthropic", return_value=mock_client):
         wrapper = SDKWrapper(
-            cwd=str(tmp_path),
-            api_key="test_key",
-            storage=mock_storage
+            cwd=str(tmp_path), api_key="test_key", storage=mock_storage
         )
 
         # Consume stream
-        chunks = list(wrapper.send_message_streaming(
-            prompt="What is the capital?",
-            model="claude-3-5-sonnet-20241022"
-        ))
+        chunks = list(
+            wrapper.send_message_streaming(
+                prompt="What is the capital?", model="claude-3-5-sonnet-20241022"
+            )
+        )
 
     # Verify streaming output
     assert chunks == ["The ", "capital ", "is ", "Paris."]
@@ -309,25 +302,23 @@ def test_send_message_propagates_api_errors(mock_storage, tmp_path):
 
     with patch("src.memory.sdk_wrapper.Anthropic", return_value=mock_client):
         wrapper = SDKWrapper(
-            cwd=str(tmp_path),
-            api_key="test_key",
-            storage=mock_storage
+            cwd=str(tmp_path), api_key="test_key", storage=mock_storage
         )
 
         with pytest.raises(Exception, match="API Error"):
             wrapper.send_message(prompt="Test")
 
 
-def test_send_message_continues_on_capture_failure(mock_storage, mock_anthropic_client, tmp_path):
+def test_send_message_continues_on_capture_failure(
+    mock_storage, mock_anthropic_client, tmp_path
+):
     """Test send_message continues even if capture fails (graceful degradation)."""
     # Make storage fail
     mock_storage.store_memory.side_effect = Exception("Storage failed")
 
     with patch("src.memory.sdk_wrapper.Anthropic", return_value=mock_anthropic_client):
         wrapper = SDKWrapper(
-            cwd=str(tmp_path),
-            api_key="test_key",
-            storage=mock_storage
+            cwd=str(tmp_path), api_key="test_key", storage=mock_storage
         )
 
         # Should not raise - graceful degradation

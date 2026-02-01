@@ -21,7 +21,7 @@ from prometheus_client import Counter, Gauge, Histogram, Info
 memory_captures_total = Counter(
     "ai_memory_captures_total",
     "Total memory capture attempts",
-    ["hook_type", "status", "project"]
+    ["hook_type", "status", "project"],
     # status: success, queued, failed
     # hook_type: PostToolUse, SessionStart, Stop
 )
@@ -29,7 +29,7 @@ memory_captures_total = Counter(
 memory_retrievals_total = Counter(
     "ai_memory_retrievals_total",
     "Total memory retrieval attempts",
-    ["collection", "status"]
+    ["collection", "status"],
     # status: success, empty, failed
     # collection: code-patterns, conventions, discussions, combined
 )
@@ -37,7 +37,7 @@ memory_retrievals_total = Counter(
 embedding_requests_total = Counter(
     "ai_memory_embedding_requests_total",
     "Total embedding generation requests",
-    ["status", "embedding_type"]
+    ["status", "embedding_type"],
     # status: success, timeout, failed
     # embedding_type: dense, sparse_bm25, sparse_splade
 )
@@ -45,7 +45,11 @@ embedding_requests_total = Counter(
 deduplication_events_total = Counter(
     "ai_memory_dedup_matches",
     "Memories deduplicated (not stored)",
-    ["action", "collection", "project"]  # BUG-021: Added action/collection for dashboard granularity
+    [
+        "action",
+        "collection",
+        "project",
+    ],  # BUG-021: Added action/collection for dashboard granularity
     # action: skipped_duplicate (when dedup detected), stored (when unique)
     # collection: code-patterns, conventions, discussions
 )
@@ -53,7 +57,7 @@ deduplication_events_total = Counter(
 failure_events_total = Counter(
     "ai_memory_failure_events_total",
     "Total failure events for alerting",
-    ["component", "error_code"]
+    ["component", "error_code"],
     # component: qdrant, embedding, queue, hook
     # error_code: QDRANT_UNAVAILABLE, EMBEDDING_TIMEOUT, QUEUE_FULL, VALIDATION_ERROR
 )
@@ -65,7 +69,7 @@ failure_events_total = Counter(
 tokens_consumed_total = Counter(
     "ai_memory_tokens_consumed_total",
     "Total tokens consumed by memory operations",
-    ["operation", "direction", "project"]
+    ["operation", "direction", "project"],
     # operation: capture, retrieval, trigger, injection
     # direction: input, output
     # project: project name (from group_id)
@@ -78,7 +82,7 @@ tokens_consumed_total = Counter(
 trigger_fires_total = Counter(
     "ai_memory_trigger_fires_total",
     "Total trigger activations by type",
-    ["trigger_type", "status", "project"]
+    ["trigger_type", "status", "project"],
     # trigger_type: decision_keywords, best_practices_keywords, session_history_keywords,
     #               error_detection, new_file, first_edit
     # status: success, empty, failed
@@ -89,7 +93,7 @@ trigger_results_returned = Histogram(
     "ai_memory_trigger_results_returned",
     "Number of results returned per trigger",
     ["trigger_type"],
-    buckets=[0, 1, 2, 3, 5, 10, 20]
+    buckets=[0, 1, 2, 3, 5, 10, 20],
 )
 
 # ==============================================================================
@@ -99,13 +103,13 @@ trigger_results_returned = Histogram(
 collection_size = Gauge(
     "ai_memory_collection_size",
     "Number of memories in collection",
-    ["collection", "project"]
+    ["collection", "project"],
 )
 
 queue_size = Gauge(
     "ai_memory_queue_size",
     "Pending items in retry queue",
-    ["status"]
+    ["status"],
     # status: pending, exhausted
 )
 
@@ -117,7 +121,7 @@ hook_duration_seconds = Histogram(
     "ai_memory_hook_latency",
     "Hook execution time in seconds",
     ["hook_type"],
-    buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0],
     # Buckets optimized for NFR-P1 <500ms target
 )
 
@@ -125,7 +129,7 @@ embedding_duration_seconds = Histogram(
     "ai_memory_embedding_latency",
     "Embedding generation time in seconds",
     ["embedding_type"],
-    buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
+    buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0],
     # Buckets optimized for NFR-P2 <2s target
     # embedding_type: dense, sparse_bm25, sparse_splade
 )
@@ -133,7 +137,7 @@ embedding_duration_seconds = Histogram(
 retrieval_duration_seconds = Histogram(
     "ai_memory_search_latency",
     "Memory retrieval time in seconds",
-    buckets=[0.1, 0.5, 1.0, 2.0, 3.0, 5.0]
+    buckets=[0.1, 0.5, 1.0, 2.0, 3.0, 5.0],
     # Buckets optimized for SessionStart <3s target
 )
 
@@ -141,7 +145,7 @@ context_injection_tokens = Histogram(
     "ai_memory_context_injection_tokens",
     "Tokens injected into Claude context per hook",
     ["hook_type", "collection"],
-    buckets=[100, 250, 500, 1000, 1500, 2000, 3000, 5000]
+    buckets=[100, 250, 500, 1000, 1500, 2000, 3000, 5000],
     # hook_type: SessionStart, UserPromptSubmit, PreToolUse
     # collection: code-patterns, conventions, discussions, combined
 )
@@ -150,23 +154,23 @@ context_injection_tokens = Histogram(
 # INFO - Static metadata about the system
 # ==============================================================================
 
-system_info = Info(
-    "ai_memory_system",
-    "Memory system configuration"
-)
+system_info = Info("ai_memory_system", "Memory system configuration")
 
 # Initialize system info with static metadata
-system_info.info({
-    "version": "2.0.0",
-    "embedding_model": "jina-embeddings-v2-base-en",
-    "vector_dimensions": "768",
-    "collections": "code-patterns,conventions,discussions"
-})
+system_info.info(
+    {
+        "version": "2.0.0",
+        "embedding_model": "jina-embeddings-v2-base-en",
+        "vector_dimensions": "768",
+        "collections": "code-patterns,conventions,discussions",
+    }
+)
 
 
 # ==============================================================================
 # COLLECTION STATISTICS UPDATES (AC 6.6.3)
 # ==============================================================================
+
 
 def update_collection_metrics(stats) -> None:
     """Update Prometheus gauges with current collection stats.
@@ -188,14 +192,12 @@ def update_collection_metrics(stats) -> None:
         >>> update_collection_metrics(stats)
     """
     # Overall collection size
-    collection_size.labels(
-        collection=stats.collection_name,
-        project="all"
-    ).set(stats.total_points)
+    collection_size.labels(collection=stats.collection_name, project="all").set(
+        stats.total_points
+    )
 
     # Per-project sizes
     for project, count in stats.points_by_project.items():
-        collection_size.labels(
-            collection=stats.collection_name,
-            project=project
-        ).set(count)
+        collection_size.labels(collection=stats.collection_name, project=project).set(
+            count
+        )

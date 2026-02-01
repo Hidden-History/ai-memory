@@ -10,7 +10,7 @@ from io import StringIO
 
 import pytest
 
-from src.memory.logging_config import configure_logging, StructuredFormatter
+from src.memory.logging_config import StructuredFormatter
 from src.memory.timing import timed_operation
 
 
@@ -106,9 +106,7 @@ class TestLogOutputFormat:
         logger.setLevel(logging.INFO)
 
         # Use timed_operation to simulate hook execution
-        with timed_operation(
-            "hook", logger, extra={"hook_type": "PostToolUse"}
-        ):
+        with timed_operation("hook", logger, extra={"hook_type": "PostToolUse"}):
             pass  # Simulated hook work
 
         output = stream.getvalue().strip()

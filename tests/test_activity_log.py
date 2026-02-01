@@ -5,16 +5,8 @@ Implements BUG-006 fix verification.
 """
 
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch, mock_open
-import tempfile
-import os
 
-from src.memory.activity_log import (
-    log_user_prompt,
-    log_activity,
-    _write_full_content
-)
+from src.memory.activity_log import _write_full_content, log_user_prompt
 
 
 @pytest.fixture
@@ -64,7 +56,9 @@ def test_log_user_prompt_with_long_content(temp_log_file):
         "Success Criteria: Long prompts show full content after FULL_CONTENT marker, main log line shows 60-char preview only. Done."
     )
 
-    assert len(long_prompt) >= 700, f"Test prompt should be at least 700 chars, got {len(long_prompt)}"
+    assert (
+        len(long_prompt) >= 700
+    ), f"Test prompt should be at least 700 chars, got {len(long_prompt)}"
 
     log_user_prompt(long_prompt)
 
@@ -72,8 +66,8 @@ def test_log_user_prompt_with_long_content(temp_log_file):
     content = temp_log_file.read_text()
 
     # Verify preview line contains the full content (production does not truncate)
-    lines = content.split('\n')
-    preview_line = [l for l in lines if "UserPrompt:" in l][0]
+    lines = content.split("\n")
+    preview_line = next(l for l in lines if "UserPrompt:" in l)
 
     # Verify preview contains the start of the long prompt
     assert "Fix BUG-006: Add Full Content Logging for User Prompts" in preview_line
@@ -117,9 +111,10 @@ Line 4: Final line"""
 
 def test_write_full_content_error_handling(temp_log_file, monkeypatch):
     """Test that _write_full_content handles write errors gracefully."""
+
     # Mock open to raise an exception
     def mock_open_error(*args, **kwargs):
-        raise IOError("Disk full")
+        raise OSError("Disk full")
 
     monkeypatch.setattr("builtins.open", mock_open_error)
 
@@ -136,10 +131,10 @@ def test_log_user_prompt_preserves_existing_behavior(temp_log_file):
 
     # Read log file
     content = temp_log_file.read_text()
-    lines = content.split('\n')
+    lines = content.split("\n")
 
     # Find preview line
-    preview_line = [l for l in lines if "UserPrompt:" in l][0]
+    preview_line = next(l for l in lines if "UserPrompt:" in l)
 
     # Verify it shows full content (production does not truncate preview)
     assert "A" * 100 in preview_line

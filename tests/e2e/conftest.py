@@ -1,10 +1,13 @@
 """Pytest configuration for E2E tests."""
+
+from collections.abc import Generator
+
 import pytest
-from typing import Generator
 
 # Optional playwright imports for Grafana E2E tests
 try:
-    from playwright.sync_api import Page, BrowserContext, Browser
+    from playwright.sync_api import Browser, BrowserContext, Page
+
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False

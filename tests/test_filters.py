@@ -7,8 +7,9 @@ Phase A: Implementation Pattern Filtering
 """
 
 import os
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from memory.filters import ImplementationFilter
 
@@ -56,7 +57,7 @@ def complex_function(arg1, arg2):
     def test_store_class_definition(self):
         """Should store content with class definitions."""
         f = ImplementationFilter()
-        content = '''
+        content = """
 class MyClass:
     def __init__(self, value):
         self.value = value
@@ -66,13 +67,13 @@ class MyClass:
 
     def set_value(self, new_value):
         self.value = new_value
-'''
+"""
         assert f.should_store("models.py", content, "Write") is True
 
     def test_store_import_block(self):
         """Should store content with significant import blocks."""
         f = ImplementationFilter()
-        content = '''
+        content = """
 import os
 import sys
 import json
@@ -81,7 +82,7 @@ from typing import Optional
 
 def main():
     pass
-'''
+"""
         assert f.should_store("app.py", content, "Write") is True
 
     def test_skip_node_modules(self):
@@ -94,13 +95,21 @@ def main():
         """Should skip files in virtual environment directories."""
         f = ImplementationFilter()
         content = "def foo():\n    pass\n" * 10
-        assert f.should_store("venv/lib/python3.9/site-packages/module.py", content, "Write") is False
+        assert (
+            f.should_store(
+                "venv/lib/python3.9/site-packages/module.py", content, "Write"
+            )
+            is False
+        )
 
     def test_skip_pycache(self):
         """Should skip Python cache directories."""
         f = ImplementationFilter()
         content = "# compiled bytecode\n" * 15
-        assert f.should_store("src/__pycache__/module.cpython-39.pyc", content, "Write") is False
+        assert (
+            f.should_store("src/__pycache__/module.cpython-39.pyc", content, "Write")
+            is False
+        )
 
     def test_skip_build_directories(self):
         """Should skip build/dist directories."""
@@ -111,7 +120,7 @@ def main():
 
     def test_environment_variable_min_lines(self):
         """Should respect AI_MEMORY_FILTER_MIN_LINES environment variable."""
-        with patch.dict(os.environ, {'AI_MEMORY_FILTER_MIN_LINES': '20'}):
+        with patch.dict(os.environ, {"AI_MEMORY_FILTER_MIN_LINES": "20"}):
             f = ImplementationFilter()
             assert f.min_lines == 20
 
@@ -122,7 +131,9 @@ def main():
 
             # 25 lines of insignificant content should pass (above 20)
             long_content = "\n".join([f"x{i} = {i}" for i in range(25)])
-            assert f.should_store("test.py", long_content, "Write") is False  # Still insignificant
+            assert (
+                f.should_store("test.py", long_content, "Write") is False
+            )  # Still insignificant
 
             # But significant content passes regardless of line count
             significant_short = "def foo():\n    pass\n" * 7  # 14 lines but significant
@@ -130,10 +141,10 @@ def main():
 
     def test_environment_variable_skip_extensions(self):
         """Should respect AI_MEMORY_FILTER_SKIP_EXTENSIONS environment variable."""
-        with patch.dict(os.environ, {'AI_MEMORY_FILTER_SKIP_EXTENSIONS': 'xyz,abc'}):
+        with patch.dict(os.environ, {"AI_MEMORY_FILTER_SKIP_EXTENSIONS": "xyz,abc"}):
             f = ImplementationFilter()
-            assert '.xyz' in f.skip_extensions
-            assert '.abc' in f.skip_extensions
+            assert ".xyz" in f.skip_extensions
+            assert ".abc" in f.skip_extensions
 
             content = "def foo():\n    pass\n" * 10
             assert f.should_store("test.xyz", content, "Write") is False
@@ -196,7 +207,7 @@ def main():
         f = ImplementationFilter()
 
         # Mock Qdrant client to return empty results
-        with patch('memory.filters.get_qdrant_client') as mock_get_client:
+        with patch("memory.filters.get_qdrant_client") as mock_get_client:
             mock_client = MagicMock()
             mock_client.scroll.return_value = ([], None)  # Empty results
             mock_get_client.return_value = mock_client
@@ -209,7 +220,7 @@ def main():
         f = ImplementationFilter()
 
         # Mock Qdrant client to return existing record
-        with patch('memory.filters.get_qdrant_client') as mock_get_client:
+        with patch("memory.filters.get_qdrant_client") as mock_get_client:
             mock_client = MagicMock()
             mock_record = MagicMock()
             mock_record.id = "existing-uuid-123"
@@ -224,7 +235,7 @@ def main():
         f = ImplementationFilter()
 
         # Mock Qdrant client to raise exception
-        with patch('memory.filters.get_qdrant_client') as mock_get_client:
+        with patch("memory.filters.get_qdrant_client") as mock_get_client:
             mock_client = MagicMock()
             mock_client.scroll.side_effect = Exception("Qdrant unavailable")
             mock_get_client.return_value = mock_client
@@ -235,34 +246,34 @@ def main():
     def test_typescript_interface(self):
         """Should detect TypeScript interface definitions."""
         f = ImplementationFilter()
-        content = '''
+        content = """
 interface User {
     id: string;
     name: string;
     email: string;
 }
-'''
+"""
         assert f.is_significant(content) is True
 
     def test_rust_struct(self):
         """Should detect Rust struct definitions."""
         f = ImplementationFilter()
-        content = '''
+        content = """
 struct Point {
     x: f64,
     y: f64,
 }
-'''
+"""
         assert f.is_significant(content) is True
 
     def test_go_function(self):
         """Should detect Go function definitions."""
         f = ImplementationFilter()
-        content = '''
+        content = """
 func calculateSum(a int, b int) int {
     return a + b
 }
-'''
+"""
         assert f.is_significant(content) is True
 
     def test_path_pattern_case_insensitive(self):
@@ -272,7 +283,9 @@ func calculateSum(a int, b int) int {
 
         # Both Unix and Windows paths
         assert f.should_store("src/node_modules/pkg/file.js", content, "Write") is False
-        assert f.should_store("src\\node_modules\\pkg\\file.js", content, "Write") is False
+        assert (
+            f.should_store("src\\node_modules\\pkg\\file.js", content, "Write") is False
+        )
 
 
 class TestConversationFilter:
@@ -344,33 +357,59 @@ Select by number."""
 
     def test_detect_duplicate_messages(self):
         """Should detect duplicate messages within time window."""
+        from datetime import UTC, datetime, timedelta
+
         from memory.filters import is_duplicate_message
-        from datetime import datetime, UTC, timedelta
 
         now = datetime.now(UTC)
         messages = [
-            {"content": "Same message", "timestamp": (now - timedelta(minutes=2)).isoformat()},
-            {"content": "Different message", "timestamp": (now - timedelta(minutes=3)).isoformat()},
+            {
+                "content": "Same message",
+                "timestamp": (now - timedelta(minutes=2)).isoformat(),
+            },
+            {
+                "content": "Different message",
+                "timestamp": (now - timedelta(minutes=3)).isoformat(),
+            },
         ]
 
         # Same content within 5 minutes should be duplicate
-        assert is_duplicate_message("Same message", now.isoformat(), messages, window_minutes=5) is True
+        assert (
+            is_duplicate_message(
+                "Same message", now.isoformat(), messages, window_minutes=5
+            )
+            is True
+        )
 
         # Different content should not be duplicate
-        assert is_duplicate_message("Unique message", now.isoformat(), messages, window_minutes=5) is False
+        assert (
+            is_duplicate_message(
+                "Unique message", now.isoformat(), messages, window_minutes=5
+            )
+            is False
+        )
 
     def test_detect_duplicate_outside_window(self):
         """Should not flag duplicates outside time window."""
+        from datetime import UTC, datetime, timedelta
+
         from memory.filters import is_duplicate_message
-        from datetime import datetime, UTC, timedelta
 
         now = datetime.now(UTC)
         messages = [
-            {"content": "Same message", "timestamp": (now - timedelta(minutes=10)).isoformat()},
+            {
+                "content": "Same message",
+                "timestamp": (now - timedelta(minutes=10)).isoformat(),
+            },
         ]
 
         # Same content but outside 5-minute window
-        assert is_duplicate_message("Same message", now.isoformat(), messages, window_minutes=5) is False
+        assert (
+            is_duplicate_message(
+                "Same message", now.isoformat(), messages, window_minutes=5
+            )
+            is False
+        )
 
     def test_filter_truncated_ascii_diagrams(self):
         """Should filter out truncated ASCII diagrams."""

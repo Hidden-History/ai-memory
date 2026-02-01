@@ -21,12 +21,11 @@ Note:
     with Docker Compose up/down orchestration can be added in Story 1.8.
 """
 
-import pytest
+import json
 import subprocess
 import sys
-import json
-from pathlib import Path
-from unittest.mock import patch
+
+import pytest
 
 
 class TestGracefulDegradationIntegration:
@@ -38,13 +37,12 @@ class TestGracefulDegradationIntegration:
         result = subprocess.run(
             [sys.executable, ".claude/hooks/scripts/example_hook.py"],
             capture_output=True,
-            timeout=15  # 15s timeout (includes service health checks)
+            timeout=15,  # 15s timeout (includes service health checks)
         )
 
         # Should exit 0 (success) or 1 (non-blocking error)
         # Depending on whether services are running
-        assert result.returncode in [0, 1], \
-            f"Unexpected exit code: {result.returncode}"
+        assert result.returncode in [0, 1], f"Unexpected exit code: {result.returncode}"
 
     def test_example_hook_never_exits_2(self):
         """Example hook should never exit 2 (blocking)."""
@@ -53,12 +51,11 @@ class TestGracefulDegradationIntegration:
             result = subprocess.run(
                 [sys.executable, ".claude/hooks/scripts/example_hook.py"],
                 capture_output=True,
-                timeout=15  # 15s timeout (includes service health checks)
+                timeout=15,  # 15s timeout (includes service health checks)
             )
 
             # Never blocking error
-            assert result.returncode != 2, \
-                "Hook should never exit with blocking code 2"
+            assert result.returncode != 2, "Hook should never exit with blocking code 2"
 
     def test_hook_with_services_running(self):
         """Test hook behavior when services are available."""
@@ -73,7 +70,7 @@ class TestGracefulDegradationIntegration:
         result = subprocess.run(
             [sys.executable, ".claude/hooks/scripts/example_hook.py"],
             capture_output=True,
-            timeout=15  # 15s timeout (includes service health checks)
+            timeout=15,  # 15s timeout (includes service health checks)
         )
 
         # Should exit 0 (success)
@@ -89,10 +86,10 @@ class TestGracefulDegradationIntegration:
 
         # We'll test queue_operation directly since we can't easily
         # control Docker services in CI/CD
-        from src.memory.queue import queue_operation
-
         # Override queue paths
         import src.memory.queue
+        from src.memory.queue import queue_operation
+
         original_queue_dir = src.memory.queue.QUEUE_DIR
         original_queue_file = src.memory.queue.QUEUE_FILE
 
@@ -105,7 +102,7 @@ class TestGracefulDegradationIntegration:
                 "content": "Integration test memory",
                 "group_id": "integration-test",
                 "type": "implementation",
-                "timestamp": "2026-01-11T00:00:00Z"
+                "timestamp": "2026-01-11T00:00:00Z",
             }
 
             result = queue_operation(operation)
@@ -118,7 +115,7 @@ class TestGracefulDegradationIntegration:
             assert mode == 0o700
 
             # Verify JSONL format
-            with open(test_queue_file, "r") as f:
+            with open(test_queue_file) as f:
                 lines = f.readlines()
 
             assert len(lines) == 1
@@ -138,22 +135,32 @@ class TestGracefulDegradationIntegration:
         # Test all possible health states
         test_cases = [
             ({"qdrant": True, "embedding": True, "all_healthy": True}, "normal"),
-            ({"qdrant": False, "embedding": True, "all_healthy": False}, "queue_to_file"),
-            ({"qdrant": True, "embedding": False, "all_healthy": False}, "pending_embedding"),
-            ({"qdrant": False, "embedding": False, "all_healthy": False}, "passthrough"),
+            (
+                {"qdrant": False, "embedding": True, "all_healthy": False},
+                "queue_to_file",
+            ),
+            (
+                {"qdrant": True, "embedding": False, "all_healthy": False},
+                "pending_embedding",
+            ),
+            (
+                {"qdrant": False, "embedding": False, "all_healthy": False},
+                "passthrough",
+            ),
         ]
 
         for health, expected_mode in test_cases:
             mode = get_fallback_mode(health)
-            assert mode == expected_mode, \
-                f"Health {health} should yield mode {expected_mode}, got {mode}"
+            assert (
+                mode == expected_mode
+            ), f"Health {health} should yield mode {expected_mode}, got {mode}"
 
     def test_hook_output_contains_structured_logging(self):
         """Hook should use structured logging throughout."""
         result = subprocess.run(
             [sys.executable, ".claude/hooks/scripts/example_hook.py"],
             capture_output=True,
-            timeout=15  # 15s timeout (includes service health checks)
+            timeout=15,  # 15s timeout (includes service health checks)
         )
 
         output = result.stderr.decode() + result.stdout.decode()
@@ -172,7 +179,7 @@ class TestGracefulDegradationIntegration:
         result = subprocess.run(
             [sys.executable, ".claude/hooks/scripts/example_hook.py"],
             capture_output=True,
-            timeout=15  # 15s timeout (includes service health checks)
+            timeout=15,  # 15s timeout (includes service health checks)
         )
 
         elapsed_time = time.time() - start_time
@@ -187,13 +194,14 @@ class TestQueueReplay:
 
     def test_queue_can_be_loaded_and_replayed(self, tmp_path, monkeypatch):
         """Test loading and processing queued operations."""
-        from src.memory.queue import queue_operation, load_queue, remove_from_queue
+        from src.memory.queue import load_queue, queue_operation, remove_from_queue
 
         # Monkeypatch queue location
         test_queue_dir = tmp_path / "queue"
         test_queue_file = test_queue_dir / "pending.jsonl"
 
         import src.memory.queue
+
         original_queue_dir = src.memory.queue.QUEUE_DIR
         original_queue_file = src.memory.queue.QUEUE_FILE
 
@@ -247,7 +255,7 @@ class TestExitCodeBehavior:
         result = subprocess.run(
             [sys.executable, ".claude/hooks/scripts/example_hook.py"],
             capture_output=True,
-            timeout=15  # 15s timeout (includes service health checks)
+            timeout=15,  # 15s timeout (includes service health checks)
         )
 
         output = result.stderr.decode() + result.stdout.decode()
@@ -262,7 +270,7 @@ class TestExitCodeBehavior:
             result = subprocess.run(
                 [sys.executable, ".claude/hooks/scripts/example_hook.py"],
                 capture_output=True,
-                timeout=15  # 15s timeout (includes service health checks)
+                timeout=15,  # 15s timeout (includes service health checks)
             )
 
             # Should be 0 or 1, never 2

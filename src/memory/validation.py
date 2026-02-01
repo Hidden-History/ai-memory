@@ -8,7 +8,7 @@ import hashlib
 
 from .models import MemoryType
 
-__all__ = ["ValidationError", "validate_payload", "compute_content_hash"]
+__all__ = ["ValidationError", "compute_content_hash", "validate_payload"]
 
 
 class ValidationError(Exception):
@@ -70,10 +70,20 @@ def validate_payload(payload: dict) -> list[str]:
     # - seed_script: seed_best_practices.py (convention seeding)
     # - manual: skill-based or API-driven storage (Story 4.3)
     valid_hooks = [
-        "PostToolUse", "Stop", "SessionStart", "UserPromptSubmit",
-        "PreCompact", "PreToolUse", "seed_script", "manual"
+        "PostToolUse",
+        "Stop",
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreCompact",
+        "PreToolUse",
+        "seed_script",
+        "manual",
     ]
-    if "source_hook" in payload and payload["source_hook"] and payload.get("source_hook") not in valid_hooks:
+    if (
+        "source_hook" in payload
+        and payload["source_hook"]
+        and payload.get("source_hook") not in valid_hooks
+    ):
         errors.append(f"Invalid source_hook. Must be one of: {valid_hooks}")
 
     return errors

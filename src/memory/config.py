@@ -16,28 +16,27 @@ References:
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
-    "MemoryConfig",
-    "get_config",
-    "reset_config",
     "AGENTS",
-    "VALID_AGENTS",
     "AGENT_TOKEN_BUDGETS",
-    "get_agent_token_budget",
-    "COLLECTION_NAMES",
     "COLLECTION_CODE_PATTERNS",
     "COLLECTION_CONVENTIONS",
     "COLLECTION_DISCUSSIONS",
-    "TYPE_USER_MESSAGE",
-    "TYPE_AGENT_RESPONSE",
-    "TYPE_SESSION",
+    "COLLECTION_NAMES",
     "EMBEDDING_DIMENSIONS",
     "EMBEDDING_MODEL",
+    "TYPE_AGENT_RESPONSE",
+    "TYPE_SESSION",
+    "TYPE_USER_MESSAGE",
+    "VALID_AGENTS",
+    "MemoryConfig",
+    "get_agent_token_budget",
+    "get_config",
+    "reset_config",
 ]
 
 # Memory System v2.0 Collection Names (MEMORY-SYSTEM-REDESIGN-v2.md Section 4)
@@ -108,28 +107,25 @@ class MemoryConfig(BaseSettings):
         default=0.7,
         ge=0.0,
         le=1.0,
-        description="Minimum similarity score for retrieval (0.0-1.0). Lower = more results, potentially less relevant."
+        description="Minimum similarity score for retrieval (0.0-1.0). Lower = more results, potentially less relevant.",
     )
 
     dedup_threshold: float = Field(
         default=0.95,
         ge=0.80,
         le=0.99,
-        description="Similarity threshold for deduplication (0.80-0.99). Higher = stricter dedup, fewer similar memories stored."
+        description="Similarity threshold for deduplication (0.80-0.99). Higher = stricter dedup, fewer similar memories stored.",
     )
 
     max_retrievals: int = Field(
-        default=5,
-        ge=1,
-        le=50,
-        description="Maximum memories to retrieve per session"
+        default=5, ge=1, le=50, description="Maximum memories to retrieve per session"
     )
 
     token_budget: int = Field(
         default=2000,
         ge=100,
         le=100000,
-        description="Token budget for context injection. Controls how much context is sent to Claude."
+        description="Token budget for context injection. Controls how much context is sent to Claude.",
     )
 
     # Search performance tuning (TECH-DEBT-066)
@@ -137,109 +133,99 @@ class MemoryConfig(BaseSettings):
         default=64,
         ge=16,
         le=512,
-        description="HNSW ef parameter for trigger mode (speed priority). Lower = faster search."
+        description="HNSW ef parameter for trigger mode (speed priority). Lower = faster search.",
     )
 
     hnsw_ef_accurate: int = Field(
         default=128,
         ge=16,
         le=512,
-        description="HNSW ef parameter for user search mode (accuracy priority). Higher = more accurate."
+        description="HNSW ef parameter for user search mode (accuracy priority). Higher = more accurate.",
     )
 
     # Service configuration
-    qdrant_host: str = Field(
-        default="localhost",
-        description="Qdrant server hostname"
-    )
+    qdrant_host: str = Field(default="localhost", description="Qdrant server hostname")
 
     qdrant_port: int = Field(
         default=26350,
         ge=1024,
         le=65535,
-        description="Qdrant server port (Story 1.1: 26350 to avoid conflicts)"
+        description="Qdrant server port (Story 1.1: 26350 to avoid conflicts)",
     )
 
-    qdrant_api_key: Optional[str] = Field(
-        default=None,
-        description="Optional API key for Qdrant authentication (BP-040)"
+    qdrant_api_key: str | None = Field(
+        default=None, description="Optional API key for Qdrant authentication (BP-040)"
     )
 
     qdrant_use_https: bool = Field(
         default=False,
-        description="Use HTTPS for Qdrant connections (BP-040: required for production with API keys)"
+        description="Use HTTPS for Qdrant connections (BP-040: required for production with API keys)",
     )
 
     embedding_host: str = Field(
-        default="localhost",
-        description="Embedding service hostname"
+        default="localhost", description="Embedding service hostname"
     )
 
     embedding_port: int = Field(
         default=28080,
         ge=1024,
         le=65535,
-        description="Embedding service port (DEC-004: 28080 to avoid conflicts)"
+        description="Embedding service port (DEC-004: 28080 to avoid conflicts)",
     )
 
     monitoring_host: str = Field(
-        default="localhost",
-        description="Monitoring API hostname"
+        default="localhost", description="Monitoring API hostname"
     )
 
     monitoring_port: int = Field(
         default=28000,
         ge=1024,
         le=65535,
-        description="Monitoring API port for health checks and metrics"
+        description="Monitoring API port for health checks and metrics",
     )
 
     embedding_dimension: int = Field(
         default=768,
         ge=128,
         le=4096,
-        description="Embedding vector dimension (default 768 for jina-embeddings-v2-base-en)"
+        description="Embedding vector dimension (default 768 for jina-embeddings-v2-base-en)",
     )
 
     # Logging & Monitoring
     log_level: str = Field(
         default="INFO",
         pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$",
-        description="Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL"
+        description="Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL",
     )
 
     log_format: str = Field(
         default="json",
         pattern="^(json|text)$",
-        description="Log format: json (production), text (development)"
+        description="Log format: json (production), text (development)",
     )
 
     collection_size_warning: int = Field(
-        default=10000,
-        ge=100,
-        description="Collection size warning threshold"
+        default=10000, ge=100, description="Collection size warning threshold"
     )
 
     collection_size_critical: int = Field(
-        default=50000,
-        ge=1000,
-        description="Collection size critical threshold"
+        default=50000, ge=1000, description="Collection size critical threshold"
     )
 
     # Paths
     install_dir: Path = Field(
         default_factory=lambda: Path.home() / ".ai-memory",
-        description="Installation directory"
+        description="Installation directory",
     )
 
     queue_path: Path = Field(
         default_factory=lambda: Path.home() / ".ai-memory" / "pending_queue.jsonl",
-        description="Queue file for pending operations"
+        description="Queue file for pending operations",
     )
 
     session_log_path: Path = Field(
         default_factory=lambda: Path.home() / ".ai-memory" / "sessions.jsonl",
-        description="Session logs"
+        description="Session logs",
     )
 
     @field_validator("install_dir", "queue_path", "session_log_path", mode="before")
@@ -287,7 +273,7 @@ AGENTS = {
 }
 
 # Valid agent names for validation (exported for models.py)
-VALID_AGENTS = [k for k in AGENTS.keys() if k != "default"]
+VALID_AGENTS = [k for k in AGENTS if k != "default"]
 
 # Backward compatibility - deprecated, use AGENTS dict directly
 AGENT_TOKEN_BUDGETS = {k: v["budget"] for k, v in AGENTS.items()}

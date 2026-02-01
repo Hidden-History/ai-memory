@@ -14,23 +14,20 @@ Updated per code review (2026-01-14):
 import json
 import os
 import sys
-import time
-from unittest.mock import Mock, patch, MagicMock
-from concurrent.futures import ThreadPoolExecutor
-
-import pytest
+from unittest.mock import MagicMock, Mock, patch
 
 # Add scripts directory to path and import health-check module
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 # Import after path modification - use importlib for hyphenated module name
 import importlib.util
+
 spec = importlib.util.spec_from_file_location(
     "health_check",
-    os.path.join(os.path.dirname(__file__), '..', 'scripts', 'health-check.py')
+    os.path.join(os.path.dirname(__file__), "..", "scripts", "health-check.py"),
 )
 health_check = importlib.util.module_from_spec(spec)
-sys.modules['health_check'] = health_check  # Add to sys.modules so @patch can find it
+sys.modules["health_check"] = health_check  # Add to sys.modules so @patch can find it
 spec.loader.exec_module(health_check)
 
 # Import symbols from the module
@@ -52,10 +49,7 @@ class TestHealthCheckResult:
     def test_healthy_result(self):
         """Test creating a healthy result."""
         result = HealthCheckResult(
-            component="test",
-            status="healthy",
-            message="All good",
-            latency_ms=123.45
+            component="test", status="healthy", message="All good", latency_ms=123.45
         )
         assert result.component == "test"
         assert result.status == "healthy"
@@ -69,7 +63,7 @@ class TestHealthCheckResult:
             component="test",
             status="unhealthy",
             message="Service down",
-            error_details="Check logs"
+            error_details="Check logs",
         )
         assert result.status == "unhealthy"
         assert result.error_details == "Check logs"
@@ -78,7 +72,7 @@ class TestHealthCheckResult:
 class TestCheckQdrant:
     """Test check_qdrant function."""
 
-    @patch('health_check.httpx.get')
+    @patch("health_check.httpx.get")
     def test_qdrant_healthy_with_collections(self, mock_get):
         """Test Qdrant is healthy and has required collections."""
         # Mock /healthz endpoint
@@ -90,10 +84,7 @@ class TestCheckQdrant:
         collections_response.status_code = 200
         collections_response.json.return_value = {
             "result": {
-                "collections": [
-                    {"name": "code-patterns"},
-                    {"name": "conventions"}
-                ]
+                "collections": [{"name": "code-patterns"}, {"name": "conventions"}]
             }
         }
 
@@ -107,7 +98,7 @@ class TestCheckQdrant:
         assert result.latency_ms is not None
         assert result.latency_ms > 0
 
-    @patch('health_check.httpx.get')
+    @patch("health_check.httpx.get")
     def test_qdrant_missing_collections(self, mock_get):
         """Test Qdrant is running but missing collections."""
         # Mock /healthz endpoint
@@ -118,11 +109,7 @@ class TestCheckQdrant:
         collections_response = Mock()
         collections_response.status_code = 200
         collections_response.json.return_value = {
-            "result": {
-                "collections": [
-                    {"name": "other_collection"}
-                ]
-            }
+            "result": {"collections": [{"name": "other_collection"}]}
         }
 
         mock_get.side_effect = [healthz_response, collections_response]
@@ -135,7 +122,7 @@ class TestCheckQdrant:
         assert "other_collection" in result.message
         assert result.error_details == "Run setup script to create collections"
 
-    @patch('health_check.httpx.get')
+    @patch("health_check.httpx.get")
     def test_qdrant_http_error(self, mock_get):
         """Test Qdrant returns HTTP error."""
         # Mock /healthz endpoint with error
@@ -150,10 +137,11 @@ class TestCheckQdrant:
         assert result.status == "unhealthy"
         assert "503" in result.message
 
-    @patch('health_check.httpx.get')
+    @patch("health_check.httpx.get")
     def test_qdrant_timeout(self, mock_get):
         """Test Qdrant timeout handling."""
         import httpx
+
         mock_get.side_effect = httpx.TimeoutException("Connection timeout")
 
         result = check_qdrant(timeout=5)
@@ -164,7 +152,7 @@ class TestCheckQdrant:
         assert result.latency_ms == 5000
         assert "starting or hung" in result.error_details
 
-    @patch('health_check.httpx.get')
+    @patch("health_check.httpx.get")
     def test_qdrant_connection_error(self, mock_get):
         """Test Qdrant connection refused."""
         mock_get.side_effect = Exception("Connection refused")
@@ -181,14 +169,14 @@ class TestCheckQdrant:
 class TestCheckEmbeddingService:
     """Test check_embedding_service function."""
 
-    @patch('health_check.httpx.get')
+    @patch("health_check.httpx.get")
     def test_embedding_healthy_model_loaded(self, mock_get):
         """Test embedding service healthy with model loaded."""
         response = Mock()
         response.status_code = 200
         response.json.return_value = {
             "model_loaded": True,
-            "model_name": "jina-embeddings-v2-base-en"
+            "model_name": "jina-embeddings-v2-base-en",
         }
         mock_get.return_value = response
 
@@ -199,14 +187,12 @@ class TestCheckEmbeddingService:
         assert "jina-embeddings-v2-base-en" in result.message
         assert result.latency_ms is not None
 
-    @patch('health_check.httpx.get')
+    @patch("health_check.httpx.get")
     def test_embedding_warning_model_not_loaded(self, mock_get):
         """Test embedding service running but model not loaded."""
         response = Mock()
         response.status_code = 200
-        response.json.return_value = {
-            "model_loaded": False
-        }
+        response.json.return_value = {"model_loaded": False}
         mock_get.return_value = response
 
         result = check_embedding_service()
@@ -216,10 +202,11 @@ class TestCheckEmbeddingService:
         assert "model not loaded" in result.message
         assert "10-30s" in result.error_details
 
-    @patch('health_check.httpx.get')
+    @patch("health_check.httpx.get")
     def test_embedding_timeout(self, mock_get):
         """Test embedding service timeout."""
         import httpx
+
         mock_get.side_effect = httpx.TimeoutException("Timeout")
 
         result = check_embedding_service(timeout=10)
@@ -233,13 +220,15 @@ class TestCheckEmbeddingService:
 class TestCheckEmbeddingFunctionality:
     """Test check_embedding_functionality function."""
 
-    @patch('health_check.httpx.post')
+    @patch("health_check.httpx.post")
     def test_embedding_test_successful(self, mock_post):
         """Test embedding generation successful with correct dimensions (DEC-010: 768)."""
         response = Mock()
         response.status_code = 200
         response.json.return_value = {
-            "embeddings": [[0.1] * EXPECTED_EMBEDDING_DIMENSIONS]  # DEC-010: 768 dimensions
+            "embeddings": [
+                [0.1] * EXPECTED_EMBEDDING_DIMENSIONS
+            ]  # DEC-010: 768 dimensions
         }
         mock_post.return_value = response
 
@@ -247,10 +236,12 @@ class TestCheckEmbeddingFunctionality:
 
         assert result.component == "embedding_test"
         assert result.status == "healthy"
-        assert f"{EXPECTED_EMBEDDING_DIMENSIONS}d embeddings generated" in result.message
+        assert (
+            f"{EXPECTED_EMBEDDING_DIMENSIONS}d embeddings generated" in result.message
+        )
         assert result.latency_ms is not None
 
-    @patch('health_check.httpx.post')
+    @patch("health_check.httpx.post")
     def test_embedding_test_wrong_dimensions(self, mock_post):
         """Test embedding generation returns wrong dimensions."""
         response = Mock()
@@ -267,14 +258,12 @@ class TestCheckEmbeddingFunctionality:
         assert "Unexpected dimensions: 1024" in result.message
         assert f"expected {EXPECTED_EMBEDDING_DIMENSIONS}" in result.message
 
-    @patch('health_check.httpx.post')
+    @patch("health_check.httpx.post")
     def test_embedding_test_empty_array(self, mock_post):
         """Test embedding generation returns empty array."""
         response = Mock()
         response.status_code = 200
-        response.json.return_value = {
-            "embeddings": []  # Empty array
-        }
+        response.json.return_value = {"embeddings": []}  # Empty array
         mock_post.return_value = response
 
         result = check_embedding_functionality()
@@ -283,14 +272,12 @@ class TestCheckEmbeddingFunctionality:
         assert result.status == "unhealthy"
         assert "Empty embeddings returned" in result.message
 
-    @patch('health_check.httpx.post')
+    @patch("health_check.httpx.post")
     def test_embedding_test_empty_vector(self, mock_post):
         """Test embedding generation returns array with empty vector."""
         response = Mock()
         response.status_code = 200
-        response.json.return_value = {
-            "embeddings": [[]]  # Array with empty vector
-        }
+        response.json.return_value = {"embeddings": [[]]}  # Array with empty vector
         mock_post.return_value = response
 
         result = check_embedding_functionality()
@@ -299,10 +286,11 @@ class TestCheckEmbeddingFunctionality:
         assert result.status == "unhealthy"
         assert "Empty embeddings returned" in result.message
 
-    @patch('health_check.httpx.post')
+    @patch("health_check.httpx.post")
     def test_embedding_test_timeout(self, mock_post):
         """Test embedding generation timeout."""
         import httpx
+
         mock_post.side_effect = httpx.TimeoutException("Timeout")
 
         result = check_embedding_functionality(timeout=30)
@@ -312,7 +300,7 @@ class TestCheckEmbeddingFunctionality:
         assert "Timeout after 30s" in result.message
         assert result.latency_ms == 30000
 
-    @patch('health_check.httpx.post')
+    @patch("health_check.httpx.post")
     def test_embedding_test_http_error(self, mock_post):
         """Test embedding generation HTTP error."""
         response = Mock()
@@ -329,8 +317,8 @@ class TestCheckEmbeddingFunctionality:
 class TestCheckHooksConfigured:
     """Test check_hooks_configured function."""
 
-    @patch('builtins.open')
-    @patch('os.path.expanduser')
+    @patch("builtins.open")
+    @patch("os.path.expanduser")
     def test_hooks_all_configured(self, mock_expanduser, mock_open):
         """Test all hooks are configured."""
         mock_expanduser.return_value = "/home/user/.claude/settings.json"
@@ -339,7 +327,7 @@ class TestCheckHooksConfigured:
             "hooks": {
                 "SessionStart": [{"type": "command", "command": "start.py"}],
                 "PostToolUse": [{"type": "command", "command": "post.py"}],
-                "Stop": [{"type": "command", "command": "stop.py"}]
+                "Stop": [{"type": "command", "command": "stop.py"}],
             }
         }
 
@@ -348,15 +336,15 @@ class TestCheckHooksConfigured:
         mock_open.return_value = mock_file
 
         # Mock json.load to return our settings
-        with patch('json.load', return_value=settings_data):
+        with patch("json.load", return_value=settings_data):
             result = check_hooks_configured()
 
         assert result.component == "hooks"
         assert result.status == "healthy"
         assert "All 3 hooks configured" in result.message
 
-    @patch('builtins.open')
-    @patch('os.path.expanduser')
+    @patch("builtins.open")
+    @patch("os.path.expanduser")
     def test_hooks_missing(self, mock_expanduser, mock_open):
         """Test some hooks are missing - now returns healthy (graceful handling)."""
         mock_expanduser.return_value = "/home/user/.claude/settings.json"
@@ -368,7 +356,7 @@ class TestCheckHooksConfigured:
             }
         }
 
-        with patch('json.load', return_value=settings_data):
+        with patch("json.load", return_value=settings_data):
             result = check_hooks_configured()
 
         assert result.component == "hooks"
@@ -376,12 +364,12 @@ class TestCheckHooksConfigured:
         assert result.status == "healthy"
         assert "Hooks configured in target project" in result.message
 
-    @patch('os.path.expanduser')
+    @patch("os.path.expanduser")
     def test_hooks_file_not_found(self, mock_expanduser):
         """Test settings.json not found - now returns healthy (graceful handling)."""
         mock_expanduser.return_value = "/home/user/.claude/settings.json"
 
-        with patch('builtins.open', side_effect=FileNotFoundError):
+        with patch("builtins.open", side_effect=FileNotFoundError):
             result = check_hooks_configured()
 
         assert result.component == "hooks"
@@ -389,13 +377,13 @@ class TestCheckHooksConfigured:
         assert result.status == "healthy"
         assert "Hooks configured in target project" in result.message
 
-    @patch('builtins.open')
-    @patch('os.path.expanduser')
+    @patch("builtins.open")
+    @patch("os.path.expanduser")
     def test_hooks_invalid_json(self, mock_expanduser, mock_open):
         """Test settings.json has invalid JSON - now returns healthy (graceful handling)."""
         mock_expanduser.return_value = "/home/user/.claude/settings.json"
 
-        with patch('json.load', side_effect=json.JSONDecodeError("", "", 0)):
+        with patch("json.load", side_effect=json.JSONDecodeError("", "", 0)):
             result = check_hooks_configured()
 
         assert result.component == "hooks"
@@ -407,9 +395,9 @@ class TestCheckHooksConfigured:
 class TestCheckHookScripts:
     """Test check_hook_scripts function."""
 
-    @patch('os.path.exists')
-    @patch('os.access')
-    @patch.dict(os.environ, {'AI_MEMORY_INSTALL_DIR': '/test/install'})
+    @patch("os.path.exists")
+    @patch("os.access")
+    @patch.dict(os.environ, {"AI_MEMORY_INSTALL_DIR": "/test/install"})
     def test_all_scripts_present_and_executable(self, mock_access, mock_exists):
         """Test all hook scripts exist and are executable."""
         mock_exists.return_value = True
@@ -422,8 +410,8 @@ class TestCheckHookScripts:
         # Production now only requires 2 scripts (session_stop.py deprecated per BUG-041)
         assert "All 2 scripts present and executable" in result.message
 
-    @patch('os.path.exists')
-    @patch.dict(os.environ, {'AI_MEMORY_INSTALL_DIR': '/test/install'})
+    @patch("os.path.exists")
+    @patch.dict(os.environ, {"AI_MEMORY_INSTALL_DIR": "/test/install"})
     def test_scripts_missing(self, mock_exists):
         """Test some scripts are missing."""
         # First script missing, second present (only 2 required scripts now)
@@ -436,9 +424,9 @@ class TestCheckHookScripts:
         assert "Missing scripts" in result.message
         assert "session_start.py" in result.message
 
-    @patch('os.path.exists')
-    @patch('os.access')
-    @patch.dict(os.environ, {'AI_MEMORY_INSTALL_DIR': '/test/install'})
+    @patch("os.path.exists")
+    @patch("os.access")
+    @patch.dict(os.environ, {"AI_MEMORY_INSTALL_DIR": "/test/install"})
     def test_scripts_not_executable(self, mock_access, mock_exists):
         """Test scripts exist but are not executable."""
         mock_exists.return_value = True
@@ -456,7 +444,7 @@ class TestCheckHookScripts:
 class TestCheckMonitoringApi:
     """Test check_monitoring_api function."""
 
-    @patch('health_check.httpx.get')
+    @patch("health_check.httpx.get")
     def test_monitoring_healthy(self, mock_get):
         """Test monitoring API is healthy."""
         response = Mock()
@@ -470,7 +458,7 @@ class TestCheckMonitoringApi:
         assert "Monitoring API ready" in result.message
         assert result.latency_ms is not None
 
-    @patch('health_check.httpx.get')
+    @patch("health_check.httpx.get")
     def test_monitoring_http_error(self, mock_get):
         """Test monitoring API returns HTTP error."""
         response = Mock()
@@ -483,10 +471,11 @@ class TestCheckMonitoringApi:
         assert result.status == "warning"  # Optional service - warning not failure
         assert "503" in result.message
 
-    @patch('health_check.httpx.get')
+    @patch("health_check.httpx.get")
     def test_monitoring_timeout(self, mock_get):
         """Test monitoring API timeout (warning, not failure)."""
         import httpx
+
         mock_get.side_effect = httpx.TimeoutException("Timeout")
 
         result = check_monitoring_api(timeout=5)
@@ -496,7 +485,7 @@ class TestCheckMonitoringApi:
         assert "Timeout after 5s" in result.message
         assert "optional" in result.error_details.lower()
 
-    @patch('health_check.httpx.get')
+    @patch("health_check.httpx.get")
     def test_monitoring_connection_refused(self, mock_get):
         """Test monitoring API connection refused (warning)."""
         mock_get.side_effect = Exception("Connection refused")
@@ -511,14 +500,21 @@ class TestCheckMonitoringApi:
 class TestRunHealthChecks:
     """Test run_health_checks parallel execution."""
 
-    @patch('health_check.check_monitoring_api')
-    @patch('health_check.check_hook_scripts')
-    @patch('health_check.check_hooks_configured')
-    @patch('health_check.check_embedding_functionality')
-    @patch('health_check.check_embedding_service')
-    @patch('health_check.check_qdrant')
-    def test_parallel_execution(self, mock_qdrant, mock_embedding, mock_embed_test,
-                               mock_hooks, mock_scripts, mock_monitoring):
+    @patch("health_check.check_monitoring_api")
+    @patch("health_check.check_hook_scripts")
+    @patch("health_check.check_hooks_configured")
+    @patch("health_check.check_embedding_functionality")
+    @patch("health_check.check_embedding_service")
+    @patch("health_check.check_qdrant")
+    def test_parallel_execution(
+        self,
+        mock_qdrant,
+        mock_embedding,
+        mock_embed_test,
+        mock_hooks,
+        mock_scripts,
+        mock_monitoring,
+    ):
         """Test all checks run in parallel."""
         # Mock each check to return unique results and add __name__ attribute
         mock_qdrant.return_value = HealthCheckResult("qdrant", "healthy", "OK")
@@ -527,7 +523,9 @@ class TestRunHealthChecks:
         mock_embedding.return_value = HealthCheckResult("embedding", "healthy", "OK")
         mock_embedding.__name__ = "check_embedding_service"
 
-        mock_embed_test.return_value = HealthCheckResult("embedding_test", "healthy", "OK")
+        mock_embed_test.return_value = HealthCheckResult(
+            "embedding_test", "healthy", "OK"
+        )
         mock_embed_test.__name__ = "check_embedding_functionality"
 
         mock_hooks.return_value = HealthCheckResult("hooks", "healthy", "OK")
@@ -556,32 +554,40 @@ class TestRunHealthChecks:
         components = [r.component for r in results]
         assert components == sorted(components)
 
-    @patch('health_check.check_qdrant')
+    @patch("health_check.check_qdrant")
     def test_exception_handling(self, mock_qdrant):
         """Test exception handling in parallel execution."""
         # Make one check raise an exception and add __name__
         mock_qdrant.side_effect = Exception("Unexpected error")
         mock_qdrant.__name__ = "check_qdrant"
 
-        with patch('health_check.check_embedding_service') as mock_embed, \
-             patch('health_check.check_embedding_functionality') as mock_test, \
-             patch('health_check.check_hooks_configured') as mock_hooks, \
-             patch('health_check.check_hook_scripts') as mock_scripts, \
-             patch('health_check.check_monitoring_api') as mock_monitoring:
+        with (
+            patch("health_check.check_embedding_service") as mock_embed,
+            patch("health_check.check_embedding_functionality") as mock_test,
+            patch("health_check.check_hooks_configured") as mock_hooks,
+            patch("health_check.check_hook_scripts") as mock_scripts,
+            patch("health_check.check_monitoring_api") as mock_monitoring,
+        ):
 
             mock_embed.return_value = HealthCheckResult("embedding", "healthy", "OK")
             mock_embed.__name__ = "check_embedding_service"
 
-            mock_test.return_value = HealthCheckResult("embedding_test", "healthy", "OK")
+            mock_test.return_value = HealthCheckResult(
+                "embedding_test", "healthy", "OK"
+            )
             mock_test.__name__ = "check_embedding_functionality"
 
             mock_hooks.return_value = HealthCheckResult("hooks", "healthy", "OK")
             mock_hooks.__name__ = "check_hooks_configured"
 
-            mock_scripts.return_value = HealthCheckResult("hook_scripts", "healthy", "OK")
+            mock_scripts.return_value = HealthCheckResult(
+                "hook_scripts", "healthy", "OK"
+            )
             mock_scripts.__name__ = "check_hook_scripts"
 
-            mock_monitoring.return_value = HealthCheckResult("monitoring", "healthy", "OK")
+            mock_monitoring.return_value = HealthCheckResult(
+                "monitoring", "healthy", "OK"
+            )
             mock_monitoring.__name__ = "check_monitoring_api"
 
             results = run_health_checks()
@@ -590,7 +596,7 @@ class TestRunHealthChecks:
             assert len(results) == 6
 
             # The failed check should have status unhealthy
-            qdrant_result = [r for r in results if r.component == "check_qdrant"][0]
+            qdrant_result = next(r for r in results if r.component == "check_qdrant")
             assert qdrant_result.status == "unhealthy"
 
 
@@ -601,7 +607,7 @@ class TestPrintResults:
         """Test printing all healthy results."""
         results = [
             HealthCheckResult("qdrant", "healthy", "OK", 45.0),
-            HealthCheckResult("embedding", "healthy", "OK", 12.0)
+            HealthCheckResult("embedding", "healthy", "OK", 12.0),
         ]
 
         success = print_results(results)
@@ -617,7 +623,9 @@ class TestPrintResults:
         """Test printing results with warnings only - warnings don't fail health check."""
         results = [
             HealthCheckResult("qdrant", "healthy", "OK"),
-            HealthCheckResult("monitoring", "warning", "Timeout", error_details="Optional service")
+            HealthCheckResult(
+                "monitoring", "warning", "Timeout", error_details="Optional service"
+            ),
         ]
 
         success = print_results(results)
@@ -633,7 +641,7 @@ class TestPrintResults:
         """Test printing results with both warnings and failures."""
         results = [
             HealthCheckResult("qdrant", "unhealthy", "Connection refused"),
-            HealthCheckResult("monitoring", "warning", "Timeout")
+            HealthCheckResult("monitoring", "warning", "Timeout"),
         ]
 
         success = print_results(results)
@@ -646,8 +654,12 @@ class TestPrintResults:
     def test_with_failures(self, capsys):
         """Test printing results with failures."""
         results = [
-            HealthCheckResult("qdrant", "unhealthy", "Connection refused",
-                            error_details="Check if service is running")
+            HealthCheckResult(
+                "qdrant",
+                "unhealthy",
+                "Connection refused",
+                error_details="Check if service is running",
+            )
         ]
 
         success = print_results(results)
@@ -663,28 +675,24 @@ class TestPrintResults:
 class TestMain:
     """Test main function."""
 
-    @patch('health_check.run_health_checks')
-    @patch('health_check.print_results')
-    @patch('sys.exit')
+    @patch("health_check.run_health_checks")
+    @patch("health_check.print_results")
+    @patch("sys.exit")
     def test_main_success(self, mock_exit, mock_print, mock_run):
         """Test main function with successful health checks."""
-        mock_run.return_value = [
-            HealthCheckResult("test", "healthy", "OK")
-        ]
+        mock_run.return_value = [HealthCheckResult("test", "healthy", "OK")]
         mock_print.return_value = True
 
         health_check.main()
 
         mock_exit.assert_called_once_with(0)
 
-    @patch('health_check.run_health_checks')
-    @patch('health_check.print_results')
-    @patch('sys.exit')
+    @patch("health_check.run_health_checks")
+    @patch("health_check.print_results")
+    @patch("sys.exit")
     def test_main_failure(self, mock_exit, mock_print, mock_run):
         """Test main function with failed health checks."""
-        mock_run.return_value = [
-            HealthCheckResult("test", "unhealthy", "Failed")
-        ]
+        mock_run.return_value = [HealthCheckResult("test", "unhealthy", "Failed")]
         mock_print.return_value = False
 
         health_check.main()

@@ -6,23 +6,20 @@ and graceful degradation.
 """
 
 import asyncio
-import pytest
 import time
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from datetime import datetime, timezone
+from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+from anthropic import APIStatusError, RateLimitError
 from anthropic.types import Message, TextBlock, Usage
-from anthropic import RateLimitError, APIStatusError
 
 from src.memory.async_sdk_wrapper import (
-    AsyncSDKWrapper,
     AsyncConversationCapture,
-    RateLimitQueue,
-    QueueTimeoutError,
+    AsyncSDKWrapper,
     QueueDepthExceededError,
+    QueueTimeoutError,
+    RateLimitQueue,
 )
-from src.memory.models import MemoryType
-from src.memory.config import COLLECTION_DISCUSSIONS
 
 
 @pytest.fixture
@@ -133,7 +130,9 @@ async def test_rate_limiter_queues_when_exceeded():
 @pytest.mark.asyncio
 async def test_queue_depth_exceeded_error():
     """Test QueueDepthExceededError raised when queue full."""
-    limiter = RateLimitQueue(requests_per_minute=60, tokens_per_minute=6000, max_queue_depth=1)
+    limiter = RateLimitQueue(
+        requests_per_minute=60, tokens_per_minute=6000, max_queue_depth=1
+    )
 
     # Manually set queue depth to max (simulating concurrent requests)
     limiter._queue_depth = 1
@@ -199,9 +198,9 @@ def test_update_from_headers_syncs_state():
 
     # Simulate API response headers
     headers = {
-        'anthropic-ratelimit-requests-remaining': '25',
-        'anthropic-ratelimit-input-tokens-remaining': '15000',
-        'anthropic-ratelimit-output-tokens-remaining': '10000',
+        "anthropic-ratelimit-requests-remaining": "25",
+        "anthropic-ratelimit-input-tokens-remaining": "15000",
+        "anthropic-ratelimit-output-tokens-remaining": "10000",
     }
 
     limiter.update_from_headers(headers)
@@ -262,9 +261,7 @@ async def test_async_capture_user_message_background(mock_storage, tmp_path):
 @pytest.mark.asyncio
 async def test_async_capture_wait_for_storage(mock_storage, tmp_path):
     """Test wait_for_storage waits for background tasks."""
-    capture = AsyncConversationCapture(
-        storage=mock_storage, cwd=str(tmp_path)
-    )
+    capture = AsyncConversationCapture(storage=mock_storage, cwd=str(tmp_path))
 
     # Create some background tasks
     await capture.capture_user_message("Message 1")
@@ -386,7 +383,7 @@ async def test_background_storage_non_blocking(mock_storage, tmp_path):
 
     # Send message - should return quickly despite slow storage
     start = time.monotonic()
-    result = await wrapper.send_message("Test")
+    await wrapper.send_message("Test")
     elapsed = time.monotonic() - start
 
     # Should return in <200ms (not waiting for storage)
@@ -465,11 +462,15 @@ def test_tenacity_retry_predicate(tmp_path):
     assert wrapper._should_retry_api_error(rate_limit_error) is True
 
     # Test APIStatusError with 429 - should retry
-    error_429 = APIStatusError("Too many requests", response=Mock(status_code=429), body=None)
+    error_429 = APIStatusError(
+        "Too many requests", response=Mock(status_code=429), body=None
+    )
     assert wrapper._should_retry_api_error(error_429) is True
 
     # Test APIStatusError with 529 - should retry
-    error_529 = APIStatusError("Service overloaded", response=Mock(status_code=529), body=None)
+    error_529 = APIStatusError(
+        "Service overloaded", response=Mock(status_code=529), body=None
+    )
     assert wrapper._should_retry_api_error(error_529) is True
 
     # Test APIStatusError with 400 - should NOT retry
@@ -477,7 +478,9 @@ def test_tenacity_retry_predicate(tmp_path):
     assert wrapper._should_retry_api_error(error_400) is False
 
     # Test APIStatusError with 401 - should NOT retry
-    error_401 = APIStatusError("Unauthorized", response=Mock(status_code=401), body=None)
+    error_401 = APIStatusError(
+        "Unauthorized", response=Mock(status_code=401), body=None
+    )
     assert wrapper._should_retry_api_error(error_401) is False
 
     # Test APIStatusError with 403 - should NOT retry
@@ -485,7 +488,9 @@ def test_tenacity_retry_predicate(tmp_path):
     assert wrapper._should_retry_api_error(error_403) is False
 
     # Test APIStatusError with 500 - should NOT retry
-    error_500 = APIStatusError("Internal server error", response=Mock(status_code=500), body=None)
+    error_500 = APIStatusError(
+        "Internal server error", response=Mock(status_code=500), body=None
+    )
     assert wrapper._should_retry_api_error(error_500) is False
 
     # Test non-API exception - should NOT retry
@@ -509,7 +514,9 @@ async def test_send_message_with_retry_success(mock_storage, tmp_path):
         if call_count < 2:
             mock_response = Mock()
             mock_response.status_code = 429
-            raise RateLimitError("Rate limit exceeded", response=mock_response, body=None)
+            raise RateLimitError(
+                "Rate limit exceeded", response=mock_response, body=None
+            )
 
         # Success on second attempt
         mock_message = Mock(spec=Message)
@@ -544,7 +551,9 @@ async def test_streaming_with_retry_success(mock_storage, tmp_path):
             if self.should_fail:
                 mock_response = Mock()
                 mock_response.status_code = 429
-                raise RateLimitError("Rate limit on stream init", response=mock_response, body=None)
+                raise RateLimitError(
+                    "Rate limit on stream init", response=mock_response, body=None
+                )
             return self
 
         async def __aexit__(self, *args):
@@ -678,8 +687,8 @@ async def test_storage_tasks_counted(mock_storage, tmp_path):
     from src.memory.async_sdk_wrapper import sdk_storage_tasks
 
     # Get initial counts
-    initial_created = sdk_storage_tasks.labels(status='created')._value._value
-    initial_failed = sdk_storage_tasks.labels(status='failed')._value._value
+    initial_created = sdk_storage_tasks.labels(status="created")._value._value
+    initial_failed = sdk_storage_tasks.labels(status="failed")._value._value
 
     # Test successful storage
     capture = AsyncConversationCapture(
@@ -695,7 +704,7 @@ async def test_storage_tasks_counted(mock_storage, tmp_path):
     await capture.wait_for_storage(timeout=2.0)
 
     # Created counter should have incremented twice
-    final_created = sdk_storage_tasks.labels(status='created')._value._value
+    final_created = sdk_storage_tasks.labels(status="created")._value._value
     assert final_created >= initial_created + 2
 
     # Test failed storage
@@ -712,7 +721,7 @@ async def test_storage_tasks_counted(mock_storage, tmp_path):
     await capture_fail.wait_for_storage(timeout=2.0)
 
     # Failed counter should have incremented
-    final_failed = sdk_storage_tasks.labels(status='failed')._value._value
+    final_failed = sdk_storage_tasks.labels(status="failed")._value._value
     assert final_failed >= initial_failed + 1
 
 
@@ -730,7 +739,7 @@ async def test_retry_after_header_respected():
         if call_count == 1:
             # First call: simulate 429 with retry-after header
             mock_response = Mock()
-            mock_response.headers = {'retry-after': '2'}  # Wait 2 seconds
+            mock_response.headers = {"retry-after": "2"}  # Wait 2 seconds
             raise RateLimitError("Rate limited", response=mock_response, body=None)
 
         # Second call: succeed
@@ -820,10 +829,7 @@ async def test_token_estimation_multiplier(tmp_path: pytest.TempPathFactory) -> 
 
     This multiplier accounts for subword tokenization in English text.
     """
-    wrapper = AsyncSDKWrapper(
-        cwd=str(tmp_path),
-        api_key="test_token_estimation"
-    )
+    wrapper = AsyncSDKWrapper(cwd=str(tmp_path), api_key="test_token_estimation")
 
     # Mock API response
     mock_message = Mock(spec=Message)
@@ -852,8 +858,9 @@ async def test_token_estimation_multiplier(tmp_path: pytest.TempPathFactory) -> 
     await wrapper.send_message(prompt)
 
     # Verify token estimation used 1.3x multiplier
-    assert captured_tokens == expected_tokens, \
-        f"Expected {expected_tokens} tokens (5 words * 1.3), got {captured_tokens}"
+    assert (
+        captured_tokens == expected_tokens
+    ), f"Expected {expected_tokens} tokens (5 words * 1.3), got {captured_tokens}"
 
     await wrapper.close()
 
@@ -866,10 +873,7 @@ async def test_rate_limit_header_state_tracking() -> None:
     - available_requests ← anthropic-ratelimit-requests-remaining
     - available_tokens ← min(input-tokens-remaining, output-tokens-remaining)
     """
-    wrapper = AsyncSDKWrapper(
-        cwd="/test",
-        api_key="test_header_sync"
-    )
+    wrapper = AsyncSDKWrapper(cwd="/test", api_key="test_header_sync")
 
     # Mock API response with specific rate limit headers
     mock_message = Mock(spec=Message)
@@ -892,11 +896,13 @@ async def test_rate_limit_header_state_tracking() -> None:
     await wrapper.send_message("Test message")
 
     # Verify state was synced from response headers
-    assert wrapper.rate_limiter.available_requests == 42.0, \
-        "available_requests should be updated from anthropic-ratelimit-requests-remaining"
+    assert (
+        wrapper.rate_limiter.available_requests == 42.0
+    ), "available_requests should be updated from anthropic-ratelimit-requests-remaining"
 
-    assert wrapper.rate_limiter.available_tokens == 25000.0, \
-        "available_tokens should be min(25000, 28000) from input/output token headers"
+    assert (
+        wrapper.rate_limiter.available_tokens == 25000.0
+    ), "available_tokens should be min(25000, 28000) from input/output token headers"
 
     await wrapper.close()
 
@@ -908,10 +914,12 @@ async def test_rate_limit_header_state_tracking() -> None:
 
 def test_async_sdk_wrapper_exported():
     """Test that AsyncSDKWrapper is exported from src.memory."""
-    from src.memory import AsyncSDKWrapper, AsyncConversationCapture
+    from src.memory import AsyncConversationCapture, AsyncSDKWrapper
 
     assert AsyncSDKWrapper is not None, "AsyncSDKWrapper should be exported"
-    assert AsyncConversationCapture is not None, "AsyncConversationCapture should be exported"
+    assert (
+        AsyncConversationCapture is not None
+    ), "AsyncConversationCapture should be exported"
 
     # Verify they are the correct classes
     assert AsyncSDKWrapper.__name__ == "AsyncSDKWrapper"
@@ -920,10 +928,12 @@ def test_async_sdk_wrapper_exported():
 
 def test_exception_classes_exported():
     """Test that exception classes are exported from src.memory."""
-    from src.memory import QueueTimeoutError, QueueDepthExceededError
+    from src.memory import QueueDepthExceededError, QueueTimeoutError
 
     assert QueueTimeoutError is not None, "QueueTimeoutError should be exported"
-    assert QueueDepthExceededError is not None, "QueueDepthExceededError should be exported"
+    assert (
+        QueueDepthExceededError is not None
+    ), "QueueDepthExceededError should be exported"
 
     # Verify they are Exception subclasses
     assert issubclass(QueueTimeoutError, Exception)
@@ -957,9 +967,9 @@ def test_all_async_sdk_classes_in_all():
 @pytest.mark.integration
 def test_basic_usage_example_syntax():
     """Test examples/async_sdk_basic.py has valid syntax and imports."""
+    import os
     import subprocess
     import sys
-    import os
     from pathlib import Path
 
     example_path = Path(__file__).parent.parent / "examples" / "async_sdk_basic.py"
@@ -967,7 +977,7 @@ def test_basic_usage_example_syntax():
 
     # Set PYTHONPATH to include project root
     env = os.environ.copy()
-    env['PYTHONPATH'] = str(project_root)
+    env["PYTHONPATH"] = str(project_root)
 
     # Test syntax by importing (doesn't require API key)
     result = subprocess.run(
@@ -975,14 +985,16 @@ def test_basic_usage_example_syntax():
         capture_output=True,
         text=True,
         timeout=10,
-        env=env
+        env=env,
     )
 
     # Should compile without syntax errors
     assert result.returncode == 0, f"Example failed to compile: {result.stderr}"
 
     # Should not have syntax errors
-    assert "SyntaxError" not in result.stderr, f"Syntax error in example: {result.stderr}"
+    assert (
+        "SyntaxError" not in result.stderr
+    ), f"Syntax error in example: {result.stderr}"
 
 
 @pytest.mark.asyncio
@@ -995,7 +1007,9 @@ async def test_exported_classes_functional():
 
     assert wrapper.rate_limiter is not None, "Wrapper should have rate_limiter"
     assert wrapper.capture is not None, "Wrapper should have conversation capture"
-    assert wrapper.capture.session_id.startswith("sdk_sess_"), "Session ID should have correct prefix"
+    assert wrapper.capture.session_id.startswith(
+        "sdk_sess_"
+    ), "Session ID should have correct prefix"
 
     await wrapper.close()
 

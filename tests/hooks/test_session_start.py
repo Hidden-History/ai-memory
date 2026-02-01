@@ -3,32 +3,31 @@
 Tests V2.0 context injection behavior for compact/resume events.
 """
 
-import pytest
 import json
 import sys
-import importlib
-from unittest.mock import patch, MagicMock, mock_open
-from datetime import datetime, UTC
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Import fixtures
 sys.path.insert(0, "tests")
 from mocks.qdrant_mock import MockQdrantClient
 
 # Add hook scripts to path
-sys.path.insert(0, '.claude/hooks/scripts')
+sys.path.insert(0, ".claude/hooks/scripts")
 
 
 @pytest.fixture
 def compact_event():
     """Load compact event fixture."""
-    with open('tests/fixtures/hooks/session_start_compact.json') as f:
+    with open("tests/fixtures/hooks/session_start_compact.json") as f:
         return json.load(f)
 
 
 @pytest.fixture
 def resume_event():
     """Load resume event fixture."""
-    with open('tests/fixtures/hooks/session_start_resume.json') as f:
+    with open("tests/fixtures/hooks/session_start_resume.json") as f:
         return json.load(f)
 
 
@@ -57,14 +56,16 @@ class TestSessionStartHook:
     def setup_method(self):
         """Reset module state before each test."""
         # Clear any cached imports
-        if 'session_start' in sys.modules:
-            del sys.modules['session_start']
+        if "session_start" in sys.modules:
+            del sys.modules["session_start"]
         yield
         # Cleanup after test
-        if 'session_start' in sys.modules:
-            del sys.modules['session_start']
+        if "session_start" in sys.modules:
+            del sys.modules["session_start"]
 
-    def test_compact_event_retrieves_context(self, compact_event, mock_qdrant, mock_config):
+    def test_compact_event_retrieves_context(
+        self, compact_event, mock_qdrant, mock_config
+    ):
         """Test that compact event triggers context injection.
 
         V2.0 behavior: On compact, retrieve conversation context from discussions
@@ -87,13 +88,15 @@ class TestSessionStartHook:
                     "first_user_prompt": "Add error handling to the storage module",
                     "last_user_prompts": [
                         {"content": "Add error handling to the storage module"},
-                        {"content": "Great, also add logging for failed operations"}
+                        {"content": "Great, also add logging for failed operations"},
                     ],
                     "last_agent_responses": [
-                        {"content": "I'll add comprehensive error handling with graceful degradation to the storage module."}
+                        {
+                            "content": "I'll add comprehensive error handling with graceful degradation to the storage module."
+                        }
                     ],
-                    "session_metadata": {}
-                }
+                    "session_metadata": {},
+                },
             )
         ]
 
@@ -101,8 +104,8 @@ class TestSessionStartHook:
         mock_qdrant.upsert("discussions", points=session_summary)
 
         # Import the function to test
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 # Import after patching
                 from session_start import get_conversation_context
 
@@ -111,7 +114,7 @@ class TestSessionStartHook:
                     config=mock_config,
                     session_id=session_id,
                     project_name="ai-memory-module",
-                    limit=5
+                    limit=5,
                 )
 
                 # Verify context includes summary
@@ -152,22 +155,22 @@ class TestSessionStartHook:
                         {"content": "Implement the search functionality"}
                     ],
                     "last_agent_responses": [],
-                    "session_metadata": {}
-                }
+                    "session_metadata": {},
+                },
             )
         ]
 
         mock_qdrant.upsert("discussions", points=points)
 
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 from session_start import get_conversation_context
 
                 context = get_conversation_context(
                     config=mock_config,
                     session_id=session_id,
                     project_name="ai-memory-module",
-                    limit=5
+                    limit=5,
                 )
 
                 # Verify resume loads user message from summary
@@ -179,8 +182,8 @@ class TestSessionStartHook:
         Graceful degradation: If no conversation data exists, return empty string
         and let Claude continue without context injection.
         """
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 from session_start import get_conversation_context
 
                 # Call with session that has no data
@@ -188,7 +191,7 @@ class TestSessionStartHook:
                     config=mock_config,
                     session_id="nonexistent_session",
                     project_name="ai-memory-module",
-                    limit=5
+                    limit=5,
                 )
 
                 # Verify empty context returned
@@ -218,26 +221,24 @@ class TestSessionStartHook:
                     "group_id": "ai-memory-module",
                     "created_at": "2026-01-21T10:00:00Z",
                     "first_user_prompt": "Long prompt",
-                    "last_user_prompts": [
-                        {"content": long_content}
-                    ],
+                    "last_user_prompts": [{"content": long_content}],
                     "last_agent_responses": [],
-                    "session_metadata": {}
-                }
+                    "session_metadata": {},
+                },
             )
         ]
 
         mock_qdrant.upsert("discussions", points=points)
 
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 from session_start import get_conversation_context
 
                 context = get_conversation_context(
                     config=mock_config,
                     session_id=session_id,
                     project_name="ai-memory-module",
-                    limit=5
+                    limit=5,
                 )
 
                 # Verify smart_truncate marker present (adds "...")
@@ -270,25 +271,23 @@ class TestSessionStartHook:
                     "created_at": "2026-01-21T10:02:00Z",
                     "first_user_prompt": "Implement feature",
                     "last_user_prompts": [],
-                    "last_agent_responses": [
-                        {"content": long_response}
-                    ],
-                    "session_metadata": {}
-                }
+                    "last_agent_responses": [{"content": long_response}],
+                    "session_metadata": {},
+                },
             )
         ]
 
         mock_qdrant.upsert("discussions", points=points)
 
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 from session_start import get_conversation_context
 
                 context = get_conversation_context(
                     config=mock_config,
                     session_id=session_id,
                     project_name="ai-memory-module",
-                    limit=5
+                    limit=5,
                 )
 
                 # Verify smart_truncate marker for agent response (adds "...")
@@ -309,8 +308,10 @@ class TestSessionStartHook:
         failing_client = MagicMock()
         failing_client.scroll.side_effect = Exception("Connection refused")
 
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=failing_client):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch(
+            "memory.qdrant_client.get_qdrant_client", return_value=failing_client
+        ):
+            with patch("memory.config.get_config", return_value=mock_config):
                 from session_start import get_conversation_context
 
                 # Should not raise, should return empty
@@ -318,7 +319,7 @@ class TestSessionStartHook:
                     config=mock_config,
                     session_id="test_session",
                     project_name="ai-memory-module",
-                    limit=5
+                    limit=5,
                 )
 
                 assert context == ""
@@ -330,7 +331,6 @@ class TestSessionStartHook:
         - 60% of token budget for session summaries (highest priority)
         - 40% of token budget for other memories (decisions, patterns, conventions)
         """
-        from qdrant_client.models import PointStruct
 
         # Setup session summaries (should get 60% of budget = 1200 tokens)
         session_summaries = [
@@ -341,7 +341,7 @@ class TestSessionStartHook:
                 "first_user_prompt": "Add error handling",
                 "last_user_prompts": [],
                 "last_agent_responses": [],
-                "session_metadata": {}
+                "session_metadata": {},
             },
             {
                 "content": "Added structured logging to all modules per Story 6.2",
@@ -350,8 +350,8 @@ class TestSessionStartHook:
                 "first_user_prompt": "Add logging",
                 "last_user_prompts": [],
                 "last_agent_responses": [],
-                "session_metadata": {}
-            }
+                "session_metadata": {},
+            },
         ]
 
         # Setup other memories (should get 40% of budget = 800 tokens)
@@ -360,18 +360,18 @@ class TestSessionStartHook:
                 "content": "Decision: Use Qdrant for vector storage (DEC-001)",
                 "type": "decision",
                 "collection": "discussions",
-                "score": 0.85
+                "score": 0.85,
             },
             {
                 "content": "Pattern: Always apply filter_low_value_content before injection",
                 "type": "implementation",
                 "collection": "code-patterns",
-                "score": 0.90
-            }
+                "score": 0.90,
+            },
         ]
 
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 from session_start import inject_with_priority
 
                 # Set token budget to 2000 (60% = 1200, 40% = 800)
@@ -380,19 +380,29 @@ class TestSessionStartHook:
                 result = inject_with_priority(
                     session_summaries=session_summaries,
                     other_memories=other_memories,
-                    token_budget=2000
+                    token_budget=2000,
                 )
 
                 # Verify session summaries appear first
-                assert result.find("error handling") < result.find("Decision: Use Qdrant") or "Decision: Use Qdrant" not in result
-                assert result.find("structured logging") < result.find("Pattern: Always apply") or "Pattern: Always apply" not in result
+                assert (
+                    result.find("error handling") < result.find("Decision: Use Qdrant")
+                    or "Decision: Use Qdrant" not in result
+                )
+                assert (
+                    result.find("structured logging")
+                    < result.find("Pattern: Always apply")
+                    or "Pattern: Always apply" not in result
+                )
 
                 # Verify both session summaries included (they fit in 60% budget)
                 assert "error handling" in result
                 assert "structured logging" in result
 
                 # Verify at least one other memory included (fits in 40% budget)
-                assert "Decision: Use Qdrant" in result or "Pattern: Always apply" in result
+                assert (
+                    "Decision: Use Qdrant" in result
+                    or "Pattern: Always apply" in result
+                )
 
     def test_priority_injection_respects_token_budget(self, mock_qdrant, mock_config):
         """Test TECH-DEBT-047: Priority injection respects total token budget."""
@@ -405,7 +415,7 @@ class TestSessionStartHook:
                 "first_user_prompt": f"Task {i}",
                 "last_user_prompts": [],
                 "last_agent_responses": [],
-                "session_metadata": {}
+                "session_metadata": {},
             }
             for i in range(10)  # 10 summaries * 200 tokens = 2000 tokens
         ]
@@ -415,28 +425,32 @@ class TestSessionStartHook:
                 "content": "B" * 400,  # ~100 tokens
                 "type": "decision",
                 "collection": "discussions",
-                "score": 0.85
+                "score": 0.85,
             }
             for _ in range(5)  # 5 memories * 100 tokens = 500 tokens
         ]
 
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
-                from session_start import inject_with_priority, estimate_tokens
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
+                from session_start import estimate_tokens, inject_with_priority
 
                 mock_config.token_budget = 1000  # Small budget
 
                 result = inject_with_priority(
                     session_summaries=session_summaries,
                     other_memories=other_memories,
-                    token_budget=1000
+                    token_budget=1000,
                 )
 
                 # Verify total tokens don't exceed budget
                 actual_tokens = estimate_tokens(result)
-                assert actual_tokens <= 1000, f"Token budget exceeded: {actual_tokens} > 1000"
+                assert (
+                    actual_tokens <= 1000
+                ), f"Token budget exceeded: {actual_tokens} > 1000"
 
-    def test_priority_injection_filters_low_value_content(self, mock_qdrant, mock_config):
+    def test_priority_injection_filters_low_value_content(
+        self, mock_qdrant, mock_config
+    ):
         """Test TECH-DEBT-047: Use filters.py to remove low-value content."""
         # Session summary with menu patterns (should be filtered)
         session_summaries = [
@@ -447,14 +461,14 @@ class TestSessionStartHook:
                 "first_user_prompt": "Show menu",
                 "last_user_prompts": [],
                 "last_agent_responses": [],
-                "session_metadata": {}
+                "session_metadata": {},
             }
         ]
 
         other_memories = []
 
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 from session_start import inject_with_priority
 
                 mock_config.token_budget = 2000
@@ -462,7 +476,7 @@ class TestSessionStartHook:
                 result = inject_with_priority(
                     session_summaries=session_summaries,
                     other_memories=other_memories,
-                    token_budget=2000
+                    token_budget=2000,
                 )
 
                 # Verify menu patterns filtered out
@@ -478,31 +492,33 @@ class TestPriorityInjectionEdgeCases:
 
     def test_both_lists_empty_returns_empty(self, mock_qdrant, mock_config):
         """Empty summaries + empty memories = empty result."""
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 from session_start import inject_with_priority
 
                 result = inject_with_priority([], [], 2000)
                 assert result == "" or result.strip() == ""
 
-    def test_single_giant_summary_leaves_room_for_phase2(self, mock_qdrant, mock_config):
+    def test_single_giant_summary_leaves_room_for_phase2(
+        self, mock_qdrant, mock_config
+    ):
         """Single summary exceeding 60% budget still allows Phase 2."""
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 from session_start import inject_with_priority
 
                 # Create a giant summary (10000 chars = ~3333 tokens)
                 giant_summary = {
                     "content": "x" * 10000,
                     "timestamp": "2026-01-25T10:00:00Z",
-                    "type": "session"
+                    "type": "session",
                 }
 
                 # Also add a small other memory
                 small_memory = {
                     "content": "Decision: Use Qdrant",
                     "type": "decision",
-                    "score": 0.85
+                    "score": 0.85,
                 }
 
                 result = inject_with_priority([giant_summary], [small_memory], 2000)
@@ -514,15 +530,19 @@ class TestPriorityInjectionEdgeCases:
 
     def test_malformed_timestamp_handled(self, mock_qdrant, mock_config):
         """Invalid timestamp doesn't crash."""
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 from session_start import inject_with_priority
 
                 # Test various malformed timestamps
                 bad_summaries = [
                     {"content": "test1", "timestamp": None, "type": "session"},
                     {"content": "test2", "timestamp": "invalid", "type": "session"},
-                    {"content": "test3", "timestamp": 12345, "type": "session"},  # Wrong type
+                    {
+                        "content": "test3",
+                        "timestamp": 12345,
+                        "type": "session",
+                    },  # Wrong type
                 ]
 
                 result = inject_with_priority(bad_summaries, [], 2000)
@@ -532,11 +552,13 @@ class TestPriorityInjectionEdgeCases:
 
     def test_zero_budget_no_division_error(self, mock_qdrant, mock_config):
         """token_budget=0 doesn't cause division by zero."""
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 from session_start import inject_with_priority
 
-                summaries = [{"content": "test", "timestamp": "2026-01-25", "type": "session"}]
+                summaries = [
+                    {"content": "test", "timestamp": "2026-01-25", "type": "session"}
+                ]
 
                 # Should not crash with budget=0
                 result = inject_with_priority(summaries, [], 0)
@@ -546,11 +568,13 @@ class TestPriorityInjectionEdgeCases:
 
     def test_negative_budget_handled(self, mock_qdrant, mock_config):
         """Negative budget is handled gracefully."""
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 from session_start import inject_with_priority
 
-                summaries = [{"content": "test", "timestamp": "2026-01-25", "type": "session"}]
+                summaries = [
+                    {"content": "test", "timestamp": "2026-01-25", "type": "session"}
+                ]
 
                 # Should not crash with negative budget
                 result = inject_with_priority(summaries, [], -100)
@@ -560,17 +584,22 @@ class TestPriorityInjectionEdgeCases:
 
     def test_filter_exception_graceful_fallback(self, mock_qdrant, mock_config):
         """If filter raises, fall back to unfiltered content."""
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 # Mock filter_low_value_content to raise exception
-                with patch('session_start.filter_low_value_content', side_effect=Exception("Filter crashed")):
+                with patch(
+                    "session_start.filter_low_value_content",
+                    side_effect=Exception("Filter crashed"),
+                ):
                     from session_start import inject_with_priority
 
-                    summaries = [{
-                        "content": "This content should still appear despite filter failure",
-                        "timestamp": "2026-01-25T10:00:00Z",
-                        "type": "session"
-                    }]
+                    summaries = [
+                        {
+                            "content": "This content should still appear despite filter failure",
+                            "timestamp": "2026-01-25T10:00:00Z",
+                            "type": "session",
+                        }
+                    ]
 
                     result = inject_with_priority(summaries, [], 2000)
 
@@ -579,19 +608,24 @@ class TestPriorityInjectionEdgeCases:
 
     def test_smart_truncate_exception_fallback(self, mock_qdrant, mock_config):
         """If smart_truncate raises, fall back to simple truncation."""
-        with patch('memory.qdrant_client.get_qdrant_client', return_value=mock_qdrant):
-            with patch('memory.config.get_config', return_value=mock_config):
+        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
+            with patch("memory.config.get_config", return_value=mock_config):
                 # Mock smart_truncate to raise exception
-                with patch('session_start.smart_truncate', side_effect=Exception("Truncate crashed")):
+                with patch(
+                    "session_start.smart_truncate",
+                    side_effect=Exception("Truncate crashed"),
+                ):
                     from session_start import inject_with_priority
 
                     # Long content that triggers truncation
                     long_content = "a" * 3000
-                    summaries = [{
-                        "content": long_content,
-                        "timestamp": "2026-01-25T10:00:00Z",
-                        "type": "session"
-                    }]
+                    summaries = [
+                        {
+                            "content": long_content,
+                            "timestamp": "2026-01-25T10:00:00Z",
+                            "type": "session",
+                        }
+                    ]
 
                     result = inject_with_priority(summaries, [], 2000)
 

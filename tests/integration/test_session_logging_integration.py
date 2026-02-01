@@ -2,25 +2,18 @@
 # tests/integration/test_session_logging_integration.py
 """Integration tests for session logging (Story 6.5)."""
 
-import os
-import sys
-import json
 import gzip
+import json
 import subprocess
-import tempfile
-from pathlib import Path
-import pytest
+import sys
 import time
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, "src")
 
-from memory.session_logger import (
-    get_session_logger,
-    log_to_session_file,
-    SESSION_LOG_PATH
-)
-
+from memory.session_logger import log_to_session_file
 
 pytestmark = pytest.mark.integration
 
@@ -29,12 +22,14 @@ pytestmark = pytest.mark.integration
 def temp_session_log(tmp_path, monkeypatch):
     """Create temporary session log path for testing."""
     import memory.session_logger as session_logger_module
+
     log_path = tmp_path / "sessions.jsonl"
     monkeypatch.setenv("SESSION_LOG_ENABLED", "true")
     monkeypatch.setattr(session_logger_module, "SESSION_LOG_PATH", str(log_path))
 
     # Clear any existing loggers
     import logging
+
     logging.getLogger("bmad.memory.sessions").handlers.clear()
 
     yield log_path
@@ -50,11 +45,13 @@ class TestSessionLogFileCreation:
         """Test that JSONL file is created on first log entry."""
         assert not temp_session_log.exists()
 
-        log_to_session_file({
-            "session_id": "sess-integration-1",
-            "project": "test-project",
-            "results_count": 5
-        })
+        log_to_session_file(
+            {
+                "session_id": "sess-integration-1",
+                "project": "test-project",
+                "results_count": 5,
+            }
+        )
 
         assert temp_session_log.exists()
 
@@ -67,7 +64,7 @@ class TestSessionLogFileCreation:
         log_to_session_file({"session_id": "sess-2"})
 
         # Verify both entries exist
-        with open(temp_session_log, 'r') as f:
+        with open(temp_session_log) as f:
             lines = f.readlines()
 
         assert len(lines) == 2
@@ -76,13 +73,10 @@ class TestSessionLogFileCreation:
         """Test that each line in JSONL is valid JSON."""
         # Write multiple entries
         for i in range(5):
-            log_to_session_file({
-                "session_id": f"sess-{i}",
-                "results_count": i
-            })
+            log_to_session_file({"session_id": f"sess-{i}", "results_count": i})
 
         # Verify each line is parseable
-        with open(temp_session_log, 'r') as f:
+        with open(temp_session_log) as f:
             for line in f:
                 entry = json.loads(line.strip())
                 assert "message" in entry
@@ -94,6 +88,7 @@ class TestSessionLogRotation:
     def test_rotates_at_max_bytes_threshold(self, tmp_path, monkeypatch):
         """Test that log rotates when exceeding maxBytes."""
         import memory.session_logger as session_logger_module
+
         log_path = tmp_path / "sessions.jsonl"
 
         monkeypatch.setenv("SESSION_LOG_ENABLED", "true")
@@ -102,11 +97,12 @@ class TestSessionLogRotation:
 
         # Clear existing logger
         import logging
+
         logging.getLogger("bmad.memory.sessions").handlers.clear()
 
         # Write enough data to trigger rotation
         large_data = {"large_field": "x" * 500}
-        for i in range(20):  # ~10KB of data
+        for _i in range(20):  # ~10KB of data
             log_to_session_file(large_data)
             time.sleep(0.01)  # Small delay for rotation to occur
 
@@ -117,6 +113,7 @@ class TestSessionLogRotation:
     def test_rotated_files_are_gzipped(self, tmp_path, monkeypatch):
         """Test that rotated files are compressed with gzip."""
         import memory.session_logger as session_logger_module
+
         log_path = tmp_path / "sessions.jsonl"
 
         monkeypatch.setenv("SESSION_LOG_ENABLED", "true")
@@ -125,11 +122,12 @@ class TestSessionLogRotation:
 
         # Clear existing logger
         import logging
+
         logging.getLogger("bmad.memory.sessions").handlers.clear()
 
         # Trigger rotation
         large_data = {"large_field": "x" * 400}
-        for i in range(15):
+        for _i in range(15):
             log_to_session_file(large_data)
             time.sleep(0.01)
 
@@ -139,7 +137,7 @@ class TestSessionLogRotation:
             rotated_file = rotated_files[0]
 
             # Verify it's actually gzipped
-            with gzip.open(rotated_file, 'rt') as f:
+            with gzip.open(rotated_file, "rt") as f:
                 content = f.read()
 
             # Should contain JSON lines
@@ -154,22 +152,26 @@ class TestQuerySessionLogs:
         """Test that query script can read and parse JSONL file."""
         # Create test data
         for i in range(5):
-            log_to_session_file({
-                "session_id": f"sess-{i}",
-                "project": "test-project",
-                "results_count": i + 1
-            })
+            log_to_session_file(
+                {
+                    "session_id": f"sess-{i}",
+                    "project": "test-project",
+                    "results_count": i + 1,
+                }
+            )
 
         # Run query script
         result = subprocess.run(
             [
                 sys.executable,
                 "scripts/memory/query_session_logs.py",
-                "--log-path", str(temp_session_log),
-                "--format", "json"
+                "--log-path",
+                str(temp_session_log),
+                "--format",
+                "json",
             ],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         assert result.returncode == 0
@@ -190,12 +192,15 @@ class TestQuerySessionLogs:
             [
                 sys.executable,
                 "scripts/memory/query_session_logs.py",
-                "--log-path", str(temp_session_log),
-                "--project", "project-a",
-                "--format", "json"
+                "--log-path",
+                str(temp_session_log),
+                "--project",
+                "project-a",
+                "--format",
+                "json",
             ],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         assert result.returncode == 0
@@ -214,12 +219,15 @@ class TestQuerySessionLogs:
             [
                 sys.executable,
                 "scripts/memory/query_session_logs.py",
-                "--log-path", str(temp_session_log),
-                "--min-results", "5",
-                "--format", "json"
+                "--log-path",
+                str(temp_session_log),
+                "--min-results",
+                "5",
+                "--format",
+                "json",
             ],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         assert result.returncode == 0
@@ -229,21 +237,24 @@ class TestQuerySessionLogs:
     def test_query_script_outputs_table_format(self, temp_session_log):
         """Test that query script outputs table format by default."""
         # Create test data
-        log_to_session_file({
-            "session_id": "sess-table-test",
-            "project": "test-project",
-            "results_count": 3
-        })
+        log_to_session_file(
+            {
+                "session_id": "sess-table-test",
+                "project": "test-project",
+                "results_count": 3,
+            }
+        )
 
         # Run query script without format arg (defaults to table)
         result = subprocess.run(
             [
                 sys.executable,
                 "scripts/memory/query_session_logs.py",
-                "--log-path", str(temp_session_log)
+                "--log-path",
+                str(temp_session_log),
             ],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         assert result.returncode == 0
@@ -258,10 +269,11 @@ class TestQuerySessionLogs:
             [
                 sys.executable,
                 "scripts/memory/query_session_logs.py",
-                "--log-path", str(missing_path)
+                "--log-path",
+                str(missing_path),
             ],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         assert result.returncode == 1
@@ -274,6 +286,7 @@ class TestSessionLoggerGracefulDegradation:
     def test_disabled_logging_does_not_create_file(self, tmp_path, monkeypatch):
         """Test that SESSION_LOG_ENABLED=false prevents file creation."""
         import memory.session_logger as session_logger_module
+
         log_path = tmp_path / "sessions.jsonl"
 
         monkeypatch.setenv("SESSION_LOG_ENABLED", "false")
@@ -287,6 +300,7 @@ class TestSessionLoggerGracefulDegradation:
     def test_missing_directory_is_created_automatically(self, tmp_path, monkeypatch):
         """Test that missing log directory is created automatically."""
         import memory.session_logger as session_logger_module
+
         log_path = tmp_path / "nested" / "dir" / "sessions.jsonl"
 
         monkeypatch.setenv("SESSION_LOG_ENABLED", "true")
@@ -294,6 +308,7 @@ class TestSessionLoggerGracefulDegradation:
 
         # Clear existing logger
         import logging
+
         logging.getLogger("bmad.memory.sessions").handlers.clear()
 
         log_to_session_file({"session_id": "sess-create-dir"})

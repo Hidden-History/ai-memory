@@ -90,7 +90,7 @@ class TestMultiSessionMemory:
         )
 
         print(f"\n{'=' * 70}")
-        print(f"  MULTI-SESSION PERSISTENCE TEST")
+        print("  MULTI-SESSION PERSISTENCE TEST")
         print(f"  Project: {project_name}")
         print(f"={'=' * 70}\n")
 
@@ -134,7 +134,10 @@ class TestMultiSessionMemory:
         context_session2 = proc.stdout
 
         # Memory from session-1 should be retrievable in session-2
-        assert unique_marker in context_session2 or "dependency injection" in context_session2.lower(), (
+        assert (
+            unique_marker in context_session2
+            or "dependency injection" in context_session2.lower()
+        ), (
             f"Memory from session 1 NOT available in session 2!\n"
             f"Expected marker: {unique_marker}\n"
             f"Got: {context_session2[:500]}"
@@ -148,7 +151,7 @@ class TestMultiSessionMemory:
         )
 
         print(f"✓ Session 2 retrieved session 1 memory (session_id: {session2_id})")
-        print(f"  No session ID leakage ✓")
+        print("  No session ID leakage ✓")
 
         # Session 3: Still available (long-term persistence)
         print("\n[SESSION 3] Verifying long-term persistence...")
@@ -170,7 +173,10 @@ class TestMultiSessionMemory:
 
         context_session3 = proc.stdout
 
-        assert unique_marker in context_session3 or "dependency injection" in context_session3.lower(), (
+        assert (
+            unique_marker in context_session3
+            or "dependency injection" in context_session3.lower()
+        ), (
             f"Memory lost after session 2! Persistence failure.\n"
             f"Expected marker: {unique_marker}\n"
             f"Got: {context_session3[:500]}"
@@ -179,7 +185,7 @@ class TestMultiSessionMemory:
         print(f"✓ Session 3 retrieved session 1 memory (session_id: {session3_id})")
 
         print(f"\n{'=' * 70}")
-        print(f"  ✅ Memory persisted across 3 sessions:")
+        print("  ✅ Memory persisted across 3 sessions:")
         print(f"     Session 1 (store): {session1_id}")
         print(f"     Session 2 (retrieve): {session2_id}")
         print(f"     Session 3 (retrieve): {session3_id}")

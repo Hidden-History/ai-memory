@@ -8,14 +8,19 @@ Test Coverage:
 - Error detection (No data, template variables, Prometheus queries)
 - Visual regression for error states
 """
+
 import re
+from typing import Any
+
 import pytest
-from typing import List, Dict, Any
 
 # Skip tests if playwright is not installed (optional dependency)
-pytest.importorskip("playwright", reason="Playwright not installed - run 'pip install playwright' and 'playwright install' to enable E2E tests")
+pytest.importorskip(
+    "playwright",
+    reason="Playwright not installed - run 'pip install playwright' and 'playwright install' to enable E2E tests",
+)
 
-from playwright.sync_api import Page, expect, ConsoleMessage
+from playwright.sync_api import ConsoleMessage, Page, expect
 
 
 class TestGrafanaDashboards:
@@ -29,8 +34,8 @@ class TestGrafanaDashboards:
     @pytest.fixture(autouse=True)
     def setup_console_monitoring(self, grafana_page: Page):
         """Monitor browser console for errors during tests."""
-        self.console_errors: List[ConsoleMessage] = []
-        self.console_warnings: List[ConsoleMessage] = []
+        self.console_errors: list[ConsoleMessage] = []
+        self.console_warnings: list[ConsoleMessage] = []
 
         def handle_console(msg: ConsoleMessage):
             if msg.type == "error":
@@ -77,7 +82,9 @@ class TestGrafanaDashboards:
         )
 
         # Verify dashboard title
-        dashboard_title = grafana_page.locator('[data-testid="data-testid Dashboard header title"]')
+        dashboard_title = grafana_page.locator(
+            '[data-testid="data-testid Dashboard header title"]'
+        )
         expect(dashboard_title).to_contain_text("BMAD Memory Overview", timeout=10000)
 
     def test_overview_dashboard_panel_count(self, grafana_page: Page):
@@ -88,16 +95,16 @@ class TestGrafanaDashboards:
         )
 
         # Wait for panels to load
-        grafana_page.wait_for_selector('[data-viz-panel-key]', timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
         grafana_page.wait_for_timeout(2000)  # Additional wait for panel rendering
 
         # Count panels
-        panels = grafana_page.locator('[data-viz-panel-key]')
+        panels = grafana_page.locator("[data-viz-panel-key]")
         panel_count = panels.count()
 
-        assert panel_count == 6, (
-            f"Expected 6 panels in BMAD Memory Overview dashboard, found {panel_count}"
-        )
+        assert (
+            panel_count == 6
+        ), f"Expected 6 panels in BMAD Memory Overview dashboard, found {panel_count}"
 
     def test_overview_dashboard_panels_no_data_errors(self, grafana_page: Page):
         """Check if BMAD Memory Overview panels show 'No data' messages."""
@@ -106,7 +113,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector('[data-viz-panel-key]', timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
         grafana_page.wait_for_timeout(3000)  # Wait for data queries to complete
 
         panel_errors = self._check_panels_for_errors(grafana_page)
@@ -159,7 +166,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector('[data-viz-panel-key]', timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
         grafana_page.wait_for_timeout(3000)
 
         # Check for Prometheus-specific error messages
@@ -195,8 +202,12 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        dashboard_title = grafana_page.locator('[data-testid="data-testid Dashboard header title"]')
-        expect(dashboard_title).to_contain_text("BMAD Memory Performance", timeout=10000)
+        dashboard_title = grafana_page.locator(
+            '[data-testid="data-testid Dashboard header title"]'
+        )
+        expect(dashboard_title).to_contain_text(
+            "BMAD Memory Performance", timeout=10000
+        )
 
     def test_performance_dashboard_panel_count(self, grafana_page: Page):
         """Verify BMAD Memory Performance dashboard has 4 panels."""
@@ -205,15 +216,15 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector('[data-viz-panel-key]', timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
         grafana_page.wait_for_timeout(2000)
 
-        panels = grafana_page.locator('[data-viz-panel-key]')
+        panels = grafana_page.locator("[data-viz-panel-key]")
         panel_count = panels.count()
 
-        assert panel_count == 4, (
-            f"Expected 4 panels in BMAD Memory Performance dashboard, found {panel_count}"
-        )
+        assert (
+            panel_count == 4
+        ), f"Expected 4 panels in BMAD Memory Performance dashboard, found {panel_count}"
 
     def test_performance_dashboard_panels_no_data_errors(self, grafana_page: Page):
         """Check if BMAD Memory Performance panels show 'No data' messages."""
@@ -222,7 +233,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector('[data-viz-panel-key]', timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
         grafana_page.wait_for_timeout(3000)
 
         panel_errors = self._check_panels_for_errors(grafana_page)
@@ -247,7 +258,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector('[data-viz-panel-key]', timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
         grafana_page.wait_for_timeout(3000)
 
         prometheus_error_patterns = [
@@ -282,7 +293,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector('[data-viz-panel-key]', timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
         grafana_page.wait_for_timeout(3000)
 
         if self.console_errors:
@@ -292,7 +303,7 @@ class TestGrafanaDashboards:
                 full_page=True,
             )
             pytest.fail(
-                f"Console errors detected in Overview dashboard:\n"
+                "Console errors detected in Overview dashboard:\n"
                 + "\n".join(error_messages)
             )
 
@@ -303,7 +314,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector('[data-viz-panel-key]', timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
         grafana_page.wait_for_timeout(3000)
 
         if self.console_errors:
@@ -313,7 +324,7 @@ class TestGrafanaDashboards:
                 full_page=True,
             )
             pytest.fail(
-                f"Console errors detected in Performance dashboard:\n"
+                "Console errors detected in Performance dashboard:\n"
                 + "\n".join(error_messages)
             )
 
@@ -330,7 +341,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector('[data-viz-panel-key]', timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
         grafana_page.wait_for_timeout(3000)
 
         # Take full page screenshot
@@ -350,7 +361,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector('[data-viz-panel-key]', timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
         grafana_page.wait_for_timeout(3000)
 
         grafana_page.screenshot(
@@ -360,14 +371,14 @@ class TestGrafanaDashboards:
 
     # ==================== Helper Methods ====================
 
-    def _check_panels_for_errors(self, page: Page) -> List[Dict[str, Any]]:
+    def _check_panels_for_errors(self, page: Page) -> list[dict[str, Any]]:
         """
         Check all panels on current dashboard for errors.
 
         Returns:
             List of dictionaries containing panel errors with panel title and error message.
         """
-        panels = page.locator('[data-viz-panel-key]')
+        panels = page.locator("[data-viz-panel-key]")
         panel_count = panels.count()
         panel_errors = []
 

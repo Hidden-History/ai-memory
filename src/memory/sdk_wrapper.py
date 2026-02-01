@@ -20,17 +20,17 @@ References:
 import logging
 import os
 import uuid
-from typing import Optional, Iterator
+from collections.abc import Iterator
 from datetime import datetime, timezone
 
 from anthropic import Anthropic
-from anthropic.types import Message, ContentBlock, TextBlock
+from anthropic.types import Message, TextBlock
 
-from .config import COLLECTION_DISCUSSIONS, get_config
+from .config import COLLECTION_DISCUSSIONS
 from .models import MemoryType
 from .storage import MemoryStorage
 
-__all__ = ["SDKWrapper", "ConversationCapture"]
+__all__ = ["ConversationCapture", "SDKWrapper"]
 
 logger = logging.getLogger("ai_memory.sdk_wrapper")
 
@@ -45,7 +45,7 @@ class ConversationCapture:
         self,
         storage: MemoryStorage,
         cwd: str,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
     ):
         """Initialize conversation capture.
 
@@ -87,7 +87,7 @@ class ConversationCapture:
                     "session_id": self.session_id,
                     "turn_number": self.turn_number,
                     "status": result.get("status"),
-                }
+                },
             )
             return result
         except Exception as e:
@@ -96,7 +96,7 @@ class ConversationCapture:
                 extra={
                     "session_id": self.session_id,
                     "error": str(e),
-                }
+                },
             )
             return {"status": "failed", "error": str(e)}
 
@@ -126,7 +126,7 @@ class ConversationCapture:
                     "session_id": self.session_id,
                     "turn_number": self.turn_number,
                     "status": result.get("status"),
-                }
+                },
             )
             return result
         except Exception as e:
@@ -135,7 +135,7 @@ class ConversationCapture:
                 extra={
                     "session_id": self.session_id,
                     "error": str(e),
-                }
+                },
             )
             return {"status": "failed", "error": str(e)}
 
@@ -160,9 +160,9 @@ class SDKWrapper:
     def __init__(
         self,
         cwd: str,
-        api_key: Optional[str] = None,
-        storage: Optional[MemoryStorage] = None,
-        session_id: Optional[str] = None,
+        api_key: str | None = None,
+        storage: MemoryStorage | None = None,
+        session_id: str | None = None,
     ):
         """Initialize SDK wrapper.
 
@@ -193,7 +193,7 @@ class SDKWrapper:
             extra={
                 "session_id": self.capture.session_id,
                 "cwd": cwd,
-            }
+            },
         )
 
     def send_message(
@@ -254,7 +254,7 @@ class SDKWrapper:
                 extra={
                     "session_id": self.capture.session_id,
                     "error": str(e),
-                }
+                },
             )
             raise
 
@@ -315,7 +315,7 @@ class SDKWrapper:
                 extra={
                     "session_id": self.capture.session_id,
                     "error": str(e),
-                }
+                },
             )
             raise
 

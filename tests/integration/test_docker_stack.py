@@ -16,7 +16,7 @@ Best Practices (2025/2026):
 import os
 import subprocess
 import time
-from typing import Generator
+from collections.abc import Generator
 
 import httpx
 import pytest
@@ -36,7 +36,16 @@ def check_services_running(docker_compose_path: str) -> bool:
     """
     cwd = os.path.dirname(docker_compose_path)
     result = subprocess.run(
-        ["docker", "compose", "-f", docker_compose_path, "ps", "--status", "running", "-q"],
+        [
+            "docker",
+            "compose",
+            "-f",
+            docker_compose_path,
+            "ps",
+            "--status",
+            "running",
+            "-q",
+        ],
         capture_output=True,
         text=True,
         cwd=cwd,
@@ -46,9 +55,7 @@ def check_services_running(docker_compose_path: str) -> bool:
 
 
 def wait_for_services_healthy(
-    docker_compose_path: str,
-    max_wait: int = 120,
-    check_interval: int = 2
+    docker_compose_path: str, max_wait: int = 120, check_interval: int = 2
 ) -> bool:
     """Wait for ALL Docker Compose services to be healthy.
 
@@ -172,7 +179,9 @@ class TestPersistentStorage:
                     f"/collections/{collection_name}",
                     json={"vectors": {"size": 768, "distance": "Cosine"}},
                 )
-                assert response.status_code == 200, f"Failed to create collection: {response.text}"
+                assert (
+                    response.status_code == 200
+                ), f"Failed to create collection: {response.text}"
 
                 # Verify collection exists (Qdrant returns status, not name)
                 response = client.get(f"/collections/{collection_name}")
@@ -201,12 +210,16 @@ class TestPersistentStorage:
                     cwd=cwd,
                 )
                 if not wait_for_services_healthy(docker_compose_path, max_wait=120):
-                    pytest.fail("Services failed to become healthy within 120s after restart")
+                    pytest.fail(
+                        "Services failed to become healthy within 120s after restart"
+                    )
 
             # Verify data persisted
             with httpx.Client(base_url=qdrant_base_url, timeout=30.0) as client:
                 response = client.get(f"/collections/{collection_name}")
-                assert response.status_code == 200, "Collection should persist after restart"
+                assert (
+                    response.status_code == 200
+                ), "Collection should persist after restart"
                 collection_data = response.json()
                 assert collection_data["result"]["status"] == "green"
 
@@ -243,7 +256,11 @@ class TestPersistentStorage:
                     f"/collections/{collection_name}/points",
                     json={
                         "points": [
-                            {"id": point_id, "vector": vector, "payload": {"test": "data"}}
+                            {
+                                "id": point_id,
+                                "vector": vector,
+                                "payload": {"test": "data"},
+                            }
                         ]
                     },
                 )
@@ -257,7 +274,9 @@ class TestPersistentStorage:
             waited = 0
             while waited < max_wait:
                 try:
-                    with httpx.Client(base_url=qdrant_base_url, timeout=5.0) as health_client:
+                    with httpx.Client(
+                        base_url=qdrant_base_url, timeout=5.0
+                    ) as health_client:
                         response = health_client.get("/healthz")
                         if response.status_code == 200:
                             break
@@ -270,7 +289,9 @@ class TestPersistentStorage:
 
             # Verify point still exists
             with httpx.Client(base_url=qdrant_base_url, timeout=30.0) as client:
-                response = client.get(f"/collections/{collection_name}/points/{point_id}")
+                response = client.get(
+                    f"/collections/{collection_name}/points/{point_id}"
+                )
                 assert response.status_code == 200
                 point_data = response.json()
                 assert point_data["result"]["id"] == point_id

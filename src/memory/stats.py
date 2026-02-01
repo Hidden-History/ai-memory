@@ -15,15 +15,15 @@ Complies with:
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
+
 from qdrant_client import QdrantClient
 
 __all__ = [
     "CollectionStats",
-    "get_collection_stats",
-    "get_unique_field_values",
     "calculate_disk_size",
+    "get_collection_stats",
     "get_last_updated",
+    "get_unique_field_values",
 ]
 
 logger = logging.getLogger("ai_memory.storage")
@@ -49,14 +49,12 @@ class CollectionStats:
     indexed_points: int
     segments_count: int
     disk_size_bytes: int
-    last_updated: Optional[str]
+    last_updated: str | None
     projects: list[str]
     points_by_project: dict[str, int]
 
 
-def get_collection_stats(
-    client: QdrantClient, collection_name: str
-) -> CollectionStats:
+def get_collection_stats(client: QdrantClient, collection_name: str) -> CollectionStats:
     """Get comprehensive statistics for a collection.
 
     Args:
@@ -85,9 +83,7 @@ def get_collection_stats(
     for project in projects:
         count = client.count(
             collection_name,
-            count_filter={
-                "must": [{"key": "group_id", "match": {"value": project}}]
-            },
+            count_filter={"must": [{"key": "group_id", "match": {"value": project}}]},
         )
         points_by_project[project] = count.count
 
@@ -170,9 +166,7 @@ def calculate_disk_size(info) -> int:
     return 0
 
 
-def get_last_updated(
-    client: QdrantClient, collection_name: str
-) -> Optional[str]:
+def get_last_updated(client: QdrantClient, collection_name: str) -> str | None:
     """Get timestamp of most recent update to collection.
 
     Queries for latest point by timestamp field. Returns None if collection

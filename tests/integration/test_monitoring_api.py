@@ -8,8 +8,8 @@ Tests verify 2026 FastAPI monitoring best practices:
 - Structured logging
 """
 
-import pytest
 import httpx
+import pytest
 
 
 @pytest.fixture(scope="module")
@@ -96,7 +96,7 @@ def test_memory_endpoint_not_found(monitoring_api_url):
     response = httpx.get(
         f"{monitoring_api_url}/memory/550e8400-e29b-41d4-a716-446655440000",
         params={"collection": "code-patterns"},
-        timeout=10
+        timeout=10,
     )
 
     assert response.status_code == 200
@@ -114,7 +114,7 @@ def test_memory_endpoint_structure(monitoring_api_url):
     response = httpx.get(
         f"{monitoring_api_url}/memory/00000000-0000-0000-0000-000000000001",
         params={"collection": "code-patterns"},
-        timeout=10
+        timeout=10,
     )
 
     data = response.json()
@@ -135,7 +135,7 @@ def test_memory_endpoint_invalid_collection(monitoring_api_url):
     response = httpx.get(
         f"{monitoring_api_url}/memory/00000000-0000-0000-0000-000000000002",
         params={"collection": "nonexistent_collection"},
-        timeout=10
+        timeout=10,
     )
 
     # Qdrant returns UnexpectedResponse for non-existent collection → 503

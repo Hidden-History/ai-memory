@@ -6,8 +6,9 @@ Tests AC 1.3.1, 1.3.2, 1.3.3, 1.3.4 from Story 1.3.
 import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance
-from src.memory.models import MemoryPayload, MemoryType, EmbeddingStatus
-from src.memory.validation import validate_payload, compute_content_hash
+
+from src.memory.models import MemoryPayload, MemoryType
+from src.memory.validation import compute_content_hash, validate_payload
 
 
 @pytest.mark.requires_qdrant
@@ -23,15 +24,21 @@ class TestCollectionSchema:
         """Both collections exist after running setup script (AC 1.3.1)."""
         collections = qdrant_client.get_collections().collections
         collection_names = [c.name for c in collections]
-        assert "code-patterns" in collection_names, "implementations collection not found"
+        assert (
+            "code-patterns" in collection_names
+        ), "implementations collection not found"
         assert "conventions" in collection_names, "best_practices collection not found"
 
     def test_collection_vector_config(self, qdrant_client):
         """Collections have correct vector configuration (AC 1.3.4)."""
         for name in ["code-patterns", "conventions"]:
             info = qdrant_client.get_collection(name)
-            assert info.config.params.vectors.size == 768, f"{name}: Expected 768 dimensions (DEC-010)"
-            assert info.config.params.vectors.distance == Distance.COSINE, f"{name}: Expected COSINE distance"
+            assert (
+                info.config.params.vectors.size == 768
+            ), f"{name}: Expected 768 dimensions (DEC-010)"
+            assert (
+                info.config.params.vectors.distance == Distance.COSINE
+            ), f"{name}: Expected COSINE distance"
 
     def test_payload_indexes_exist(self, qdrant_client):
         """Payload indexes created for filtering (AC 1.3.1, 1.3.4)."""
@@ -47,10 +54,18 @@ class TestCollectionSchema:
             assert "content" in payload_schema, f"{name}: Missing content text index"
 
             # Verify index types
-            assert payload_schema["group_id"].data_type == "keyword", f"{name}: group_id should be keyword index"
-            assert payload_schema["type"].data_type == "keyword", f"{name}: type should be keyword index"
-            assert payload_schema["source_hook"].data_type == "keyword", f"{name}: source_hook should be keyword index"
-            assert payload_schema["content"].data_type == "text", f"{name}: content should be text index"
+            assert (
+                payload_schema["group_id"].data_type == "keyword"
+            ), f"{name}: group_id should be keyword index"
+            assert (
+                payload_schema["type"].data_type == "keyword"
+            ), f"{name}: type should be keyword index"
+            assert (
+                payload_schema["source_hook"].data_type == "keyword"
+            ), f"{name}: source_hook should be keyword index"
+            assert (
+                payload_schema["content"].data_type == "text"
+            ), f"{name}: content should be text index"
 
 
 class TestPayloadValidation:
@@ -60,7 +75,9 @@ class TestPayloadValidation:
         """MemoryPayload.to_dict() produces valid payload dict."""
         payload = MemoryPayload(
             content="Test implementation pattern for React hooks",
-            content_hash=compute_content_hash("Test implementation pattern for React hooks"),
+            content_hash=compute_content_hash(
+                "Test implementation pattern for React hooks"
+            ),
             group_id="test-project",
             type=MemoryType.IMPLEMENTATION,
             source_hook="PostToolUse",
@@ -70,14 +87,18 @@ class TestPayloadValidation:
 
         payload_dict = payload.to_dict()
         errors = validate_payload(payload_dict)
-        assert errors == [], f"Valid MemoryPayload.to_dict() should pass validation but got: {errors}"
+        assert (
+            errors == []
+        ), f"Valid MemoryPayload.to_dict() should pass validation but got: {errors}"
 
     def test_validation_with_all_memory_types(self):
         """Validation accepts all defined MemoryType enum values."""
         for memory_type in MemoryType:
             payload = MemoryPayload(
                 content=f"Testing {memory_type.value} memory type",
-                content_hash=compute_content_hash(f"Testing {memory_type.value} memory type"),
+                content_hash=compute_content_hash(
+                    f"Testing {memory_type.value} memory type"
+                ),
                 group_id="test-project",
                 type=memory_type,
                 source_hook="PostToolUse",
@@ -87,7 +108,9 @@ class TestPayloadValidation:
 
             payload_dict = payload.to_dict()
             errors = validate_payload(payload_dict)
-            assert errors == [], f"MemoryType.{memory_type.name} should be valid but got: {errors}"
+            assert (
+                errors == []
+            ), f"MemoryType.{memory_type.name} should be valid but got: {errors}"
 
     def test_validation_edge_case_minimum_content_length(self):
         """Payload with exactly 10 chars passes validation."""

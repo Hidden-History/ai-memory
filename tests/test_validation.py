@@ -3,11 +3,9 @@
 Tests AC 1.3.3 from Story 1.3.
 """
 
-import pytest
 from src.memory.validation import (
-    ValidationError,
-    validate_payload,
     compute_content_hash,
+    validate_payload,
 )
 
 
@@ -124,12 +122,23 @@ class TestValidatePayload:
         # V2.0 actual MemoryType enum values from src/memory/models.py
         valid_types = [
             # code-patterns collection
-            "implementation", "error_fix", "refactor", "file_pattern",
+            "implementation",
+            "error_fix",
+            "refactor",
+            "file_pattern",
             # conventions collection
-            "rule", "guideline", "port", "naming", "structure",
+            "rule",
+            "guideline",
+            "port",
+            "naming",
+            "structure",
             # discussions collection
-            "decision", "session", "blocker", "preference",
-            "user_message", "agent_response"
+            "decision",
+            "session",
+            "blocker",
+            "preference",
+            "user_message",
+            "agent_response",
         ]
 
         for valid_type in valid_types:
@@ -140,7 +149,9 @@ class TestValidatePayload:
                 "source_hook": "PostToolUse",
             }
             errors = validate_payload(payload)
-            assert errors == [], f"Type {valid_type} should be valid but got errors: {errors}"
+            assert (
+                errors == []
+            ), f"Type {valid_type} should be valid but got errors: {errors}"
 
     def test_validate_payload_invalid_source_hook(self):
         """Invalid source_hook value fails validation."""
@@ -166,7 +177,9 @@ class TestValidatePayload:
                 "source_hook": valid_hook,
             }
             errors = validate_payload(payload)
-            assert errors == [], f"Hook {valid_hook} should be valid but got errors: {errors}"
+            assert (
+                errors == []
+            ), f"Hook {valid_hook} should be valid but got errors: {errors}"
 
     def test_validate_payload_empty_string_values(self):
         """Empty string values fail validation (treated as missing)."""

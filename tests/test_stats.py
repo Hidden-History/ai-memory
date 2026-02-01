@@ -14,17 +14,14 @@ Complies with:
 - project-context.md: test naming, structure
 """
 
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import Mock, MagicMock
-from dataclasses import asdict
+from unittest.mock import Mock
 
 from memory.stats import (
     CollectionStats,
-    get_collection_stats,
-    get_unique_field_values,
     calculate_disk_size,
+    get_collection_stats,
     get_last_updated,
+    get_unique_field_values,
 )
 
 
@@ -153,9 +150,7 @@ class TestGetUniqueFieldValues:
             None,
         )
 
-        projects = get_unique_field_values(
-            mock_client, "code-patterns", "group_id"
-        )
+        projects = get_unique_field_values(mock_client, "code-patterns", "group_id")
 
         assert projects == ["project-a", "project-b", "project-c"]  # sorted
 
@@ -164,9 +159,7 @@ class TestGetUniqueFieldValues:
         mock_client = Mock()
         mock_client.scroll.return_value = ([], None)
 
-        projects = get_unique_field_values(
-            mock_client, "code-patterns", "group_id"
-        )
+        projects = get_unique_field_values(mock_client, "code-patterns", "group_id")
 
         assert projects == []
 
@@ -182,9 +175,7 @@ class TestGetUniqueFieldValues:
             None,
         )
 
-        projects = get_unique_field_values(
-            mock_client, "code-patterns", "group_id"
-        )
+        projects = get_unique_field_values(mock_client, "code-patterns", "group_id")
 
         assert projects == ["project-a", "project-b"]
 
@@ -219,13 +210,7 @@ class TestGetLastUpdated:
         """get_last_updated() returns most recent timestamp."""
         mock_client = Mock()
         mock_client.scroll.return_value = (
-            [
-                Mock(
-                    payload={
-                        "timestamp": "2026-01-13T09:00:00Z"
-                    }
-                )
-            ],
+            [Mock(payload={"timestamp": "2026-01-13T09:00:00Z"})],
             None,
         )
 

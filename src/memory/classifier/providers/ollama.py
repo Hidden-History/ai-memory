@@ -7,12 +7,11 @@ TECH-DEBT-069: LLM-based memory classification system.
 
 import json
 import logging
-from typing import Optional
 
 import httpx
 
+from ..config import MAX_OUTPUT_TOKENS, OLLAMA_BASE_URL, OLLAMA_MODEL
 from .base import BaseProvider, ProviderResponse
-from ..config import OLLAMA_BASE_URL, OLLAMA_MODEL, MAX_OUTPUT_TOKENS
 
 logger = logging.getLogger("ai_memory.classifier.providers.ollama")
 
@@ -24,8 +23,8 @@ class OllamaProvider(BaseProvider):
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
+        base_url: str | None = None,
+        model: str | None = None,
         timeout: int = 10,
     ):
         """Initialize Ollama provider.

@@ -48,17 +48,16 @@ Sources:
 import os
 import subprocess
 import time
-import pytest
-import httpx
-import httpcore
 from pathlib import Path
-from qdrant_client import QdrantClient
-from qdrant_client.http.exceptions import UnexpectedResponse, ResponseHandlingException
-from qdrant_client.models import Filter, FieldCondition, MatchValue
-from src.memory.models import MemoryType
+
+import pytest
 
 # Import shared helper from conftest (Story 5.4 code review - Issue 7)
 from conftest import wait_for_qdrant_healthy
+from qdrant_client import QdrantClient
+from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+from src.memory.models import MemoryType
 
 # Use environment variables for port configuration (Issue 2 fix)
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:26350")
@@ -98,8 +97,12 @@ def cleanup_test_memories():
                 cleanup_client.delete(
                     collection_name="code-patterns",
                     points_selector=Filter(
-                        must=[FieldCondition(key="group_id", match=MatchValue(value=group_id))]
-                    )
+                        must=[
+                            FieldCondition(
+                                key="group_id", match=MatchValue(value=group_id)
+                            )
+                        ]
+                    ),
                 )
             except Exception:
                 # Best effort cleanup - don't fail test if cleanup fails
@@ -110,7 +113,9 @@ def cleanup_test_memories():
 
 
 @pytest.mark.integration
-def test_data_persists_across_docker_restart(qdrant_client, tmp_path, cleanup_test_memories):
+def test_data_persists_across_docker_restart(
+    qdrant_client, tmp_path, cleanup_test_memories
+):
     """Verify memories survive Qdrant container restart (FR31, FR32).
 
     Critical persistence validation per product brief:
@@ -127,8 +132,8 @@ def test_data_persists_across_docker_restart(qdrant_client, tmp_path, cleanup_te
     2026 Best Practice: subprocess.run() with explicit timeout prevents hanging tests.
     Source: https://docs.docker.com/reference/cli/docker/compose/restart/
     """
-    from src.memory.storage import MemoryStorage
     from src.memory.search import MemorySearch
+    from src.memory.storage import MemoryStorage
 
     storage = MemoryStorage()
     search = MemorySearch()
@@ -142,7 +147,7 @@ def test_data_persists_across_docker_restart(qdrant_client, tmp_path, cleanup_te
         source_hook="PostToolUse",
         session_id="persistence-session",
         collection="code-patterns",
-        group_id="persistence-test"
+        group_id="persistence-test",
     )
 
     assert result["status"] == "stored", "Memory storage failed"
@@ -156,26 +161,26 @@ def test_data_persists_across_docker_restart(qdrant_client, tmp_path, cleanup_te
         query=test_content,
         collection="code-patterns",
         group_id="persistence-test",
-        limit=5
+        limit=5,
     )
 
-    assert len(pre_restart_results) > 0, \
-        "Memory not found before restart"
+    assert len(pre_restart_results) > 0, "Memory not found before restart"
 
     found_before = any(
         r["id"] == memory_id and test_content in r["content"]
         for r in pre_restart_results
     )
 
-    assert found_before, \
-        f"Memory {memory_id[:8]} not retrievable before restart"
+    assert found_before, f"Memory {memory_id[:8]} not retrievable before restart"
 
     # 3. Restart Qdrant container
     # Try installed location first, then project root (local dev)
     compose_file = Path.home() / ".ai-memory" / "docker" / "docker-compose.yml"
     if not compose_file.exists():
         # Fallback to project root for local development
-        compose_file = Path(__file__).parent.parent.parent / "docker" / "docker-compose.yml"
+        compose_file = (
+            Path(__file__).parent.parent.parent / "docker" / "docker-compose.yml"
+        )
 
     if not compose_file.exists():
         pytest.skip(f"Docker Compose file not found at {compose_file}")
@@ -186,11 +191,12 @@ def test_data_persists_across_docker_restart(qdrant_client, tmp_path, cleanup_te
         ["docker", "compose", "-f", str(compose_file), "restart", "qdrant"],
         capture_output=True,
         text=True,
-        timeout=60  # Prevent hanging tests
+        timeout=60,  # Prevent hanging tests
     )
 
-    assert restart_result.returncode == 0, \
-        f"Docker restart failed: {restart_result.stderr}"
+    assert (
+        restart_result.returncode == 0
+    ), f"Docker restart failed: {restart_result.stderr}"
 
     # 4. Wait for Qdrant to become healthy
     wait_for_qdrant_healthy(timeout=60)
@@ -206,27 +212,31 @@ def test_data_persists_across_docker_restart(qdrant_client, tmp_path, cleanup_te
         query=test_content,
         collection="code-patterns",
         group_id="persistence-test",
-        limit=5
+        limit=5,
     )
 
-    assert len(post_restart_results) > 0, \
-        "Memory not found after restart - DATA LOSS DETECTED!"
+    assert (
+        len(post_restart_results) > 0
+    ), "Memory not found after restart - DATA LOSS DETECTED!"
 
     found_after = any(
         r["id"] == memory_id and test_content in r["content"]
         for r in post_restart_results
     )
 
-    assert found_after, \
-        f"Memory {memory_id[:8]} not retrievable after restart - DATA LOSS!"
+    assert (
+        found_after
+    ), f"Memory {memory_id[:8]} not retrievable after restart - DATA LOSS!"
 
     # 6. Verify content integrity (not just existence)
     for result in post_restart_results:
         if result["id"] == memory_id:
-            assert result["content"] == test_content, \
-                "Memory content changed after restart - CORRUPTION DETECTED!"
-            assert result["group_id"] == "persistence-test", \
-                "Memory group_id changed after restart"
+            assert (
+                result["content"] == test_content
+            ), "Memory content changed after restart - CORRUPTION DETECTED!"
+            assert (
+                result["group_id"] == "persistence-test"
+            ), "Memory group_id changed after restart"
             break
 
 
@@ -258,7 +268,9 @@ def test_qdrant_volume_mount_configured(tmp_path):
     compose_file = Path.home() / ".ai-memory" / "docker" / "docker-compose.yml"
     if not compose_file.exists():
         # Fallback to project root for local development
-        compose_file = Path(__file__).parent.parent.parent / "docker" / "docker-compose.yml"
+        compose_file = (
+            Path(__file__).parent.parent.parent / "docker" / "docker-compose.yml"
+        )
 
     if not compose_file.exists():
         pytest.skip(f"Docker Compose file not found at {compose_file}")
@@ -267,18 +279,15 @@ def test_qdrant_volume_mount_configured(tmp_path):
         config = yaml.safe_load(f)
 
     # Verify services section exists
-    assert "services" in config, \
-        "docker-compose.yml missing 'services' section"
+    assert "services" in config, "docker-compose.yml missing 'services' section"
 
     # Verify Qdrant service exists
-    assert "qdrant" in config["services"], \
-        "docker-compose.yml missing 'qdrant' service"
+    assert "qdrant" in config["services"], "docker-compose.yml missing 'qdrant' service"
 
     qdrant_config = config["services"]["qdrant"]
 
     # Verify volumes configuration
-    assert "volumes" in qdrant_config, \
-        "Qdrant service missing 'volumes' configuration"
+    assert "volumes" in qdrant_config, "Qdrant service missing 'volumes' configuration"
 
     volumes = qdrant_config["volumes"]
 
@@ -289,33 +298,37 @@ def test_qdrant_volume_mount_configured(tmp_path):
         # Named volume format: "volume_name:/container/path"
         # Bind mount format: "./host/path:/container/path" or "/host/path:/container/path"
 
-        if isinstance(volume, str):
-            if ":" in volume:
-                host_part, container_part = volume.split(":", 1)
+        if isinstance(volume, str) and ":" in volume:
+            host_part, container_part = volume.split(":", 1)
 
-                # Persistent volume check (Issue 6 fix):
-                # - Named volume (no path separators in host_part)
-                # - Container path is /qdrant/storage
-                # Note: Named volume format is "volume_name:/container/path"
-                #       host_part = volume_name (no / or .)
-                #       container_part = /qdrant/storage
-                if "/" not in host_part and "." not in host_part:
-                    if "/qdrant/storage" in container_part:
-                        persistent_volume_found = True
-                        break
+            # Persistent volume check (Issue 6 fix):
+            # - Named volume (no path separators in host_part)
+            # - Container path is /qdrant/storage
+            # Note: Named volume format is "volume_name:/container/path"
+            #       host_part = volume_name (no / or .)
+            #       container_part = /qdrant/storage
+            if "/" not in host_part and "." not in host_part:
+                if "/qdrant/storage" in container_part:
+                    persistent_volume_found = True
+                    break
 
-    assert persistent_volume_found, \
-        f"Qdrant must use persistent named volume (not bind mount). Found: {volumes}"
+    assert (
+        persistent_volume_found
+    ), f"Qdrant must use persistent named volume (not bind mount). Found: {volumes}"
 
     # Verify volumes section defines the volume
     if "volumes" in config:
         # Named volumes should be declared at top level
-        volume_names = [v.split(":")[0] for v in qdrant_config["volumes"]
-                       if isinstance(v, str) and "/" not in v.split(":")[0]]
+        volume_names = [
+            v.split(":")[0]
+            for v in qdrant_config["volumes"]
+            if isinstance(v, str) and "/" not in v.split(":")[0]
+        ]
 
         for vol_name in volume_names:
-            assert vol_name in config["volumes"], \
-                f"Named volume '{vol_name}' not declared in top-level 'volumes' section"
+            assert (
+                vol_name in config["volumes"]
+            ), f"Named volume '{vol_name}' not declared in top-level 'volumes' section"
 
 
 @pytest.mark.integration
@@ -348,25 +361,23 @@ def test_queue_file_survives_process_restart(tmp_path):
         "content": "Queue persistence test - survives restart",
         "group_id": "queue-test",
         "type": "implementation",
-        "source_hook": "PostToolUse"
+        "source_hook": "PostToolUse",
     }
 
     queue_id = queue1.enqueue(
-        memory_data=test_memory_data,
-        failure_reason="TEST_PERSISTENCE"
+        memory_data=test_memory_data, failure_reason="TEST_PERSISTENCE"
     )
 
     # Verify queue file exists
-    assert test_queue_path.exists(), \
-        f"Queue file not created at {test_queue_path}"
+    assert test_queue_path.exists(), f"Queue file not created at {test_queue_path}"
 
     # Verify file permissions (0600 = owner read/write only)
-    import stat
     file_stat = test_queue_path.stat()
     file_mode = file_stat.st_mode & 0o777
 
-    assert file_mode == 0o600, \
-        f"Queue file permissions {oct(file_mode)} != 0o600 (security risk)"
+    assert (
+        file_mode == 0o600
+    ), f"Queue file permissions {oct(file_mode)} != 0o600 (security risk)"
 
     # 2. Destroy first queue instance (simulates process restart)
     del queue1
@@ -379,18 +390,19 @@ def test_queue_file_survives_process_restart(tmp_path):
     # For persistence testing, we need to verify file contents directly
     all_entries = queue2._read_all()
 
-    assert len(all_entries) > 0, \
-        "No items in queue after process restart - FILE LOST!"
+    assert len(all_entries) > 0, "No items in queue after process restart - FILE LOST!"
 
     # Find our specific item
     found = False
     for item in all_entries:
         if item["id"] == queue_id:
             found = True
-            assert item["memory_data"] == test_memory_data, \
-                "Queue item content corrupted after restart"
-            assert item["failure_reason"] == "TEST_PERSISTENCE", \
-                "Queue item metadata corrupted after restart"
+            assert (
+                item["memory_data"] == test_memory_data
+            ), "Queue item content corrupted after restart"
+            assert (
+                item["failure_reason"] == "TEST_PERSISTENCE"
+            ), "Queue item metadata corrupted after restart"
             # Verify structure integrity
             assert "queued_at" in item, "Missing queued_at timestamp"
             assert "next_retry_at" in item, "Missing next_retry_at timestamp"
@@ -398,8 +410,7 @@ def test_queue_file_survives_process_restart(tmp_path):
             assert item["retry_count"] == 0, "Initial retry_count should be 0"
             break
 
-    assert found, \
-        f"Queue item {queue_id[:8]} not found after restart - DATA LOSS!"
+    assert found, f"Queue item {queue_id[:8]} not found after restart - DATA LOSS!"
 
     # Cleanup
     queue2.dequeue(queue_id)
@@ -407,7 +418,9 @@ def test_queue_file_survives_process_restart(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_data_persists_through_multiple_restarts(qdrant_client, tmp_path, cleanup_test_memories):
+def test_data_persists_through_multiple_restarts(
+    qdrant_client, tmp_path, cleanup_test_memories
+):
     """Verify data integrity through multiple restart cycles (FR32 stress test).
 
     Validates long-term persistence and no cumulative corruption.
@@ -431,17 +444,19 @@ def test_data_persists_through_multiple_restarts(qdrant_client, tmp_path, cleanu
 
     Source: https://moldstud.com/articles/p-advanced-integration-testing-techniques-for-python-developers-expert-guide-2025
     """
-    from src.memory.storage import MemoryStorage
     from src.memory.search import MemorySearch
+    from src.memory.storage import MemoryStorage
 
     storage = MemoryStorage()
-    search = MemorySearch()
+    MemorySearch()
 
     # Try installed location first, then project root (local dev)
     compose_file = Path.home() / ".ai-memory" / "docker" / "docker-compose.yml"
     if not compose_file.exists():
         # Fallback to project root for local development
-        compose_file = Path(__file__).parent.parent.parent / "docker" / "docker-compose.yml"
+        compose_file = (
+            Path(__file__).parent.parent.parent / "docker" / "docker-compose.yml"
+        )
 
     if not compose_file.exists():
         pytest.skip(f"Docker Compose file not found at {compose_file}")
@@ -449,8 +464,7 @@ def test_data_persists_through_multiple_restarts(qdrant_client, tmp_path, cleanu
     # Store 3 test memories before restarts
     memory_ids = []
     test_contents = [
-        f"Multi-restart test memory {i} - {int(time.time())}"
-        for i in range(1, 4)
+        f"Multi-restart test memory {i} - {int(time.time())}" for i in range(1, 4)
     ]
 
     for content in test_contents:
@@ -461,7 +475,7 @@ def test_data_persists_through_multiple_restarts(qdrant_client, tmp_path, cleanu
             source_hook="PostToolUse",
             session_id="multi-restart-session",
             collection="code-patterns",
-            group_id="multi-restart-test"
+            group_id="multi-restart-test",
         )
         memory_ids.append(result["memory_id"])
 
@@ -476,11 +490,12 @@ def test_data_persists_through_multiple_restarts(qdrant_client, tmp_path, cleanu
             ["docker", "compose", "-f", str(compose_file), "restart", "qdrant"],
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=60,
         )
 
-        assert restart_result.returncode == 0, \
-            f"Restart cycle {cycle} failed: {restart_result.stderr}"
+        assert (
+            restart_result.returncode == 0
+        ), f"Restart cycle {cycle} failed: {restart_result.stderr}"
 
         wait_for_qdrant_healthy(timeout=60)
 
@@ -488,21 +503,21 @@ def test_data_persists_through_multiple_restarts(qdrant_client, tmp_path, cleanu
         cycle_search = MemorySearch()
 
         # Verify all memories after this restart
-        for idx, (memory_id, content) in enumerate(zip(memory_ids, test_contents)):
+        for idx, (memory_id, content) in enumerate(
+            zip(memory_ids, test_contents, strict=False)
+        ):
             results = cycle_search.search(
                 query=content,
                 collection="code-patterns",
                 group_id="multi-restart-test",
-                limit=10
+                limit=10,
             )
 
             found = any(
-                r["id"] == memory_id and content in r["content"]
-                for r in results
+                r["id"] == memory_id and content in r["content"] for r in results
             )
 
-            assert found, \
-                f"Memory {idx+1} lost after restart cycle {cycle}"
+            assert found, f"Memory {idx+1} lost after restart cycle {cycle}"
 
     # Final verification: All memories still intact
     # Use the last cycle_search which is still fresh from final restart
@@ -510,8 +525,9 @@ def test_data_persists_through_multiple_restarts(qdrant_client, tmp_path, cleanu
         query="Multi-restart test memory",
         collection="code-patterns",
         group_id="multi-restart-test",
-        limit=10
+        limit=10,
     )
 
-    assert len(all_results) >= 3, \
-        f"Expected 3+ memories, found {len(all_results)} after {restart_count} restarts"
+    assert (
+        len(all_results) >= 3
+    ), f"Expected 3+ memories, found {len(all_results)} after {restart_count} restarts"

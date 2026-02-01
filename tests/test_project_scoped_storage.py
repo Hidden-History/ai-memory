@@ -10,13 +10,12 @@ Architecture Reference: architecture.md:516-690 (Storage), architecture.md:747-8
 """
 
 import uuid
-import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch
 
-from src.memory.storage import MemoryStorage
-from src.memory.search import MemorySearch
+import pytest
+
 from src.memory.models import MemoryType
+from src.memory.search import MemorySearch
+from src.memory.storage import MemoryStorage
 
 
 def unique_content(prefix: str) -> str:
@@ -66,7 +65,9 @@ class TestProjectScopedStorage:
         storage = MemoryStorage()
 
         # EXPECTED: This should raise TypeError for missing required parameter
-        with pytest.raises(TypeError, match="missing 1 required positional argument: 'cwd'"):
+        with pytest.raises(
+            TypeError, match="missing 1 required positional argument: 'cwd'"
+        ):
             storage.store_memory(
                 content="No project context",
                 # cwd is missing
@@ -202,7 +203,9 @@ class TestPayloadIndexCreation:
         # Check for keyword index type (required for is_tenant)
         group_id_index = payload_schema["group_id"]
         # PayloadIndexInfo has data_type attribute (case varies by Qdrant version)
-        assert group_id_index.data_type.name.lower() == "keyword", "group_id should be keyword type"
+        assert (
+            group_id_index.data_type.name.lower() == "keyword"
+        ), "group_id should be keyword type"
 
     @pytest.mark.integration
     @pytest.mark.slow

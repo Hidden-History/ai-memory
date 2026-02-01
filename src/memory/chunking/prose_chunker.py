@@ -10,25 +10,53 @@ Best Practices (2026):
 - Max 500 chars for embedding efficiency
 """
 
-import re
 import logging
+import re
 from dataclasses import dataclass
-from typing import Optional
 
 # Import shared models from parent module
-from . import ChunkResult, ChunkMetadata, CHARS_PER_TOKEN
+from . import CHARS_PER_TOKEN, ChunkMetadata, ChunkResult
 
 logger = logging.getLogger("ai_memory.chunking.prose")
 
 # Paragraph boundary - handles all newline variants (MED-1)
-PARAGRAPH_PATTERN = re.compile(r'(\r\n|\r|\n)\s*(\r\n|\r|\n)')
+PARAGRAPH_PATTERN = re.compile(r"(\r\n|\r|\n)\s*(\r\n|\r|\n)")
 
 # Common abbreviations that shouldn't trigger sentence splits (CRIT-1)
 ABBREVIATIONS = {
-    'Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'Sr', 'Jr', 'vs', 'etc', 'Inc', 'Ltd', 'Corp',
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    'St', 'Ave', 'Blvd', 'Rd', 'Mt', 'Ft',
-    'U', 'S', 'A',  # Handle U.S.A.
+    "Mr",
+    "Mrs",
+    "Ms",
+    "Dr",
+    "Prof",
+    "Sr",
+    "Jr",
+    "vs",
+    "etc",
+    "Inc",
+    "Ltd",
+    "Corp",
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+    "St",
+    "Ave",
+    "Blvd",
+    "Rd",
+    "Mt",
+    "Ft",
+    "U",
+    "S",
+    "A",  # Handle U.S.A.
 }
 
 
@@ -76,17 +104,17 @@ def split_sentences(text: str) -> list[str]:
         current.append(char)
 
         # Check for sentence end
-        if char in '.!?':
+        if char in ".!?":
             # Look ahead for whitespace + capital letter
             next_i = i + 1
-            while next_i < len(text) and text[next_i] in ' \t\n\r':
+            while next_i < len(text) and text[next_i] in " \t\n\r":
                 next_i += 1
 
             if next_i < len(text) and text[next_i].isupper():
                 # Check if this is NOT an abbreviation
                 if not _is_abbreviation(text, i):
                     # It's a sentence break
-                    sentences.append(''.join(current).strip())
+                    sentences.append("".join(current).strip())
                     current = []
                     i = next_i - 1  # Will be incremented
 
@@ -94,7 +122,7 @@ def split_sentences(text: str) -> list[str]:
 
     # Don't forget remaining text
     if current:
-        sentences.append(''.join(current).strip())
+        sentences.append("".join(current).strip())
 
     return [s for s in sentences if s]
 
@@ -109,6 +137,7 @@ class ProseChunkerConfig:
         overlap_ratio: Overlap as fraction of chunk size (default: 0.15)
         preserve_paragraphs: Keep paragraphs intact when possible (default: True)
     """
+
     max_chunk_size: int = 500
     min_chunk_size: int = 100
     overlap_ratio: float = 0.15
@@ -132,7 +161,7 @@ class ProseChunker:
         True
     """
 
-    def __init__(self, config: Optional[ProseChunkerConfig] = None):
+    def __init__(self, config: ProseChunkerConfig | None = None):
         """Initialize prose chunker.
 
         Args:
@@ -144,8 +173,8 @@ class ProseChunker:
     def chunk(
         self,
         text: str,
-        source: Optional[str] = None,
-        metadata: Optional[dict] = None,
+        source: str | None = None,
+        metadata: dict | None = None,
     ) -> list[ChunkResult]:
         """Chunk prose text into semantic units.
 
@@ -169,7 +198,9 @@ class ProseChunker:
         # Split into paragraphs first
         paragraphs = PARAGRAPH_PATTERN.split(text)
         # Filter out the separator groups captured by the regex
-        paragraphs = [p.strip() for p in paragraphs if p.strip() and not p in ('\r\n', '\r', '\n')]
+        paragraphs = [
+            p.strip() for p in paragraphs if p.strip() and p not in ("\r\n", "\r", "\n")
+        ]
 
         chunks = []
         chunk_index = 0
@@ -177,11 +208,15 @@ class ProseChunker:
         for para in paragraphs:
             if len(para) <= self.config.max_chunk_size:
                 # Paragraph fits in one chunk (total_chunks unknown, use -1)
-                chunks.append(self._create_chunk(para, chunk_index, -1, source, metadata))
+                chunks.append(
+                    self._create_chunk(para, chunk_index, -1, source, metadata)
+                )
                 chunk_index += 1
             else:
                 # Paragraph too large - split by sentences
-                sentence_chunks = self._chunk_by_sentences(para, chunk_index, source, metadata)
+                sentence_chunks = self._chunk_by_sentences(
+                    para, chunk_index, source, metadata
+                )
                 chunks.extend(sentence_chunks)
                 chunk_index += len(sentence_chunks)
 
@@ -198,8 +233,12 @@ class ProseChunker:
                 "source": source,
                 "input_length": len(text),
                 "chunk_count": len(final_chunks),
-                "avg_chunk_size": sum(len(c.content) for c in final_chunks) // len(final_chunks) if final_chunks else 0,
-            }
+                "avg_chunk_size": (
+                    sum(len(c.content) for c in final_chunks) // len(final_chunks)
+                    if final_chunks
+                    else 0
+                ),
+            },
         )
 
         return final_chunks
@@ -208,8 +247,8 @@ class ProseChunker:
         self,
         text: str,
         start_index: int,
-        source: Optional[str],
-        metadata: Optional[dict],
+        source: str | None,
+        metadata: dict | None,
     ) -> list[ChunkResult]:
         """Split text by sentence boundaries using abbreviation-aware splitter.
 
@@ -230,14 +269,20 @@ class ProseChunker:
 
         for sentence in sentences:
             # Check if adding sentence exceeds limit
-            potential_chunk = f"{current_chunk} {sentence}".strip() if current_chunk else sentence
+            potential_chunk = (
+                f"{current_chunk} {sentence}".strip() if current_chunk else sentence
+            )
 
             if len(potential_chunk) <= self.config.max_chunk_size:
                 current_chunk = potential_chunk
             else:
                 # Save current chunk if it meets minimum size
                 if len(current_chunk) >= self.config.min_chunk_size:
-                    chunks.append(self._create_chunk(current_chunk, chunk_index, -1, source, metadata))
+                    chunks.append(
+                        self._create_chunk(
+                            current_chunk, chunk_index, -1, source, metadata
+                        )
+                    )
                     chunk_index += 1
                     current_chunk = sentence
                 elif current_chunk:
@@ -248,19 +293,25 @@ class ProseChunker:
 
                 # Handle sentence larger than max chunk size
                 if len(current_chunk) > self.config.max_chunk_size:
-                    word_chunks = self._chunk_by_words(current_chunk, chunk_index, source, metadata)
+                    word_chunks = self._chunk_by_words(
+                        current_chunk, chunk_index, source, metadata
+                    )
                     chunks.extend(word_chunks)
                     chunk_index += len(word_chunks)
                     current_chunk = ""
 
         # Don't forget the last chunk
         if current_chunk and len(current_chunk) >= self.config.min_chunk_size:
-            chunks.append(self._create_chunk(current_chunk, chunk_index, -1, source, metadata))
+            chunks.append(
+                self._create_chunk(current_chunk, chunk_index, -1, source, metadata)
+            )
         elif current_chunk and chunks:
             # Append to last chunk if too small
             last_chunk = chunks[-1]
             combined = f"{last_chunk.content} {current_chunk}"
-            chunks[-1] = self._create_chunk(combined, last_chunk.metadata.chunk_index, -1, source, metadata)
+            chunks[-1] = self._create_chunk(
+                combined, last_chunk.metadata.chunk_index, -1, source, metadata
+            )
 
         return chunks
 
@@ -268,8 +319,8 @@ class ProseChunker:
         self,
         text: str,
         start_index: int,
-        source: Optional[str],
-        metadata: Optional[dict],
+        source: str | None,
+        metadata: dict | None,
     ) -> list[ChunkResult]:
         """Split text by word boundaries, handling very long words.
 
@@ -294,39 +345,59 @@ class ProseChunker:
             if len(word) > self.config.max_chunk_size:
                 # Save current chunk if any
                 if current_chunk:
-                    chunks.append(self._create_chunk(current_chunk, chunk_index, -1, source, metadata))
+                    chunks.append(
+                        self._create_chunk(
+                            current_chunk, chunk_index, -1, source, metadata
+                        )
+                    )
                     chunk_index += 1
                     current_chunk = ""
 
                 # Split long word into max_chunk_size pieces
-                word_chunk_size = self.config.max_chunk_size - 10  # Leave room for "..."
+                word_chunk_size = (
+                    self.config.max_chunk_size - 10
+                )  # Leave room for "..."
                 for i in range(0, len(word), word_chunk_size):
-                    word_piece = word[i:i + word_chunk_size]
+                    word_piece = word[i : i + word_chunk_size]
                     if i > 0:
                         word_piece = "..." + word_piece
                     if i + word_chunk_size < len(word):
                         word_piece = word_piece + "..."
-                    chunks.append(self._create_chunk(word_piece, chunk_index, -1, source, metadata))
+                    chunks.append(
+                        self._create_chunk(
+                            word_piece, chunk_index, -1, source, metadata
+                        )
+                    )
                     chunk_index += 1
                 continue
 
             # Normal word handling
-            potential_chunk = f"{current_chunk} {word}".strip() if current_chunk else word
+            potential_chunk = (
+                f"{current_chunk} {word}".strip() if current_chunk else word
+            )
 
             if len(potential_chunk) <= self.config.max_chunk_size:
                 current_chunk = potential_chunk
             else:
                 if current_chunk:
-                    chunks.append(self._create_chunk(current_chunk, chunk_index, -1, source, metadata))
+                    chunks.append(
+                        self._create_chunk(
+                            current_chunk, chunk_index, -1, source, metadata
+                        )
+                    )
                     chunk_index += 1
                 current_chunk = word
 
         if current_chunk:
-            chunks.append(self._create_chunk(current_chunk, chunk_index, -1, source, metadata))
+            chunks.append(
+                self._create_chunk(current_chunk, chunk_index, -1, source, metadata)
+            )
 
         return chunks
 
-    def _add_overlap(self, chunks: list[ChunkResult], total_chunks: int) -> list[ChunkResult]:
+    def _add_overlap(
+        self, chunks: list[ChunkResult], total_chunks: int
+    ) -> list[ChunkResult]:
         """Add overlap between consecutive chunks.
 
         CRIT-2: Ensures final chunk size never exceeds max_chunk_size.
@@ -361,13 +432,15 @@ class ProseChunker:
 
             # Get overlap from end of previous chunk (limited to available space)
             overlap_size = min(self._overlap_size, available_space)
-            overlap_text = prev_content[-overlap_size:] if len(prev_content) > overlap_size else ""
+            overlap_text = (
+                prev_content[-overlap_size:] if len(prev_content) > overlap_size else ""
+            )
 
             # Find word boundary for clean overlap
             if overlap_text and not overlap_text.startswith(" "):
                 space_idx = overlap_text.find(" ")
                 if space_idx > 0:
-                    overlap_text = overlap_text[space_idx + 1:]
+                    overlap_text = overlap_text[space_idx + 1 :]
 
             # Build new content with validated size
             if overlap_text:
@@ -383,7 +456,7 @@ class ProseChunker:
                         "new_size": len(new_content),
                         "max_size": self.config.max_chunk_size,
                         "falling_back": "no_overlap",
-                    }
+                    },
                 )
                 new_content = curr_content
 
@@ -395,7 +468,10 @@ class ProseChunker:
                     chunk_index=i,
                     total_chunks=total_chunks,
                     chunk_size_tokens=len(new_content) // CHARS_PER_TOKEN,
-                    overlap_tokens=int((len(new_content) // CHARS_PER_TOKEN) * self.config.overlap_ratio),
+                    overlap_tokens=int(
+                        (len(new_content) // CHARS_PER_TOKEN)
+                        * self.config.overlap_ratio
+                    ),
                     source_file=chunks[i].metadata.source_file,
                     start_line=None,
                     end_line=None,
@@ -430,7 +506,9 @@ class ProseChunker:
                 end_line=chunk.metadata.end_line,
                 section_header=chunk.metadata.section_header,
             )
-            updated_chunks.append(ChunkResult(content=chunk.content, metadata=updated_metadata))
+            updated_chunks.append(
+                ChunkResult(content=chunk.content, metadata=updated_metadata)
+            )
 
         return updated_chunks
 
@@ -439,8 +517,8 @@ class ProseChunker:
         content: str,
         index: int,
         total_chunks: int,
-        source: Optional[str],
-        metadata: Optional[dict],
+        source: str | None,
+        metadata: dict | None,
     ) -> ChunkResult:
         """Create a ChunkResult object with metadata.
 

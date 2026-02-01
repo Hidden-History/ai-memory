@@ -37,8 +37,10 @@ def integration_environment():
     timeout = float(os.environ.get("EMBEDDING_READ_TIMEOUT", "15.0"))
     if timeout < 30.0:
         import warnings
+
         warnings.warn(
             f"EMBEDDING_READ_TIMEOUT={timeout}s may be too short for CPU mode. "
-            "7B model typically needs 20-30s. Set EMBEDDING_READ_TIMEOUT=60 for safety."
+            "7B model typically needs 20-30s. Set EMBEDDING_READ_TIMEOUT=60 for safety.",
+            stacklevel=2,
         )
     yield

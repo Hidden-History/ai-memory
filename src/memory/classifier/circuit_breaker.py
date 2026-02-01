@@ -10,11 +10,10 @@ Pattern based on:
 TECH-DEBT-069: LLM classification resilience.
 """
 
-import time
 import logging
 import threading
+import time
 from dataclasses import dataclass
-from typing import Dict
 from enum import Enum
 
 logger = logging.getLogger("ai_memory.classifier.circuit_breaker")
@@ -24,6 +23,7 @@ __all__ = ["CircuitBreaker", "CircuitState", "circuit_breaker"]
 
 class CircuitState(str, Enum):
     """Circuit breaker states."""
+
     CLOSED = "closed"  # Normal operation
     OPEN = "open"  # Failing, reject requests
     HALF_OPEN = "half_open"  # Testing if service recovered
@@ -32,6 +32,7 @@ class CircuitState(str, Enum):
 @dataclass
 class ProviderState:
     """State tracking for a single provider."""
+
     consecutive_failures: int = 0
     last_failure_time: float = 0.0
     last_success_time: float = 0.0
@@ -73,7 +74,7 @@ class CircuitBreaker:
         self.failure_threshold = failure_threshold
         self.reset_timeout = reset_timeout
         self.half_open_max_attempts = half_open_max_attempts
-        self._states: Dict[str, ProviderState] = {}
+        self._states: dict[str, ProviderState] = {}
         self._lock = threading.Lock()  # Thread-safe state creation
 
         logger.info(
@@ -82,7 +83,7 @@ class CircuitBreaker:
                 "failure_threshold": failure_threshold,
                 "reset_timeout_seconds": reset_timeout,
                 "half_open_attempts": half_open_max_attempts,
-            }
+            },
         )
 
     def _get_state(self, provider: str) -> ProviderState:
@@ -138,7 +139,7 @@ class CircuitBreaker:
                         "provider": provider,
                         "timeout_seconds": self.reset_timeout,
                         "elapsed_seconds": elapsed,
-                    }
+                    },
                 )
                 return True
             else:
@@ -148,7 +149,7 @@ class CircuitBreaker:
                     extra={
                         "provider": provider,
                         "time_until_reset": self.reset_timeout - elapsed,
-                    }
+                    },
                 )
                 return False
 
@@ -162,14 +163,13 @@ class CircuitBreaker:
                         "provider": provider,
                         "attempt": state.half_open_attempts,
                         "max_attempts": self.half_open_max_attempts,
-                    }
+                    },
                 )
                 return True
             else:
                 # Max attempts reached in HALF_OPEN, still failing
                 logger.warning(
-                    "circuit_half_open_max_attempts",
-                    extra={"provider": provider}
+                    "circuit_half_open_max_attempts", extra={"provider": provider}
                 )
                 return False
 
@@ -196,7 +196,7 @@ class CircuitBreaker:
                 extra={
                     "provider": provider,
                     "previous_state": prev_state.value,
-                }
+                },
             )
 
     def record_failure(self, provider: str, error_type: str = "unknown"):
@@ -216,7 +216,7 @@ class CircuitBreaker:
                 "provider": provider,
                 "consecutive_failures": state.consecutive_failures,
                 "error_type": error_type,
-            }
+            },
         )
 
         # Check if we should open the circuit
@@ -230,7 +230,7 @@ class CircuitBreaker:
                         "failures": state.consecutive_failures,
                         "threshold": self.failure_threshold,
                         "timeout_seconds": self.reset_timeout,
-                    }
+                    },
                 )
 
     def get_status(self, provider: str) -> dict:

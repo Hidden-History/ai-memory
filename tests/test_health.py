@@ -4,8 +4,8 @@ Test suite for src/memory/health.py - Service health checks and fallback mode lo
 Follows 2025 best practices for health checks with mocks.
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
+
 from src.memory.health import check_services, get_fallback_mode
 
 
@@ -15,7 +15,9 @@ class TestCheckServices:
     @patch("src.memory.health.get_qdrant_client")
     @patch("src.memory.health.EmbeddingClient")
     @patch("src.memory.health.check_qdrant_health")
-    def test_all_services_healthy(self, mock_qdrant_health, mock_embedding_client, mock_get_client):
+    def test_all_services_healthy(
+        self, mock_qdrant_health, mock_embedding_client, mock_get_client
+    ):
         """All services healthy should return all True."""
         mock_get_client.return_value = Mock()
         mock_qdrant_health.return_value = True
@@ -32,7 +34,9 @@ class TestCheckServices:
     @patch("src.memory.health.get_qdrant_client")
     @patch("src.memory.health.EmbeddingClient")
     @patch("src.memory.health.check_qdrant_health")
-    def test_qdrant_down_embedding_up(self, mock_qdrant_health, mock_embedding_client, mock_get_client):
+    def test_qdrant_down_embedding_up(
+        self, mock_qdrant_health, mock_embedding_client, mock_get_client
+    ):
         """Qdrant down, embedding up."""
         mock_get_client.return_value = Mock()
         mock_qdrant_health.return_value = False
@@ -49,7 +53,9 @@ class TestCheckServices:
     @patch("src.memory.health.get_qdrant_client")
     @patch("src.memory.health.EmbeddingClient")
     @patch("src.memory.health.check_qdrant_health")
-    def test_qdrant_up_embedding_down(self, mock_qdrant_health, mock_embedding_client, mock_get_client):
+    def test_qdrant_up_embedding_down(
+        self, mock_qdrant_health, mock_embedding_client, mock_get_client
+    ):
         """Qdrant up, embedding down."""
         mock_get_client.return_value = Mock()
         mock_qdrant_health.return_value = True
@@ -66,7 +72,9 @@ class TestCheckServices:
     @patch("src.memory.health.get_qdrant_client")
     @patch("src.memory.health.EmbeddingClient")
     @patch("src.memory.health.check_qdrant_health")
-    def test_both_services_down(self, mock_qdrant_health, mock_embedding_client, mock_get_client):
+    def test_both_services_down(
+        self, mock_qdrant_health, mock_embedding_client, mock_get_client
+    ):
         """Both services down."""
         mock_get_client.return_value = Mock()
         mock_qdrant_health.return_value = False
@@ -83,7 +91,9 @@ class TestCheckServices:
     @patch("src.memory.health.get_qdrant_client")
     @patch("src.memory.health.EmbeddingClient")
     @patch("src.memory.health.check_qdrant_health")
-    def test_never_raises_exception(self, mock_qdrant_health, mock_embedding_client, mock_get_client):
+    def test_never_raises_exception(
+        self, mock_qdrant_health, mock_embedding_client, mock_get_client
+    ):
         """check_services() should never raise exceptions."""
         # Simulate exceptions from both services
         mock_get_client.return_value = Mock()
@@ -107,9 +117,12 @@ class TestCheckServices:
     @patch("src.memory.health.get_qdrant_client")
     @patch("src.memory.health.EmbeddingClient")
     @patch("src.memory.health.check_qdrant_health")
-    def test_logs_service_status(self, mock_qdrant_health, mock_embedding_client, mock_get_client, caplog):
+    def test_logs_service_status(
+        self, mock_qdrant_health, mock_embedding_client, mock_get_client, caplog
+    ):
         """check_services() should log health check results."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         mock_get_client.return_value = Mock()
@@ -118,7 +131,7 @@ class TestCheckServices:
         mock_ec_instance.health_check.return_value = False
         mock_embedding_client.return_value = mock_ec_instance
 
-        result = check_services()
+        check_services()
 
         # Verify logging occurred (structured logging)
         assert len(caplog.records) > 0
@@ -128,7 +141,9 @@ class TestCheckServices:
     @patch("src.memory.health.get_qdrant_client")
     @patch("src.memory.health.EmbeddingClient")
     @patch("src.memory.health.check_qdrant_health")
-    def test_completes_quickly(self, mock_qdrant_health, mock_embedding_client, mock_get_client):
+    def test_completes_quickly(
+        self, mock_qdrant_health, mock_embedding_client, mock_get_client
+    ):
         """check_services() should complete within 2 seconds (NFR-P1)."""
         import time
 

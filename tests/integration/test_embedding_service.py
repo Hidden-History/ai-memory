@@ -3,9 +3,11 @@ Integration tests for embedding service endpoints and performance.
 
 Tests verify AC 1.2.3 (API endpoints) and AC 1.2.4 (performance).
 """
-import pytest
-import httpx
+
 import time
+
+import httpx
+import pytest
 
 
 @pytest.mark.requires_embedding
@@ -32,9 +34,15 @@ class TestEmbeddingService:
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
         data = response.json()
-        assert data["status"] == "healthy", f"Expected healthy status, got {data['status']}"
-        assert data["model"] == "jina-embeddings-v2-base-code", f"Expected jina-embeddings-v2-base-code, got {data['model']}"
-        assert data["dimensions"] == 768, f"Expected 768 dimensions, got {data['dimensions']}"
+        assert (
+            data["status"] == "healthy"
+        ), f"Expected healthy status, got {data['status']}"
+        assert (
+            data["model"] == "jina-embeddings-v2-base-code"
+        ), f"Expected jina-embeddings-v2-base-code, got {data['model']}"
+        assert (
+            data["dimensions"] == 768
+        ), f"Expected 768 dimensions, got {data['dimensions']}"
         assert data["model_loaded"] is True, "Model should be loaded"
         assert "uptime_seconds" in data, "Uptime should be included"
 
@@ -51,21 +59,33 @@ class TestEmbeddingService:
         response = httpx.post(
             f"{embedding_base_url}/embed",
             json={"texts": ["def hello(): return 'world'"]},
-            timeout=30.0
+            timeout=30.0,
         )
 
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
         data = response.json()
-        assert data["model"] == "jina-embeddings-v2-base-code", f"Expected jina-embeddings-v2-base-code, got {data['model']}"
-        assert data["dimensions"] == 768, f"Expected 768 dimensions, got {data['dimensions']}"
-        assert len(data["embeddings"]) == 1, f"Expected 1 embedding, got {len(data['embeddings'])}"
-        assert len(data["embeddings"][0]) == 768, f"Expected 768-dim vector, got {len(data['embeddings'][0])}"
+        assert (
+            data["model"] == "jina-embeddings-v2-base-code"
+        ), f"Expected jina-embeddings-v2-base-code, got {data['model']}"
+        assert (
+            data["dimensions"] == 768
+        ), f"Expected 768 dimensions, got {data['dimensions']}"
+        assert (
+            len(data["embeddings"]) == 1
+        ), f"Expected 1 embedding, got {len(data['embeddings'])}"
+        assert (
+            len(data["embeddings"][0]) == 768
+        ), f"Expected 768-dim vector, got {len(data['embeddings'][0])}"
 
         # Verify normalized floats (should be between -1 and 1)
         embedding = data["embeddings"][0]
-        assert all(isinstance(val, float) for val in embedding), "All values should be floats"
-        assert all(-1.0 <= val <= 1.0 for val in embedding), "Values should be normalized between -1 and 1"
+        assert all(
+            isinstance(val, float) for val in embedding
+        ), "All values should be floats"
+        assert all(
+            -1.0 <= val <= 1.0 for val in embedding
+        ), "Values should be normalized between -1 and 1"
 
     def test_embed_batch(self, embedding_base_url):
         """
@@ -79,20 +99,22 @@ class TestEmbeddingService:
         texts = [
             "import numpy as np",
             "class Example: pass",
-            "def process(data): return data"
+            "def process(data): return data",
         ]
 
         response = httpx.post(
-            f"{embedding_base_url}/embed",
-            json={"texts": texts},
-            timeout=30.0
+            f"{embedding_base_url}/embed", json={"texts": texts}, timeout=30.0
         )
 
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
         data = response.json()
-        assert len(data["embeddings"]) == 3, f"Expected 3 embeddings, got {len(data['embeddings'])}"
-        assert all(len(emb) == 768 for emb in data["embeddings"]), "All embeddings should have 768 dimensions"
+        assert (
+            len(data["embeddings"]) == 3
+        ), f"Expected 3 embeddings, got {len(data['embeddings'])}"
+        assert all(
+            len(emb) == 768 for emb in data["embeddings"]
+        ), "All embeddings should have 768 dimensions"
 
     def test_embed_performance(self, embedding_base_url):
         """
@@ -111,7 +133,7 @@ class TestEmbeddingService:
         response = httpx.post(
             f"{embedding_base_url}/embed",
             json={"texts": ["test code snippet"]},
-            timeout=60.0  # CPU requires longer timeout
+            timeout=60.0,  # CPU requires longer timeout
         )
 
         duration = time.time() - start
@@ -119,7 +141,9 @@ class TestEmbeddingService:
         assert response.status_code == 200, f"Expected 200, got {response.status_code}"
 
         # CPU performance check (comment out for GPU testing)
-        assert duration < 60.0, f"Embedding took {duration:.2f}s, expected <60s (CPU mode)"
+        assert (
+            duration < 60.0
+        ), f"Embedding took {duration:.2f}s, expected <60s (CPU mode)"
 
         # GPU performance check (uncomment for GPU testing)
         # assert duration < 2.0, f"Embedding took {duration:.2f}s, expected <2s (NFR-P2 with GPU)"
@@ -135,7 +159,7 @@ class TestEmbeddingService:
         response = httpx.post(
             f"{embedding_base_url}/embed",
             json={"texts": ["sample code for normalization test"]},
-            timeout=30.0
+            timeout=30.0,
         )
 
         assert response.status_code == 200
@@ -144,8 +168,12 @@ class TestEmbeddingService:
         embedding = data["embeddings"][0]
 
         assert len(embedding) == 768, "Should have 768 dimensions"
-        assert all(isinstance(val, float) for val in embedding), "All values must be floats"
-        assert all(-1.0 <= val <= 1.0 for val in embedding), "Values must be normalized between -1 and 1"
+        assert all(
+            isinstance(val, float) for val in embedding
+        ), "All values must be floats"
+        assert all(
+            -1.0 <= val <= 1.0 for val in embedding
+        ), "Values must be normalized between -1 and 1"
 
     def test_empty_texts_error(self, embedding_base_url):
         """
@@ -157,16 +185,18 @@ class TestEmbeddingService:
         - Error message is meaningful
         """
         response = httpx.post(
-            f"{embedding_base_url}/embed",
-            json={"texts": []},
-            timeout=30.0
+            f"{embedding_base_url}/embed", json={"texts": []}, timeout=30.0
         )
 
-        assert response.status_code == 400, f"Expected 400 for empty texts, got {response.status_code}"
+        assert (
+            response.status_code == 400
+        ), f"Expected 400 for empty texts, got {response.status_code}"
 
         data = response.json()
         assert "detail" in data, "Error response should include detail"
-        assert "No texts provided" in data["detail"], "Error should mention no texts provided"
+        assert (
+            "No texts provided" in data["detail"]
+        ), "Error should mention no texts provided"
 
     def test_root_endpoint(self, embedding_base_url):
         """
@@ -207,7 +237,9 @@ class TestEmbeddingServiceIntegration:
 
         # Check Embedding
         embedding_response = httpx.get("http://localhost:28080/health", timeout=10.0)
-        assert embedding_response.status_code == 200, "Embedding service should be accessible"
+        assert (
+            embedding_response.status_code == 200
+        ), "Embedding service should be accessible"
 
         # Verify embedding service data
         data = embedding_response.json()

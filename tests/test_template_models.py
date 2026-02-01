@@ -538,7 +538,7 @@ class TestTypeAdapter:
         """Test TypeAdapter raises error on invalid JSON."""
         invalid_json = "{ not valid JSON }"
 
-        with pytest.raises(Exception):
+        with pytest.raises((json.JSONDecodeError, ValidationError)):
             TemplateListAdapter.validate_json(invalid_json)
 
 

@@ -13,7 +13,6 @@ validating file locking behavior.
 import concurrent.futures
 import json
 import time
-from pathlib import Path
 
 import pytest
 
@@ -70,7 +69,7 @@ class TestConcurrentAccess:
         assert set(all_ids) == set(entry_ids)
 
         # Verify file is valid JSONL (no corrupt lines)
-        with open(queue_path, "r") as f:
+        with open(queue_path) as f:
             line_count = 0
             for line in f:
                 line_count += 1
@@ -133,7 +132,9 @@ class TestConcurrentAccess:
             max_workers=num_dequeue_threads
         ) as executor:
             futures = [executor.submit(dequeue_items, chunk) for chunk in id_chunks]
-            total_dequeued = sum(f.result() for f in concurrent.futures.as_completed(futures))
+            total_dequeued = sum(
+                f.result() for f in concurrent.futures.as_completed(futures)
+            )
 
         # Should have dequeued all items
         assert total_dequeued == len(enqueued_ids)
@@ -202,12 +203,14 @@ class TestConcurrentAccess:
         # Heavy concurrent load
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = [executor.submit(stress_enqueue, i) for i in range(num_threads)]
-            total_enqueued = sum(f.result() for f in concurrent.futures.as_completed(futures))
+            total_enqueued = sum(
+                f.result() for f in concurrent.futures.as_completed(futures)
+            )
 
         assert total_enqueued == num_threads * items_per_thread
 
         # Verify file integrity - no corrupt lines
-        with open(queue_path, "r") as f:
+        with open(queue_path) as f:
             valid_lines = 0
             for line in f:
                 try:

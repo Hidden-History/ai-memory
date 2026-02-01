@@ -8,12 +8,11 @@ TECH-DEBT-069: LLM-based memory classification system.
 import json
 import logging
 import os
-from typing import Optional
 
 import httpx
 
+from ..config import MAX_OUTPUT_TOKENS, OPENROUTER_BASE_URL, OPENROUTER_MODEL
 from .base import BaseProvider, ProviderResponse
-from ..config import OPENROUTER_BASE_URL, OPENROUTER_MODEL, MAX_OUTPUT_TOKENS
 
 logger = logging.getLogger("ai_memory.classifier.providers.openrouter")
 
@@ -25,9 +24,9 @@ class OpenRouterProvider(BaseProvider):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
         timeout: int = 10,
     ):
         """Initialize OpenRouter provider.

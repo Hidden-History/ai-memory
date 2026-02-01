@@ -6,13 +6,12 @@ Environment variables override these defaults.
 TECH-DEBT-069: LLM-based memory classification system.
 """
 
-import os
-import re
 import logging
+import os
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("ai_memory.classifier.config")
 
@@ -24,7 +23,9 @@ def _load_env_file() -> None:
     """
     # Try multiple possible locations for .env
     possible_paths = [
-        Path(__file__).parent.parent.parent.parent / "docker" / ".env",  # src/memory/classifier -> project/docker/.env
+        Path(__file__).parent.parent.parent.parent
+        / "docker"
+        / ".env",  # src/memory/classifier -> project/docker/.env
         Path.home() / ".ai-memory" / ".env",
         Path("/app/docker/.env"),  # Docker container path
     ]
@@ -45,7 +46,10 @@ def _load_env_file() -> None:
                 logger.debug("env_file_loaded", extra={"path": str(env_path)})
                 break
             except Exception as e:
-                logger.debug("env_file_load_failed", extra={"path": str(env_path), "error": str(e)})
+                logger.debug(
+                    "env_file_load_failed",
+                    extra={"path": str(env_path), "error": str(e)},
+                )
 
 
 def _detect_ollama_url() -> str:
@@ -70,7 +74,7 @@ def _detect_ollama_url() -> str:
     # Check if running in WSL (check BEFORE Docker since Docker Desktop also sets host.docker.internal in WSL)
     is_wsl = False
     try:
-        with open("/proc/version", "r") as f:
+        with open("/proc/version") as f:
             is_wsl = "microsoft" in f.read().lower()
     except Exception:
         pass
@@ -82,7 +86,7 @@ def _detect_ollama_url() -> str:
                 ["ip", "route", "show", "default"],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
             if result.returncode == 0:
                 # Parse: "default via 172.18.48.1 dev eth0"
@@ -90,7 +94,10 @@ def _detect_ollama_url() -> str:
                 if len(parts) >= 3 and parts[0] == "default" and parts[1] == "via":
                     windows_ip = parts[2]
                     url = f"http://{windows_ip}:11434"
-                    logger.info("ollama_url_wsl_detected", extra={"url": url, "windows_ip": windows_ip})
+                    logger.info(
+                        "ollama_url_wsl_detected",
+                        extra={"url": url, "windows_ip": windows_ip},
+                    )
                     return url
         except Exception as e:
             logger.debug("wsl_ip_detection_failed", extra={"error": str(e)})
@@ -99,7 +106,7 @@ def _detect_ollama_url() -> str:
     # In a Docker container, /proc/1/cgroup contains docker/containerd paths
     is_docker = False
     try:
-        with open("/proc/1/cgroup", "r") as f:
+        with open("/proc/1/cgroup") as f:
             content = f.read()
             is_docker = "docker" in content or "containerd" in content
     except Exception:
@@ -197,33 +204,34 @@ def _get_int_env(
         )
         return default
 
+
 __all__ = [
-    "Significance",
-    "CLASSIFIER_ENABLED",
-    "WARM_UP_ON_START",
+    "ANTHROPIC_MODEL",
     "ASYNC_CLASSIFICATION",
-    "QUEUE_ON_FAILURE",
-    "PRIMARY_PROVIDER",
+    "CLASSIFIER_ENABLED",
+    "CONFIDENCE_THRESHOLD",
+    "COST_PER_MILLION",
     "FALLBACK_PROVIDERS",
+    "LOW_PATTERNS",
+    "MAX_INPUT_CHARS",
+    "MAX_OUTPUT_TOKENS",
+    "MIN_CONTENT_LENGTH",
     "OLLAMA_BASE_URL",
     "OLLAMA_MODEL",
     "OPENROUTER_BASE_URL",
     "OPENROUTER_MODEL",
-    "ANTHROPIC_MODEL",
-    "CONFIDENCE_THRESHOLD",
-    "RULE_CONFIDENCE_THRESHOLD",
-    "MIN_CONTENT_LENGTH",
-    "TIMEOUT_SECONDS",
-    "MAX_OUTPUT_TOKENS",
-    "MAX_INPUT_CHARS",
+    "PRIMARY_PROVIDER",
+    "QUEUE_ON_FAILURE",
     "RATE_LIMIT_PER_MINUTE",
-    "COST_PER_MILLION",
+    "RULE_CONFIDENCE_THRESHOLD",
+    "RULE_PATTERNS",
     "SIGNIFICANCE_BEHAVIOR",
     "SKIP_PATTERNS",
-    "LOW_PATTERNS",
-    "VALID_TYPES",
     "SKIP_RECLASSIFICATION_TYPES",
-    "RULE_PATTERNS",
+    "TIMEOUT_SECONDS",
+    "VALID_TYPES",
+    "WARM_UP_ON_START",
+    "Significance",
 ]
 
 # =============================================================================
@@ -248,9 +256,7 @@ FALLBACK_PROVIDERS = os.getenv(
 OLLAMA_BASE_URL = _detect_ollama_url()
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "sam860/LFM2:2.6b")
 
-OPENROUTER_BASE_URL = os.getenv(
-    "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
-)
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-3-haiku")
 
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
@@ -316,20 +322,20 @@ SIGNIFICANCE_BEHAVIOR = {
 }
 
 # Patterns that indicate SKIP significance (regex patterns)
-SKIP_PATTERNS: List[str] = [
+SKIP_PATTERNS: list[str] = [
     r"^(ok|okay|yes|no|sure|thanks|thank you|got it|done|yep|nope)\.?$",
     r"^[\U0001F300-\U0001F9FF]+$",  # Emoji-only
 ]
 
 # Patterns that indicate LOW significance
-LOW_PATTERNS: List[str] = [
+LOW_PATTERNS: list[str] = [
     r"^(sounds good|will do|on it|understood|acknowledged)",
 ]
 
 # =============================================================================
 # MEMORY TYPES BY COLLECTION
 # =============================================================================
-VALID_TYPES: Dict[str, List[str]] = {
+VALID_TYPES: dict[str, list[str]] = {
     "code-patterns": ["implementation", "error_fix", "refactor", "file_pattern"],
     "conventions": ["rule", "guideline", "port", "naming", "structure"],
     "discussions": [
@@ -343,12 +349,12 @@ VALID_TYPES: Dict[str, List[str]] = {
 }
 
 # Types that should NOT be reclassified
-SKIP_RECLASSIFICATION_TYPES: List[str] = ["session", "error_fix"]
+SKIP_RECLASSIFICATION_TYPES: list[str] = ["session", "error_fix"]
 
 # =============================================================================
 # RULE-BASED CLASSIFICATION PATTERNS
 # =============================================================================
-RULE_PATTERNS: Dict[str, Dict[str, Any]] = {
+RULE_PATTERNS: dict[str, dict[str, Any]] = {
     "error_fix": {
         "patterns": [
             r"(?i)(fixed|resolved|solved).*(error|exception|bug|issue)",

@@ -11,29 +11,45 @@ Best Practices (2025/2026):
 
 import logging
 import time
-from typing import Optional
 
-from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny, SearchParams
+from qdrant_client.models import (
+    FieldCondition,
+    Filter,
+    MatchAny,
+    MatchValue,
+    SearchParams,
+)
 
-from .config import MemoryConfig, get_config, COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS
+from .config import (
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+    COLLECTION_DISCUSSIONS,
+    MemoryConfig,
+    get_config,
+)
 from .embeddings import EmbeddingClient, EmbeddingError
-from .qdrant_client import get_qdrant_client, QdrantUnavailable
+from .qdrant_client import QdrantUnavailable, get_qdrant_client
 
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
 try:
     from .metrics import (
-        retrieval_duration_seconds,
-        memory_retrievals_total,
         failure_events_total,
+        memory_retrievals_total,
+        retrieval_duration_seconds,
     )
 except ImportError:
     retrieval_duration_seconds = None
     memory_retrievals_total = None
     failure_events_total = None
 
-from .metrics_push import push_retrieval_metrics_async, push_failure_metrics_async
+from .metrics_push import push_failure_metrics_async, push_retrieval_metrics_async
 
-__all__ = ["MemorySearch", "retrieve_best_practices", "search_memories", "format_attribution"]
+__all__ = [
+    "MemorySearch",
+    "format_attribution",
+    "retrieve_best_practices",
+    "search_memories",
+]
 
 logger = logging.getLogger("ai_memory.retrieve")
 
@@ -41,7 +57,7 @@ logger = logging.getLogger("ai_memory.retrieve")
 def format_attribution(
     collection: str,
     memory_type: str,
-    score: Optional[float] = None,
+    score: float | None = None,
 ) -> str:
     """Format attribution string for display.
 
@@ -101,7 +117,7 @@ class MemorySearch:
         0.95
     """
 
-    def __init__(self, config: Optional[MemoryConfig] = None):
+    def __init__(self, config: MemoryConfig | None = None):
         """Initialize memory search with configuration.
 
         Args:
@@ -119,11 +135,11 @@ class MemorySearch:
         self,
         query: str,
         collection: str = COLLECTION_CODE_PATTERNS,
-        cwd: Optional[str] = None,
-        group_id: Optional[str] = None,
-        limit: Optional[int] = None,
-        score_threshold: Optional[float] = None,
-        memory_type: Optional[str | list[str]] = None,
+        cwd: str | None = None,
+        group_id: str | None = None,
+        limit: int | None = None,
+        score_threshold: float | None = None,
+        memory_type: str | list[str] | None = None,
         fast_mode: bool = False,  # NEW: Use hnsw_ef=64 for triggers
     ) -> list[dict]:
         """Search for relevant memories using semantic similarity with project scoping.
@@ -181,8 +197,8 @@ class MemorySearch:
                     extra={
                         "received_type": type(memory_type).__name__,
                         "expected": "str or list[str]",
-                        "value": str(memory_type)[:50]
-                    }
+                        "value": str(memory_type)[:50],
+                    },
                 )
                 memory_types = None  # Skip type filtering if invalid
 
@@ -237,9 +253,7 @@ class MemorySearch:
                 FieldCondition(key="type", match=MatchAny(any=memory_types))
             )
 
-        query_filter = (
-            Filter(must=filter_conditions) if filter_conditions else None
-        )
+        query_filter = Filter(must=filter_conditions) if filter_conditions else None
 
         # Search Qdrant using query_points (qdrant-client 1.16+ API)
         # Wraps exceptions in QdrantUnavailable for graceful degradation (AC 1.6.4)
@@ -247,13 +261,15 @@ class MemorySearch:
         # - Triggers (fast_mode=True): config.hnsw_ef_fast for <100ms response
         # - User searches (fast_mode=False): config.hnsw_ef_accurate for accuracy
         try:
-            hnsw_ef = self.config.hnsw_ef_fast if fast_mode else self.config.hnsw_ef_accurate
+            hnsw_ef = (
+                self.config.hnsw_ef_fast if fast_mode else self.config.hnsw_ef_accurate
+            )
             search_params = SearchParams(hnsw_ef=hnsw_ef)
         except Exception as e:
             # Graceful degradation: let Qdrant use defaults
             logger.warning(
                 "search_params_creation_failed",
-                extra={"error": str(e), "fast_mode": fast_mode}
+                extra={"error": str(e), "fast_mode": fast_mode},
             )
             search_params = None
 
@@ -263,7 +279,7 @@ class MemorySearch:
                 "hnsw_ef": search_params.hnsw_ef if search_params else "default",
                 "fast_mode": fast_mode,
                 "collection": collection,
-            }
+            },
         )
 
         start_time = time.perf_counter()
@@ -306,11 +322,10 @@ class MemorySearch:
             push_retrieval_metrics_async(
                 collection=collection,
                 status="failed",
-                duration_seconds=duration_seconds
+                duration_seconds=duration_seconds,
             )
             push_failure_metrics_async(
-                component="qdrant",
-                error_code="QDRANT_UNAVAILABLE"
+                component="qdrant", error_code="QDRANT_UNAVAILABLE"
             )
 
             logger.error(
@@ -335,7 +350,9 @@ class MemorySearch:
                 "score": result.score,
                 "collection": collection,
                 "type": memory_type,
-                "attribution": format_attribution(collection, memory_type, result.score),
+                "attribution": format_attribution(
+                    collection, memory_type, result.score
+                ),
             }
             memories.append(memory)
 
@@ -348,7 +365,7 @@ class MemorySearch:
         push_retrieval_metrics_async(
             collection=collection,
             status=status,
-            duration_seconds=time.perf_counter() - start_time
+            duration_seconds=time.perf_counter() - start_time,
         )
 
         # Structured logging
@@ -367,8 +384,8 @@ class MemorySearch:
     def search_both_collections(
         self,
         query: str,
-        group_id: Optional[str] = None,
-        cwd: Optional[str] = None,
+        group_id: str | None = None,
+        cwd: str | None = None,
         limit: int = 5,
         fast_mode: bool = False,
     ) -> dict:
@@ -463,13 +480,13 @@ class MemorySearch:
     def cascading_search(
         self,
         query: str,
-        group_id: Optional[str],
+        group_id: str | None,
         primary_collection: str,
         secondary_collections: list[str],
         limit: int = 5,
         min_results: int = 3,
         min_relevance: float = 0.5,
-        memory_type: Optional[str | list[str]] = None,
+        memory_type: str | list[str] | None = None,
         fast_mode: bool = False,  # NEW: Pass through to search() for hnsw_ef tuning
     ) -> list[dict]:
         """Search primary collection first, expand to secondary if results insufficient.
@@ -548,7 +565,11 @@ class MemorySearch:
                 "min_results": min_results,
                 "min_relevance": min_relevance,
                 "secondary_collections": secondary_collections,
-                "reason": "insufficient_results" if results_count < min_results else "low_relevance",
+                "reason": (
+                    "insufficient_results"
+                    if results_count < min_results
+                    else "low_relevance"
+                ),
             },
         )
 
@@ -623,9 +644,7 @@ class MemorySearch:
         """
         high_relevance = [r for r in results if r["score"] >= high_threshold]
         medium_relevance = [
-            r
-            for r in results
-            if medium_threshold <= r["score"] < high_threshold
+            r for r in results if medium_threshold <= r["score"] < high_threshold
         ]
 
         output = []
@@ -708,7 +727,7 @@ def retrieve_best_practices(
     query: str,
     limit: int = 3,
     fast_mode: bool = False,
-    config: Optional[MemoryConfig] = None,
+    config: MemoryConfig | None = None,
 ) -> list[dict]:
     """Retrieve best practices regardless of current project.
 
@@ -839,14 +858,14 @@ def retrieve_best_practices(
 
 def search_memories(
     query: str,
-    collection: Optional[str] = None,
-    group_id: Optional[str] = None,
+    collection: str | None = None,
+    group_id: str | None = None,
     limit: int = 5,
-    memory_type: Optional[str | list[str]] = None,
+    memory_type: str | list[str] | None = None,
     use_cascading: bool = False,
-    intent: Optional[str] = None,
+    intent: str | None = None,
     fast_mode: bool = False,
-    config: Optional[MemoryConfig] = None,
+    config: MemoryConfig | None = None,
 ) -> list[dict]:
     """Search memories with optional intent-based cascading.
 
@@ -937,23 +956,31 @@ def search_memories(
         )
 
     # Cascading search: Detect intent and route appropriately
-    from .intent import detect_intent, get_target_collection, get_target_types, IntentType
+    from .intent import (
+        IntentType,
+        detect_intent,
+        get_target_collection,
+        get_target_types,
+    )
 
     # Detect or use provided intent
-    if intent:
-        detected_intent = IntentType(intent.lower())
-    else:
-        detected_intent = detect_intent(query)
+    detected_intent = IntentType(intent.lower()) if intent else detect_intent(query)
 
     # Get primary collection and types for this intent
     primary_collection = get_target_collection(detected_intent)
     intent_types = get_target_types(detected_intent)
 
     # Explicit memory_type overrides intent-inferred types (intentional - user knows what they want)
-    effective_types = memory_type if memory_type else (intent_types if intent_types else None)
+    effective_types = (
+        memory_type if memory_type else (intent_types if intent_types else None)
+    )
 
     # Build secondary collections list (all collections except primary)
-    all_collections = [COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS]
+    all_collections = [
+        COLLECTION_CODE_PATTERNS,
+        COLLECTION_CONVENTIONS,
+        COLLECTION_DISCUSSIONS,
+    ]
     secondary_collections = [c for c in all_collections if c != primary_collection]
 
     logger.info(

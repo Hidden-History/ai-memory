@@ -10,13 +10,14 @@ Tests verify:
 """
 
 import sys
-sys.path.insert(0, '.')
+
+sys.path.insert(0, ".")
 
 import pytest
 
 from src.memory.config import get_config
 from src.memory.embeddings import EmbeddingClient
-from src.memory.qdrant_client import get_qdrant_client, check_qdrant_health
+from src.memory.qdrant_client import check_qdrant_health, get_qdrant_client
 
 
 @pytest.mark.requires_docker_stack
@@ -63,14 +64,16 @@ class TestCoreModulesIntegration:
             embeddings = client.embed(["def hello(): return 'world'"])
 
             assert len(embeddings) == 1
-            assert len(embeddings[0]) == 768, f"Expected 768 dimensions (DEC-010), got {len(embeddings[0])}"
+            assert (
+                len(embeddings[0]) == 768
+            ), f"Expected 768 dimensions (DEC-010), got {len(embeddings[0])}"
             assert all(isinstance(v, float) for v in embeddings[0])
 
             print("  ✓ Embedding generation successful (768 dimensions)")
 
         except EmbeddingError as e:
             # Graceful degradation: service might be slow on first request
-            print(f"  ⚠ WARNING: Embedding timeout (service may need warmup)")
+            print("  ⚠ WARNING: Embedding timeout (service may need warmup)")
             print(f"    Error: {e}")
             print("  ✓ Error handling working correctly (graceful degradation)")
 
@@ -112,7 +115,9 @@ class TestCoreModulesIntegration:
 
 if __name__ == "__main__":
     print("Running core modules integration tests...")
-    print("NOTE: These tests require Docker stack running (cd docker && docker compose up -d)\n")
+    print(
+        "NOTE: These tests require Docker stack running (cd docker && docker compose up -d)\n"
+    )
 
     test = TestCoreModulesIntegration()
 
@@ -142,6 +147,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  ✗ {name}: {e}")
             import traceback
+
             traceback.print_exc()
             failed += 1
 

@@ -7,10 +7,8 @@ Tests verify 2026 best practices:
 - Idempotent operations
 """
 
-import subprocess
-import tempfile
-import shutil
 from pathlib import Path
+
 import pytest
 
 
@@ -65,7 +63,9 @@ class TestUpdateScript:
         content = update_script.read_text()
 
         # Verify check_installation function exists and checks critical dirs
-        assert "check_installation()" in content, "Must have check_installation function"
+        assert (
+            "check_installation()" in content
+        ), "Must have check_installation function"
         assert "docker" in content, "Must check docker directory"
         assert "src/memory" in content, "Must check src/memory directory"
         assert "scripts" in content, "Must check scripts directory"
@@ -102,8 +102,9 @@ class TestUpdateScript:
         assert "update_files()" in content, "Must have update_files function"
         # Should copy .env.example but not overwrite .env
         assert ".env.example" in content, "Must handle .env.example"
-        assert "Kept existing .env" in content or "existing .env" in content.lower(), \
-            "Must preserve existing .env"
+        assert (
+            "Kept existing .env" in content or "existing .env" in content.lower()
+        ), "Must preserve existing .env"
 
     def test_cleanup_old_backups_respects_retention(self):
         """Test that cleanup_old_backups() respects retention policy."""
@@ -127,5 +128,6 @@ class TestUpdateScript:
         assert "mkdir -p" in content, "Must use mkdir -p for idempotent dir creation"
         assert "docker compose up -d" in content, "Must use docker compose up -d"
         # Check for conditional file operations
-        assert "if [[ -f" in content or "if [[ -d" in content, \
-            "Must have conditional checks for idempotency"
+        assert (
+            "if [[ -f" in content or "if [[ -d" in content
+        ), "Must have conditional checks for idempotency"

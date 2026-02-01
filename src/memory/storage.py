@@ -14,19 +14,23 @@ Architecture Reference: architecture.md:516-690 (Storage & Graceful Degradation)
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
-from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from .config import MemoryConfig, get_config
 from .embeddings import EmbeddingClient, EmbeddingError
-from .models import MemoryPayload, MemoryType, EmbeddingStatus
-from .qdrant_client import get_qdrant_client, QdrantUnavailable
-from .validation import validate_payload, compute_content_hash
+from .models import EmbeddingStatus, MemoryPayload, MemoryType
+from .qdrant_client import QdrantUnavailable, get_qdrant_client
+from .validation import compute_content_hash, validate_payload
 
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
 try:
-    from .metrics import memory_captures_total, collection_size, failure_events_total, deduplication_events_total
+    from .metrics import (
+        collection_size,
+        deduplication_events_total,
+        failure_events_total,
+        memory_captures_total,
+    )
 except ImportError:
     memory_captures_total = None
     collection_size = None
@@ -50,16 +54,16 @@ def _enforce_content_limit(content: str, memory_type: MemoryType) -> str:
     """
     LIMITS = {
         MemoryType.SESSION: 1600,  # 400 tokens
-        MemoryType.IMPLEMENTATION: 1200,   # 300 tokens
-        MemoryType.GUIDELINE: 600,         # 150 tokens
-        MemoryType.ERROR_FIX: 1200,        # 300 tokens
+        MemoryType.IMPLEMENTATION: 1200,  # 300 tokens
+        MemoryType.GUIDELINE: 600,  # 150 tokens
+        MemoryType.ERROR_FIX: 1200,  # 300 tokens
     }
     limit = LIMITS.get(memory_type, 1200)  # default 300 tokens
 
     if len(content) <= limit:
         return content
 
-    return content[:limit - 12] + " [TRUNCATED]"
+    return content[: limit - 12] + " [TRUNCATED]"
 
 
 class MemoryStorage:
@@ -87,7 +91,7 @@ class MemoryStorage:
         'complete'
     """
 
-    def __init__(self, config: Optional[MemoryConfig] = None) -> None:
+    def __init__(self, config: MemoryConfig | None = None) -> None:
         """Initialize storage with configured clients.
 
         Args:
@@ -109,7 +113,7 @@ class MemoryStorage:
         source_hook: str,
         session_id: str,
         collection: str = "code-patterns",
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         **extra_fields,
     ) -> dict:
         """Store a memory with automatic project detection and validation.
@@ -224,7 +228,11 @@ class MemoryStorage:
         if errors:
             logger.error(
                 "validation_failed",
-                extra={"errors": errors, "group_id": group_id, "content_hash": content_hash},
+                extra={
+                    "errors": errors,
+                    "group_id": group_id,
+                    "content_hash": content_hash,
+                },
             )
             raise ValueError(f"Validation failed: {errors}")
 
@@ -302,9 +310,7 @@ class MemoryStorage:
             # Metrics: Memory capture success (Story 6.1, AC 6.1.3)
             if memory_captures_total:
                 memory_captures_total.labels(
-                    hook_type=source_hook,
-                    status="success",
-                    project=group_id
+                    hook_type=source_hook, status="success", project=group_id
                 ).inc()
 
             return {
@@ -328,9 +334,7 @@ class MemoryStorage:
             # Metrics: Memory capture failed (Story 6.1, AC 6.1.3)
             if memory_captures_total:
                 memory_captures_total.labels(
-                    hook_type=source_hook,
-                    status="failed",
-                    project=group_id
+                    hook_type=source_hook, status="failed", project=group_id
                 ).inc()
 
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
@@ -344,7 +348,7 @@ class MemoryStorage:
     def store_memories_batch(
         self,
         memories: list[dict],
-        cwd: Optional[str] = None,
+        cwd: str | None = None,
         collection: str = "code-patterns",
     ) -> list[dict]:
         """Store multiple memories in batch for efficiency.
@@ -439,9 +443,7 @@ class MemoryStorage:
         try:
             embeddings = self.embedding_client.embed(contents)
             embedding_status = EmbeddingStatus.COMPLETE
-            logger.debug(
-                "batch_embeddings_generated", extra={"count": len(contents)}
-            )
+            logger.debug("batch_embeddings_generated", extra={"count": len(contents)})
 
         except EmbeddingError as e:
             # Graceful degradation: Use zero vectors for all
@@ -460,7 +462,7 @@ class MemoryStorage:
             embedding_status = EmbeddingStatus.PENDING
 
         # Build points for batch upsert
-        for memory, embedding in zip(memories, embeddings):
+        for memory, embedding in zip(memories, embeddings, strict=False):
             memory_id = str(uuid.uuid4())
 
             # TECH-DEBT-012 Round 3: Handle created_at timestamp
@@ -469,7 +471,11 @@ class MemoryStorage:
                 created_at = datetime.now(timezone.utc).isoformat()
 
             # TECH-DEBT-012 Round 3: Enforce content size limits
-            memory_type = MemoryType(memory["type"]) if isinstance(memory["type"], str) else memory["type"]
+            memory_type = (
+                MemoryType(memory["type"])
+                if isinstance(memory["type"], str)
+                else memory["type"]
+            )
             original_length = len(memory["content"])
             content = _enforce_content_limit(memory["content"], memory_type)
 
@@ -498,9 +504,7 @@ class MemoryStorage:
             )
 
             points.append(
-                PointStruct(
-                    id=memory_id, vector=embedding, payload=payload.to_dict()
-                )
+                PointStruct(id=memory_id, vector=embedding, payload=payload.to_dict())
             )
             results.append(
                 {
@@ -545,7 +549,7 @@ class MemoryStorage:
 
     def _check_duplicate(
         self, content_hash: str, collection: str, group_id: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """Check if content_hash already exists in collection for the same project.
 
         Implements AC 1.5.3 (Deduplication Integration).
@@ -634,7 +638,7 @@ def store_best_practice(
     content: str,
     session_id: str,
     source_hook: str = "manual",
-    config: Optional[MemoryConfig] = None,
+    config: MemoryConfig | None = None,
     **kwargs,
 ) -> dict:
     """Store best practice accessible from all projects.
@@ -760,7 +764,7 @@ def update_point_payload(
     collection: str,
     point_id: str,
     payload_updates: dict,
-    config: Optional[MemoryConfig] = None,
+    config: MemoryConfig | None = None,
 ) -> bool:
     """Update payload fields on an existing Qdrant point.
 
@@ -811,18 +815,14 @@ def update_point_payload(
                 "collection": collection,
                 "point_id": point_id,
                 "fields_updated": list(payload_updates.keys()),
-            }
+            },
         )
         return True
 
     except QdrantUnavailable as e:
         logger.error(
             "qdrant_unavailable_during_update",
-            extra={
-                "collection": collection,
-                "point_id": point_id,
-                "error": str(e)
-            }
+            extra={"collection": collection, "point_id": point_id, "error": str(e)},
         )
         return False
 
@@ -833,7 +833,7 @@ def update_point_payload(
                 "collection": collection,
                 "point_id": point_id,
                 "error": str(e),
-                "error_type": type(e).__name__
-            }
+                "error_type": type(e).__name__,
+            },
         )
         return False

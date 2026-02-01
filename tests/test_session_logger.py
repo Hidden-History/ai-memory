@@ -2,20 +2,16 @@
 # tests/test_session_logger.py
 """Unit tests for session logger module (Story 6.5)."""
 
-import os
 import gzip
 import json
 import logging
-from pathlib import Path
+
 import pytest
-import tempfile
-import shutil
 
 from memory.session_logger import (
     GzipRotatingFileHandler,
     get_session_logger,
     log_to_session_file,
-    SESSION_LOG_PATH
 )
 
 
@@ -39,9 +35,7 @@ class TestGzipRotatingFileHandler:
     def test_rotation_filename_adds_gz_extension(self, temp_log_dir):
         """Test that rotation_filename adds .gz extension."""
         handler = GzipRotatingFileHandler(
-            filename=str(temp_log_dir / "test.log"),
-            maxBytes=1024,
-            backupCount=2
+            filename=str(temp_log_dir / "test.log"), maxBytes=1024, backupCount=2
         )
 
         default_name = str(temp_log_dir / "test.log.1")
@@ -59,9 +53,7 @@ class TestGzipRotatingFileHandler:
 
         # Create handler and rotate
         handler = GzipRotatingFileHandler(
-            filename=str(temp_log_dir / "test.log"),
-            maxBytes=1024,
-            backupCount=2
+            filename=str(temp_log_dir / "test.log"), maxBytes=1024, backupCount=2
         )
         handler.rotate(str(source), str(dest))
 
@@ -70,7 +62,7 @@ class TestGzipRotatingFileHandler:
 
         # Verify destination is gzipped
         assert dest.exists()
-        with gzip.open(dest, 'rt') as f:
+        with gzip.open(dest, "rt") as f:
             content = f.read()
         assert content == "Line 1\nLine 2\nLine 3\n"
 
@@ -80,9 +72,7 @@ class TestGzipRotatingFileHandler:
         dest = temp_log_dir / "dest.log.gz"
 
         handler = GzipRotatingFileHandler(
-            filename=str(temp_log_dir / "test.log"),
-            maxBytes=1024,
-            backupCount=2
+            filename=str(temp_log_dir / "test.log"), maxBytes=1024, backupCount=2
         )
 
         # Should not raise exception
@@ -104,8 +94,11 @@ class TestGetSessionLogger:
     def test_returns_logger_when_enabled(self, monkeypatch, session_log_path):
         """Test that get_session_logger returns logger when SESSION_LOG_ENABLED=true."""
         import memory.session_logger as session_logger_module
+
         monkeypatch.setenv("SESSION_LOG_ENABLED", "true")
-        monkeypatch.setattr(session_logger_module, "SESSION_LOG_PATH", str(session_log_path))
+        monkeypatch.setattr(
+            session_logger_module, "SESSION_LOG_PATH", str(session_log_path)
+        )
 
         logger = get_session_logger()
         assert logger is not None
@@ -115,6 +108,7 @@ class TestGetSessionLogger:
     def test_creates_log_directory_if_not_exists(self, monkeypatch, temp_log_dir):
         """Test that get_session_logger creates log directory if it doesn't exist."""
         import memory.session_logger as session_logger_module
+
         log_path = temp_log_dir / "new_dir" / "sessions.jsonl"
 
         monkeypatch.setenv("SESSION_LOG_ENABLED", "true")
@@ -127,8 +121,11 @@ class TestGetSessionLogger:
     def test_logger_does_not_propagate(self, monkeypatch, session_log_path):
         """Test that session logger does not propagate to root logger."""
         import memory.session_logger as session_logger_module
+
         monkeypatch.setenv("SESSION_LOG_ENABLED", "true")
-        monkeypatch.setattr(session_logger_module, "SESSION_LOG_PATH", str(session_log_path))
+        monkeypatch.setattr(
+            session_logger_module, "SESSION_LOG_PATH", str(session_log_path)
+        )
 
         logger = get_session_logger()
         assert logger.propagate is False
@@ -136,8 +133,11 @@ class TestGetSessionLogger:
     def test_logger_reuses_existing_handlers(self, monkeypatch, session_log_path):
         """Test that get_session_logger reuses existing handlers."""
         import memory.session_logger as session_logger_module
+
         monkeypatch.setenv("SESSION_LOG_ENABLED", "true")
-        monkeypatch.setattr(session_logger_module, "SESSION_LOG_PATH", str(session_log_path))
+        monkeypatch.setattr(
+            session_logger_module, "SESSION_LOG_PATH", str(session_log_path)
+        )
 
         # Clear any existing logger
         logging.getLogger("ai_memory.sessions").handlers.clear()
@@ -159,8 +159,11 @@ class TestLogToSessionFile:
     def test_logs_to_jsonl_file(self, monkeypatch, session_log_path):
         """Test that log_to_session_file writes JSONL to file."""
         import memory.session_logger as session_logger_module
+
         monkeypatch.setenv("SESSION_LOG_ENABLED", "true")
-        monkeypatch.setattr(session_logger_module, "SESSION_LOG_PATH", str(session_log_path))
+        monkeypatch.setattr(
+            session_logger_module, "SESSION_LOG_PATH", str(session_log_path)
+        )
 
         # Clear existing logger
         logging.getLogger("bmad.memory.sessions").handlers.clear()
@@ -169,7 +172,7 @@ class TestLogToSessionFile:
             "session_id": "sess-123",
             "project": "test-project",
             "results_count": 5,
-            "duration_ms": 123.45
+            "duration_ms": 123.45,
         }
 
         log_to_session_file(session_data)
@@ -178,7 +181,7 @@ class TestLogToSessionFile:
         assert session_log_path.exists()
 
         # Read and parse JSONL
-        with open(session_log_path, 'r') as f:
+        with open(session_log_path) as f:
             lines = f.readlines()
 
         assert len(lines) >= 1
@@ -192,10 +195,7 @@ class TestLogToSessionFile:
         """Test that log_to_session_file does nothing when SESSION_LOG_ENABLED=false."""
         monkeypatch.setenv("SESSION_LOG_ENABLED", "false")
 
-        session_data = {
-            "session_id": "sess-456",
-            "project": "test-project"
-        }
+        session_data = {"session_id": "sess-456", "project": "test-project"}
 
         log_to_session_file(session_data)
 
@@ -205,8 +205,11 @@ class TestLogToSessionFile:
     def test_handles_empty_data(self, monkeypatch, session_log_path):
         """Test that log_to_session_file handles empty data dict."""
         import memory.session_logger as session_logger_module
+
         monkeypatch.setenv("SESSION_LOG_ENABLED", "true")
-        monkeypatch.setattr(session_logger_module, "SESSION_LOG_PATH", str(session_log_path))
+        monkeypatch.setattr(
+            session_logger_module, "SESSION_LOG_PATH", str(session_log_path)
+        )
 
         # Clear existing logger
         logging.getLogger("bmad.memory.sessions").handlers.clear()
@@ -223,6 +226,7 @@ class TestSessionLogRotation:
     def test_log_rotation_at_max_bytes(self, monkeypatch, temp_log_dir):
         """Test that log rotates at maxBytes threshold."""
         import memory.session_logger as session_logger_module
+
         log_path = temp_log_dir / "sessions.jsonl"
 
         monkeypatch.setenv("SESSION_LOG_ENABLED", "true")
@@ -234,7 +238,7 @@ class TestSessionLogRotation:
 
         # Write enough data to trigger rotation
         large_data = {"large_field": "x" * 500}
-        for i in range(10):  # ~5KB of data
+        for _i in range(10):  # ~5KB of data
             log_to_session_file(large_data)
 
         # Check for rotated file
@@ -243,6 +247,6 @@ class TestSessionLogRotation:
 
         # Verify rotated file is gzipped
         rotated_file = rotated_files[0]
-        with gzip.open(rotated_file, 'rt') as f:
+        with gzip.open(rotated_file, "rt") as f:
             content = f.read()
         assert len(content) > 0

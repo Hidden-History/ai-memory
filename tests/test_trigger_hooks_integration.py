@@ -11,7 +11,6 @@ import json
 import os
 import subprocess
 import sys
-from unittest import mock
 
 import pytest
 
@@ -32,7 +31,7 @@ class TestNewFileTriggerHook:
             input="not valid json",
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         # Should exit 0 (graceful degradation)
         assert result.returncode == 0
@@ -42,14 +41,14 @@ class TestNewFileTriggerHook:
         hook_input = {
             "tool_name": "Write",
             "tool_input": {},  # No file_path
-            "cwd": "/tmp"
+            "cwd": "/tmp",
         }
         result = subprocess.run(
             [sys.executable, hook_script],
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         # Should exit 0 (graceful degradation)
         assert result.returncode == 0
@@ -59,14 +58,14 @@ class TestNewFileTriggerHook:
         hook_input = {
             "tool_name": "Read",
             "tool_input": {"file_path": "/tmp/test.py"},
-            "cwd": "/tmp"
+            "cwd": "/tmp",
         }
         result = subprocess.run(
             [sys.executable, hook_script],
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         # Should exit 0 (not this hook's concern)
         assert result.returncode == 0
@@ -90,7 +89,7 @@ class TestFirstEditTriggerHook:
             input="not valid json",
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         # Should exit 0 (graceful degradation)
         assert result.returncode == 0
@@ -100,7 +99,7 @@ class TestFirstEditTriggerHook:
         hook_input = {
             "tool_name": "Edit",
             "tool_input": {"file_path": "/tmp/test.py"},
-            "cwd": "/tmp"
+            "cwd": "/tmp",
             # Missing session_id
         }
         result = subprocess.run(
@@ -108,7 +107,7 @@ class TestFirstEditTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         # Should exit 0 (graceful degradation)
         assert result.returncode == 0
@@ -119,14 +118,14 @@ class TestFirstEditTriggerHook:
             "tool_name": "Write",
             "tool_input": {"file_path": "/tmp/test.py"},
             "cwd": "/tmp",
-            "session_id": "test_session"
+            "session_id": "test_session",
         }
         result = subprocess.run(
             [sys.executable, hook_script],
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         # Should exit 0 (not this hook's concern)
         assert result.returncode == 0
@@ -140,7 +139,9 @@ class TestUnifiedKeywordTriggerHook:
     def hook_script(self):
         """Path to unified_keyword_trigger.py (consolidated trigger)."""
         project_root = os.path.dirname(os.path.dirname(__file__))
-        return os.path.join(project_root, ".claude/hooks/scripts/unified_keyword_trigger.py")
+        return os.path.join(
+            project_root, ".claude/hooks/scripts/unified_keyword_trigger.py"
+        )
 
     def test_hook_handles_malformed_json(self, hook_script):
         """Hook gracefully degrades on malformed JSON input."""
@@ -149,7 +150,7 @@ class TestUnifiedKeywordTriggerHook:
             input="not valid json",
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         # Should exit 0 (graceful degradation)
         assert result.returncode == 0
@@ -165,7 +166,7 @@ class TestUnifiedKeywordTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         # Should exit 0 (graceful degradation)
         assert result.returncode == 0
@@ -174,14 +175,14 @@ class TestUnifiedKeywordTriggerHook:
         """Hook handles prompts without decision keywords."""
         hook_input = {
             "prompt": "How do I implement authentication?",  # Unified trigger uses "prompt" not "user_input"
-            "cwd": "/tmp"
+            "cwd": "/tmp",
         }
         result = subprocess.run(
             [sys.executable, hook_script],
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         # Should exit 0 (no keywords detected)
         assert result.returncode == 0
@@ -192,11 +193,13 @@ class TestUnifiedKeywordTriggerHook:
 class TestHooksGracefulDegradation:
     """Test that all hooks handle errors gracefully."""
 
-    @pytest.fixture(params=[
-        ".claude/hooks/scripts/new_file_trigger.py",
-        ".claude/hooks/scripts/first_edit_trigger.py",
-        ".claude/hooks/scripts/unified_keyword_trigger.py"  # TECH-DEBT-062: Consolidated trigger
-    ])
+    @pytest.fixture(
+        params=[
+            ".claude/hooks/scripts/new_file_trigger.py",
+            ".claude/hooks/scripts/first_edit_trigger.py",
+            ".claude/hooks/scripts/unified_keyword_trigger.py",  # TECH-DEBT-062: Consolidated trigger
+        ]
+    )
     def hook_script(self, request):
         """Parametrized fixture for all trigger hooks."""
         project_root = os.path.dirname(os.path.dirname(__file__))
@@ -209,7 +212,7 @@ class TestHooksGracefulDegradation:
             input="",
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         assert result.returncode == 0
 
@@ -221,7 +224,7 @@ class TestHooksGracefulDegradation:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=2  # 2 second timeout (matching settings.json)
+            timeout=2,  # 2 second timeout (matching settings.json)
         )
         # Should complete without timeout
         assert result.returncode == 0

@@ -28,6 +28,7 @@ class TestSearchIntegration:
         # Use unique group_id per test to ensure isolation
         # This prevents test interference when fixture cleanup fails
         import uuid
+
         self.test_group_id = f"search-test-{uuid.uuid4().hex[:8]}"
 
         # Store test memories for searching
@@ -69,6 +70,7 @@ class TestSearchIntegration:
 
         # Brief delay for Qdrant to index new points (eventual consistency)
         import time
+
         time.sleep(0.5)
 
         yield
@@ -76,6 +78,7 @@ class TestSearchIntegration:
         # Cleanup test data after tests complete
         try:
             from qdrant_client.models import PointIdsList
+
             for mem_id in self.mem_ids:
                 storage.client.delete(
                     collection_name="code-patterns",
@@ -99,7 +102,9 @@ class TestSearchIntegration:
         )
 
         # Should find at least one result
-        assert len(results) > 0, f"Expected results but got empty. group_id={self.test_group_id}"
+        assert (
+            len(results) > 0
+        ), f"Expected results but got empty. group_id={self.test_group_id}"
         # All results should have required fields
         assert all("score" in r for r in results)
         assert all("content" in r for r in results)
@@ -184,9 +189,7 @@ class TestSearchIntegration:
         if results:
             # Should have markdown headers (if any results above threshold)
             has_high_tier = any(r["score"] >= 0.90 for r in results)
-            has_medium_tier = any(
-                0.78 <= r["score"] < 0.90 for r in results
-            )
+            has_medium_tier = any(0.78 <= r["score"] < 0.90 for r in results)
 
             if has_high_tier:
                 assert "## High Relevance Memories" in formatted
@@ -291,9 +294,7 @@ class TestSearchGracefulDegradation:
             )
             return mock
 
-        monkeypatch.setattr(
-            "src.memory.search.EmbeddingClient", mock_embed_init
-        )
+        monkeypatch.setattr("src.memory.search.EmbeddingClient", mock_embed_init)
 
         search = MemorySearch()
 

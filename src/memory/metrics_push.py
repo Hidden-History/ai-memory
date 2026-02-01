@@ -10,15 +10,15 @@ Provides async push functions for hooks:
 All push functions use subprocess fork pattern to avoid blocking hook execution.
 """
 
+import json
+import logging
 import os
+import subprocess
 import sys
 import time
-import json
-import subprocess
-import logging
 from contextlib import contextmanager
-from typing import Optional, Set
-from prometheus_client import CollectorRegistry, Counter, Histogram, pushadd_to_gateway
+
+from prometheus_client import CollectorRegistry, Histogram, pushadd_to_gateway
 
 logger = logging.getLogger("ai_memory.metrics")
 
@@ -39,14 +39,28 @@ VALID_OPERATIONS = {"capture", "retrieval", "trigger", "injection", "classificat
 #   "stored" - Data persisted to Qdrant collections (e.g., captured code, user messages)
 VALID_DIRECTIONS = {"input", "output", "stored"}
 
-VALID_HOOK_TYPES = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PreCompact", "Stop"}
+VALID_HOOK_TYPES = {
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "PreCompact",
+    "Stop",
+}
 VALID_EMBEDDING_TYPES = {"dense", "sparse_bm25", "sparse_splade"}
 VALID_COLLECTIONS = {"code-patterns", "conventions", "discussions"}
 VALID_COMPONENTS = {"qdrant", "embedding", "queue", "hook"}
-VALID_ERROR_CODES = {"QDRANT_UNAVAILABLE", "EMBEDDING_TIMEOUT", "EMBEDDING_ERROR", "VALIDATION_ERROR"}
+VALID_ERROR_CODES = {
+    "QDRANT_UNAVAILABLE",
+    "EMBEDDING_TIMEOUT",
+    "EMBEDDING_ERROR",
+    "VALIDATION_ERROR",
+}
 
 
-def _validate_label(value: str, param_name: str, allowed: Optional[Set[str]] = None) -> str:
+def _validate_label(
+    value: str, param_name: str, allowed: set[str] | None = None
+) -> str:
     """Validate and sanitize label value.
 
     Args:
@@ -58,17 +72,15 @@ def _validate_label(value: str, param_name: str, allowed: Optional[Set[str]] = N
         Validated label value or "unknown" if invalid
     """
     if not value or not isinstance(value, str):
-        logger.warning("invalid_label_value", extra={
-            "param": param_name,
-            "value": repr(value)
-        })
+        logger.warning(
+            "invalid_label_value", extra={"param": param_name, "value": repr(value)}
+        )
         return "unknown"
     if allowed and value not in allowed:
-        logger.warning("unexpected_label_value", extra={
-            "param": param_name,
-            "value": value,
-            "allowed": list(allowed)
-        })
+        logger.warning(
+            "unexpected_label_value",
+            extra={"param": param_name, "value": value, "allowed": list(allowed)},
+        )
     return value
 
 
@@ -86,25 +98,45 @@ def push_hook_metrics(hook_name: str, duration_seconds: float, success: bool = T
     registry = CollectorRegistry()
 
     duration = Histogram(
-        'ai_memory_hook_latency',
-        'Hook execution duration',
-        ['hook_type', 'status'],
+        "ai_memory_hook_latency",
+        "Hook execution duration",
+        ["hook_type", "status"],
         registry=registry,
-        buckets=(0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.0, 5.0)  # Focus on <500ms requirement
+        buckets=(
+            0.05,
+            0.1,
+            0.2,
+            0.3,
+            0.4,
+            0.5,
+            0.75,
+            1.0,
+            2.0,
+            5.0,
+        ),  # Focus on <500ms requirement
     )
-    duration.labels(hook_type=hook_name, status='success' if success else 'error').observe(duration_seconds)
+    duration.labels(
+        hook_type=hook_name, status="success" if success else "error"
+    ).observe(duration_seconds)
 
     try:
-        pushadd_to_gateway(PUSHGATEWAY_URL, job=JOB_NAME, registry=registry, timeout=0.5)
+        pushadd_to_gateway(
+            PUSHGATEWAY_URL, job=JOB_NAME, registry=registry, timeout=0.5
+        )
     except Exception as e:
-        logger.warning("pushgateway_push_failed", extra={
-            "metric": "ai_memory_hook_latency",
-            "error": str(e),
-            "error_type": type(e).__name__
-        })
+        logger.warning(
+            "pushgateway_push_failed",
+            extra={
+                "metric": "ai_memory_hook_latency",
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
 
 
-def push_hook_metrics_async(hook_name: str, duration_seconds: float, success: bool = True):
+def push_hook_metrics_async(
+    hook_name: str, duration_seconds: float, success: bool = True
+):
     """Push hook execution metrics to Pushgateway asynchronously (fire-and-forget).
 
     Uses subprocess.Popen to fork the push operation to background, ensuring
@@ -121,14 +153,17 @@ def push_hook_metrics_async(hook_name: str, duration_seconds: float, success: bo
     try:
         # Serialize metrics data for background process
         metrics_data = {
-            'hook_name': hook_name,
-            'duration_seconds': duration_seconds,
-            'success': success
+            "hook_name": hook_name,
+            "duration_seconds": duration_seconds,
+            "success": success,
         }
 
         # Fork to background using subprocess.Popen
         subprocess.Popen(
-            [sys.executable, '-c', '''
+            [
+                sys.executable,
+                "-c",
+                """
 import sys, json, os
 from prometheus_client import CollectorRegistry, Histogram, pushadd_to_gateway
 
@@ -159,10 +194,12 @@ except Exception as e:
         "pushgateway_async_failed",
         extra={"error": str(e), "metric": "hook_duration"}
     )
-''', json.dumps(metrics_data)],
+""",
+                json.dumps(metrics_data),
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True  # Full detachment from parent
+            start_new_session=True,  # Full detachment from parent
         )
     except Exception:
         pass  # Graceful degradation - don't fail hook if fork fails
@@ -191,7 +228,9 @@ def track_hook_duration(hook_name: str):
         raise
     finally:
         duration = time.time() - start
-        push_hook_metrics_async(hook_name, duration, success)  # Fire-and-forget for <500ms
+        push_hook_metrics_async(
+            hook_name, duration, success
+        )  # Fire-and-forget for <500ms
 
 
 def push_trigger_metrics_async(
@@ -199,7 +238,7 @@ def push_trigger_metrics_async(
     status: str,
     project: str,
     results_count: int = 0,
-    duration_seconds: float = 0.0
+    duration_seconds: float = 0.0,
 ):
     """Push trigger execution metrics asynchronously (fire-and-forget).
 
@@ -222,19 +261,22 @@ def push_trigger_metrics_async(
     try:
         # Serialize metrics data for background process
         metrics_data = {
-            'trigger_type': trigger_type,
-            'status': status,
-            'project': project,
-            'results_count': results_count
+            "trigger_type": trigger_type,
+            "status": status,
+            "project": project,
+            "results_count": results_count,
         }
 
         # Fork to background using subprocess.Popen
         subprocess.Popen(
-            [sys.executable, '-c', f'''
+            [
+                sys.executable,
+                "-c",
+                f"""
 import json, os
 from prometheus_client import CollectorRegistry, Counter, Histogram, pushadd_to_gateway
 
-data = json.loads({repr(json.dumps(metrics_data))})
+data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 fires = Counter(
@@ -271,23 +313,20 @@ except Exception as e:
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "trigger"}}
     )
-'''],
+""",
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True
+            start_new_session=True,
         )
     except Exception as e:
-        logger.warning("metrics_fork_failed", extra={
-            "error": str(e),
-            "metric": "trigger"
-        })
+        logger.warning(
+            "metrics_fork_failed", extra={"error": str(e), "metric": "trigger"}
+        )
 
 
 def push_token_metrics_async(
-    operation: str,
-    direction: str,
-    project: str,
-    token_count: int
+    operation: str, direction: str, project: str, token_count: int
 ):
     """Push token consumption metrics asynchronously (fire-and-forget).
 
@@ -310,19 +349,22 @@ def push_token_metrics_async(
     try:
         # Serialize metrics data for background process
         metrics_data = {
-            'operation': operation,
-            'direction': direction,
-            'project': project,
-            'token_count': token_count
+            "operation": operation,
+            "direction": direction,
+            "project": project,
+            "token_count": token_count,
         }
 
         # Fork to background using subprocess.Popen
         subprocess.Popen(
-            [sys.executable, '-c', f'''
+            [
+                sys.executable,
+                "-c",
+                f"""
 import json, os
 from prometheus_client import CollectorRegistry, Counter, pushadd_to_gateway
 
-data = json.loads({repr(json.dumps(metrics_data))})
+data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 tokens = Counter(
@@ -350,23 +392,20 @@ except Exception as e:
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "token"}}
     )
-'''],
+""",
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True
+            start_new_session=True,
         )
     except Exception as e:
-        logger.warning("metrics_fork_failed", extra={
-            "error": str(e),
-            "metric": "token"
-        })
+        logger.warning(
+            "metrics_fork_failed", extra={"error": str(e), "metric": "token"}
+        )
 
 
 def push_context_injection_metrics_async(
-    hook_type: str,
-    collection: str,
-    project: str,
-    token_count: int
+    hook_type: str, collection: str, project: str, token_count: int
 ):
     """Push context injection token metrics asynchronously (fire-and-forget).
 
@@ -393,19 +432,22 @@ def push_context_injection_metrics_async(
     try:
         # Serialize metrics data for background process
         metrics_data = {
-            'hook_type': hook_type,
-            'collection': collection,
-            'project': project,
-            'token_count': token_count
+            "hook_type": hook_type,
+            "collection": collection,
+            "project": project,
+            "token_count": token_count,
         }
 
         # Fork to background using subprocess.Popen
         subprocess.Popen(
-            [sys.executable, '-c', f'''
+            [
+                sys.executable,
+                "-c",
+                f"""
 import json, os
 from prometheus_client import CollectorRegistry, Histogram, pushadd_to_gateway
 
-data = json.loads({repr(json.dumps(metrics_data))})
+data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 injection = Histogram(
@@ -434,24 +476,21 @@ except Exception as e:
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "context_injection"}}
     )
-'''],
+""",
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True
+            start_new_session=True,
         )
     except Exception as e:
-        logger.warning("metrics_fork_failed", extra={
-            "error": str(e),
-            "metric": "context_injection"
-        })
+        logger.warning(
+            "metrics_fork_failed",
+            extra={"error": str(e), "metric": "context_injection"},
+        )
 
 
 def push_capture_metrics_async(
-    hook_type: str,
-    status: str,
-    project: str,
-    collection: str,
-    count: int = 1
+    hook_type: str, status: str, project: str, collection: str, count: int = 1
 ):
     """Push memory capture metrics asynchronously (fire-and-forget).
 
@@ -476,20 +515,23 @@ def push_capture_metrics_async(
     try:
         # Serialize metrics data for background process
         metrics_data = {
-            'hook_type': hook_type,
-            'status': status,
-            'project': project,
-            'collection': collection,
-            'count': count
+            "hook_type": hook_type,
+            "status": status,
+            "project": project,
+            "collection": collection,
+            "count": count,
         }
 
         # Fork to background using subprocess.Popen
         subprocess.Popen(
-            [sys.executable, '-c', f'''
+            [
+                sys.executable,
+                "-c",
+                f"""
 import json, os
 from prometheus_client import CollectorRegistry, Counter, pushadd_to_gateway
 
-data = json.loads({repr(json.dumps(metrics_data))})
+data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 captures = Counter(
@@ -518,22 +560,20 @@ except Exception as e:
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "capture"}}
     )
-'''],
+""",
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True
+            start_new_session=True,
         )
     except Exception as e:
-        logger.warning("metrics_fork_failed", extra={
-            "error": str(e),
-            "metric": "capture"
-        })
+        logger.warning(
+            "metrics_fork_failed", extra={"error": str(e), "metric": "capture"}
+        )
 
 
 def push_embedding_metrics_async(
-    status: str,
-    embedding_type: str,
-    duration_seconds: float
+    status: str, embedding_type: str, duration_seconds: float
 ):
     """Push embedding request metrics asynchronously (fire-and-forget).
 
@@ -550,23 +590,28 @@ def push_embedding_metrics_async(
 
     # Validate labels (HIGH-1)
     status = _validate_label(status, "status", VALID_STATUSES)
-    embedding_type = _validate_label(embedding_type, "embedding_type", VALID_EMBEDDING_TYPES)
+    embedding_type = _validate_label(
+        embedding_type, "embedding_type", VALID_EMBEDDING_TYPES
+    )
 
     try:
         # Serialize metrics data for background process
         metrics_data = {
-            'status': status,
-            'embedding_type': embedding_type,
-            'duration_seconds': duration_seconds
+            "status": status,
+            "embedding_type": embedding_type,
+            "duration_seconds": duration_seconds,
         }
 
         # Fork to background using subprocess.Popen
         subprocess.Popen(
-            [sys.executable, '-c', f'''
+            [
+                sys.executable,
+                "-c",
+                f"""
 import json, os
 from prometheus_client import CollectorRegistry, Counter, Histogram, pushadd_to_gateway
 
-data = json.loads({repr(json.dumps(metrics_data))})
+data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 requests = Counter(
@@ -602,23 +647,19 @@ except Exception as e:
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "embedding"}}
     )
-'''],
+""",
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True
+            start_new_session=True,
         )
     except Exception as e:
-        logger.warning("metrics_fork_failed", extra={
-            "error": str(e),
-            "metric": "embedding"
-        })
+        logger.warning(
+            "metrics_fork_failed", extra={"error": str(e), "metric": "embedding"}
+        )
 
 
-def push_retrieval_metrics_async(
-    collection: str,
-    status: str,
-    duration_seconds: float
-):
+def push_retrieval_metrics_async(collection: str, status: str, duration_seconds: float):
     """Push memory retrieval metrics asynchronously (fire-and-forget).
 
     Uses subprocess fork pattern to avoid blocking hook execution.
@@ -639,18 +680,21 @@ def push_retrieval_metrics_async(
     try:
         # Serialize metrics data for background process
         metrics_data = {
-            'collection': collection,
-            'status': status,
-            'duration_seconds': duration_seconds
+            "collection": collection,
+            "status": status,
+            "duration_seconds": duration_seconds,
         }
 
         # Fork to background using subprocess.Popen
         subprocess.Popen(
-            [sys.executable, '-c', f'''
+            [
+                sys.executable,
+                "-c",
+                f"""
 import json, os
 from prometheus_client import CollectorRegistry, Counter, Histogram, pushadd_to_gateway
 
-data = json.loads({repr(json.dumps(metrics_data))})
+data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 retrievals = Counter(
@@ -685,22 +729,19 @@ except Exception as e:
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "retrieval"}}
     )
-'''],
+""",
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True
+            start_new_session=True,
         )
     except Exception as e:
-        logger.warning("metrics_fork_failed", extra={
-            "error": str(e),
-            "metric": "retrieval"
-        })
+        logger.warning(
+            "metrics_fork_failed", extra={"error": str(e), "metric": "retrieval"}
+        )
 
 
-def push_failure_metrics_async(
-    component: str,
-    error_code: str
-):
+def push_failure_metrics_async(component: str, error_code: str):
     """Push failure event metrics asynchronously (fire-and-forget).
 
     Uses subprocess fork pattern to avoid blocking hook execution.
@@ -719,18 +760,18 @@ def push_failure_metrics_async(
 
     try:
         # Serialize metrics data for background process
-        metrics_data = {
-            'component': component,
-            'error_code': error_code
-        }
+        metrics_data = {"component": component, "error_code": error_code}
 
         # Fork to background using subprocess.Popen
         subprocess.Popen(
-            [sys.executable, '-c', f'''
+            [
+                sys.executable,
+                "-c",
+                f"""
 import json, os
 from prometheus_client import CollectorRegistry, Counter, pushadd_to_gateway
 
-data = json.loads({repr(json.dumps(metrics_data))})
+data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 failures = Counter(
@@ -757,23 +798,19 @@ except Exception as e:
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "failure"}}
     )
-'''],
+""",
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True
+            start_new_session=True,
         )
     except Exception as e:
-        logger.warning("metrics_fork_failed", extra={
-            "error": str(e),
-            "metric": "failure"
-        })
+        logger.warning(
+            "metrics_fork_failed", extra={"error": str(e), "metric": "failure"}
+        )
 
 
-def push_skill_metrics_async(
-    skill_name: str,
-    status: str,
-    duration_seconds: float
-):
+def push_skill_metrics_async(skill_name: str, status: str, duration_seconds: float):
     """Push skill invocation metrics asynchronously (fire-and-forget).
 
     Uses subprocess fork pattern to avoid blocking skill execution.
@@ -796,18 +833,21 @@ def push_skill_metrics_async(
     try:
         # Serialize metrics data for background process
         metrics_data = {
-            'skill_name': skill_name,
-            'status': status,
-            'duration_seconds': duration_seconds
+            "skill_name": skill_name,
+            "status": status,
+            "duration_seconds": duration_seconds,
         }
 
         # Fork to background using subprocess.Popen
         subprocess.Popen(
-            [sys.executable, '-c', f'''
+            [
+                sys.executable,
+                "-c",
+                f"""
 import json, os
 from prometheus_client import CollectorRegistry, Counter, Histogram, pushadd_to_gateway
 
-data = json.loads({repr(json.dumps(metrics_data))})
+data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 invocations = Counter(
@@ -843,23 +883,19 @@ except Exception as e:
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "skill"}}
     )
-'''],
+""",
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True
+            start_new_session=True,
         )
     except Exception as e:
-        logger.warning("metrics_fork_failed", extra={
-            "error": str(e),
-            "metric": "skill"
-        })
+        logger.warning(
+            "metrics_fork_failed", extra={"error": str(e), "metric": "skill"}
+        )
 
 
-def push_deduplication_metrics_async(
-    action: str,
-    collection: str,
-    project: str
-):
+def push_deduplication_metrics_async(action: str, collection: str, project: str):
     """Push deduplication event metrics asynchronously (fire-and-forget).
 
     Uses subprocess fork pattern to avoid blocking hook execution.
@@ -882,19 +918,18 @@ def push_deduplication_metrics_async(
 
     try:
         # Serialize metrics data for background process
-        metrics_data = {
-            'action': action,
-            'collection': collection,
-            'project': project
-        }
+        metrics_data = {"action": action, "collection": collection, "project": project}
 
         # Fork to background using subprocess.Popen
         subprocess.Popen(
-            [sys.executable, '-c', f'''
+            [
+                sys.executable,
+                "-c",
+                f"""
 import json, os
 from prometheus_client import CollectorRegistry, Counter, pushadd_to_gateway
 
-data = json.loads({repr(json.dumps(metrics_data))})
+data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 dedup = Counter(
@@ -922,22 +957,20 @@ except Exception as e:
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "deduplication"}}
     )
-'''],
+""",
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True
+            start_new_session=True,
         )
     except Exception as e:
-        logger.warning("metrics_fork_failed", extra={
-            "error": str(e),
-            "metric": "deduplication"
-        })
+        logger.warning(
+            "metrics_fork_failed", extra={"error": str(e), "metric": "deduplication"}
+        )
 
 
 def push_queue_metrics_async(
-    pending_count: int,
-    exhausted_count: int,
-    ready_count: int = 0
+    pending_count: int, exhausted_count: int, ready_count: int = 0
 ):
     """Push retry queue metrics asynchronously (fire-and-forget).
 
@@ -954,18 +987,21 @@ def push_queue_metrics_async(
     try:
         # Serialize metrics data for background process
         metrics_data = {
-            'pending_count': pending_count,
-            'exhausted_count': exhausted_count,
-            'ready_count': ready_count
+            "pending_count": pending_count,
+            "exhausted_count": exhausted_count,
+            "ready_count": ready_count,
         }
 
         # Fork to background using subprocess.Popen
         subprocess.Popen(
-            [sys.executable, '-c', f'''
+            [
+                sys.executable,
+                "-c",
+                f"""
 import json, os
 from prometheus_client import CollectorRegistry, Gauge, pushadd_to_gateway
 
-data = json.loads({repr(json.dumps(metrics_data))})
+data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 queue_size = Gauge(
@@ -991,13 +1027,13 @@ except Exception as e:
         "pushgateway_async_failed",
         extra={{"error": str(e), "metric": "queue_size"}}
     )
-'''],
+""",
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True
+            start_new_session=True,
         )
     except Exception as e:
-        logger.warning("metrics_fork_failed", extra={
-            "error": str(e),
-            "metric": "queue_size"
-        })
+        logger.warning(
+            "metrics_fork_failed", extra={"error": str(e), "metric": "queue_size"}
+        )

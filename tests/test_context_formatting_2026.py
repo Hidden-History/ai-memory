@@ -10,14 +10,9 @@ Story Reference: _bmad-output/implementation-artifacts/3-3-context-formatting.md
 """
 
 import time
-import pytest
-from unittest.mock import patch
 
 # Import via test helpers
-from session_start_test_helpers import (
-    format_context,
-    format_memory_entry
-)
+from session_start_test_helpers import format_context, format_memory_entry
 
 
 class TestTieredFormatting:
@@ -31,7 +26,7 @@ class TestTieredFormatting:
                 "type": "implementation",
                 "content": "A" * 1000,  # Long content
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             }
         ]
 
@@ -54,7 +49,7 @@ class TestTieredFormatting:
                 "type": "best_practice",
                 "content": "B" * 700,  # Long content, should truncate
                 "source_hook": "seed_script",
-                "collection": "conventions"
+                "collection": "conventions",
             }
         ]
 
@@ -77,7 +72,7 @@ class TestTieredFormatting:
                 "type": "implementation",
                 "content": "Low relevance content should not appear",
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             }
         ]
 
@@ -96,7 +91,7 @@ class TestTieredFormatting:
                 "type": "implementation",
                 "content": "Exactly 90% relevance",
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             }
         ]
 
@@ -114,7 +109,7 @@ class TestTieredFormatting:
                 "type": "pattern",
                 "content": "Exactly 78% relevance",
                 "source_hook": "session_stop",
-                "collection": "conventions"
+                "collection": "conventions",
             }
         ]
 
@@ -132,29 +127,29 @@ class TestTieredFormatting:
                 "type": "implementation",
                 "content": "High relevance implementation",
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             },
             {
                 "score": 0.92,
                 "type": "implementation",
                 "content": "High relevance pattern",
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             },
             {
                 "score": 0.85,
                 "type": "best_practice",
                 "content": "Medium relevance best practice",
                 "source_hook": "seed_script",
-                "collection": "conventions"
+                "collection": "conventions",
             },
             {
                 "score": 0.80,
                 "type": "pattern",
                 "content": "Medium relevance pattern",
                 "source_hook": "session_stop",
-                "collection": "conventions"
-            }
+                "collection": "conventions",
+            },
         ]
 
         formatted = format_context(results, "test-project")
@@ -181,7 +176,7 @@ class TestTokenBudgetEnforcement:
                 "type": f"implementation_{i}",
                 "content": " ".join(["word"] * 200),  # ~200 words
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             }
             for i in range(20)
         ]
@@ -204,22 +199,22 @@ class TestTokenBudgetEnforcement:
                 "type": "implementation",
                 "content": "Highest relevance content",
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             },
             {
                 "score": 0.95,
                 "type": "implementation",
                 "content": "Second highest relevance",
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             },
             {
                 "score": 0.91,
                 "type": "implementation",
                 "content": "Third highest relevance",
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
-            }
+                "collection": "code-patterns",
+            },
         ]
 
         # Small budget - only first memory should fit
@@ -236,15 +231,15 @@ class TestTokenBudgetEnforcement:
                 "type": "implementation",
                 "content": "High relevance " + ("word " * 300),  # Large
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             },
             {
                 "score": 0.85,
                 "type": "best_practice",
                 "content": "Medium relevance " + ("word " * 300),  # Large
                 "source_hook": "seed_script",
-                "collection": "conventions"
-            }
+                "collection": "conventions",
+            },
         ]
 
         # Budget allows high tier but not medium tier
@@ -269,7 +264,7 @@ class TestConfigurableThresholds:
                 "type": "pattern",
                 "content": "At threshold content",
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             }
         ]
 
@@ -286,7 +281,7 @@ class TestConfigurableThresholds:
                 "type": "implementation",
                 "content": "High tier boundary content",
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             }
         ]
 
@@ -304,15 +299,15 @@ class TestConfigurableThresholds:
                 "type": "pattern",
                 "content": "Upper medium tier",
                 "source_hook": "PostToolUse",
-                "collection": "conventions"
+                "collection": "conventions",
             },
             {
                 "score": 0.78,  # Lower boundary of medium tier
                 "type": "pattern",
                 "content": "Lower medium tier",
                 "source_hook": "PostToolUse",
-                "collection": "conventions"
-            }
+                "collection": "conventions",
+            },
         ]
 
         formatted = format_context(results, "test-project")
@@ -333,9 +328,10 @@ class TestPerformanceRequirements:
             {
                 "score": 0.95 - (i * 0.01),  # Decreasing scores
                 "type": f"implementation_{i}",
-                "content": f"[python/hooks] .claude/hooks/scripts/session_start.py:{i*10}-{i*10+10}\n" + ("line " * 100),
+                "content": f"[python/hooks] .claude/hooks/scripts/session_start.py:{i*10}-{i*10+10}\n"
+                + ("line " * 100),
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns" if i < 7 else "conventions"
+                "collection": "code-patterns" if i < 7 else "conventions",
             }
             for i in range(10)
         ]
@@ -346,7 +342,9 @@ class TestPerformanceRequirements:
         duration_ms = (time.perf_counter() - start) * 1000
 
         # Should complete in <100ms (NFR-P3 component)
-        assert duration_ms < 100, f"Formatting took {duration_ms:.2f}ms (expected <100ms)"
+        assert (
+            duration_ms < 100
+        ), f"Formatting took {duration_ms:.2f}ms (expected <100ms)"
         # Should produce non-empty output
         assert len(formatted) > 0
 
@@ -359,13 +357,13 @@ class TestPerformanceRequirements:
                 "type": "implementation",
                 "content": "Test content",
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             }
         ]
 
         # Should complete quickly (pure string manipulation)
         start = time.perf_counter()
-        formatted = format_context(results, "test-project")
+        format_context(results, "test-project")
         duration_ms = (time.perf_counter() - start) * 1000
 
         # Pure string manipulation should be <10ms
@@ -381,7 +379,7 @@ class TestPerformanceRequirements:
                 "type": "implementation",
                 "content": "Test " * 100,
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             }
         ]
 
@@ -402,15 +400,15 @@ class TestCollectionAttribution:
                 "type": "implementation",
                 "content": "Test implementation",
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             },
             {
                 "score": 0.85,
                 "type": "best_practice",
                 "content": "Test best practice",
                 "source_hook": "seed_script",
-                "collection": "conventions"
-            }
+                "collection": "conventions",
+            },
         ]
 
         formatted = format_context(results, "test-project")
@@ -426,7 +424,7 @@ class TestCollectionAttribution:
             "score": 0.90,
             "content": "Test pattern",
             "source_hook": "session_stop",
-            "collection": "conventions"
+            "collection": "conventions",
         }
 
         entry = format_memory_entry(memory, truncate=False)
@@ -446,15 +444,15 @@ class TestMarkdownFormatStructure:
                 "type": "implementation",
                 "content": "High relevance",
                 "source_hook": "PostToolUse",
-                "collection": "code-patterns"
+                "collection": "code-patterns",
             },
             {
                 "score": 0.85,
                 "type": "pattern",
                 "content": "Medium relevance",
                 "source_hook": "PostToolUse",
-                "collection": "conventions"
-            }
+                "collection": "conventions",
+            },
         ]
 
         formatted = format_context(results, "test-project")
@@ -472,7 +470,7 @@ class TestMarkdownFormatStructure:
             "score": 0.95,
             "content": "def test_function():\n    pass",
             "source_hook": "PostToolUse",
-            "collection": "code-patterns"
+            "collection": "code-patterns",
         }
 
         entry = format_memory_entry(memory)
@@ -489,7 +487,7 @@ class TestMarkdownFormatStructure:
             "score": 0.92,
             "content": "Test content",
             "source_hook": "PostToolUse",
-            "collection": "code-patterns"
+            "collection": "code-patterns",
         }
 
         entry = format_memory_entry(memory)
@@ -531,7 +529,7 @@ class TestEdgeCases:
             "type": "implementation",
             "content": "Test content",
             "source_hook": "PostToolUse",
-            "collection": "code-patterns"
+            "collection": "code-patterns",
         }
 
         # Should handle None gracefully by defaulting to 0%

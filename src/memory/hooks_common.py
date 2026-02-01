@@ -9,7 +9,6 @@ import os
 import random
 import sys
 from pathlib import Path
-from typing import List, Optional
 
 # Shared constants (CR-4 Wave 2 DRY consolidation)
 # Language detection map - replaces duplicate in 4+ files
@@ -45,7 +44,9 @@ def setup_python_path() -> str:
     Note:
         Must be called before importing memory modules.
     """
-    install_dir = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+    install_dir = os.environ.get(
+        "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+    )
     sys.path.insert(0, os.path.join(install_dir, "src"))
     return install_dir
 
@@ -76,7 +77,9 @@ def setup_hook_logging(logger_name: str = "ai_memory.hooks") -> logging.Logger:
     return logger
 
 
-def _rotate_log_if_needed(log_file: Path, max_lines: int = 500, keep_lines: int = 450) -> None:
+def _rotate_log_if_needed(
+    log_file: Path, max_lines: int = 500, keep_lines: int = 450
+) -> None:
     """Rotate log file if it exceeds max_lines.
 
     Only checks ~2% of the time to minimize I/O overhead.
@@ -99,18 +102,18 @@ def _rotate_log_if_needed(log_file: Path, max_lines: int = 500, keep_lines: int 
         if not log_file.exists():
             return
 
-        with open(log_file, 'r') as f:
+        with open(log_file) as f:
             lines = f.readlines()
 
         if len(lines) > max_lines:
             # Keep only the last keep_lines
-            with open(log_file, 'w') as f:
+            with open(log_file, "w") as f:
                 f.writelines(lines[-keep_lines:])
     except Exception:
         pass  # Graceful degradation
 
 
-def log_to_activity(message: str, install_dir: Optional[str] = None) -> None:
+def log_to_activity(message: str, install_dir: str | None = None) -> None:
     """Log message to activity log for user visibility.
 
     Consolidated from CR-1.2 (_log_to_activity duplicated across 4 files).
@@ -128,7 +131,9 @@ def log_to_activity(message: str, install_dir: Optional[str] = None) -> None:
     from datetime import datetime
 
     if install_dir is None:
-        install_dir = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+        install_dir = os.environ.get(
+            "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+        )
 
     log_dir = Path(install_dir) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -141,7 +146,7 @@ def log_to_activity(message: str, install_dir: Optional[str] = None) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     # Escape newlines for single-line output (Streamlit parses line-by-line)
-    safe_message = message.replace('\n', '\\n')
+    safe_message = message.replace("\n", "\\n")
 
     try:
         with open(log_file, "a") as f:
@@ -167,8 +172,7 @@ def get_hook_timeout() -> int:
     except ValueError:
         logger = logging.getLogger("ai_memory.hooks")
         logger.warning(
-            "invalid_timeout_env",
-            extra={"value": timeout_str, "using_default": 60}
+            "invalid_timeout_env", extra={"value": timeout_str, "using_default": 60}
         )
         return 60
 
@@ -192,11 +196,16 @@ def get_metrics():
     logger = logging.getLogger("ai_memory.hooks")
     try:
         from memory.metrics import (
+            hook_duration_seconds,
             memory_retrievals_total,
             retrieval_duration_seconds,
-            hook_duration_seconds
         )
-        return memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds
+
+        return (
+            memory_retrievals_total,
+            retrieval_duration_seconds,
+            hook_duration_seconds,
+        )
     except ImportError:
         logger.warning("metrics_module_unavailable")
         return None, None, None
@@ -219,10 +228,8 @@ def get_trigger_metrics():
     """
     logger = logging.getLogger("ai_memory.hooks")
     try:
-        from memory.metrics import (
-            trigger_fires_total,
-            trigger_results_returned
-        )
+        from memory.metrics import trigger_fires_total, trigger_results_returned
+
         return trigger_fires_total, trigger_results_returned
     except ImportError:
         logger.warning("trigger_metrics_unavailable")
@@ -246,10 +253,8 @@ def get_token_metrics():
     """
     logger = logging.getLogger("ai_memory.hooks")
     try:
-        from memory.metrics import (
-            tokens_consumed_total,
-            context_injection_tokens
-        )
+        from memory.metrics import context_injection_tokens, tokens_consumed_total
+
         return tokens_consumed_total, context_injection_tokens
     except ImportError:
         logger.warning("token_metrics_unavailable")
@@ -277,10 +282,18 @@ def extract_error_signature(output: str, max_length: int = 200) -> str:
         >>> extract_error_signature(output)
         'Error: invalid path /foo/bar'
     """
-    lines = output.strip().split('\n')
+    lines = output.strip().split("\n")
 
     # Look for lines containing error keywords
-    error_keywords = ['error', 'exception', 'failed', 'failure', 'fatal', 'traceback', 'bug']
+    error_keywords = [
+        "error",
+        "exception",
+        "failed",
+        "failure",
+        "fatal",
+        "traceback",
+        "bug",
+    ]
 
     for line in lines:
         line_lower = line.lower()
@@ -296,7 +309,7 @@ def extract_error_signature(output: str, max_length: int = 200) -> str:
     return "Error detected in command output"
 
 
-def read_transcript(transcript_path: str) -> List[dict]:
+def read_transcript(transcript_path: str) -> list[dict]:
     """Read JSONL transcript file from Claude Code.
 
     Consolidated from CR-3.3 (duplicated in agent_response_capture.py and pre_compact_save.py).
@@ -323,12 +336,12 @@ def read_transcript(transcript_path: str) -> List[dict]:
         logger = logging.getLogger("ai_memory.hooks")
         logger.warning(
             "transcript_not_found",
-            extra={"path": transcript_path, "expanded": expanded_path}
+            extra={"path": transcript_path, "expanded": expanded_path},
         )
         return []
 
     try:
-        with open(expanded_path, 'r', encoding='utf-8') as f:
+        with open(expanded_path, encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     try:
@@ -340,8 +353,7 @@ def read_transcript(transcript_path: str) -> List[dict]:
     except Exception as e:
         logger = logging.getLogger("ai_memory.hooks")
         logger.warning(
-            "transcript_read_error",
-            extra={"error": str(e), "path": expanded_path}
+            "transcript_read_error", extra={"error": str(e), "path": expanded_path}
         )
         return []
 

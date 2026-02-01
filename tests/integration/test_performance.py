@@ -35,7 +35,6 @@ from pathlib import Path
 
 import pytest
 
-
 # Hook script paths - project directory
 HOOK_SCRIPTS = Path(__file__).parent.parent.parent / ".claude" / "hooks" / "scripts"
 SESSION_START = HOOK_SCRIPTS / "session_start.py"
@@ -93,7 +92,7 @@ def test_retrieval_performance_under_3_seconds():
     # Use project with existing memories for realistic test
     session_input = {
         "cwd": "/performance-test-project",
-        "session_id": "perf-test-session"
+        "session_id": "perf-test-session",
     }
 
     # === WARM-UP CALL (avoid cold start skew) ===
@@ -104,14 +103,15 @@ def test_retrieval_performance_under_3_seconds():
         capture_output=True,
         text=True,
         timeout=70,  # CPU embedding needs up to 60s
-        env=get_test_env()
+        env=get_test_env(),
     )
 
     if warmup_result.returncode != 0:
-        pytest.skip(f"Warm-up call failed - services may not be ready: {warmup_result.stderr}")
+        pytest.skip(
+            f"Warm-up call failed - services may not be ready: {warmup_result.stderr}"
+        )
 
-    warmup_duration = 0.0  # We'll measure in actual test
-    print(f"✓ Warm-up complete")
+    print("✓ Warm-up complete")
 
     # Small delay between calls
     time.sleep(0.5)
@@ -127,14 +127,14 @@ def test_retrieval_performance_under_3_seconds():
         capture_output=True,
         text=True,
         timeout=70,  # CPU embedding needs up to 60s
-        env=get_test_env()
+        env=get_test_env(),
     )
 
     duration = time.perf_counter() - start
 
-    assert result.returncode == 0, (
-        f"Hook failed during performance test:\n{result.stderr}"
-    )
+    assert (
+        result.returncode == 0
+    ), f"Hook failed during performance test:\n{result.stderr}"
 
     # === NFR-P3 VALIDATION: <3s total retrieval time (GPU mode) ===
     # CPU mode: 2 embeddings × ~3s = ~6-7s expected (not NFR violation)
@@ -151,8 +151,7 @@ def test_retrieval_performance_under_3_seconds():
     # Check stderr for performance logging
     # session_start.py logs duration_ms in structured format
     has_perf_logging = (
-        "duration_ms" in result.stderr or
-        "session_retrieval_completed" in result.stderr
+        "duration_ms" in result.stderr or "session_retrieval_completed" in result.stderr
     )
 
     if not has_perf_logging:
@@ -173,7 +172,9 @@ def test_retrieval_performance_under_3_seconds():
         print("  Performance Logs (stderr):")
         print("  " + "-" * 66)
         # Show last 500 chars of stderr for performance data
-        stderr_tail = result.stderr[-500:] if len(result.stderr) > 500 else result.stderr
+        stderr_tail = (
+            result.stderr[-500:] if len(result.stderr) > 500 else result.stderr
+        )
         for line in stderr_tail.split("\n"):
             if line.strip():
                 print(f"  {line}")
@@ -185,5 +186,7 @@ def test_retrieval_performance_under_3_seconds():
     # Additional assertion for safety margin
     # Warn if we're close to the limit (>2.5s)
     if duration > 2.5:
-        print(f"⚠ Warning: Close to NFR-P3 limit ({duration:.2f}s > 2.5s safety threshold)")
-        print(f"  Consider investigating performance bottlenecks")
+        print(
+            f"⚠ Warning: Close to NFR-P3 limit ({duration:.2f}s > 2.5s safety threshold)"
+        )
+        print("  Consider investigating performance bottlenecks")

@@ -26,22 +26,19 @@ import asyncio
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
-from unittest.mock import Mock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
-from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, FieldCondition, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 # Mock claude_agent_sdk before importing AgentSDKWrapper
-sys.modules['claude_agent_sdk'] = MagicMock()
+sys.modules["claude_agent_sdk"] = MagicMock()
 
 from src.memory.agent_sdk_wrapper import AgentSDKWrapper
-from src.memory.storage import MemoryStorage
-from src.memory.models import MemoryType
 from src.memory.config import COLLECTION_CODE_PATTERNS, COLLECTION_DISCUSSIONS
+from src.memory.models import MemoryType
+from src.memory.storage import MemoryStorage
 
 # Skip entire module if services unavailable
 pytestmark = [
@@ -110,11 +107,13 @@ async def sdk_wrapper(test_session_id, test_group_id, tmp_path, mocker):
     mock_client.connect.return_value.set_result(None)
 
     # Patch ClaudeSDKClient before creating wrapper
-    mocker.patch('src.memory.agent_sdk_wrapper.ClaudeSDKClient', return_value=mock_client)
+    mocker.patch(
+        "src.memory.agent_sdk_wrapper.ClaudeSDKClient", return_value=mock_client
+    )
 
     # Mock detect_project globally to return test_group_id
     # This ensures storage.store_memory() uses the test group_id
-    mocker.patch('src.memory.project.detect_project', return_value=test_group_id)
+    mocker.patch("src.memory.project.detect_project", return_value=test_group_id)
 
     # Create wrapper but don't connect to CLI (not needed for memory testing)
     wrapper = AgentSDKWrapper(
@@ -132,14 +131,19 @@ async def sdk_wrapper(test_session_id, test_group_id, tmp_path, mocker):
 
     # Cleanup: Wait for background storage tasks and check for exceptions
     if wrapper._storage_tasks:
-        done, pending = await asyncio.wait(wrapper._storage_tasks, timeout=5.0)
+        done, _pending = await asyncio.wait(wrapper._storage_tasks, timeout=5.0)
 
         # Check for exceptions in completed tasks
         for task in done:
             if task.exception():
                 print(f"Background task failed: {task.exception()}")
                 import traceback
-                traceback.print_exception(type(task.exception()), task.exception(), task.exception().__traceback__)
+
+                traceback.print_exception(
+                    type(task.exception()),
+                    task.exception(),
+                    task.exception().__traceback__,
+                )
 
     # Cleanup: Delete test data
     await cleanup_test_data(storage, test_group_id)
@@ -218,6 +222,7 @@ class TestSDKStorageIntegration:
 
         # Verify point exists in code-patterns
         from src.memory.qdrant_client import get_qdrant_client
+
         client = get_qdrant_client()
 
         results, _ = client.scroll(
@@ -243,7 +248,9 @@ class TestSDKStorageIntegration:
         assert "/tmp/test.py" in payload["content"]
 
     @pytest.mark.asyncio
-    async def test_agent_response_captured_to_qdrant(self, sdk_wrapper, test_group_id, tmp_path):
+    async def test_agent_response_captured_to_qdrant(
+        self, sdk_wrapper, test_group_id, tmp_path
+    ):
         """Test Stop hook stores to discussions collection."""
         # Create a fake transcript file
         transcript_path = tmp_path / "transcript.txt"
@@ -262,6 +269,7 @@ class TestSDKStorageIntegration:
 
         # Verify point exists in discussions
         from src.memory.qdrant_client import get_qdrant_client
+
         client = get_qdrant_client()
 
         results, _ = client.scroll(
@@ -302,6 +310,7 @@ class TestSDKStorageIntegration:
 
         # Verify error pattern stored
         from src.memory.qdrant_client import get_qdrant_client
+
         client = get_qdrant_client()
 
         results, _ = client.scroll(
@@ -332,10 +341,12 @@ class TestSDKStorageIntegration:
 
         # Mock the ClaudeSDKClient
         mock_client = MagicMock()
-        mocker.patch('src.memory.agent_sdk_wrapper.ClaudeSDKClient', return_value=mock_client)
+        mocker.patch(
+            "src.memory.agent_sdk_wrapper.ClaudeSDKClient", return_value=mock_client
+        )
 
         # Mock detect_project to return test_group_id for test isolation
-        mocker.patch('src.memory.project.detect_project', return_value=test_group_id)
+        mocker.patch("src.memory.project.detect_project", return_value=test_group_id)
 
         # Create two wrappers with different session IDs
         session_1 = f"test-session-1-{uuid.uuid4().hex[:4]}"
@@ -381,6 +392,7 @@ class TestSDKStorageIntegration:
 
         # Query each session, verify isolation
         from src.memory.qdrant_client import get_qdrant_client
+
         client = get_qdrant_client()
 
         # Query session 1
@@ -388,7 +400,9 @@ class TestSDKStorageIntegration:
             collection_name=COLLECTION_CODE_PATTERNS,
             scroll_filter=Filter(
                 must=[
-                    FieldCondition(key="group_id", match=MatchValue(value=test_group_id)),
+                    FieldCondition(
+                        key="group_id", match=MatchValue(value=test_group_id)
+                    ),
                     FieldCondition(key="session_id", match=MatchValue(value=session_1)),
                 ]
             ),
@@ -401,7 +415,9 @@ class TestSDKStorageIntegration:
             collection_name=COLLECTION_CODE_PATTERNS,
             scroll_filter=Filter(
                 must=[
-                    FieldCondition(key="group_id", match=MatchValue(value=test_group_id)),
+                    FieldCondition(
+                        key="group_id", match=MatchValue(value=test_group_id)
+                    ),
                     FieldCondition(key="session_id", match=MatchValue(value=session_2)),
                 ]
             ),
@@ -481,6 +497,7 @@ class TestSDKQueryIntegration:
 
         # Retrieve point directly from Qdrant
         from src.memory.qdrant_client import get_qdrant_client
+
         client = get_qdrant_client()
 
         results, _ = client.scroll(
@@ -521,6 +538,7 @@ class TestSDKQueryIntegration:
 
         # Retrieve and verify
         from src.memory.qdrant_client import get_qdrant_client
+
         client = get_qdrant_client()
 
         results, _ = client.scroll(
@@ -574,17 +592,23 @@ class TestSDKErrorHandling:
     """Test graceful degradation on failures."""
 
     @pytest.mark.asyncio
-    async def test_storage_failure_doesnt_crash(self, test_session_id, tmp_path, mocker):
+    async def test_storage_failure_doesnt_crash(
+        self, test_session_id, tmp_path, mocker
+    ):
         """Test SDK continues if storage fails."""
         from src.memory.storage import MemoryStorage
 
         # Mock the ClaudeSDKClient
         mock_client = MagicMock()
-        mocker.patch('src.memory.agent_sdk_wrapper.ClaudeSDKClient', return_value=mock_client)
+        mocker.patch(
+            "src.memory.agent_sdk_wrapper.ClaudeSDKClient", return_value=mock_client
+        )
 
         # Create wrapper with mocked storage that raises exception
         storage = MemoryStorage()
-        mock_store = mocker.patch.object(storage, 'store_memory', side_effect=Exception("Storage failed"))
+        mocker.patch.object(
+            storage, "store_memory", side_effect=Exception("Storage failed")
+        )
 
         wrapper = AgentSDKWrapper(
             cwd=str(tmp_path),
@@ -611,23 +635,29 @@ class TestSDKErrorHandling:
             await asyncio.wait(wrapper._storage_tasks, timeout=2.0)
 
     @pytest.mark.asyncio
-    async def test_embedding_failure_graceful(self, test_session_id, test_group_id, tmp_path, mocker):
+    async def test_embedding_failure_graceful(
+        self, test_session_id, test_group_id, tmp_path, mocker
+    ):
         """Test graceful handling of embedding service failure."""
-        from src.memory.storage import MemoryStorage
         from src.memory.embeddings import EmbeddingError
+        from src.memory.storage import MemoryStorage
 
         # Mock the ClaudeSDKClient
         mock_client = MagicMock()
-        mocker.patch('src.memory.agent_sdk_wrapper.ClaudeSDKClient', return_value=mock_client)
+        mocker.patch(
+            "src.memory.agent_sdk_wrapper.ClaudeSDKClient", return_value=mock_client
+        )
 
         storage = MemoryStorage()
 
         # Mock detect_project to return test_group_id for test isolation
-        mocker.patch('src.memory.project.detect_project', return_value=test_group_id)
+        mocker.patch("src.memory.project.detect_project", return_value=test_group_id)
 
         # Mock embedding client to fail
-        mocker.patch('src.memory.embeddings.EmbeddingClient.embed',
-                    side_effect=EmbeddingError("Embedding service down"))
+        mocker.patch(
+            "src.memory.embeddings.EmbeddingClient.embed",
+            side_effect=EmbeddingError("Embedding service down"),
+        )
 
         wrapper = AgentSDKWrapper(
             cwd=str(tmp_path),
@@ -650,6 +680,7 @@ class TestSDKErrorHandling:
 
         # Verify memory stored with pending status
         from src.memory.qdrant_client import get_qdrant_client
+
         client = get_qdrant_client()
 
         results, _ = client.scroll(
@@ -673,18 +704,22 @@ class TestSDKErrorHandling:
     @pytest.mark.asyncio
     async def test_qdrant_unavailable_graceful(self, test_session_id, tmp_path, mocker):
         """Test graceful handling when Qdrant is down."""
-        from src.memory.storage import MemoryStorage
         from src.memory.qdrant_client import QdrantUnavailable
+        from src.memory.storage import MemoryStorage
 
         # Mock the ClaudeSDKClient
         mock_client = MagicMock()
-        mocker.patch('src.memory.agent_sdk_wrapper.ClaudeSDKClient', return_value=mock_client)
+        mocker.patch(
+            "src.memory.agent_sdk_wrapper.ClaudeSDKClient", return_value=mock_client
+        )
 
         storage = MemoryStorage()
 
         # Mock Qdrant client to fail
-        mocker.patch('src.memory.qdrant_client.get_qdrant_client',
-                    side_effect=QdrantUnavailable("Qdrant unavailable"))
+        mocker.patch(
+            "src.memory.qdrant_client.get_qdrant_client",
+            side_effect=QdrantUnavailable("Qdrant unavailable"),
+        )
 
         wrapper = AgentSDKWrapper(
             cwd=str(tmp_path),
@@ -760,6 +795,7 @@ class TestSDKPerformance:
 
         # Verify all 10 points exist in Qdrant
         from src.memory.qdrant_client import get_qdrant_client
+
         client = get_qdrant_client()
 
         results, _ = client.scroll(

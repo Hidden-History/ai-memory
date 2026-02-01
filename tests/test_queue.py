@@ -10,24 +10,22 @@ Tests cover QueueEntry dataclass and MemoryQueue class operations including:
 Follows Story 5.1 acceptance criteria and 2026 best practices.
 """
 
+import fcntl
 import json
 import os
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
-import fcntl
-
 from src.memory.queue import (
-    MemoryQueue,
-    QueueEntry,
-    LockTimeoutError,
     LockedFileAppend,
     LockedReadModifyWrite,
+    LockTimeoutError,
+    MemoryQueue,
+    QueueEntry,
     _acquire_lock_with_timeout,
 )
 
@@ -38,9 +36,7 @@ class TestQueueEntry:
     def test_queue_entry_initialization_with_defaults(self):
         """Test QueueEntry initializes with automatic timestamps."""
         entry = QueueEntry(
-            id=str(uuid.uuid4()),
-            memory_data={"content": "test"},
-            failure_reason="TEST"
+            id=str(uuid.uuid4()), memory_data={"content": "test"}, failure_reason="TEST"
         )
 
         assert entry.id is not None
@@ -57,7 +53,7 @@ class TestQueueEntry:
             id="test-id",
             memory_data={"content": "test"},
             failure_reason="TEST",
-            retry_count=0
+            retry_count=0,
         )
 
         # Parse timestamps
@@ -74,7 +70,7 @@ class TestQueueEntry:
             id="test-id",
             memory_data={"content": "test"},
             failure_reason="TEST",
-            retry_count=1
+            retry_count=1,
         )
 
         # Calculate next retry manually
@@ -94,7 +90,7 @@ class TestQueueEntry:
             id="test-id",
             memory_data={"content": "test"},
             failure_reason="TEST",
-            retry_count=2
+            retry_count=2,
         )
 
         # Calculate next retry manually
@@ -114,7 +110,7 @@ class TestQueueEntry:
             id="test-id",
             memory_data={"content": "test"},
             failure_reason="TEST",
-            retry_count=5  # Beyond max_retries
+            retry_count=5,  # Beyond max_retries
         )
 
         # Calculate next retry manually
@@ -155,7 +151,7 @@ class TestMemoryQueue:
         memory_data = {
             "content": "test implementation",
             "group_id": "test-project",
-            "type": "implementation"
+            "type": "implementation",
         }
 
         queue_id = queue.enqueue(memory_data, "QDRANT_UNAVAILABLE")
@@ -181,7 +177,7 @@ class TestMemoryQueue:
         queue_id = queue.enqueue(memory_data, "TEST")
 
         # Read raw file
-        with open(queue_path, "r") as f:
+        with open(queue_path) as f:
             line = f.readline()
 
         # Should be valid JSON
@@ -218,7 +214,7 @@ class TestMemoryQueue:
             id=str(uuid.uuid4()),
             memory_data={"content": "past"},
             failure_reason="TEST",
-            retry_count=0
+            retry_count=0,
         )
         # Manually set next_retry_at to past
         past_time = datetime.now(timezone.utc) - timedelta(minutes=5)
@@ -229,7 +225,7 @@ class TestMemoryQueue:
             id=str(uuid.uuid4()),
             memory_data={"content": "future"},
             failure_reason="TEST",
-            retry_count=0
+            retry_count=0,
         )
         # Manually set next_retry_at to future
         future_time = datetime.now(timezone.utc) + timedelta(minutes=5)
@@ -237,6 +233,7 @@ class TestMemoryQueue:
 
         # Write both to queue
         from dataclasses import asdict
+
         queue._write_all([asdict(past_entry), asdict(future_entry)])
 
         # Get pending
@@ -256,12 +253,13 @@ class TestMemoryQueue:
                 id=str(uuid.uuid4()),
                 memory_data={"content": f"test {i}"},
                 failure_reason="TEST",
-                retry_count=0
+                retry_count=0,
             )
             entry.next_retry_at = past_time.isoformat() + "Z"
             entries.append(entry)
 
         from dataclasses import asdict
+
         queue._write_all([asdict(e) for e in entries])
 
         # Get pending with limit
@@ -277,13 +275,14 @@ class TestMemoryQueue:
             memory_data={"content": "exhausted"},
             failure_reason="TEST",
             retry_count=3,  # At max
-            max_retries=3
+            max_retries=3,
         )
         # Set to past time
         past_time = datetime.now(timezone.utc) - timedelta(minutes=5)
         exhausted_entry.next_retry_at = past_time.isoformat() + "Z"
 
         from dataclasses import asdict
+
         queue._write_all([asdict(exhausted_entry)])
 
         # Get pending
@@ -342,7 +341,7 @@ class TestMemoryQueue:
             id=str(uuid.uuid4()),
             memory_data={"content": "ready"},
             failure_reason="QDRANT_UNAVAILABLE",
-            retry_count=0
+            retry_count=0,
         )
         ready.next_retry_at = past_time.isoformat() + "Z"
         entries.append(ready)
@@ -352,7 +351,7 @@ class TestMemoryQueue:
             id=str(uuid.uuid4()),
             memory_data={"content": "awaiting"},
             failure_reason="EMBEDDING_TIMEOUT",
-            retry_count=1
+            retry_count=1,
         )
         awaiting.next_retry_at = future_time.isoformat() + "Z"
         entries.append(awaiting)
@@ -363,12 +362,13 @@ class TestMemoryQueue:
             memory_data={"content": "exhausted"},
             failure_reason="QDRANT_UNAVAILABLE",
             retry_count=3,
-            max_retries=3
+            max_retries=3,
         )
         exhausted.next_retry_at = past_time.isoformat() + "Z"
         entries.append(exhausted)
 
         from dataclasses import asdict
+
         queue._write_all([asdict(e) for e in entries])
 
         # Get stats
@@ -386,7 +386,7 @@ class TestMemoryQueue:
         # Write mixed valid and corrupt entries
         with open(queue_path, "w") as f:
             f.write('{"id": "valid-1", "memory_data": {}, "failure_reason": "TEST"}\n')
-            f.write('CORRUPT JSON LINE\n')
+            f.write("CORRUPT JSON LINE\n")
             f.write('{"id": "valid-2", "memory_data": {}, "failure_reason": "TEST"}\n')
 
         # Read all
@@ -410,14 +410,14 @@ class TestMemoryQueue:
         """Test _write_all uses atomic rename pattern."""
         entries = [
             {"id": "test-1", "memory_data": {}, "failure_reason": "TEST"},
-            {"id": "test-2", "memory_data": {}, "failure_reason": "TEST"}
+            {"id": "test-2", "memory_data": {}, "failure_reason": "TEST"},
         ]
 
         queue._write_all(entries)
 
         # Verify file exists and has correct content
         assert queue_path.exists()
-        with open(queue_path, "r") as f:
+        with open(queue_path) as f:
             lines = f.readlines()
         assert len(lines) == 2
 
@@ -482,7 +482,7 @@ class TestLockTimeout:
             # Patch timeout to be short for test speed
             with patch("src.memory.queue.LOCK_TIMEOUT_SECONDS", 0.3):
                 with pytest.raises(LockTimeoutError) as exc_info:
-                    with LockedFileAppend(queue_file) as f:
+                    with LockedFileAppend(queue_file):
                         pass  # Should not reach here
 
                 assert "Failed to acquire lock" in str(exc_info.value)
@@ -499,7 +499,7 @@ class TestLockTimeout:
             # Patch timeout to be short for test speed
             with patch("src.memory.queue.LOCK_TIMEOUT_SECONDS", 0.3):
                 with pytest.raises(LockTimeoutError) as exc_info:
-                    with LockedReadModifyWrite(queue_file) as (entries, write_fn):
+                    with LockedReadModifyWrite(queue_file) as (_entries, _write_fn):
                         pass  # Should not reach here
 
                 assert "Failed to acquire lock" in str(exc_info.value)

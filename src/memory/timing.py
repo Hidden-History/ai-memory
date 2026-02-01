@@ -12,7 +12,6 @@ Research sources:
 import logging
 import time
 from contextlib import contextmanager
-from typing import Optional
 
 
 @contextmanager
@@ -20,7 +19,7 @@ def timed_operation(
     operation: str,
     logger: logging.Logger,
     level: int = logging.INFO,
-    extra: Optional[dict] = None,
+    extra: dict | None = None,
 ):
     """Context manager for timing operations with structured logging.
 

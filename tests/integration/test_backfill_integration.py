@@ -16,12 +16,11 @@ import os
 import subprocess
 import sys
 import time
-import tempfile
 from pathlib import Path
+
 import pytest
 
 from memory.queue import MemoryQueue
-from memory.storage import MemoryStorage
 
 
 class TestFullBackfillRun:
@@ -40,10 +39,10 @@ class TestFullBackfillRun:
                     "group_id": "test-project",
                     "type": "implementation",
                     "source_hook": "PostToolUse",
-                    "session_id": "test-session"
+                    "session_id": "test-session",
                 },
                 failure_reason="TEST_FAILURE",
-                immediate=True  # Skip backoff for testing
+                immediate=True,  # Skip backoff for testing
             )
 
         return queue
@@ -61,13 +60,18 @@ class TestFullBackfillRun:
         env["MEMORY_QUEUE_PATH"] = queue_path
 
         # Run backfill script
-        script_path = Path(__file__).parent.parent.parent / "scripts" / "memory" / "backfill_embeddings.py"
+        script_path = (
+            Path(__file__).parent.parent.parent
+            / "scripts"
+            / "memory"
+            / "backfill_embeddings.py"
+        )
         result = subprocess.run(
             [sys.executable, str(script_path)],
             capture_output=True,
             text=True,
             timeout=30,
-            env=env
+            env=env,
         )
 
         # Verify exit code 0 (success) or 1 (service unavailable - expected in test env)
@@ -96,7 +100,8 @@ class TestConcurrentExecution:
     def slow_lock_script(self, tmp_path):
         """Create a script that holds a lock for 5 seconds using pure fcntl."""
         script = tmp_path / "slow_lock.py"
-        script.write_text("""
+        script.write_text(
+            """
 import time
 import sys
 import os
@@ -118,10 +123,13 @@ try:
 except (IOError, OSError):
     print("Lock conflict")
     sys.exit(1)
-""")
+"""
+        )
         return script
 
-    def test_concurrent_execution_blocked(self, slow_lock_script, tmp_path, monkeypatch):
+    def test_concurrent_execution_blocked(
+        self, slow_lock_script, tmp_path, monkeypatch
+    ):
         """Test second process blocked when first holds lock.
 
         AC 5.2.4: Non-blocking lock prevents concurrent runs.
@@ -139,10 +147,10 @@ except (IOError, OSError):
                 "group_id": "test-project",
                 "type": "implementation",
                 "source_hook": "test",
-                "session_id": "sess"
+                "session_id": "sess",
             },
             failure_reason="TEST",
-            immediate=True  # Skip backoff for testing
+            immediate=True,  # Skip backoff for testing
         )
 
         env = os.environ.copy()
@@ -155,24 +163,31 @@ except (IOError, OSError):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env=env
+            env=env,
         )
 
         # Wait for first to acquire lock (check stdout for confirmation)
         time.sleep(0.5)
 
         # Try second process (should fail immediately)
-        script_path = Path(__file__).parent.parent.parent / "scripts" / "memory" / "backfill_embeddings.py"
+        script_path = (
+            Path(__file__).parent.parent.parent
+            / "scripts"
+            / "memory"
+            / "backfill_embeddings.py"
+        )
         proc2 = subprocess.run(
             [sys.executable, str(script_path)],
             capture_output=True,
             text=True,
             timeout=5,  # Should return quickly, but allow some margin
-            env=env
+            env=env,
         )
 
         # Second should exit with code 1 (lock conflict)
-        assert proc2.returncode == 1, f"Expected exit 1, got {proc2.returncode}. stdout: {proc2.stdout}, stderr: {proc2.stderr}"
+        assert (
+            proc2.returncode == 1
+        ), f"Expected exit 1, got {proc2.returncode}. stdout: {proc2.stdout}, stderr: {proc2.stderr}"
         assert "Another backfill process is running" in proc2.stdout
 
         # Cleanup first process
@@ -186,7 +201,12 @@ class TestCLIModes:
     @pytest.fixture
     def script_path(self):
         """Get backfill script path."""
-        return Path(__file__).parent.parent.parent / "scripts" / "memory" / "backfill_embeddings.py"
+        return (
+            Path(__file__).parent.parent.parent
+            / "scripts"
+            / "memory"
+            / "backfill_embeddings.py"
+        )
 
     def test_dry_run_mode(self, script_path, tmp_path):
         """Test --dry-run shows what would be processed.
@@ -202,17 +222,19 @@ class TestCLIModes:
                 "group_id": "proj",
                 "type": "implementation",
                 "source_hook": "test",
-                "session_id": "sess"
+                "session_id": "sess",
             },
             failure_reason="TEST",
-            immediate=True  # Skip backoff for testing
+            immediate=True,  # Skip backoff for testing
         )
 
         # Verify queue file exists and has items before subprocess
         assert queue_path.exists(), f"Queue file not created at {queue_path}"
         stats = queue.get_stats()
         assert stats["total_items"] == 1, f"Queue should have 1 item, got {stats}"
-        assert stats["ready_for_retry"] == 1, f"Item should be ready for retry, got {stats}"
+        assert (
+            stats["ready_for_retry"] == 1
+        ), f"Item should be ready for retry, got {stats}"
 
         # Use env dict for subprocess
         env = os.environ.copy()
@@ -227,12 +249,16 @@ class TestCLIModes:
             capture_output=True,
             text=True,
             timeout=10,
-            env=env
+            env=env,
         )
 
         # Verify exit 0 and preview output
-        assert result.returncode == 0, f"stderr: {result.stderr}, stdout: {result.stdout}"
-        assert "[DRY RUN]" in result.stdout, f"Expected [DRY RUN] in stdout: {result.stdout}"
+        assert (
+            result.returncode == 0
+        ), f"stderr: {result.stderr}, stdout: {result.stdout}"
+        assert (
+            "[DRY RUN]" in result.stdout
+        ), f"Expected [DRY RUN] in stdout: {result.stdout}"
         assert "Would process" in result.stdout
 
         # Verify queue unchanged
@@ -256,10 +282,10 @@ class TestCLIModes:
                     "group_id": "proj",
                     "type": "implementation",
                     "source_hook": "test",
-                    "session_id": "sess"
+                    "session_id": "sess",
                 },
                 failure_reason="QDRANT_UNAVAILABLE",
-                immediate=True  # Skip backoff for testing
+                immediate=True,  # Skip backoff for testing
             )
 
         # Use env dict for subprocess
@@ -272,7 +298,7 @@ class TestCLIModes:
             capture_output=True,
             text=True,
             timeout=10,
-            env=env
+            env=env,
         )
 
         # Verify exit 0 and stats output
@@ -293,7 +319,7 @@ class TestCLIModes:
             [sys.executable, str(script_path), "--limit", "10"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         # Should succeed (exit 0) or fail with service error (not validation)
         assert result.returncode in [0, 1]
@@ -304,7 +330,7 @@ class TestCLIModes:
             [sys.executable, str(script_path), "--limit", "2000"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         # Should fail with validation error (exit 2 from argparse)
         assert result.returncode == 2
@@ -317,7 +343,12 @@ class TestExitCodes:
     @pytest.fixture
     def script_path(self):
         """Get backfill script path."""
-        return Path(__file__).parent.parent.parent / "scripts" / "memory" / "backfill_embeddings.py"
+        return (
+            Path(__file__).parent.parent.parent
+            / "scripts"
+            / "memory"
+            / "backfill_embeddings.py"
+        )
 
     def test_exit_code_empty_queue(self, script_path, tmp_path):
         """Test exit 0 when queue is empty.
@@ -333,7 +364,7 @@ class TestExitCodes:
             capture_output=True,
             text=True,
             timeout=10,
-            env=env
+            env=env,
         )
 
         assert result.returncode == 0
@@ -348,7 +379,7 @@ class TestExitCodes:
             [sys.executable, str(script_path), "--stats"],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         assert result.returncode == 0
@@ -362,7 +393,7 @@ class TestExitCodes:
             [sys.executable, str(script_path), "--dry-run"],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         assert result.returncode == 0
@@ -376,7 +407,7 @@ class TestExitCodes:
             [sys.executable, str(script_path), "--limit", "invalid"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
 
         assert result.returncode == 2
@@ -390,7 +421,12 @@ class TestCronSimulation:
 
         AC 5.2.4: Script output captured by cron redirection.
         """
-        script_path = Path(__file__).parent.parent.parent / "scripts" / "memory" / "backfill_embeddings.py"
+        script_path = (
+            Path(__file__).parent.parent.parent
+            / "scripts"
+            / "memory"
+            / "backfill_embeddings.py"
+        )
         log_file = tmp_path / "backfill.log"
 
         # Run with output redirection (simulates cron)
@@ -399,7 +435,7 @@ class TestCronSimulation:
                 [sys.executable, str(script_path), "--stats"],
                 stdout=f,
                 stderr=subprocess.STDOUT,
-                timeout=10
+                timeout=10,
             )
 
         # Verify exit 0
@@ -417,14 +453,19 @@ class TestCronSimulation:
 
         Note: This is a smoke test - actual timing depends on service availability.
         """
-        script_path = Path(__file__).parent.parent.parent / "scripts" / "memory" / "backfill_embeddings.py"
+        script_path = (
+            Path(__file__).parent.parent.parent
+            / "scripts"
+            / "memory"
+            / "backfill_embeddings.py"
+        )
 
         start = time.time()
         result = subprocess.run(
             [sys.executable, str(script_path)],
             capture_output=True,
             text=True,
-            timeout=180  # 3 minute timeout
+            timeout=180,  # 3 minute timeout
         )
         elapsed = time.time() - start
 

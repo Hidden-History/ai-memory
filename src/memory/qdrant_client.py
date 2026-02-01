@@ -8,7 +8,6 @@ Best Practices: https://softlandia.com/articles/deploying-qdrant-with-grpc-auth-
 """
 
 import logging
-from typing import Optional
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import KeywordIndexParams
@@ -16,10 +15,10 @@ from qdrant_client.models import KeywordIndexParams
 from .config import MemoryConfig, get_config
 
 __all__ = [
-    "get_qdrant_client",
+    "QdrantUnavailable",
     "check_qdrant_health",
     "create_group_id_index",
-    "QdrantUnavailable",
+    "get_qdrant_client",
 ]
 
 logger = logging.getLogger("ai_memory.storage")
@@ -35,7 +34,7 @@ class QdrantUnavailable(Exception):
     pass
 
 
-def get_qdrant_client(config: Optional[MemoryConfig] = None) -> QdrantClient:
+def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
     """Get configured Qdrant client.
 
     Creates QdrantClient instance with connection parameters from config.

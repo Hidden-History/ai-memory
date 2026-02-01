@@ -3,18 +3,20 @@
 TECH-DEBT-062: Tests for parallel trigger system consolidation.
 """
 
-import pytest
-import asyncio
-import time
-from unittest.mock import patch, MagicMock, AsyncMock
-import sys
 import os
+import sys
+import time
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 # Import the module under test (after path setup)
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '.claude', 'hooks', 'scripts'))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(__file__), "..", ".claude", "hooks", "scripts")
+)
 import unified_keyword_trigger as ukt
 
 
@@ -24,9 +26,15 @@ class TestDetectAllTriggers:
     @pytest.mark.asyncio
     async def test_detect_all_triggers_parallel(self):
         """Verify all detectors run in parallel."""
-        with patch('unified_keyword_trigger.detect_decision_keywords') as mock_decision, \
-             patch('unified_keyword_trigger.detect_session_history_keywords') as mock_session, \
-             patch('unified_keyword_trigger.detect_best_practices_keywords') as mock_best_practices:
+        with (
+            patch("unified_keyword_trigger.detect_decision_keywords") as mock_decision,
+            patch(
+                "unified_keyword_trigger.detect_session_history_keywords"
+            ) as mock_session,
+            patch(
+                "unified_keyword_trigger.detect_best_practices_keywords"
+            ) as mock_best_practices,
+        ):
 
             # Setup mocks
             mock_decision.return_value = "authentication"
@@ -34,7 +42,9 @@ class TestDetectAllTriggers:
             mock_best_practices.return_value = "error handling"
 
             # Execute
-            result = await ukt.detect_all_triggers("why did we choose authentication? what's the best practice for error handling?")
+            result = await ukt.detect_all_triggers(
+                "why did we choose authentication? what's the best practice for error handling?"
+            )
 
             # Verify all called
             assert mock_decision.called
@@ -49,9 +59,15 @@ class TestDetectAllTriggers:
     @pytest.mark.asyncio
     async def test_detect_all_triggers_handles_exceptions(self):
         """Verify exceptions are caught and handled (CR-FIX CRIT-1: now synchronous)."""
-        with patch('unified_keyword_trigger.detect_decision_keywords') as mock_decision, \
-             patch('unified_keyword_trigger.detect_session_history_keywords') as mock_session, \
-             patch('unified_keyword_trigger.detect_best_practices_keywords') as mock_best_practices:
+        with (
+            patch("unified_keyword_trigger.detect_decision_keywords") as mock_decision,
+            patch(
+                "unified_keyword_trigger.detect_session_history_keywords"
+            ) as mock_session,
+            patch(
+                "unified_keyword_trigger.detect_best_practices_keywords"
+            ) as mock_best_practices,
+        ):
 
             # Setup normal returns
             mock_decision.return_value = None
@@ -89,7 +105,7 @@ class TestSearchAllTriggered:
         triggers = {
             "decision": "authentication",
             "session": "last sprint",
-            "best_practices": "error handling"
+            "best_practices": "error handling",
         }
 
         # CR-FIX HIGH-1: Mock MemorySearch client instead of perform_search
@@ -101,10 +117,12 @@ class TestSearchAllTriggered:
         mock_config = MagicMock()
         mock_config.similarity_threshold = 0.4
 
-        with patch('unified_keyword_trigger.MemorySearch', return_value=mock_client):
+        with patch("unified_keyword_trigger.MemorySearch", return_value=mock_client):
             # Execute
             start = time.time()
-            results = await ukt.search_all_triggered(triggers, "test-project", mock_config)
+            results = await ukt.search_all_triggered(
+                triggers, "test-project", mock_config
+            )
             elapsed = time.time() - start
 
             # Should complete quickly (parallel, not sequential)
@@ -149,9 +167,11 @@ class TestSearchAllTriggered:
 
         mock_client.search = slow_search
 
-        with patch('unified_keyword_trigger.MemorySearch', return_value=mock_client):
+        with patch("unified_keyword_trigger.MemorySearch", return_value=mock_client):
             start = time.time()
-            results = await ukt.search_all_triggered(triggers, "test-project", mock_config)
+            results = await ukt.search_all_triggered(
+                triggers, "test-project", mock_config
+            )
             elapsed = time.time() - start
 
             # CR-FIX MED-2: More precise assertion (3s timeout + 1s overhead)
@@ -171,19 +191,23 @@ class TestDeduplication:
                 topic="auth",
                 results=[
                     {"content": "Use JWT", "content_hash": "hash1", "score": 0.9},
-                    {"content": "Use OAuth", "content_hash": "hash2", "score": 0.8}
+                    {"content": "Use OAuth", "content_hash": "hash2", "score": 0.8},
                 ],
-                search_time_ms=100
+                search_time_ms=100,
             ),
             ukt.TriggerResult(
                 trigger_type="best_practices",
                 topic="auth",
                 results=[
-                    {"content": "Use JWT", "content_hash": "hash1", "score": 0.85},  # Duplicate
-                    {"content": "Use HTTPS", "content_hash": "hash3", "score": 0.7}
+                    {
+                        "content": "Use JWT",
+                        "content_hash": "hash1",
+                        "score": 0.85,
+                    },  # Duplicate
+                    {"content": "Use HTTPS", "content_hash": "hash3", "score": 0.7},
                 ],
-                search_time_ms=120
-            )
+                search_time_ms=120,
+            ),
         ]
 
         deduplicated = ukt.deduplicate_results(trigger_results)
@@ -200,20 +224,20 @@ class TestDeduplication:
                 trigger_type="best_practices",
                 topic="test",
                 results=[{"content": "BP", "content_hash": "hash1", "score": 0.9}],
-                search_time_ms=100
+                search_time_ms=100,
             ),
             ukt.TriggerResult(
                 trigger_type="decision",
                 topic="test",
                 results=[{"content": "DEC", "content_hash": "hash2", "score": 0.8}],
-                search_time_ms=100
+                search_time_ms=100,
             ),
             ukt.TriggerResult(
                 trigger_type="session",
                 topic="test",
                 results=[{"content": "SESS", "content_hash": "hash3", "score": 0.85}],
-                search_time_ms=100
-            )
+                search_time_ms=100,
+            ),
         ]
 
         deduplicated = ukt.deduplicate_results(trigger_results)
@@ -234,7 +258,7 @@ class TestDeduplication:
                     {"content": f"Result {i}", "content_hash": f"hash{i}", "score": 0.9}
                     for i in range(10)  # More than MAX_TOTAL_RESULTS
                 ],
-                search_time_ms=100
+                search_time_ms=100,
             )
         ]
 
@@ -301,7 +325,7 @@ class TestFormatResult:
             "score": 0.87,
             "type": "decision",
             "_trigger_type": "decision",
-            "tags": ["auth", "jwt", "security"]
+            "tags": ["auth", "jwt", "security"],
         }
 
         formatted = ukt.format_result(result, 1)
@@ -325,7 +349,7 @@ class TestFormatResult:
             "score": 0.9,
             "type": "implementation",
             "_trigger_type": "best_practices",
-            "tags": []
+            "tags": [],
         }
 
         formatted = ukt.format_result(result, 1)
@@ -348,24 +372,34 @@ class TestMetricsPushing:
                 trigger_type="decision",
                 topic="auth",
                 results=[
-                    {"content": "Use JWT", "content_hash": "hash1", "score": 0.9, "type": "decision"},
+                    {
+                        "content": "Use JWT",
+                        "content_hash": "hash1",
+                        "score": 0.9,
+                        "type": "decision",
+                    },
                 ],
-                search_time_ms=100
+                search_time_ms=100,
             ),
             ukt.TriggerResult(
                 trigger_type="best_practices",
                 topic="auth",
                 results=[
-                    {"content": "Use JWT", "content_hash": "hash1", "score": 0.85, "type": "guideline"},  # Same hash
+                    {
+                        "content": "Use JWT",
+                        "content_hash": "hash1",
+                        "score": 0.85,
+                        "type": "guideline",
+                    },  # Same hash
                 ],
-                search_time_ms=120
+                search_time_ms=120,
             ),
             ukt.TriggerResult(
                 trigger_type="session",
                 topic="auth",
                 results=[],  # No results
-                search_time_ms=50
-            )
+                search_time_ms=50,
+            ),
         ]
 
         # Track BEFORE deduplication
@@ -457,25 +491,40 @@ class TestMetricsPushing:
                 trigger_type="decision",
                 topic="test",
                 results=[
-                    {"content": "Decision A", "content_hash": "hash1", "score": 0.9, "type": "decision"},
+                    {
+                        "content": "Decision A",
+                        "content_hash": "hash1",
+                        "score": 0.9,
+                        "type": "decision",
+                    },
                 ],
-                search_time_ms=100
+                search_time_ms=100,
             ),
             ukt.TriggerResult(
                 trigger_type="session",
                 topic="test",
                 results=[
-                    {"content": "Session B", "content_hash": "hash2", "score": 0.8, "type": "session"},
+                    {
+                        "content": "Session B",
+                        "content_hash": "hash2",
+                        "score": 0.8,
+                        "type": "session",
+                    },
                 ],
-                search_time_ms=100
+                search_time_ms=100,
             ),
             ukt.TriggerResult(
                 trigger_type="best_practices",
                 topic="test",
                 results=[
-                    {"content": "Practice C", "content_hash": "hash3", "score": 0.7, "type": "guideline"},
+                    {
+                        "content": "Practice C",
+                        "content_hash": "hash3",
+                        "score": 0.7,
+                        "type": "guideline",
+                    },
                 ],
-                search_time_ms=100
+                search_time_ms=100,
             ),
         ]
 

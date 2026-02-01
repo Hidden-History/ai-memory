@@ -15,7 +15,6 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Optional
 
 # Configure logger for structured logging
 logger = logging.getLogger(__name__)
@@ -46,9 +45,7 @@ def normalize_project_name(name: str) -> str:
         'my-project-v2-0'
     """
     if not name or not name.strip():
-        logger.warning("empty_project_name", extra={
-            "fallback": "unnamed-project"
-        })
+        logger.warning("empty_project_name", extra={"fallback": "unnamed-project"})
         return "unnamed-project"
 
     # Convert to lowercase
@@ -56,28 +53,31 @@ def normalize_project_name(name: str) -> str:
 
     # Replace special characters and spaces with hyphens
     # Keep alphanumeric and hyphens only
-    normalized = re.sub(r'[^a-z0-9-]', '-', normalized)
+    normalized = re.sub(r"[^a-z0-9-]", "-", normalized)
 
     # Collapse multiple consecutive hyphens to single hyphen
-    normalized = re.sub(r'-+', '-', normalized)
+    normalized = re.sub(r"-+", "-", normalized)
 
     # Remove leading/trailing hyphens
-    normalized = normalized.strip('-')
+    normalized = normalized.strip("-")
 
     # Truncate to maximum length
     if len(normalized) > MAX_PROJECT_NAME_LENGTH:
-        logger.debug("project_name_truncated", extra={
-            "original_length": len(normalized),
-            "truncated_length": MAX_PROJECT_NAME_LENGTH
-        })
-        normalized = normalized[:MAX_PROJECT_NAME_LENGTH].rstrip('-')
+        logger.debug(
+            "project_name_truncated",
+            extra={
+                "original_length": len(normalized),
+                "truncated_length": MAX_PROJECT_NAME_LENGTH,
+            },
+        )
+        normalized = normalized[:MAX_PROJECT_NAME_LENGTH].rstrip("-")
 
     # Final validation - ensure not empty after cleaning
     if not normalized:
-        logger.warning("normalized_to_empty", extra={
-            "original": name,
-            "fallback": "unnamed-project"
-        })
+        logger.warning(
+            "normalized_to_empty",
+            extra={"original": name, "fallback": "unnamed-project"},
+        )
         return "unnamed-project"
 
     return normalized
@@ -105,23 +105,20 @@ def get_project_hash(cwd: str) -> str:
         path_str = str(abs_path)
 
         # Generate SHA256 hash
-        hash_obj = hashlib.sha256(path_str.encode('utf-8'))
+        hash_obj = hashlib.sha256(path_str.encode("utf-8"))
         hash_hex = hash_obj.hexdigest()
 
         # Return first 12 characters (sufficient for uniqueness)
         return hash_hex[:12]
 
     except (OSError, ValueError) as e:
-        logger.error("project_hash_failed", extra={
-            "cwd": cwd,
-            "error": str(e)
-        })
+        logger.error("project_hash_failed", extra={"cwd": cwd, "error": str(e)})
         # Return deterministic fallback based on input
-        fallback = hashlib.sha256(str(cwd).encode('utf-8')).hexdigest()[:12]
+        fallback = hashlib.sha256(str(cwd).encode("utf-8")).hexdigest()[:12]
         return fallback
 
 
-def detect_project(cwd: Optional[str] = None) -> str:
+def detect_project(cwd: str | None = None) -> str:
     """Detect project identifier from environment variable or working directory.
 
     Detection priority:
@@ -155,10 +152,10 @@ def detect_project(cwd: Optional[str] = None) -> str:
     env_project = os.getenv("AI_MEMORY_PROJECT_ID")
     if env_project and env_project.strip():
         project_name = normalize_project_name(env_project)
-        logger.debug("using_env_project", extra={
-            "env_value": env_project,
-            "normalized": project_name
-        })
+        logger.debug(
+            "using_env_project",
+            extra={"env_value": env_project, "normalized": project_name},
+        )
         return project_name
 
     # 2. Fall back to directory-based detection
@@ -178,29 +175,26 @@ def detect_project(cwd: Optional[str] = None) -> str:
 
         # Log symlink resolution if path changed
         if str(cwd_path) != str(Path(cwd)):
-            logger.debug("symlink_resolved", extra={
-                "original": cwd,
-                "resolved": str(cwd_path)
-            })
+            logger.debug(
+                "symlink_resolved", extra={"original": cwd, "resolved": str(cwd_path)}
+            )
 
         # Get absolute path string for edge case detection
         abs_path = str(cwd_path)
 
         # Edge case: Root directory
         if abs_path == "/":
-            logger.debug("edge_case_detected", extra={
-                "case": "root",
-                "project": "root-project"
-            })
+            logger.debug(
+                "edge_case_detected", extra={"case": "root", "project": "root-project"}
+            )
             return "root-project"
 
         # Edge case: Home directory
         home_path = Path.home()
         if cwd_path == home_path:
-            logger.debug("edge_case_detected", extra={
-                "case": "home",
-                "project": "home-project"
-            })
+            logger.debug(
+                "edge_case_detected", extra={"case": "home", "project": "home-project"}
+            )
             return "home-project"
 
         # Edge case: Temp directories - only for direct children of /tmp or /var/tmp
@@ -211,20 +205,20 @@ def detect_project(cwd: Optional[str] = None) -> str:
             # Direct child of temp directory - check if it looks like a temp dir
             # Common patterns: build-*, tmp-*, cache-*, etc.
             dir_name_lower = cwd_path.name.lower()
-            temp_patterns = ['build', 'tmp', 'cache', 'temp']
+            temp_patterns = ["build", "tmp", "cache", "temp"]
             if any(pattern in dir_name_lower for pattern in temp_patterns):
-                logger.debug("edge_case_detected", extra={
-                    "case": "temp",
-                    "project": "temp-project"
-                })
+                logger.debug(
+                    "edge_case_detected",
+                    extra={"case": "temp", "project": "temp-project"},
+                )
                 return "temp-project"
 
         # Special handling for /tmp and /var/tmp themselves
         if abs_path == "/tmp" or abs_path == "/var/tmp":
-            logger.debug("edge_case_detected", extra={
-                "case": "temp_root",
-                "project": "temp-project"
-            })
+            logger.debug(
+                "edge_case_detected",
+                extra={"case": "temp_root", "project": "temp-project"},
+            )
             return "temp-project"
 
         # Normal case: Extract directory name
@@ -232,27 +226,25 @@ def detect_project(cwd: Optional[str] = None) -> str:
 
         if not dir_name:
             # This shouldn't happen with resolve(), but handle defensively
-            logger.warning("empty_directory_name", extra={
-                "cwd": cwd,
-                "fallback": "unnamed-project"
-            })
+            logger.warning(
+                "empty_directory_name",
+                extra={"cwd": cwd, "fallback": "unnamed-project"},
+            )
             return "unnamed-project"
 
         # Normalize the directory name
         project_name = normalize_project_name(dir_name)
 
-        logger.debug("project_detected", extra={
-            "cwd": abs_path,
-            "project": project_name
-        })
+        logger.debug(
+            "project_detected", extra={"cwd": abs_path, "project": project_name}
+        )
 
         return project_name
 
     except (OSError, ValueError) as e:
         # Path resolution failed - log warning and return fallback
-        logger.warning("path_resolution_failed", extra={
-            "cwd": cwd,
-            "error": str(e),
-            "fallback": "unknown-project"
-        })
+        logger.warning(
+            "path_resolution_failed",
+            extra={"cwd": cwd, "error": str(e), "fallback": "unknown-project"},
+        )
         return "unknown-project"

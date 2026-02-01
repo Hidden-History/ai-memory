@@ -3,13 +3,15 @@
 Tests pattern matching, YAML updating, and edge case handling for ACT-002.
 """
 
-import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
 import subprocess
 
 # Import functions to test
 import sys
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.update_sprint_status import (
@@ -17,7 +19,6 @@ from scripts.update_sprint_status import (
     parse_story_updates,
     update_sprint_status_yaml,
 )
-
 
 # Fixtures
 
@@ -190,11 +191,15 @@ def test_update_yaml_marks_story_done(temp_yaml_file):
 
     # Verify YAML was updated
     from ruamel.yaml import YAML
+
     yaml = YAML()
-    with open(temp_yaml_file, 'r') as f:
+    with open(temp_yaml_file) as f:
         data = yaml.load(f)
 
-    assert data['epics']['epic-6']['stories']['6-5-retrieval-session-logs']['status'] == 'done'
+    assert (
+        data["epics"]["epic-6"]["stories"]["6-5-retrieval-session-logs"]["status"]
+        == "done"
+    )
 
 
 def test_update_yaml_marks_story_in_progress(temp_yaml_file):
@@ -207,16 +212,22 @@ def test_update_yaml_marks_story_in_progress(temp_yaml_file):
 
     # Verify YAML was updated
     from ruamel.yaml import YAML
+
     yaml = YAML()
-    with open(temp_yaml_file, 'r') as f:
+    with open(temp_yaml_file) as f:
         data = yaml.load(f)
 
-    assert data['epics']['epic-7']['stories']['7-1-single-command-installer-script']['status'] == 'in-progress'
+    assert (
+        data["epics"]["epic-7"]["stories"]["7-1-single-command-installer-script"][
+            "status"
+        ]
+        == "in-progress"
+    )
 
 
 def test_update_yaml_preserves_comments(temp_yaml_file):
     """Test YAML comments are preserved after update (AC 6)."""
-    original_content = temp_yaml_file.read_text()
+    temp_yaml_file.read_text()
 
     updates = {"6-5": "done"}
     update_sprint_status_yaml(temp_yaml_file, updates)
@@ -232,23 +243,33 @@ def test_update_yaml_preserves_comments(temp_yaml_file):
 def test_update_yaml_preserves_structure(temp_yaml_file):
     """Test YAML structure is preserved after update (AC 7)."""
     from ruamel.yaml import YAML
+
     yaml = YAML()
 
     # Load original structure
-    with open(temp_yaml_file, 'r') as f:
+    with open(temp_yaml_file) as f:
         original_data = yaml.load(f)
 
     updates = {"6-5": "done", "6-6": "done"}
     update_sprint_status_yaml(temp_yaml_file, updates)
 
     # Load updated structure
-    with open(temp_yaml_file, 'r') as f:
+    with open(temp_yaml_file) as f:
         updated_data = yaml.load(f)
 
     # Verify structure is identical (except for updated statuses)
-    assert updated_data['epics']['epic-6']['title'] == original_data['epics']['epic-6']['title']
-    assert updated_data['epics']['epic-6']['stories']['6-5-retrieval-session-logs']['title'] == \
-           original_data['epics']['epic-6']['stories']['6-5-retrieval-session-logs']['title']
+    assert (
+        updated_data["epics"]["epic-6"]["title"]
+        == original_data["epics"]["epic-6"]["title"]
+    )
+    assert (
+        updated_data["epics"]["epic-6"]["stories"]["6-5-retrieval-session-logs"][
+            "title"
+        ]
+        == original_data["epics"]["epic-6"]["stories"]["6-5-retrieval-session-logs"][
+            "title"
+        ]
+    )
 
 
 def test_update_yaml_multiple_stories(temp_yaml_file):
@@ -312,11 +333,15 @@ def test_update_yaml_no_backward_transition(temp_yaml_file):
 
     # Verify still marked as done
     from ruamel.yaml import YAML
+
     yaml = YAML()
-    with open(temp_yaml_file, 'r') as f:
+    with open(temp_yaml_file) as f:
         data = yaml.load(f)
 
-    assert data['epics']['epic-6']['stories']['6-5-retrieval-session-logs']['status'] == 'done'
+    assert (
+        data["epics"]["epic-6"]["stories"]["6-5-retrieval-session-logs"]["status"]
+        == "done"
+    )
 
 
 def test_update_yaml_file_not_found():
@@ -366,7 +391,7 @@ def test_update_yaml_dry_run(temp_yaml_file):
 # Git Integration Tests
 
 
-@patch('subprocess.Popen')
+@patch("subprocess.Popen")
 def test_get_git_commits_success(mock_popen):
     """Test successful git log execution."""
     mock_process = Mock()
@@ -381,14 +406,14 @@ def test_get_git_commits_success(mock_popen):
     assert commits[1] == "def456 Commit 2"
 
     mock_popen.assert_called_once_with(
-        ['git', 'log', '--oneline', '-2'],
+        ["git", "log", "--oneline", "-2"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True
+        text=True,
     )
 
 
-@patch('subprocess.Popen')
+@patch("subprocess.Popen")
 def test_get_git_commits_failure(mock_popen):
     """Test git command failure handling."""
     mock_process = Mock()
@@ -430,11 +455,26 @@ def test_end_to_end_workflow(temp_yaml_file):
 
     # Verify final state
     from ruamel.yaml import YAML
+
     yaml = YAML()
-    with open(temp_yaml_file, 'r') as f:
+    with open(temp_yaml_file) as f:
         data = yaml.load(f)
 
-    assert data['epics']['epic-6']['stories']['6-3-pre-built-grafana-dashboards']['status'] == 'done'
-    assert data['epics']['epic-6']['stories']['6-4-streamlit-memory-browser']['status'] == 'done'
-    assert data['epics']['epic-6']['stories']['6-5-retrieval-session-logs']['status'] == 'done'
-    assert data['epics']['epic-7']['stories']['7-1-single-command-installer-script']['status'] == 'in-progress'
+    assert (
+        data["epics"]["epic-6"]["stories"]["6-3-pre-built-grafana-dashboards"]["status"]
+        == "done"
+    )
+    assert (
+        data["epics"]["epic-6"]["stories"]["6-4-streamlit-memory-browser"]["status"]
+        == "done"
+    )
+    assert (
+        data["epics"]["epic-6"]["stories"]["6-5-retrieval-session-logs"]["status"]
+        == "done"
+    )
+    assert (
+        data["epics"]["epic-7"]["stories"]["7-1-single-command-installer-script"][
+            "status"
+        ]
+        == "in-progress"
+    )

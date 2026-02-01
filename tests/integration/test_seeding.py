@@ -15,17 +15,15 @@ Test Coverage:
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import httpx
 import pytest
-from qdrant_client import QdrantClient
-from qdrant_client.models import CollectionInfo, CollectionsResponse, PointStruct
+from qdrant_client.models import PointStruct
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from memory.config import MemoryConfig
 from memory.template_models import BestPracticeTemplate
 
 # Import seeding module functions
@@ -96,7 +94,9 @@ class TestGenerateEmbedding:
         """Test graceful handling of timeout."""
         mock_post.side_effect = httpx.TimeoutException("Read timeout")
 
-        embedding = generate_embedding("Test content", "http://localhost:28080", timeout=5.0)
+        embedding = generate_embedding(
+            "Test content", "http://localhost:28080", timeout=5.0
+        )
 
         assert embedding is None
 
@@ -174,9 +174,7 @@ class TestCreatePointFromTemplate:
 
     def test_create_point_unique_ids(self):
         """Test that each point gets a unique UUID."""
-        template = BestPracticeTemplate(
-            content="Use type hints", domain="python"
-        )
+        template = BestPracticeTemplate(content="Use type hints", domain="python")
 
         embedding = [0.1] * 768
 
@@ -248,7 +246,9 @@ class TestSeedTemplates:
 
     @patch("seed_best_practices.generate_embedding")
     @patch("seed_best_practices.QdrantClient")
-    def test_seed_templates_batch_processing(self, mock_qdrant_class, mock_generate_embedding):
+    def test_seed_templates_batch_processing(
+        self, mock_qdrant_class, mock_generate_embedding
+    ):
         """Test batch processing with multiple batches."""
         # Mock Qdrant client
         mock_client = Mock()
@@ -340,7 +340,9 @@ class TestSeedTemplates:
 
     @patch("seed_best_practices.generate_embedding")
     @patch("seed_best_practices.QdrantClient")
-    def test_seed_templates_embedding_failures(self, mock_qdrant_class, mock_generate_embedding):
+    def test_seed_templates_embedding_failures(
+        self, mock_qdrant_class, mock_generate_embedding
+    ):
         """Test graceful handling when some embeddings fail."""
         # Mock Qdrant client
         mock_client = Mock()
@@ -491,7 +493,6 @@ class TestGetExistingHashes:
     @patch("seed_best_practices.QdrantClient")
     def test_get_existing_hashes_success(self, mock_qdrant_class):
         """Test successful retrieval of existing hashes."""
-        from seed_best_practices import get_existing_hashes
 
         mock_client = Mock()
 
@@ -517,7 +518,6 @@ class TestGetExistingHashes:
     @patch("seed_best_practices.QdrantClient")
     def test_get_existing_hashes_empty_collection(self, mock_qdrant_class):
         """Test empty collection returns empty set."""
-        from seed_best_practices import get_existing_hashes
 
         mock_client = Mock()
         mock_client.scroll.return_value = ([], None)
@@ -529,7 +529,6 @@ class TestGetExistingHashes:
     @patch("seed_best_practices.QdrantClient")
     def test_get_existing_hashes_error_graceful(self, mock_qdrant_class):
         """Test graceful handling of scroll errors."""
-        from seed_best_practices import get_existing_hashes
 
         mock_client = Mock()
         mock_client.scroll.side_effect = Exception("Network error")
@@ -563,7 +562,15 @@ class TestMainCLI:
         ]
 
         # Mock sys.argv for argparse
-        with patch("sys.argv", ["seed_best_practices.py", "--templates-dir", str(templates_dir), "--dry-run"]):
+        with patch(
+            "sys.argv",
+            [
+                "seed_best_practices.py",
+                "--templates-dir",
+                str(templates_dir),
+                "--dry-run",
+            ],
+        ):
             exit_code = main()
 
         assert exit_code == 0
@@ -576,7 +583,9 @@ class TestMainCLI:
 
         missing_dir = tmp_path / "nonexistent"
 
-        with patch("sys.argv", ["seed_best_practices.py", "--templates-dir", str(missing_dir)]):
+        with patch(
+            "sys.argv", ["seed_best_practices.py", "--templates-dir", str(missing_dir)]
+        ):
             exit_code = main()
 
         assert exit_code == 1
@@ -590,7 +599,10 @@ class TestMainCLI:
         templates_dir = tmp_path / "templates"
         templates_dir.mkdir()
 
-        with patch("sys.argv", ["seed_best_practices.py", "--templates-dir", str(templates_dir)]):
+        with patch(
+            "sys.argv",
+            ["seed_best_practices.py", "--templates-dir", str(templates_dir)],
+        ):
             exit_code = main()
 
         assert exit_code == 0  # Not an error, just a warning

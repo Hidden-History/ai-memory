@@ -21,12 +21,10 @@ Environment Variables:
 import logging
 import os
 import re
+from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Set
 
-from qdrant_client.models import Filter, FieldCondition, MatchValue
-
-from datetime import datetime, timedelta, UTC
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from .config import get_config
 from .qdrant_client import get_qdrant_client
@@ -34,8 +32,8 @@ from .qdrant_client import get_qdrant_client
 __all__ = [
     "ImplementationFilter",
     "filter_low_value_content",
-    "smart_truncate",
     "is_duplicate_message",
+    "smart_truncate",
 ]
 
 logger = logging.getLogger("ai_memory.filters")
@@ -61,7 +59,7 @@ class ImplementationFilter:
     def __init__(self):
         """Initialize filter with environment-based configuration."""
         # Load min_lines from environment (default: 10)
-        self.min_lines = int(os.environ.get('AI_MEMORY_FILTER_MIN_LINES', '10'))
+        self.min_lines = int(os.environ.get("AI_MEMORY_FILTER_MIN_LINES", "10"))
 
         # Load skip extensions (with user overrides)
         self.skip_extensions = self._load_skip_extensions()
@@ -95,10 +93,10 @@ class ImplementationFilter:
                 "min_lines": self.min_lines,
                 "skip_extensions_count": len(self.skip_extensions),
                 "skip_path_patterns_count": len(self.skip_path_patterns),
-            }
+            },
         )
 
-    def _load_skip_extensions(self) -> Set[str]:
+    def _load_skip_extensions(self) -> set[str]:
         """Load skip extensions with user overrides from environment.
 
         Returns:
@@ -106,19 +104,34 @@ class ImplementationFilter:
         """
         # Default extensions to skip
         defaults = {
-            ".md", ".txt", ".json", ".yaml", ".yml",
-            ".toml", ".ini", ".cfg", ".lock",
-            ".log", ".svg", ".png", ".jpg", ".jpeg", ".gif",
-            ".pdf", ".zip", ".tar", ".gz",
+            ".md",
+            ".txt",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".toml",
+            ".ini",
+            ".cfg",
+            ".lock",
+            ".log",
+            ".svg",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".pdf",
+            ".zip",
+            ".tar",
+            ".gz",
         }
 
         # Check for user overrides (extends defaults, doesn't replace)
-        user_extensions = os.environ.get('AI_MEMORY_FILTER_SKIP_EXTENSIONS', '')
+        user_extensions = os.environ.get("AI_MEMORY_FILTER_SKIP_EXTENSIONS", "")
         if user_extensions:
-            for ext in user_extensions.split(','):
+            for ext in user_extensions.split(","):
                 ext = ext.strip()
-                if ext and not ext.startswith('.'):
-                    ext = '.' + ext
+                if ext and not ext.startswith("."):
+                    ext = "." + ext
                 if ext:
                     defaults.add(ext)
 
@@ -150,12 +163,12 @@ class ImplementationFilter:
                     "file_path": file_path,
                     "extension": file_ext,
                     "tool_name": tool_name,
-                }
+                },
             )
             return False
 
         # Filter 2: Skip by path pattern (generated dirs)
-        normalized_path = file_path.replace('\\', '/')
+        normalized_path = file_path.replace("\\", "/")
         for pattern in self.skip_path_patterns:
             if pattern in normalized_path:
                 logger.debug(
@@ -164,7 +177,7 @@ class ImplementationFilter:
                         "file_path": file_path,
                         "pattern": pattern,
                         "tool_name": tool_name,
-                    }
+                    },
                 )
                 return False
 
@@ -174,7 +187,7 @@ class ImplementationFilter:
         is_significant = self.is_significant(content)
 
         # Filter 4: Check line count (only applies if content is NOT significant)
-        lines = content.split('\n')
+        lines = content.split("\n")
         line_count = len(lines)
 
         if not is_significant and line_count < self.min_lines:
@@ -185,7 +198,7 @@ class ImplementationFilter:
                     "lines": line_count,
                     "min_lines": self.min_lines,
                     "tool_name": tool_name,
-                }
+                },
             )
             return False
 
@@ -197,7 +210,7 @@ class ImplementationFilter:
                     "file_path": file_path,
                     "lines": line_count,
                     "tool_name": tool_name,
-                }
+                },
             )
             return False
 
@@ -209,7 +222,7 @@ class ImplementationFilter:
                 "lines": line_count,
                 "is_significant": is_significant,
                 "tool_name": tool_name,
-            }
+            },
         )
         return True
 
@@ -228,34 +241,38 @@ class ImplementationFilter:
         Returns:
             True if content is significant, False otherwise
         """
-        lines = content.split('\n')
+        lines = content.split("\n")
 
         # Pattern 1: Function definitions
         function_patterns = [
-            r'\bdef\s+\w+\s*\(',           # Python: def foo(
-            r'\bfunction\s+\w+\s*\(',      # JavaScript: function foo(
-            r'\bfunc\s+\w+\s*\(',          # Go: func foo(
-            r'\bfn\s+\w+\s*\(',            # Rust: fn foo(
-            r'^\s*\w+\s*:\s*function\s*\(',  # Object methods
+            r"\bdef\s+\w+\s*\(",  # Python: def foo(
+            r"\bfunction\s+\w+\s*\(",  # JavaScript: function foo(
+            r"\bfunc\s+\w+\s*\(",  # Go: func foo(
+            r"\bfn\s+\w+\s*\(",  # Rust: fn foo(
+            r"^\s*\w+\s*:\s*function\s*\(",  # Object methods
         ]
 
         for pattern in function_patterns:
             if re.search(pattern, content, re.MULTILINE):
-                logger.debug("significance_detected", extra={"reason": "function_definition"})
+                logger.debug(
+                    "significance_detected", extra={"reason": "function_definition"}
+                )
                 return True
 
         # Pattern 2: Class definitions
         class_patterns = [
-            r'\bclass\s+\w+',              # Python/JS/Java: class Foo
-            r'\binterface\s+\w+',          # TypeScript: interface Foo
-            r'\bstruct\s+\w+',             # Go/Rust: struct Foo
-            r'\btrait\s+\w+',              # Rust: trait Foo
-            r'\benum\s+\w+',               # Multiple languages
+            r"\bclass\s+\w+",  # Python/JS/Java: class Foo
+            r"\binterface\s+\w+",  # TypeScript: interface Foo
+            r"\bstruct\s+\w+",  # Go/Rust: struct Foo
+            r"\btrait\s+\w+",  # Rust: trait Foo
+            r"\benum\s+\w+",  # Multiple languages
         ]
 
         for pattern in class_patterns:
             if re.search(pattern, content, re.MULTILINE):
-                logger.debug("significance_detected", extra={"reason": "class_definition"})
+                logger.debug(
+                    "significance_detected", extra={"reason": "class_definition"}
+                )
                 return True
 
         # Pattern 3: Import block (3+ consecutive lines)
@@ -264,18 +281,21 @@ class ImplementationFilter:
 
         for line in lines:
             stripped = line.strip()
-            if stripped.startswith('import ') or stripped.startswith('from '):
+            if stripped.startswith("import ") or stripped.startswith("from "):
                 import_count += 1
                 max_consecutive_imports = max(max_consecutive_imports, import_count)
             else:
                 import_count = 0
 
         if max_consecutive_imports >= 3:
-            logger.debug("significance_detected", extra={"reason": "import_block", "count": max_consecutive_imports})
+            logger.debug(
+                "significance_detected",
+                extra={"reason": "import_block", "count": max_consecutive_imports},
+            )
             return True
 
         # Pattern 4: Decorator usage (Python)
-        if re.search(r'^\s*@\w+', content, re.MULTILINE):
+        if re.search(r"^\s*@\w+", content, re.MULTILINE):
             logger.debug("significance_detected", extra={"reason": "decorator"})
             return True
 
@@ -326,7 +346,7 @@ class ImplementationFilter:
                         "content_hash": content_hash,
                         "collection": collection,
                         "existing_id": str(results[0][0].id),
-                    }
+                    },
                 )
                 return True
 
@@ -335,7 +355,10 @@ class ImplementationFilter:
         except Exception as e:
             # Structured exception handling (addresses review feedback on error specificity)
             # Instead of catching all exceptions, we now handle specific cases.
-            from qdrant_client.http.exceptions import UnexpectedResponse, ResponseHandlingException
+            from qdrant_client.http.exceptions import (
+                ResponseHandlingException,
+                UnexpectedResponse,
+            )
 
             if isinstance(e, (UnexpectedResponse, ResponseHandlingException)):
                 logger.error(
@@ -345,7 +368,7 @@ class ImplementationFilter:
                         "error_type": type(e).__name__,
                         "content_hash": content_hash,
                         "collection": collection,
-                    }
+                    },
                 )
             elif isinstance(e, ValueError):
                 logger.warning(
@@ -353,7 +376,7 @@ class ImplementationFilter:
                     extra={
                         "content_hash": content_hash,
                         "collection": collection,
-                    }
+                    },
                 )
             else:
                 # Unexpected error - log as critical for investigation
@@ -364,7 +387,7 @@ class ImplementationFilter:
                         "error_type": type(e).__name__,
                         "content_hash": content_hash,
                         "collection": collection,
-                    }
+                    },
                 )
 
             # Fail open: Allow storage if check fails (graceful degradation)
@@ -382,14 +405,14 @@ class ImplementationFilter:
         if len(content) <= self.max_content_length:
             return content
 
-        truncated = content[:self.max_content_length - 12] + " [TRUNCATED]"
+        truncated = content[: self.max_content_length - 12] + " [TRUNCATED]"
 
         logger.info(
             "content_truncated",
             extra={
                 "original_length": len(content),
                 "truncated_length": len(truncated),
-            }
+            },
         )
 
         return truncated
@@ -412,19 +435,25 @@ def filter_low_value_content(content: str) -> str:
     Returns:
         Filtered content with low-value lines removed
     """
-    lines = content.split('\n')
+    lines = content.split("\n")
     filtered_lines = []
 
     # BMAD agent menu patterns - these appear in agent responses when
     # displaying interactive menus. They add noise without semantic value.
     # Patterns: [MH]=Main Hub, [CH]=Command Hub, [PS]=Parzival Start, etc.
     menu_patterns = [
-        r'\[MH\]', r'\[CH\]', r'\[PS\]', r'\[DA\]', r'\[CR\]', r'\[DS\]', r'\[PM\]',
+        r"\[MH\]",
+        r"\[CH\]",
+        r"\[PS\]",
+        r"\[DA\]",
+        r"\[CR\]",
+        r"\[DS\]",
+        r"\[PM\]",
     ]
 
     for line in lines:
         # Skip menu separator lines
-        if '─' in line and line.strip().startswith('─'):
+        if "─" in line and line.strip().startswith("─"):
             continue
 
         # Skip lines with menu command patterns
@@ -438,12 +467,12 @@ def filter_low_value_content(content: str) -> str:
             continue
 
         # Skip truncated ASCII diagram lines (box-drawing chars + ...)
-        if re.search(r'[┌┐└┘├┤┬┴┼│─].*\.\.\.$', line.strip()):
+        if re.search(r"[┌┐└┘├┤┬┴┼│─].*\.\.\.$", line.strip()):
             continue
 
         filtered_lines.append(line)
 
-    return '\n'.join(filtered_lines)
+    return "\n".join(filtered_lines)
 
 
 def smart_truncate(content: str, max_length: int) -> str:
@@ -469,19 +498,19 @@ def smart_truncate(content: str, max_length: int) -> str:
     target_length = max_length - 3
 
     # Try to truncate at sentence boundary
-    sentence_endings = ['.', '!', '?']
+    sentence_endings = [".", "!", "?"]
     for ending in sentence_endings:
         # Find last sentence ending before target length
         pos = content.rfind(ending, 0, target_length)
         if pos > 0:
             # Include the punctuation mark
-            return content[:pos + 1] + "..."
+            return content[: pos + 1] + "..."
 
     # No sentence boundary found - truncate at word boundary
     truncated = content[:target_length]
 
     # Find last space
-    last_space = truncated.rfind(' ')
+    last_space = truncated.rfind(" ")
     if last_space > 0:
         truncated = truncated[:last_space]
 
@@ -492,7 +521,7 @@ def is_duplicate_message(
     content: str,
     timestamp: str,
     previous_messages: list[dict],
-    window_minutes: int = 5  # Typical conversation turn is 2-3 min; 5 min catches immediate repeats without over-filtering
+    window_minutes: int = 5,  # Typical conversation turn is 2-3 min; 5 min catches immediate repeats without over-filtering
 ) -> bool:
     """Check if message is a duplicate within time window.
 
@@ -515,7 +544,7 @@ def is_duplicate_message(
         for marginal benefit in typical conversation flows.
     """
     try:
-        current_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        current_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
         # Invalid timestamp - can't check duplicates
         return False
@@ -530,7 +559,7 @@ def is_duplicate_message(
 
         # Check if within time window
         try:
-            msg_time = datetime.fromisoformat(msg_timestamp.replace('Z', '+00:00'))
+            msg_time = datetime.fromisoformat(msg_timestamp.replace("Z", "+00:00"))
             time_diff = abs((current_time - msg_time).total_seconds() / 60)
 
             if time_diff <= window_minutes:
@@ -539,7 +568,7 @@ def is_duplicate_message(
                     extra={
                         "time_diff_minutes": round(time_diff, 2),
                         "window_minutes": window_minutes,
-                    }
+                    },
                 )
                 return True
         except (ValueError, AttributeError):

@@ -5,13 +5,11 @@ Uses Anthropic SDK for reliable classification fallback.
 TECH-DEBT-069: LLM-based memory classification system.
 """
 
-import json
 import logging
 import os
-from typing import Optional
 
-from .base import BaseProvider, ProviderResponse
 from ..config import ANTHROPIC_MODEL, MAX_OUTPUT_TOKENS
+from .base import BaseProvider, ProviderResponse
 
 logger = logging.getLogger("ai_memory.classifier.providers.claude")
 
@@ -23,8 +21,8 @@ class ClaudeProvider(BaseProvider):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
+        api_key: str | None = None,
+        model: str | None = None,
         timeout: int = 10,
     ):
         """Initialize Claude provider.
@@ -87,7 +85,9 @@ class ClaudeProvider(BaseProvider):
         from ..prompts import build_classification_prompt
 
         if not self._client:
-            raise ConnectionError("Claude client not initialized (missing API key or SDK)")
+            raise ConnectionError(
+                "Claude client not initialized (missing API key or SDK)"
+            )
 
         prompt = build_classification_prompt(content, collection, current_type)
 
@@ -143,6 +143,7 @@ class ClaudeProvider(BaseProvider):
                 logger.error("claude_api_error", extra={"error": str(e)})
                 raise ConnectionError(f"Claude API error: {e}")
             else:
-                logger.error("claude_error", extra={"error": str(e), "type": error_type})
+                logger.error(
+                    "claude_error", extra={"error": str(e), "type": error_type}
+                )
                 raise ValueError(f"Claude error: {e}")
-

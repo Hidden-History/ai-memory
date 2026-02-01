@@ -3,9 +3,9 @@
 TECH-DEBT-069: LLM-based memory classification system tests.
 """
 
-import pytest
 from unittest.mock import Mock, patch
-from src.memory.classifier.llm_classifier import classify, ClassificationResult
+
+from src.memory.classifier.llm_classifier import classify
 from src.memory.classifier.providers.base import ProviderResponse
 
 

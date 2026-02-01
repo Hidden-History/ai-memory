@@ -6,18 +6,17 @@ RESOURCE LIMITS FOR TESTS:
 - Cleanup after each test
 """
 
-import pytest
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import pytest
 
 from src.memory.classifier.queue import (
-    enqueue_for_classification,
-    dequeue_batch,
-    get_queue_size,
-    clear_queue,
-    ClassificationTask,
     MAX_BATCH_SIZE,
+    ClassificationTask,
+    clear_queue,
+    dequeue_batch,
+    enqueue_for_classification,
+    get_queue_size,
 )
 
 
@@ -112,6 +111,7 @@ def test_empty_queue_dequeue():
 def test_lock_timeout_enqueue(temp_queue_dir, monkeypatch):
     """Verify enqueue returns False when lock cannot be acquired (HIGH-2)."""
     import fcntl
+
     import src.memory.classifier.queue as queue_module
 
     task = make_task("lock-test")
@@ -120,7 +120,7 @@ def test_lock_timeout_enqueue(temp_queue_dir, monkeypatch):
     queue_file = temp_queue_dir / "test_queue.jsonl"
     queue_file.touch()
 
-    with open(queue_file, 'w') as f:
+    with open(queue_file, "w") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
 
         # Temporarily reduce timeout for faster test
@@ -139,14 +139,17 @@ def test_lock_timeout_enqueue(temp_queue_dir, monkeypatch):
 def test_lock_timeout_dequeue(temp_queue_dir, monkeypatch):
     """Verify dequeue returns empty list when lock unavailable (HIGH-2)."""
     import fcntl
+
     import src.memory.classifier.queue as queue_module
 
     queue_file = temp_queue_dir / "test_queue.jsonl"
 
     # Write valid entry
-    queue_file.write_text('{"point_id":"1","collection":"discussions","content":"test","current_type":"user_message","group_id":"test","source_hook":"Test","created_at":"2026-01-24T00:00:00Z"}\n')
+    queue_file.write_text(
+        '{"point_id":"1","collection":"discussions","content":"test","current_type":"user_message","group_id":"test","source_hook":"Test","created_at":"2026-01-24T00:00:00Z"}\n'
+    )
 
-    with open(queue_file, 'r+') as f:
+    with open(queue_file, "r+") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
 
         # Temporarily reduce timeout for faster test

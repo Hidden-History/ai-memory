@@ -1,15 +1,16 @@
 """Tests for markdown ingestion script (TECH-DEBT-054)."""
 
-import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch
 import sys
+from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
 
 # Add scripts/memory to path for imports
 scripts_path = Path(__file__).parent.parent / "scripts" / "memory"
 sys.path.insert(0, str(scripts_path))
 
-from ingest_markdown import parse_frontmatter, extract_title, ingest_file
+from ingest_markdown import extract_title, ingest_file, parse_frontmatter
 
 
 class TestParseFrontmatter:
@@ -99,7 +100,7 @@ class TestIngestFile:
     @pytest.fixture
     def mock_chunker(self):
         """Mock chunker returning predictable chunks."""
-        from memory.chunking import ChunkResult, ChunkMetadata
+        from memory.chunking import ChunkMetadata, ChunkResult
 
         chunker = Mock()
         chunker.chunk.return_value = [
@@ -112,7 +113,7 @@ class TestIngestFile:
                     chunk_size_tokens=10,
                     overlap_tokens=2,
                     source_file=None,
-                )
+                ),
             ),
             ChunkResult(
                 content="Chunk 2",
@@ -123,7 +124,7 @@ class TestIngestFile:
                     chunk_size_tokens=10,
                     overlap_tokens=2,
                     source_file=None,
-                )
+                ),
             ),
         ]
         return chunker
@@ -143,7 +144,9 @@ class TestIngestFile:
         md_file = tmp_path / "test.md"
         md_file.write_text("# Test\n\nContent here.")
 
-        count = ingest_file(md_file, mock_storage, mock_chunker, "test-project", dry_run=True)
+        count = ingest_file(
+            md_file, mock_storage, mock_chunker, "test-project", dry_run=True
+        )
 
         assert count == 2
         assert mock_storage.store.call_count == 0
@@ -187,7 +190,7 @@ tags:
 ---
 Content"""
 
-        frontmatter, body = parse_frontmatter(content)
+        frontmatter, _body = parse_frontmatter(content)
         # Test the tag conversion logic
         tags = frontmatter.get("tags", [])
         if isinstance(tags, dict):

@@ -13,45 +13,48 @@ Story: 2.3 - Pattern Extraction Logic
 """
 
 import pytest
+
 from memory.extraction import (
-    extract_patterns,
-    detect_language,
-    detect_framework,
     assess_importance,
-    extract_tags,
     build_enriched_content,
+    detect_framework,
+    detect_language,
+    extract_patterns,
     extract_python_structure,
-    LANGUAGE_MAP,
+    extract_tags,
 )
 
 
 class TestLanguageDetection:
     """Test language detection from file extensions (AC 2.3.2)."""
 
-    @pytest.mark.parametrize("ext,expected", [
-        (".py", "python"),
-        (".js", "javascript"),
-        (".ts", "typescript"),
-        (".jsx", "javascript"),
-        (".tsx", "typescript"),
-        (".go", "go"),
-        (".rs", "rust"),
-        (".java", "java"),
-        (".kt", "kotlin"),
-        (".rb", "ruby"),
-        (".php", "php"),
-        (".c", "c"),
-        (".cpp", "cpp"),
-        (".cs", "csharp"),
-        (".swift", "swift"),
-        (".md", "markdown"),
-        (".yaml", "yaml"),
-        (".yml", "yaml"),
-        (".json", "json"),
-        (".html", "html"),
-        (".css", "css"),
-        (".sql", "sql"),
-    ])
+    @pytest.mark.parametrize(
+        "ext,expected",
+        [
+            (".py", "python"),
+            (".js", "javascript"),
+            (".ts", "typescript"),
+            (".jsx", "javascript"),
+            (".tsx", "typescript"),
+            (".go", "go"),
+            (".rs", "rust"),
+            (".java", "java"),
+            (".kt", "kotlin"),
+            (".rb", "ruby"),
+            (".php", "php"),
+            (".c", "c"),
+            (".cpp", "cpp"),
+            (".cs", "csharp"),
+            (".swift", "swift"),
+            (".md", "markdown"),
+            (".yaml", "yaml"),
+            (".yml", "yaml"),
+            (".json", "json"),
+            (".html", "html"),
+            (".css", "css"),
+            (".sql", "sql"),
+        ],
+    )
     def test_detect_language_known_extensions(self, ext, expected):
         """Known extensions map to correct languages."""
         result = detect_language(f"/path/file{ext}")
@@ -250,7 +253,9 @@ class TestEnrichedContentBuilder:
     def test_build_enriched_content_without_framework(self):
         """Enriched content omits framework when 'general'."""
         content = "const x = 1;"
-        result = build_enriched_content(content, "/app/util.js", "javascript", "general")
+        result = build_enriched_content(
+            content, "/app/util.js", "javascript", "general"
+        )
         assert result.startswith("[javascript] /app/util.js\n\n")
         assert "const x = 1;" in result
 

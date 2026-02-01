@@ -8,21 +8,23 @@ Tests:
 - Graceful degradation
 """
 
-import json
+
 import pytest
-import sys
-from pathlib import Path
-from unittest.mock import Mock
 
 # Mock the missing functions from error_context_retrieval.py
 # These functions don't exist in the hook script, so we mock them for testing
+
 
 def detect_command_type(command: str):
     """Mock function for command type detection."""
     command_lower = command.lower()
     if "npm" in command_lower:
         return "npm"
-    elif "pytest" in command_lower or "python -m pytest" in command_lower or "python3 -m pytest" in command_lower:
+    elif (
+        "pytest" in command_lower
+        or "python -m pytest" in command_lower
+        or "python3 -m pytest" in command_lower
+    ):
         return "pytest"
     elif command_lower.startswith("make"):
         return "make"
@@ -34,12 +36,14 @@ def detect_command_type(command: str):
         return "cargo"
     return None
 
+
 def build_error_query(command: str, cmd_type: str):
     """Mock function for building error queries."""
     # Clean flags from command
     parts = [p for p in command.split() if not p.startswith("--")]
     clean_cmd = " ".join(parts)
     return f"{cmd_type} errors failures common issues {clean_cmd}"
+
 
 def extract_error_summary(pattern: dict):
     """Mock function for extracting error summary."""
@@ -54,12 +58,13 @@ def extract_error_summary(pattern: dict):
         return content[:100]
     return "Error occurred"[:100]
 
+
 def extract_solution_hint(pattern: dict):
     """Mock function for extracting solution hints."""
     if "content" not in pattern:
         return None
 
-    content = pattern["content"].lower()
+    pattern["content"].lower()
     keywords = ["solution:", "fix:", "resolved by:", "workaround:", "to fix:"]
 
     for line in pattern["content"].split("\n"):
@@ -67,6 +72,7 @@ def extract_solution_hint(pattern: dict):
             if keyword in line.lower():
                 return line
     return None
+
 
 # Mock BUILD_TEST_PATTERNS constant
 BUILD_TEST_PATTERNS = {
@@ -79,7 +85,7 @@ BUILD_TEST_PATTERNS = {
     "jest": ["jest"],
     "eslint": ["eslint"],
     "gradle": ["gradle"],
-    "maven": ["mvn"]
+    "maven": ["mvn"],
 }
 
 
@@ -196,7 +202,7 @@ class TestErrorExtraction:
         """Test extracting summary from error_message field."""
         pattern = {
             "error_message": "ModuleNotFoundError: No module named 'requests'",
-            "content": "Full error trace here..."
+            "content": "Full error trace here...",
         }
         summary = extract_error_summary(pattern)
         assert "ModuleNotFoundError" in summary
@@ -212,9 +218,7 @@ class TestErrorExtraction:
 
     def test_extract_error_summary_fallback(self):
         """Test fallback when no clear error in content."""
-        pattern = {
-            "content": "Some generic output\nNo clear error here"
-        }
+        pattern = {"content": "Some generic output\nNo clear error here"}
         summary = extract_error_summary(pattern)
         assert len(summary) > 0
         assert len(summary) <= 100
@@ -230,9 +234,7 @@ class TestErrorExtraction:
 
     def test_extract_solution_hint_not_found(self):
         """Test when no solution present."""
-        pattern = {
-            "content": "Error occurred\nNo solution provided"
-        }
+        pattern = {"content": "Error occurred\nNo solution provided"}
         solution = extract_solution_hint(pattern)
         assert solution is None
 
@@ -241,9 +243,7 @@ class TestErrorExtraction:
         keywords = ["solution:", "fix:", "resolved by:", "workaround:", "to fix:"]
 
         for keyword in keywords:
-            pattern = {
-                "content": f"Error message\n{keyword} Apply this fix"
-            }
+            pattern = {"content": f"Error message\n{keyword} Apply this fix"}
             solution = extract_solution_hint(pattern)
             assert solution is not None, f"Failed for keyword: {keyword}"
 
@@ -255,11 +255,9 @@ class TestHookInput:
         """Test valid Bash hook input."""
         hook_input = {
             "tool_name": "Bash",
-            "tool_input": {
-                "command": "npm test"
-            },
+            "tool_input": {"command": "npm test"},
             "cwd": "/path/to/project",
-            "session_id": "sess_123"
+            "session_id": "sess_123",
         }
 
         # Should be valid
@@ -268,23 +266,14 @@ class TestHookInput:
 
     def test_non_bash_input(self):
         """Test non-Bash tool input."""
-        hook_input = {
-            "tool_name": "Edit",
-            "tool_input": {
-                "file_path": "foo.py"
-            }
-        }
+        hook_input = {"tool_name": "Edit", "tool_input": {"file_path": "foo.py"}}
 
         # Should skip processing
         assert hook_input["tool_name"] != "Bash"
 
     def test_missing_command(self):
         """Test missing command in tool_input."""
-        hook_input = {
-            "tool_name": "Bash",
-            "tool_input": {},
-            "cwd": "/path"
-        }
+        hook_input = {"tool_name": "Bash", "tool_input": {}, "cwd": "/path"}
 
         # Should gracefully handle missing command
         command = hook_input["tool_input"].get("command", "")
@@ -297,8 +286,16 @@ class TestPatternCoverage:
     def test_all_categories_present(self):
         """Test that major categories are covered."""
         expected_categories = [
-            "npm", "pytest", "make", "docker", "go", "cargo",
-            "jest", "eslint", "gradle", "maven"
+            "npm",
+            "pytest",
+            "make",
+            "docker",
+            "go",
+            "cargo",
+            "jest",
+            "eslint",
+            "gradle",
+            "maven",
         ]
 
         for category in expected_categories:

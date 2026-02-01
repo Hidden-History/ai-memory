@@ -5,26 +5,25 @@ Tests Streamlit and Grafana accessibility.
 """
 
 import sys
+from typing import Any
+
 import httpx
-from typing import Dict, Any
 
 
-def test_streamlit_dashboard() -> Dict[str, Any]:
+def test_streamlit_dashboard() -> dict[str, Any]:
     """Test Streamlit Dashboard accessibility and basic functionality"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("TEST 4: Streamlit Dashboard (localhost:28501)")
-    print("="*70)
+    print("=" * 70)
 
-    result = {
-        "accessible": False,
-        "error": None,
-        "details": {}
-    }
+    result = {"accessible": False, "error": None, "details": {}}
 
     try:
         # Test 1: Check if dashboard is accessible
         print("\n[4.1] Testing dashboard accessibility")
-        response = httpx.get("http://localhost:28501", timeout=10.0, follow_redirects=True)
+        response = httpx.get(
+            "http://localhost:28501", timeout=10.0, follow_redirects=True
+        )
 
         if response.status_code == 200:
             print(f"  ✓ Dashboard accessible (HTTP {response.status_code})")
@@ -73,33 +72,32 @@ def test_streamlit_dashboard() -> Dict[str, Any]:
         return result
 
     except httpx.ConnectError as e:
-        print(f"\n❌ FAIL: Cannot connect to Streamlit - {str(e)}")
-        result["error"] = f"Connection failed: {str(e)}"
+        print(f"\n❌ FAIL: Cannot connect to Streamlit - {e!s}")
+        result["error"] = f"Connection failed: {e!s}"
         return result
     except Exception as e:
-        print(f"\n❌ FAIL: Streamlit test failed - {str(e)}")
+        print(f"\n❌ FAIL: Streamlit test failed - {e!s}")
         result["error"] = str(e)
         import traceback
+
         traceback.print_exc()
         return result
 
 
-def test_grafana_dashboards() -> Dict[str, Any]:
+def test_grafana_dashboards() -> dict[str, Any]:
     """Test Grafana Dashboard accessibility"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("TEST 5: Grafana Dashboards (localhost:23000)")
-    print("="*70)
+    print("=" * 70)
 
-    result = {
-        "accessible": False,
-        "error": None,
-        "details": {}
-    }
+    result = {"accessible": False, "error": None, "details": {}}
 
     try:
         # Test 1: Check if Grafana is accessible
         print("\n[5.1] Testing Grafana accessibility")
-        response = httpx.get("http://localhost:23000", timeout=10.0, follow_redirects=True)
+        response = httpx.get(
+            "http://localhost:23000", timeout=10.0, follow_redirects=True
+        )
 
         if response.status_code == 200:
             print(f"  ✓ Grafana accessible (HTTP {response.status_code})")
@@ -113,10 +111,12 @@ def test_grafana_dashboards() -> Dict[str, Any]:
         # Test 2: Check API health endpoint
         print("\n[5.2] Testing Grafana API health")
         try:
-            health_response = httpx.get("http://localhost:23000/api/health", timeout=5.0)
+            health_response = httpx.get(
+                "http://localhost:23000/api/health", timeout=5.0
+            )
             if health_response.status_code == 200:
                 health_data = health_response.json()
-                print(f"  ✓ Grafana API healthy")
+                print("  ✓ Grafana API healthy")
                 print(f"    Database: {health_data.get('database', 'unknown')}")
                 print(f"    Version: {health_data.get('version', 'unknown')}")
                 result["details"]["health"] = health_data
@@ -131,15 +131,16 @@ def test_grafana_dashboards() -> Dict[str, Any]:
             # Note: This may require authentication in production
             # Using anonymous access for validation
             search_response = httpx.get(
-                "http://localhost:23000/api/search?type=dash-db",
-                timeout=5.0
+                "http://localhost:23000/api/search?type=dash-db", timeout=5.0
             )
             if search_response.status_code == 200:
                 dashboards = search_response.json()
                 print(f"  ✓ Found {len(dashboards)} dashboard(s)")
 
                 # Look for memory-related dashboards
-                memory_dashboards = [d for d in dashboards if "memory" in d.get("title", "").lower()]
+                memory_dashboards = [
+                    d for d in dashboards if "memory" in d.get("title", "").lower()
+                ]
                 if memory_dashboards:
                     print(f"    Memory dashboards: {len(memory_dashboards)}")
                     for dash in memory_dashboards[:3]:  # Show first 3
@@ -155,35 +156,40 @@ def test_grafana_dashboards() -> Dict[str, Any]:
         return result
 
     except httpx.ConnectError as e:
-        print(f"\n❌ FAIL: Cannot connect to Grafana - {str(e)}")
-        result["error"] = f"Connection failed: {str(e)}"
+        print(f"\n❌ FAIL: Cannot connect to Grafana - {e!s}")
+        result["error"] = f"Connection failed: {e!s}"
         return result
     except Exception as e:
-        print(f"\n❌ FAIL: Grafana test failed - {str(e)}")
+        print(f"\n❌ FAIL: Grafana test failed - {e!s}")
         result["error"] = str(e)
         import traceback
+
         traceback.print_exc()
         return result
 
 
 def main():
     """Run all dashboard validation tests"""
-    print("╔" + "="*68 + "╗")
+    print("╔" + "=" * 68 + "╗")
     print("║" + " BMAD Memory Module - Dashboard Validation ".center(68) + "║")
-    print("╚" + "="*68 + "╝")
+    print("╚" + "=" * 68 + "╝")
 
     streamlit_result = test_streamlit_dashboard()
     grafana_result = test_grafana_dashboards()
 
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("SUMMARY")
-    print("="*70)
+    print("=" * 70)
 
-    print(f"{'✅' if streamlit_result['accessible'] else '❌'} Streamlit Dashboard (localhost:28501)")
+    print(
+        f"{'✅' if streamlit_result['accessible'] else '❌'} Streamlit Dashboard (localhost:28501)"
+    )
     if streamlit_result.get("error"):
         print(f"  Error: {streamlit_result['error']}")
 
-    print(f"{'✅' if grafana_result['accessible'] else '❌'} Grafana Dashboards (localhost:23000)")
+    print(
+        f"{'✅' if grafana_result['accessible'] else '❌'} Grafana Dashboards (localhost:23000)"
+    )
     if grafana_result.get("error"):
         print(f"  Error: {grafana_result['error']}")
 

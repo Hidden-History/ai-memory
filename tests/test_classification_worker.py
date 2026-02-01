@@ -3,12 +3,11 @@
 F1: Unit tests for BUG-045 fix - health file creation at startup.
 """
 
-import asyncio
-import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock, AsyncMock
-import sys
 import os
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -24,10 +23,20 @@ def mock_health_file(tmp_path):
 @pytest.fixture
 def mock_dependencies():
     """Mock external dependencies for worker tests."""
-    with patch("scripts.memory.process_classification_queue.dequeue_batch") as mock_dequeue, \
-         patch("scripts.memory.process_classification_queue.get_queue_size") as mock_queue_size, \
-         patch("scripts.memory.process_classification_queue.push_metrics") as mock_metrics, \
-         patch("scripts.memory.process_classification_queue.setup_hook_logging") as mock_logging:
+    with (
+        patch(
+            "scripts.memory.process_classification_queue.dequeue_batch"
+        ) as mock_dequeue,
+        patch(
+            "scripts.memory.process_classification_queue.get_queue_size"
+        ) as mock_queue_size,
+        patch(
+            "scripts.memory.process_classification_queue.push_metrics"
+        ) as mock_metrics,
+        patch(
+            "scripts.memory.process_classification_queue.setup_hook_logging"
+        ) as mock_logging,
+    ):
 
         # Configure mocks
         mock_dequeue.return_value = []  # Empty queue
@@ -38,7 +47,7 @@ def mock_dependencies():
             "dequeue": mock_dequeue,
             "queue_size": mock_queue_size,
             "metrics": mock_metrics,
-            "logging": mock_logging
+            "logging": mock_logging,
         }
 
 
@@ -50,7 +59,7 @@ class TestHealthFileCreation:
         from scripts.memory.process_classification_queue import _touch_health_file
 
         # Mock the health file path
-        health_file = tmp_path / "worker.health"
+        tmp_path / "worker.health"
 
         with patch("scripts.memory.process_classification_queue.Path") as mock_path:
             mock_path_instance = MagicMock()
@@ -68,7 +77,9 @@ class TestHealthFileCreation:
         with patch("scripts.memory.process_classification_queue.Path") as mock_path:
             # Simulate permission error
             mock_path_instance = MagicMock()
-            mock_path_instance.touch.side_effect = PermissionError("Read-only filesystem")
+            mock_path_instance.touch.side_effect = PermissionError(
+                "Read-only filesystem"
+            )
             mock_path.return_value = mock_path_instance
 
             # Should not raise - graceful degradation
@@ -80,9 +91,10 @@ class TestHealthFileCreation:
     def test_touch_health_file_logs_success(self, tmp_path, caplog):
         """Test that _touch_health_file logs success (F4 fix verification)."""
         import logging
+
         from scripts.memory.process_classification_queue import _touch_health_file
 
-        health_file = tmp_path / "worker.health"
+        tmp_path / "worker.health"
 
         # Set up logging to capture structured logs
         caplog.set_level(logging.DEBUG, logger="ai_memory.classifier.processor")
@@ -100,6 +112,7 @@ class TestHealthFileCreation:
     def test_touch_health_file_logs_failure(self, tmp_path, caplog):
         """Test that _touch_health_file logs failures (F3 fix verification)."""
         import logging
+
         from scripts.memory.process_classification_queue import _touch_health_file
 
         # Set up logging to capture structured logs
@@ -108,7 +121,9 @@ class TestHealthFileCreation:
         with patch("scripts.memory.process_classification_queue.Path") as mock_path:
             # Simulate permission error
             mock_path_instance = MagicMock()
-            mock_path_instance.touch.side_effect = PermissionError("Read-only filesystem")
+            mock_path_instance.touch.side_effect = PermissionError(
+                "Read-only filesystem"
+            )
             mock_path.return_value = mock_path_instance
 
             _touch_health_file()
@@ -125,12 +140,18 @@ class TestHealthFileCreation:
         """
         from scripts.memory.process_classification_queue import ClassificationWorker
 
-        health_file = tmp_path / "worker.health"
+        tmp_path / "worker.health"
 
-        with patch("scripts.memory.process_classification_queue.Path") as mock_path, \
-             patch("scripts.memory.process_classification_queue.setup_hook_logging") as mock_logging, \
-             patch("scripts.memory.process_classification_queue.get_queue_size") as mock_queue_size, \
-             patch.object(ClassificationWorker, "process_queue") as mock_process_queue:
+        with (
+            patch("scripts.memory.process_classification_queue.Path") as mock_path,
+            patch(
+                "scripts.memory.process_classification_queue.setup_hook_logging"
+            ) as mock_logging,
+            patch(
+                "scripts.memory.process_classification_queue.get_queue_size"
+            ) as mock_queue_size,
+            patch.object(ClassificationWorker, "process_queue") as mock_process_queue,
+        ):
 
             # Setup mocks
             mock_path_instance = MagicMock()
@@ -159,13 +180,21 @@ class TestHealthFileCreation:
         """Test that health file is updated after processing batches (existing behavior maintained)."""
         from scripts.memory.process_classification_queue import ClassificationWorker
 
-        health_file = tmp_path / "worker.health"
+        tmp_path / "worker.health"
 
-        with patch("scripts.memory.process_classification_queue.Path") as mock_path, \
-             patch("scripts.memory.process_classification_queue.setup_hook_logging") as mock_logging, \
-             patch("scripts.memory.process_classification_queue.dequeue_batch") as mock_dequeue, \
-             patch("scripts.memory.process_classification_queue.get_queue_size") as mock_queue_size, \
-             patch("scripts.memory.process_classification_queue.push_metrics") as mock_metrics:
+        with (
+            patch("scripts.memory.process_classification_queue.Path") as mock_path,
+            patch(
+                "scripts.memory.process_classification_queue.setup_hook_logging"
+            ) as mock_logging,
+            patch(
+                "scripts.memory.process_classification_queue.dequeue_batch"
+            ) as mock_dequeue,
+            patch(
+                "scripts.memory.process_classification_queue.get_queue_size"
+            ) as mock_queue_size,
+            patch("scripts.memory.process_classification_queue.push_metrics"),
+        ):
 
             # Setup mocks
             mock_path_instance = MagicMock()
@@ -202,7 +231,10 @@ class TestWorkerConfiguration:
 
     def test_worker_respects_batch_size_limit(self):
         """Test worker caps batch size at MAX_BATCH_SIZE."""
-        from scripts.memory.process_classification_queue import ClassificationWorker, MAX_BATCH_SIZE
+        from scripts.memory.process_classification_queue import (
+            MAX_BATCH_SIZE,
+            ClassificationWorker,
+        )
 
         # Try to create worker with oversized batch
         worker = ClassificationWorker(batch_size=9999)

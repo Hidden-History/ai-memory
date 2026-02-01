@@ -4,8 +4,6 @@ TECH-DEBT-069: Ensure config handles invalid env vars gracefully.
 """
 
 import importlib
-import os
-import pytest
 
 
 class TestEnvVarSafety:
@@ -13,9 +11,7 @@ class TestEnvVarSafety:
 
     def test_invalid_float_env_uses_default(self, monkeypatch):
         """Invalid float env var should use default, not crash."""
-        monkeypatch.setenv(
-            "MEMORY_CLASSIFIER_CONFIDENCE_THRESHOLD", "not_a_number"
-        )
+        monkeypatch.setenv("MEMORY_CLASSIFIER_CONFIDENCE_THRESHOLD", "not_a_number")
 
         # Re-import to trigger env var parsing
         from src.memory.classifier import config

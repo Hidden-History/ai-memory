@@ -5,17 +5,17 @@ Tests underlying Python functions that skills depend on.
 """
 
 import sys
-import json
 from pathlib import Path
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+
 def test_search_memory():
     """Test /search-memory skill functionality"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("TEST 1: /search-memory skill")
-    print("="*70)
+    print("=" * 70)
 
     try:
         from memory.search import search_memories
@@ -27,7 +27,9 @@ def test_search_memory():
 
         # Test 2: Collection filter
         print("\n[1.2] Testing collection filter: 'conventions'")
-        results = search_memories(query="best practice", collection="conventions", limit=3)
+        results = search_memories(
+            query="best practice", collection="conventions", limit=3
+        )
         print(f"  ✓ Search completed: {len(results)} results from conventions")
 
         # Test 3: Type filter
@@ -50,22 +52,23 @@ def test_search_memory():
         return True
 
     except Exception as e:
-        print(f"\n❌ FAIL: /search-memory skill - {str(e)}")
+        print(f"\n❌ FAIL: /search-memory skill - {e!s}")
         import traceback
+
         traceback.print_exc()
         return False
 
 
 def test_memory_status():
     """Test /memory-status skill functionality"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("TEST 2: /memory-status skill")
-    print("="*70)
+    print("=" * 70)
 
     try:
         from memory.health import check_services
-        from memory.stats import get_collection_stats
         from memory.qdrant_client import get_qdrant_client
+        from memory.stats import get_collection_stats
 
         # Test 1: Service health check
         print("\n[2.1] Testing service health check")
@@ -85,7 +88,7 @@ def test_memory_status():
                 stats = get_collection_stats(client, collection)
                 print(f"  {collection}: {stats.total_points} points")
             except Exception as e:
-                print(f"  {collection}: Error - {str(e)}")
+                print(f"  {collection}: Error - {e!s}")
 
         print("  ✓ Statistics check completed")
 
@@ -102,20 +105,21 @@ def test_memory_status():
         return True
 
     except Exception as e:
-        print(f"\n❌ FAIL: /memory-status skill - {str(e)}")
+        print(f"\n❌ FAIL: /memory-status skill - {e!s}")
         import traceback
+
         traceback.print_exc()
         return False
 
 
 def test_memory_settings():
     """Test /memory-settings skill functionality"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("TEST 3: /memory-settings skill")
-    print("="*70)
+    print("=" * 70)
 
     try:
-        from memory.config import get_config, AGENT_TOKEN_BUDGETS
+        from memory.config import AGENT_TOKEN_BUDGETS, get_config
 
         # Test 1: Load configuration
         print("\n[3.1] Testing configuration loading")
@@ -129,7 +133,7 @@ def test_memory_settings():
         expected_ports = {
             "qdrant_port": 26350,
             "embedding_port": 28080,
-            "monitoring_port": 28000
+            "monitoring_port": 28000,
         }
 
         for port_name, expected_value in expected_ports.items():
@@ -157,27 +161,28 @@ def test_memory_settings():
         return True
 
     except Exception as e:
-        print(f"\n❌ FAIL: /memory-settings skill - {str(e)}")
+        print(f"\n❌ FAIL: /memory-settings skill - {e!s}")
         import traceback
+
         traceback.print_exc()
         return False
 
 
 def main():
     """Run all skill validation tests"""
-    print("╔" + "="*68 + "╗")
+    print("╔" + "=" * 68 + "╗")
     print("║" + " BMAD Memory Module - Skills Validation ".center(68) + "║")
-    print("╚" + "="*68 + "╝")
+    print("╚" + "=" * 68 + "╝")
 
     results = {
         "search-memory": test_search_memory(),
         "memory-status": test_memory_status(),
-        "memory-settings": test_memory_settings()
+        "memory-settings": test_memory_settings(),
     }
 
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("SUMMARY")
-    print("="*70)
+    print("=" * 70)
 
     for skill, passed in results.items():
         status = "✅ PASS" if passed else "❌ FAIL"

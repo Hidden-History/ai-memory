@@ -15,29 +15,24 @@ Complies with:
 
 import logging
 import os
+
 from .stats import CollectionStats
 
 __all__ = [
-    "check_collection_thresholds",
-    "COLLECTION_SIZE_WARNING",
     "COLLECTION_SIZE_CRITICAL",
+    "COLLECTION_SIZE_WARNING",
+    "check_collection_thresholds",
 ]
 
 logger = logging.getLogger("ai_memory.storage")
 
 # Configurable thresholds (FR46a: default 10,000)
-COLLECTION_SIZE_WARNING = int(
-    os.getenv("AI_MEMORY_COLLECTION_SIZE_WARNING", "10000")
-)
-COLLECTION_SIZE_CRITICAL = int(
-    os.getenv("AI_MEMORY_COLLECTION_SIZE_CRITICAL", "50000")
-)
+COLLECTION_SIZE_WARNING = int(os.getenv("AI_MEMORY_COLLECTION_SIZE_WARNING", "10000"))
+COLLECTION_SIZE_CRITICAL = int(os.getenv("AI_MEMORY_COLLECTION_SIZE_CRITICAL", "50000"))
 
 # Validate thresholds on module load
 assert COLLECTION_SIZE_WARNING > 0, "WARNING threshold must be positive"
-assert (
-    COLLECTION_SIZE_CRITICAL > COLLECTION_SIZE_WARNING
-), "CRITICAL must be > WARNING"
+assert COLLECTION_SIZE_CRITICAL > COLLECTION_SIZE_WARNING, "CRITICAL must be > WARNING"
 
 
 def check_collection_thresholds(stats: CollectionStats) -> list[str]:

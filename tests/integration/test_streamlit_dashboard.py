@@ -11,11 +11,12 @@ Tests verify:
 RED PHASE: Write failing tests first, then implement.
 """
 
-import pytest
-import httpx
-import time
-from qdrant_client import QdrantClient
 import os
+import time
+
+import httpx
+import pytest
+from qdrant_client import QdrantClient
 
 
 class TestStreamlitHealthEndpoint:
@@ -26,13 +27,12 @@ class TestStreamlitHealthEndpoint:
         streamlit_url = os.getenv("STREAMLIT_URL", "http://localhost:28501")
 
         response = httpx.get(
-            f"{streamlit_url}/_stcore/health",
-            timeout=10.0,
-            follow_redirects=True
+            f"{streamlit_url}/_stcore/health", timeout=10.0, follow_redirects=True
         )
 
-        assert response.status_code == 200, \
-            f"Health endpoint failed: {response.status_code}"
+        assert (
+            response.status_code == 200
+        ), f"Health endpoint failed: {response.status_code}"
 
 
 class TestStreamlitDashboardLoad:
@@ -43,17 +43,15 @@ class TestStreamlitDashboardLoad:
         streamlit_url = os.getenv("STREAMLIT_URL", "http://localhost:28501")
 
         start = time.time()
-        response = httpx.get(
-            streamlit_url,
-            timeout=10.0,
-            follow_redirects=True
-        )
+        response = httpx.get(streamlit_url, timeout=10.0, follow_redirects=True)
         elapsed = time.time() - start
 
-        assert response.status_code == 200, \
-            f"Dashboard failed to load: {response.status_code}"
-        assert elapsed < 5.0, \
-            f"Dashboard load time {elapsed:.2f}s exceeds 5s threshold (NFR-P4)"
+        assert (
+            response.status_code == 200
+        ), f"Dashboard failed to load: {response.status_code}"
+        assert (
+            elapsed < 5.0
+        ), f"Dashboard load time {elapsed:.2f}s exceeds 5s threshold (NFR-P4)"
 
 
 class TestStreamlitQdrantConnectivity:
@@ -65,20 +63,16 @@ class TestStreamlitQdrantConnectivity:
         qdrant_host = os.getenv("QDRANT_HOST", "localhost")
         qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
 
-        client = QdrantClient(
-            host=qdrant_host,
-            port=qdrant_port,
-            timeout=10.0
-        )
+        client = QdrantClient(host=qdrant_host, port=qdrant_port, timeout=10.0)
 
         # Verify collections exist
         collections_response = client.get_collections()
         collection_names = [c.name for c in collections_response.collections]
 
-        assert "code-patterns" in collection_names, \
-            "implementations collection not found"
-        assert "conventions" in collection_names, \
-            "best_practices collection not found"
+        assert (
+            "code-patterns" in collection_names
+        ), "implementations collection not found"
+        assert "conventions" in collection_names, "best_practices collection not found"
 
 
 class TestStreamlitSearchFunctionality:
@@ -90,7 +84,7 @@ class TestStreamlitSearchFunctionality:
         return QdrantClient(
             host=os.getenv("QDRANT_HOST", "localhost"),
             port=int(os.getenv("QDRANT_PORT", "6333")),
-            timeout=10.0
+            timeout=10.0,
         )
 
     def test_search_returns_results_above_threshold(self, qdrant_client):
@@ -119,20 +113,17 @@ class TestStreamlitSearchFunctionality:
         # Use a dummy vector (768d for jina-embeddings-v2-base-en)
         dummy_vector = [0.1] * 768
 
-        from qdrant_client.models import SearchRequest
-
         results = qdrant_client.query_points(
             collection_name="code-patterns",
             query=dummy_vector,
             limit=20,
             score_threshold=0.70,
-            with_payload=True
+            with_payload=True,
         ).points
 
         # If results found, all scores must be >0.70
         for result in results:
-            assert result.score >= 0.70, \
-                f"Result score {result.score} below threshold"
+            assert result.score >= 0.70, f"Result score {result.score} below threshold"
 
 
 class TestStreamlitStatisticsDisplay:
@@ -143,7 +134,7 @@ class TestStreamlitStatisticsDisplay:
         client = QdrantClient(
             host=os.getenv("QDRANT_HOST", "localhost"),
             port=int(os.getenv("QDRANT_PORT", "6333")),
-            timeout=10.0
+            timeout=10.0,
         )
 
         # Get both collection counts (simulating stats panel)
@@ -151,10 +142,12 @@ class TestStreamlitStatisticsDisplay:
         bp_info = client.get_collection("conventions")
 
         # Verify structure
-        assert hasattr(impl_info, "points_count"), \
-            "implementations collection missing points_count"
-        assert hasattr(bp_info, "points_count"), \
-            "best_practices collection missing points_count"
+        assert hasattr(
+            impl_info, "points_count"
+        ), "implementations collection missing points_count"
+        assert hasattr(
+            bp_info, "points_count"
+        ), "best_practices collection missing points_count"
 
         # Counts should be >= 0
         assert impl_info.points_count >= 0

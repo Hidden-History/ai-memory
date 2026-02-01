@@ -5,20 +5,17 @@ Uses regex patterns for high-confidence classification without LLM calls.
 TECH-DEBT-069: LLM-based memory classification system.
 """
 
-import re
 import logging
-from typing import Optional, Tuple
+import re
 
-from .config import RULE_PATTERNS, RULE_CONFIDENCE_THRESHOLD
+from .config import RULE_CONFIDENCE_THRESHOLD, RULE_PATTERNS
 
 logger = logging.getLogger("ai_memory.classifier.rules")
 
 __all__ = ["classify_by_rules"]
 
 
-def classify_by_rules(
-    content: str, collection: str
-) -> Optional[Tuple[str, float]]:
+def classify_by_rules(content: str, collection: str) -> tuple[str, float] | None:
     """Classify content using rule-based patterns.
 
     Args:

@@ -9,19 +9,16 @@ Tests automatic trigger detection functions:
 
 import os
 import tempfile
-from pathlib import Path
-
-import pytest
 
 from memory.triggers import (
-    detect_error_signal,
-    detect_decision_keywords,
-    is_new_file,
-    is_first_edit_in_session,
-    _session_edited_files,
-    _session_lock,
     MAX_SESSIONS,
     TRIGGER_CONFIG,
+    _session_edited_files,
+    _session_lock,
+    detect_decision_keywords,
+    detect_error_signal,
+    is_first_edit_in_session,
+    is_new_file,
 )
 
 
@@ -331,11 +328,12 @@ class TestFirstEditTracking:
 
         # Add MAX_SESSIONS + 10 sessions
         for i in range(MAX_SESSIONS + 10):
-            is_first_edit_in_session('/tmp/test.py', f'sess_{i}')
+            is_first_edit_in_session("/tmp/test.py", f"sess_{i}")
 
         # Must be exactly MAX_SESSIONS or fewer
-        assert len(_session_edited_files) <= MAX_SESSIONS, \
-            f"Expected <= {MAX_SESSIONS}, got {len(_session_edited_files)}"
+        assert (
+            len(_session_edited_files) <= MAX_SESSIONS
+        ), f"Expected <= {MAX_SESSIONS}, got {len(_session_edited_files)}"
 
 
 class TestTriggerConfiguration:
@@ -373,7 +371,9 @@ class TestTriggerConfiguration:
         config = TRIGGER_CONFIG["first_edit"]
         assert config["enabled"] is True
         assert config["collection"] == "code-patterns"
-        assert config["type_filter"] is None  # Search all types - implementation patterns relevant to first edits
+        assert (
+            config["type_filter"] is None
+        )  # Search all types - implementation patterns relevant to first edits
         assert config["max_results"] == 3
 
     def test_decision_keywords_config(self):

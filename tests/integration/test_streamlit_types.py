@@ -6,20 +6,23 @@ matches the canonical MemoryType enum from src/memory/models.py.
 C3: Zero test coverage for Wave 2 features (fixed).
 """
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from memory.models import MemoryType
 
-
 # Import COLLECTION_TYPES from Streamlit app - handle import failures gracefully
 try:
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "docker", "streamlit"))
-    from app import COLLECTION_TYPES, COLLECTION_NAMES
+    sys.path.insert(
+        0, os.path.join(os.path.dirname(__file__), "..", "..", "docker", "streamlit")
+    )
+    from app import COLLECTION_NAMES, COLLECTION_TYPES
+
     STREAMLIT_IMPORTED = True
 except ImportError as e:
     STREAMLIT_IMPORTED = False
@@ -29,7 +32,10 @@ except ImportError as e:
 class TestCollectionTypesValidation:
     """Tests for COLLECTION_TYPES constant validation."""
 
-    @pytest.mark.skipif(not STREAMLIT_IMPORTED, reason=f"Cannot import Streamlit app: {IMPORT_ERROR if not STREAMLIT_IMPORTED else ''}")
+    @pytest.mark.skipif(
+        not STREAMLIT_IMPORTED,
+        reason=f"Cannot import Streamlit app: {IMPORT_ERROR if not STREAMLIT_IMPORTED else ''}",
+    )
     def test_collection_types_match_memory_type_enum(self):
         """Verify all COLLECTION_TYPES values exist in MemoryType enum.
 
@@ -51,12 +57,12 @@ class TestCollectionTypesValidation:
         C3.2: Detect missing collection configuration (L2 validation).
         """
         for collection in COLLECTION_NAMES:
-            assert collection in COLLECTION_TYPES, (
-                f"Collection '{collection}' missing from COLLECTION_TYPES"
-            )
-            assert len(COLLECTION_TYPES[collection]) > 0, (
-                f"Collection '{collection}' has empty type list"
-            )
+            assert (
+                collection in COLLECTION_TYPES
+            ), f"Collection '{collection}' missing from COLLECTION_TYPES"
+            assert (
+                len(COLLECTION_TYPES[collection]) > 0
+            ), f"Collection '{collection}' has empty type list"
 
     @pytest.mark.skipif(not STREAMLIT_IMPORTED, reason="Cannot import Streamlit app")
     def test_no_duplicate_types_across_collections(self):
@@ -101,14 +107,22 @@ class TestCollectionTypesValidation:
 
         C3.5: Validate the exact V2.0 spec structure.
         """
-        assert set(COLLECTION_TYPES.keys()) == {"code-patterns", "conventions", "discussions"}, (
-            "V2.0 spec requires exactly 3 collections: code-patterns, conventions, discussions"
-        )
+        assert set(COLLECTION_TYPES.keys()) == {
+            "code-patterns",
+            "conventions",
+            "discussions",
+        }, "V2.0 spec requires exactly 3 collections: code-patterns, conventions, discussions"
 
         # V2.0 spec type counts per collection
-        assert len(COLLECTION_TYPES["code-patterns"]) == 4, "code-patterns should have 4 types"
-        assert len(COLLECTION_TYPES["conventions"]) == 5, "conventions should have 5 types"
-        assert len(COLLECTION_TYPES["discussions"]) == 6, "discussions should have 6 types"
+        assert (
+            len(COLLECTION_TYPES["code-patterns"]) == 4
+        ), "code-patterns should have 4 types"
+        assert (
+            len(COLLECTION_TYPES["conventions"]) == 5
+        ), "conventions should have 5 types"
+        assert (
+            len(COLLECTION_TYPES["discussions"]) == 6
+        ), "discussions should have 6 types"
 
     @pytest.mark.skipif(not STREAMLIT_IMPORTED, reason="Cannot import Streamlit app")
     def test_code_patterns_types(self):
@@ -119,9 +133,9 @@ class TestCollectionTypesValidation:
         expected = {"implementation", "error_fix", "refactor", "file_pattern"}
         actual = set(COLLECTION_TYPES["code-patterns"])
 
-        assert actual == expected, (
-            f"code-patterns types mismatch. Expected: {expected}, Got: {actual}"
-        )
+        assert (
+            actual == expected
+        ), f"code-patterns types mismatch. Expected: {expected}, Got: {actual}"
 
     @pytest.mark.skipif(not STREAMLIT_IMPORTED, reason="Cannot import Streamlit app")
     def test_conventions_types(self):
@@ -132,9 +146,9 @@ class TestCollectionTypesValidation:
         expected = {"rule", "guideline", "port", "naming", "structure"}
         actual = set(COLLECTION_TYPES["conventions"])
 
-        assert actual == expected, (
-            f"conventions types mismatch. Expected: {expected}, Got: {actual}"
-        )
+        assert (
+            actual == expected
+        ), f"conventions types mismatch. Expected: {expected}, Got: {actual}"
 
     @pytest.mark.skipif(not STREAMLIT_IMPORTED, reason="Cannot import Streamlit app")
     def test_discussions_types(self):
@@ -142,12 +156,19 @@ class TestCollectionTypesValidation:
 
         C3.8: Validate discussions collection (WHY things were decided).
         """
-        expected = {"decision", "session", "blocker", "preference", "user_message", "agent_response"}
+        expected = {
+            "decision",
+            "session",
+            "blocker",
+            "preference",
+            "user_message",
+            "agent_response",
+        }
         actual = set(COLLECTION_TYPES["discussions"])
 
-        assert actual == expected, (
-            f"discussions types mismatch. Expected: {expected}, Got: {actual}"
-        )
+        assert (
+            actual == expected
+        ), f"discussions types mismatch. Expected: {expected}, Got: {actual}"
 
 
 class TestMemoryTypeEnumStructure:
@@ -165,10 +186,10 @@ class TestMemoryTypeEnumStructure:
 
         4 code-patterns + 5 conventions + 6 discussions = 15 total
         """
-        all_types = [t for t in MemoryType]
-        assert len(all_types) == 15, (
-            f"MemoryType enum should have 15 types (V2.0 spec), got {len(all_types)}"
-        )
+        all_types = list(MemoryType)
+        assert (
+            len(all_types) == 15
+        ), f"MemoryType enum should have 15 types (V2.0 spec), got {len(all_types)}"
 
     def test_memory_type_values_are_lowercase_snake_case(self):
         """Verify all MemoryType values use lowercase snake_case.

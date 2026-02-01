@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-
 # Import the module we're testing
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
@@ -76,11 +75,11 @@ def test_merge_lists_deduplication():
 
     existing = [
         {"command": "python3 /path/hook1.py", "type": "command"},
-        {"command": "python3 /path/hook2.py", "type": "command"}
+        {"command": "python3 /path/hook2.py", "type": "command"},
     ]
     new = [
         {"command": "python3 /path/hook1.py", "type": "command"},  # Duplicate
-        {"command": "python3 /path/hook3.py", "type": "command"}   # New
+        {"command": "python3 /path/hook3.py", "type": "command"},  # New
     ]
 
     result = merge_lists(existing, new)
@@ -123,7 +122,7 @@ def test_backup_file_timestamp_format(tmp_path):
     from merge_settings import backup_file
 
     original = tmp_path / "settings.json"
-    original.write_text('{}')
+    original.write_text("{}")
 
     backup_path = backup_file(original)
 
@@ -150,7 +149,9 @@ def test_merge_settings_new_file(tmp_path):
         config = json.load(f)
 
     assert "hooks" in config
-    assert len(config["hooks"]) == 6  # SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PreCompact, Stop
+    assert (
+        len(config["hooks"]) == 6
+    )  # SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PreCompact, Stop
     # Verify correct nested structure
     assert "hooks" in config["hooks"]["SessionStart"][0]
     assert "matcher" in config["hooks"]["PostToolUse"][0]
@@ -161,7 +162,10 @@ def test_merge_settings_existing_file(tmp_path):
     from merge_settings import merge_settings
 
     settings_path = tmp_path / "settings.json"
-    existing = {"custom_setting": True, "hooks": {"Custom": [{"hooks": [{"type": "custom"}]}]}}
+    existing = {
+        "custom_setting": True,
+        "hooks": {"Custom": [{"hooks": [{"type": "custom"}]}]},
+    }
     settings_path.write_text(json.dumps(existing))
 
     hooks_dir = "/test/hooks"
@@ -201,7 +205,16 @@ def test_merge_settings_deduplicates_hooks(tmp_path):
     existing = {
         "hooks": {
             "SessionStart": [
-                {"matcher": "startup|resume|compact|clear", "hooks": [{"type": "command", "command": 'python3 "$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/session_start.py"', "timeout": 30000}]}
+                {
+                    "matcher": "startup|resume|compact|clear",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": 'python3 "$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/session_start.py"',
+                            "timeout": 30000,
+                        }
+                    ],
+                }
             ]
         }
     }

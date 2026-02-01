@@ -66,8 +66,8 @@ class TestStopHookInfrastructure:
             "metadata": {
                 "duration_ms": 120000,
                 "tools_used": ["Edit", "Bash", "Read"],
-                "files_modified": 3
-            }
+                "files_modified": 3,
+            },
         }
 
         # Execute hook
@@ -76,7 +76,7 @@ class TestStopHookInfrastructure:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=10  # AC 2.4.5: <5s expected
+            timeout=10,  # AC 2.4.5: <5s expected
         )
 
         # AC 2.4.1: Exits with code 0 (success)
@@ -95,7 +95,7 @@ class TestStopHookInfrastructure:
             "session_id": "sess-test-stop-002",
             "cwd": "/tmp/test-project",
             # No transcript field
-            "metadata": {}
+            "metadata": {},
         }
 
         result = subprocess.run(
@@ -103,7 +103,7 @@ class TestStopHookInfrastructure:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         # AC 2.4.1: Exit 0 immediately if no transcript (nothing to store)
@@ -118,7 +118,7 @@ class TestStopHookInfrastructure:
             "session_id": "sess-test-stop-003",
             "cwd": "/tmp/test-project",
             "transcript": "",  # Empty string
-            "metadata": {}
+            "metadata": {},
         }
 
         result = subprocess.run(
@@ -126,7 +126,7 @@ class TestStopHookInfrastructure:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         # AC 2.4.1: Exit 0 for empty transcript
@@ -148,7 +148,7 @@ class TestHookInputValidation:
             input=malformed_input,
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         # AC 2.4.4: Exit 0 for invalid input (no disruption to session termination)
@@ -162,7 +162,7 @@ class TestHookInputValidation:
         hook_input = {
             # No session_id
             "cwd": "/tmp/test-project",
-            "transcript": "Test content"
+            "transcript": "Test content",
         }
 
         result = subprocess.run(
@@ -170,7 +170,7 @@ class TestHookInputValidation:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         # AC 2.4.4: Exit 0 for invalid input (graceful)
@@ -184,7 +184,7 @@ class TestHookInputValidation:
         hook_input = {
             "session_id": "sess-test-stop-004",
             # No cwd
-            "transcript": "Test content"
+            "transcript": "Test content",
         }
 
         result = subprocess.run(
@@ -192,7 +192,7 @@ class TestHookInputValidation:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         # AC 2.4.4: Exit 0 for invalid input
@@ -216,7 +216,7 @@ class TestSessionSummaryBuilding:
                 "[Bash tool] ran pytest\n"
                 "[Read tool] examined README.md"
             ),
-            "metadata": {}
+            "metadata": {},
         }
 
         result = subprocess.run(
@@ -224,7 +224,7 @@ class TestSessionSummaryBuilding:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         # AC 2.4.2: Should successfully extract tools
@@ -239,9 +239,7 @@ class TestSessionSummaryBuilding:
             "session_id": "sess-test-stop-006",
             "cwd": "/tmp/test-project",
             "transcript": "Multiple file operations in this session transcript.",
-            "metadata": {
-                "files_modified": 5
-            }
+            "metadata": {"files_modified": 5},
         }
 
         result = subprocess.run(
@@ -249,7 +247,7 @@ class TestSessionSummaryBuilding:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         # AC 2.4.2: Should include file operations metadata
@@ -279,7 +277,7 @@ class TestGracefulDegradation:
             "session_id": "sess-test-stop-007",
             "cwd": "/tmp/test-project",
             "transcript": "Test session transcript for Qdrant failure scenario.",
-            "metadata": {}
+            "metadata": {},
         }
 
         # Pass invalid Qdrant port via env to subprocess (Issue #5 fix)
@@ -289,11 +287,13 @@ class TestGracefulDegradation:
             capture_output=True,
             text=True,
             timeout=10,
-            env=get_test_env(QDRANT_PORT="99999")  # Fix: pass env to subprocess
+            env=get_test_env(QDRANT_PORT="99999"),  # Fix: pass env to subprocess
         )
 
         # AC 2.4.3: NEVER block session termination
-        assert result.returncode == 0, f"Should exit 0 on Qdrant failure: {result.stderr}"
+        assert (
+            result.returncode == 0
+        ), f"Should exit 0 on Qdrant failure: {result.stderr}"
 
         # AC 2.4.3: Should queue to file on failure
         # Note: This assumes queue implementation is working
@@ -308,7 +308,7 @@ class TestGracefulDegradation:
             "session_id": "sess-test-stop-008",
             "cwd": "/tmp/test-project",
             "transcript": "Test session for embedding service failure.",
-            "metadata": {}
+            "metadata": {},
         }
 
         # Pass invalid embedding port via env to subprocess (Issue #5 fix)
@@ -318,7 +318,7 @@ class TestGracefulDegradation:
             capture_output=True,
             text=True,
             timeout=10,
-            env=get_test_env(EMBEDDING_PORT="99998")  # Fix: pass env to subprocess
+            env=get_test_env(EMBEDDING_PORT="99998"),  # Fix: pass env to subprocess
         )
 
         # AC 2.4.3: Exit 0 (graceful degradation)
@@ -338,7 +338,7 @@ class TestTimeoutHandling:
             "session_id": "sess-test-stop-009",
             "cwd": "/tmp/test-project",
             "transcript": "Test session with large transcript " + ("x" * 5000),
-            "metadata": {}
+            "metadata": {},
         }
 
         start_time = time.time()
@@ -349,7 +349,7 @@ class TestTimeoutHandling:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5  # AC 2.4.5: 5s timeout
+            timeout=5,  # AC 2.4.5: 5s timeout
         )
         elapsed = time.time() - start_time
 
@@ -367,7 +367,7 @@ class TestTimeoutHandling:
             "session_id": "sess-test-stop-010",
             "cwd": "/tmp/test-project",
             "transcript": "Final test session.",
-            "metadata": {}
+            "metadata": {},
         }
 
         # Even with timeout, hook should complete quickly and exit 0 or 1
@@ -377,7 +377,7 @@ class TestTimeoutHandling:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
 
         # AC 2.4.5: Always exit 0 or 1 (never crash or hang)
