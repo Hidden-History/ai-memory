@@ -31,6 +31,7 @@ References:
 """
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
@@ -494,10 +495,8 @@ class AsyncConversationCapture:
             # Cancel pending tasks and await them
             for task in pending:
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass  # Expected after cancel
 
             # Count successes (tasks that didn't raise)
             successes = sum(1 for task in done if not task.exception())

@@ -18,6 +18,7 @@ Requirements:
 Reference: oversight/specs/MEMORY-SYSTEM-REDESIGN-v2.md Section 15.7
 """
 
+import contextlib
 import uuid
 from collections.abc import Generator
 
@@ -106,7 +107,7 @@ def clean_test_data(e2e_qdrant_client: QdrantClient, test_group_id: str):
         COLLECTION_CONVENTIONS,
         COLLECTION_DISCUSSIONS,
     ]:
-        try:
+        with contextlib.suppress(Exception):
             e2e_qdrant_client.delete(
                 collection_name=collection,
                 points_selector=Filter(
@@ -117,9 +118,6 @@ def clean_test_data(e2e_qdrant_client: QdrantClient, test_group_id: str):
                     ]
                 ),
             )
-        except Exception:
-            # Collection may not exist yet - acceptable
-            pass
 
     yield
 
@@ -129,7 +127,7 @@ def clean_test_data(e2e_qdrant_client: QdrantClient, test_group_id: str):
         COLLECTION_CONVENTIONS,
         COLLECTION_DISCUSSIONS,
     ]:
-        try:
+        with contextlib.suppress(Exception):
             e2e_qdrant_client.delete(
                 collection_name=collection,
                 points_selector=Filter(
@@ -140,9 +138,6 @@ def clean_test_data(e2e_qdrant_client: QdrantClient, test_group_id: str):
                     ]
                 ),
             )
-        except Exception:
-            # Best effort cleanup - don't fail test
-            pass
 
 
 # =============================================================================

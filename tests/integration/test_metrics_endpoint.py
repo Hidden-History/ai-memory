@@ -381,17 +381,16 @@ def _extract_histogram_buckets(text: str, metric_name: str) -> list[float]:
     bucket_pattern = f"{metric_name}_bucket{{"
 
     for line in text.split("\n"):
-        if line.startswith(bucket_pattern):
-            # Format: metric_name_bucket{labels,le="X.X"} VALUE
-            if "le=" in line:
-                try:
-                    le_value = line.split('le="')[1].split('"')[0]
-                    if le_value == "+Inf":
-                        buckets.append("+Inf")
-                    else:
-                        buckets.append(float(le_value))
-                except (IndexError, ValueError):
-                    continue
+        # Format: metric_name_bucket{labels,le="X.X"} VALUE
+        if line.startswith(bucket_pattern) and "le=" in line:
+            try:
+                le_value = line.split('le="')[1].split('"')[0]
+                if le_value == "+Inf":
+                    buckets.append("+Inf")
+                else:
+                    buckets.append(float(le_value))
+            except (IndexError, ValueError):
+                continue
 
     return sorted(buckets, key=lambda x: float("inf") if x == "+Inf" else x)
 

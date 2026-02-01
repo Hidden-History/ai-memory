@@ -273,9 +273,11 @@ class TestTimedOperation:
         logger.addHandler(handler)
         logger.setLevel(logging.ERROR)
 
-        with pytest.raises(ValueError, match="test error"):
-            with timed_operation("test_failure", logger):
-                raise ValueError("test error")
+        with (
+            pytest.raises(ValueError, match=r"test error"),
+            timed_operation("test_failure", logger),
+        ):
+            raise ValueError("test error")
 
         output = stream.getvalue()
         log_data = json.loads(output.strip())

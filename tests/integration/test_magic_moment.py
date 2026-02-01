@@ -154,7 +154,7 @@ class TestMagicMoment:
                 input=json.dumps(hook_input),
                 capture_output=True,
                 text=True,
-                timeout=150,  # CPU mode: 2 queries × 45s each = 90-100s
+                timeout=150,  # CPU mode: 2 queries x 45s each = 90-100s
                 env=get_test_env(),
             )
 
@@ -208,7 +208,7 @@ class TestMagicMoment:
             print(f"  Total time: {total_time:.2f}s")
 
             # NFR-P3: <3s SessionStart retrieval (GPU mode)
-            # CPU mode: 40-50s per embedding × 2 queries = 80-100s expected
+            # CPU mode: 40-50s per embedding x 2 queries = 80-100s expected
             cpu_mode = os.getenv("EMBEDDING_READ_TIMEOUT", "15") == "60.0"
             max_retrieval_time = 90.0 if cpu_mode else 3.0
 

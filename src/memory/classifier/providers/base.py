@@ -169,8 +169,10 @@ class BaseProvider(ABC):
         # Ensure confidence is float
         try:
             result["confidence"] = float(result["confidence"])
-        except (ValueError, TypeError):
-            raise ValueError(f"Invalid confidence value: {result.get('confidence')}")
+        except (ValueError, TypeError) as err:
+            raise ValueError(
+                f"Invalid confidence value: {result.get('confidence')}"
+            ) from err
 
         # Ensure tags is list
         if "tags" not in result:
@@ -184,7 +186,8 @@ class BaseProvider(ABC):
 
     def close(self):
         """Clean up resources. Override in subclasses if needed."""
-        pass
+        # Default no-op implementation - subclasses override if cleanup needed
+        return None
 
     def __enter__(self):
         """Context manager entry."""

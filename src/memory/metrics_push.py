@@ -418,7 +418,7 @@ def push_context_injection_metrics_async(
         token_count: Tokens injected into context
 
     Note:
-        Cardinality: 3 hook_types × 4 collections × N projects = 12N time series.
+        Cardinality: 3 hook_types x 4 collections x N projects = 12N time series.
         Monitor Prometheus/Pushgateway memory usage if project count is high (>100).
     """
     if not PUSHGATEWAY_ENABLED:

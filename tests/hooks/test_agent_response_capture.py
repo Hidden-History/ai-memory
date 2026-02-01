@@ -63,9 +63,11 @@ class TestAgentResponseCapture:
         agent_response = stop_event["agent_response"]
         stop_event["session_id"]
 
-        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
-            with patch("memory.config.get_config", return_value=mock_config):
-                with patch("memory.storage.MemoryStorage") as mock_storage_class:
+        with (
+            patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant),
+            patch("memory.config.get_config", return_value=mock_config),
+            patch("memory.storage.MemoryStorage") as mock_storage_class,
+        ):
                     mock_storage = MagicMock()
                     mock_storage_class.return_value = mock_storage
 
@@ -90,21 +92,22 @@ class TestAgentResponseCapture:
 
         Hook should never block Claude - exit 0 even on errors.
         """
-        with patch("memory.qdrant_client.get_qdrant_client") as mock_client_func:
+        with (
+            patch("memory.qdrant_client.get_qdrant_client") as mock_client_func,
+            patch("memory.config.get_config", return_value=mock_config),
+        ):
             # Simulate Qdrant unavailable
             mock_client_func.side_effect = Exception("Connection refused")
+            # Hook should handle exception and exit gracefully
+            # (In real implementation, this would exit(0) not raise)
+            try:
+                from memory.qdrant_client import get_qdrant_client
 
-            with patch("memory.config.get_config", return_value=mock_config):
-                # Hook should handle exception and exit gracefully
-                # (In real implementation, this would exit(0) not raise)
-                try:
-                    from memory.qdrant_client import get_qdrant_client
-
-                    get_qdrant_client(mock_config)
-                    raise AssertionError("Should have raised exception")
-                except Exception as e:
-                    # Expected - hook would catch this and exit 0
-                    assert "Connection refused" in str(e)
+                get_qdrant_client(mock_config)
+                raise AssertionError("Should have raised exception")
+            except Exception as e:
+                # Expected - hook would catch this and exit 0
+                assert "Connection refused" in str(e)
 
     def test_validates_required_fields(self, stop_event):
         """Test that hook validates required fields exist before storage."""

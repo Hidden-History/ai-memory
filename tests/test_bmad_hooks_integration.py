@@ -27,6 +27,7 @@ Fixtures:
 - Proper subprocess handling for hook scripts
 """
 
+import contextlib
 import json
 import os
 import subprocess
@@ -95,10 +96,8 @@ def run_hook_script(
     # Try to parse stdout as JSON
     json_output = None
     if result.stdout.strip():
-        try:
+        with contextlib.suppress(json.JSONDecodeError):
             json_output = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            pass  # Not JSON, leave as None
 
     return {
         "exit_code": result.returncode,

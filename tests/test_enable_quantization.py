@@ -13,7 +13,7 @@ import pytest
 scripts_path = Path(__file__).parent.parent / "scripts" / "memory"
 sys.path.insert(0, str(scripts_path))
 
-from qdrant_client.models import ScalarType
+from qdrant_client.models import ScalarType  # noqa: E402
 
 
 def make_collection_mock(collection_name: str):

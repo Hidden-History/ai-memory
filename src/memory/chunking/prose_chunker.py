@@ -14,8 +14,8 @@ import logging
 import re
 from dataclasses import dataclass
 
-# Import shared models from parent module
-from . import CHARS_PER_TOKEN, ChunkMetadata, ChunkResult
+# Import shared models from base module (avoids circular imports)
+from .base import CHARS_PER_TOKEN, ChunkMetadata, ChunkResult
 
 logger = logging.getLogger("ai_memory.chunking.prose")
 
@@ -110,13 +110,16 @@ def split_sentences(text: str) -> list[str]:
             while next_i < len(text) and text[next_i] in " \t\n\r":
                 next_i += 1
 
-            if next_i < len(text) and text[next_i].isupper():
-                # Check if this is NOT an abbreviation
-                if not _is_abbreviation(text, i):
-                    # It's a sentence break
-                    sentences.append("".join(current).strip())
-                    current = []
-                    i = next_i - 1  # Will be incremented
+            # Check for capital letter and NOT an abbreviation
+            if (
+                next_i < len(text)
+                and text[next_i].isupper()
+                and not _is_abbreviation(text, i)
+            ):
+                # It's a sentence break
+                sentences.append("".join(current).strip())
+                current = []
+                i = next_i - 1  # Will be incremented
 
         i += 1
 

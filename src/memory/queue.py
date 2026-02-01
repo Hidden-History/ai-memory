@@ -29,6 +29,7 @@ References:
 - [Stack and Queues in Python: Modern Practice for 2026](https://thelinuxcode.com/stack-and-queues-in-python-modern-practice-for-2026/)
 """
 
+import contextlib
 import fcntl
 import json
 import logging
@@ -556,11 +557,9 @@ class LockedReadModifyWrite:
         for line in self.lock_file:
             line = line.strip()
             if line:
-                try:
+                # Skip corrupt lines (logged elsewhere)
+                with contextlib.suppress(json.JSONDecodeError):
                     self.entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    # Skip corrupt lines (logged elsewhere)
-                    pass
 
         # Return entries and write function
         return (self.entries, self._write_entries)

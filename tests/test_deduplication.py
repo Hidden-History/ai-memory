@@ -124,62 +124,66 @@ class TestIsDuplicate:
         content = "def unique_function(): pass"
         group_id = "test-project"
 
-        with patch("src.memory.deduplication.AsyncQdrantClient") as mock_client_class:
-            with patch("src.memory.deduplication.EmbeddingClient") as mock_embed_class:
-                mock_client = AsyncMock()
-                mock_client_class.return_value = mock_client
-                # Mock close() for new manual client lifecycle
-                mock_client.close = AsyncMock()
+        with (
+            patch("src.memory.deduplication.AsyncQdrantClient") as mock_client_class,
+            patch("src.memory.deduplication.EmbeddingClient") as mock_embed_class,
+        ):
+            mock_client = AsyncMock()
+            mock_client_class.return_value = mock_client
+            # Mock close() for new manual client lifecycle
+            mock_client.close = AsyncMock()
 
-                # Mock embedding client
-                mock_embed = MagicMock()
-                mock_embed_class.return_value.__enter__.return_value = mock_embed
-                mock_embed.embed.return_value = [[0.1] * 768]  # Dummy embedding
+            # Mock embedding client
+            mock_embed = MagicMock()
+            mock_embed_class.return_value.__enter__.return_value = mock_embed
+            mock_embed.embed.return_value = [[0.1] * 768]  # Dummy embedding
 
-                # Mock scroll to return no hash matches
-                mock_client.scroll.return_value = ([], None)
+            # Mock scroll to return no hash matches
+            mock_client.scroll.return_value = ([], None)
 
-                # Mock search to return no semantic matches
-                mock_client.search.return_value = []
+            # Mock search to return no semantic matches
+            mock_client.search.return_value = []
 
-                result = await is_duplicate(content, group_id)
+            result = await is_duplicate(content, group_id)
 
-                assert result.is_duplicate is False
-                assert result.reason is None
-                assert result.existing_id is None
+            assert result.is_duplicate is False
+            assert result.reason is None
+            assert result.existing_id is None
 
     async def test_semantic_similarity_duplicate(self):
         """AC 2.2.1: Semantic similarity check detects near-duplicates."""
         content = "def hello(): return 'world'"
         group_id = "test-project"
 
-        with patch("src.memory.deduplication.AsyncQdrantClient") as mock_client_class:
-            with patch("src.memory.deduplication.EmbeddingClient") as mock_embed_class:
-                mock_client = AsyncMock()
-                mock_client_class.return_value = mock_client
-                # Mock close() for new manual client lifecycle
-                mock_client.close = AsyncMock()
+        with (
+            patch("src.memory.deduplication.AsyncQdrantClient") as mock_client_class,
+            patch("src.memory.deduplication.EmbeddingClient") as mock_embed_class,
+        ):
+            mock_client = AsyncMock()
+            mock_client_class.return_value = mock_client
+            # Mock close() for new manual client lifecycle
+            mock_client.close = AsyncMock()
 
-                # Mock embedding client
-                mock_embed = MagicMock()
-                mock_embed_class.return_value.__enter__.return_value = mock_embed
-                mock_embed.embed.return_value = [[0.1] * 768]  # Dummy embedding
+            # Mock embedding client
+            mock_embed = MagicMock()
+            mock_embed_class.return_value.__enter__.return_value = mock_embed
+            mock_embed.embed.return_value = [[0.1] * 768]  # Dummy embedding
 
-                # Mock scroll to return no hash matches
-                mock_client.scroll.return_value = ([], None)
+            # Mock scroll to return no hash matches
+            mock_client.scroll.return_value = ([], None)
 
-                # Mock search to return high similarity match (>0.95)
-                mock_result = MagicMock()
-                mock_result.id = "semantic-match-id"
-                mock_result.score = 0.97
-                mock_client.search.return_value = [mock_result]
+            # Mock search to return high similarity match (>0.95)
+            mock_result = MagicMock()
+            mock_result.id = "semantic-match-id"
+            mock_result.score = 0.97
+            mock_client.search.return_value = [mock_result]
 
-                result = await is_duplicate(content, group_id)
+            result = await is_duplicate(content, group_id)
 
-                assert result.is_duplicate is True
-                assert result.reason == "semantic_similarity"
-                assert result.existing_id == "semantic-match-id"
-                assert result.similarity_score == 0.97
+            assert result.is_duplicate is True
+            assert result.reason == "semantic_similarity"
+            assert result.existing_id == "semantic-match-id"
+            assert result.similarity_score == 0.97
 
     async def test_configurable_threshold_above(self):
         """AC 2.2.2: Similarity above threshold returns True."""
@@ -189,35 +193,37 @@ class TestIsDuplicate:
         # Reset config singleton so patched env var takes effect
         reset_config()
 
-        with patch("src.memory.deduplication.AsyncQdrantClient") as mock_client_class:
-            with patch("src.memory.deduplication.EmbeddingClient") as mock_embed_class:
-                with patch.dict(os.environ, {"DEDUP_THRESHOLD": "0.90"}):
-                    # Reset again after env patch to reload with new value
-                    reset_config()
+        with (
+            patch("src.memory.deduplication.AsyncQdrantClient") as mock_client_class,
+            patch("src.memory.deduplication.EmbeddingClient") as mock_embed_class,
+            patch.dict(os.environ, {"DEDUP_THRESHOLD": "0.90"}),
+        ):
+            # Reset again after env patch to reload with new value
+            reset_config()
 
-                    mock_client = AsyncMock()
-                    mock_client_class.return_value = mock_client
-                    # Mock close() for new manual client lifecycle
-                    mock_client.close = AsyncMock()
+            mock_client = AsyncMock()
+            mock_client_class.return_value = mock_client
+            # Mock close() for new manual client lifecycle
+            mock_client.close = AsyncMock()
 
-                    # Mock embedding client
-                    mock_embed = MagicMock()
-                    mock_embed_class.return_value.__enter__.return_value = mock_embed
-                    mock_embed.embed.return_value = [[0.1] * 768]
+            # Mock embedding client
+            mock_embed = MagicMock()
+            mock_embed_class.return_value.__enter__.return_value = mock_embed
+            mock_embed.embed.return_value = [[0.1] * 768]
 
-                    # No hash match
-                    mock_client.scroll.return_value = ([], None)
+            # No hash match
+            mock_client.scroll.return_value = ([], None)
 
-                    # Similarity 0.92 > threshold 0.90
-                    mock_result = MagicMock()
-                    mock_result.id = "similar-id"
-                    mock_result.score = 0.92
-                    mock_client.search.return_value = [mock_result]
+            # Similarity 0.92 > threshold 0.90
+            mock_result = MagicMock()
+            mock_result.id = "similar-id"
+            mock_result.score = 0.92
+            mock_client.search.return_value = [mock_result]
 
-                    result = await is_duplicate(content, group_id)
+            result = await is_duplicate(content, group_id)
 
-                    assert result.is_duplicate is True
-                    assert result.similarity_score == 0.92
+            assert result.is_duplicate is True
+            assert result.similarity_score == 0.92
 
         # Clean up
         reset_config()
@@ -235,34 +241,36 @@ class TestIsDuplicate:
         # Reset config singleton so patched env var takes effect
         reset_config()
 
-        with patch("src.memory.deduplication.AsyncQdrantClient") as mock_client_class:
-            with patch("src.memory.deduplication.EmbeddingClient") as mock_embed_class:
-                with patch.dict(os.environ, {"DEDUP_THRESHOLD": "0.95"}):
-                    # Reset again after env patch to reload with new value
-                    reset_config()
+        with (
+            patch("src.memory.deduplication.AsyncQdrantClient") as mock_client_class,
+            patch("src.memory.deduplication.EmbeddingClient") as mock_embed_class,
+            patch.dict(os.environ, {"DEDUP_THRESHOLD": "0.95"}),
+        ):
+            # Reset again after env patch to reload with new value
+            reset_config()
 
-                    mock_client = AsyncMock()
-                    mock_client_class.return_value = mock_client
-                    # Mock close() for new manual client lifecycle
-                    mock_client.close = AsyncMock()
+            mock_client = AsyncMock()
+            mock_client_class.return_value = mock_client
+            # Mock close() for new manual client lifecycle
+            mock_client.close = AsyncMock()
 
-                    # Mock embedding client
-                    mock_embed = MagicMock()
-                    mock_embed_class.return_value.__enter__.return_value = mock_embed
-                    mock_embed.embed.return_value = [[0.1] * 768]
+            # Mock embedding client
+            mock_embed = MagicMock()
+            mock_embed_class.return_value.__enter__.return_value = mock_embed
+            mock_embed.embed.return_value = [[0.1] * 768]
 
-                    # No hash match
-                    mock_client.scroll.return_value = ([], None)
+            # No hash match
+            mock_client.scroll.return_value = ([], None)
 
-                    # Qdrant filters by score_threshold server-side:
-                    # When threshold=0.95 and only 0.92 similarity exists,
-                    # Qdrant returns EMPTY results (filtered out)
-                    mock_client.search.return_value = []
+            # Qdrant filters by score_threshold server-side:
+            # When threshold=0.95 and only 0.92 similarity exists,
+            # Qdrant returns EMPTY results (filtered out)
+            mock_client.search.return_value = []
 
-                    result = await is_duplicate(content, group_id)
+            result = await is_duplicate(content, group_id)
 
-                    assert result.is_duplicate is False
-                    assert result.reason is None  # Not a duplicate, no error
+            assert result.is_duplicate is False
+            assert result.reason is None  # Not a duplicate, no error
 
         # Clean up
         reset_config()
@@ -359,17 +367,17 @@ class TestIsDuplicate:
             # No hash match
             mock_client.scroll.return_value = ([], None)
 
-            # Simulate embedding failure
-            with patch("src.memory.deduplication.EmbeddingClient") as mock_embed_class:
-                mock_embed = MagicMock()
-                mock_embed_class.return_value.__enter__.return_value = mock_embed
-                mock_embed.embed.side_effect = Exception("Service unavailable")
+        # Simulate embedding failure
+        with patch("src.memory.deduplication.EmbeddingClient") as mock_embed_class:
+            mock_embed = MagicMock()
+            mock_embed_class.return_value.__enter__.return_value = mock_embed
+            mock_embed.embed.side_effect = Exception("Service unavailable")
 
-                result = await is_duplicate(content, group_id)
+            result = await is_duplicate(content, group_id)
 
-                # Should return False (hash check passed, similarity skipped)
-                assert result.is_duplicate is False
-                assert result.reason == "embedding_failed_hash_only"
+            # Should return False (hash check passed, similarity skipped)
+            assert result.is_duplicate is False
+            assert result.reason == "embedding_failed_hash_only"
 
     async def test_never_crashes_on_exception(self):
         """AC 2.2.6: NEVER throws unhandled exceptions."""

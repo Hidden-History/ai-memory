@@ -5,47 +5,16 @@ Routes content by type to appropriate chunking strategy.
 """
 
 import logging
-from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
+from typing import ClassVar
+
+# Import base types (shared across all chunkers to avoid circular imports)
+from .base import CHARS_PER_TOKEN, ChunkMetadata, ChunkResult, ContentType
+
+# Import ProseChunker (TECH-DEBT-053)
+from .prose_chunker import ProseChunker, ProseChunkerConfig
 
 logger = logging.getLogger("ai_memory.chunking")
-
-# FIX-9: Shared constant for token estimation (used across all chunkers)
-CHARS_PER_TOKEN = 4  # Approximate: 4 characters ≈ 1 token
-
-
-class ContentType(str, Enum):
-    """Content type for chunking strategy selection."""
-
-    CODE = "code"  # Python, JS, TS, etc.
-    PROSE = "prose"  # Markdown, text
-    CONVERSATION = "conversation"  # User/agent messages
-    CONFIG = "config"  # JSON, YAML, TOML
-    UNKNOWN = "unknown"
-
-
-@dataclass(frozen=True)
-class ChunkMetadata:
-    """Metadata for a single chunk."""
-
-    chunk_type: str  # ast_code, semantic, whole, late
-    chunk_index: int  # Position in document (0-indexed)
-    total_chunks: int  # Total chunks from source
-    chunk_size_tokens: int  # Approximate token count
-    overlap_tokens: int  # Overlap with previous chunk
-    source_file: str | None = None
-    start_line: int | None = None
-    end_line: int | None = None
-    section_header: str | None = None
-
-
-@dataclass(frozen=True)
-class ChunkResult:
-    """Result of chunking operation."""
-
-    content: str  # Chunk content
-    metadata: ChunkMetadata  # Chunk metadata
 
 
 class IntelligentChunker:
@@ -59,7 +28,7 @@ class IntelligentChunker:
     """
 
     # File extension to content type mapping
-    CODE_EXTENSIONS = {
+    CODE_EXTENSIONS: ClassVar[set[str]] = {
         ".py",
         ".js",
         ".ts",
@@ -72,8 +41,8 @@ class IntelligentChunker:
         ".c",
         ".h",
     }
-    PROSE_EXTENSIONS = {".md", ".txt", ".rst"}
-    CONFIG_EXTENSIONS = {".json", ".yaml", ".yml", ".toml", ".ini", ".cfg"}
+    PROSE_EXTENSIONS: ClassVar[set[str]] = {".md", ".txt", ".rst"}
+    CONFIG_EXTENSIONS: ClassVar[set[str]] = {".json", ".yaml", ".yml", ".toml", ".ini", ".cfg"}
 
     def __init__(self, max_chunk_tokens: int = 512, overlap_pct: float = 0.15):
         """Initialize chunker with configuration.
@@ -258,9 +227,6 @@ class IntelligentChunker:
         """
         return len(text) // CHARS_PER_TOKEN
 
-
-# Import ProseChunker (TECH-DEBT-053)
-from .prose_chunker import ProseChunker, ProseChunkerConfig
 
 # Conditional export of ASTChunker
 try:

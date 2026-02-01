@@ -137,7 +137,7 @@ def test_retrieval_performance_under_3_seconds():
     ), f"Hook failed during performance test:\n{result.stderr}"
 
     # === NFR-P3 VALIDATION: <3s total retrieval time (GPU mode) ===
-    # CPU mode: 2 embeddings × ~3s = ~6-7s expected (not NFR violation)
+    # CPU mode: 2 embeddings x ~3s = ~6-7s expected (not NFR violation)
     cpu_mode = os.getenv("EMBEDDING_READ_TIMEOUT", "15") == "60.0"
     max_duration = 90.0 if cpu_mode else 3.0
     mode_label = "CPU mode" if cpu_mode else "GPU mode (NFR-P3)"

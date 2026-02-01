@@ -15,6 +15,7 @@ Test Isolation Pattern:
     See TECH-DEBT-006 for full context on this pattern choice.
 """
 
+import contextlib
 import os
 import time
 
@@ -53,10 +54,8 @@ class TestThresholdWarnings:
         yield collection_name
 
         # Cleanup
-        try:
+        with contextlib.suppress(Exception):
             qdrant_client.delete_collection(collection_name=collection_name)
-        except Exception:
-            pass  # Best effort cleanup
 
     def test_warning_triggers_at_configured_threshold(
         self, qdrant_client, test_collection, monkeypatch

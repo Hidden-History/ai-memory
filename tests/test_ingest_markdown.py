@@ -10,7 +10,7 @@ import pytest
 scripts_path = Path(__file__).parent.parent / "scripts" / "memory"
 sys.path.insert(0, str(scripts_path))
 
-from ingest_markdown import extract_title, ingest_file, parse_frontmatter
+from ingest_markdown import extract_title, ingest_file, parse_frontmatter  # noqa: E402
 
 
 class TestParseFrontmatter:

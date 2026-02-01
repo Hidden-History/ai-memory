@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import ClassVar
 
 try:
     from tree_sitter import Language, Node, Parser
@@ -19,8 +20,8 @@ except ImportError:
     Parser = None  # type: ignore
     Node = None  # type: ignore
 
-# Use existing models from chunking module
-from . import CHARS_PER_TOKEN, ChunkMetadata, ChunkResult
+# Use existing models from base module (avoids circular imports)
+from .base import CHARS_PER_TOKEN, ChunkMetadata, ChunkResult
 
 logger = logging.getLogger("ai_memory.chunking.ast")
 
@@ -38,7 +39,7 @@ class ASTChunker:
     MIN_OVERLAP_CHARS = 50
 
     # Supported languages (per Chunking-Strategy-V1.md Section 2.1)
-    LANGUAGE_MAP = {
+    LANGUAGE_MAP: ClassVar[dict[str, str]] = {
         ".py": "python",
         ".js": "javascript",
         ".jsx": "javascript",
@@ -49,7 +50,7 @@ class ASTChunker:
     }
 
     # Node types that represent chunk boundaries
-    CHUNK_NODE_TYPES = {
+    CHUNK_NODE_TYPES: ClassVar[dict[str, set[str]]] = {
         "python": {"function_definition", "class_definition"},
         "javascript": {
             "function_declaration",
@@ -74,7 +75,7 @@ class ASTChunker:
     }
 
     # Node types for context extraction
-    IMPORT_NODE_TYPES = {
+    IMPORT_NODE_TYPES: ClassVar[dict[str, set[str]]] = {
         "python": {"import_statement", "import_from_statement"},
         "javascript": {"import_statement"},
         "typescript": {"import_statement"},
@@ -236,7 +237,7 @@ class ASTChunker:
     def _extract_chunks(
         self,
         content: str,
-        root_node: "Node",
+        root_node: Node,
         language: str,
         file_path: str,
     ) -> list[ChunkResult]:
@@ -410,7 +411,7 @@ class ASTChunker:
 
         return final_chunks
 
-    def _find_chunk_nodes(self, root_node: "Node", language: str) -> list["Node"]:
+    def _find_chunk_nodes(self, root_node: Node, language: str) -> list[Node]:
         """Find all top-level nodes that represent chunk boundaries.
 
         Only extracts top-level functions/classes. Methods inside classes
@@ -428,7 +429,7 @@ class ASTChunker:
 
         # Only visit direct children of root (top-level definitions)
         # Don't recursively visit nested definitions
-        def visit_top_level(node: "Node"):
+        def visit_top_level(node: Node):
             if node.type in chunk_types:
                 chunk_nodes.append(node)
                 # Don't visit children - we want the whole class with its methods
@@ -442,7 +443,7 @@ class ASTChunker:
 
         return chunk_nodes
 
-    def _find_import_nodes(self, root_node: "Node", language: str) -> list["Node"]:
+    def _find_import_nodes(self, root_node: Node, language: str) -> list[Node]:
         """Find all import nodes for context extraction.
 
         Only extracts top-level imports (direct children of root).
@@ -464,14 +465,16 @@ class ASTChunker:
                 import_nodes.append(child)
             # Stop after we hit non-import, non-comment nodes
             # (imports are typically at the top of the file)
-            elif child.type not in ("comment", "expression_statement", "string"):
-                # Reached actual code, stop looking for imports
-                if import_nodes:
-                    break
+            # Reached actual code with imports found, stop looking
+            elif (
+                child.type not in ("comment", "expression_statement", "string")
+                and import_nodes
+            ):
+                break
 
         return import_nodes
 
-    def _extract_node_text(self, content: str, nodes: list["Node"]) -> str:
+    def _extract_node_text(self, content: str, nodes: list[Node]) -> str:
         """Extract text from multiple nodes.
 
         Args:
@@ -486,7 +489,7 @@ class ASTChunker:
 
         return "\n".join(self._get_node_text(content, node) for node in nodes)
 
-    def _get_node_text(self, content: str, node: "Node") -> str:
+    def _get_node_text(self, content: str, node: Node) -> str:
         """Get text content of a node.
 
         Args:
@@ -500,7 +503,7 @@ class ASTChunker:
         end_byte = node.end_byte
         return content[start_byte:end_byte]
 
-    def _get_node_name(self, node: "Node") -> str | None:
+    def _get_node_name(self, node: Node) -> str | None:
         """Extract function/class name from node.
 
         Args:
@@ -517,7 +520,7 @@ class ASTChunker:
 
         return None
 
-    def _split_large_node(self, node: "Node", content: str, language: str) -> list[str]:
+    def _split_large_node(self, node: Node, content: str, language: str) -> list[str]:
         """Split a large AST node into smaller chunks at statement boundaries.
 
         FIX-5: Implements recursive splitting per Chunking-Strategy-V1.md.

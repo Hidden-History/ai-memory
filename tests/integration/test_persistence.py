@@ -45,6 +45,7 @@ Sources:
     - https://docs.docker.com/reference/cli/docker/compose/restart/
 """
 
+import contextlib
 import os
 import subprocess
 import time
@@ -93,7 +94,7 @@ def cleanup_test_memories():
 
         # Cleanup: Delete test memories by group_id
         for group_id in TEST_GROUP_IDS:
-            try:
+            with contextlib.suppress(Exception):
                 cleanup_client.delete(
                     collection_name="code-patterns",
                     points_selector=Filter(
@@ -104,9 +105,6 @@ def cleanup_test_memories():
                         ]
                     ),
                 )
-            except Exception:
-                # Best effort cleanup - don't fail test if cleanup fails
-                pass
     except Exception:
         # Silently fail cleanup if Qdrant unreachable
         pass
@@ -307,10 +305,13 @@ def test_qdrant_volume_mount_configured(tmp_path):
             # Note: Named volume format is "volume_name:/container/path"
             #       host_part = volume_name (no / or .)
             #       container_part = /qdrant/storage
-            if "/" not in host_part and "." not in host_part:
-                if "/qdrant/storage" in container_part:
-                    persistent_volume_found = True
-                    break
+            if (
+                "/" not in host_part
+                and "." not in host_part
+                and "/qdrant/storage" in container_part
+            ):
+                persistent_volume_found = True
+                break
 
     assert (
         persistent_volume_found

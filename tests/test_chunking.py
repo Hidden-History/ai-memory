@@ -514,12 +514,12 @@ class TestIntelligentChunkerValidation:
 
     def test_init_rejects_overlap_over_one(self):
         """overlap_pct > 1.0 raises ValueError."""
-        with pytest.raises(ValueError, match="overlap_pct must be 0.0-1.0"):
+        with pytest.raises(ValueError, match=r"overlap_pct must be 0\.0-1\.0"):
             IntelligentChunker(overlap_pct=1.5)
 
     def test_init_rejects_negative_overlap(self):
         """Negative overlap_pct raises ValueError."""
-        with pytest.raises(ValueError, match="overlap_pct must be 0.0-1.0"):
+        with pytest.raises(ValueError, match=r"overlap_pct must be 0\.0-1\.0"):
             IntelligentChunker(overlap_pct=-0.1)
 
     def test_init_accepts_edge_values(self):

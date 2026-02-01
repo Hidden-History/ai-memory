@@ -143,13 +143,13 @@ class OpenAIProvider(BaseProvider):
 
         except httpx.TimeoutException as e:
             logger.error("openai_timeout", extra={"error": str(e)})
-            raise TimeoutError(f"OpenAI request timed out: {e}")
+            raise TimeoutError(f"OpenAI request timed out: {e}") from e
         except httpx.HTTPError as e:
             logger.error("openai_http_error", extra={"error": str(e)})
-            raise ConnectionError(f"OpenAI HTTP error: {e}")
+            raise ConnectionError(f"OpenAI HTTP error: {e}") from e
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             logger.error("openai_parse_error", extra={"error": str(e)})
-            raise ValueError(f"Invalid OpenAI response: {e}")
+            raise ValueError(f"Invalid OpenAI response: {e}") from e
 
     def close(self):
         """Clean up HTTP client."""

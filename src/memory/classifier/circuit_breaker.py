@@ -220,18 +220,20 @@ class CircuitBreaker:
         )
 
         # Check if we should open the circuit
-        if state.consecutive_failures >= self.failure_threshold:
-            if state.state != CircuitState.OPEN:
-                state.state = CircuitState.OPEN
-                logger.warning(
-                    "circuit_opened",
-                    extra={
-                        "provider": provider,
-                        "failures": state.consecutive_failures,
-                        "threshold": self.failure_threshold,
-                        "timeout_seconds": self.reset_timeout,
-                    },
-                )
+        if (
+            state.consecutive_failures >= self.failure_threshold
+            and state.state != CircuitState.OPEN
+        ):
+            state.state = CircuitState.OPEN
+            logger.warning(
+                "circuit_opened",
+                extra={
+                    "provider": provider,
+                    "failures": state.consecutive_failures,
+                    "threshold": self.failure_threshold,
+                    "timeout_seconds": self.reset_timeout,
+                },
+            )
 
     def get_status(self, provider: str) -> dict:
         """Get current circuit status for provider.

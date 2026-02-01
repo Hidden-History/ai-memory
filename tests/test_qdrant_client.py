@@ -38,8 +38,10 @@ class TestQdrantClient:
 
     def test_get_qdrant_client_uses_default_config(self):
         """AC 1.4.3: Uses get_config() if no config provided."""
-        with patch("src.memory.qdrant_client.QdrantClient") as MockQdrantClient:
-            with patch("src.memory.qdrant_client.get_config") as mock_get_config:
+        with (
+            patch("src.memory.qdrant_client.QdrantClient") as MockQdrantClient,
+            patch("src.memory.qdrant_client.get_config") as mock_get_config,
+        ):
                 mock_config = MemoryConfig()
                 mock_get_config.return_value = mock_config
                 mock_instance = Mock()

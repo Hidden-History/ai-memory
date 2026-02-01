@@ -98,15 +98,14 @@ def skip_without_services(request):
             # Will skip if Qdrant not available on port 26350
             pass
     """
-    if request.node.get_closest_marker("requires_qdrant"):
-        if not _is_port_open(26350):
-            pytest.skip("Qdrant not available on port 26350")
-    if request.node.get_closest_marker("requires_embedding"):
-        if not _is_port_open(28080):
-            pytest.skip("Embedding service not available on port 28080")
-    if request.node.get_closest_marker("requires_docker_stack"):
-        if not (_is_port_open(26350) and _is_port_open(28080)):
-            pytest.skip("Docker stack not fully available")
+    if request.node.get_closest_marker("requires_qdrant") and not _is_port_open(26350):
+        pytest.skip("Qdrant not available on port 26350")
+    if request.node.get_closest_marker("requires_embedding") and not _is_port_open(28080):
+        pytest.skip("Embedding service not available on port 28080")
+    if request.node.get_closest_marker("requires_docker_stack") and not (
+        _is_port_open(26350) and _is_port_open(28080)
+    ):
+        pytest.skip("Docker stack not fully available")
 
 
 # =============================================================================
@@ -587,10 +586,8 @@ def test_collection(
     yield collection_name
 
     # Cleanup - always runs, even on test failure
-    try:
+    with contextlib.suppress(Exception):
         qdrant_client.delete(f"/collections/{collection_name}")
-    except Exception:
-        pass  # Best effort cleanup
 
 
 @pytest.fixture(scope="session")
@@ -681,13 +678,15 @@ def skip_if_service_unavailable(request):
     embedding_port = int(os.environ.get("EMBEDDING_SERVICE_PORT", "28080"))
 
     # Check service availability based on markers
-    if requires_qdrant or requires_docker_stack:
-        if not _check_service_available("localhost", qdrant_port):
-            pytest.skip(f"Qdrant service not available on port {qdrant_port}")
+    if (requires_qdrant or requires_docker_stack) and not _check_service_available(
+        "localhost", qdrant_port
+    ):
+        pytest.skip(f"Qdrant service not available on port {qdrant_port}")
 
-    if requires_embedding or requires_docker_stack:
-        if not _check_service_available("localhost", embedding_port):
-            pytest.skip(f"Embedding service not available on port {embedding_port}")
+    if (requires_embedding or requires_docker_stack) and not _check_service_available(
+        "localhost", embedding_port
+    ):
+        pytest.skip(f"Embedding service not available on port {embedding_port}")
 
 
 @pytest.fixture(scope="session", autouse=True)

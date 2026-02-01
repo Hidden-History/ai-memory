@@ -480,12 +480,14 @@ class TestLockTimeout:
             fcntl.flock(blocking_handle.fileno(), fcntl.LOCK_EX)
 
             # Patch timeout to be short for test speed
-            with patch("src.memory.queue.LOCK_TIMEOUT_SECONDS", 0.3):
-                with pytest.raises(LockTimeoutError) as exc_info:
-                    with LockedFileAppend(queue_file):
-                        pass  # Should not reach here
+            with (
+                patch("src.memory.queue.LOCK_TIMEOUT_SECONDS", 0.3),
+                pytest.raises(LockTimeoutError) as exc_info,
+                LockedFileAppend(queue_file),
+            ):
+                pass  # Should not reach here
 
-                assert "Failed to acquire lock" in str(exc_info.value)
+            assert "Failed to acquire lock" in str(exc_info.value)
 
     def test_locked_read_modify_write_raises_timeout_error(self, tmp_path):
         """AC 5.1.4: LockedReadModifyWrite raises LockTimeoutError on timeout."""
@@ -497,12 +499,14 @@ class TestLockTimeout:
             fcntl.flock(blocking_handle.fileno(), fcntl.LOCK_EX)
 
             # Patch timeout to be short for test speed
-            with patch("src.memory.queue.LOCK_TIMEOUT_SECONDS", 0.3):
-                with pytest.raises(LockTimeoutError) as exc_info:
-                    with LockedReadModifyWrite(queue_file) as (_entries, _write_fn):
-                        pass  # Should not reach here
+            with (
+                patch("src.memory.queue.LOCK_TIMEOUT_SECONDS", 0.3),
+                pytest.raises(LockTimeoutError) as exc_info,
+                LockedReadModifyWrite(queue_file) as (_entries, _write_fn),
+            ):
+                pass  # Should not reach here
 
-                assert "Failed to acquire lock" in str(exc_info.value)
+            assert "Failed to acquire lock" in str(exc_info.value)
 
     def test_enqueue_raises_timeout_on_lock_contention(self, tmp_path):
         """AC 5.1.4: enqueue raises LockTimeoutError when lock held."""
@@ -515,9 +519,11 @@ class TestLockTimeout:
             fcntl.flock(blocking_handle.fileno(), fcntl.LOCK_EX)
 
             # Patch timeout to be short for test speed
-            with patch("src.memory.queue.LOCK_TIMEOUT_SECONDS", 0.3):
-                with pytest.raises(LockTimeoutError):
-                    queue.enqueue({"content": "test"}, "TEST")
+            with (
+                patch("src.memory.queue.LOCK_TIMEOUT_SECONDS", 0.3),
+                pytest.raises(LockTimeoutError),
+            ):
+                queue.enqueue({"content": "test"}, "TEST")
 
     def test_dequeue_raises_timeout_on_lock_contention(self, tmp_path):
         """AC 5.1.4: dequeue raises LockTimeoutError when lock held."""
@@ -532,6 +538,8 @@ class TestLockTimeout:
             fcntl.flock(blocking_handle.fileno(), fcntl.LOCK_EX)
 
             # Patch timeout to be short for test speed
-            with patch("src.memory.queue.LOCK_TIMEOUT_SECONDS", 0.3):
-                with pytest.raises(LockTimeoutError):
-                    queue.dequeue(queue_id)
+            with (
+                patch("src.memory.queue.LOCK_TIMEOUT_SECONDS", 0.3),
+                pytest.raises(LockTimeoutError),
+            ):
+                queue.dequeue(queue_id)

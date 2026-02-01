@@ -109,10 +109,12 @@ class TestUserPromptCapture:
 
         V2.0: User messages go to discussions, not code-patterns or conventions.
         """
-        with patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant):
-            with patch("memory.config.get_config", return_value=mock_config):
-                # Verify collection name constant
-                from memory.config import COLLECTION_DISCUSSIONS
+        with (
+            patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant),
+            patch("memory.config.get_config", return_value=mock_config),
+        ):
+            # Verify collection name constant
+            from memory.config import COLLECTION_DISCUSSIONS
 
-                assert COLLECTION_DISCUSSIONS == "discussions"
-                # User messages should target this collection
+            assert COLLECTION_DISCUSSIONS == "discussions"
+            # User messages should target this collection

@@ -67,7 +67,7 @@ def test_log_user_prompt_with_long_content(temp_log_file):
 
     # Verify preview line contains the full content (production does not truncate)
     lines = content.split("\n")
-    preview_line = next(l for l in lines if "UserPrompt:" in l)
+    preview_line = next(line for line in lines if "UserPrompt:" in line)
 
     # Verify preview contains the start of the long prompt
     assert "Fix BUG-006: Add Full Content Logging for User Prompts" in preview_line
@@ -76,7 +76,7 @@ def test_log_user_prompt_with_long_content(temp_log_file):
     assert "📄 FULL_CONTENT:" in content
 
     # Verify full content contains the complete text
-    full_content_lines = [l for l in lines if "FULL_CONTENT:" in l]
+    full_content_lines = [line for line in lines if "FULL_CONTENT:" in line]
     assert len(full_content_lines) > 0
 
     # Verify the full prompt is in the log
@@ -134,7 +134,7 @@ def test_log_user_prompt_preserves_existing_behavior(temp_log_file):
     lines = content.split("\n")
 
     # Find preview line
-    preview_line = next(l for l in lines if "UserPrompt:" in l)
+    preview_line = next(line for line in lines if "UserPrompt:" in line)
 
     # Verify it shows full content (production does not truncate preview)
     assert "A" * 100 in preview_line

@@ -160,6 +160,7 @@ class AgentSDKWrapper:
         self._batch_size = 10  # Flush when queue reaches this size
         self._batch_flush_interval = 5.0  # Seconds between auto-flushes
         self._flush_task: asyncio.Task | None = None
+        self._pending_flush_task: asyncio.Task | None = None  # Track pending batch flushes
 
         # Set ANTHROPIC_API_KEY for SDK
         os.environ["ANTHROPIC_API_KEY"] = self.api_key
@@ -412,16 +413,12 @@ class AgentSDKWrapper:
             )
 
             # Stage 4: Flush if batch size reached
-            if len(self._batch_queue) >= self._batch_size:
-                # Release lock before flushing to avoid deadlock
-                # Create task outside the lock
-                should_flush = True
-            else:
-                should_flush = False
+            # Release lock before flushing to avoid deadlock
+            should_flush = len(self._batch_queue) >= self._batch_size
 
         # Flush outside the lock to avoid blocking
         if should_flush:
-            asyncio.create_task(self._flush_batch())
+            self._pending_flush_task = asyncio.create_task(self._flush_batch())
 
     async def _post_tool_use_hook(
         self,

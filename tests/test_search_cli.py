@@ -14,7 +14,7 @@ import pytest
 REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "memory"))
 
-import search_cli
+import search_cli  # noqa: E402
 
 
 class TestSearchCLIParsing:
@@ -243,12 +243,16 @@ class TestSearchCLIIntegration:
 
     def test_zero_limit_rejected(self):
         """--limit 0 is rejected."""
-        with patch("sys.argv", ["search_cli.py", "test", "--limit", "0"]):
-            with pytest.raises(SystemExit):
-                search_cli.parse_args()
+        with (
+            patch("sys.argv", ["search_cli.py", "test", "--limit", "0"]),
+            pytest.raises(SystemExit),
+        ):
+            search_cli.parse_args()
 
     def test_negative_limit_rejected(self):
         """--limit -5 is rejected."""
-        with patch("sys.argv", ["search_cli.py", "test", "--limit", "-5"]):
-            with pytest.raises(SystemExit):
-                search_cli.parse_args()
+        with (
+            patch("sys.argv", ["search_cli.py", "test", "--limit", "-5"]),
+            pytest.raises(SystemExit),
+        ):
+            search_cli.parse_args()

@@ -7,6 +7,7 @@ Architecture Reference: architecture.md:235-287 (Service Client Architecture)
 Best Practices: https://medium.com/@sparknp1/8-httpx-asyncio-patterns-for-safer-faster-clients-f27bc82e93e6
 """
 
+import contextlib
 import logging
 import os
 import time
@@ -297,12 +298,10 @@ class EmbeddingClient:
         """Close httpx client on garbage collection.
 
         Note:
-            Uses try/except to handle interpreter shutdown safely.
+            Uses contextlib.suppress to handle interpreter shutdown safely.
             Prefer using context manager or explicit close() instead.
         """
-        try:
+        # Silently ignore errors during interpreter shutdown
+        # when httpx module may already be unloaded
+        with contextlib.suppress(Exception):
             self.close()
-        except Exception:
-            # Silently ignore errors during interpreter shutdown
-            # when httpx module may already be unloaded
-            pass

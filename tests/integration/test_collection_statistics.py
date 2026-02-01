@@ -25,9 +25,9 @@ import pytest
 src_path = Path(__file__).parent.parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
-from memory.metrics import update_collection_metrics
-from memory.stats import get_collection_stats
-from memory.warnings import check_collection_thresholds
+from memory.metrics import update_collection_metrics  # noqa: E402
+from memory.stats import get_collection_stats  # noqa: E402
+from memory.warnings import check_collection_thresholds  # noqa: E402
 
 
 class TestCollectionStatsScript:

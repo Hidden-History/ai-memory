@@ -13,14 +13,17 @@ import pytest
 # Mock claude_agent_sdk before importing AgentSDKWrapper
 sys.modules["claude_agent_sdk"] = MagicMock()
 
-import contextlib
+import contextlib  # noqa: E402
 
-from src.memory.agent_sdk_wrapper import (
+from src.memory.agent_sdk_wrapper import (  # noqa: E402
     AgentSDKWrapper,
     create_memory_enhanced_client,
 )
-from src.memory.config import COLLECTION_CODE_PATTERNS, COLLECTION_DISCUSSIONS
-from src.memory.models import MemoryType
+from src.memory.config import (  # noqa: E402
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_DISCUSSIONS,
+)
+from src.memory.models import MemoryType  # noqa: E402
 
 
 @pytest.fixture
@@ -92,44 +95,46 @@ async def test_post_tool_use_hook_implementation():
     mock_storage = Mock()
     mock_storage.store_memory = Mock(return_value={"status": "stored"})
 
-    with patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"):
-        with patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup:
-            mock_dedup.return_value = Mock(is_duplicate=False)
+    with (
+        patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"),
+        patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup,
+    ):
+        mock_dedup.return_value = Mock(is_duplicate=False)
 
-            wrapper = AgentSDKWrapper(
-                cwd="/test/project",
-                api_key="test-key",
-                storage=mock_storage,
-            )
+        wrapper = AgentSDKWrapper(
+            cwd="/test/project",
+            api_key="test-key",
+            storage=mock_storage,
+        )
 
-            # Simulate PostToolUse hook input for Write
-            input_data = {
-                "session_id": "test-session",
-                "transcript_path": "/tmp/transcript",
-                "cwd": "/test/project",
-                "tool_name": "Write",
-                "tool_input": {"file_path": "/test/file.py"},
-                "tool_response": "File written successfully",
-            }
+        # Simulate PostToolUse hook input for Write
+        input_data = {
+            "session_id": "test-session",
+            "transcript_path": "/tmp/transcript",
+            "cwd": "/test/project",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "/test/file.py"},
+            "tool_response": "File written successfully",
+        }
 
-            # Call hook
-            result = await wrapper._post_tool_use_hook(input_data, None, Mock())
+        # Call hook
+        result = await wrapper._post_tool_use_hook(input_data, None, Mock())
 
-            # Should return empty dict (doesn't block)
-            assert result == {}
+        # Should return empty dict (doesn't block)
+        assert result == {}
 
-            # Wait for background task
-            if wrapper._storage_tasks:
-                await asyncio.gather(*wrapper._storage_tasks)
+        # Wait for background task
+        if wrapper._storage_tasks:
+            await asyncio.gather(*wrapper._storage_tasks)
 
-            # Flush batch to trigger storage
-            await wrapper._flush_batch()
+        # Flush batch to trigger storage
+        await wrapper._flush_batch()
 
-            # Verify storage was called with IMPLEMENTATION type
-            mock_storage.store_memory.assert_called()
-            call_args = mock_storage.store_memory.call_args
-            assert call_args[0][2] == MemoryType.IMPLEMENTATION  # memory_type
-            assert call_args[0][5] == COLLECTION_CODE_PATTERNS  # collection
+        # Verify storage was called with IMPLEMENTATION type
+        mock_storage.store_memory.assert_called()
+        call_args = mock_storage.store_memory.call_args
+        assert call_args[0][2] == MemoryType.IMPLEMENTATION  # memory_type
+        assert call_args[0][5] == COLLECTION_CODE_PATTERNS  # collection
 
 
 @pytest.mark.asyncio
@@ -138,43 +143,45 @@ async def test_post_tool_use_hook_error_fix():
     mock_storage = Mock()
     mock_storage.store_memory = Mock(return_value={"status": "stored"})
 
-    with patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"):
-        with patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup:
-            mock_dedup.return_value = Mock(is_duplicate=False)
+    with (
+        patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"),
+        patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup,
+    ):
+        mock_dedup.return_value = Mock(is_duplicate=False)
 
-            wrapper = AgentSDKWrapper(
-                cwd="/test/project",
-                api_key="test-key",
-                storage=mock_storage,
-            )
+        wrapper = AgentSDKWrapper(
+            cwd="/test/project",
+            api_key="test-key",
+            storage=mock_storage,
+        )
 
-            # Simulate PostToolUse hook input for Bash error
-            input_data = {
-                "session_id": "test-session",
-                "transcript_path": "/tmp/transcript",
-                "cwd": "/test/project",
-                "tool_name": "Bash",
-                "tool_input": {"command": "npm test"},
-                "tool_response": {"exit_code": 1, "stderr": "Error: test failed"},
-            }
+        # Simulate PostToolUse hook input for Bash error
+        input_data = {
+            "session_id": "test-session",
+            "transcript_path": "/tmp/transcript",
+            "cwd": "/test/project",
+            "tool_name": "Bash",
+            "tool_input": {"command": "npm test"},
+            "tool_response": {"exit_code": 1, "stderr": "Error: test failed"},
+        }
 
-            # Call hook
-            result = await wrapper._post_tool_use_hook(input_data, None, Mock())
+        # Call hook
+        result = await wrapper._post_tool_use_hook(input_data, None, Mock())
 
-            assert result == {}
+        assert result == {}
 
-            # Wait for background task
-            if wrapper._storage_tasks:
-                await asyncio.gather(*wrapper._storage_tasks)
+        # Wait for background task
+        if wrapper._storage_tasks:
+            await asyncio.gather(*wrapper._storage_tasks)
 
-            # Flush batch to trigger storage
-            await wrapper._flush_batch()
+        # Flush batch to trigger storage
+        await wrapper._flush_batch()
 
-            # Verify storage was called with ERROR_FIX type
-            mock_storage.store_memory.assert_called()
-            call_args = mock_storage.store_memory.call_args
-            assert call_args[0][2] == MemoryType.ERROR_FIX
-            assert call_args[0][5] == COLLECTION_CODE_PATTERNS
+        # Verify storage was called with ERROR_FIX type
+        mock_storage.store_memory.assert_called()
+        call_args = mock_storage.store_memory.call_args
+        assert call_args[0][2] == MemoryType.ERROR_FIX
+        assert call_args[0][5] == COLLECTION_CODE_PATTERNS
 
 
 @pytest.mark.asyncio
@@ -223,41 +230,43 @@ async def test_stop_hook_captures_response(tmp_path):
     transcript_path = tmp_path / "transcript.txt"
     transcript_path.write_text("Agent: Here is the solution...")
 
-    with patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"):
-        with patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup:
-            mock_dedup.return_value = Mock(is_duplicate=False)
+    with (
+        patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"),
+        patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup,
+    ):
+        mock_dedup.return_value = Mock(is_duplicate=False)
 
-            wrapper = AgentSDKWrapper(
-                cwd="/test/project",
-                api_key="test-key",
-                storage=mock_storage,
-            )
+        wrapper = AgentSDKWrapper(
+            cwd="/test/project",
+            api_key="test-key",
+            storage=mock_storage,
+        )
 
-            # Simulate Stop hook input
-            input_data = {
-                "session_id": "test-session",
-                "transcript_path": str(transcript_path),
-                "cwd": "/test/project",
-            }
+        # Simulate Stop hook input
+        input_data = {
+            "session_id": "test-session",
+            "transcript_path": str(transcript_path),
+            "cwd": "/test/project",
+        }
 
-            # Call hook
-            result = await wrapper._stop_hook(input_data, None, Mock())
+        # Call hook
+        result = await wrapper._stop_hook(input_data, None, Mock())
 
-            assert result == {}
+        assert result == {}
 
-            # Wait for background task
-            if wrapper._storage_tasks:
-                await asyncio.gather(*wrapper._storage_tasks)
+        # Wait for background task
+        if wrapper._storage_tasks:
+            await asyncio.gather(*wrapper._storage_tasks)
 
-            # Flush batch to trigger storage
-            await wrapper._flush_batch()
+        # Flush batch to trigger storage
+        await wrapper._flush_batch()
 
-            # Verify storage was called with AGENT_RESPONSE type
-            mock_storage.store_memory.assert_called()
-            call_args = mock_storage.store_memory.call_args
-            assert call_args[0][2] == MemoryType.AGENT_RESPONSE
-            assert call_args[0][5] == COLLECTION_DISCUSSIONS
-            assert "Here is the solution" in call_args[0][0]  # content
+        # Verify storage was called with AGENT_RESPONSE type
+        mock_storage.store_memory.assert_called()
+        call_args = mock_storage.store_memory.call_args
+        assert call_args[0][2] == MemoryType.AGENT_RESPONSE
+        assert call_args[0][5] == COLLECTION_DISCUSSIONS
+        assert "Here is the solution" in call_args[0][0]  # content
 
 
 @pytest.mark.asyncio
@@ -396,9 +405,11 @@ async def test_receive_response_method():
 @pytest.mark.asyncio
 async def test_missing_api_key_raises():
     """Test wrapper raises ValueError if ANTHROPIC_API_KEY not found."""
-    with patch.dict("os.environ", {}, clear=True):
-        with pytest.raises(ValueError, match="ANTHROPIC_API_KEY not found"):
-            AgentSDKWrapper(cwd="/test/project")
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        pytest.raises(ValueError, match="ANTHROPIC_API_KEY not found"),
+    ):
+        AgentSDKWrapper(cwd="/test/project")
 
 
 # ==============================================================================
@@ -409,98 +420,104 @@ async def test_missing_api_key_raises():
 @pytest.mark.asyncio
 async def test_duplicate_content_not_stored_twice(mock_storage):
     """Test same content only stored once (deduplication)."""
-    with patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"):
-        with patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup:
-            # First call: not duplicate
-            # Second call: is duplicate
-            mock_dedup.side_effect = [
-                Mock(is_duplicate=False),  # First check
-                Mock(is_duplicate=True, existing_id="mem_123"),  # Second check
-            ]
+    with (
+        patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"),
+        patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup,
+    ):
+        # First call: not duplicate
+        # Second call: is duplicate
+        mock_dedup.side_effect = [
+            Mock(is_duplicate=False),  # First check
+            Mock(is_duplicate=True, existing_id="mem_123"),  # Second check
+        ]
 
-            wrapper = AgentSDKWrapper(
-                cwd="/test/project",
-                api_key="test-key",
-                storage=mock_storage,
-            )
+        wrapper = AgentSDKWrapper(
+            cwd="/test/project",
+            api_key="test-key",
+            storage=mock_storage,
+        )
 
-            # Queue same content twice
-            from src.memory.models import MemoryType
+        # Queue same content twice
+        from src.memory.models import MemoryType
 
-            await wrapper._queue_memory(
-                "test content", MemoryType.IMPLEMENTATION, "code-patterns", "test"
-            )
-            await wrapper._queue_memory(
-                "test content", MemoryType.IMPLEMENTATION, "code-patterns", "test"
-            )
+        await wrapper._queue_memory(
+            "test content", MemoryType.IMPLEMENTATION, "code-patterns", "test"
+        )
+        await wrapper._queue_memory(
+            "test content", MemoryType.IMPLEMENTATION, "code-patterns", "test"
+        )
 
-            # Flush batch
-            await wrapper._flush_batch()
+        # Flush batch
+        await wrapper._flush_batch()
 
-            # Should only have one storage call (duplicate skipped)
-            assert mock_storage.store_memory.call_count == 1
+        # Should only have one storage call (duplicate skipped)
+        assert mock_storage.store_memory.call_count == 1
 
 
 @pytest.mark.asyncio
 async def test_different_content_stored_separately(mock_storage):
     """Test different content stored as separate memories."""
-    with patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"):
-        with patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup:
-            # Both are unique
-            mock_dedup.return_value = Mock(is_duplicate=False)
+    with (
+        patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"),
+        patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup,
+    ):
+        # Both are unique
+        mock_dedup.return_value = Mock(is_duplicate=False)
 
-            wrapper = AgentSDKWrapper(
-                cwd="/test/project",
-                api_key="test-key",
-                storage=mock_storage,
-            )
+        wrapper = AgentSDKWrapper(
+            cwd="/test/project",
+            api_key="test-key",
+            storage=mock_storage,
+        )
 
-            from src.memory.models import MemoryType
+        from src.memory.models import MemoryType
 
-            # Queue different content
-            await wrapper._queue_memory(
-                "content 1", MemoryType.IMPLEMENTATION, "code-patterns", "test"
-            )
-            await wrapper._queue_memory(
-                "content 2", MemoryType.IMPLEMENTATION, "code-patterns", "test"
-            )
+        # Queue different content
+        await wrapper._queue_memory(
+            "content 1", MemoryType.IMPLEMENTATION, "code-patterns", "test"
+        )
+        await wrapper._queue_memory(
+            "content 2", MemoryType.IMPLEMENTATION, "code-patterns", "test"
+        )
 
-            # Flush batch
-            await wrapper._flush_batch()
+        # Flush batch
+        await wrapper._flush_batch()
 
-            # Should have two storage calls
-            assert mock_storage.store_memory.call_count == 2
+        # Should have two storage calls
+        assert mock_storage.store_memory.call_count == 2
 
 
 @pytest.mark.asyncio
 async def test_duplicate_in_pending_queue_detected(mock_storage):
     """Test duplicate detected in pending queue (fast path)."""
-    with patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"):
-        with patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup:
-            # First call checks Qdrant (not duplicate)
-            mock_dedup.return_value = Mock(is_duplicate=False)
+    with (
+        patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"),
+        patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup,
+    ):
+        # First call checks Qdrant (not duplicate)
+        mock_dedup.return_value = Mock(is_duplicate=False)
 
-            wrapper = AgentSDKWrapper(
-                cwd="/test/project",
-                api_key="test-key",
-                storage=mock_storage,
-            )
+        wrapper = AgentSDKWrapper(
+            cwd="/test/project",
+            api_key="test-key",
+            storage=mock_storage,
+        )
 
-            from src.memory.models import MemoryType
+        from src.memory.models import MemoryType
 
-            # Queue same content twice (should detect in pending queue)
-            await wrapper._queue_memory(
-                "test content", MemoryType.IMPLEMENTATION, "code-patterns", "test"
-            )
-            await wrapper._queue_memory(
-                "test content", MemoryType.IMPLEMENTATION, "code-patterns", "test"
-            )
+        # Queue same content twice (should detect in pending queue)
+        await wrapper._queue_memory(
+            "test content", MemoryType.IMPLEMENTATION, "code-patterns", "test"
+        )
+        await wrapper._queue_memory(
+            "test content", MemoryType.IMPLEMENTATION, "code-patterns", "test"
+        )
 
-            # Dedup should only be called once (second is detected in pending queue)
-            assert mock_dedup.call_count == 1
+        # Dedup should only be called once (second is detected in pending queue)
+        assert mock_dedup.call_count == 1
 
-            # Queue should only have one item
-            assert len(wrapper._batch_queue) == 1
+        # Queue should only have one item
+        assert len(wrapper._batch_queue) == 1
 
 
 # ==============================================================================
@@ -511,30 +528,32 @@ async def test_duplicate_in_pending_queue_detected(mock_storage):
 @pytest.mark.asyncio
 async def test_batch_flushes_at_size_limit(mock_storage):
     """Test batch flushes when size limit reached."""
-    with patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"):
-        with patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup:
-            mock_dedup.return_value = Mock(is_duplicate=False)
+    with (
+        patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"),
+        patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup,
+    ):
+        mock_dedup.return_value = Mock(is_duplicate=False)
 
-            wrapper = AgentSDKWrapper(
-                cwd="/test/project",
-                api_key="test-key",
-                storage=mock_storage,
+        wrapper = AgentSDKWrapper(
+            cwd="/test/project",
+            api_key="test-key",
+            storage=mock_storage,
+        )
+        wrapper._batch_size = 3  # Small batch for testing
+
+        from src.memory.models import MemoryType
+
+        # Add 3 items (should trigger flush)
+        for i in range(3):
+            await wrapper._queue_memory(
+                f"content {i}", MemoryType.IMPLEMENTATION, "code-patterns", "test"
             )
-            wrapper._batch_size = 3  # Small batch for testing
 
-            from src.memory.models import MemoryType
+        # Allow flush task to complete
+        await asyncio.sleep(0.1)
 
-            # Add 3 items (should trigger flush)
-            for i in range(3):
-                await wrapper._queue_memory(
-                    f"content {i}", MemoryType.IMPLEMENTATION, "code-patterns", "test"
-                )
-
-            # Allow flush task to complete
-            await asyncio.sleep(0.1)
-
-            # Should have triggered flush
-            assert mock_storage.store_memory.call_count == 3
+        # Should have triggered flush
+        assert mock_storage.store_memory.call_count == 3
 
 
 @pytest.mark.asyncio
@@ -611,27 +630,29 @@ async def test_periodic_flush():
 @pytest.mark.asyncio
 async def test_dedup_graceful_degradation(mock_storage):
     """Test graceful degradation when dedup check fails."""
-    with patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"):
-        with patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup:
-            # Dedup check fails
-            mock_dedup.side_effect = Exception("Qdrant unavailable")
+    with (
+        patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"),
+        patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup,
+    ):
+        # Dedup check fails
+        mock_dedup.side_effect = Exception("Qdrant unavailable")
 
-            wrapper = AgentSDKWrapper(
-                cwd="/test/project",
-                api_key="test-key",
-                storage=mock_storage,
-            )
+        wrapper = AgentSDKWrapper(
+            cwd="/test/project",
+            api_key="test-key",
+            storage=mock_storage,
+        )
 
-            from src.memory.models import MemoryType
+        from src.memory.models import MemoryType
 
-            # Should still queue despite dedup error
-            await wrapper._queue_memory(
-                "test", MemoryType.IMPLEMENTATION, "code-patterns", "test"
-            )
+        # Should still queue despite dedup error
+        await wrapper._queue_memory(
+            "test", MemoryType.IMPLEMENTATION, "code-patterns", "test"
+        )
 
-            # Queue should have item (graceful degradation)
-            assert len(wrapper._batch_queue) == 1
+        # Queue should have item (graceful degradation)
+        assert len(wrapper._batch_queue) == 1
 
-            # Flush should succeed
-            await wrapper._flush_batch()
-            assert mock_storage.store_memory.call_count == 1
+        # Flush should succeed
+        await wrapper._flush_batch()
+        assert mock_storage.store_memory.call_count == 1

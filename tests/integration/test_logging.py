@@ -240,9 +240,10 @@ class TestLogOutputFormat:
         logger.setLevel(logging.ERROR)
 
         # Simulate an operation that fails
-        with pytest.raises(ValueError):
-            with timed_operation("failing_op", logger, extra={"attempt": 1}):
-                raise ValueError("Test error")
+        with pytest.raises(ValueError), timed_operation(
+            "failing_op", logger, extra={"attempt": 1}
+        ):
+            raise ValueError("Test error")
 
         output = stream.getvalue().strip()
         log_data = json.loads(output)

@@ -35,10 +35,13 @@ from qdrant_client.models import FieldCondition, Filter, MatchValue
 # Mock claude_agent_sdk before importing AgentSDKWrapper
 sys.modules["claude_agent_sdk"] = MagicMock()
 
-from src.memory.agent_sdk_wrapper import AgentSDKWrapper
-from src.memory.config import COLLECTION_CODE_PATTERNS, COLLECTION_DISCUSSIONS
-from src.memory.models import MemoryType
-from src.memory.storage import MemoryStorage
+from src.memory.agent_sdk_wrapper import AgentSDKWrapper  # noqa: E402
+from src.memory.config import (  # noqa: E402
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_DISCUSSIONS,
+)
+from src.memory.models import MemoryType  # noqa: E402
+from src.memory.storage import MemoryStorage  # noqa: E402
 
 # Skip entire module if services unavailable
 pytestmark = [

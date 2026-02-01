@@ -9,6 +9,7 @@ Best Practices (2025/2026):
 - https://qdrant.tech/articles/vector-search-resource-optimization/
 """
 
+import contextlib
 import logging
 import time
 
@@ -713,14 +714,12 @@ class MemorySearch:
         """Close clients on garbage collection.
 
         Note:
-            Uses try/except to handle interpreter shutdown safely.
+            Uses contextlib.suppress to handle interpreter shutdown safely.
             Prefer using context manager or explicit close() instead.
         """
-        try:
+        # Silently ignore errors during interpreter shutdown
+        with contextlib.suppress(Exception):
             self.close()
-        except Exception:
-            # Silently ignore errors during interpreter shutdown
-            pass
 
 
 def retrieve_best_practices(

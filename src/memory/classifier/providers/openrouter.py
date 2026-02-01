@@ -145,13 +145,13 @@ class OpenRouterProvider(BaseProvider):
 
         except httpx.TimeoutException as e:
             logger.error("openrouter_timeout", extra={"error": str(e)})
-            raise TimeoutError(f"OpenRouter request timed out: {e}")
+            raise TimeoutError(f"OpenRouter request timed out: {e}") from e
         except httpx.HTTPError as e:
             logger.error("openrouter_http_error", extra={"error": str(e)})
-            raise ConnectionError(f"OpenRouter HTTP error: {e}")
+            raise ConnectionError(f"OpenRouter HTTP error: {e}") from e
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             logger.error("openrouter_parse_error", extra={"error": str(e)})
-            raise ValueError(f"Invalid OpenRouter response: {e}")
+            raise ValueError(f"Invalid OpenRouter response: {e}") from e
 
     def close(self):
         """Clean up HTTP client."""

@@ -138,12 +138,12 @@ class ClaudeProvider(BaseProvider):
             error_type = type(e).__name__
             if "timeout" in str(e).lower():
                 logger.error("claude_timeout", extra={"error": str(e)})
-                raise TimeoutError(f"Claude request timed out: {e}")
+                raise TimeoutError(f"Claude request timed out: {e}") from e
             elif "api" in str(e).lower() or "auth" in str(e).lower():
                 logger.error("claude_api_error", extra={"error": str(e)})
-                raise ConnectionError(f"Claude API error: {e}")
+                raise ConnectionError(f"Claude API error: {e}") from e
             else:
                 logger.error(
                     "claude_error", extra={"error": str(e), "type": error_type}
                 )
-                raise ValueError(f"Claude error: {e}")
+                raise ValueError(f"Claude error: {e}") from e
