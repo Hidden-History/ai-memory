@@ -75,6 +75,11 @@ from .timing import timed_operation
 from .validation import ValidationError, compute_content_hash, validate_payload
 from .warnings import check_collection_thresholds
 
+# Submodule exports for test mocking compatibility (Python 3.10+)
+# These must be imported as modules (not just their contents) to support
+# patch("memory.metrics.collection_size") style mocking
+from . import metrics, stats, warnings
+
 __all__ = [
     # Configuration (Story 1.4)
     "MemoryConfig",
