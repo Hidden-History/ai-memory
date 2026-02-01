@@ -240,12 +240,19 @@ main() {
         create_directories
         copy_files
         configure_environment
-        start_services
-        wait_for_services
-        setup_collections
-        copy_env_template
-        run_health_check
-        seed_best_practices
+
+        # Skip Docker-related steps if SKIP_DOCKER_CHECKS is set (for CI without Docker)
+        if [[ "${SKIP_DOCKER_CHECKS:-}" == "true" ]]; then
+            log_info "Skipping Docker services (SKIP_DOCKER_CHECKS=true)"
+            copy_env_template
+        else
+            start_services
+            wait_for_services
+            setup_collections
+            copy_env_template
+            run_health_check
+            seed_best_practices
+        fi
     else
         log_info "Skipping shared infrastructure setup (add-project mode)"
         # BUG-028: Update shared scripts to ensure compatibility with this installer version
@@ -424,37 +431,42 @@ check_prerequisites() {
 
     local failed=false
 
-    # Check Docker installation
-    if ! command -v docker &> /dev/null; then
-        log_error "Docker is not installed."
-        echo ""
-        echo "Please install Docker first:"
-        echo "  Ubuntu/Debian: sudo apt install docker.io docker-compose-plugin"
-        echo "  macOS: brew install --cask docker"
-        echo "  Windows: Install Docker Desktop with WSL2 backend"
-        echo ""
-        echo "For more information: https://docs.docker.com/engine/install/"
-        failed=true
-    fi
+    # SKIP_DOCKER_CHECKS: For CI environments without Docker (e.g., macOS GitHub Actions)
+    if [[ "${SKIP_DOCKER_CHECKS:-}" == "true" ]]; then
+        log_info "Skipping Docker checks (SKIP_DOCKER_CHECKS=true)"
+    else
+        # Check Docker installation
+        if ! command -v docker &> /dev/null; then
+            log_error "Docker is not installed."
+            echo ""
+            echo "Please install Docker first:"
+            echo "  Ubuntu/Debian: sudo apt install docker.io docker-compose-plugin"
+            echo "  macOS: brew install --cask docker"
+            echo "  Windows: Install Docker Desktop with WSL2 backend"
+            echo ""
+            echo "For more information: https://docs.docker.com/engine/install/"
+            failed=true
+        fi
 
-    # Check Docker daemon is running
-    if command -v docker &> /dev/null && ! docker info &> /dev/null; then
-        show_docker_not_running_error
-    fi
+        # Check Docker daemon is running
+        if command -v docker &> /dev/null && ! docker info &> /dev/null; then
+            show_docker_not_running_error
+        fi
 
-    # Check Docker Compose V2 (REQUIRED for condition: service_healthy)
-    if ! docker compose version &> /dev/null; then
-        log_error "Docker Compose V2 is not available."
-        echo ""
-        echo "Please install Docker Compose V2:"
-        echo "  Ubuntu/Debian: sudo apt install docker-compose-plugin"
-        echo "  macOS: Included with Docker Desktop"
-        echo ""
-        echo "NOTE: V2 is REQUIRED for proper health check support (condition: service_healthy)"
-        echo "      V1 (docker-compose) is not supported."
-        echo ""
-        echo "For more information: https://docs.docker.com/compose/install/"
-        failed=true
+        # Check Docker Compose V2 (REQUIRED for condition: service_healthy)
+        if ! docker compose version &> /dev/null; then
+            log_error "Docker Compose V2 is not available."
+            echo ""
+            echo "Please install Docker Compose V2:"
+            echo "  Ubuntu/Debian: sudo apt install docker-compose-plugin"
+            echo "  macOS: Included with Docker Desktop"
+            echo ""
+            echo "NOTE: V2 is REQUIRED for proper health check support (condition: service_healthy)"
+            echo "      V1 (docker-compose) is not supported."
+            echo ""
+            echo "For more information: https://docs.docker.com/compose/install/"
+            failed=true
+        fi
     fi
 
     # Check Python 3.10+ (REQUIRED for async support and improved type hints)
@@ -488,7 +500,10 @@ check_prerequisites() {
     # Check port availability using ss (primary) or lsof (fallback)
     # Per 2025/2026 best practices: ss is faster and more universally available
     # SKIP in add-project mode - ports are expected to be in use by existing services
-    if [[ "${INSTALL_MODE:-full}" == "full" ]]; then
+    # SKIP when SKIP_DOCKER_CHECKS is set (no services to bind ports)
+    if [[ "${SKIP_DOCKER_CHECKS:-}" == "true" ]]; then
+        log_info "Skipping port checks (SKIP_DOCKER_CHECKS=true)"
+    elif [[ "${INSTALL_MODE:-full}" == "full" ]]; then
         check_port_available "$QDRANT_PORT" "Qdrant"
         check_port_available "$EMBEDDING_PORT" "Embedding Service"
         check_port_available "$MONITORING_PORT" "Monitoring API"

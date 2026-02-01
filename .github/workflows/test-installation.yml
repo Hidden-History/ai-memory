@@ -54,6 +54,7 @@ jobs:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
           AI_MEMORY_QDRANT_PORT: 26350
           AI_MEMORY_EMBEDDING_PORT: 28080
+          QDRANT_API_KEY: test-ci-key
           NON_INTERACTIVE: "true"
         run: |
           chmod +x scripts/install.sh
@@ -70,6 +71,7 @@ jobs:
       - name: Run health check
         env:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
+          QDRANT_API_KEY: test-ci-key
         run: |
           python3 $AI_MEMORY_INSTALL_DIR/scripts/health-check.py
 
@@ -78,6 +80,7 @@ jobs:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
           AI_MEMORY_QDRANT_PORT: 26350
           AI_MEMORY_EMBEDDING_PORT: 28080
+          QDRANT_API_KEY: test-ci-key
         run: |
           pytest tests/integration/test_installation.py -v --tb=short
           pytest tests/integration/test_platform.py -v --tb=short
@@ -123,6 +126,7 @@ jobs:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
           AI_MEMORY_QDRANT_PORT: 26350
           AI_MEMORY_EMBEDDING_PORT: 28080
+          SKIP_DOCKER_CHECKS: "true"
           NON_INTERACTIVE: "true"
         run: |
           chmod +x scripts/install.sh
@@ -146,6 +150,7 @@ jobs:
       - name: Run integration tests
         env:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
+          SKIP_DOCKER_CHECKS: "true"
         run: |
           # Only run platform tests, skip installation tests that require Docker
           pytest tests/integration/test_platform.py -v --tb=short
