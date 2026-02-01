@@ -23,7 +23,7 @@ class TestClassifierConfig:
         assert CLASSIFIER_ENABLED is True  # Default
         assert CONFIDENCE_THRESHOLD == 0.7
         assert MIN_CONTENT_LENGTH == 20
-        assert OLLAMA_MODEL == "llama3.2"
+        assert OLLAMA_MODEL == "sam860/LFM2:2.6b"
         assert PRIMARY_PROVIDER == "ollama"
 
     def test_env_override(self, monkeypatch):

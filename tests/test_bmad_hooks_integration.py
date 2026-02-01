@@ -76,6 +76,11 @@ def run_hook_script(
     if env:
         test_env.update(env)
 
+    # Add src to PYTHONPATH so hook scripts can find memory module
+    src_path = str(PROJECT_ROOT / "src")
+    existing_pythonpath = test_env.get("PYTHONPATH", "")
+    test_env["PYTHONPATH"] = f"{src_path}:{existing_pythonpath}" if existing_pythonpath else src_path
+
     # Run the script
     result = subprocess.run(
         cmd,

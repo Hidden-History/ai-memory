@@ -133,14 +133,14 @@ class TestFirstEditTriggerHook:
         assert result.stdout.strip() == ""
 
 
-class TestDecisionKeywordTriggerHook:
-    """Integration tests for decision_keyword_trigger.py hook."""
+class TestUnifiedKeywordTriggerHook:
+    """Integration tests for unified_keyword_trigger.py hook (TECH-DEBT-062)."""
 
     @pytest.fixture
     def hook_script(self):
-        """Path to decision_keyword_trigger.py."""
+        """Path to unified_keyword_trigger.py (consolidated trigger)."""
         project_root = os.path.dirname(os.path.dirname(__file__))
-        return os.path.join(project_root, ".claude/hooks/scripts/decision_keyword_trigger.py")
+        return os.path.join(project_root, ".claude/hooks/scripts/unified_keyword_trigger.py")
 
     def test_hook_handles_malformed_json(self, hook_script):
         """Hook gracefully degrades on malformed JSON input."""
@@ -154,11 +154,11 @@ class TestDecisionKeywordTriggerHook:
         # Should exit 0 (graceful degradation)
         assert result.returncode == 0
 
-    def test_hook_handles_missing_user_input(self, hook_script):
-        """Hook handles missing user_input."""
+    def test_hook_handles_missing_prompt(self, hook_script):
+        """Hook handles missing prompt."""
         hook_input = {
             "cwd": "/tmp"
-            # Missing user_input
+            # Missing prompt
         }
         result = subprocess.run(
             [sys.executable, hook_script],
@@ -173,7 +173,7 @@ class TestDecisionKeywordTriggerHook:
     def test_hook_handles_no_keywords(self, hook_script):
         """Hook handles prompts without decision keywords."""
         hook_input = {
-            "user_input": "How do I implement authentication?",
+            "prompt": "How do I implement authentication?",  # Unified trigger uses "prompt" not "user_input"
             "cwd": "/tmp"
         }
         result = subprocess.run(
@@ -195,7 +195,7 @@ class TestHooksGracefulDegradation:
     @pytest.fixture(params=[
         ".claude/hooks/scripts/new_file_trigger.py",
         ".claude/hooks/scripts/first_edit_trigger.py",
-        ".claude/hooks/scripts/decision_keyword_trigger.py"
+        ".claude/hooks/scripts/unified_keyword_trigger.py"  # TECH-DEBT-062: Consolidated trigger
     ])
     def hook_script(self, request):
         """Parametrized fixture for all trigger hooks."""

@@ -82,7 +82,7 @@ def detect_component_from_path(file_path: str) -> Tuple[str, str]:
     """
     # Extract relevant path parts to avoid project name pollution
     # Strategy: Find 'src', 'lib', 'app' marker and use path from there, or just last 2 parts
-    # e.g., /mnt/e/projects/ai-memory-test/src/config_parser.py → src/config_parser.py
+    # e.g., /path/to/project/src/config_parser.py → src/config_parser.py
     parts = Path(file_path).parts
 
     # Find common source markers

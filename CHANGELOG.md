@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **README.md** - Added Quick Start, Knowledge Discovery section, clarified BMAD relationship
 - **INSTALL.md** - Added warning about installing once, emphasized cd to existing directory
 - **docs/COMMANDS.md** - Added Skills & Agents section (best-practices-researcher, skill-creator, search-memory, memory-status, memory-settings)
-- **Repository URLs**: Updated from `wbsolutions-ca/bmad-memory` to `Hidden-History/ai-memory`
+- **Repository URLs**: Updated from `[redacted]/ai-memory` to `Hidden-History/ai-memory`
 
 ### Fixed
 - **PreCompact hook documentation**: Added missing documentation

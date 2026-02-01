@@ -342,8 +342,8 @@ SessionStart hooks with JSON `additionalContext` output appear to not inject con
 **Evidence:**
 ```bash
 # Manual test shows hooks work and retrieve correct memories
-echo '{"session_id":"test","cwd":"/mnt/e/projects/ai-memory-test","source":"startup"}' | \
-  python3 /home/parzival/.ai-memory/.claude/hooks/scripts/session_start.py
+echo '{"session_id":"test","cwd":"/path/to/your/project","source":"startup"}' | \
+  python3 ~/.ai-memory/.claude/hooks/scripts/session_start.py
 
 # Output: Valid JSON with 4 memories including Grafana guides at 42% relevance
 ```
@@ -391,7 +391,7 @@ Based on working reference architecture (`ai-memory-qdrant-knowledge-management`
 
 **Testing Plan**:
 
-1. Restart Claude Code in test project: `cd /mnt/e/projects/ai-memory-test && claude`
+1. Restart Claude Code in test project: `cd /path/to/your/project && claude`
 2. Use test prompt: "The Grafana dashboards at docker/grafana/dashboards/ are showing 'No data' for most panels. Please fix the dashboard JSON files so they use metrics that actually exist in Prometheus."
 3. Watch for formatted box with "🧠 RELEVANT CONTEXT" in terminal
 4. Verify Claude mentions "Grafana Dashboard Fix Guide" in response

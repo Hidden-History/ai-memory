@@ -313,8 +313,13 @@ class TestFormatResult:
         assert "auth, jwt, security" in formatted
         assert "Use JWT" in formatted
 
-    def test_format_result_truncates_long_content(self):
-        """Verify long content is truncated."""
+    def test_format_result_displays_long_content(self):
+        """Verify long content is displayed (not truncated for context injection).
+
+        Note: format_result() does NOT truncate - it's for stdout display.
+        Content truncation happens earlier in search_single_trigger via
+        smart_truncate() for OTHER memories (not session summaries).
+        """
         result = {
             "content": "x" * 1000,  # Very long content
             "score": 0.9,
@@ -325,20 +330,14 @@ class TestFormatResult:
 
         formatted = ukt.format_result(result, 1)
 
-        # Should be truncated to 500 chars + formatting
-        assert len(formatted) < 600
+        # Should include full content (format_result does NOT truncate)
+        assert "x" * 1000 in formatted
+        assert "1." in formatted
+        assert "implementation" in formatted
 
 
 class TestMetricsPushing:
     """Tests for metrics push correctness (CR-FIX HIGH-2)."""
-
-    @pytest.fixture(autouse=True)
-    def reset_circuit_breaker(self):
-        """Reset circuit breaker before each test."""
-        ukt._circuit_breaker.failures = 0
-        ukt._circuit_breaker.is_open = False
-        ukt._circuit_breaker.last_failure = 0.0
-        yield
 
     @pytest.mark.asyncio
     async def test_metrics_track_found_vs_shown(self):

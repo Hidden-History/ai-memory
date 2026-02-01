@@ -92,11 +92,11 @@ def test_counter_metrics_have_correct_labels():
     # memory_retrievals_total: ["collection", "status"]
     assert memory_retrievals_total._labelnames == ("collection", "status")
 
-    # embedding_requests_total: ["status"]
-    assert embedding_requests_total._labelnames == ("status",)
+    # embedding_requests_total: ["status", "embedding_type"] - updated per production
+    assert embedding_requests_total._labelnames == ("status", "embedding_type")
 
-    # deduplication_events_total: ["project"]
-    assert deduplication_events_total._labelnames == ("project",)
+    # deduplication_events_total: ["action", "collection", "project"] - updated per production (BUG-021)
+    assert deduplication_events_total._labelnames == ("action", "collection", "project")
 
     # failure_events_total: ["component", "error_code"]
     assert failure_events_total._labelnames == ("component", "error_code")
@@ -121,15 +121,15 @@ def test_histogram_metrics_have_correct_buckets():
         retrieval_duration_seconds,
     )
 
-    # hook_duration_seconds: buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
+    # hook_duration_seconds: buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0] - per production
     expected_hook_buckets = [0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, float("inf")]
     assert hook_duration_seconds._upper_bounds == expected_hook_buckets
 
-    # embedding_duration_seconds: buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
-    expected_embedding_buckets = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, float("inf")]
+    # embedding_duration_seconds: buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0] - per production
+    expected_embedding_buckets = [0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, float("inf")]
     assert embedding_duration_seconds._upper_bounds == expected_embedding_buckets
 
-    # retrieval_duration_seconds: buckets=[0.1, 0.5, 1.0, 2.0, 3.0, 5.0]
+    # retrieval_duration_seconds: buckets=[0.1, 0.5, 1.0, 2.0, 3.0, 5.0] - per production
     expected_retrieval_buckets = [0.1, 0.5, 1.0, 2.0, 3.0, 5.0, float("inf")]
     assert retrieval_duration_seconds._upper_bounds == expected_retrieval_buckets
 
@@ -142,18 +142,18 @@ def test_histogram_metrics_have_correct_labels():
         retrieval_duration_seconds,
     )
 
-    # hook_duration_seconds: ["hook_type"]
+    # hook_duration_seconds: ["hook_type"] - per production
     assert hook_duration_seconds._labelnames == ("hook_type",)
 
-    # embedding_duration_seconds: no labels
-    assert embedding_duration_seconds._labelnames == ()
+    # embedding_duration_seconds: ["embedding_type"] - per production
+    assert embedding_duration_seconds._labelnames == ("embedding_type",)
 
-    # retrieval_duration_seconds: no labels
+    # retrieval_duration_seconds: no labels - per production
     assert retrieval_duration_seconds._labelnames == ()
 
 
 def test_metric_naming_follows_snake_case_convention():
-    """Test that all metrics follow snake_case and bmad_ prefix conventions."""
+    """Test that all metrics follow snake_case and ai_memory_ prefix conventions."""
     from memory import metrics
 
     metric_names = [
@@ -174,10 +174,10 @@ def test_metric_naming_follows_snake_case_convention():
         assert hasattr(metrics, name), f"Missing metric: {name}"
         metric = getattr(metrics, name)
 
-        # Check Prometheus metric name starts with bmad_
+        # Check Prometheus metric name starts with ai_memory_ (project renamed from bmad)
         if hasattr(metric, "_name"):
-            assert metric._name.startswith("bmad_"), \
-                f"Metric {name} should have Prometheus name starting with 'bmad_'"
+            assert metric._name.startswith("ai_memory_"), \
+                f"Metric {name} should have Prometheus name starting with 'ai_memory_'"
             # Check snake_case (no uppercase letters)
             assert metric._name.islower() or "_" in metric._name, \
                 f"Metric {name} Prometheus name should be snake_case"

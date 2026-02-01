@@ -2,7 +2,7 @@
   "session_id": "sess_resume_test_002",
   "transcript_path": "/tmp/test_transcript_resume.jsonl",
   "event_type": "resume",
-  "cwd": "/mnt/e/projects/ai-memory-module",
+  "cwd": "/tmp/test-project",
   "transcript_entries": [
     {
       "role": "user",

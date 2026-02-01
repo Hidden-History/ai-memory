@@ -108,10 +108,11 @@ services:
     networks:
       - default
     # BP-040: Healthcheck with basic auth via Authorization header
-    # BusyBox wget doesn't support --user/--password, using --header instead
+    # Generate new hash: echo "$(htpasswd -nBC 10 admin)" | base64
+    # Then set PROMETHEUS_BASIC_AUTH_HEADER in .env (format: "Basic <base64>")
     # Note: For production, use external monitoring (Grafana checks, monitoring-api)
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "--header=Authorization: Basic YWRtaW46NUhDZjl2NWxhTzBqeHhMY1h0bnlZajdH", "http://localhost:9090/-/healthy"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "--header=Authorization: ${PROMETHEUS_BASIC_AUTH_HEADER:-Basic REPLACE_WITH_BASE64_CREDENTIALS}", "http://localhost:9090/-/healthy"]
       interval: 30s
       timeout: 10s
       retries: 3

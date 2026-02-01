@@ -12,11 +12,14 @@ from src.memory.chunking import (
     ContentType,
 )
 
-# Try to import ASTChunker (may not be available if tree-sitter not installed)
+# Try to import AND instantiate ASTChunker (tree-sitter must be installed)
 try:
     from src.memory.chunking import ASTChunker
+    # Actually test if we can create an instance - this is where tree-sitter is required
+    _test_chunker = ASTChunker()
+    del _test_chunker
     AST_CHUNKER_AVAILABLE = True
-except ImportError:
+except (ImportError, Exception):
     AST_CHUNKER_AVAILABLE = False
     ASTChunker = None
 

@@ -6,7 +6,7 @@ F1: Unit tests for BUG-045 fix - health file creation at startup.
 import asyncio
 import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 import sys
 import os
 
@@ -85,7 +85,7 @@ class TestHealthFileCreation:
         health_file = tmp_path / "worker.health"
 
         # Set up logging to capture structured logs
-        caplog.set_level(logging.DEBUG, logger="bmad.memory.classifier.processor")
+        caplog.set_level(logging.DEBUG, logger="ai_memory.classifier.processor")
 
         with patch("scripts.memory.process_classification_queue.Path") as mock_path:
             mock_path_instance = MagicMock()
@@ -103,7 +103,7 @@ class TestHealthFileCreation:
         from scripts.memory.process_classification_queue import _touch_health_file
 
         # Set up logging to capture structured logs
-        caplog.set_level(logging.WARNING, logger="bmad.memory.classifier.processor")
+        caplog.set_level(logging.WARNING, logger="ai_memory.classifier.processor")
 
         with patch("scripts.memory.process_classification_queue.Path") as mock_path:
             # Simulate permission error
@@ -138,10 +138,8 @@ class TestHealthFileCreation:
             mock_logging.return_value = MagicMock()
             mock_queue_size.return_value = 0
 
-            # Make process_queue return immediately for test
-            async def immediate_return():
-                pass
-            mock_process_queue.return_value = immediate_return()
+            # Make process_queue return immediately for test (use AsyncMock to avoid coroutine warning)
+            mock_process_queue.side_effect = AsyncMock(return_value=None)
 
             worker = ClassificationWorker(batch_size=10, poll_interval=5.0)
 

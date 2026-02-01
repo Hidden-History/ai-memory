@@ -177,6 +177,7 @@ def test_sdk_wrapper_uses_env_api_key(MockStorage, MockAnthropic, tmp_path):
     MockAnthropic.assert_called_once_with(api_key="env_api_key")
 
 
+@patch.dict("os.environ", {}, clear=True)
 @patch("src.memory.sdk_wrapper.Anthropic")
 def test_sdk_wrapper_raises_without_api_key(MockAnthropic, tmp_path):
     """Test SDKWrapper raises ValueError if no API key available."""

@@ -55,7 +55,7 @@ class TestStopHookInfrastructure:
         """
         hook_input = {
             "session_id": "sess-test-stop-001",
-            "cwd": "/mnt/e/projects/test-project",
+            "cwd": "/tmp/test-project",
             "transcript": (
                 "User: Edit the file\n"
                 "Assistant: [Edit tool] Modified file.py\n"
@@ -93,7 +93,7 @@ class TestStopHookInfrastructure:
         """
         hook_input = {
             "session_id": "sess-test-stop-002",
-            "cwd": "/mnt/e/projects/test-project",
+            "cwd": "/tmp/test-project",
             # No transcript field
             "metadata": {}
         }
@@ -116,7 +116,7 @@ class TestStopHookInfrastructure:
         """
         hook_input = {
             "session_id": "sess-test-stop-003",
-            "cwd": "/mnt/e/projects/test-project",
+            "cwd": "/tmp/test-project",
             "transcript": "",  # Empty string
             "metadata": {}
         }
@@ -161,7 +161,7 @@ class TestHookInputValidation:
         """
         hook_input = {
             # No session_id
-            "cwd": "/mnt/e/projects/test-project",
+            "cwd": "/tmp/test-project",
             "transcript": "Test content"
         }
 
@@ -209,7 +209,7 @@ class TestSessionSummaryBuilding:
         """
         hook_input = {
             "session_id": "sess-test-stop-005",
-            "cwd": "/mnt/e/projects/test-project",
+            "cwd": "/tmp/test-project",
             "transcript": (
                 "[Edit tool] Modified config.py\n"
                 "[Write tool] Created new_file.py\n"
@@ -237,7 +237,7 @@ class TestSessionSummaryBuilding:
         """
         hook_input = {
             "session_id": "sess-test-stop-006",
-            "cwd": "/mnt/e/projects/test-project",
+            "cwd": "/tmp/test-project",
             "transcript": "Multiple file operations in this session transcript.",
             "metadata": {
                 "files_modified": 5
@@ -277,7 +277,7 @@ class TestGracefulDegradation:
         """
         hook_input = {
             "session_id": "sess-test-stop-007",
-            "cwd": "/mnt/e/projects/test-project",
+            "cwd": "/tmp/test-project",
             "transcript": "Test session transcript for Qdrant failure scenario.",
             "metadata": {}
         }
@@ -306,7 +306,7 @@ class TestGracefulDegradation:
         """
         hook_input = {
             "session_id": "sess-test-stop-008",
-            "cwd": "/mnt/e/projects/test-project",
+            "cwd": "/tmp/test-project",
             "transcript": "Test session for embedding service failure.",
             "metadata": {}
         }
@@ -336,7 +336,7 @@ class TestTimeoutHandling:
         """
         hook_input = {
             "session_id": "sess-test-stop-009",
-            "cwd": "/mnt/e/projects/test-project",
+            "cwd": "/tmp/test-project",
             "transcript": "Test session with large transcript " + ("x" * 5000),
             "metadata": {}
         }
@@ -365,7 +365,7 @@ class TestTimeoutHandling:
         """
         hook_input = {
             "session_id": "sess-test-stop-010",
-            "cwd": "/mnt/e/projects/test-project",
+            "cwd": "/tmp/test-project",
             "transcript": "Final test session.",
             "metadata": {}
         }

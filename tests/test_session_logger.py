@@ -110,7 +110,7 @@ class TestGetSessionLogger:
         logger = get_session_logger()
         assert logger is not None
         assert isinstance(logger, logging.Logger)
-        assert logger.name == "bmad.memory.sessions"
+        assert logger.name == "ai_memory.sessions"
 
     def test_creates_log_directory_if_not_exists(self, monkeypatch, temp_log_dir):
         """Test that get_session_logger creates log directory if it doesn't exist."""
@@ -140,7 +140,7 @@ class TestGetSessionLogger:
         monkeypatch.setattr(session_logger_module, "SESSION_LOG_PATH", str(session_log_path))
 
         # Clear any existing logger
-        logging.getLogger("bmad.memory.sessions").handlers.clear()
+        logging.getLogger("ai_memory.sessions").handlers.clear()
 
         logger1 = get_session_logger()
         handler_count_1 = len(logger1.handlers)

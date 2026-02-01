@@ -47,3 +47,18 @@ playwright-report/
 test-results/
 screenshots/
 queue/*.jsonl
+
+# Migration backups (may contain secrets)
+migration-backup*/
+
+# Ruff linter cache
+.ruff_cache/
+
+# Mypy cache
+.mypy_cache/
+
+# SQLite databases
+*.db
+
+# Python package metadata
+*.egg-info/

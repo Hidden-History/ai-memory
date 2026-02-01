@@ -37,8 +37,8 @@ python3 scripts/monitoring/prometheus_query.py --range --start 1h "ai_memory_hoo
 # Raw JSON output
 python3 scripts/monitoring/prometheus_query.py --raw "up"
 
-# Manual curl (if needed)
-curl -u admin:5HCf9v5laO0jxxLcXtnyYj7G "http://localhost:29090/api/v1/query?query=up"
+# Manual curl (if needed) - set PROMETHEUS_PASSWORD env var first
+curl -u admin:$PROMETHEUS_PASSWORD "http://localhost:29090/api/v1/query?query=up"
 ```
 
 **Environment variables for custom credentials:**

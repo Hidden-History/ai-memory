@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Prometheus Query Helper - Authenticated queries to Prometheus API.
 
-Handles basic auth automatically using credentials from environment or defaults.
+Handles basic auth automatically using credentials from environment variables.
 
 Usage:
+    # Set credentials via environment
+    export PROMETHEUS_PASSWORD=your_password
+
     python3 prometheus_query.py "bmad_collection_size"
     python3 prometheus_query.py "rate(ai_memory_captures_total[5m])"
     python3 prometheus_query.py --range "bmad_hook_duration_seconds_sum" --start 1h
@@ -11,6 +14,7 @@ Usage:
 Exit Codes:
     0: Success
     1: Query failed
+    2: Missing credentials
 """
 
 import argparse
@@ -22,10 +26,10 @@ import urllib.parse
 import base64
 from datetime import datetime, timedelta
 
-# Configuration
+# Configuration - credentials MUST be set via environment variables
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:29090")
 PROMETHEUS_USER = os.getenv("PROMETHEUS_USER", "admin")
-PROMETHEUS_PASSWORD = os.getenv("PROMETHEUS_PASSWORD", "5HCf9v5laO0jxxLcXtnyYj7G")
+PROMETHEUS_PASSWORD = os.getenv("PROMETHEUS_PASSWORD", "")
 
 
 def get_auth_header() -> str:

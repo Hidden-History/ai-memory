@@ -110,13 +110,19 @@ def test_store_memory_qdrant_failure(mock_config, mock_qdrant_client, mock_embed
 
 def test_store_memory_duplicate(mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch):
     """Test duplicate detection skips storage and returns existing memory_id (AC 1.5.3)."""
-    # Mock scroll to return existing memory with ID
-    existing_point = Mock()
-    existing_point.id = "existing-uuid-12345"
-    mock_qdrant_client.scroll.return_value = ([existing_point], None)
     monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
+    # Mock metrics to avoid Prometheus label errors in tests
+    monkeypatch.setattr("src.memory.storage.deduplication_events_total", None)
 
     storage = MemoryStorage()
+
+    # Patch qdrant_client on instance AFTER creation to ensure mock is used
+    existing_point = MagicMock()
+    existing_point.id = "existing-uuid-12345"
+    storage.qdrant_client = MagicMock()
+    storage.qdrant_client.scroll.return_value = ([existing_point], None)
+    storage.qdrant_client.upsert = MagicMock()
+
     result = storage.store_memory(
         content="Duplicate content",
         cwd=str(tmp_path),  # Story 4.2: cwd now required
@@ -128,7 +134,7 @@ def test_store_memory_duplicate(mock_config, mock_qdrant_client, mock_embedding_
 
     assert result["status"] == "duplicate"
     assert result["memory_id"] == "existing-uuid-12345"  # AC 1.5.3: Returns existing memory_id
-    mock_qdrant_client.upsert.assert_not_called()
+    storage.qdrant_client.upsert.assert_not_called()
 
 
 def test_store_memory_validation_failure(mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch):
@@ -203,13 +209,19 @@ def test_store_memories_batch_embedding_failure(mock_config, mock_qdrant_client,
     assert all(p.vector == [0.0] * 768 for p in call_args[1]["points"])
 
 
-def test_check_duplicate_found(mock_config, mock_qdrant_client, mock_embedding_client):
+def test_check_duplicate_found(mock_config, mock_qdrant_client, mock_embedding_client, monkeypatch):
     """Test duplicate check returns existing memory_id when hash exists."""
-    existing_point = Mock()
-    existing_point.id = "found-memory-uuid"
-    mock_qdrant_client.scroll.return_value = ([existing_point], None)
+    # Mock metrics to avoid Prometheus label errors in tests
+    monkeypatch.setattr("src.memory.storage.deduplication_events_total", None)
 
     storage = MemoryStorage()
+
+    # Patch qdrant_client on instance AFTER creation to ensure mock is used
+    existing_point = MagicMock()
+    existing_point.id = "found-memory-uuid"
+    storage.qdrant_client = MagicMock()
+    storage.qdrant_client.scroll.return_value = ([existing_point], None)
+
     existing_id = storage._check_duplicate("hash123", "code-patterns", "test-project")
 
     assert existing_id == "found-memory-uuid"

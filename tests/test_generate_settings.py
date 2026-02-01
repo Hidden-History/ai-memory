@@ -24,7 +24,7 @@ def test_generate_hook_config_basic():
     from generate_settings import generate_hook_config
 
     hooks_dir = "/home/user/.ai-memory/.claude/hooks/scripts"
-    config = generate_hook_config(hooks_dir)
+    config = generate_hook_config(hooks_dir, "test-project")
 
     assert "hooks" in config, "Config must have 'hooks' top-level key"
     assert isinstance(config["hooks"], dict), "hooks value must be dict"
@@ -35,22 +35,26 @@ def test_generate_hook_config_session_start():
     from generate_settings import generate_hook_config
 
     hooks_dir = "/test/path/hooks"
-    config = generate_hook_config(hooks_dir)
+    config = generate_hook_config(hooks_dir, "test-project")
 
     assert "SessionStart" in config["hooks"]
     session_start = config["hooks"]["SessionStart"]
     assert isinstance(session_start, list), "SessionStart must be list"
     assert len(session_start) == 1, "SessionStart must have exactly 1 wrapper"
 
-    # Correct structure: wrapper with 'hooks' array
+    # Correct structure: wrapper with 'matcher' + 'hooks' array
     wrapper = session_start[0]
+    assert "matcher" in wrapper, "SessionStart must have 'matcher' field"
+    assert wrapper["matcher"] == "startup|resume|compact|clear"
     assert "hooks" in wrapper, "SessionStart must have 'hooks' array"
     assert isinstance(wrapper["hooks"], list)
     assert len(wrapper["hooks"]) == 1
 
     hook = wrapper["hooks"][0]
     assert hook["type"] == "command"
-    assert hook["command"] == f"python3 {hooks_dir}/session_start.py"
+    # V2.0 uses $AI_MEMORY_INSTALL_DIR env var for portability
+    assert "$AI_MEMORY_INSTALL_DIR" in hook["command"]
+    assert "session_start.py" in hook["command"]
 
 
 def test_generate_hook_config_post_tool_use():
@@ -58,24 +62,32 @@ def test_generate_hook_config_post_tool_use():
     from generate_settings import generate_hook_config
 
     hooks_dir = "/test/hooks"
-    config = generate_hook_config(hooks_dir)
+    config = generate_hook_config(hooks_dir, "test-project")
 
     assert "PostToolUse" in config["hooks"]
     post_tool = config["hooks"]["PostToolUse"]
     assert isinstance(post_tool, list)
-    assert len(post_tool) == 1
+    # V2.0 has 2 wrappers: Bash (error detection) + Edit/Write/NotebookEdit (capture)
+    assert len(post_tool) == 2
 
-    # Correct structure: wrapper with 'matcher' + 'hooks' array
-    wrapper = post_tool[0]
-    assert "matcher" in wrapper, "PostToolUse must have 'matcher' field"
-    assert wrapper["matcher"] == "Edit|Write|NotebookEdit"
-    assert "hooks" in wrapper, "PostToolUse must have 'hooks' array"
-    assert isinstance(wrapper["hooks"], list)
-    assert len(wrapper["hooks"]) == 1
+    # First wrapper: Bash error detection
+    bash_wrapper = post_tool[0]
+    assert "matcher" in bash_wrapper
+    assert bash_wrapper["matcher"] == "Bash"
+    assert "hooks" in bash_wrapper
+    assert len(bash_wrapper["hooks"]) == 2  # error_detection + error_pattern_capture
 
-    hook = wrapper["hooks"][0]
+    # Second wrapper: Edit/Write/NotebookEdit capture
+    edit_wrapper = post_tool[1]
+    assert "matcher" in edit_wrapper, "PostToolUse must have 'matcher' field"
+    assert edit_wrapper["matcher"] == "Edit|Write|NotebookEdit"
+    assert "hooks" in edit_wrapper, "PostToolUse must have 'hooks' array"
+    assert isinstance(edit_wrapper["hooks"], list)
+    assert len(edit_wrapper["hooks"]) == 1
+
+    hook = edit_wrapper["hooks"][0]
     assert hook["type"] == "command"
-    assert hook["command"] == f"python3 {hooks_dir}/post_tool_capture.py"
+    assert "post_tool_capture.py" in hook["command"]
 
 
 def test_generate_hook_config_stop():
@@ -83,7 +95,7 @@ def test_generate_hook_config_stop():
     from generate_settings import generate_hook_config
 
     hooks_dir = "/test/hooks"
-    config = generate_hook_config(hooks_dir)
+    config = generate_hook_config(hooks_dir, "test-project")
 
     assert "Stop" in config["hooks"]
     stop_hook = config["hooks"]["Stop"]
@@ -98,22 +110,28 @@ def test_generate_hook_config_stop():
 
     hook = wrapper["hooks"][0]
     assert hook["type"] == "command"
-    assert hook["command"] == f"python3 {hooks_dir}/session_stop.py"
+    # V2.0 uses agent_response_capture.py (renamed from session_stop.py)
+    assert "agent_response_capture.py" in hook["command"]
 
 
 def test_generate_hook_config_absolute_paths():
-    """Test that absolute paths are used correctly in nested hook structure."""
+    """Test that $AI_MEMORY_INSTALL_DIR env var is used for portability."""
     from generate_settings import generate_hook_config
 
     hooks_dir = "/absolute/path/to/hooks"
-    config = generate_hook_config(hooks_dir)
+    config = generate_hook_config(hooks_dir, "test-project")
 
-    # Check all commands use provided absolute path (in nested 'hooks' arrays)
+    # V2.0 uses $AI_MEMORY_INSTALL_DIR env var for portability
+    # Verify env section contains the install dir
+    assert "env" in config
+    assert "AI_MEMORY_INSTALL_DIR" in config["env"]
+
+    # Check all commands use $AI_MEMORY_INSTALL_DIR (in nested 'hooks' arrays)
     for hook_type, wrappers in config["hooks"].items():
         for wrapper in wrappers:
             assert "hooks" in wrapper, f"{hook_type} must have 'hooks' array"
             for hook in wrapper["hooks"]:
-                assert hook["command"].startswith("python3 /absolute/path")
+                assert "$AI_MEMORY_INSTALL_DIR" in hook["command"]
 
 
 def test_main_creates_file(tmp_path):
@@ -123,8 +141,8 @@ def test_main_creates_file(tmp_path):
     output_file = tmp_path / "settings.json"
     hooks_dir = "/test/hooks"
 
-    # Override sys.argv
-    sys.argv = ["generate_settings.py", str(output_file), hooks_dir]
+    # Override sys.argv - requires 3 args: output_path, hooks_dir, project_name
+    sys.argv = ["generate_settings.py", str(output_file), hooks_dir, "test-project"]
 
     main()
 
@@ -138,7 +156,7 @@ def test_main_creates_parent_directories(tmp_path):
     output_file = tmp_path / "nested" / "dir" / "settings.json"
     hooks_dir = "/test/hooks"
 
-    sys.argv = ["generate_settings.py", str(output_file), hooks_dir]
+    sys.argv = ["generate_settings.py", str(output_file), hooks_dir, "test-project"]
     main()
 
     assert output_file.exists()
@@ -152,7 +170,7 @@ def test_main_writes_valid_json(tmp_path):
     output_file = tmp_path / "settings.json"
     hooks_dir = "/test/hooks"
 
-    sys.argv = ["generate_settings.py", str(output_file), hooks_dir]
+    sys.argv = ["generate_settings.py", str(output_file), hooks_dir, "test-project"]
     main()
 
     # Parse JSON to verify it's valid
@@ -160,7 +178,8 @@ def test_main_writes_valid_json(tmp_path):
         config = json.load(f)
 
     assert "hooks" in config
-    assert len(config["hooks"]) == 3  # SessionStart, PostToolUse, Stop
+    # V2.0 has 6 hook types: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PreCompact, Stop
+    assert len(config["hooks"]) == 6
 
 
 def test_main_requires_arguments():
@@ -182,7 +201,7 @@ def test_main_json_formatting(tmp_path):
     output_file = tmp_path / "settings.json"
     hooks_dir = "/test/hooks"
 
-    sys.argv = ["generate_settings.py", str(output_file), hooks_dir]
+    sys.argv = ["generate_settings.py", str(output_file), hooks_dir, "test-project"]
     main()
 
     # Read raw content

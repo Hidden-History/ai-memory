@@ -1,14 +1,48 @@
 """Tests for project detection module."""
 
+import importlib
 import os
+import sys
 import pytest
 from pathlib import Path
 
-from memory.project import (
-    detect_project,
-    normalize_project_name,
-    get_project_hash,
-)
+
+def _get_real_project_module():
+    """Get the real memory.project module, not a mock.
+
+    Other test files may mock memory.project at module level, polluting
+    sys.modules. This function ensures we get the real implementation.
+    """
+    # Remove any mocked version
+    if 'memory.project' in sys.modules:
+        mod = sys.modules['memory.project']
+        # Check if it's a mock (mocks have _mock_name attribute)
+        if hasattr(mod, '_mock_name') or str(type(mod).__name__) == 'Mock':
+            del sys.modules['memory.project']
+
+    # Import fresh
+    import memory.project
+    return importlib.reload(memory.project)
+
+
+# Get the real module
+_project_module = _get_real_project_module()
+detect_project = _project_module.detect_project
+normalize_project_name = _project_module.normalize_project_name
+get_project_hash = _project_module.get_project_hash
+
+
+@pytest.fixture(autouse=True)
+def clear_project_env():
+    """Clear AI_MEMORY_PROJECT_ID env var before each test.
+
+    detect_project() checks this env var first, so tests need it cleared
+    to test directory-based detection.
+    """
+    old_value = os.environ.pop("AI_MEMORY_PROJECT_ID", None)
+    yield
+    if old_value is not None:
+        os.environ["AI_MEMORY_PROJECT_ID"] = old_value
 
 
 class TestNormalizeProjectName:

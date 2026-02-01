@@ -2,7 +2,7 @@
   "session_id": "sess_user_prompt_test_003",
   "transcript_path": "/tmp/test_transcript_user_prompt.jsonl",
   "event_type": "user_prompt_submit",
-  "cwd": "/mnt/e/projects/ai-memory-module",
+  "cwd": "/tmp/test-project",
   "user_message": "What was decided about the port configuration?",
   "turn_number": 5
 }

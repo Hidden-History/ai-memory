@@ -49,8 +49,8 @@ class TestMemoryConfig:
 
         # Paths
         assert config.install_dir == Path.home() / ".ai-memory"
-        assert config.queue_path == Path.home() / ".claude-memory" / "pending_queue.jsonl"
-        assert config.session_log_path == Path.home() / ".claude-memory" / "sessions.jsonl"
+        assert config.queue_path == Path.home() / ".ai-memory" / "pending_queue.jsonl"
+        assert config.session_log_path == Path.home() / ".ai-memory" / "sessions.jsonl"
 
     def test_environment_variable_override(self, monkeypatch):
         """AC 7.4.1: Environment variables override defaults (pydantic-settings)."""

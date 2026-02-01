@@ -121,7 +121,16 @@ class TestValidatePayload:
 
     def test_validate_payload_valid_types(self):
         """All valid types pass validation."""
-        valid_types = ["implementation", "session_summary", "decision", "pattern"]
+        # V2.0 actual MemoryType enum values from src/memory/models.py
+        valid_types = [
+            # code-patterns collection
+            "implementation", "error_fix", "refactor", "file_pattern",
+            # conventions collection
+            "rule", "guideline", "port", "naming", "structure",
+            # discussions collection
+            "decision", "session", "blocker", "preference",
+            "user_message", "agent_response"
+        ]
 
         for valid_type in valid_types:
             payload = {

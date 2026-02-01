@@ -231,13 +231,14 @@ def test_session_start_dual_collection_logic():
     import inspect
     source = inspect.getsource(session_start.main)
 
-    # Check for implementations search with group_id
-    assert 'collection="code-patterns"' in source
+    # Check for implementations search using collection constants (V2.0 refactor)
+    # Production uses COLLECTION_CODE_PATTERNS constant instead of literal string
+    assert 'COLLECTION_CODE_PATTERNS' in source
     assert 'group_id=project_name' in source
 
-    # Check for best_practices search without group_id
-    assert 'collection="conventions"' in source
+    # Check for conventions search without group_id using constant
+    assert 'COLLECTION_CONVENTIONS' in source
     assert 'group_id=None' in source
 
-    # Check for result combination
-    assert 'implementations + best_practices' in source or 'all_results' in source
+    # Check for result combination - V2.0 uses memories_per_collection dict
+    assert 'memories_per_collection' in source or 'other_memories' in source

@@ -172,12 +172,12 @@ class TestEnvironmentVariableControl:
         """Test that AI_MEMORY_LOG_LEVEL environment variable controls log level."""
         from src.memory.logging_config import configure_logging
 
-        with patch.dict(os.environ, {"AI_MEMORY_LOG_LEVEL": "DEBUG"}):
+        with patch.dict(os.environ, {"BMAD_LOG_LEVEL": "DEBUG"}):
             configure_logging()
             logger = logging.getLogger("ai_memory")
             assert logger.level == logging.DEBUG
 
-        with patch.dict(os.environ, {"AI_MEMORY_LOG_LEVEL": "ERROR"}):
+        with patch.dict(os.environ, {"BMAD_LOG_LEVEL": "ERROR"}):
             # Need to remove existing handlers to reconfigure
             logger = logging.getLogger("ai_memory")
             logger.handlers.clear()
@@ -188,7 +188,7 @@ class TestEnvironmentVariableControl:
         """Test that AI_MEMORY_LOG_FORMAT=text produces human-readable output."""
         from src.memory.logging_config import configure_logging
 
-        with patch.dict(os.environ, {"AI_MEMORY_LOG_FORMAT": "text"}):
+        with patch.dict(os.environ, {"BMAD_LOG_FORMAT": "text"}):
             # Clear existing handlers
             logger = logging.getLogger("ai_memory")
             logger.handlers.clear()

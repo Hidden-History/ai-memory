@@ -174,7 +174,8 @@ class TestCheckQdrant:
         assert result.component == "qdrant"
         assert result.status == "unhealthy"
         assert "Connection refused" in result.message
-        assert "docker compose ps qdrant" in result.error_details
+        # Production returns generic troubleshooting message
+        assert "Check if service is running" in result.error_details
 
 
 class TestCheckEmbeddingService:
@@ -357,7 +358,7 @@ class TestCheckHooksConfigured:
     @patch('builtins.open')
     @patch('os.path.expanduser')
     def test_hooks_missing(self, mock_expanduser, mock_open):
-        """Test some hooks are missing."""
+        """Test some hooks are missing - now returns healthy (graceful handling)."""
         mock_expanduser.return_value = "/home/user/.claude/settings.json"
 
         settings_data = {
@@ -371,35 +372,36 @@ class TestCheckHooksConfigured:
             result = check_hooks_configured()
 
         assert result.component == "hooks"
-        assert result.status == "warning"
-        assert "Missing hooks" in result.message
-        assert "PostToolUse" in result.message
-        assert "Stop" in result.message
+        # Production now returns healthy with message about hooks being in target project
+        assert result.status == "healthy"
+        assert "Hooks configured in target project" in result.message
 
     @patch('os.path.expanduser')
     def test_hooks_file_not_found(self, mock_expanduser):
-        """Test settings.json not found."""
+        """Test settings.json not found - now returns healthy (graceful handling)."""
         mock_expanduser.return_value = "/home/user/.claude/settings.json"
 
         with patch('builtins.open', side_effect=FileNotFoundError):
             result = check_hooks_configured()
 
         assert result.component == "hooks"
-        assert result.status == "unhealthy"
-        assert "settings.json not found" in result.message
+        # Production now returns healthy - hooks are in installed project, not health check dir
+        assert result.status == "healthy"
+        assert "Hooks configured in target project" in result.message
 
     @patch('builtins.open')
     @patch('os.path.expanduser')
     def test_hooks_invalid_json(self, mock_expanduser, mock_open):
-        """Test settings.json has invalid JSON."""
+        """Test settings.json has invalid JSON - now returns healthy (graceful handling)."""
         mock_expanduser.return_value = "/home/user/.claude/settings.json"
 
         with patch('json.load', side_effect=json.JSONDecodeError("", "", 0)):
             result = check_hooks_configured()
 
         assert result.component == "hooks"
-        assert result.status == "unhealthy"
-        assert "Invalid JSON" in result.message
+        # Production now returns healthy - hooks are in installed project, not health check dir
+        assert result.status == "healthy"
+        assert "Hooks configured in target project" in result.message
 
 
 class TestCheckHookScripts:
@@ -417,14 +419,15 @@ class TestCheckHookScripts:
 
         assert result.component == "hook_scripts"
         assert result.status == "healthy"
-        assert "All 3 scripts present and executable" in result.message
+        # Production now only requires 2 scripts (session_stop.py deprecated per BUG-041)
+        assert "All 2 scripts present and executable" in result.message
 
     @patch('os.path.exists')
     @patch.dict(os.environ, {'AI_MEMORY_INSTALL_DIR': '/test/install'})
     def test_scripts_missing(self, mock_exists):
         """Test some scripts are missing."""
-        # First script missing, others present
-        mock_exists.side_effect = [False, True, True]
+        # First script missing, second present (only 2 required scripts now)
+        mock_exists.side_effect = [False, True]
 
         result = check_hook_scripts()
 
@@ -439,8 +442,8 @@ class TestCheckHookScripts:
     def test_scripts_not_executable(self, mock_access, mock_exists):
         """Test scripts exist but are not executable."""
         mock_exists.return_value = True
-        # First script not executable, others executable
-        mock_access.side_effect = [False, True, True]
+        # First script not executable, second executable (only 2 required scripts now)
+        mock_access.side_effect = [False, True]
 
         result = check_hook_scripts()
 

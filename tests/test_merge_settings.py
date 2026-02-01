@@ -150,7 +150,7 @@ def test_merge_settings_new_file(tmp_path):
         config = json.load(f)
 
     assert "hooks" in config
-    assert len(config["hooks"]) == 3
+    assert len(config["hooks"]) == 6  # SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PreCompact, Stop
     # Verify correct nested structure
     assert "hooks" in config["hooks"]["SessionStart"][0]
     assert "matcher" in config["hooks"]["PostToolUse"][0]
@@ -193,27 +193,27 @@ def test_merge_settings_creates_backup(tmp_path):
 
 
 def test_merge_settings_deduplicates_hooks(tmp_path):
-    """Test that duplicate hooks are not added (correct Claude Code format)."""
+    """Test that duplicate hooks are not added when using BMAD path format."""
     from merge_settings import merge_settings
 
     settings_path = tmp_path / "settings.json"
-    # Existing config with correct nested structure
+    # Existing config with BMAD-style path (will be normalized to bmad-hook:session_start.py)
     existing = {
         "hooks": {
             "SessionStart": [
-                {"hooks": [{"type": "command", "command": "python3 /test/hooks/session_start.py"}]}
+                {"matcher": "startup|resume|compact|clear", "hooks": [{"type": "command", "command": 'python3 "$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/session_start.py"', "timeout": 30000}]}
             ]
         }
     }
     settings_path.write_text(json.dumps(existing))
 
-    hooks_dir = "/test/hooks"
+    hooks_dir = "/test/.claude/hooks/scripts"
     merge_settings(str(settings_path), hooks_dir)
 
     with open(settings_path) as f:
         config = json.load(f)
 
-    # Should not have duplicate SessionStart hook wrappers
+    # Should not have duplicate SessionStart hook wrappers (same script, normalized)
     assert len(config["hooks"]["SessionStart"]) == 1
     # Should have exactly 1 hook in the wrapper
     assert len(config["hooks"]["SessionStart"][0]["hooks"]) == 1

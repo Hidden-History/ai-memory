@@ -123,7 +123,11 @@ ai_memory_dedup_matches{action="skipped_duplicate", collection="discussions", pr
 2. Wait for worker to process items (~5 seconds)
 3. Query Prometheus:
    ```bash
-   curl -s -u admin:5HCf9v5laO0jxxLcXtnyYj7G \
+   # Use the helper script (reads password from PROMETHEUS_PASSWORD env var)
+   python3 scripts/monitoring/prometheus_query.py "memory_classifier_requests_total"
+
+   # Or with curl (set PROMETHEUS_PASSWORD first):
+   curl -s -u admin:$PROMETHEUS_PASSWORD \
      "http://localhost:29090/api/v1/series?match[]=memory_classifier_requests_total"
    ```
 4. Should see series with `provider`, `status`, `classified_type` labels

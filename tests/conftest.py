@@ -170,16 +170,28 @@ def pytest_collection_modifyitems(session, config, items):
             item.add_marker(skip_integration)
 
     # Story 6.5: Clean up mocked modules from collection phase
-    from unittest.mock import Mock
-    if 'memory.session_logger' in sys.modules:
-        mod = sys.modules['memory.session_logger']
-        if isinstance(mod, Mock):
-            # Remove the mock to allow reimport of real module
-            del sys.modules['memory.session_logger']
-            # Also clear any submodules
-            keys_to_delete = [k for k in sys.modules if k.startswith('memory.session_logger.')]
-            for k in keys_to_delete:
-                del sys.modules[k]
+    # test_session_retrieval_logging.py mocks these modules at import time
+    # which pollutes sys.modules for other test files during collection.
+    # Clean up ALL modules that may have been mocked.
+    modules_to_check = [
+        'memory.search', 'memory.config', 'memory.qdrant_client',
+        'memory.health', 'memory.project', 'memory.logging_config',
+        'memory.metrics', 'memory.session_logger',
+        # Also check src.memory.* paths for compatibility
+        'src.memory.search', 'src.memory.config', 'src.memory.qdrant_client',
+        'src.memory.health', 'src.memory.project', 'src.memory.logging_config',
+        'src.memory.metrics', 'src.memory.session_logger',
+    ]
+    for module_path in modules_to_check:
+        if module_path in sys.modules:
+            mod = sys.modules[module_path]
+            # Check if it's a Mock (mocks have _mock_name or spec attributes)
+            if isinstance(mod, Mock) or hasattr(mod, '_mock_name'):
+                del sys.modules[module_path]
+                # Also delete any sub-modules
+                keys_to_delete = [k for k in sys.modules if k.startswith(f'{module_path}.')]
+                for k in keys_to_delete:
+                    del sys.modules[k]
 
 
 @pytest.fixture(autouse=True)
@@ -207,7 +219,8 @@ def reset_metrics_registry():
                         if k.startswith('src.memory.classifier.metrics')
                         or k.startswith('memory.classifier.metrics')
                         or k.startswith('src.memory.metrics')
-                        or k.startswith('memory.metrics')]
+                        or k.startswith('memory.metrics')
+                        or k.startswith('ai_memory.')]
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 
@@ -225,7 +238,8 @@ def reset_metrics_registry():
                         if k.startswith('src.memory.classifier.metrics')
                         or k.startswith('memory.classifier.metrics')
                         or k.startswith('src.memory.metrics')
-                        or k.startswith('memory.metrics')]
+                        or k.startswith('memory.metrics')
+                        or k.startswith('ai_memory.')]
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 
@@ -240,12 +254,12 @@ def reset_logging():
     """
     import logging
 
-    # Get the bmad.memory logger
-    logger = logging.getLogger("bmad.memory")
+    # Get the ai_memory logger
+    logger = logging.getLogger("ai_memory")
 
-    # Remove all handlers from bmad.memory and its children
+    # Remove all handlers from ai_memory and its children
     for name in list(logging.Logger.manager.loggerDict.keys()):
-        if name.startswith("bmad.memory"):
+        if name.startswith("ai_memory"):
             child_logger = logging.getLogger(name)
             child_logger.handlers.clear()
             child_logger.propagate = True  # Re-enable propagation for testing
@@ -258,7 +272,7 @@ def reset_logging():
 
     # Clean up after test
     for name in list(logging.Logger.manager.loggerDict.keys()):
-        if name.startswith("bmad.memory"):
+        if name.startswith("ai_memory"):
             child_logger = logging.getLogger(name)
             child_logger.handlers.clear()
             child_logger.propagate = True
