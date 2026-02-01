@@ -16,7 +16,7 @@ import json
 import os
 import logging
 import time
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 # Add src to path for system python3 execution
@@ -929,7 +929,7 @@ def log_empty_session(
         "reason": reason,
         "query_preview": query[:100] if query else "",
         "duration_ms": round(duration_ms, 2),
-        "timestamp": datetime.now(UTC).isoformat().replace('+00:00', 'Z')
+        "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     })
 
     # Also log to session file if enabled
