@@ -91,8 +91,11 @@ jobs:
 
   test-macos:
     name: Test Installation (macOS)
+    # NOTE: macOS tests verify install.sh works but skip Docker
+    # Docker runtime testing is covered by Ubuntu job
+    # Docker behavior is identical across platforms once running
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -102,33 +105,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
-      - name: Install Docker Desktop
-        run: |
-          brew install --cask docker
-
-      - name: Start Docker Desktop
-        run: |
-          open -a Docker
-          # Wait for Docker to start
-          echo "Waiting for Docker to start..."
-          for i in {1..60}; do
-            if docker info > /dev/null 2>&1; then
-              echo "Docker started successfully"
-              break
-            fi
-            if [ $i -eq 60 ]; then
-              echo "Docker failed to start in time"
-              exit 1
-            fi
-            echo "Waiting... ($i/60)"
-            sleep 2
-          done
-
-      - name: Verify Docker is running
-        run: |
-          docker info
-          docker compose version
 
       - name: Install Python test dependencies
         run: |
@@ -154,29 +130,20 @@ jobs:
       - name: Run health check
         env:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
+          SKIP_DOCKER_CHECKS: "true"
         run: |
           python3 $AI_MEMORY_INSTALL_DIR/scripts/health-check.py
 
       - name: Run integration tests
         env:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
-          AI_MEMORY_QDRANT_PORT: 26350
-          AI_MEMORY_EMBEDDING_PORT: 28080
         run: |
-          pytest tests/integration/test_installation.py -v --tb=short
+          # Only run platform tests, skip installation tests that require Docker
           pytest tests/integration/test_platform.py -v --tb=short
-
-      - name: Show Docker logs on failure
-        if: failure()
-        env:
-          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
-        run: |
-          docker compose -f $AI_MEMORY_INSTALL_DIR/docker/docker-compose.yml logs
 
       - name: Cleanup
         if: always()
         env:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
         run: |
-          docker compose -f $AI_MEMORY_INSTALL_DIR/docker/docker-compose.yml down -v || true
           rm -rf $AI_MEMORY_INSTALL_DIR

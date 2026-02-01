@@ -34,7 +34,7 @@ jobs:
       - name: Install linters
         run: |
           python -m pip install --upgrade pip
-          pip install ruff black isort
+          pip install -e ".[dev]"
 
       - name: Run ruff
         run: ruff check --output-format=github src/ tests/
