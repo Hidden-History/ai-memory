@@ -791,12 +791,17 @@ SIMILARITY_THRESHOLD=0.4
 # CREDENTIALS (Required - add your values below)
 # =============================================================================
 # Generate API key: python3 -c "import secrets; print(secrets.token_urlsafe(18))"
-QDRANT_API_KEY=
+QDRANT_API_KEY=${QDRANT_API_KEY:-}
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=
 PROMETHEUS_ADMIN_PASSWORD=
 EOF
-        log_warning "Please configure credentials in $docker_env"
+        # If QDRANT_API_KEY was provided via environment, note it in the log
+        if [[ -n "${QDRANT_API_KEY:-}" ]]; then
+            log_info "Using QDRANT_API_KEY from environment"
+        else
+            log_warning "Please configure credentials in $docker_env"
+        fi
         log_success "Environment template created at $docker_env"
     fi
 }
