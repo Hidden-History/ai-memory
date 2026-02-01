@@ -9,7 +9,7 @@ are loaded fresh for each test class.
 
 import logging
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 import pytest
@@ -66,7 +66,7 @@ def _create_mock_log_session_retrieval(session_start_mod):
                 "medium_relevance_count": medium_relevance,
                 "low_relevance_count": low_relevance,
                 "duration_ms": round(duration_ms, 2),
-                "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             },
         )
 

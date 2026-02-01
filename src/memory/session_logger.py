@@ -23,7 +23,7 @@ import json
 import logging
 import os
 import shutil
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -46,7 +46,7 @@ class JsonFallbackFormatter(logging.Formatter):
         """Format log record as JSON with all extra fields included."""
         # Base fields
         log_entry = {
-            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

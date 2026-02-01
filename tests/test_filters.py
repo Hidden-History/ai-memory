@@ -357,11 +357,11 @@ Select by number."""
 
     def test_detect_duplicate_messages(self):
         """Should detect duplicate messages within time window."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
         from memory.filters import is_duplicate_message
 
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         messages = [
             {
                 "content": "Same message",
@@ -391,11 +391,11 @@ Select by number."""
 
     def test_detect_duplicate_outside_window(self):
         """Should not flag duplicates outside time window."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
         from memory.filters import is_duplicate_message
 
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         messages = [
             {
                 "content": "Same message",
