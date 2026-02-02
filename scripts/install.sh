@@ -239,6 +239,7 @@ main() {
 
         create_directories
         copy_files
+        install_python_dependencies
         configure_environment
 
         # Skip Docker-related steps if SKIP_DOCKER_CHECKS is set (for CI without Docker)
@@ -662,6 +663,100 @@ create_directories() {
 
     log_success "Directory structure created at $INSTALL_DIR"
     log_info "Private queue directory: $INSTALL_DIR/queue (chmod 700)"
+}
+
+# Python dependency installation (BUG-054)
+# Installs Python dependencies using pip, handling venv detection and PEP 668 compliance
+install_python_dependencies() {
+    log_info "Installing Python dependencies..."
+
+    # Determine source directory for pyproject.toml
+    local source_dir
+    if [[ -f "$SCRIPT_DIR/../pyproject.toml" ]]; then
+        source_dir="$(cd "$SCRIPT_DIR/.." && pwd)"
+    elif [[ -f "./pyproject.toml" ]]; then
+        source_dir="$(pwd)"
+    else
+        log_warning "pyproject.toml not found - skipping Python dependencies"
+        log_info "You can install manually later: pip install -e \".[dev]\""
+        return 0
+    fi
+
+    # Copy pyproject.toml and requirements.txt to install directory if not already there
+    if [[ ! -f "$INSTALL_DIR/pyproject.toml" ]]; then
+        cp "$source_dir/pyproject.toml" "$INSTALL_DIR/"
+        log_info "Copied pyproject.toml to $INSTALL_DIR"
+    fi
+    if [[ -f "$source_dir/requirements.txt" && ! -f "$INSTALL_DIR/requirements.txt" ]]; then
+        cp "$source_dir/requirements.txt" "$INSTALL_DIR/"
+        log_info "Copied requirements.txt to $INSTALL_DIR"
+    fi
+
+    # Detect if running in a virtual environment
+    local in_venv=false
+    if [[ -n "${VIRTUAL_ENV:-}" ]] || [[ -n "${CONDA_PREFIX:-}" ]] || \
+       python3 -c "import sys; sys.exit(0 if sys.prefix != sys.base_prefix else 1)" 2>/dev/null; then
+        in_venv=true
+        log_info "Virtual environment detected"
+    fi
+
+    # Install dependencies
+    local pip_exit_code=0
+    if [[ "$in_venv" == true ]]; then
+        # Already in venv - install directly
+        log_info "Installing with pip install -e \".[dev]\"..."
+        if pip install -e "$INSTALL_DIR[dev]" 2>&1 | tail -5; then
+            log_success "Python dependencies installed successfully"
+        else
+            pip_exit_code=$?
+        fi
+    else
+        # No venv - check for PEP 668 (externally-managed-environment)
+        # Create a venv in INSTALL_DIR to avoid system Python conflicts
+        local venv_dir="$INSTALL_DIR/.venv"
+
+        if [[ -d "$venv_dir" ]]; then
+            log_info "Using existing venv at $venv_dir"
+        else
+            log_info "Creating virtual environment at $venv_dir (PEP 668 compliance)..."
+            if ! python3 -m venv "$venv_dir"; then
+                log_warning "Failed to create virtual environment"
+                log_warning "Python dependencies NOT installed"
+                log_info "To install manually:"
+                log_info "  python3 -m venv $venv_dir"
+                log_info "  source $venv_dir/bin/activate"
+                log_info "  pip install -e \"$INSTALL_DIR[dev]\""
+                return 0  # Don't fail install
+            fi
+            log_success "Virtual environment created"
+        fi
+
+        # Install in the created venv
+        log_info "Installing with pip install -e \".[dev]\"..."
+        if "$venv_dir/bin/pip" install -e "$INSTALL_DIR[dev]" 2>&1 | tail -5; then
+            log_success "Python dependencies installed successfully"
+            log_info "Activate venv with: source $venv_dir/bin/activate"
+        else
+            pip_exit_code=$?
+        fi
+    fi
+
+    # Handle pip failure gracefully - warn but don't abort install
+    if [[ $pip_exit_code -ne 0 ]]; then
+        log_warning "pip install failed (exit code: $pip_exit_code)"
+        log_warning "Python dependencies NOT installed - hooks may not work correctly"
+        echo ""
+        echo "To install manually:"
+        if [[ "$in_venv" == true ]]; then
+            echo "  pip install -e \"$INSTALL_DIR[dev]\""
+        else
+            echo "  source $INSTALL_DIR/.venv/bin/activate"
+            echo "  pip install -e \"$INSTALL_DIR[dev]\""
+        fi
+        echo ""
+    fi
+
+    return 0  # Always return success - don't fail entire install
 }
 
 # File copying (AC 7.1.6)

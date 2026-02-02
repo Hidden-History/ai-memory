@@ -422,7 +422,7 @@ def retrieve_session_summaries(client, project_name: str, limit: int = 20) -> li
             limit=limit,
             with_payload=True,
             with_vectors=False,
-            timeout=2.0  # 2s timeout to stay within <3s SLA
+            timeout=2  # 2s timeout to stay within <3s SLA
         )
 
         if not summary_results[0]:
