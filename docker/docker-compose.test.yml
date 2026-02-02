@@ -1,0 +1,99 @@
+# Test environment override for ai-memory
+# Usage: docker compose -f docker-compose.yml -f docker-compose.test.yml up -d
+#
+# This file overrides production values for isolated testing.
+# See: oversight/plans/TEST-ENVIRONMENT-SOURCE-OF-TRUTH.md
+#
+# Note: Uses !override to replace base arrays (ports/volumes) instead of merging.
+# Requires Docker Compose v2.24+ (tested with v5.0.1)
+
+name: test-ai-memory
+
+services:
+  qdrant:
+    ports: !override
+      - "127.0.0.1:26360:6333"
+      - "127.0.0.1:26361:6334"
+    volumes: !override
+      - test_qdrant_storage:/qdrant/storage
+    networks:
+      - test-ai-memory-network
+
+  embedding:
+    ports: !override
+      - "127.0.0.1:28090:8080"
+    volumes: !override
+      - test_embedding_cache:/home/embedding/.cache
+    networks:
+      - test-ai-memory-network
+
+  monitoring-api:
+    ports: !override
+      - "127.0.0.1:28010:8000"
+    networks:
+      - test-ai-memory-network
+
+  prometheus:
+    ports: !override
+      - "127.0.0.1:29100:9090"
+    volumes: !override
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/web.yml:/etc/prometheus/web.yml:ro
+      - test_prometheus_data:/prometheus
+    networks:
+      - test-ai-memory-network
+
+  pushgateway:
+    ports: !override
+      - "127.0.0.1:29101:9091"
+    volumes: !override
+      - test_pushgateway_data:/data
+    networks:
+      - test-ai-memory-network
+
+  grafana:
+    ports: !override
+      - "127.0.0.1:23010:3000"
+    volumes: !override
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - test_grafana_data:/var/lib/grafana
+    environment:
+      - GF_SERVER_ROOT_URL=http://localhost:23010
+    networks:
+      - test-ai-memory-network
+
+  streamlit:
+    ports: !override
+      - "127.0.0.1:28510:8501"
+    environment:
+      - QDRANT_EXTERNAL_PORT=26360
+    networks:
+      - test-ai-memory-network
+
+  classifier-worker:
+    volumes: !override
+      - ../src:/app/src:ro
+      - ../scripts:/app/scripts:ro
+      - test_classifier_queue:/app/queue
+    networks:
+      - test-ai-memory-network
+
+networks:
+  test-ai-memory-network:
+    name: test-ai-memory-network
+    driver: bridge
+
+volumes:
+  test_qdrant_storage:
+    driver: local
+  test_embedding_cache:
+    driver: local
+  test_prometheus_data:
+    driver: local
+  test_grafana_data:
+    driver: local
+  test_pushgateway_data:
+    driver: local
+  test_classifier_queue:
+    driver: local

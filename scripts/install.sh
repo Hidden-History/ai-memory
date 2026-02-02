@@ -3,8 +3,16 @@
 # Version: 1.0.1
 # Description: Single-command installer for complete memory system
 # Usage: ./install.sh [PROJECT_PATH] [PROJECT_NAME]
+#        ./install.sh --test [PROJECT_PATH] [PROJECT_NAME]  # Test mode
 #        ./install.sh ~/projects/my-app           # Uses directory name as project ID
 #        ./install.sh ~/projects/my-app my-custom-id  # Custom project ID
+#
+# Test mode (--test or AI_MEMORY_TEST_MODE=true):
+#   - Installs to ~/.ai-memory-test (not ~/.ai-memory)
+#   - Uses test ports: Qdrant 26360, Embedding 28090, etc.
+#   - Uses test container prefix: test-ai-memory
+#   - Uses docker-compose.test.yml override
+#   - Does NOT affect production installation
 #
 # Exit codes:
 #   0 = Success
@@ -26,6 +34,15 @@ set -euo pipefail
 
 # Script directory for relative path resolution
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Test mode detection
+# Usage: ./install.sh --test [PROJECT_PATH] [PROJECT_NAME]
+#    OR: AI_MEMORY_TEST_MODE=true ./install.sh [PROJECT_PATH] [PROJECT_NAME]
+TEST_MODE="${AI_MEMORY_TEST_MODE:-false}"
+if [[ "${1:-}" == "--test" ]]; then
+    TEST_MODE="true"
+    shift  # Remove --test from arguments
+fi
 
 # Project path handling - accept target project as argument
 # Usage: ./install.sh [PROJECT_PATH] [PROJECT_NAME]
@@ -73,12 +90,22 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration with environment variable overrides
-INSTALL_DIR="${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}"
-QDRANT_PORT="${AI_MEMORY_QDRANT_PORT:-26350}"
-EMBEDDING_PORT="${AI_MEMORY_EMBEDDING_PORT:-28080}"
-MONITORING_PORT="${AI_MEMORY_MONITORING_PORT:-28000}"
-STREAMLIT_PORT="${AI_MEMORY_STREAMLIT_PORT:-28501}"
-CONTAINER_PREFIX="${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}"
+# Test mode uses different defaults to avoid conflicts with production
+if [[ "$TEST_MODE" == "true" ]]; then
+    INSTALL_DIR="${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory-test}"
+    CONTAINER_PREFIX="${AI_MEMORY_CONTAINER_PREFIX:-test-ai-memory}"
+    QDRANT_PORT="${AI_MEMORY_QDRANT_PORT:-26360}"
+    EMBEDDING_PORT="${AI_MEMORY_EMBEDDING_PORT:-28090}"
+    MONITORING_PORT="${AI_MEMORY_MONITORING_PORT:-28010}"
+    STREAMLIT_PORT="${AI_MEMORY_STREAMLIT_PORT:-28510}"
+else
+    INSTALL_DIR="${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}"
+    CONTAINER_PREFIX="${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}"
+    QDRANT_PORT="${AI_MEMORY_QDRANT_PORT:-26350}"
+    EMBEDDING_PORT="${AI_MEMORY_EMBEDDING_PORT:-28080}"
+    MONITORING_PORT="${AI_MEMORY_MONITORING_PORT:-28000}"
+    STREAMLIT_PORT="${AI_MEMORY_STREAMLIT_PORT:-28501}"
+fi
 
 # Logging functions
 log_info() {
@@ -214,6 +241,20 @@ main() {
     echo "  AI Memory Module Installer"
     echo "========================================"
     echo ""
+
+    # Show test mode warning
+    if [[ "$TEST_MODE" == "true" ]]; then
+        echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║                      TEST MODE ACTIVE                      ║${NC}"
+        echo -e "${YELLOW}╠═══════════════════════════════════════════════════════════╣${NC}"
+        echo -e "${YELLOW}║  Install directory: ${INSTALL_DIR}${NC}"
+        echo -e "${YELLOW}║  Container prefix:  ${CONTAINER_PREFIX}${NC}"
+        echo -e "${YELLOW}║  Qdrant port:       ${QDRANT_PORT}${NC}"
+        echo -e "${YELLOW}║  Embedding port:    ${EMBEDDING_PORT}${NC}"
+        echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+    fi
+
     echo "Target project: $PROJECT_PATH"
     echo "Project name: $PROJECT_NAME"
     echo "Shared installation: $INSTALL_DIR"
@@ -911,12 +952,19 @@ start_services() {
         exit 1
     }
 
+    # Build compose command based on mode
+    local compose_cmd="docker compose"
+    if [[ "$TEST_MODE" == "true" && -f "docker-compose.test.yml" ]]; then
+        compose_cmd="docker compose -f docker-compose.yml -f docker-compose.test.yml"
+        log_info "Using test compose override (docker-compose.test.yml)"
+    fi
+
     # Pull images first (show progress)
     log_info "Pulling Docker images (this may take a few minutes)..."
     if [[ "$INSTALL_MONITORING" == "true" ]]; then
-        docker compose --profile monitoring pull
+        $compose_cmd --profile monitoring pull
     else
-        docker compose pull
+        $compose_cmd pull
     fi
 
     # Start core services with 2026 security best practices:
@@ -927,9 +975,9 @@ start_services() {
     log_info "Starting services with security hardening..."
     if [[ "$INSTALL_MONITORING" == "true" ]]; then
         log_info "Including monitoring dashboard (Streamlit, Grafana, Prometheus)..."
-        docker compose --profile monitoring up -d
+        $compose_cmd --profile monitoring up -d
     else
-        docker compose up -d
+        $compose_cmd up -d
     fi
 
     log_success "Docker services started"
