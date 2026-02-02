@@ -62,3 +62,6 @@ migration-backup*/
 
 # Python package metadata
 *.egg-info/
+
+# Oversight directory (private - stored in parent dev-ai-memory/oversight/)
+oversight/
