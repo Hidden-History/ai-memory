@@ -66,7 +66,7 @@ dev = [
     # Code Quality
     "black>=25.0.0,<26.0.0",
     "ruff>=0.14.0,<1.0.0",
-    "isort>=5.13.0,<6.0.0",
+    "isort>=5.13.0,<8.0.0",
     "mypy>=1.19.0,<2.0.0",
     # Security Scanning
     "bandit[toml]>=1.7.0,<2.0.0",
