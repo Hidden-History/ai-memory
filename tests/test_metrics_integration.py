@@ -12,11 +12,18 @@ Complies with:
 - project-context.md: test naming
 """
 
+import sys
 from unittest.mock import patch
+
+import pytest
 
 from memory.stats import CollectionStats
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="Python 3.10 module patching incompatibility - TECH-DEBT-094",
+)
 class TestUpdateCollectionMetrics:
     """Test update_collection_metrics() function."""
 

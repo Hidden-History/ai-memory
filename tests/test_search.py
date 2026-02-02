@@ -458,10 +458,7 @@ class TestCascadingSearch:
         self, mock_config, mock_qdrant_client, mock_embedding_client
     ):
         """Cascading search respects limit parameter."""
-        from src.memory.config import (
-            COLLECTION_CODE_PATTERNS,
-            COLLECTION_CONVENTIONS,
-        )
+        from src.memory.config import COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS
 
         search = MemorySearch()
         results = search.cascading_search(
@@ -477,10 +474,7 @@ class TestCascadingSearch:
         self, mock_config, mock_qdrant_client, mock_embedding_client
     ):
         """Cascading search accepts memory_type parameter."""
-        from src.memory.config import (
-            COLLECTION_CODE_PATTERNS,
-            COLLECTION_CONVENTIONS,
-        )
+        from src.memory.config import COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS
 
         search = MemorySearch()
         results = search.cascading_search(

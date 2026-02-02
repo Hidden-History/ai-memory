@@ -248,14 +248,16 @@ async def test_metrics_endpoint_response_time_stress():
                 elapsed_ms = (time.perf_counter() - start) * 1000
                 return elapsed_ms, response.status_code
             except httpx.ConnectError:
-                pytest.skip("Embedding service not running")
+                return None  # Service not running
 
     # Run 10 concurrent requests
     tasks = [fetch_metrics() for _ in range(10)]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Filter out skips
-    valid_results = [r for r in results if not isinstance(r, Exception)]
+    # Filter out failures (None or exceptions)
+    valid_results = [
+        r for r in results if r is not None and not isinstance(r, Exception)
+    ]
 
     if not valid_results:
         pytest.skip("Embedding service not running")

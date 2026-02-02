@@ -11,6 +11,9 @@ Tests verify 2026 FastAPI monitoring best practices:
 import httpx
 import pytest
 
+# All tests in this module require the monitoring API to be running
+pytestmark = pytest.mark.requires_api
+
 
 @pytest.fixture(scope="module")
 def monitoring_api_url():

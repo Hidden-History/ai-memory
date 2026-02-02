@@ -6,9 +6,7 @@ TECH-DEBT-069: Circuit breaker thread safety and state management.
 import threading
 import time
 
-from src.memory.classifier.circuit_breaker import (
-    CircuitBreaker,
-)
+from src.memory.classifier.circuit_breaker import CircuitBreaker
 
 
 class TestCircuitBreaker:

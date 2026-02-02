@@ -91,6 +91,8 @@ def skip_without_services(request):
     - requires_qdrant: Skips if Qdrant (port 26350) is unavailable
     - requires_embedding: Skips if Embedding service (port 28080) is unavailable
     - requires_docker_stack: Skips if either service is unavailable
+    - requires_api: Skips if Monitoring API (port 28000) is unavailable
+    - requires_streamlit: Skips if Streamlit dashboard (port 28501) is unavailable
 
     Example:
         @pytest.mark.requires_qdrant
@@ -108,6 +110,12 @@ def skip_without_services(request):
         _is_port_open(26350) and _is_port_open(28080)
     ):
         pytest.skip("Docker stack not fully available")
+    if request.node.get_closest_marker("requires_api") and not _is_port_open(28000):
+        pytest.skip("Monitoring API not available on port 28000")
+    if request.node.get_closest_marker("requires_streamlit") and not _is_port_open(
+        28501
+    ):
+        pytest.skip("Streamlit dashboard not available on port 28501")
 
 
 # =============================================================================

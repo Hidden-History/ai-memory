@@ -35,6 +35,7 @@ except ImportError:
 # Configuration from environment (DEC-010: Jina Embeddings v2 Base Code = 768 dimensions)
 EXPECTED_EMBEDDING_DIMENSIONS = int(os.environ.get("VECTOR_DIMENSIONS", "768"))
 MONITORING_PORT = int(os.environ.get("AI_MEMORY_MONITORING_PORT", "28000"))
+SKIP_DOCKER_CHECKS = os.environ.get("SKIP_DOCKER_CHECKS", "").lower() == "true"
 
 
 @dataclass
@@ -439,15 +440,27 @@ def run_health_checks() -> list[HealthCheckResult]:
     Source: https://testdriven.io/blog/python-concurrency-parallelism/
     """
     checks = [
-        check_qdrant,
-        check_embedding_service,
-        check_embedding_functionality,
         check_hooks_configured,
         check_hook_scripts,
         check_monitoring_api,
     ]
 
-    results = []
+    # Skip Docker-dependent checks if requested (e.g., macOS CI without Docker)
+    if not SKIP_DOCKER_CHECKS:
+        checks.extend([
+            check_qdrant,
+            check_embedding_service,
+            check_embedding_functionality,
+        ])
+        results_list = []
+    else:
+        # Add informational result about skipped checks
+        results_list = [HealthCheckResult(
+            "docker_checks",
+            "warning",
+            "Docker checks skipped (SKIP_DOCKER_CHECKS=true)",
+            error_details="Docker-dependent services not verified on this platform"
+        )]
 
     # Run checks in parallel with ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=6) as executor:
@@ -456,18 +469,18 @@ def run_health_checks() -> list[HealthCheckResult]:
         for future in as_completed(future_to_check):
             try:
                 result = future.result()
-                results.append(result)
+                results_list.append(result)
             except Exception as e:
                 check_name = future_to_check[future]
-                results.append(HealthCheckResult(
+                results_list.append(HealthCheckResult(
                     check_name,
                     "unhealthy",
                     f"Check failed: {str(e)}"
                 ))
 
     # Sort by component name for consistent output
-    results.sort(key=lambda r: r.component)
-    return results
+    results_list.sort(key=lambda r: r.component)
+    return results_list
 
 
 def print_results(results: list[HealthCheckResult]) -> bool:

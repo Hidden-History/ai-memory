@@ -11,12 +11,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.memory.subagent import (
-    MemoryResult,
-    MemorySource,
-    MemorySubagent,
-    QueryContext,
-)
+from src.memory.subagent import MemoryResult, MemorySource, MemorySubagent, QueryContext
 
 
 class TestQueryContext:

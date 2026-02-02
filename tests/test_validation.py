@@ -3,10 +3,7 @@
 Tests AC 1.3.3 from Story 1.3.
 """
 
-from src.memory.validation import (
-    compute_content_hash,
-    validate_payload,
-)
+from src.memory.validation import compute_content_hash, validate_payload
 
 
 class TestValidatePayload:

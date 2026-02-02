@@ -24,8 +24,15 @@ jobs:
 
       - name: Install system dependencies
         run: |
+          # Add Docker's official GPG key and repository
           sudo apt-get update
-          sudo apt-get install -y docker.io docker-compose-plugin lsof
+          sudo apt-get install -y ca-certificates curl
+          sudo install -m 0755 -d /etc/apt/keyrings
+          sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+          sudo chmod a+r /etc/apt/keyrings/docker.asc
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin lsof
 
       - name: Start Docker service
         run: |
@@ -40,13 +47,15 @@ jobs:
 
       - name: Install Python test dependencies
         run: |
-          pip install pytest httpx
+          pip install -e ".[dev]"
 
       - name: Run installer
         env:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
           AI_MEMORY_QDRANT_PORT: 26350
           AI_MEMORY_EMBEDDING_PORT: 28080
+          QDRANT_API_KEY: test-ci-key
+          NON_INTERACTIVE: "true"
         run: |
           chmod +x scripts/install.sh
           ./scripts/install.sh
@@ -62,6 +71,7 @@ jobs:
       - name: Run health check
         env:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
+          QDRANT_API_KEY: test-ci-key
         run: |
           python3 $AI_MEMORY_INSTALL_DIR/scripts/health-check.py
 
@@ -70,6 +80,7 @@ jobs:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
           AI_MEMORY_QDRANT_PORT: 26350
           AI_MEMORY_EMBEDDING_PORT: 28080
+          QDRANT_API_KEY: test-ci-key
         run: |
           pytest tests/integration/test_installation.py -v --tb=short
           pytest tests/integration/test_platform.py -v --tb=short
@@ -91,8 +102,11 @@ jobs:
 
   test-macos:
     name: Test Installation (macOS)
+    # NOTE: macOS tests verify install.sh works but skip Docker
+    # Docker runtime testing is covered by Ubuntu job
+    # Docker behavior is identical across platforms once running
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -103,42 +117,17 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Docker Desktop
-        run: |
-          brew install --cask docker
-
-      - name: Start Docker Desktop
-        run: |
-          open -a Docker
-          # Wait for Docker to start
-          echo "Waiting for Docker to start..."
-          for i in {1..60}; do
-            if docker info > /dev/null 2>&1; then
-              echo "Docker started successfully"
-              break
-            fi
-            if [ $i -eq 60 ]; then
-              echo "Docker failed to start in time"
-              exit 1
-            fi
-            echo "Waiting... ($i/60)"
-            sleep 2
-          done
-
-      - name: Verify Docker is running
-        run: |
-          docker info
-          docker compose version
-
       - name: Install Python test dependencies
         run: |
-          pip install pytest httpx
+          pip install -e ".[dev]"
 
       - name: Run installer
         env:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
           AI_MEMORY_QDRANT_PORT: 26350
           AI_MEMORY_EMBEDDING_PORT: 28080
+          SKIP_DOCKER_CHECKS: "true"
+          NON_INTERACTIVE: "true"
         run: |
           chmod +x scripts/install.sh
           ./scripts/install.sh
@@ -154,29 +143,21 @@ jobs:
       - name: Run health check
         env:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
+          SKIP_DOCKER_CHECKS: "true"
         run: |
           python3 $AI_MEMORY_INSTALL_DIR/scripts/health-check.py
 
       - name: Run integration tests
         env:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
-          AI_MEMORY_QDRANT_PORT: 26350
-          AI_MEMORY_EMBEDDING_PORT: 28080
+          SKIP_DOCKER_CHECKS: "true"
         run: |
-          pytest tests/integration/test_installation.py -v --tb=short
+          # Only run platform tests, skip installation tests that require Docker
           pytest tests/integration/test_platform.py -v --tb=short
-
-      - name: Show Docker logs on failure
-        if: failure()
-        env:
-          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
-        run: |
-          docker compose -f $AI_MEMORY_INSTALL_DIR/docker/docker-compose.yml logs
 
       - name: Cleanup
         if: always()
         env:
           AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
         run: |
-          docker compose -f $AI_MEMORY_INSTALL_DIR/docker/docker-compose.yml down -v || true
           rm -rf $AI_MEMORY_INSTALL_DIR

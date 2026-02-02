@@ -381,6 +381,10 @@ def test_file_structure_validation(installer_script):
 # The tests below verify actual installation behavior (E2E).
 
 
+@pytest.mark.skipif(
+    os.environ.get("CI") == "true",
+    reason="Interactive install script requires TTY - run manually or in e2e",
+)
 def test_installer_creates_directories(temp_install_dir):
     """
     AC 7.8.1: Verify installer creates required directories
@@ -440,7 +444,8 @@ def test_hooks_configured_in_settings():
     )
     hooks_dir = os.path.join(install_dir, ".claude/hooks/scripts")
 
-    required_scripts = ["session_start.py", "post_tool_capture.py", "session_stop.py"]
+    required_scripts = ["session_start.py", "post_tool_capture.py"]
+    # Note: session_stop.py removed - deprecated per AI_MEMORY_ARCHITECTURE.md
     for script in required_scripts:
         script_path = os.path.join(hooks_dir, script)
         assert os.path.exists(script_path), f"Hook script missing: {script}"

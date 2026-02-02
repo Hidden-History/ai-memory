@@ -43,11 +43,7 @@ from .health import check_services, get_fallback_mode
 
 # Models and Validation
 from .models import EmbeddingStatus, MemoryPayload, MemoryType
-from .qdrant_client import (
-    QdrantUnavailable,
-    check_qdrant_health,
-    get_qdrant_client,
-)
+from .qdrant_client import QdrantUnavailable, check_qdrant_health, get_qdrant_client
 from .queue import (
     LOCK_TIMEOUT_SECONDS,
     LockedFileAppend,
@@ -138,4 +134,14 @@ __all__ = [
     "CollectionStats",
     "get_collection_stats",
     "check_collection_thresholds",
+    # Submodules (for test mocking compatibility - Python 3.10+)
+    "metrics",
+    "stats",
+    "warnings",
 ]
+
+# Submodule exports for test mocking compatibility (Python 3.10+)
+# These must be imported as modules (not just their contents) to support
+# patch("memory.metrics.collection_size") style mocking in tests.
+# Import AFTER __all__ to ensure proper module initialization order.
+from . import metrics, stats, warnings

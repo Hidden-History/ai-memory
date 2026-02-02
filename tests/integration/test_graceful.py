@@ -19,6 +19,11 @@ Requirements:
 Note:
     These are basic integration tests for MVP. Full integration testing
     with Docker Compose up/down orchestration can be added in Story 1.8.
+
+V2 Refactor Note:
+    Queue functions (load_queue, remove_from_queue, QUEUE_DIR) were removed
+    in V2 refactor. Tests that depend on them are skipped. Use MemoryQueue
+    class instead for new queue functionality.
 """
 
 import json
@@ -26,6 +31,18 @@ import subprocess
 import sys
 
 import pytest
+
+# V2 Refactor: These functions were removed. Import with fallback for skip logic.
+try:
+    from src.memory.queue import QUEUE_DIR
+except ImportError:
+    QUEUE_DIR = None
+
+try:
+    from src.memory.queue import load_queue, remove_from_queue
+except ImportError:
+    load_queue = None
+    remove_from_queue = None
 
 
 class TestGracefulDegradationIntegration:
@@ -78,6 +95,7 @@ class TestGracefulDegradationIntegration:
         # Should log normal mode
         assert b"normal" in result.stderr or b"normal" in result.stdout
 
+    @pytest.mark.skipif(QUEUE_DIR is None, reason="QUEUE_DIR removed in V2 refactor")
     def test_queue_file_creation_when_qdrant_down(self, tmp_path, monkeypatch):
         """Test queue file creation when Qdrant unavailable."""
         # Monkeypatch queue location
@@ -192,6 +210,9 @@ class TestGracefulDegradationIntegration:
 class TestQueueReplay:
     """Test queue replay functionality."""
 
+    @pytest.mark.skipif(
+        load_queue is None, reason="load_queue/remove_from_queue removed in V2 refactor"
+    )
     def test_queue_can_be_loaded_and_replayed(self, tmp_path, monkeypatch):
         """Test loading and processing queued operations."""
         from src.memory.queue import load_queue, queue_operation, remove_from_queue

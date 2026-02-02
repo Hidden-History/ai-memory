@@ -13,10 +13,7 @@ import pytest
 # Add scripts/memory to path for import
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts" / "memory"))
 
-from optimize_hnsw_multitenancy import (
-    get_hnsw_config,
-    optimize_collection,
-)
+from optimize_hnsw_multitenancy import get_hnsw_config, optimize_collection
 from qdrant_client.models import HnswConfigDiff
 
 from src.memory.config import (

@@ -277,11 +277,11 @@ def test_dashboard_json_files_exist():
     # Verify valid JSON
     with open(overview_path) as f:
         overview_data = json.load(f)
-        assert overview_data["uid"] == "ai-memory-overview"
+        assert overview_data["uid"] == "ai-memory-overview-v2"
 
     with open(performance_path) as f:
         performance_data = json.load(f)
-        assert performance_data["uid"] == "ai-memory-performance"
+        assert performance_data["uid"] == "ai-memory-performance-v2"
 
 
 def test_provisioning_config_files_exist():
