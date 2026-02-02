@@ -52,7 +52,10 @@ def main():
             if input_data.strip():
                 try:
                     parsed = json.loads(input_data)
-                    print(f"example_hook_input_parsed: {len(parsed)} keys", file=sys.stderr)
+                    print(
+                        f"example_hook_input_parsed: {len(parsed)} keys",
+                        file=sys.stderr,
+                    )
                 except json.JSONDecodeError:
                     print("example_hook_input_invalid_json", file=sys.stderr)
     except Exception as e:

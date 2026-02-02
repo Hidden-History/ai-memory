@@ -64,7 +64,7 @@ def test_manual_save_syntax_valid():
 
 @pytest.mark.skipif(
     os.environ.get("CI") == "true",
-    reason="Manual save requires local installation at ~/.ai-memory"
+    reason="Manual save requires local installation at ~/.ai-memory",
 )
 def test_manual_save_executes_with_description():
     """Test /save-memory command executes successfully with description."""
