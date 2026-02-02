@@ -133,19 +133,23 @@ jobs:
 
             // Only comment if it's a bug report
             if (issueLabels.includes('type: bug')) {
+              const message = [
+                'Thanks for reporting this bug! 🐛',
+                '',
+                'A maintainer will triage this issue within 2-3 business days.',
+                '',
+                '**In the meantime:**',
+                '- Check if the health check passes: `python3 scripts/health-check.py`',
+                '- Review [TROUBLESHOOTING.md](https://github.com/Hidden-History/ai-memory/blob/main/TROUBLESHOOTING.md)',
+                '- Check [existing issues](https://github.com/Hidden-History/ai-memory/issues) for similar problems',
+                '',
+                'If you find a workaround, please share it here to help others! 🙏'
+              ].join('\n');
+
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: `Thanks for reporting this bug! 🐛
-
-A maintainer will triage this issue within 2-3 business days.
-
-**In the meantime:**
-- Check if the health check passes: \`python3 scripts/health-check.py\`
-- Review [TROUBLESHOOTING.md](https://github.com/Hidden-History/ai-memory/blob/main/TROUBLESHOOTING.md)
-- Check [existing issues](https://github.com/Hidden-History/ai-memory/issues) for similar problems
-
-If you find a workaround, please share it here to help others! 🙏`
+                body: message
               });
             }
