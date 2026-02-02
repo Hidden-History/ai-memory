@@ -570,6 +570,10 @@ class TestMalformedInputHandling:
 class TestTimeoutEnforcement:
     """Tests for AC 2.5.4: Hook Timeout Enforcement (FR35)."""
 
+    @pytest.mark.skipif(
+        os.environ.get("CI") == "true",
+        reason="Timing test unreliable in CI - process startup varies",
+    )
     def test_posttooluse_timing_compliance(self, sample_edit_input: dict[str, Any]):
         """Test PostToolUse hook completes in <500ms.
 

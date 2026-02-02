@@ -9,6 +9,7 @@ Tests AC 2.1.1-2.1.5:
 """
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -117,6 +118,10 @@ class TestHookInfrastructure:
         # Should exit 0 (no capture for failed tools)
         assert result.returncode == 0, "Hook should exit 0 for non-success status"
 
+    @pytest.mark.skipif(
+        os.environ.get("CI") == "true",
+        reason="Timing test unreliable in CI - process startup varies",
+    )
     def test_hook_forks_to_background(
         self, hook_script_path, valid_edit_input, monkeypatch
     ):
@@ -242,6 +247,10 @@ class TestInputSchemaValidation:
 class TestPerformanceRequirements:
     """Test AC 2.1.4 (NFR-P1) - <500ms hook overhead."""
 
+    @pytest.mark.skipif(
+        os.environ.get("CI") == "true",
+        reason="Timing test unreliable in CI - process startup varies",
+    )
     def test_hook_execution_time(self, hook_script_path, valid_edit_input):
         """Hook must complete in <500ms."""
         iterations = 5

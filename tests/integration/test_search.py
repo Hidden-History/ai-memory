@@ -306,6 +306,14 @@ class TestSearchGracefulDegradation:
         """Test search fails gracefully when Qdrant unavailable (AC 1.6.4)."""
         from src.memory.qdrant_client import QdrantUnavailable
 
+        # Mock EmbeddingClient to return valid embeddings (so we can test Qdrant failure)
+        def mock_embed_init(config):
+            mock = type("MockClient", (), {})()
+            mock.embed = lambda texts: [[0.1] * 384]  # Return dummy embedding
+            return mock
+
+        monkeypatch.setattr("src.memory.search.EmbeddingClient", mock_embed_init)
+
         # Mock get_qdrant_client to return client that raises on search
         def mock_get_qdrant_client(config):
             mock = type("MockClient", (), {})()

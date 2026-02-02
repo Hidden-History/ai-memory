@@ -62,6 +62,7 @@ def get_test_env():
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.requires_embedding
 class TestMultiSessionMemory:
     """Test memory persists and retrieves across multiple sessions."""
 

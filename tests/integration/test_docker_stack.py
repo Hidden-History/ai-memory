@@ -148,6 +148,10 @@ def docker_stack(docker_compose_path: str) -> Generator[None, None, None]:
 
 @pytest.mark.integration
 @pytest.mark.requires_docker_stack
+@pytest.mark.skipif(
+    os.environ.get("CI") == "true",
+    reason="Requires docker-compose control - not available in CI service containers",
+)
 class TestPersistentStorage:
     """AC 1.1.2 - Persistent Storage Verification"""
 

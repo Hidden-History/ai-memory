@@ -39,11 +39,12 @@ def main():
     # Check Qdrant availability (optional - graceful if down)
     qdrant_port = int(os.environ.get("QDRANT_PORT", "6333"))
     qdrant_available = check_service_available("localhost", qdrant_port)
+    print("service_health_checked", file=sys.stderr)
 
     if qdrant_available:
-        print("example_hook_qdrant_available", file=sys.stderr)
+        print("fallback_mode_selected: normal", file=sys.stderr)
     else:
-        print("example_hook_qdrant_unavailable_graceful", file=sys.stderr)
+        print("fallback_mode_selected: graceful_degradation", file=sys.stderr)
 
     # Read stdin if provided (hook input)
     try:

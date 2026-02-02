@@ -66,6 +66,7 @@ def get_test_env():
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.requires_embedding
 class TestMagicMoment:
     """THE core test - proves Claude remembers across sessions."""
 
