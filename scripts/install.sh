@@ -840,6 +840,12 @@ copy_files() {
     log_info "Copying scripts..."
     cp -r "$SOURCE_DIR/scripts/"* "$INSTALL_DIR/scripts/"
 
+    log_info "Copying monitoring module..."
+    if [[ -d "$SOURCE_DIR/monitoring" ]]; then
+        mkdir -p "$INSTALL_DIR/monitoring"
+        cp -r "$SOURCE_DIR/monitoring/"* "$INSTALL_DIR/monitoring/"
+    fi
+
     log_info "Copying Claude Code hooks..."
     cp -r "$SOURCE_DIR/.claude/hooks/"* "$INSTALL_DIR/.claude/hooks/"
 
