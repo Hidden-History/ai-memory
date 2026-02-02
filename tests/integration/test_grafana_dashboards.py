@@ -281,7 +281,7 @@ def test_dashboard_json_files_exist():
 
     with open(performance_path) as f:
         performance_data = json.load(f)
-        assert performance_data["uid"] == "ai-memory-performance"
+        assert performance_data["uid"] == "ai-memory-performance-v2"
 
 
 def test_provisioning_config_files_exist():
