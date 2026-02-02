@@ -958,6 +958,15 @@ start_services() {
         exit 1
     }
 
+    # Export environment variables for docker compose
+    export AI_MEMORY_CONTAINER_PREFIX="$CONTAINER_PREFIX"
+    export QDRANT_PORT="$QDRANT_PORT"
+    export EMBEDDING_PORT="$EMBEDDING_PORT"
+
+    if [[ "$TEST_MODE" == "true" ]]; then
+        log_info "Exported test environment: prefix=$CONTAINER_PREFIX, qdrant=$QDRANT_PORT, embedding=$EMBEDDING_PORT"
+    fi
+
     # Build compose command based on mode
     local compose_cmd="docker compose"
     if [[ "$TEST_MODE" == "true" && -f "docker-compose.test.yml" ]]; then
