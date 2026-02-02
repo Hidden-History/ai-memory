@@ -21,9 +21,17 @@ from pathlib import Path
 
 import pytest
 
+# Skip entire module - session_stop.py deprecated per AI_MEMORY_ARCHITECTURE.md
+pytestmark = pytest.mark.skip(
+    reason="session_stop.py deprecated 2026-01-21 - Stop hook fires on message end, not session end. See docs/AI_MEMORY_ARCHITECTURE.md"
+)
+
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from src.memory.queue import QUEUE_FILE
+try:
+    from src.memory.queue import QUEUE_FILE
+except ImportError:
+    QUEUE_FILE = None  # Module deprecated
 
 # Test configuration
 HOOK_SCRIPT = Path(".claude/hooks/scripts/session_stop.py")

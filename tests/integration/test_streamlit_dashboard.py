@@ -18,6 +18,9 @@ import httpx
 import pytest
 from qdrant_client import QdrantClient
 
+# All tests in this module require Streamlit to be running
+pytestmark = pytest.mark.requires_streamlit
+
 
 class TestStreamlitHealthEndpoint:
     """AC 6.4.6: Health check endpoint must be accessible."""

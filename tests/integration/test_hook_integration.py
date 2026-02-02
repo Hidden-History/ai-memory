@@ -381,6 +381,7 @@ class TestPostToolUseIntegration:
 class TestStopHookIntegration:
     """Tests for AC 2.5.2: Stop Hook Integration."""
 
+    @pytest.mark.skip(reason="session_stop.py deprecated - see docs/AI_MEMORY_ARCHITECTURE.md")
     def test_session_summary_capture_flow(
         self,
         sample_stop_input: dict[str, Any],
@@ -511,6 +512,7 @@ class TestMalformedInputHandling:
         # AC 2.5.3: Completes within timeout
         assert duration < 5.0, f"Hook hung for {duration:.3f}s on {description}"
 
+    @pytest.mark.skip(reason="session_stop.py deprecated - see docs/AI_MEMORY_ARCHITECTURE.md")
     @pytest.mark.parametrize(
         "hook_input,description",
         [
@@ -592,6 +594,7 @@ class TestTimeoutEnforcement:
             duration < 0.5
         ), f"PostToolUse took {duration:.3f}s, expected <0.5s (NFR-P1)"
 
+    @pytest.mark.skip(reason="session_stop.py deprecated - see docs/AI_MEMORY_ARCHITECTURE.md")
     def test_stop_hook_timing_compliance(self, sample_stop_input: dict[str, Any]):
         """Test Stop hook completes in <5s.
 

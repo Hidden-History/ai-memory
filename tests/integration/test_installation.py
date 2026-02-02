@@ -440,7 +440,8 @@ def test_hooks_configured_in_settings():
     )
     hooks_dir = os.path.join(install_dir, ".claude/hooks/scripts")
 
-    required_scripts = ["session_start.py", "post_tool_capture.py", "session_stop.py"]
+    required_scripts = ["session_start.py", "post_tool_capture.py"]
+        # Note: session_stop.py removed - deprecated per AI_MEMORY_ARCHITECTURE.md
     for script in required_scripts:
         script_path = os.path.join(hooks_dir, script)
         assert os.path.exists(script_path), f"Hook script missing: {script}"

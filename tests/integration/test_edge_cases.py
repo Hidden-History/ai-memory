@@ -79,8 +79,10 @@ from src.memory.storage import MemoryStorage
 from src.memory.validation import ValidationError
 
 # 2026 Best Practice: Use pytest-timeout to detect hanging tests
+# BP-035: Tests require Qdrant for storage/search operations
 pytestmark = [
     pytest.mark.integration,
+    pytest.mark.requires_qdrant,
     pytest.mark.timeout(300),  # 5 minute timeout for entire module
 ]
 
