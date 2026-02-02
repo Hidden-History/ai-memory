@@ -34,11 +34,11 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 15s
     # Qdrant requires API key authentication
-    # NOTE: This uses inline credentials matching docker/.env defaults
-    # For production, change QDRANT_API_KEY in docker/.env
+    # NOTE: Set QDRANT_API_KEY in docker/.env - this file is a template
+    # In production, use Docker Secrets or external secret management
     authorization:
       type: Bearer
-      credentials: 'sWqsqDyn5jo5WvogvITehaAl'
+      credentials_file: '/run/secrets/qdrant_api_key'
 
   - job_name: 'grafana'
     static_configs:
@@ -52,11 +52,10 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 15s
     # Prometheus self-scrape with basic auth
-    # NOTE: This uses inline credentials matching docker/.env defaults
-    # For production, change PROMETHEUS_ADMIN_PASSWORD in docker/.env
+    # NOTE: Password should be set via environment or secrets
     basic_auth:
       username: 'admin'
-      password: '5HCf9v5laO0jxxLcXtnyYj7G'
+      password_file: '/run/secrets/prometheus_password'
 
   # ===================================================================
   # Pushgateway (aggregates metrics from hooks)

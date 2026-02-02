@@ -3,16 +3,8 @@
 # Version: 1.0.1
 # Description: Single-command installer for complete memory system
 # Usage: ./install.sh [PROJECT_PATH] [PROJECT_NAME]
-#        ./install.sh --test [PROJECT_PATH] [PROJECT_NAME]  # Test mode
 #        ./install.sh ~/projects/my-app           # Uses directory name as project ID
 #        ./install.sh ~/projects/my-app my-custom-id  # Custom project ID
-#
-# Test mode (--test or AI_MEMORY_TEST_MODE=true):
-#   - Installs to ~/.ai-memory-test (not ~/.ai-memory)
-#   - Uses test ports: Qdrant 26360, Embedding 28090, etc.
-#   - Uses test container prefix: test-ai-memory
-#   - Uses docker-compose.test.yml override
-#   - Does NOT affect production installation
 #
 # Exit codes:
 #   0 = Success
@@ -34,15 +26,6 @@ set -euo pipefail
 
 # Script directory for relative path resolution
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Test mode detection
-# Usage: ./install.sh --test [PROJECT_PATH] [PROJECT_NAME]
-#    OR: AI_MEMORY_TEST_MODE=true ./install.sh [PROJECT_PATH] [PROJECT_NAME]
-TEST_MODE="${AI_MEMORY_TEST_MODE:-false}"
-if [[ "${1:-}" == "--test" ]]; then
-    TEST_MODE="true"
-    shift  # Remove --test from arguments
-fi
 
 # Project path handling - accept target project as argument
 # Usage: ./install.sh [PROJECT_PATH] [PROJECT_NAME]
@@ -90,22 +73,12 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration with environment variable overrides
-# Test mode uses different defaults to avoid conflicts with production
-if [[ "$TEST_MODE" == "true" ]]; then
-    INSTALL_DIR="${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory-test}"
-    CONTAINER_PREFIX="${AI_MEMORY_CONTAINER_PREFIX:-test-ai-memory}"
-    QDRANT_PORT="${AI_MEMORY_QDRANT_PORT:-26360}"
-    EMBEDDING_PORT="${AI_MEMORY_EMBEDDING_PORT:-28090}"
-    MONITORING_PORT="${AI_MEMORY_MONITORING_PORT:-28010}"
-    STREAMLIT_PORT="${AI_MEMORY_STREAMLIT_PORT:-28510}"
-else
-    INSTALL_DIR="${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}"
-    CONTAINER_PREFIX="${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}"
-    QDRANT_PORT="${AI_MEMORY_QDRANT_PORT:-26350}"
-    EMBEDDING_PORT="${AI_MEMORY_EMBEDDING_PORT:-28080}"
-    MONITORING_PORT="${AI_MEMORY_MONITORING_PORT:-28000}"
-    STREAMLIT_PORT="${AI_MEMORY_STREAMLIT_PORT:-28501}"
-fi
+INSTALL_DIR="${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}"
+QDRANT_PORT="${AI_MEMORY_QDRANT_PORT:-26350}"
+EMBEDDING_PORT="${AI_MEMORY_EMBEDDING_PORT:-28080}"
+MONITORING_PORT="${AI_MEMORY_MONITORING_PORT:-28000}"
+STREAMLIT_PORT="${AI_MEMORY_STREAMLIT_PORT:-28501}"
+CONTAINER_PREFIX="${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}"
 
 # Logging functions
 log_info() {
@@ -241,20 +214,6 @@ main() {
     echo "  AI Memory Module Installer"
     echo "========================================"
     echo ""
-
-    # Show test mode warning
-    if [[ "$TEST_MODE" == "true" ]]; then
-        echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${YELLOW}║                      TEST MODE ACTIVE                      ║${NC}"
-        echo -e "${YELLOW}╠═══════════════════════════════════════════════════════════╣${NC}"
-        echo -e "${YELLOW}║  Install directory: ${INSTALL_DIR}${NC}"
-        echo -e "${YELLOW}║  Container prefix:  ${CONTAINER_PREFIX}${NC}"
-        echo -e "${YELLOW}║  Qdrant port:       ${QDRANT_PORT}${NC}"
-        echo -e "${YELLOW}║  Embedding port:    ${EMBEDDING_PORT}${NC}"
-        echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════╝${NC}"
-        echo ""
-    fi
-
     echo "Target project: $PROJECT_PATH"
     echo "Project name: $PROJECT_NAME"
     echo "Shared installation: $INSTALL_DIR"
@@ -898,29 +857,6 @@ configure_environment() {
             echo "AI_MEMORY_INSTALL_DIR=$INSTALL_DIR" >> "$docker_env"
         fi
 
-        # Add/update container prefix (different for test vs production)
-        if grep -q "^AI_MEMORY_CONTAINER_PREFIX=" "$docker_env"; then
-            sed -i "s|^AI_MEMORY_CONTAINER_PREFIX=.*|AI_MEMORY_CONTAINER_PREFIX=$CONTAINER_PREFIX|" "$docker_env"
-        else
-            echo "AI_MEMORY_CONTAINER_PREFIX=$CONTAINER_PREFIX" >> "$docker_env"
-        fi
-        log_info "Container prefix set to: $CONTAINER_PREFIX"
-
-        # Generate Prometheus basic auth header from password in .env
-        # Format: "Basic base64(admin:password)"
-        PROM_PASSWORD=$(grep "^PROMETHEUS_ADMIN_PASSWORD=" "$docker_env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
-        if [[ -n "$PROM_PASSWORD" ]]; then
-            PROM_AUTH_HEADER=$(echo -n "admin:$PROM_PASSWORD" | base64)
-            if grep -q "^PROMETHEUS_BASIC_AUTH_HEADER=" "$docker_env"; then
-                sed -i "s|^PROMETHEUS_BASIC_AUTH_HEADER=.*|PROMETHEUS_BASIC_AUTH_HEADER=Basic $PROM_AUTH_HEADER|" "$docker_env"
-            else
-                echo "PROMETHEUS_BASIC_AUTH_HEADER=Basic $PROM_AUTH_HEADER" >> "$docker_env"
-            fi
-            log_info "Generated PROMETHEUS_BASIC_AUTH_HEADER"
-        else
-            log_warning "PROMETHEUS_ADMIN_PASSWORD not found - skipping auth header generation"
-        fi
-
         log_success "Environment configured at $docker_env"
     else
         # No source .env - create minimal template (user needs to add credentials)
@@ -981,28 +917,12 @@ start_services() {
         exit 1
     }
 
-    # Export environment variables for docker compose
-    export AI_MEMORY_CONTAINER_PREFIX="$CONTAINER_PREFIX"
-    export QDRANT_PORT="$QDRANT_PORT"
-    export EMBEDDING_PORT="$EMBEDDING_PORT"
-
-    if [[ "$TEST_MODE" == "true" ]]; then
-        log_info "Exported test environment: prefix=$CONTAINER_PREFIX, qdrant=$QDRANT_PORT, embedding=$EMBEDDING_PORT"
-    fi
-
-    # Build compose command based on mode
-    local compose_cmd="docker compose"
-    if [[ "$TEST_MODE" == "true" && -f "docker-compose.test.yml" ]]; then
-        compose_cmd="docker compose -f docker-compose.yml -f docker-compose.test.yml"
-        log_info "Using test compose override (docker-compose.test.yml)"
-    fi
-
     # Pull images first (show progress)
     log_info "Pulling Docker images (this may take a few minutes)..."
     if [[ "$INSTALL_MONITORING" == "true" ]]; then
-        $compose_cmd --profile monitoring pull
+        docker compose --profile monitoring pull
     else
-        $compose_cmd pull
+        docker compose pull
     fi
 
     # Start core services with 2026 security best practices:
@@ -1013,9 +933,9 @@ start_services() {
     log_info "Starting services with security hardening..."
     if [[ "$INSTALL_MONITORING" == "true" ]]; then
         log_info "Including monitoring dashboard (Streamlit, Grafana, Prometheus)..."
-        $compose_cmd --profile monitoring up -d
+        docker compose --profile monitoring up -d
     else
-        $compose_cmd up -d
+        docker compose up -d
     fi
 
     log_success "Docker services started"
@@ -1475,11 +1395,6 @@ print(f'✓ AI_MEMORY_PROJECT_ID set to: {project_id}')
 
 run_health_check() {
     log_info "Running health checks..."
-
-    # Export ports for health check script (supports test mode)
-    export QDRANT_PORT="$QDRANT_PORT"
-    export EMBEDDING_PORT="$EMBEDDING_PORT"
-    export MONITORING_PORT="$MONITORING_PORT"
 
     # BUG-041: Export QDRANT_API_KEY from docker/.env for authenticated health check
     if [[ -f "$INSTALL_DIR/docker/.env" ]]; then

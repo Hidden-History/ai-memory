@@ -34,10 +34,7 @@ except ImportError:
 
 # Configuration from environment (DEC-010: Jina Embeddings v2 Base Code = 768 dimensions)
 EXPECTED_EMBEDDING_DIMENSIONS = int(os.environ.get("VECTOR_DIMENSIONS", "768"))
-# Port configuration - read from environment with production defaults
-QDRANT_PORT = int(os.environ.get("QDRANT_PORT", "26350"))
-EMBEDDING_PORT = int(os.environ.get("EMBEDDING_PORT", "28080"))
-MONITORING_PORT = int(os.environ.get("MONITORING_PORT", os.environ.get("AI_MEMORY_MONITORING_PORT", "28000")))
+MONITORING_PORT = int(os.environ.get("AI_MEMORY_MONITORING_PORT", "28000"))
 SKIP_DOCKER_CHECKS = os.environ.get("SKIP_DOCKER_CHECKS", "").lower() == "true"
 
 
@@ -53,7 +50,7 @@ class HealthCheckResult:
 
 def check_qdrant(
     host: str = "localhost",
-    port: int = None,
+    port: int = 26350,
     timeout: int = 5,
     api_key: Optional[str] = None
 ) -> HealthCheckResult:
@@ -63,9 +60,6 @@ def check_qdrant(
     2026 Best Practice: Granular httpx.Timeout() for connect/read/write/pool.
     Source: https://www.python-httpx.org/advanced/timeouts/
     """
-    if port is None:
-        port = QDRANT_PORT
-
     # Granular timeout: fast connect, reasonable read time
     timeout_config = httpx.Timeout(connect=3.0, read=float(timeout), write=5.0, pool=3.0)
 
@@ -145,7 +139,7 @@ def check_qdrant(
 
 def check_embedding_service(
     host: str = "localhost",
-    port: int = None,
+    port: int = 28080,
     timeout: int = 10
 ) -> HealthCheckResult:
     """
@@ -154,9 +148,6 @@ def check_embedding_service(
     2026 Best Practice: Granular httpx.Timeout() with longer read for model services.
     Source: https://www.python-httpx.org/advanced/timeouts/
     """
-    if port is None:
-        port = EMBEDDING_PORT
-
     # Longer read timeout for model-heavy services
     timeout_config = httpx.Timeout(connect=3.0, read=float(timeout), write=5.0, pool=3.0)
     start = time.perf_counter()
@@ -213,7 +204,7 @@ def check_embedding_service(
 
 def check_embedding_functionality(
     host: str = "localhost",
-    port: int = None,
+    port: int = 28080,
     timeout: int = 30
 ) -> HealthCheckResult:
     """
@@ -224,9 +215,6 @@ def check_embedding_functionality(
     - https://www.index.dev/blog/how-to-implement-health-check-in-python
     - https://www.python-httpx.org/advanced/timeouts/
     """
-    if port is None:
-        port = EMBEDDING_PORT
-
     # Longer timeout for actual embedding inference
     timeout_config = httpx.Timeout(connect=3.0, read=float(timeout), write=10.0, pool=3.0)
     start = time.perf_counter()
