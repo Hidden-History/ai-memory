@@ -898,6 +898,29 @@ configure_environment() {
             echo "AI_MEMORY_INSTALL_DIR=$INSTALL_DIR" >> "$docker_env"
         fi
 
+        # Add/update container prefix (different for test vs production)
+        if grep -q "^AI_MEMORY_CONTAINER_PREFIX=" "$docker_env"; then
+            sed -i "s|^AI_MEMORY_CONTAINER_PREFIX=.*|AI_MEMORY_CONTAINER_PREFIX=$CONTAINER_PREFIX|" "$docker_env"
+        else
+            echo "AI_MEMORY_CONTAINER_PREFIX=$CONTAINER_PREFIX" >> "$docker_env"
+        fi
+        log_info "Container prefix set to: $CONTAINER_PREFIX"
+
+        # Generate Prometheus basic auth header from password in .env
+        # Format: "Basic base64(admin:password)"
+        PROM_PASSWORD=$(grep "^PROMETHEUS_ADMIN_PASSWORD=" "$docker_env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
+        if [[ -n "$PROM_PASSWORD" ]]; then
+            PROM_AUTH_HEADER=$(echo -n "admin:$PROM_PASSWORD" | base64)
+            if grep -q "^PROMETHEUS_BASIC_AUTH_HEADER=" "$docker_env"; then
+                sed -i "s|^PROMETHEUS_BASIC_AUTH_HEADER=.*|PROMETHEUS_BASIC_AUTH_HEADER=Basic $PROM_AUTH_HEADER|" "$docker_env"
+            else
+                echo "PROMETHEUS_BASIC_AUTH_HEADER=Basic $PROM_AUTH_HEADER" >> "$docker_env"
+            fi
+            log_info "Generated PROMETHEUS_BASIC_AUTH_HEADER"
+        else
+            log_warning "PROMETHEUS_ADMIN_PASSWORD not found - skipping auth header generation"
+        fi
+
         log_success "Environment configured at $docker_env"
     else
         # No source .env - create minimal template (user needs to add credentials)
