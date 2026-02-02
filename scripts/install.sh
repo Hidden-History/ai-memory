@@ -1453,6 +1453,11 @@ print(f'✓ AI_MEMORY_PROJECT_ID set to: {project_id}')
 run_health_check() {
     log_info "Running health checks..."
 
+    # Export ports for health check script (supports test mode)
+    export QDRANT_PORT="$QDRANT_PORT"
+    export EMBEDDING_PORT="$EMBEDDING_PORT"
+    export MONITORING_PORT="$MONITORING_PORT"
+
     # BUG-041: Export QDRANT_API_KEY from docker/.env for authenticated health check
     if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
         QDRANT_API_KEY=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
