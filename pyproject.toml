@@ -64,7 +64,7 @@ dev = [
     "pytest-playwright>=0.7.0,<1.0.0",
     "playwright>=1.50.0,<2.0.0",
     # Code Quality
-    "black>=25.0.0,<27.0.0",
+    "black==26.1.0",
     "ruff>=0.14.0,<1.0.0",
     "isort>=5.13.0,<8.0.0",
     "mypy>=1.19.0,<2.0.0",

@@ -139,16 +139,14 @@ class TestMemoryConfig:
 
         # Create temporary .env file
         env_file = tmp_path / ".env"
-        env_file.write_text(
-            """
+        env_file.write_text("""
 SIMILARITY_THRESHOLD=0.82
 DEDUP_THRESHOLD=0.92
 MAX_RETRIEVALS=7
 TOKEN_BUDGET=2500
 QDRANT_PORT=26351
 LOG_LEVEL=WARNING
-        """.strip()
-        )
+        """.strip())
 
         # Point to the .env file (Note: pydantic-settings looks in current dir)
         monkeypatch.chdir(tmp_path)
