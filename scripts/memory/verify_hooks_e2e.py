@@ -136,9 +136,9 @@ def check_hook_scripts_exist(results: TestResults, verbose: bool = False) -> boo
     print_test("Hooks directory", "PASS", str(hooks_dir))
 
     # Expected hook scripts (from settings.json)
+    # Note: session_stop.py was archived 2026-01-17, no longer expected
     expected_scripts = [
         "session_start.py",
-        "session_stop.py",
         "pre_compact_save.py",
         "post_tool_capture.py",
         "best_practices_retrieval.py",
@@ -261,10 +261,12 @@ def check_docker_services(results: TestResults, verbose: bool = False) -> bool:
     # Check Qdrant
     qdrant_host = os.environ.get("QDRANT_HOST", "localhost")
     qdrant_port = os.environ.get("QDRANT_PORT", "26350")
+    qdrant_api_key = os.environ.get("QDRANT_API_KEY", "")
 
     try:
         import requests
-        response = requests.get(f"http://{qdrant_host}:{qdrant_port}/collections", timeout=5)
+        headers = {"api-key": qdrant_api_key} if qdrant_api_key else {}
+        response = requests.get(f"http://{qdrant_host}:{qdrant_port}/collections", headers=headers, timeout=5)
         if response.status_code == 200:
             results.add_pass("qdrant_health")
             collections = response.json().get("result", {}).get("collections", [])
@@ -601,12 +603,10 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
                 content=test_content,
                 cwd=str(project_root),
                 memory_type=MemoryType.SESSION,
-                source_hook="verify_hooks_e2e",
+                source_hook="manual",  # Valid hook type for E2E testing
                 session_id="e2e_test_" + timestamp,
                 collection="discussions",
                 group_id=project_name,
-                test=True,
-                timestamp=timestamp
             )
             memory_id = result["memory_id"]
             results.add_pass("workflow_store", f"Memory ID: {memory_id}")
@@ -672,7 +672,13 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
                 print_test("Retrieve by ID", "FAIL", "Not found")
                 return False
 
+        except ImportError:
+            # QdrantUnavailable not available in import scope
+            results.add_fail("workflow_retrieve", "Qdrant connection error")
+            print_test("Retrieve by ID", "FAIL", "Connection error")
+            return False
         except Exception as e:
+            # get_by_id now raises QdrantUnavailable on connection errors
             results.add_fail("workflow_retrieve", str(e))
             print_test("Retrieve by ID", "FAIL", str(e))
             return False
@@ -684,12 +690,10 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
                 content=test_content,
                 cwd=str(project_root),
                 memory_type=MemoryType.SESSION,
-                source_hook="verify_hooks_e2e",
+                source_hook="manual",  # Valid hook type for E2E testing
                 session_id="e2e_test_" + timestamp,
                 collection="discussions",
                 group_id=project_name,
-                test=True,
-                timestamp=timestamp
             )
             duplicate_id = duplicate_result.get("memory_id")
 

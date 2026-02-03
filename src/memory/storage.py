@@ -211,6 +211,12 @@ class MemoryStorage:
 
         # Build payload with computed hash
         content_hash = compute_content_hash(content)
+
+        # Remove reserved keys from extra_fields to prevent duplicate arguments
+        reserved_keys = ['timestamp', 'created_at', 'content', 'content_hash', 'type', 'source_hook', 'session_id', 'group_id', 'collection']
+        for key in reserved_keys:
+            extra_fields.pop(key, None)
+
         payload = MemoryPayload(
             content=content,
             content_hash=content_hash,
@@ -547,6 +553,53 @@ class MemoryStorage:
 
             raise QdrantUnavailable(f"Failed to batch store memories: {e}") from e
 
+    def get_by_id(
+        self,
+        memory_id: str,
+        collection: str = "discussions"
+    ) -> dict | None:
+        """Retrieve a memory by its Qdrant point ID.
+
+        Args:
+            memory_id: The Qdrant point ID (UUID string)
+            collection: Which collection to search (default: discussions)
+
+        Returns:
+            Memory payload dict if found, None if not found
+
+        Raises:
+            QdrantUnavailable: If Qdrant connection fails (not for "not found")
+
+        Note:
+            No group_id filter needed - point IDs are unique within collection.
+            Returns None only when memory genuinely doesn't exist.
+            Raises exception on connection/server errors to allow caller handling.
+        """
+        try:
+            # Use Qdrant retrieve API
+            points = self.qdrant_client.retrieve(
+                collection_name=collection,
+                ids=[memory_id],
+                with_payload=True,
+                with_vectors=False
+            )
+
+            if points:  # Simplified: truthy check is sufficient
+                point = points[0]
+                return {
+                    "id": str(point.id),
+                    **point.payload
+                }
+            return None
+
+        except Exception as e:
+            # Don't swallow errors - let caller decide how to handle
+            logger.error(
+                "get_by_id_failed",
+                extra={"memory_id": memory_id, "collection": collection, "error": str(e)},
+            )
+            raise QdrantUnavailable(f"Failed to retrieve memory {memory_id}: {e}") from e
+
     def _check_duplicate(
         self, content_hash: str, collection: str, group_id: str
     ) -> str | None:
@@ -606,7 +659,9 @@ class MemoryStorage:
                 # Metrics: Increment deduplication counter (Story 6.1, AC 6.1.3)
                 if deduplication_events_total:
                     deduplication_events_total.labels(
-                        project=group_id or "unknown"
+                        action="skipped_duplicate",
+                        collection=collection,
+                        project=group_id  # group_id is required param, always has value
                     ).inc()
 
                 return existing_id

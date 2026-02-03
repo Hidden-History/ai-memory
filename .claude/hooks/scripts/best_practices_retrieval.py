@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 # Setup Python path using shared utility (CR-4 Wave 2)
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))) + "/src")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) + "/src")
 from memory.hooks_common import setup_python_path, setup_hook_logging, log_to_activity, get_metrics, LANGUAGE_MAP, PREVIEW_MAX_CHARS
 
 INSTALL_DIR = setup_python_path()
