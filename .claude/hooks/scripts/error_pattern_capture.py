@@ -305,8 +305,8 @@ def fork_to_background(error_context: Dict[str, Any]) -> None:
         logger.info(
             "error_pattern_forked",
             extra={
-                "command": error_context["command"][:50],
-                "session_id": error_context["session_id"],
+                "command": error_context.get("command", "")[:50],
+                "session_id": error_context.get("session_id", "unknown"),
             },
         )
 
@@ -376,14 +376,14 @@ def main() -> int:
         fork_to_background(error_context)
 
         # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
-        error_msg = error_context["error_message"]
+        error_msg = error_context.get("error_message", "Unknown error")
         message = f"🔴 AI Memory: Captured error pattern: {error_msg}"
         print(json.dumps({"systemMessage": message}))
         sys.stdout.flush()  # Ensure output is flushed before exit
 
         # Activity log with proper error icon (no truncation)
         log_error_capture(
-            command=error_context["command"],
+            command=error_context.get("command", ""),
             error_msg=error_msg,
             exit_code=error_context.get("exit_code", -1),
             output=error_context.get("output", ""),

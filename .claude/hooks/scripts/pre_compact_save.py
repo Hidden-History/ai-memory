@@ -112,8 +112,10 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
         return f"wrong_hook_event: {data.get('hook_event_name')}"
     if "trigger" not in data:
         return "missing_trigger"
-    if data["trigger"] not in ["manual", "auto"]:
-        return f"invalid_trigger: {data['trigger']}"
+    # TECH-DEBT-097: safe .get() access for error message
+    trigger = data.get("trigger", "")
+    if trigger not in ["manual", "auto"]:
+        return f"invalid_trigger: {trigger}"
 
     return None
 

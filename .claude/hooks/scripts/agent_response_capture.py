@@ -172,7 +172,7 @@ def fork_to_background(
             "background_forked",
             extra={
                 "hook_type": "Stop",
-                "session_id": hook_input["session_id"],
+                "session_id": hook_input.get("session_id", "unknown"),
                 "turn_number": turn_number,
                 "response_length": len(response_text),
             },

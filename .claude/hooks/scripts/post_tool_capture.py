@@ -138,9 +138,9 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
         if field not in data:
             return f"missing_required_field_{field}"
 
-    # AC 2.1.1: Validate tool_name
+    # AC 2.1.1: Validate tool_name (TECH-DEBT-097: safe .get() access)
     valid_tools = ["Edit", "Write", "NotebookEdit"]
-    if data["tool_name"] not in valid_tools:
+    if data.get("tool_name", "") not in valid_tools:
         return "invalid_tool_name"
 
     # AC 2.1.1: Validate tool completed successfully
@@ -200,7 +200,7 @@ def fork_to_background(hook_input: Dict[str, Any]) -> None:
         logger.info(
             "background_forked",
             extra={
-                "tool_name": hook_input["tool_name"],
+                "tool_name": hook_input.get("tool_name", "unknown"),
                 "session_id": hook_input.get("session_id", "unknown"),
             },
         )

@@ -163,7 +163,7 @@ def fork_to_background(hook_input: Dict[str, Any], turn_number: int) -> None:
             "background_forked",
             extra={
                 "hook_type": "UserPromptSubmit",
-                "session_id": hook_input["session_id"],
+                "session_id": hook_input.get("session_id", "unknown"),
                 "turn_number": turn_number,
             },
         )

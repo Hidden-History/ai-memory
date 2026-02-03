@@ -121,10 +121,17 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
             https=qdrant_use_https,
         )
 
-        # Extract tool information
-        tool_name = hook_input["tool_name"]
-        tool_input = hook_input["tool_input"]
-        cwd = hook_input["cwd"]
+        # Extract tool information (TECH-DEBT-097: safe .get() access)
+        tool_name = hook_input.get("tool_name", "")
+        tool_input = hook_input.get("tool_input", {})
+        cwd = hook_input.get("cwd", "")
+
+        if not tool_name or not cwd:
+            logger.error(
+                "missing_required_fields",
+                extra={"has_tool_name": bool(tool_name), "has_cwd": bool(cwd)},
+            )
+            return
 
         # BUG-058 Fix: session_id is for audit trail, not tenant isolation (group_id handles that)
         # Use graceful fallback per BP-037 (Fallback Tenant ID Pattern)
