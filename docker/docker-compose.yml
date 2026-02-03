@@ -171,6 +171,7 @@ services:
       - GF_AUTH_LOGIN_MAXIMUM_INACTIVE_LIFETIME_DURATION=7d
       - GF_AUTH_LOGIN_MAXIMUM_LIFETIME_DURATION=30d
       # Security hardening (2026 best practices)
+      - GF_SECURITY_SECRET_KEY=${GRAFANA_SECRET_KEY}
       - GF_SECURITY_CSRF_ALWAYS_CHECK=true
       - GF_SNAPSHOTS_EXTERNAL_ENABLED=false
     # Security hardening (2026 best practices)
