@@ -22,7 +22,7 @@ class IntelligentChunker:
 
     Routes content to appropriate chunking strategy:
     - CODE → ASTChunker (Tree-sitter) - IMPLEMENTED (TECH-DEBT-052)
-    - PROSE → SemanticChunker - FUTURE (TECH-DEBT-053)
+    - PROSE → ProseChunker (semantic) - IMPLEMENTED (BUG-049)
     - CONVERSATION → Whole message (no chunking)
     - CONFIG → Whole file (no chunking)
     """
@@ -69,6 +69,14 @@ class IntelligentChunker:
         self.max_chunk_tokens = max_chunk_tokens
         self.overlap_pct = overlap_pct
 
+        # Initialize ProseChunker with BP-039 params (BUG-049 fix)
+        # 512 tokens * 4 chars/token = 2048 chars max_chunk_size
+        prose_config = ProseChunkerConfig(
+            max_chunk_size=max_chunk_tokens * CHARS_PER_TOKEN,
+            overlap_ratio=overlap_pct,
+        )
+        self._prose_chunker = ProseChunker(prose_config)
+
         # Initialize AST chunker if available
         self._ast_chunker = None
         try:
@@ -81,6 +89,7 @@ class IntelligentChunker:
                     "max_chunk_tokens": max_chunk_tokens,
                     "overlap_pct": overlap_pct,
                     "ast_chunker": "available",
+                    "prose_chunker": "available",
                 },
             )
         except ImportError as e:
@@ -94,6 +103,7 @@ class IntelligentChunker:
                     "max_chunk_tokens": max_chunk_tokens,
                     "overlap_pct": overlap_pct,
                     "ast_chunker": "unavailable",
+                    "prose_chunker": "available",
                 },
             )
 
@@ -149,7 +159,8 @@ class IntelligentChunker:
 
         Routes to specialized chunkers based on content type:
         - CODE: AST-based chunking (if available)
-        - Others: Whole content (future: semantic, late chunking)
+        - PROSE: Semantic prose chunking (512 tokens, 15% overlap)
+        - Others: Whole content (CONFIG, CONVERSATION, UNKNOWN)
 
         Args:
             content: Content to chunk
@@ -209,6 +220,19 @@ class IntelligentChunker:
                     "reason": "tree_sitter_not_installed",
                     "fallback_strategy": "whole_content",
                 },
+            )
+        elif content_type == ContentType.PROSE:
+            # BUG-049: Route prose content to ProseChunker
+            logger.debug("routing_to_prose_chunker", extra={"file_path": file_path})
+            chunks = self._prose_chunker.chunk(content, source=file_path)
+
+            if chunks:
+                return chunks
+
+            # Fallback if prose chunker returned empty (shouldn't happen)
+            logger.warning(
+                "prose_chunker_empty_result",
+                extra={"file_path": file_path, "content_length": len(content)},
             )
 
         # Fallback: Return whole content as single chunk

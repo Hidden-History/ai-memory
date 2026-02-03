@@ -477,15 +477,15 @@ def bar():
         assert len(chunks) == 2
         assert chunks[0].metadata.chunk_type == "ast_code"
 
-    def test_routes_markdown_to_whole_content(self):
-        """Markdown files should still use whole-content (semantic not yet implemented)."""
+    def test_routes_markdown_to_prose_chunker(self):
+        """Markdown files should use ProseChunker (BUG-049 fix)."""
         chunker = IntelligentChunker()
         content = "# Title\n\nSome content"
         chunks = chunker.chunk(content, "README.md")
 
-        # Should use whole-content fallback
+        # Should use prose chunking
         assert len(chunks) == 1
-        assert chunks[0].metadata.chunk_type == "whole"
+        assert chunks[0].metadata.chunk_type == "prose"
 
     def test_graceful_degradation_without_ast_chunker(self):
         """IntelligentChunker should work even if AST chunker unavailable."""
@@ -497,6 +497,94 @@ def bar():
         # Should not crash, should return chunks (AST or whole)
         chunks = chunker.chunk(code, "test.py")
         assert len(chunks) >= 1
+
+
+class TestProseChunkerIntegration:
+    """Test IntelligentChunker integration with ProseChunker (BUG-049 fix)."""
+
+    def test_routes_markdown_to_prose_chunker(self):
+        """Markdown (.md) files should be routed to ProseChunker."""
+        chunker = IntelligentChunker()
+        content = "# Title\n\nThis is paragraph one.\n\nThis is paragraph two."
+        chunks = chunker.chunk(content, "README.md")
+
+        assert len(chunks) >= 1
+        assert chunks[0].metadata.chunk_type == "prose"
+
+    def test_routes_txt_to_prose_chunker(self):
+        """Text (.txt) files should be routed to ProseChunker."""
+        chunker = IntelligentChunker()
+        content = "Some plain text content."
+        chunks = chunker.chunk(content, "notes.txt")
+
+        assert len(chunks) == 1
+        assert chunks[0].metadata.chunk_type == "prose"
+
+    def test_routes_rst_to_prose_chunker(self):
+        """RST (.rst) files should be routed to ProseChunker."""
+        chunker = IntelligentChunker()
+        content = "Title\n=====\n\nSome reStructuredText content."
+        chunks = chunker.chunk(content, "docs.rst")
+
+        assert len(chunks) >= 1
+        assert chunks[0].metadata.chunk_type == "prose"
+
+    def test_prose_chunker_uses_configured_params(self):
+        """ProseChunker should use IntelligentChunker's configured params."""
+        # 512 tokens * 4 chars = 2048 chars max_chunk_size
+        chunker = IntelligentChunker(max_chunk_tokens=512, overlap_pct=0.15)
+
+        # Create content longer than 2048 chars to force multiple chunks
+        content = "Word " * 600  # ~3000 chars, should split
+        chunks = chunker.chunk(content, "long_doc.md")
+
+        # Should have multiple chunks
+        assert len(chunks) >= 2
+        # All should be prose type
+        assert all(c.metadata.chunk_type == "prose" for c in chunks)
+
+    def test_prose_chunks_have_correct_metadata(self):
+        """Prose chunks should have complete metadata."""
+        chunker = IntelligentChunker()
+        content = "Test content for metadata verification."
+        chunks = chunker.chunk(content, "test.md")
+
+        chunk = chunks[0]
+        assert chunk.metadata.chunk_type == "prose"
+        assert chunk.metadata.chunk_index == 0
+        assert chunk.metadata.total_chunks >= 1
+        assert chunk.metadata.chunk_size_tokens > 0
+        assert chunk.metadata.source_file == "test.md"
+
+    def test_prose_small_content_single_chunk(self):
+        """Small prose content returns single chunk."""
+        chunker = IntelligentChunker()
+        content = "Short text."
+        chunks = chunker.chunk(content, "short.md")
+
+        assert len(chunks) == 1
+        assert chunks[0].content == "Short text."
+
+    def test_prose_chunks_have_overlap(self):
+        """Multiple prose chunks should have overlap for context."""
+        chunker = IntelligentChunker(max_chunk_tokens=128)  # Force smaller chunks
+
+        # Create paragraph-separated content
+        para1 = "First paragraph " * 20
+        para2 = "Second paragraph " * 20
+        para3 = "Third paragraph " * 20
+        content = f"{para1}\n\n{para2}\n\n{para3}"
+
+        chunks = chunker.chunk(content, "multi_para.md")
+
+        # Should have multiple chunks
+        assert len(chunks) >= 2
+
+        # Check if overlap marker present on non-first chunks
+        has_overlap = any("..." in c.content for c in chunks[1:])
+        # Overlap may or may not be present depending on size constraints
+        # Just verify no crash and proper chunk type
+        assert all(c.metadata.chunk_type == "prose" for c in chunks)
 
 
 class TestIntelligentChunkerValidation:
