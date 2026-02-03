@@ -25,17 +25,19 @@ from pathlib import Path
 from typing import Any, Dict
 
 # CR-1.7: Setup path inline (must happen BEFORE any memory.* imports)
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Import pattern extraction (Story 2.3)
 from datetime import datetime, timezone
 
+from memory.chunking import ChunkResult, IntelligentChunker
+from memory.config import COLLECTION_CODE_PATTERNS
 from memory.extraction import extract_patterns
 from memory.filters import ImplementationFilter
 from memory.project import detect_project
-from memory.config import COLLECTION_CODE_PATTERNS
-from memory.chunking import IntelligentChunker, ChunkResult
 
 try:
     from qdrant_client import AsyncQdrantClient
@@ -50,20 +52,25 @@ except ImportError:
     UnexpectedResponse = Exception
 
 try:
-    from memory.validation import compute_content_hash
     from memory.deduplication import is_duplicate
+    from memory.validation import compute_content_hash
 except ImportError:
     # Fallback if validation module not available
     import hashlib
+
     def compute_content_hash(content: str) -> str:
         return f"sha256:{hashlib.sha256(content.encode()).hexdigest()}"
 
     # Mock is_duplicate if not available
     async def is_duplicate(content, group_id, collection="memories"):
-        return type('Result', (), {'is_duplicate': False, 'reason': 'module_unavailable'})()
+        return type(
+            "Result", (), {"is_duplicate": False, "reason": "module_unavailable"}
+        )()
+
 
 # CR-1.2: Use consolidated logging setup
-from memory.hooks_common import setup_hook_logging, get_hook_timeout
+from memory.hooks_common import get_hook_timeout, setup_hook_logging
+
 logger = setup_hook_logging()
 
 # CR-1.3: Use consolidated queue operation
@@ -71,7 +78,7 @@ from memory.queue import queue_operation
 
 # Import metrics for Prometheus instrumentation (Story 6.1)
 try:
-    from memory.metrics import memory_captures_total, deduplication_events_total
+    from memory.metrics import deduplication_events_total, memory_captures_total
 except ImportError:
     memory_captures_total = None
     deduplication_events_total = None
@@ -108,7 +115,10 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
 
         # BP-040: API key + HTTPS configurable via environment variables
         client = AsyncQdrantClient(
-            host=qdrant_host, port=qdrant_port, api_key=qdrant_api_key, https=qdrant_use_https
+            host=qdrant_host,
+            port=qdrant_port,
+            api_key=qdrant_api_key,
+            https=qdrant_use_https,
         )
 
         # Extract tool information
@@ -123,7 +133,7 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
             session_id = "unknown"
             logger.warning(
                 "session_id_missing_using_fallback",
-                extra={"cwd": cwd, "tool_name": tool_name}
+                extra={"cwd": cwd, "tool_name": tool_name},
             )
 
         # Extract the actual code content for hashing and pattern extraction
@@ -147,9 +157,7 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
         # Story 2.2: Check for duplicates before storing
         try:
             dedup_result = await is_duplicate(
-                content=code_content,
-                group_id=group_id,
-                collection=collection_name
+                content=code_content, group_id=group_id, collection=collection_name
             )
 
             if dedup_result.is_duplicate:
@@ -160,12 +168,16 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
                         "tool_name": tool_name,
                         "reason": dedup_result.reason,
                         "existing_id": dedup_result.existing_id,
-                        "similarity_score": getattr(dedup_result, 'similarity_score', None)
-                    }
+                        "similarity_score": getattr(
+                            dedup_result, "similarity_score", None
+                        ),
+                    },
                 )
                 # Metrics: Increment deduplication counter (Story 6.1)
                 if deduplication_events_total:
-                    deduplication_events_total.labels(project=group_id or "unknown").inc()
+                    deduplication_events_total.labels(
+                        project=group_id or "unknown"
+                    ).inc()
                 # Skip storage - duplicate detected
                 return
         except Exception as e:
@@ -175,8 +187,8 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
                 extra={
                     "error": str(e),
                     "error_type": type(e).__name__,
-                    "session_id": session_id
-                }
+                    "session_id": session_id,
+                },
             )
 
         # Story 2.3: Extract patterns from the content
@@ -191,8 +203,8 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
                 extra={
                     "file_path": file_path,
                     "tool_name": tool_name,
-                    "reason": "filter_rejected"
-                }
+                    "reason": "filter_rejected",
+                },
             )
             return
 
@@ -206,8 +218,8 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
                 extra={
                     "session_id": session_id,
                     "tool_name": tool_name,
-                    "file_path": file_path
-                }
+                    "file_path": file_path,
+                },
             )
             return
 
@@ -219,10 +231,7 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
         if not chunks:
             logger.info(
                 "no_chunks_created",
-                extra={
-                    "session_id": session_id,
-                    "file_path": file_path
-                }
+                extra={"session_id": session_id, "file_path": file_path},
             )
             return
 
@@ -231,17 +240,19 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
             extra={
                 "file_path": file_path,
                 "chunk_count": len(chunks),
-                "total_tokens": sum(c.metadata.chunk_size_tokens for c in chunks)
-            }
+                "total_tokens": sum(c.metadata.chunk_size_tokens for c in chunks),
+            },
         )
 
         # CR-1.5: Use config constant instead of env var with magic number
         from memory.config import get_config
+
         config = get_config()
         vector_size = config.embedding_dimension
 
         # Store each chunk as a separate memory point
         import uuid
+
         points_to_store = []
 
         for chunk in chunks:
@@ -289,26 +300,21 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
                 # Graceful degradation: Use zero vector if embedding fails
                 logger.warning(
                     "embedding_failed_using_zero_vector",
-                    extra={"error": str(e), "chunk_index": chunk.metadata.chunk_index}
+                    extra={"error": str(e), "chunk_index": chunk.metadata.chunk_index},
                 )
                 vector = [0.0] * vector_size
                 payload["embedding_status"] = "pending"
 
-            points_to_store.append({
-                "id": memory_id,
-                "payload": payload,
-                "vector": vector
-            })
+            points_to_store.append(
+                {"id": memory_id, "payload": payload, "vector": vector}
+            )
 
         # HIGH-4: Calculate token count BEFORE upsert for atomicity
         # (Prevents underreporting if storage succeeds but metrics fail)
         total_tokens = sum(len(p["payload"]["content"]) // 4 for p in points_to_store)
 
         # Store all chunks to Qdrant
-        await client.upsert(
-            collection_name=collection_name,
-            points=points_to_store
-        )
+        await client.upsert(collection_name=collection_name, points=points_to_store)
 
         logger.info(
             "memory_stored",
@@ -316,21 +322,26 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
                 "chunks_stored": len(points_to_store),
                 "session_id": session_id,
                 "collection": collection_name,
-                "file_path": file_path
-            }
+                "file_path": file_path,
+            },
         )
 
         # TECH-DEBT-069: Enqueue for async classification
         try:
-            from memory.classifier.queue import enqueue_for_classification, ClassificationTask
             from memory.classifier.config import CLASSIFIER_ENABLED
+            from memory.classifier.queue import (
+                ClassificationTask,
+                enqueue_for_classification,
+            )
 
             if CLASSIFIER_ENABLED:
                 for point in points_to_store:
                     task = ClassificationTask(
                         point_id=point["id"],
                         collection=collection_name,
-                        content=point["payload"]["content"][:2000],  # Limit content size
+                        content=point["payload"]["content"][
+                            :2000
+                        ],  # Limit content size
                         current_type=point["payload"]["type"],
                         group_id=group_id,
                         source_hook="PostToolUse",
@@ -346,19 +357,21 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
         if memory_captures_total:
             # Increment by number of chunks stored
             memory_captures_total.labels(
-                hook_type="PostToolUse",
-                status="success",
-                project=group_id or "unknown"
+                hook_type="PostToolUse", status="success", project=group_id or "unknown"
             ).inc(len(points_to_store))
 
         # TECH-DEBT-070: Push metrics to Pushgateway (async to avoid latency)
-        from memory.metrics_push import push_capture_metrics_async, push_token_metrics_async
+        from memory.metrics_push import (
+            push_capture_metrics_async,
+            push_token_metrics_async,
+        )
+
         push_capture_metrics_async(
             hook_type="PostToolUse",
             status="success",
             project=group_id or "unknown",
             collection=COLLECTION_CODE_PATTERNS,
-            count=len(points_to_store)
+            count=len(points_to_store),
         )
 
         # TECH-DEBT-071: Push token count for captured content
@@ -372,17 +385,14 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
                 operation="capture",
                 direction="stored",
                 project=group_id or "unknown",
-                token_count=total_tokens
+                token_count=total_tokens,
             )
 
     except ResponseHandlingException as e:
         # AC 2.1.2: Handle request/response errors (includes 429 rate limiting)
         logger.error(
             "qdrant_response_error",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            extra={"error": str(e), "error_type": type(e).__name__},
         )
         # AC 2.1.2: Queue on response handling failure
         queue_operation(hook_input, "response_error")
@@ -391,30 +401,21 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
         # AC 2.1.2: Handle HTTP errors
         logger.error(
             "qdrant_unexpected_response",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            extra={"error": str(e), "error_type": type(e).__name__},
         )
         # AC 2.1.2: Queue on unexpected response
         queue_operation(hook_input, "unexpected_response")
 
     except ConnectionRefusedError as e:
         # Qdrant service unavailable
-        logger.error(
-            "qdrant_unavailable",
-            extra={"error": str(e)}
-        )
+        logger.error("qdrant_unavailable", extra={"error": str(e)})
         # AC 2.1.2: Queue on connection failure
         queue_operation(hook_input, "qdrant_unavailable")
 
     except RuntimeError as e:
         # AC 2.1.2: Handle closed client instances
         if "closed" in str(e).lower():
-            logger.error(
-                "qdrant_client_closed",
-                extra={"error": str(e)}
-            )
+            logger.error("qdrant_client_closed", extra={"error": str(e)})
             queue_operation(hook_input, "client_closed")
         else:
             raise  # Re-raise if not client-related
@@ -422,11 +423,7 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
     except Exception as e:
         # Catch-all for unexpected errors
         logger.error(
-            "storage_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "storage_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
         # Metrics: Increment capture counter for failures (Story 6.1)
@@ -439,9 +436,7 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
                 project = "unknown"
 
             memory_captures_total.labels(
-                hook_type="PostToolUse",
-                status="failed",
-                project=project
+                hook_type="PostToolUse", status="failed", project=project
             ).inc()
 
         # AC 2.1.2: Queue on any failure
@@ -453,10 +448,7 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
             try:
                 await client.close()
             except Exception as e:
-                logger.error(
-                    "client_close_failed",
-                    extra={"error": str(e)}
-                )
+                logger.error("client_close_failed", extra={"error": str(e)})
 
 
 async def main_async() -> int:
@@ -474,19 +466,13 @@ async def main_async() -> int:
         timeout = get_hook_timeout()
 
         # Run storage with timeout
-        await asyncio.wait_for(
-            store_memory_async(hook_input),
-            timeout=timeout
-        )
+        await asyncio.wait_for(store_memory_async(hook_input), timeout=timeout)
 
         return 0
 
     except asyncio.TimeoutError:
         # AC 2.1.5: Handle timeout
-        logger.error(
-            "storage_timeout",
-            extra={"timeout_seconds": get_hook_timeout()}
-        )
+        logger.error("storage_timeout", extra={"timeout_seconds": get_hook_timeout()})
         # Queue for retry
         try:
             queue_operation(hook_input, "timeout")
@@ -496,11 +482,7 @@ async def main_async() -> int:
 
     except Exception as e:
         logger.error(
-            "async_main_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "async_main_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
         return 1
 
@@ -512,10 +494,7 @@ def main() -> int:
     except Exception as e:
         logger.error(
             "asyncio_run_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            extra={"error": str(e), "error_type": type(e).__name__},
         )
         return 1
 
