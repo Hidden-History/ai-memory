@@ -1,0 +1,4 @@
+# Ignore backup data (large files, sensitive)
+*
+!.gitignore
+!.gitkeep

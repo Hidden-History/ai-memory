@@ -35,7 +35,10 @@ except ImportError:
     sys.exit(1)
 
 # Default configuration
-DEFAULT_BACKUP_DIR = os.path.expanduser("~/.ai-memory/backups")
+# Backup to repo directory (survives reinstall), not install directory
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_DIR = SCRIPT_DIR.parent  # scripts/ -> repo root
+DEFAULT_BACKUP_DIR = os.environ.get("AI_MEMORY_BACKUP_DIR", str(REPO_DIR / "backups"))
 INSTALL_DIR = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
 
 # Qdrant configuration
