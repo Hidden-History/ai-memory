@@ -46,7 +46,9 @@ class TestMemoryConfig:
         assert config.similarity_threshold == 0.7
         assert config.dedup_threshold == 0.95
         assert config.max_retrievals == 5
-        assert config.token_budget == 4000  # Updated per BP-039 Section 3 (TECH-DEBT-116)
+        assert (
+            config.token_budget == 4000
+        )  # Updated per BP-039 Section 3 (TECH-DEBT-116)
 
         # Service endpoints
         assert config.qdrant_host == "localhost"
@@ -137,14 +139,16 @@ class TestMemoryConfig:
 
         # Create temporary .env file
         env_file = tmp_path / ".env"
-        env_file.write_text("""
+        env_file.write_text(
+            """
 SIMILARITY_THRESHOLD=0.82
 DEDUP_THRESHOLD=0.92
 MAX_RETRIEVALS=7
 TOKEN_BUDGET=2500
 QDRANT_PORT=26351
 LOG_LEVEL=WARNING
-        """.strip())
+        """.strip()
+        )
 
         # Point to the .env file (Note: pydantic-settings looks in current dir)
         monkeypatch.chdir(tmp_path)

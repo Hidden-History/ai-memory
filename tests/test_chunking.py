@@ -581,7 +581,7 @@ class TestProseChunkerIntegration:
         assert len(chunks) >= 2
 
         # Check if overlap marker present on non-first chunks
-        has_overlap = any("..." in c.content for c in chunks[1:])
+        _has_overlap = any("..." in c.content for c in chunks[1:])
         # Overlap may or may not be present depending on size constraints
         # Just verify no crash and proper chunk type
         assert all(c.metadata.chunk_type == "prose" for c in chunks)

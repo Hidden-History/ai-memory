@@ -173,9 +173,7 @@ def create_group_id_index(
         raise
 
 
-def create_content_hash_index(
-    client: QdrantClient, collection_name: str
-) -> None:
+def create_content_hash_index(client: QdrantClient, collection_name: str) -> None:
     """Create payload index for content_hash field for O(1) dedup lookup.
 
     Per BP-038 Section 3.3: content_hash index required for all collections.

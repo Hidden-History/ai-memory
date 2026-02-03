@@ -781,5 +781,8 @@ _collision_warnings = validate_keyword_patterns()
 if _collision_warnings:
     logger.warning(
         "keyword_pattern_collisions_detected",
-        extra={"collision_count": len(_collision_warnings), "warnings": _collision_warnings[:5]},
+        extra={
+            "collision_count": len(_collision_warnings),
+            "warnings": _collision_warnings[:5],
+        },
     )

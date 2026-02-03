@@ -24,7 +24,6 @@ Usage:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 
 @dataclass
@@ -53,9 +52,9 @@ class CaptureEvent:
     type: str
     content: str
     group_id: str
-    session_id: Optional[str] = None
-    tags: Optional[List[str]] = None
-    metadata: Optional[dict] = field(default_factory=dict)
+    session_id: str | None = None
+    tags: list[str] | None = None
+    metadata: dict | None = field(default_factory=dict)
 
     def __post_init__(self):
         """Validate required fields."""
@@ -105,7 +104,7 @@ class RetrievalEvent:
 
     query: str
     collection: str
-    type_filter: Optional[str] = None
+    type_filter: str | None = None
     group_id: str = ""
     limit: int = 10
 
