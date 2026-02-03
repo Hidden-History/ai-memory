@@ -61,7 +61,7 @@ This roadmap outlines the development direction for AI Memory Module. Community 
 
 ### Documentation
 - [x] **TECH-DEBT-109**: ROADMAP.md rewrite for V2.0+ architecture
-- [ ] **TECH-DEBT-108**: Update trigger count from 5 to 6 in README
+- [x] **TECH-DEBT-108**: Update trigger count from 5 to 6 in README (verified in v2.0.3)
 
 ### Configuration
 - [x] **TECH-DEBT-116**: Increase token budget from 2000 to 4000 per BP-039 Section 3

@@ -125,6 +125,22 @@ def create_collections(dry_run: bool = False) -> None:
             ),
         )
 
+        # BP-038 Section 2.1: timestamp index for recency queries
+        client.create_payload_index(
+            collection_name=collection_name,
+            field_name="timestamp",
+            field_schema=PayloadSchemaType.DATETIME,
+        )
+
+        # BP-038 Section 2.1: file_path index for code-patterns only
+        # Enables file-specific pattern lookup
+        if collection_name == COLLECTION_CODE_PATTERNS:
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="file_path",
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
+
         print(f"Created collection: {collection_name}")
 
 
