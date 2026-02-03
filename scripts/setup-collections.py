@@ -105,6 +105,13 @@ def create_collections(dry_run: bool = False) -> None:
             field_schema=PayloadSchemaType.KEYWORD,
         )
 
+        # BP-038 Section 3.3: content_hash index for O(1) dedup lookup
+        client.create_payload_index(
+            collection_name=collection_name,
+            field_name="content_hash",
+            field_schema=KeywordIndexParams(type="keyword"),
+        )
+
         # Create full-text index on content field
         # Enables hybrid search (semantic + keyword)
         client.create_payload_index(
