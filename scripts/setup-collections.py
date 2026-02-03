@@ -16,18 +16,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from qdrant_client.models import (
-    VectorParams,
     Distance,
-    PayloadSchemaType,
     KeywordIndexParams,
+    PayloadSchemaType,
     TextIndexParams,
     TokenizerType,
+    VectorParams,
 )
+
 from memory.config import (
-    get_config,
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
     COLLECTION_DISCUSSIONS,
+    get_config,
 )
 from memory.qdrant_client import get_qdrant_client
 
@@ -45,8 +46,12 @@ def create_collections(dry_run: bool = False) -> None:
     client = get_qdrant_client(config)
 
     if dry_run:
-        print(f"DRY RUN: Would connect to Qdrant at {config.qdrant_host}:{config.qdrant_port}")
-        print(f"DRY RUN: API key configured: {'Yes' if config.qdrant_api_key else 'No'}")
+        print(
+            f"DRY RUN: Would connect to Qdrant at {config.qdrant_host}:{config.qdrant_port}"
+        )
+        print(
+            f"DRY RUN: API key configured: {'Yes' if config.qdrant_api_key else 'No'}"
+        )
         print(f"DRY RUN: HTTPS enabled: {config.qdrant_use_https}")
 
     # Vector configuration (DEC-010: 768 dimensions from jina-embeddings-v2-base-code)
@@ -55,8 +60,8 @@ def create_collections(dry_run: bool = False) -> None:
     # V2.0 Collections (Memory System Spec v2.0, 2026-01-17)
     collection_names = [
         COLLECTION_CODE_PATTERNS,  # code-patterns
-        COLLECTION_CONVENTIONS,    # conventions
-        COLLECTION_DISCUSSIONS,    # discussions
+        COLLECTION_CONVENTIONS,  # conventions
+        COLLECTION_DISCUSSIONS,  # discussions
     ]
 
     for collection_name in collection_names:
@@ -65,7 +70,9 @@ def create_collections(dry_run: bool = False) -> None:
         if dry_run:
             exists = client.collection_exists(collection_name)
             print(f"DRY RUN: Collection '{collection_name}' exists: {exists}")
-            print(f"DRY RUN: Would {'recreate' if exists else 'create'} collection '{collection_name}'")
+            print(
+                f"DRY RUN: Would {'recreate' if exists else 'create'} collection '{collection_name}'"
+            )
             continue
 
         if client.collection_exists(collection_name):
@@ -123,7 +130,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Preview what would be created without making changes"
+        help="Preview what would be created without making changes",
     )
     args = parser.parse_args()
     create_collections(dry_run=args.dry_run)

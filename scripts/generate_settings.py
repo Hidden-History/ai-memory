@@ -50,12 +50,12 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
 
     # Use environment variable reference for portability
     # Quotes go around the full path including script name
-    hooks_base = '$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts'
+    hooks_base = "$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts"
 
     session_start_hook = {
         "type": "command",
         "command": f'python3 "{hooks_base}/session_start.py"',
-        "timeout": 30000
+        "timeout": 30000,
     }
 
     # Build env section - only include QDRANT_API_KEY if it has a value
@@ -75,7 +75,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         "LOG_LEVEL": "INFO",
         # Pushgateway configuration for metrics
         "PUSHGATEWAY_URL": "localhost:29091",
-        "PUSHGATEWAY_ENABLED": "true"
+        "PUSHGATEWAY_ENABLED": "true",
     }
 
     # Only include QDRANT_API_KEY if it has a non-empty value
@@ -91,7 +91,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
             "SessionStart": [
                 {
                     "matcher": "startup|resume|compact|clear",
-                    "hooks": [session_start_hook]
+                    "hooks": [session_start_hook],
                 }
             ],
             "UserPromptSubmit": [
@@ -99,7 +99,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'python3 "{hooks_base}/user_prompt_capture.py"'
+                            "command": f'python3 "{hooks_base}/user_prompt_capture.py"',
                         }
                     ]
                 },
@@ -108,10 +108,10 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         {
                             "type": "command",
                             "command": f'python3 "{hooks_base}/unified_keyword_trigger.py"',
-                            "timeout": 5000
+                            "timeout": 5000,
                         }
                     ]
-                }
+                },
             ],
             "PreToolUse": [
                 {
@@ -120,9 +120,9 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         {
                             "type": "command",
                             "command": f'python3 "{hooks_base}/new_file_trigger.py"',
-                            "timeout": 2000
+                            "timeout": 2000,
                         }
-                    ]
+                    ],
                 },
                 {
                     "matcher": "Edit",
@@ -130,10 +130,10 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         {
                             "type": "command",
                             "command": f'python3 "{hooks_base}/first_edit_trigger.py"',
-                            "timeout": 2000
+                            "timeout": 2000,
                         }
-                    ]
-                }
+                    ],
+                },
             ],
             "PostToolUse": [
                 {
@@ -142,23 +142,23 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         {
                             "type": "command",
                             "command": f'python3 "{hooks_base}/error_detection.py"',
-                            "timeout": 2000
+                            "timeout": 2000,
                         },
                         {
                             "type": "command",
-                            "command": f'python3 "{hooks_base}/error_pattern_capture.py"'
-                        }
-                    ]
+                            "command": f'python3 "{hooks_base}/error_pattern_capture.py"',
+                        },
+                    ],
                 },
                 {
                     "matcher": "Edit|Write|NotebookEdit",
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'python3 "{hooks_base}/post_tool_capture.py"'
+                            "command": f'python3 "{hooks_base}/post_tool_capture.py"',
                         }
-                    ]
-                }
+                    ],
+                },
             ],
             "PreCompact": [
                 {
@@ -167,9 +167,9 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         {
                             "type": "command",
                             "command": f'python3 "{hooks_base}/pre_compact_save.py"',
-                            "timeout": 10000
+                            "timeout": 10000,
                         }
-                    ]
+                    ],
                 }
             ],
             "Stop": [
@@ -177,12 +177,12 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'python3 "{hooks_base}/agent_response_capture.py"'
+                            "command": f'python3 "{hooks_base}/agent_response_capture.py"',
                         }
                     ]
                 }
-            ]
-        }
+            ],
+        },
     }
 
 

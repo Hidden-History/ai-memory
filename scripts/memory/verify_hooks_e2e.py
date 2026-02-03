@@ -27,21 +27,23 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
+
 
 # Color codes for terminal output
 class Colors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
+    HEADER = "\033[95m"
+    OKBLUE = "\033[94m"
+    OKCYAN = "\033[96m"
+    OKGREEN = "\033[92m"
+    WARNING = "\033[93m"
+    FAIL = "\033[91m"
+    ENDC = "\033[0m"
+    BOLD = "\033[1m"
+    UNDERLINE = "\033[4m"
+
 
 # Test results tracker
 class TestResults:
@@ -136,9 +138,9 @@ def check_hook_scripts_exist(results: TestResults, verbose: bool = False) -> boo
     print_test("Hooks directory", "PASS", str(hooks_dir))
 
     # Expected hook scripts (from settings.json)
+    # Note: session_stop.py was archived 2026-01-17, no longer expected
     expected_scripts = [
         "session_start.py",
-        "session_stop.py",
         "pre_compact_save.py",
         "post_tool_capture.py",
         "best_practices_retrieval.py",
@@ -153,16 +155,24 @@ def check_hook_scripts_exist(results: TestResults, verbose: bool = False) -> boo
 
         # Check existence
         if not script_path.exists():
-            results.add_fail(f"script_exists_{script_name}", f"Script not found: {script_path}")
+            results.add_fail(
+                f"script_exists_{script_name}", f"Script not found: {script_path}"
+            )
             print_test(f"Script: {script_name}", "FAIL", "Not found")
             all_passed = False
             continue
 
         # Check executable permission (Unix-like systems)
-        if os.name != 'nt' and not os.access(script_path, os.X_OK):
-            results.add_warning(f"script_executable_{script_name}",
-                              f"Script not executable: {script_path}")
-            print_test(f"Script: {script_name}", "WARN", "Not executable (may work with python3)")
+        if os.name != "nt" and not os.access(script_path, os.X_OK):
+            results.add_warning(
+                f"script_executable_{script_name}",
+                f"Script not executable: {script_path}",
+            )
+            print_test(
+                f"Script: {script_name}",
+                "WARN",
+                "Not executable (may work with python3)",
+            )
         else:
             results.add_pass(f"script_exists_{script_name}", str(script_path))
             if verbose:
@@ -197,7 +207,7 @@ def check_settings_json(results: TestResults, verbose: bool = False) -> bool:
     print_test("Settings file", "PASS", str(settings_path))
 
     try:
-        with open(settings_path, 'r') as f:
+        with open(settings_path, "r") as f:
             settings = json.load(f)
     except json.JSONDecodeError as e:
         results.add_fail("settings_parse", f"Invalid JSON: {e}")
@@ -218,7 +228,9 @@ def check_settings_json(results: TestResults, verbose: bool = False) -> bool:
     all_passed = True
     for hook_name in expected_hooks:
         if hook_name not in hooks:
-            results.add_warning(f"hook_{hook_name}", f"Hook not configured: {hook_name}")
+            results.add_warning(
+                f"hook_{hook_name}", f"Hook not configured: {hook_name}"
+            )
             print_test(f"Hook: {hook_name}", "WARN", "Not configured")
             all_passed = False
         elif verbose:
@@ -233,14 +245,21 @@ def check_settings_json(results: TestResults, verbose: bool = False) -> bool:
     # Check environment variables
     if "env" in settings:
         env = settings["env"]
-        required_vars = ["QDRANT_HOST", "QDRANT_PORT", "EMBEDDING_HOST", "EMBEDDING_PORT"]
+        required_vars = [
+            "QDRANT_HOST",
+            "QDRANT_PORT",
+            "EMBEDDING_HOST",
+            "EMBEDDING_PORT",
+        ]
         for var in required_vars:
             if var in env:
                 if verbose:
                     print_test(f"Env: {var}", "PASS", env[var])
                 results.add_pass(f"env_{var}")
             else:
-                results.add_warning(f"env_{var}", f"Environment variable not set: {var}")
+                results.add_warning(
+                    f"env_{var}", f"Environment variable not set: {var}"
+                )
                 print_test(f"Env: {var}", "WARN", "Not set")
 
     return all_passed
@@ -261,15 +280,25 @@ def check_docker_services(results: TestResults, verbose: bool = False) -> bool:
     # Check Qdrant
     qdrant_host = os.environ.get("QDRANT_HOST", "localhost")
     qdrant_port = os.environ.get("QDRANT_PORT", "26350")
+    qdrant_api_key = os.environ.get("QDRANT_API_KEY", "")
 
     try:
         import requests
-        response = requests.get(f"http://{qdrant_host}:{qdrant_port}/collections", timeout=5)
+
+        headers = {"api-key": qdrant_api_key} if qdrant_api_key else {}
+        response = requests.get(
+            f"http://{qdrant_host}:{qdrant_port}/collections",
+            headers=headers,
+            timeout=5,
+        )
         if response.status_code == 200:
             results.add_pass("qdrant_health")
             collections = response.json().get("result", {}).get("collections", [])
-            print_test("Qdrant service", "PASS",
-                      f"{qdrant_host}:{qdrant_port} ({len(collections)} collections)")
+            print_test(
+                "Qdrant service",
+                "PASS",
+                f"{qdrant_host}:{qdrant_port} ({len(collections)} collections)",
+            )
 
             if verbose:
                 for coll in collections:
@@ -292,15 +321,17 @@ def check_docker_services(results: TestResults, verbose: bool = False) -> bool:
 
     try:
         import requests
+
         response = requests.post(
             f"http://{embedding_host}:{embedding_port}/embed",
             json={"texts": ["test"]},
-            timeout=5
+            timeout=5,
         )
         if response.status_code == 200:
             results.add_pass("embedding_health")
-            print_test("Embedding service", "PASS",
-                      f"{embedding_host}:{embedding_port}")
+            print_test(
+                "Embedding service", "PASS", f"{embedding_host}:{embedding_port}"
+            )
         else:
             results.add_fail("embedding_health", f"HTTP {response.status_code}")
             print_test("Embedding service", "FAIL", f"HTTP {response.status_code}")
@@ -333,7 +364,7 @@ def test_session_start_hook(results: TestResults, verbose: bool = False) -> bool
     mock_input = {
         "cwd": str(project_root),
         "session_id": "test_session_" + datetime.now().strftime("%Y%m%d_%H%M%S"),
-        "trigger": "startup"
+        "trigger": "startup",
     }
 
     try:
@@ -342,7 +373,7 @@ def test_session_start_hook(results: TestResults, verbose: bool = False) -> bool
             input=json.dumps(mock_input),
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         if result.returncode != 0:
@@ -367,7 +398,9 @@ def test_session_start_hook(results: TestResults, verbose: bool = False) -> bool
                         print(f"         No context returned (no memories)")
             else:
                 results.add_warning("session_start_hook", "Missing hookSpecificOutput")
-                print_test("SessionStart hook", "WARN", "Missing hookSpecificOutput in JSON")
+                print_test(
+                    "SessionStart hook", "WARN", "Missing hookSpecificOutput in JSON"
+                )
         except json.JSONDecodeError:
             results.add_warning("session_start_hook", "Non-JSON output")
             print_test("SessionStart hook", "WARN", "Output is not JSON")
@@ -399,15 +432,15 @@ def test_best_practices_hook(results: TestResults, verbose: bool = False) -> boo
     print(f"\n{Colors.BOLD}Testing Best Practices Hook{Colors.ENDC}\n")
 
     project_root = get_project_root()
-    script_path = project_root / ".claude" / "hooks" / "scripts" / "best_practices_retrieval.py"
+    script_path = (
+        project_root / ".claude" / "hooks" / "scripts" / "best_practices_retrieval.py"
+    )
 
     # Create mock input
     mock_input = {
         "tool_name": "Edit",
-        "tool_input": {
-            "file_path": "src/memory/storage.py"
-        },
-        "cwd": str(project_root)
+        "tool_input": {"file_path": "src/memory/storage.py"},
+        "cwd": str(project_root),
     }
 
     try:
@@ -416,7 +449,7 @@ def test_best_practices_hook(results: TestResults, verbose: bool = False) -> boo
             input=json.dumps(mock_input),
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         if result.returncode != 0:
@@ -457,17 +490,19 @@ def test_post_tool_capture(results: TestResults, verbose: bool = False) -> bool:
     print(f"\n{Colors.BOLD}Testing PostToolUse Capture Hook{Colors.ENDC}\n")
 
     project_root = get_project_root()
-    script_path = project_root / ".claude" / "hooks" / "scripts" / "post_tool_capture.py"
+    script_path = (
+        project_root / ".claude" / "hooks" / "scripts" / "post_tool_capture.py"
+    )
 
     # Create mock input
     mock_input = {
         "tool_name": "Write",
         "tool_input": {
             "file_path": "test_file.py",
-            "content": "# Test implementation\ndef test_function():\n    return 42\n"
+            "content": "# Test implementation\ndef test_function():\n    return 42\n",
         },
         "cwd": str(project_root),
-        "session_id": "test_session_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        "session_id": "test_session_" + datetime.now().strftime("%Y%m%d_%H%M%S"),
     }
 
     try:
@@ -476,12 +511,14 @@ def test_post_tool_capture(results: TestResults, verbose: bool = False) -> bool:
             input=json.dumps(mock_input),
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         if result.returncode != 0:
             results.add_fail("post_tool_capture", f"Exit code: {result.returncode}")
-            print_test("PostToolUse Capture hook", "FAIL", f"Exit code: {result.returncode}")
+            print_test(
+                "PostToolUse Capture hook", "FAIL", f"Exit code: {result.returncode}"
+            )
             if verbose and result.stderr:
                 print(f"         stderr: {result.stderr[:200]}")
             return False
@@ -514,19 +551,19 @@ def test_error_pattern_capture(results: TestResults, verbose: bool = False) -> b
     print(f"\n{Colors.BOLD}Testing Error Pattern Capture Hook{Colors.ENDC}\n")
 
     project_root = get_project_root()
-    script_path = project_root / ".claude" / "hooks" / "scripts" / "error_pattern_capture.py"
+    script_path = (
+        project_root / ".claude" / "hooks" / "scripts" / "error_pattern_capture.py"
+    )
 
     # Create mock input with error
     mock_input = {
         "tool_name": "Bash",
-        "tool_input": {
-            "command": "python test.py"
-        },
+        "tool_input": {"command": "python test.py"},
         "tool_result": {
             "error": "Traceback (most recent call last):\n  File \"test.py\", line 5\n    return value\nNameError: name 'value' is not defined"
         },
         "cwd": str(project_root),
-        "session_id": "test_session_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        "session_id": "test_session_" + datetime.now().strftime("%Y%m%d_%H%M%S"),
     }
 
     try:
@@ -535,12 +572,14 @@ def test_error_pattern_capture(results: TestResults, verbose: bool = False) -> b
             input=json.dumps(mock_input),
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         if result.returncode != 0:
             results.add_fail("error_pattern_capture", f"Exit code: {result.returncode}")
-            print_test("Error Pattern Capture hook", "FAIL", f"Exit code: {result.returncode}")
+            print_test(
+                "Error Pattern Capture hook", "FAIL", f"Exit code: {result.returncode}"
+            )
             if verbose and result.stderr:
                 print(f"         stderr: {result.stderr[:200]}")
             return False
@@ -578,11 +617,11 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
     sys.path.insert(0, str(project_root / "src"))
 
     try:
-        from memory.storage import MemoryStorage
-        from memory.search import MemorySearch
         from memory.config import get_config
         from memory.deduplication import compute_content_hash
         from memory.models import MemoryType
+        from memory.search import MemorySearch
+        from memory.storage import MemoryStorage
 
         config = get_config()
         storage = MemoryStorage(config)
@@ -601,12 +640,10 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
                 content=test_content,
                 cwd=str(project_root),
                 memory_type=MemoryType.SESSION,
-                source_hook="verify_hooks_e2e",
+                source_hook="manual",  # Valid hook type for E2E testing
                 session_id="e2e_test_" + timestamp,
                 collection="discussions",
                 group_id=project_name,
-                test=True,
-                timestamp=timestamp
             )
             memory_id = result["memory_id"]
             results.add_pass("workflow_store", f"Memory ID: {memory_id}")
@@ -628,26 +665,40 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
                 collection="discussions",
                 group_id=project_name,
                 limit=5,
-                score_threshold=0.5
+                score_threshold=0.5,
             )
 
             if not search_results:
                 results.add_fail("workflow_search", "Memory not found")
-                print_test("Search memory", "FAIL", "Not found (may need more time for embedding)")
+                print_test(
+                    "Search memory",
+                    "FAIL",
+                    "Not found (may need more time for embedding)",
+                )
                 return False
 
             # Verify our test memory is in results
             found = any(r.get("id") == memory_id for r in search_results)
             if found:
-                results.add_pass("workflow_search", f"Found {len(search_results)} results")
-                print_test("Search memory", "PASS", f"Found test memory in {len(search_results)} results")
+                results.add_pass(
+                    "workflow_search", f"Found {len(search_results)} results"
+                )
+                print_test(
+                    "Search memory",
+                    "PASS",
+                    f"Found test memory in {len(search_results)} results",
+                )
 
                 if verbose:
                     for r in search_results:
-                        print(f"         - Score: {r.get('score', 0):.2f}, ID: {r.get('id', 'unknown')}")
+                        print(
+                            f"         - Score: {r.get('score', 0):.2f}, ID: {r.get('id', 'unknown')}"
+                        )
             else:
                 results.add_warning("workflow_search", "Test memory not in top results")
-                print_test("Search memory", "WARN", "Memory stored but not in search results")
+                print_test(
+                    "Search memory", "WARN", "Memory stored but not in search results"
+                )
 
         except Exception as e:
             results.add_fail("workflow_search", str(e))
@@ -661,7 +712,11 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
 
             if memory:
                 results.add_pass("workflow_retrieve", "Memory retrieved")
-                print_test("Retrieve by ID", "PASS", f"Content hash matches: {memory.get('content_hash') == test_hash}")
+                print_test(
+                    "Retrieve by ID",
+                    "PASS",
+                    f"Content hash matches: {memory.get('content_hash') == test_hash}",
+                )
 
                 if verbose:
                     print(f"         Type: {memory.get('type')}")
@@ -672,7 +727,13 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
                 print_test("Retrieve by ID", "FAIL", "Not found")
                 return False
 
+        except ImportError:
+            # QdrantUnavailable not available in import scope
+            results.add_fail("workflow_retrieve", "Qdrant connection error")
+            print_test("Retrieve by ID", "FAIL", "Connection error")
+            return False
         except Exception as e:
+            # get_by_id now raises QdrantUnavailable on connection errors
             results.add_fail("workflow_retrieve", str(e))
             print_test("Retrieve by ID", "FAIL", str(e))
             return False
@@ -684,12 +745,10 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
                 content=test_content,
                 cwd=str(project_root),
                 memory_type=MemoryType.SESSION,
-                source_hook="verify_hooks_e2e",
+                source_hook="manual",  # Valid hook type for E2E testing
                 session_id="e2e_test_" + timestamp,
                 collection="discussions",
                 group_id=project_name,
-                test=True,
-                timestamp=timestamp
             )
             duplicate_id = duplicate_result.get("memory_id")
 
@@ -736,7 +795,12 @@ def generate_report(results: TestResults, verbose: bool = False):
     print_section("Verification Report")
 
     duration = results.get_duration()
-    total_tests = len(results.passed) + len(results.failed) + len(results.warnings) + len(results.skipped)
+    total_tests = (
+        len(results.passed)
+        + len(results.failed)
+        + len(results.warnings)
+        + len(results.skipped)
+    )
 
     # Summary statistics
     print(f"{Colors.BOLD}Summary:{Colors.ENDC}")
@@ -767,18 +831,30 @@ def generate_report(results: TestResults, verbose: bool = False):
     # Final verdict
     if not results.failed:
         if results.warnings:
-            print(f"{Colors.WARNING}{Colors.BOLD}⚠ VERIFICATION PASSED WITH WARNINGS{Colors.ENDC}")
-            print(f"{Colors.WARNING}All critical checks passed, but some warnings were found.{Colors.ENDC}")
+            print(
+                f"{Colors.WARNING}{Colors.BOLD}⚠ VERIFICATION PASSED WITH WARNINGS{Colors.ENDC}"
+            )
+            print(
+                f"{Colors.WARNING}All critical checks passed, but some warnings were found.{Colors.ENDC}"
+            )
         else:
             print(f"{Colors.OKGREEN}{Colors.BOLD}✓ ALL CHECKS PASSED{Colors.ENDC}")
-            print(f"{Colors.OKGREEN}AI Memory hooks system is fully functional!{Colors.ENDC}")
+            print(
+                f"{Colors.OKGREEN}AI Memory hooks system is fully functional!{Colors.ENDC}"
+            )
     else:
         if results.has_critical_failures():
-            print(f"{Colors.FAIL}{Colors.BOLD}✗ CRITICAL FAILURES DETECTED{Colors.ENDC}")
-            print(f"{Colors.FAIL}Docker services or core components are not working.{Colors.ENDC}")
+            print(
+                f"{Colors.FAIL}{Colors.BOLD}✗ CRITICAL FAILURES DETECTED{Colors.ENDC}"
+            )
+            print(
+                f"{Colors.FAIL}Docker services or core components are not working.{Colors.ENDC}"
+            )
         else:
             print(f"{Colors.FAIL}{Colors.BOLD}✗ VERIFICATION FAILED{Colors.ENDC}")
-            print(f"{Colors.FAIL}Some checks failed. Review details above.{Colors.ENDC}")
+            print(
+                f"{Colors.FAIL}Some checks failed. Review details above.{Colors.ENDC}"
+            )
 
 
 def main():
@@ -792,25 +868,35 @@ Examples:
   %(prog)s --verbose          # Show detailed output
   %(prog)s --skip-docker      # Skip Docker service checks (offline mode)
   %(prog)s --quick            # Basic checks only (scripts + config)
-        """
+        """,
     )
-    parser.add_argument("-v", "--verbose", action="store_true",
-                       help="Show verbose output with detailed information")
-    parser.add_argument("--skip-docker", action="store_true",
-                       help="Skip Docker service health checks (offline mode)")
-    parser.add_argument("--quick", action="store_true",
-                       help="Run only basic checks (scripts + config, skip services + workflow)")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show verbose output with detailed information",
+    )
+    parser.add_argument(
+        "--skip-docker",
+        action="store_true",
+        help="Skip Docker service health checks (offline mode)",
+    )
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help="Run only basic checks (scripts + config, skip services + workflow)",
+    )
 
     args = parser.parse_args()
 
     results = TestResults()
 
     print(f"{Colors.HEADER}{Colors.BOLD}")
-    print("╔" + "="*68 + "╗")
-    print("║" + " "*68 + "║")
+    print("╔" + "=" * 68 + "╗")
+    print("║" + " " * 68 + "║")
     print("║" + "  AI Memory Module - Hooks System E2E Verification".center(68) + "║")
-    print("║" + " "*68 + "║")
-    print("╚" + "="*68 + "╝")
+    print("║" + " " * 68 + "║")
+    print("╚" + "=" * 68 + "╝")
     print(Colors.ENDC)
 
     # Run checks
@@ -820,8 +906,10 @@ Examples:
     if not args.skip_docker and not args.quick:
         docker_ok = check_docker_services(results, args.verbose)
         if not docker_ok and not args.verbose:
-            print(f"\n{Colors.WARNING}Note: Docker services check failed. "
-                  f"Subsequent tests may fail.{Colors.ENDC}")
+            print(
+                f"\n{Colors.WARNING}Note: Docker services check failed. "
+                f"Subsequent tests may fail.{Colors.ENDC}"
+            )
 
     if not args.quick:
         # Individual hook tests

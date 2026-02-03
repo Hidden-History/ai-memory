@@ -35,14 +35,21 @@ dev_src = Path(__file__).parent.parent.parent / "src"
 if dev_src.exists():
     sys.path.insert(0, str(dev_src))
 else:
-    INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+    INSTALL_DIR = os.environ.get(
+        "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+    )
     sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
-from memory.config import get_config, COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS
-from memory.storage import MemoryStorage
-from memory.qdrant_client import QdrantUnavailable
+from memory.config import (
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+    COLLECTION_DISCUSSIONS,
+    get_config,
+)
 from memory.logging_config import StructuredFormatter
 from memory.models import MemoryType
+from memory.qdrant_client import QdrantUnavailable
+from memory.storage import MemoryStorage
 
 # Configure structured logging
 handler = logging.StreamHandler()
@@ -54,7 +61,7 @@ logger.propagate = False
 
 # Import metrics for Prometheus instrumentation
 try:
-    from memory.metrics import memory_captures_total, deduplication_events_total
+    from memory.metrics import deduplication_events_total, memory_captures_total
 except ImportError:
     memory_captures_total = None
     deduplication_events_total = None
@@ -66,17 +73,20 @@ from memory.queue import queue_operation
 def _log_to_activity(message: str) -> None:
     """Log message to activity log for user visibility."""
     from datetime import datetime
+
     # Try dev repo FIRST, then fall back to installed location
     dev_src = Path(__file__).parent.parent.parent / "src"
     if dev_src.exists():
         install_dir = str(dev_src.parent)
     else:
-        install_dir = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+        install_dir = os.environ.get(
+            "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+        )
     log_dir = Path(install_dir) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "activity.log"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    safe_message = message.replace('\n', '\\n')
+    safe_message = message.replace("\n", "\\n")
     line = f"[{timestamp}] {safe_message}\n"
     try:
         with open(log_file, "a") as f:
@@ -97,8 +107,7 @@ def get_timeout() -> int:
         return int(timeout_str)
     except ValueError:
         logger.warning(
-            "invalid_timeout_env",
-            extra={"value": timeout_str, "using_default": 60}
+            "invalid_timeout_env", extra={"value": timeout_str, "using_default": 60}
         )
         return 60
 
@@ -132,18 +141,35 @@ async def store_memory_async(payload: Dict[str, Any]) -> None:
         memory_type_str = metadata.get("type")
         group_id = metadata.get("group_id")
         session_id = metadata.get("session_id", "workflow")
-        source_hook = metadata.get("source_hook", "manual")  # "manual" for workflow-driven storage
+        source_hook = metadata.get(
+            "source_hook", "manual"
+        )  # "manual" for workflow-driven storage
 
         # Convert string type to MemoryType enum
         memory_type = MemoryType(memory_type_str)
 
         # Determine collection based on type (Memory System v2.0)
         # conventions: guidelines, rules, naming, port, structure
-        if memory_type_str in ["guideline", "rule", "naming", "port", "structure", "best_practice"]:
+        if memory_type_str in [
+            "guideline",
+            "rule",
+            "naming",
+            "port",
+            "structure",
+            "best_practice",
+        ]:
             collection = COLLECTION_CONVENTIONS
         # discussions: decisions, sessions, blockers, preferences, context
-        elif memory_type_str in ["decision", "session", "blocker", "preference", "context",
-                                   "session_summary", "chat_memory", "agent_decision"]:
+        elif memory_type_str in [
+            "decision",
+            "session",
+            "blocker",
+            "preference",
+            "context",
+            "session_summary",
+            "chat_memory",
+            "agent_decision",
+        ]:
             collection = COLLECTION_DISCUSSIONS
         # code-patterns: implementation, error_fix, refactor, file_pattern
         else:
@@ -186,7 +212,7 @@ async def store_memory_async(payload: Dict[str, Any]) -> None:
                 "group_id": group_id,
                 "story_id": metadata.get("story_id"),
                 "collection": collection,
-            }
+            },
         )
 
         # Activity logging
@@ -200,24 +226,17 @@ async def store_memory_async(payload: Dict[str, Any]) -> None:
         if memory_captures_total:
             status = "success" if result["status"] == "stored" else "duplicate"
             memory_captures_total.labels(
-                hook_type=source_hook,
-                status=status,
-                project=group_id or "unknown"
+                hook_type=source_hook, status=status, project=group_id or "unknown"
             ).inc()
 
         # Metrics: Increment deduplication counter if duplicate
         if result["status"] == "duplicate" and deduplication_events_total:
-            deduplication_events_total.labels(
-                project=group_id or "unknown"
-            ).inc()
+            deduplication_events_total.labels(project=group_id or "unknown").inc()
 
     except QdrantUnavailable as e:
         # Qdrant service unavailable
         _log_to_activity("📥 PostWork queued: Qdrant unavailable")
-        logger.error(
-            "qdrant_unavailable",
-            extra={"error": str(e)}
-        )
+        logger.error("qdrant_unavailable", extra={"error": str(e)})
         # Queue on connection failure
         queue_operation(payload, "qdrant_unavailable")
 
@@ -226,7 +245,7 @@ async def store_memory_async(payload: Dict[str, Any]) -> None:
             memory_captures_total.labels(
                 hook_type=metadata.get("source_hook", "workflow_post_work"),
                 status="failed",
-                project=metadata.get("group_id", "unknown")
+                project=metadata.get("group_id", "unknown"),
             ).inc()
 
     except ValueError as e:
@@ -237,7 +256,7 @@ async def store_memory_async(payload: Dict[str, Any]) -> None:
                 "error": str(e),
                 "type": payload.get("metadata", {}).get("type"),
                 "group_id": payload.get("metadata", {}).get("group_id"),
-            }
+            },
         )
         # Don't queue validation errors - they need to be fixed at the source
 
@@ -251,7 +270,7 @@ async def store_memory_async(payload: Dict[str, Any]) -> None:
                 "error_type": type(e).__name__,
                 "type": payload.get("metadata", {}).get("type"),
                 "group_id": payload.get("metadata", {}).get("group_id"),
-            }
+            },
         )
 
         # Metrics: Increment capture counter for failures
@@ -259,7 +278,7 @@ async def store_memory_async(payload: Dict[str, Any]) -> None:
             memory_captures_total.labels(
                 hook_type=metadata.get("source_hook", "workflow_post_work"),
                 status="failed",
-                project=metadata.get("group_id", "unknown")
+                project=metadata.get("group_id", "unknown"),
             ).inc()
 
         # Queue on unexpected error
@@ -284,10 +303,7 @@ async def main_async() -> int:
         except json.JSONDecodeError as e:
             logger.error(
                 "malformed_json",
-                extra={
-                    "error": str(e),
-                    "input_preview": raw_input[:100]
-                }
+                extra={"error": str(e), "input_preview": raw_input[:100]},
             )
             return 1
 
@@ -303,19 +319,13 @@ async def main_async() -> int:
         timeout = get_timeout()
 
         # Run storage with timeout
-        await asyncio.wait_for(
-            store_memory_async(payload),
-            timeout=timeout
-        )
+        await asyncio.wait_for(store_memory_async(payload), timeout=timeout)
 
         return 0
 
     except asyncio.TimeoutError:
         # Handle timeout
-        logger.error(
-            "storage_timeout",
-            extra={"timeout_seconds": get_timeout()}
-        )
+        logger.error("storage_timeout", extra={"timeout_seconds": get_timeout()})
         # Queue for retry
         if payload:
             queue_operation(payload, "timeout")
@@ -323,11 +333,7 @@ async def main_async() -> int:
 
     except Exception as e:
         logger.error(
-            "async_main_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "async_main_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
         return 1
 
@@ -339,10 +345,7 @@ def main() -> int:
     except Exception as e:
         logger.error(
             "asyncio_run_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            extra={"error": str(e), "error_type": type(e).__name__},
         )
         return 1
 

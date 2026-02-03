@@ -24,9 +24,9 @@ import os
 import shutil
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
-from datetime import datetime
 
 
 def deep_merge(base: dict, overlay: dict) -> dict:
@@ -175,7 +175,9 @@ def backup_file(path: Path) -> Path:
     return backup_path
 
 
-def merge_settings(settings_path: str, hooks_dir: str, project_name: str = "default") -> None:
+def merge_settings(
+    settings_path: str, hooks_dir: str, project_name: str = "default"
+) -> None:
     """Merge new hook configuration into existing settings file.
 
     Args:
@@ -203,6 +205,7 @@ def merge_settings(settings_path: str, hooks_dir: str, project_name: str = "defa
     # Generate new hook config with error handling (Issue 5: graceful degradation)
     try:
         from generate_settings import generate_hook_config
+
         new_config = generate_hook_config(hooks_dir, project_name)
     except ImportError as e:
         print(f"ERROR: Failed to import generate_settings: {e}")
@@ -224,9 +227,7 @@ def merge_settings(settings_path: str, hooks_dir: str, project_name: str = "defa
     # This prevents corruption if system crashes during write
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_path = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=".settings_",
-        suffix=".tmp"
+        dir=path.parent, prefix=".settings_", suffix=".tmp"
     )
     try:
         with os.fdopen(fd, "w") as f:

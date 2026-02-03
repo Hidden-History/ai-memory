@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import HnswConfigDiff
+
 from memory.config import (
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
@@ -62,12 +63,12 @@ def get_hnsw_config(client: QdrantClient, collection_name: str) -> dict:
             "full_scan_threshold": hnsw.full_scan_threshold,
             "max_indexing_threads": hnsw.max_indexing_threads,
             "on_disk": hnsw.on_disk,
-            "payload_m": hnsw.payload_m if hasattr(hnsw, 'payload_m') else None,
+            "payload_m": hnsw.payload_m if hasattr(hnsw, "payload_m") else None,
         }
     except Exception as e:
         logger.error(
             "failed_to_get_hnsw_config",
-            extra={"collection": collection_name, "error": str(e)}
+            extra={"collection": collection_name, "error": str(e)},
         )
         raise
 
@@ -87,26 +88,34 @@ def verify_tenant_index(collection_info, collection_name: str) -> bool:
     try:
 
         # Check payload schema for group_id index
-        if hasattr(collection_info, 'payload_schema') and collection_info.payload_schema:
+        if (
+            hasattr(collection_info, "payload_schema")
+            and collection_info.payload_schema
+        ):
             for field_name, field_info in collection_info.payload_schema.items():
                 if field_name == "group_id":
                     # Check if is_tenant parameter exists
-                    if hasattr(field_info, 'params') and hasattr(field_info.params, 'is_tenant'):
+                    if hasattr(field_info, "params") and hasattr(
+                        field_info.params, "is_tenant"
+                    ):
                         is_tenant = field_info.params.is_tenant
                         if not is_tenant:
                             logger.warning(
                                 "is_tenant_not_set",
                                 extra={
                                     "collection": collection_name,
-                                    "recommendation": "Add is_tenant=True to group_id index for co-location"
-                                }
+                                    "recommendation": "Add is_tenant=True to group_id index for co-location",
+                                },
                             )
                             return False
                         return True
 
         logger.warning(
             "group_id_index_not_found",
-            extra={"collection": collection_name, "recommendation": "Create group_id index first"}
+            extra={
+                "collection": collection_name,
+                "recommendation": "Create group_id index first",
+            },
         )
         return False
 
@@ -116,9 +125,7 @@ def verify_tenant_index(collection_info, collection_name: str) -> bool:
 
 
 def optimize_collection(
-    client: QdrantClient,
-    collection_name: str,
-    dry_run: bool = False
+    client: QdrantClient, collection_name: str, dry_run: bool = False
 ) -> None:
     """Apply HNSW multi-tenancy optimization to a collection.
 
@@ -132,22 +139,21 @@ def optimize_collection(
     """
     # Verify collection exists
     if not client.collection_exists(collection_name):
-        logger.error(
-            "collection_not_found",
-            extra={"collection": collection_name}
-        )
+        logger.error("collection_not_found", extra={"collection": collection_name})
         raise ValueError(f"Collection '{collection_name}' does not exist")
 
     # Get collection info once (used for multiple checks)
     collection_info = client.get_collection(collection_name)
 
     # FIX-8: Check if collection is empty
-    points_count = collection_info.points_count if hasattr(collection_info, 'points_count') else 0
+    points_count = (
+        collection_info.points_count if hasattr(collection_info, "points_count") else 0
+    )
 
     if points_count == 0:
         logger.warning(
             "empty_collection_skipped",
-            extra={"collection": collection_name, "reason": "No points to optimize"}
+            extra={"collection": collection_name, "reason": "No points to optimize"},
         )
         if not dry_run:
             return  # Skip empty collections
@@ -156,10 +162,7 @@ def optimize_collection(
     verify_tenant_index(collection_info, collection_name)
 
     # Get current HNSW config from collection_info (avoid redundant call)
-    logger.info(
-        "reading_current_config",
-        extra={"collection": collection_name}
-    )
+    logger.info("reading_current_config", extra={"collection": collection_name})
     config = collection_info.config
     hnsw = config.hnsw_config
 
@@ -169,7 +172,7 @@ def optimize_collection(
         "full_scan_threshold": hnsw.full_scan_threshold,
         "max_indexing_threads": hnsw.max_indexing_threads,
         "on_disk": hnsw.on_disk,
-        "payload_m": hnsw.payload_m if hasattr(hnsw, 'payload_m') else None,
+        "payload_m": hnsw.payload_m if hasattr(hnsw, "payload_m") else None,
     }
 
     logger.info(
@@ -179,7 +182,7 @@ def optimize_collection(
             "m": before_config["m"],
             "payload_m": before_config["payload_m"],
             "ef_construct": before_config["ef_construct"],
-        }
+        },
     )
 
     if dry_run:
@@ -190,29 +193,23 @@ def optimize_collection(
                 "action": "would_update",
                 "target_m": 0,
                 "target_payload_m": 16,
-            }
+            },
         )
         return
 
     # Apply optimization
-    logger.info(
-        "applying_optimization",
-        extra={"collection": collection_name}
-    )
+    logger.info("applying_optimization", extra={"collection": collection_name})
 
     try:
         client.update_collection(
             collection_name=collection_name,
             hnsw_config=HnswConfigDiff(
-                m=0,           # Disable global index
+                m=0,  # Disable global index
                 payload_m=16,  # Enable per-tenant index
-            )
+            ),
         )
 
-        logger.info(
-            "optimization_applied",
-            extra={"collection": collection_name}
-        )
+        logger.info("optimization_applied", extra={"collection": collection_name})
 
         # Verify update
         after_config = get_hnsw_config(client, collection_name)
@@ -225,7 +222,7 @@ def optimize_collection(
                 "after_m": after_config["m"],
                 "before_payload_m": before_config["payload_m"],
                 "after_payload_m": after_config["payload_m"],
-            }
+            },
         )
 
         # Verify expected values
@@ -238,13 +235,13 @@ def optimize_collection(
                     "actual_m": after_config["m"],
                     "expected_payload_m": 16,
                     "actual_payload_m": after_config["payload_m"],
-                }
+                },
             )
 
     except Exception as e:
         logger.error(
             "optimization_failed",
-            extra={"collection": collection_name, "error": str(e)}
+            extra={"collection": collection_name, "error": str(e)},
         )
         raise
 
@@ -255,25 +252,18 @@ def main():
         description="Optimize HNSW configuration for multi-tenancy (BP-002)"
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview changes without applying them"
+        "--dry-run", action="store_true", help="Preview changes without applying them"
     )
     parser.add_argument(
         "--collection",
         choices=COLLECTION_NAMES,
-        help="Target specific collection (default: all collections)"
+        help="Target specific collection (default: all collections)",
     )
     parser.add_argument(
-        "--host",
-        default="localhost",
-        help="Qdrant host (default: localhost)"
+        "--host", default="localhost", help="Qdrant host (default: localhost)"
     )
     parser.add_argument(
-        "--port",
-        type=int,
-        default=26350,
-        help="Qdrant port (default: 26350)"
+        "--port", type=int, default=26350, help="Qdrant port (default: 26350)"
     )
 
     args = parser.parse_args()
@@ -288,12 +278,13 @@ def main():
             "dry_run": args.dry_run,
             "host": args.host,
             "port": args.port,
-        }
+        },
     )
 
     # Connect to Qdrant (BP-040)
     try:
         import os
+
         api_key = os.getenv("QDRANT_API_KEY")
         use_https = os.getenv("QDRANT_USE_HTTPS", "false").lower() == "true"
         client = QdrantClient(
@@ -302,7 +293,7 @@ def main():
     except Exception as e:
         logger.error(
             "qdrant_connection_failed",
-            extra={"host": args.host, "port": args.port, "error": str(e)}
+            extra={"host": args.host, "port": args.port, "error": str(e)},
         )
         sys.exit(1)
 
@@ -315,7 +306,7 @@ def main():
             failed_collections.append(collection_name)
             logger.error(
                 "collection_optimization_failed",
-                extra={"collection": collection_name, "error": str(e)}
+                extra={"collection": collection_name, "error": str(e)},
             )
 
     # Summary
@@ -325,7 +316,7 @@ def main():
             extra={
                 "collections_checked": len(collections),
                 "would_optimize": len(collections) - len(failed_collections),
-            }
+            },
         )
     else:
         logger.info(
@@ -334,7 +325,7 @@ def main():
                 "collections_attempted": len(collections),
                 "succeeded": len(collections) - len(failed_collections),
                 "failed": len(failed_collections),
-            }
+            },
         )
 
     if failed_collections:

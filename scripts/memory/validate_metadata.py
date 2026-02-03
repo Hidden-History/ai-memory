@@ -23,10 +23,10 @@ Updated: 2026-01-17 (v2.0 compliance)
 Adapted from proven patterns for AI Memory Module
 """
 
-import json
-import sys
 import argparse
+import json
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -264,9 +264,7 @@ def validate_created_at(metadata: Dict) -> Tuple[bool, List[str]]:
 
     # Check ISO 8601 format (basic check)
     if not re.match(r"^\d{4}-\d{2}-\d{2}", created_at):
-        errors.append(
-            f"created_at '{created_at}' must be ISO 8601 format (YYYY-MM-DD)"
-        )
+        errors.append(f"created_at '{created_at}' must be ISO 8601 format (YYYY-MM-DD)")
 
     return len(errors) == 0, errors
 
@@ -415,7 +413,9 @@ def main():
     parser = argparse.ArgumentParser(
         description="Validate metadata for BMAD memory system"
     )
-    parser.add_argument("--metadata", required=True, help="Path to metadata JSON file or JSON string")
+    parser.add_argument(
+        "--metadata", required=True, help="Path to metadata JSON file or JSON string"
+    )
     parser.add_argument(
         "--strict",
         action="store_true",

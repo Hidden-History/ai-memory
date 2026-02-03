@@ -28,11 +28,14 @@ from typing import Any, Dict, Optional
 
 # Add src to path for imports
 # Use INSTALL_DIR to find installed module (fixes path calculation bug)
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Configure structured logging (Story 6.2)
 from memory.logging_config import StructuredFormatter
+
 handler = logging.StreamHandler()
 handler.setFormatter(StructuredFormatter())
 logger = logging.getLogger("ai_memory.hooks")
@@ -57,12 +60,13 @@ def _log_to_activity(message: str) -> None:
         message: Message to log (can be multi-line)
     """
     from datetime import datetime
+
     log_dir = Path(INSTALL_DIR) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "activity.log"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     # Escape newlines for single-line output (Streamlit parses line-by-line)
-    safe_message = message.replace('\n', '\\n')
+    safe_message = message.replace("\n", "\\n")
     try:
         with open(log_file, "a") as f:
             f.write(f"[{timestamp}] {safe_message}\n")
@@ -128,7 +132,8 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
         - tool_response: Response object with success boolean
     """
     # Check required fields (per Claude Code hook schema)
-    required_fields = ["tool_name", "tool_input", "cwd", "session_id"]
+    # Note: session_id removed - it's for audit trail only, not required for tenant isolation (BUG-058)
+    required_fields = ["tool_name", "tool_input", "cwd"]
     for field in required_fields:
         if field not in data:
             return f"missing_required_field_{field}"
@@ -184,30 +189,26 @@ def fork_to_background(hook_input: Dict[str, Any]) -> None:
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True  # Full detachment from parent
+            start_new_session=True,  # Full detachment from parent
         )
 
         # Write input and close stdin (non-blocking)
         if process.stdin:
-            process.stdin.write(input_json.encode('utf-8'))
+            process.stdin.write(input_json.encode("utf-8"))
             process.stdin.close()
 
         logger.info(
             "background_forked",
             extra={
                 "tool_name": hook_input["tool_name"],
-                "session_id": hook_input["session_id"]
-            }
+                "session_id": hook_input.get("session_id", "unknown"),
+            },
         )
 
     except Exception as e:
         # Non-blocking error - log and continue
         logger.error(
-            "fork_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "fork_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
         # Don't raise - graceful degradation
 
@@ -231,6 +232,7 @@ def main() -> int:
         if local_src.exists():
             sys.path.insert(0, str(local_src))
         from memory.metrics import hook_duration_seconds as _hook_metric
+
         hook_duration_seconds = _hook_metric
     except ImportError:
         logger.warning("metrics_module_unavailable")
@@ -246,10 +248,7 @@ def main() -> int:
         except json.JSONDecodeError as e:
             logger.error(
                 "malformed_json",
-                extra={
-                    "error": str(e),
-                    "input_preview": raw_input[:100]
-                }
+                extra={"error": str(e), "input_preview": raw_input[:100]},
             )
             return 0  # Non-blocking - Claude continues
 
@@ -261,8 +260,8 @@ def main() -> int:
                 extra={
                     "reason": validation_error,
                     "tool_name": hook_input.get("tool_name"),
-                    "tool_status": hook_input.get("tool_status")
-                }
+                    "tool_status": hook_input.get("tool_status"),
+                },
             )
             return 0  # Non-blocking - graceful handling
 
@@ -289,7 +288,7 @@ def main() -> int:
         # Log full content with metadata if we have both file path and content
         if file_path and content:
             language = detect_language(file_path)
-            content_lines = len(content.split('\n'))
+            content_lines = len(content.split("\n"))
 
             # Build multi-line activity log entry
             log_message = f"📥 PostToolUse captured implementation:\n"
@@ -300,11 +299,13 @@ def main() -> int:
 
             # F1: Limit to first 100 lines to prevent disk exhaustion
             MAX_LINES = 100
-            for line in content.split('\n')[:MAX_LINES]:
+            for line in content.split("\n")[:MAX_LINES]:
                 log_message += f"    {line}\n"
 
             if content_lines > MAX_LINES:
-                log_message += f"    ... [TRUNCATED: {content_lines - MAX_LINES} more lines]\n"
+                log_message += (
+                    f"    ... [TRUNCATED: {content_lines - MAX_LINES} more lines]\n"
+                )
 
             _log_to_activity(log_message)
 
@@ -325,7 +326,9 @@ def main() -> int:
         # Metrics: Record hook duration (Story 6.1, AC 6.1.3)
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PostToolUse").observe(duration_seconds)
+            hook_duration_seconds.labels(hook_type="PostToolUse").observe(
+                duration_seconds
+            )
 
         # AC 2.1.1: Exit immediately after fork (NFR-P1)
         return 0
@@ -333,17 +336,15 @@ def main() -> int:
     except Exception as e:
         # Catch-all for unexpected errors
         logger.error(
-            "hook_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
         # Metrics: Record hook duration even on error (Story 6.1, AC 6.1.3)
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PostToolUse").observe(duration_seconds)
+            hook_duration_seconds.labels(hook_type="PostToolUse").observe(
+                duration_seconds
+            )
 
         return 1  # Non-blocking error
 

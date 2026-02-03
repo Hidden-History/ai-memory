@@ -16,31 +16,33 @@ Created: 2026-01-17
 Adapted for AI Memory Module
 """
 
+import hashlib
 import os
 import sys
-import hashlib
 from datetime import datetime
 from pathlib import Path
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Try to import from installed location first, fall back to relative
 try:
     from memory.config import get_config
-    from memory.qdrant_client import get_qdrant_client, QdrantUnavailable
-    from memory.models import MemoryType, MemoryPayload, EmbeddingStatus
-    from memory.storage import MemoryStorage
+    from memory.models import EmbeddingStatus, MemoryPayload, MemoryType
+    from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
     from memory.search import MemorySearch
+    from memory.storage import MemoryStorage
 except ImportError:
     # Running from dev repo
     sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
     from memory.config import get_config
-    from memory.qdrant_client import get_qdrant_client, QdrantUnavailable
-    from memory.models import MemoryType, MemoryPayload, EmbeddingStatus
-    from memory.storage import MemoryStorage
+    from memory.models import EmbeddingStatus, MemoryPayload, MemoryType
+    from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
     from memory.search import MemorySearch
+    from memory.storage import MemoryStorage
 
 # Import validation scripts
 sys.path.insert(0, str(Path(__file__).parent))
@@ -54,12 +56,13 @@ def test_imports():
 
     try:
         from memory.config import get_config
-        from memory.qdrant_client import get_qdrant_client
-        from memory.models import MemoryType, MemoryPayload
-        from memory.storage import MemoryStorage
-        from memory.search import MemorySearch
-        from memory.embeddings import EmbeddingClient
         from memory.deduplication import compute_content_hash
+        from memory.embeddings import EmbeddingClient
+        from memory.models import MemoryPayload, MemoryType
+        from memory.qdrant_client import get_qdrant_client
+        from memory.search import MemorySearch
+        from memory.storage import MemoryStorage
+
         print("[PASS] All memory modules imported successfully")
         return True
     except ImportError as e:
@@ -253,10 +256,16 @@ def test_storage_validation():
 
         # Note: Short content may pass validation but with warnings
         # The file:line check is the main validation
-        if "file:line" in message.lower() or "file_references" in str(details.get("errors", [])).lower():
+        if (
+            "file:line" in message.lower()
+            or "file_references" in str(details.get("errors", [])).lower()
+        ):
             print("[PASS] Missing file:line references detected")
         else:
-            print("[INFO] Content validation completed with result:", "PASS" if is_valid else "FAIL")
+            print(
+                "[INFO] Content validation completed with result:",
+                "PASS" if is_valid else "FAIL",
+            )
 
         return True
 
@@ -317,7 +326,15 @@ def test_collection_routing():
         elif memory_type in ["guideline", "anti_pattern", "decision"]:
             return "conventions"
         # discussions collection (WHY)
-        elif memory_type in ["session", "conversation", "analysis", "reflection", "context", "decision_record", "lesson_learned"]:
+        elif memory_type in [
+            "session",
+            "conversation",
+            "analysis",
+            "reflection",
+            "context",
+            "decision_record",
+            "lesson_learned",
+        ]:
             return "discussions"
         else:
             return "code-patterns"  # Default fallback
@@ -342,7 +359,9 @@ def test_collection_routing():
         if actual_collection == expected_collection:
             print(f"[PASS] {memory_type} -> {actual_collection}")
         else:
-            print(f"[FAIL] {memory_type} -> {actual_collection} (expected {expected_collection})")
+            print(
+                f"[FAIL] {memory_type} -> {actual_collection} (expected {expected_collection})"
+            )
             all_passed = False
 
     return all_passed
@@ -357,7 +376,9 @@ def test_qdrant_connection():
     try:
         client = get_qdrant_client()
         config = get_config()
-        print(f"[PASS] Connected to Qdrant at {config.qdrant_host}:{config.qdrant_port}")
+        print(
+            f"[PASS] Connected to Qdrant at {config.qdrant_host}:{config.qdrant_port}"
+        )
 
         # Check v2.0 collections
         collections = ["code-patterns", "conventions", "discussions"]
@@ -365,9 +386,13 @@ def test_qdrant_connection():
         for coll_name in collections:
             try:
                 info = client.get_collection(coll_name)
-                print(f"[PASS] Collection '{coll_name}' exists ({info.points_count} points)")
+                print(
+                    f"[PASS] Collection '{coll_name}' exists ({info.points_count} points)"
+                )
             except Exception:
-                print(f"[INFO] Collection '{coll_name}' not found (will be created on first use)")
+                print(
+                    f"[INFO] Collection '{coll_name}' not found (will be created on first use)"
+                )
 
         return True
 
@@ -406,7 +431,9 @@ def test_config_loading():
         if config.embedding_port == 28080:
             print("[PASS] Embedding port is 28080 (correct)")
         else:
-            print(f"[WARNING] Embedding port is {config.embedding_port} (expected 28080)")
+            print(
+                f"[WARNING] Embedding port is {config.embedding_port} (expected 28080)"
+            )
 
         return True
 
@@ -445,6 +472,7 @@ def run_all_tests(skip_qdrant: bool = False, verbose: bool = False):
             print(f"\n[FAIL] {test_name} CRASHED: {e}")
             if verbose:
                 import traceback
+
                 traceback.print_exc()
             results.append((test_name, False))
 
@@ -490,7 +518,8 @@ def main():
         help="Skip Qdrant connection test (offline mode)",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Verbose output with stack traces",
     )

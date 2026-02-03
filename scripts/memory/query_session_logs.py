@@ -26,8 +26,8 @@ Best Practices (2026):
 """
 
 import argparse
-import json
 import gzip
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Iterator, Optional
@@ -56,8 +56,8 @@ def iter_log_files(log_path: Path) -> Iterator[Path]:
 
 def read_jsonl(file_path: Path) -> Iterator[dict]:
     """Read JSONL file, handling gzip compression automatically."""
-    if file_path.suffix == '.gz':
-        with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+    if file_path.suffix == ".gz":
+        with gzip.open(file_path, "rt", encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     try:
@@ -66,7 +66,7 @@ def read_jsonl(file_path: Path) -> Iterator[dict]:
                         # Skip malformed lines gracefully
                         continue
     else:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     try:
@@ -80,7 +80,7 @@ def query_sessions(
     log_path: Path,
     project: Optional[str] = None,
     since: Optional[str] = None,
-    min_results: Optional[int] = None
+    min_results: Optional[int] = None,
 ) -> list[dict]:
     """Query session logs with filters.
 
@@ -136,7 +136,9 @@ def query_sessions(
 
 def format_table(sessions: list[dict]):
     """Format sessions as terminal table."""
-    print(f"\n{'Session ID':<20} {'Project':<25} {'Results':<8} {'Duration':<10} {'Timestamp':<20}")
+    print(
+        f"\n{'Session ID':<20} {'Project':<25} {'Results':<8} {'Duration':<10} {'Timestamp':<20}"
+    )
     print("-" * 90)
 
     for entry in sessions:
@@ -147,15 +149,15 @@ def format_table(sessions: list[dict]):
         duration = f"{entry.get('duration_ms', 0):.0f}ms"
         timestamp = str(entry.get("timestamp", ""))[:19]
 
-        print(f"{session_id:<20} {project:<25} {results:<8} {duration:<10} {timestamp:<20}")
+        print(
+            f"{session_id:<20} {project:<25} {results:<8} {duration:<10} {timestamp:<20}"
+        )
 
     print(f"\nTotal: {len(sessions)} sessions")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Query session retrieval logs"
-    )
+    parser = argparse.ArgumentParser(description="Query session retrieval logs")
     parser.add_argument("--project", help="Filter by project name")
     parser.add_argument("--since", help="Filter by date (ISO 8601: YYYY-MM-DD)")
     parser.add_argument("--min-results", type=int, help="Minimum result count")
@@ -163,12 +165,12 @@ def main():
         "--format",
         choices=["table", "json", "csv"],
         default="table",
-        help="Output format"
+        help="Output format",
     )
     parser.add_argument(
         "--log-path",
         default="~/.claude-memory/sessions.jsonl",
-        help="Path to session log file"
+        help="Path to session log file",
     )
 
     args = parser.parse_args()
@@ -185,7 +187,7 @@ def main():
         log_path=log_path,
         project=args.project,
         since=args.since,
-        min_results=args.min_results
+        min_results=args.min_results,
     )
 
     # Output in requested format
@@ -195,7 +197,9 @@ def main():
         print("session_id,project,results_count,duration_ms,timestamp")
         for entry in sessions:
             # Extra fields are at root level (python-json-logger format)
-            print(f"{entry.get('session_id')},{entry.get('project')},{entry.get('results_count')},{entry.get('duration_ms')},{entry.get('timestamp')}")
+            print(
+                f"{entry.get('session_id')},{entry.get('project')},{entry.get('results_count')},{entry.get('duration_ms')},{entry.get('timestamp')}"
+            )
     else:
         format_table(sessions)
 

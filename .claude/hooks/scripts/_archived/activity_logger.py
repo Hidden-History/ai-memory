@@ -16,13 +16,20 @@ import time
 from pathlib import Path
 
 # CR-4.3: Use Path operations instead of string concatenation
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, str(Path(INSTALL_DIR) / "src"))
 
 from memory.activity_log import (
-    log_pre_tool_use, log_post_tool_use, log_session_end,
-    log_stop, log_subagent_stop, log_user_prompt, log_notification,
-    log_permission_request
+    log_notification,
+    log_permission_request,
+    log_post_tool_use,
+    log_pre_tool_use,
+    log_session_end,
+    log_stop,
+    log_subagent_stop,
+    log_user_prompt,
 )
 from memory.project import detect_project
 

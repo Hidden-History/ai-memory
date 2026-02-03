@@ -28,11 +28,11 @@ References:
 - [Prevent duplicate cron jobs](https://www.pankajtanwar.in/blog/prevent-duplicate-cron-job-running)
 """
 
-import sys
-import os
 import argparse
 import fcntl
 import logging
+import os
+import sys
 from pathlib import Path
 
 # Add project src to path for local imports
@@ -45,14 +45,14 @@ for path in [
         sys.path.insert(0, path)
         break
 
+from memory.embeddings import EmbeddingError
+from memory.models import MemoryType
+from memory.qdrant_client import QdrantUnavailable
 from memory.queue import MemoryQueue
 from memory.storage import MemoryStorage
-from memory.embeddings import EmbeddingError
-from memory.qdrant_client import QdrantUnavailable
-from memory.models import MemoryType
 
 # Configure logging for cron capture (structured logging per project-context.md)
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 # Lock file location (persistent across reboots)
@@ -134,7 +134,7 @@ def process_queue_item(item: dict, storage: MemoryStorage, queue: MemoryQueue) -
             memory_type=memory_type,
             source_hook=memory_data["source_hook"],
             session_id=memory_data.get("session_id", "backfill"),
-            collection="code-patterns"
+            collection="code-patterns",
         )
 
         # Success - remove from queue
@@ -144,8 +144,8 @@ def process_queue_item(item: dict, storage: MemoryStorage, queue: MemoryQueue) -
             extra={
                 "queue_id": item["id"][:8],
                 "memory_id": result["memory_id"][:8],
-                "retry_count": item["retry_count"]
-            }
+                "retry_count": item["retry_count"],
+            },
         )
         return True
 
@@ -158,8 +158,8 @@ def process_queue_item(item: dict, storage: MemoryStorage, queue: MemoryQueue) -
                 "queue_id": item["id"][:8],
                 "error_type": type(e).__name__,
                 "error": str(e),
-                "retry_count": item["retry_count"] + 1
-            }
+                "retry_count": item["retry_count"] + 1,
+            },
         )
         return False
 
@@ -167,10 +167,7 @@ def process_queue_item(item: dict, storage: MemoryStorage, queue: MemoryQueue) -
         # Unexpected error - log with traceback but don't mark_failed (may be bug)
         logger.exception(
             "backfill_unexpected_error",
-            extra={
-                "queue_id": item["id"][:8],
-                "error_type": type(e).__name__
-            }
+            extra={"queue_id": item["id"][:8], "error_type": type(e).__name__},
         )
         return False
 
@@ -235,28 +232,26 @@ def main():
     # Argument parsing with validation (AC 5.2.3)
     parser = argparse.ArgumentParser(
         description="Process pending memory queue",
-        epilog="Exit 0: success/partial, Exit 1: critical error"
+        epilog="Exit 0: success/partial, Exit 1: critical error",
     )
     parser.add_argument(
         "--limit",
         type=validate_limit,
         default=50,
-        help="Max items to process (default: 50, max: 1000)"
+        help="Max items to process (default: 50, max: 1000)",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show what would be processed without processing"
+        help="Show what would be processed without processing",
     )
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Retry exhausted items too (bypass max_retries)"
+        help="Retry exhausted items too (bypass max_retries)",
     )
     parser.add_argument(
-        "--stats",
-        action="store_true",
-        help="Show queue statistics only"
+        "--stats", action="store_true", help="Show queue statistics only"
     )
     args = parser.parse_args()
 
@@ -270,12 +265,12 @@ def main():
         logger.info(
             "backfill_stats",
             extra={
-                "total_items": stats['total_items'],
-                "ready_for_retry": stats['ready_for_retry'],
-                "awaiting_backoff": stats['awaiting_backoff'],
-                "exhausted": stats['exhausted'],
-                "by_failure_reason": stats['by_failure_reason']
-            }
+                "total_items": stats["total_items"],
+                "ready_for_retry": stats["ready_for_retry"],
+                "awaiting_backoff": stats["awaiting_backoff"],
+                "exhausted": stats["exhausted"],
+                "by_failure_reason": stats["by_failure_reason"],
+            },
         )
         # Human-readable output (sent to stdout for cron capture)
         sys.stdout.write("\nQueue Statistics:\n")
@@ -284,7 +279,7 @@ def main():
         sys.stdout.write(f"  Awaiting backoff: {stats['awaiting_backoff']}\n")
         sys.stdout.write(f"  Exhausted (max retries): {stats['exhausted']}\n")
         sys.stdout.write("\n  By failure reason:\n")
-        for reason, count in stats['by_failure_reason'].items():
+        for reason, count in stats["by_failure_reason"].items():
             sys.stdout.write(f"    {reason}: {count}\n")
         return
 
@@ -301,10 +296,11 @@ def main():
     if args.dry_run:
         sys.stdout.write(f"\n[DRY RUN] Would process {len(pending)} items:\n")
         for item in pending:
-            sys.stdout.write(f"  - {item['id'][:8]}... ({item['failure_reason']}) retry #{item['retry_count']}\n")
+            sys.stdout.write(
+                f"  - {item['id'][:8]}... ({item['failure_reason']}) retry #{item['retry_count']}\n"
+            )
         logger.info(
-            "backfill_dry_run",
-            extra={"count": len(pending), "force": args.force}
+            "backfill_dry_run", extra={"count": len(pending), "force": args.force}
         )
         return
 
@@ -315,8 +311,8 @@ def main():
             "backfill_lock_conflict",
             extra={
                 "lock_file": str(LOCK_FILE),
-                "resolution": "waiting_for_next_cron_run"
-            }
+                "resolution": "waiting_for_next_cron_run",
+            },
         )
         sys.exit(1)  # Exit 1 = critical error for cron
 
@@ -324,11 +320,7 @@ def main():
     sys.stdout.write(f"\nProcessing {len(pending)} pending items...\n")
     logger.info(
         "backfill_started",
-        extra={
-            "count": len(pending),
-            "limit": args.limit,
-            "force": args.force
-        }
+        extra={"count": len(pending), "limit": args.limit, "force": args.force},
     )
 
     storage = MemoryStorage()
@@ -344,11 +336,7 @@ def main():
     sys.stdout.write(f"\nComplete: {success} succeeded, {failed} failed\n")
     logger.info(
         "backfill_complete",
-        extra={
-            "success": success,
-            "failed": failed,
-            "total": len(pending)
-        }
+        extra={"success": success, "failed": failed, "total": len(pending)},
     )
 
     # Exit 0 even if some failed (cron-friendly, will retry next run)

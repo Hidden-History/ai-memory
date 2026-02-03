@@ -27,7 +27,7 @@ import httpx
 import streamlit as st
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
-from qdrant_client.models import Filter, FieldCondition, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 # Import memory models for canonical type definitions (C1: DRY - single source of truth)
 # Import paths tried in order:
@@ -37,12 +37,14 @@ from qdrant_client.models import Filter, FieldCondition, MatchValue
 try:
     sys.path.insert(0, "/app/src")
     from memory.models import MemoryType
+
     MODELS_IMPORTED = True
 except ImportError:
     try:
         # Fallback: local development path
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
         from memory.models import MemoryType
+
         MODELS_IMPORTED = True
     except ImportError:
         # Fallback: Container without pydantic_settings - use hardcoded types
@@ -56,7 +58,11 @@ COLLECTION_CONVENTIONS = "conventions"
 COLLECTION_DISCUSSIONS = "discussions"
 
 # Collection names list for iteration
-COLLECTION_NAMES = [COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS]
+COLLECTION_NAMES = [
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+    COLLECTION_DISCUSSIONS,
+]
 
 # V2.0 Type System (C1: Derived from canonical source - src/memory/models.py:34-69)
 # Import MemoryType enum to avoid DRY violation and drift between UI and backend
@@ -91,7 +97,14 @@ else:
     COLLECTION_TYPES = {
         "code-patterns": ["implementation", "error_fix", "refactor", "file_pattern"],
         "conventions": ["rule", "guideline", "port", "naming", "structure"],
-        "discussions": ["decision", "session", "blocker", "preference", "user_message", "agent_response"],
+        "discussions": [
+            "decision",
+            "session",
+            "blocker",
+            "preference",
+            "user_message",
+            "agent_response",
+        ],
     }
 
 # L2: Startup validation - ensure all collections have type definitions
@@ -106,7 +119,7 @@ st.set_page_config(
     page_title="AI Memory Browser",
     page_icon="🧠",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 
@@ -138,7 +151,10 @@ def validate_log_mount() -> tuple[bool, str]:
         file_size = stat.st_size
 
         if file_size < 100 and file_age_hours > 24:
-            return False, f"Activity log appears stale: {file_size} bytes, {file_age_hours:.1f}h old"
+            return (
+                False,
+                f"Activity log appears stale: {file_size} bytes, {file_age_hours:.1f}h old",
+            )
     except OSError as e:
         return False, f"Cannot stat activity log: {e}"
 
@@ -157,7 +173,7 @@ def get_qdrant_client() -> QdrantClient:
         port=int(os.getenv("QDRANT_PORT", "26350")),
         api_key=os.getenv("QDRANT_API_KEY"),
         https=use_https,  # BP-040
-        timeout=float(os.getenv("QDRANT_TIMEOUT", "10.0"))
+        timeout=float(os.getenv("QDRANT_TIMEOUT", "10.0")),
     )
 
 
@@ -170,15 +186,21 @@ try:
     _ = client.get_collections()
 except Exception as e:
     st.error(f"❌ **Failed to connect to Qdrant:** {e}")
-    st.info("🔧 **Troubleshooting:** Check that Qdrant is running on the configured host/port.")
-    st.code(f"QDRANT_HOST={os.getenv('QDRANT_HOST', 'localhost')}\nQDRANT_PORT={os.getenv('QDRANT_PORT', '26350')}")
+    st.info(
+        "🔧 **Troubleshooting:** Check that Qdrant is running on the configured host/port."
+    )
+    st.code(
+        f"QDRANT_HOST={os.getenv('QDRANT_HOST', 'localhost')}\nQDRANT_PORT={os.getenv('QDRANT_PORT', '26350')}"
+    )
     st.stop()  # Halt execution gracefully
 
 
 # ============================================================================
 # DATA FETCHING FUNCTIONS
 # ============================================================================
-@st.cache_data(ttl=600, max_entries=50)  # Cache for 10 minutes (BP-031) - projects rarely change
+@st.cache_data(
+    ttl=600, max_entries=50
+)  # Cache for 10 minutes (BP-031) - projects rarely change
 def get_unique_projects(_client: QdrantClient, collection_name: str) -> list[str]:
     """Get unique project IDs from collection, filtering out infrastructure pollution.
 
@@ -194,13 +216,21 @@ def get_unique_projects(_client: QdrantClient, collection_name: str) -> list[str
             collection_name=collection_name,
             limit=1000,
             with_payload=True,
-            with_vectors=False
+            with_vectors=False,
         )
         projects = set(p.payload.get("group_id", "unknown") for p in points)
 
         # Filter out infrastructure directory names that snuck in
         # Note: "shared" is intentional for conventions collection (v2.0)
-        pollution_patterns = {"docker", "scripts", "test", "build", "tmp", "temp", "unknown"}
+        pollution_patterns = {
+            "docker",
+            "scripts",
+            "test",
+            "build",
+            "tmp",
+            "temp",
+            "unknown",
+        }
         clean_projects = {p for p in projects if p not in pollution_patterns}
 
         return sorted(list(clean_projects))
@@ -208,7 +238,9 @@ def get_unique_projects(_client: QdrantClient, collection_name: str) -> list[str
         return []
 
 
-@st.cache_data(ttl=300, max_entries=100)  # Cache for 5 minutes - balance freshness vs performance per BP-031
+@st.cache_data(
+    ttl=300, max_entries=100
+)  # Cache for 5 minutes - balance freshness vs performance per BP-031
 def get_type_counts(_client: QdrantClient, collection_name: str) -> dict[str, int]:
     """Get count of memories per type in a collection.
 
@@ -235,7 +267,7 @@ def get_type_counts(_client: QdrantClient, collection_name: str) -> dict[str, in
                 count_filter=Filter(
                     must=[FieldCondition(key="type", match=MatchValue(value=mem_type))]
                 ),
-                exact=True  # True = precise count, False = approximate (faster)
+                exact=True,  # True = precise count, False = approximate (faster)
             )
             type_counts[mem_type] = result.count
 
@@ -253,9 +285,7 @@ def get_embedding(text: str) -> Optional[list[float]]:
 
     try:
         response = httpx.post(
-            f"{embedding_url}/embed",
-            json={"texts": [text]},
-            timeout=5.0
+            f"{embedding_url}/embed", json={"texts": [text]}, timeout=5.0
         )
         response.raise_for_status()
         return response.json()["embeddings"][0]
@@ -281,15 +311,9 @@ def perform_search(query: str, collection: str, project: str, memory_type: str):
     # Build filter conditions
     must_conditions = []
     if project != "All":
-        must_conditions.append({
-            "key": "group_id",
-            "match": {"value": project}
-        })
+        must_conditions.append({"key": "group_id", "match": {"value": project}})
     if memory_type != "All":
-        must_conditions.append({
-            "key": "type",
-            "match": {"value": memory_type}
-        })
+        must_conditions.append({"key": "type", "match": {"value": memory_type}})
 
     # Execute search
     try:
@@ -300,7 +324,7 @@ def perform_search(query: str, collection: str, project: str, memory_type: str):
                 limit=20,
                 score_threshold=0.70,  # Only show >70% relevance
                 query_filter={"must": must_conditions} if must_conditions else None,
-                with_payload=True
+                with_payload=True,
             ).points
 
         # Store in session state
@@ -335,8 +359,7 @@ def display_memory_card(memory: dict, index: int, point_id: str = None):
 
     # Expandable card (first result auto-expanded)
     with st.expander(
-        f"**{mem_type}** | {timestamp} | Score: {score:.3f}",
-        expanded=(index == 0)
+        f"**{mem_type}** | {timestamp} | Score: {score:.3f}", expanded=(index == 0)
     ):
         # Show Qdrant Point ID prominently if available
         if point_id:
@@ -349,7 +372,11 @@ def display_memory_card(memory: dict, index: int, point_id: str = None):
         if len(content) <= PREVIEW_LENGTH:
             st.code(content, language="text")
         else:
-            st.code(content[:PREVIEW_LENGTH] + f"... [{len(content) - PREVIEW_LENGTH} more chars]", language="text")
+            st.code(
+                content[:PREVIEW_LENGTH]
+                + f"... [{len(content) - PREVIEW_LENGTH} more chars]",
+                language="text",
+            )
             if st.checkbox("📄 Show Full Content", key=f"full_content_{index}"):
                 st.code(content, language="text")
 
@@ -376,9 +403,7 @@ def display_statistics():
         try:
             info = client.get_collection(collection_name)
             st.sidebar.metric(
-                collection_name,
-                f"{info.points_count:,} memories",
-                delta=None
+                collection_name, f"{info.points_count:,} memories", delta=None
             )
         except Exception:
             st.sidebar.warning(f"⚠️ {collection_name}: unavailable")
@@ -388,7 +413,7 @@ def display_statistics():
     queue_count = 0
     if os.path.exists(queue_file):
         try:
-            with open(queue_file, 'r') as f:
+            with open(queue_file, "r") as f:
                 queue_count = sum(1 for line in f if line.strip())
         except Exception:
             pass
@@ -397,7 +422,9 @@ def display_statistics():
         st.sidebar.warning(f"⏳ **Queue:** {queue_count} pending")
 
     # Last update timestamp
-    st.sidebar.caption(f"Updated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.sidebar.caption(
+        f"Updated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    )
 
 
 @st.cache_data(ttl=60)  # Cache for 60s, invalidate on file change via mtime
@@ -415,7 +442,7 @@ def read_activity_log_cached(log_path: str, mtime: float) -> list[str]:
         List of log lines
     """
     try:
-        with open(log_path, 'r') as f:
+        with open(log_path, "r") as f:
             return f.readlines()
     except Exception as e:
         st.error(f"❌ Error reading log file: {e}")
@@ -432,12 +459,12 @@ def get_log_stats() -> dict:
         try:
             stat = os.stat(ACTIVITY_LOG_PATH)
             size = stat.st_size
-            with open(ACTIVITY_LOG_PATH, 'r') as f:
+            with open(ACTIVITY_LOG_PATH, "r") as f:
                 lines = sum(1 for _ in f)
             return {
                 "size_mb": size / 1024 / 1024,
                 "lines": lines,
-                "mtime": stat.st_mtime
+                "mtime": stat.st_mtime,
             }
         except Exception:
             return {"size_mb": 0, "lines": 0, "mtime": 0}
@@ -458,8 +485,12 @@ def display_logs_page():
     if not log_valid:
         st.error("⚠️ **Volume Mount Issue Detected**")
         st.warning(f"**Problem**: {log_message}")
-        st.code(f"Container AI_MEMORY_INSTALL_DIR: {INSTALL_DIR}\nExpected log path: {ACTIVITY_LOG_PATH}")
-        st.info("🔧 **Fix**: Restart Docker Compose with `AI_MEMORY_INSTALL_DIR` environment variable set, or check `docker/.env` file.")
+        st.code(
+            f"Container AI_MEMORY_INSTALL_DIR: {INSTALL_DIR}\nExpected log path: {ACTIVITY_LOG_PATH}"
+        )
+        st.info(
+            "🔧 **Fix**: Restart Docker Compose with `AI_MEMORY_INSTALL_DIR` environment variable set, or check `docker/.env` file."
+        )
         # Continue anyway to show whatever logs exist
 
     # BUG-022: Log stats and manual refresh button
@@ -470,7 +501,9 @@ def display_logs_page():
     with col_stat2:
         st.metric("Total Lines", f"{stats['lines']:,}")
     with col_stat3:
-        if st.button("🔄 Force Refresh", type="primary", help="Clear cache and reload logs"):
+        if st.button(
+            "🔄 Force Refresh", type="primary", help="Clear cache and reload logs"
+        ):
             st.cache_data.clear()
             st.rerun()
 
@@ -479,10 +512,24 @@ def display_logs_page():
     # Filter by hook type - PROMINENT at top
     filter_type = st.selectbox(
         "🔍 Filter by Hook Type",
-        ["All Types", "🧠 SessionStart", "📤 PreCompact", "📥 Capture", "🔧 PreToolUse",
-         "📋 PostToolUse", "🔴 Error", "💾 ManualSave", "🔍 Search", "💬 UserPrompt",
-         "🔔 Notification", "⏹️ Stop", "🤖 Subagent", "🔚 SessionEnd", "🎯 BestPractices"],
-        key="log_type_filter"
+        [
+            "All Types",
+            "🧠 SessionStart",
+            "📤 PreCompact",
+            "📥 Capture",
+            "🔧 PreToolUse",
+            "📋 PostToolUse",
+            "🔴 Error",
+            "💾 ManualSave",
+            "🔍 Search",
+            "💬 UserPrompt",
+            "🔔 Notification",
+            "⏹️ Stop",
+            "🤖 Subagent",
+            "🔚 SessionEnd",
+            "🎯 BestPractices",
+        ],
+        key="log_type_filter",
     )
 
     # Controls row
@@ -493,9 +540,7 @@ def display_logs_page():
 
     with col2:
         search_text = st.text_input(
-            "Search logs...",
-            placeholder="Filter by text...",
-            key="log_search"
+            "Search logs...", placeholder="Filter by text...", key="log_search"
         )
 
     with col3:
@@ -519,7 +564,7 @@ def display_logs_page():
     if os.path.exists(ACTIVITY_LOG_PATH):
         try:
             # Get current mtime for cache key
-            mtime = stats['mtime']
+            mtime = stats["mtime"]
             lines = read_activity_log_cached(ACTIVITY_LOG_PATH, mtime)
 
             # Parse entries - group summaries with their FULL_CONTENT
@@ -536,39 +581,43 @@ def display_logs_page():
                 if "📄 FULL_CONTENT:" in line:
                     # Extract full content (escaped newlines → real newlines)
                     parts = line.split("📄 FULL_CONTENT:", 1)
-                    full_content = parts[1].replace('\\n', '\n') if len(parts) > 1 else ""
+                    full_content = (
+                        parts[1].replace("\\n", "\n") if len(parts) > 1 else ""
+                    )
 
                     # Look for previous summary line
                     if i > 0:
                         prev_line = lines[i - 1].strip()
                         if prev_line and "📄 FULL_CONTENT:" not in prev_line:
-                            entries.append({
-                                'summary': prev_line,
-                                'full_content': full_content,
-                                'has_content': True
-                            })
+                            entries.append(
+                                {
+                                    "summary": prev_line,
+                                    "full_content": full_content,
+                                    "has_content": True,
+                                }
+                            )
                             i -= 2
                             continue
 
                     i -= 1
                 else:
                     # Regular summary line without full content
-                    entries.append({
-                        'summary': line,
-                        'full_content': None,
-                        'has_content': False
-                    })
+                    entries.append(
+                        {"summary": line, "full_content": None, "has_content": False}
+                    )
                     i -= 1
 
             # Display entries (already in reverse chronological order)
             total_entries = len(entries)
             display_limit = 100
-            st.caption(f"Showing {min(total_entries, display_limit)} of {total_entries} recent activity log entries (newest first)")
+            st.caption(
+                f"Showing {min(total_entries, display_limit)} of {total_entries} recent activity log entries (newest first)"
+            )
 
             # Apply filters and display with EXPANDERS for ALL entries
             displayed = 0
             for idx, entry in enumerate(entries[:display_limit]):
-                summary = entry['summary']
+                summary = entry["summary"]
 
                 # Apply type filter
                 if filter_type != "All Types":
@@ -578,12 +627,18 @@ def display_logs_page():
                     filter_keyword = filter_parts[1] if len(filter_parts) > 1 else ""
 
                     # Check if entry matches filter (icon OR keyword in summary)
-                    if filter_icon not in summary and filter_keyword.lower() not in summary.lower():
+                    if (
+                        filter_icon not in summary
+                        and filter_keyword.lower() not in summary.lower()
+                    ):
                         continue
 
                 # Apply search filter
                 if search_text and search_text.lower() not in summary.lower():
-                    if entry['full_content'] and search_text.lower() in entry['full_content'].lower():
+                    if (
+                        entry["full_content"]
+                        and search_text.lower() in entry["full_content"].lower()
+                    ):
                         pass  # Match in full content - show it
                     else:
                         continue
@@ -633,9 +688,9 @@ def display_logs_page():
                     summary_display = summary_display[:100] + "..."
 
                 with st.expander(summary_display, expanded=False, icon=icon):
-                    if entry['has_content'] and entry['full_content']:
+                    if entry["has_content"] and entry["full_content"]:
                         # Show full content in code block
-                        st.code(entry['full_content'], language=None)
+                        st.code(entry["full_content"], language=None)
                     elif len(summary) > 100:
                         # Show full summary text if it was truncated in title
                         st.text(summary)
@@ -646,6 +701,7 @@ def display_logs_page():
         except Exception as e:
             st.error(f"❌ Error reading logs: {e}")
             import traceback
+
             st.code(traceback.format_exc(), language="python")
     else:
         st.warning("⚠️ No activity log found")
@@ -673,11 +729,13 @@ def display_statistics_page():
                     label=collection_name.replace("-", " ").title(),
                     value=f"{info.points_count:,}",
                     delta=None,
-                    help=f"Total memories in {collection_name}"
+                    help=f"Total memories in {collection_name}",
                 )
 
                 # Additional details
-                st.caption(f"Vector size: {info.config.params.vectors.size if hasattr(info.config.params, 'vectors') else 'N/A'}")
+                st.caption(
+                    f"Vector size: {info.config.params.vectors.size if hasattr(info.config.params, 'vectors') else 'N/A'}"
+                )
             except Exception as e:
                 st.error(f"❌ {collection_name}")
                 st.caption(str(e)[:50])
@@ -716,7 +774,7 @@ def display_statistics_page():
                         # Prepare data for chart
                         chart_data = {
                             "Type": list(type_counts.keys()),
-                            "Count": list(type_counts.values())
+                            "Count": list(type_counts.values()),
                         }
                         # Use Streamlit's built-in bar chart (simple and effective)
                         st.bar_chart(chart_data, x="Type", y="Count", height=250)
@@ -733,19 +791,23 @@ def display_statistics_page():
 
     st.markdown("---")
     st.markdown("### Retry Queue Status")
-    st.caption("QUEUE-UNIFY: All hooks and scripts use unified JSONL queue with automatic retry")
+    st.caption(
+        "QUEUE-UNIFY: All hooks and scripts use unified JSONL queue with automatic retry"
+    )
 
     # Unified JSONL queue with automatic retry (exponential backoff)
     queue_file = os.path.join(INSTALL_DIR, "queue", "pending_queue.jsonl")
 
     if os.path.exists(queue_file):
         try:
-            with open(queue_file, 'r') as f:
+            with open(queue_file, "r") as f:
                 lines = [line.strip() for line in f if line.strip()]
             queue_count = len(lines)
 
             if queue_count > 0:
-                st.warning(f"⏳ **{queue_count} items pending** (auto-retry with exponential backoff)")
+                st.warning(
+                    f"⏳ **{queue_count} items pending** (auto-retry with exponential backoff)"
+                )
 
                 # Parse and display stats
                 reasons = {}
@@ -779,15 +841,17 @@ def display_statistics_page():
                 btn_col1, btn_col2, btn_col3 = st.columns(3)
 
                 with btn_col1:
-                    if st.button("🔄 Process Queue", key="process_queue_btn", type="primary"):
+                    if st.button(
+                        "🔄 Process Queue", key="process_queue_btn", type="primary"
+                    ):
                         with st.spinner("Processing queue..."):
                             try:
                                 # Import and run queue processor
                                 sys.path.insert(0, "/app/src")
+                                from memory.config import COLLECTION_CODE_PATTERNS
+                                from memory.models import MemoryType
                                 from memory.queue import MemoryQueue
                                 from memory.storage import MemoryStorage
-                                from memory.models import MemoryType
-                                from memory.config import COLLECTION_CODE_PATTERNS
 
                                 queue = MemoryQueue()
                                 storage = MemoryStorage()
@@ -805,13 +869,18 @@ def display_statistics_page():
                                             result = storage.store_memory(
                                                 content=content,
                                                 cwd="/",
-                                                group_id=memory_data.get("group_id", "unknown"),
+                                                group_id=memory_data.get(
+                                                    "group_id", "unknown"
+                                                ),
                                                 memory_type=MemoryType.IMPLEMENTATION,
                                                 source_hook="retry",
                                                 session_id="retry",
                                                 collection=COLLECTION_CODE_PATTERNS,
                                             )
-                                            if result["status"] in ["stored", "duplicate"]:
+                                            if result["status"] in [
+                                                "stored",
+                                                "duplicate",
+                                            ]:
                                                 queue.dequeue(entry["id"])
                                                 success_count += 1
                                             else:
@@ -825,7 +894,9 @@ def display_statistics_page():
                                         queue.mark_failed(entry["id"])
                                         fail_count += 1
 
-                                st.success(f"✅ Processed: {success_count} success, {fail_count} failed")
+                                st.success(
+                                    f"✅ Processed: {success_count} success, {fail_count} failed"
+                                )
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Error: {e}")
@@ -834,8 +905,11 @@ def display_statistics_page():
                     if st.button("🗑️ Clear Queue", key="clear_queue_btn"):
                         try:
                             from memory.queue import MemoryQueue
+
                             queue = MemoryQueue()
-                            pending = queue.get_pending(limit=1000, include_exhausted=True)
+                            pending = queue.get_pending(
+                                limit=1000, include_exhausted=True
+                            )
                             for entry in pending:
                                 queue.dequeue(entry["id"])
                             st.success(f"✅ Cleared {len(pending)} items")
@@ -871,10 +945,15 @@ def display_statistics_page():
     with info_col1:
         st.metric("Qdrant Host", os.getenv("QDRANT_HOST", "localhost"))
         # Show external port for user reference, internal port for container
-        qdrant_port = os.getenv("QDRANT_EXTERNAL_PORT") or os.getenv("QDRANT_PORT", "26350")
+        qdrant_port = os.getenv("QDRANT_EXTERNAL_PORT") or os.getenv(
+            "QDRANT_PORT", "26350"
+        )
         st.metric("Qdrant Port (External)", qdrant_port)
     with info_col2:
-        st.metric("Embedding Service", os.getenv("EMBEDDING_SERVICE_URL", "http://embedding:8080"))
+        st.metric(
+            "Embedding Service",
+            os.getenv("EMBEDDING_SERVICE_URL", "http://embedding:8080"),
+        )
         st.metric("Log Location", ACTIVITY_LOG_PATH)
 
 
@@ -887,7 +966,7 @@ st.sidebar.title("🧠 AI Memory Browser")
 page = st.sidebar.radio(
     "Navigation",
     ["🔍 Memory Browser", "📋 Activity Logs", "📊 Statistics"],
-    key="page_select"
+    key="page_select",
 )
 
 st.sidebar.markdown("---")
@@ -899,29 +978,23 @@ if page == "🔍 Memory Browser":
     collection = st.sidebar.selectbox(
         "Collection",
         COLLECTION_NAMES,
-        key="collection_select"  # Explicit key prevents widget resets
+        key="collection_select",  # Explicit key prevents widget resets
     )
 
     # Get unique projects from collection
     projects = get_unique_projects(client, collection)
-    project = st.sidebar.selectbox(
-        "Project",
-        ["All"] + projects,
-        key="project_select"
-    )
+    project = st.sidebar.selectbox("Project", ["All"] + projects, key="project_select")
 
     # R1: Dynamic type dropdown based on collection (V2.0)
     collection_types = COLLECTION_TYPES.get(collection, [])
     memory_type = st.sidebar.selectbox(
         "Type",
         ["All"] + collection_types,
-        key=f"type_select_{collection}"  # Unique key per collection prevents state bleed
+        key=f"type_select_{collection}",  # Unique key per collection prevents state bleed
     )
 
     search_query = st.sidebar.text_input(
-        "Search",
-        placeholder="Enter search query...",
-        key="search_input"
+        "Search", placeholder="Enter search query...", key="search_input"
     )
 
     if st.sidebar.button("🔍 Search", type="primary", key="search_button"):
@@ -955,7 +1028,9 @@ else:  # Default: 🔍 Memory Browser
         st.subheader(f"🔍 Search Results ({len(results)} found)")
 
         if len(results) == 0:
-            st.info("No results found matching your criteria. Try adjusting your query or filters.")
+            st.info(
+                "No results found matching your criteria. Try adjusting your query or filters."
+            )
         else:
             for idx, result in enumerate(results):
                 # Merge payload with score

@@ -8,15 +8,16 @@ FastAPI monitoring service following 2026 best practices:
 - OpenAPI auto-documentation
 """
 
+import logging
+import os
+from typing import Any, Dict, Optional
+
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse, Response
+from prometheus_client import REGISTRY, make_asgi_app
+from pydantic import BaseModel, Field
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
-import os
-import logging
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field
-from prometheus_client import make_asgi_app, REGISTRY
 
 
 class StructuredLogFormatter(logging.Formatter):
@@ -28,38 +29,62 @@ class StructuredLogFormatter(logging.Formatter):
 
     # Standard LogRecord attributes to exclude from extra
     STANDARD_ATTRS = {
-        'name', 'msg', 'args', 'created', 'filename', 'funcName', 'levelname',
-        'levelno', 'lineno', 'module', 'msecs', 'pathname', 'process',
-        'processName', 'relativeCreated', 'stack_info', 'exc_info', 'exc_text',
-        'thread', 'threadName', 'taskName', 'message', 'asctime'
+        "name",
+        "msg",
+        "args",
+        "created",
+        "filename",
+        "funcName",
+        "levelname",
+        "levelno",
+        "lineno",
+        "module",
+        "msecs",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "exc_info",
+        "exc_text",
+        "thread",
+        "threadName",
+        "taskName",
+        "message",
+        "asctime",
     }
 
     def format(self, record):
         import json
+
         # Collect extra fields (anything not in standard attrs)
         extra_fields = {
-            key: value for key, value in record.__dict__.items()
-            if key not in self.STANDARD_ATTRS and not key.startswith('_')
+            key: value
+            for key, value in record.__dict__.items()
+            if key not in self.STANDARD_ATTRS and not key.startswith("_")
         }
-        record.extra = json.dumps(extra_fields) if extra_fields else '{}'
+        record.extra = json.dumps(extra_fields) if extra_fields else "{}"
         return super().format(record)
 
 
 # Configure structured logging with custom formatter (2026 standard)
 handler = logging.StreamHandler()
-handler.setFormatter(StructuredLogFormatter(
-    '{"time": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s", "extra": %(extra)s}'
-))
+handler.setFormatter(
+    StructuredLogFormatter(
+        '{"time": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s", "extra": %(extra)s}'
+    )
+)
 logger = logging.getLogger("ai_memory.monitoring")
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False  # Prevent duplicate logs
 
+import asyncio
+
 # Import metrics module to register metrics with Prometheus (Story 6.1)
 import sys
-from pathlib import Path
-import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 src_path = Path(__file__).parent / "src"
 if str(src_path) not in sys.path:
@@ -68,9 +93,10 @@ if str(src_path) not in sys.path:
 try:
     from memory import metrics  # noqa: F401 - imported for side effects
 except ImportError:
-    logger.warning("metrics_import_failed", extra={
-        "error_details": "Could not import memory.metrics module"
-    })
+    logger.warning(
+        "metrics_import_failed",
+        extra={"error_details": "Could not import memory.metrics module"},
+    )
 
 # Initialize async Qdrant client (2026 best practice for async FastAPI)
 # BP-040: API key + HTTPS configurable via environment variables
@@ -83,7 +109,7 @@ client = AsyncQdrantClient(
     port=qdrant_port,
     api_key=qdrant_api_key,
     https=qdrant_use_https,
-    timeout=10
+    timeout=10,
 )
 
 
@@ -100,22 +126,24 @@ def get_sync_client():
     global _sync_client
     if _sync_client is None:
         from qdrant_client import QdrantClient
+
         _sync_client = QdrantClient(
             host=qdrant_host,
             port=qdrant_port,
             api_key=qdrant_api_key,
             https=qdrant_use_https,  # BP-040
-            timeout=5
+            timeout=5,
         )
     return _sync_client
+
 
 # Background task to update collection metrics (Story 6.6)
 async def update_metrics_periodically():
     """Update collection statistics metrics every 60 seconds."""
     while True:
         try:
-            from memory.stats import get_collection_stats
             from memory.metrics import update_collection_metrics
+            from memory.stats import get_collection_stats
 
             # Reuse sync client for stats (avoids creating new connection per update)
             sync_client = get_sync_client()
@@ -124,19 +152,23 @@ async def update_metrics_periodically():
                 try:
                     stats = get_collection_stats(sync_client, collection_name)
                     update_collection_metrics(stats)
-                    logger.debug("metrics_updated", extra={
-                        "collection": collection_name,
-                        "total_points": stats.total_points
-                    })
+                    logger.debug(
+                        "metrics_updated",
+                        extra={
+                            "collection": collection_name,
+                            "total_points": stats.total_points,
+                        },
+                    )
                 except Exception as e:
-                    logger.warning("metrics_update_failed", extra={
-                        "collection": collection_name,
-                        "error": str(e)
-                    })
+                    logger.warning(
+                        "metrics_update_failed",
+                        extra={"collection": collection_name, "error": str(e)},
+                    )
         except Exception as e:
             logger.error("metrics_updater_error", extra={"error": str(e)})
 
         await asyncio.sleep(60)  # Update every 60 seconds
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -151,6 +183,7 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
+
 # Create FastAPI app with lifespan context
 app = FastAPI(
     title="AI Memory Monitoring API",
@@ -158,7 +191,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",  # Swagger UI
     redoc_url="/redoc",  # ReDoc
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Mount Prometheus metrics endpoint (Story 6.1, AC 6.1.5)
@@ -168,21 +201,30 @@ app.mount("/metrics", metrics_app)
 
 class HealthResponse(BaseModel):
     """Health check response model (2026 standard)."""
-    status: str = Field(..., description="Health status: healthy, degraded, or unhealthy")
+
+    status: str = Field(
+        ..., description="Health status: healthy, degraded, or unhealthy"
+    )
     qdrant_available: bool = Field(..., description="Qdrant service availability")
     collections_count: int = Field(..., description="Number of collections")
-    warnings: list[str] = Field(default_factory=list, description="Collection size warnings")
+    warnings: list[str] = Field(
+        default_factory=list, description="Collection size warnings"
+    )
 
 
 class MemoryResponse(BaseModel):
     """Memory retrieval response model."""
-    status: str = Field(..., description="Response status: success, not_found, or error")
+
+    status: str = Field(
+        ..., description="Response status: success, not_found, or error"
+    )
     data: Optional[Dict[str, Any]] = Field(None, description="Memory payload if found")
     error: Optional[str] = Field(None, description="Error message if failed")
 
 
 class SearchRequest(BaseModel):
     """Search request model for semantic search."""
+
     query: str = Field(..., description="Search query text")
     collection: str = Field("code-patterns", description="Collection to search")
     limit: int = Field(10, description="Maximum results to return")
@@ -190,6 +232,7 @@ class SearchRequest(BaseModel):
 
 class SearchResponse(BaseModel):
     """Search response model."""
+
     status: str = Field(..., description="Response status: success or error")
     results: list = Field(default_factory=list, description="List of matching memories")
     error: Optional[str] = Field(None, description="Error message if failed")
@@ -219,6 +262,7 @@ async def health():
         # Import here to avoid circular import issues
         import sys
         from pathlib import Path
+
         src_path = Path(__file__).parent / "src"
         if str(src_path) not in sys.path:
             sys.path.insert(0, str(src_path))
@@ -236,27 +280,32 @@ async def health():
                 warnings = check_collection_thresholds(stats)
                 all_warnings.extend(warnings)
             except Exception as e:
-                logger.warning("stats_check_failed", extra={
-                    "collection": collection_name,
-                    "error": str(e)
-                })
+                logger.warning(
+                    "stats_check_failed",
+                    extra={"collection": collection_name, "error": str(e)},
+                )
 
         # Determine status based on warnings
         has_critical = any("CRITICAL" in w for w in all_warnings)
-        health_status = "degraded" if has_critical else ("degraded" if all_warnings else "healthy")
+        health_status = (
+            "degraded" if has_critical else ("degraded" if all_warnings else "healthy")
+        )
 
-        logger.info("health_check_passed", extra={
-            "qdrant_available": True,
-            "collections_count": collections_count,
-            "warnings_count": len(all_warnings),
-            "status": health_status
-        })
+        logger.info(
+            "health_check_passed",
+            extra={
+                "qdrant_available": True,
+                "collections_count": collections_count,
+                "warnings_count": len(all_warnings),
+                "status": health_status,
+            },
+        )
 
         return HealthResponse(
             status=health_status,
             qdrant_available=True,
             collections_count=collections_count,
-            warnings=all_warnings
+            warnings=all_warnings,
         )
     except Exception as e:
         logger.error("health_check_failed", extra={"error": str(e)})
@@ -266,8 +315,8 @@ async def health():
                 "status": "unhealthy",
                 "qdrant_available": False,
                 "collections_count": 0,
-                "warnings": []
-            }
+                "warnings": [],
+            },
         )
 
 
@@ -298,15 +347,14 @@ async def readiness():
         logger.warning("readiness_check_failed", extra={"error": str(e)})
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={"status": "not_ready", "qdrant_available": False}
+            content={"status": "not_ready", "qdrant_available": False},
         )
 
 
-@app.get("/memory/{memory_id}", response_model=MemoryResponse, tags=["Memory Operations"])
-async def get_memory(
-    memory_id: str,
-    collection: str = "code-patterns"
-):
+@app.get(
+    "/memory/{memory_id}", response_model=MemoryResponse, tags=["Memory Operations"]
+)
+async def get_memory(memory_id: str, collection: str = "code-patterns"):
     """
     Retrieve a specific memory by ID for testing verification.
 
@@ -322,37 +370,30 @@ async def get_memory(
             collection_name=collection,
             ids=[memory_id],
             with_payload=True,
-            with_vectors=False  # Don't return vectors for readability
+            with_vectors=False,  # Don't return vectors for readability
         )
 
         if result:
-            logger.info("memory_retrieved", extra={
-                "memory_id": memory_id,
-                "collection": collection
-            })
-            return MemoryResponse(
-                status="success",
-                data=result[0].payload
+            logger.info(
+                "memory_retrieved",
+                extra={"memory_id": memory_id, "collection": collection},
             )
+            return MemoryResponse(status="success", data=result[0].payload)
         else:
-            logger.info("memory_not_found", extra={
-                "memory_id": memory_id,
-                "collection": collection
-            })
+            logger.info(
+                "memory_not_found",
+                extra={"memory_id": memory_id, "collection": collection},
+            )
             return MemoryResponse(
                 status="not_found",
                 data=None,
-                error=f"Memory {memory_id} not found in {collection}"
+                error=f"Memory {memory_id} not found in {collection}",
             )
 
     except UnexpectedResponse as e:
-        logger.error("qdrant_error", extra={
-            "error": str(e),
-            "memory_id": memory_id
-        })
+        logger.error("qdrant_error", extra={"error": str(e), "memory_id": memory_id})
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Qdrant unavailable"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Qdrant unavailable"
         )
 
 
@@ -369,23 +410,23 @@ async def collection_stats(collection: str):
     """
     try:
         info = await client.get_collection(collection)
-        logger.info("collection_stats_retrieved", extra={
-            "collection": collection,
-            "points_count": info.points_count
-        })
+        logger.info(
+            "collection_stats_retrieved",
+            extra={"collection": collection, "points_count": info.points_count},
+        )
         return {
             "status": "success",
             "collection": collection,
             "points_count": info.points_count,
             "vectors_count": info.vectors_count,
             "indexed_vectors_count": info.indexed_vectors_count,
-            "qdrant_status": info.status
+            "qdrant_status": info.status,
         }
     except UnexpectedResponse:
         logger.warning("collection_not_found", extra={"collection": collection})
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Collection {collection} not found"
+            detail=f"Collection {collection} not found",
         )
 
 
@@ -411,7 +452,7 @@ async def search_memories(request: SearchRequest):
             scroll_filter=None,  # Get all points for now (simple implementation)
             limit=min(request.limit * 10, 100),  # Fetch more to search through
             with_payload=True,
-            with_vectors=False
+            with_vectors=False,
         )
 
         # Filter results by query text in content field
@@ -421,32 +462,31 @@ async def search_memories(request: SearchRequest):
             content = payload.get("content", "")
             # Simple substring match for testing
             if request.query.lower() in content.lower():
-                matching_results.append({
-                    "id": point.id,
-                    "payload": payload,
-                    "score": 1.0  # Simple match score
-                })
+                matching_results.append(
+                    {
+                        "id": point.id,
+                        "payload": payload,
+                        "score": 1.0,  # Simple match score
+                    }
+                )
                 if len(matching_results) >= request.limit:
                     break
 
-        logger.info("search_completed", extra={
-            "collection": request.collection,
-            "query_length": len(request.query),
-            "results_count": len(matching_results)
-        })
-
-        return SearchResponse(
-            status="success",
-            results=matching_results
+        logger.info(
+            "search_completed",
+            extra={
+                "collection": request.collection,
+                "query_length": len(request.query),
+                "results_count": len(matching_results),
+            },
         )
 
+        return SearchResponse(status="success", results=matching_results)
+
     except UnexpectedResponse as e:
-        logger.error("search_failed", extra={
-            "error": str(e),
-            "collection": request.collection
-        })
+        logger.error(
+            "search_failed", extra={"error": str(e), "collection": request.collection}
+        )
         return SearchResponse(
-            status="error",
-            results=[],
-            error=f"Search failed: {str(e)}"
+            status="error", results=[], error=f"Search failed: {str(e)}"
         )

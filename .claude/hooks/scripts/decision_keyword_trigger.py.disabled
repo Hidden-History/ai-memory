@@ -42,7 +42,12 @@ sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Configure structured logging using shared utility
 from memory.config import COLLECTION_DISCUSSIONS
-from memory.hooks_common import setup_hook_logging, log_to_activity, get_metrics, get_trigger_metrics
+from memory.hooks_common import (
+    get_metrics,
+    get_trigger_metrics,
+    log_to_activity,
+    setup_hook_logging,
+)
 
 logger = setup_hook_logging()
 
@@ -112,7 +117,7 @@ def main() -> int:
             return 0
 
         # Detect decision keywords (trigger condition)
-        from memory.triggers import detect_decision_keywords, TRIGGER_CONFIG
+        from memory.triggers import TRIGGER_CONFIG, detect_decision_keywords
 
         topic = detect_decision_keywords(user_input)
         if not topic:
@@ -131,11 +136,11 @@ def main() -> int:
         query = f"Decision about {topic}"
 
         # Search discussions collection
-        from memory.search import MemorySearch
         from memory.config import get_config
         from memory.health import check_qdrant_health
-        from memory.qdrant_client import get_qdrant_client
         from memory.project import detect_project
+        from memory.qdrant_client import get_qdrant_client
+        from memory.search import MemorySearch
 
         mem_config = get_config()
         client = get_qdrant_client(mem_config)

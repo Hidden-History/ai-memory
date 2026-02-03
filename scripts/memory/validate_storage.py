@@ -25,44 +25,46 @@ Created: 2026-01-17
 Adapted from proven patterns for AI Memory Module
 """
 
-import os
-import sys
-import json
-import hashlib
 import argparse
+import hashlib
+import json
+import os
 import re
+import sys
 from pathlib import Path
-from typing import Tuple, Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Try to import from installed location first, fall back to relative
 try:
     from memory.config import (
-        get_config,
         COLLECTION_CODE_PATTERNS,
         COLLECTION_CONVENTIONS,
         COLLECTION_DISCUSSIONS,
+        get_config,
     )
-    from memory.qdrant_client import get_qdrant_client, QdrantUnavailable
+    from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 except ImportError:
     # Running from dev repo
     sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
     from memory.config import (
-        get_config,
         COLLECTION_CODE_PATTERNS,
         COLLECTION_CONVENTIONS,
         COLLECTION_DISCUSSIONS,
+        get_config,
     )
-    from memory.qdrant_client import get_qdrant_client, QdrantUnavailable
+    from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 
 # V2.0 Collection names (Memory System Spec v2.0, 2026-01-17)
 COLLECTIONS_TO_CHECK = [
     COLLECTION_CODE_PATTERNS,  # code-patterns
-    COLLECTION_CONVENTIONS,    # conventions
-    COLLECTION_DISCUSSIONS,    # discussions
+    COLLECTION_CONVENTIONS,  # conventions
+    COLLECTION_DISCUSSIONS,  # discussions
 ]
 
 # Required metadata fields for ALL memory types
@@ -96,11 +98,15 @@ VALID_IMPORTANCE = ["critical", "high", "medium", "low"]
 
 # Token Budget - Content length in tokens (1 token ~ 4 chars)
 MIN_CONTENT_LENGTH = int(os.getenv("MIN_CONTENT_LENGTH", "50"))  # ~12 tokens minimum
-MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", "50000"))  # ~12,500 tokens maximum
+MAX_CONTENT_LENGTH = int(
+    os.getenv("MAX_CONTENT_LENGTH", "50000")
+)  # ~12,500 tokens maximum
 MAX_TOKENS_PER_SHARD = int(os.getenv("MAX_TOKENS_PER_SHARD", "1200"))  # Per shard limit
 
 # File:Line References - Required for actionable memories
-FILE_LINE_PATTERN = re.compile(r'[a-zA-Z0-9_/\-\.]+\.(py|md|yaml|yml|sql|sh|js|ts|tsx|json|css|html):\d+(?:-\d+)?')
+FILE_LINE_PATTERN = re.compile(
+    r"[a-zA-Z0-9_/\-\.]+\.(py|md|yaml|yml|sql|sh|js|ts|tsx|json|css|html):\d+(?:-\d+)?"
+)
 
 # Duplicate Detection - Similarity threshold
 SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.85"))
@@ -169,12 +175,14 @@ def validate_code_snippets(content: str) -> Tuple[bool, List[str]]:
     warnings = []
 
     # Detect code blocks (markdown or plain)
-    code_block_pattern = re.compile(r'```[\s\S]*?```|`[^`]+`')
+    code_block_pattern = re.compile(r"```[\s\S]*?```|`[^`]+`")
     code_blocks = code_block_pattern.findall(content)
 
     for block in code_blocks:
-        lines = block.split('\n')
-        line_count = len([l for l in lines if l.strip() and not l.strip().startswith('```')])
+        lines = block.split("\n")
+        line_count = len(
+            [l for l in lines if l.strip() and not l.strip().startswith("```")]
+        )
 
         if line_count > 10:
             warnings.append(
@@ -242,12 +250,14 @@ def check_similar_content(client, content: str) -> Tuple[bool, List[Dict]]:
                 existing_hash = payload.get("content_hash", "")
                 if existing_hash == content_hash:
                     uid = payload.get("unique_id", "")
-                    similar.append({
-                        "collection": coll_name,
-                        "unique_id": uid,
-                        "match_type": "exact_hash",
-                        "similarity": 1.0,
-                    })
+                    similar.append(
+                        {
+                            "collection": coll_name,
+                            "unique_id": uid,
+                            "match_type": "exact_hash",
+                            "similarity": 1.0,
+                        }
+                    )
 
         except Exception:
             pass  # Skip unavailable collections
@@ -282,9 +292,7 @@ def validate_metadata_fields(metadata: Dict) -> Tuple[bool, List[str]]:
     # Validate importance (if provided)
     importance = metadata.get("importance", "")
     if importance and importance not in VALID_IMPORTANCE:
-        errors.append(
-            f"Invalid importance '{importance}'. Must be: {VALID_IMPORTANCE}"
-        )
+        errors.append(f"Invalid importance '{importance}'. Must be: {VALID_IMPORTANCE}")
 
     # Validate group_id
     group_id = metadata.get("group_id", "")

@@ -31,13 +31,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
+
+from memory.activity_log import log_capture, log_error_capture
+from memory.hooks_common import log_to_activity
 
 # Configure structured logging
 from memory.logging_config import StructuredFormatter
-from memory.activity_log import log_capture, log_error_capture
-from memory.hooks_common import log_to_activity
 
 handler = logging.StreamHandler()
 handler.setFormatter(StructuredFormatter())
@@ -69,22 +72,22 @@ def detect_error_indicators(output: str, exit_code: Optional[int]) -> bool:
 
     # Common error patterns (case-insensitive)
     error_patterns = [
-        r'\berror\b',
-        r'\bfailed\b',
-        r'\bfailure\b',
-        r'\bexception\b',
-        r'\btraceback\b',
-        r'\bfatal\b',
-        r'\bpanic\b',
-        r'\bwarning\b',
-        r'\bcannot\b',
-        r'\bunable to\b',
-        r'\bpermission denied\b',
-        r'\bno such file\b',
-        r'\bcommand not found\b',
-        r'\bsyntax error\b',
-        r'\bsegmentation fault\b',
-        r'\bcore dumped\b'
+        r"\berror\b",
+        r"\bfailed\b",
+        r"\bfailure\b",
+        r"\bexception\b",
+        r"\btraceback\b",
+        r"\bfatal\b",
+        r"\bpanic\b",
+        r"\bwarning\b",
+        r"\bcannot\b",
+        r"\bunable to\b",
+        r"\bpermission denied\b",
+        r"\bno such file\b",
+        r"\bcommand not found\b",
+        r"\bsyntax error\b",
+        r"\bsegmentation fault\b",
+        r"\bcore dumped\b",
     ]
 
     output_lower = output.lower()
@@ -114,31 +117,22 @@ def extract_file_line_references(output: str) -> List[Dict[str, Any]]:
     references = []
 
     # Pattern 1: file.py:42 or file.py:42:10
-    pattern1 = r'([a-zA-Z0-9_./\-]+\.py):(\d+)(?::(\d+))?'
+    pattern1 = r"([a-zA-Z0-9_./\-]+\.py):(\d+)(?::(\d+))?"
     for match in re.finditer(pattern1, output):
-        ref = {
-            'file': match.group(1),
-            'line': int(match.group(2))
-        }
+        ref = {"file": match.group(1), "line": int(match.group(2))}
         if match.group(3):
-            ref['column'] = int(match.group(3))
+            ref["column"] = int(match.group(3))
         references.append(ref)
 
     # Pattern 2: File "file.py", line 42
     pattern2 = r'File "([^"]+)", line (\d+)'
     for match in re.finditer(pattern2, output):
-        references.append({
-            'file': match.group(1),
-            'line': int(match.group(2))
-        })
+        references.append({"file": match.group(1), "line": int(match.group(2))})
 
     # Pattern 3: at file.py:42
-    pattern3 = r'at ([a-zA-Z0-9_./\-]+\.py):(\d+)'
+    pattern3 = r"at ([a-zA-Z0-9_./\-]+\.py):(\d+)"
     for match in re.finditer(pattern3, output):
-        references.append({
-            'file': match.group(1),
-            'line': int(match.group(2))
-        })
+        references.append({"file": match.group(1), "line": int(match.group(2))})
 
     return references
 
@@ -153,28 +147,28 @@ def extract_stack_trace(output: str) -> Optional[str]:
         Stack trace string if found, None otherwise
     """
     # Python traceback pattern
-    if 'Traceback (most recent call last):' in output:
-        lines = output.split('\n')
+    if "Traceback (most recent call last):" in output:
+        lines = output.split("\n")
         trace_lines = []
         in_trace = False
 
         for line in lines:
-            if 'Traceback (most recent call last):' in line:
+            if "Traceback (most recent call last):" in line:
                 in_trace = True
                 trace_lines.append(line)
             elif in_trace:
                 trace_lines.append(line)
                 # Stop at first non-indented line after traceback
-                if line and not line.startswith((' ', '\t')):
+                if line and not line.startswith((" ", "\t")):
                     break
 
         if trace_lines:
-            return '\n'.join(trace_lines)
+            return "\n".join(trace_lines)
 
     # Generic stack trace pattern (multiple "at" lines)
-    at_lines = [line for line in output.split('\n') if re.match(r'\s*at\s+', line)]
+    at_lines = [line for line in output.split("\n") if re.match(r"\s*at\s+", line)]
     if len(at_lines) >= 2:
-        return '\n'.join(at_lines)
+        return "\n".join(at_lines)
 
     return None
 
@@ -188,10 +182,10 @@ def extract_error_message(output: str) -> str:
     Returns:
         Extracted error message
     """
-    lines = output.strip().split('\n')
+    lines = output.strip().split("\n")
 
     # Look for lines containing error keywords
-    error_keywords = ['error', 'exception', 'failed', 'failure', 'fatal']
+    error_keywords = ["error", "exception", "failed", "failure", "fatal"]
 
     for line in lines:
         line_lower = line.lower()
@@ -252,7 +246,9 @@ def extract_error_context(hook_input: Dict[str, Any]) -> Optional[Dict[str, Any]
     stdout = tool_response.get("stdout", "")
     stderr = tool_response.get("stderr", "")
     output = stderr if stderr else stdout  # Prefer stderr for errors
-    exit_code = tool_response.get("exitCode")  # May not be present in newer Claude Code versions
+    exit_code = tool_response.get(
+        "exitCode"
+    )  # May not be present in newer Claude Code versions
 
     # Detect if this is an error
     if not detect_error_indicators(output, exit_code):
@@ -272,7 +268,7 @@ def extract_error_context(hook_input: Dict[str, Any]) -> Optional[Dict[str, Any]
         "file_references": file_references,
         "stack_trace": stack_trace,
         "cwd": hook_input.get("cwd", ""),
-        "session_id": hook_input.get("session_id", "")
+        "session_id": hook_input.get("session_id", ""),
     }
 
     return context
@@ -298,29 +294,25 @@ def fork_to_background(error_context: Dict[str, Any]) -> None:
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True
+            start_new_session=True,
         )
 
         # Write input and close stdin
         if process.stdin:
-            process.stdin.write(input_json.encode('utf-8'))
+            process.stdin.write(input_json.encode("utf-8"))
             process.stdin.close()
 
         logger.info(
             "error_pattern_forked",
             extra={
                 "command": error_context["command"][:50],
-                "session_id": error_context["session_id"]
-            }
+                "session_id": error_context["session_id"],
+            },
         )
 
     except Exception as e:
         logger.error(
-            "fork_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "fork_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
 
@@ -333,7 +325,6 @@ def main() -> int:
     global hook_duration_seconds
     start_time = time.perf_counter()
 
-
     # Late import of metrics
     try:
         script_dir = Path(__file__).parent
@@ -342,6 +333,7 @@ def main() -> int:
         if local_src.exists():
             sys.path.insert(0, str(local_src))
         from memory.metrics import hook_duration_seconds as _hook_metric
+
         hook_duration_seconds = _hook_metric
     except ImportError:
         logger.warning("metrics_module_unavailable")
@@ -357,10 +349,7 @@ def main() -> int:
         except json.JSONDecodeError as e:
             logger.error(
                 "malformed_json",
-                extra={
-                    "error": str(e),
-                    "input_preview": raw_input[:100]
-                }
+                extra={"error": str(e), "input_preview": raw_input[:100]},
             )
             return 0  # Non-blocking
 
@@ -371,8 +360,8 @@ def main() -> int:
                 "validation_failed",
                 extra={
                     "reason": validation_error,
-                    "tool_name": hook_input.get("tool_name")
-                }
+                    "tool_name": hook_input.get("tool_name"),
+                },
             )
             return 0  # Non-blocking
 
@@ -397,29 +386,29 @@ def main() -> int:
             command=error_context["command"],
             error_msg=error_msg,
             exit_code=error_context.get("exit_code", -1),
-            output=error_context.get("output", "")
+            output=error_context.get("output", ""),
         )
 
         # Metrics: Record hook duration
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PostToolUse_Error").observe(duration_seconds)
+            hook_duration_seconds.labels(hook_type="PostToolUse_Error").observe(
+                duration_seconds
+            )
 
         return 0
 
     except Exception as e:
         logger.error(
-            "hook_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
         # Metrics: Record hook duration even on error
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PostToolUse_Error").observe(duration_seconds)
+            hook_duration_seconds.labels(hook_type="PostToolUse_Error").observe(
+                duration_seconds
+            )
 
         return 1  # Non-blocking error
 

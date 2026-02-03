@@ -36,17 +36,21 @@ import time
 from pathlib import Path
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Configure structured logging using shared utility
 from memory.config import COLLECTION_CONVENTIONS
-from memory.hooks_common import setup_hook_logging, log_to_activity, get_metrics
+from memory.hooks_common import get_metrics, log_to_activity, setup_hook_logging
 
 logger = setup_hook_logging()
 
 # CR-2 FIX: Use consolidated metrics import
-memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = get_metrics()
+memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = (
+    get_metrics()
+)
 
 # Display formatting constants
 MAX_CONTENT_CHARS = 400  # Maximum characters to show in context output
@@ -123,11 +127,14 @@ def main() -> int:
         context = detect_read_context(file_path, tool_name)
         if not context.get("should_trigger", False):
             # No trigger - skip retrieval
-            logger.debug("read_context_no_trigger", extra={
-                "file_path": file_path,
-                "file_type": context.get("file_type", ""),
-                "tool_name": tool_name
-            })
+            logger.debug(
+                "read_context_no_trigger",
+                extra={
+                    "file_path": file_path,
+                    "file_type": context.get("file_type", ""),
+                    "tool_name": tool_name,
+                },
+            )
             return 0
 
         # Read context detected - retrieve conventions
@@ -136,11 +143,11 @@ def main() -> int:
         search_query = context.get("search_query", "")
 
         # Search conventions collection
-        from memory.search import MemorySearch
         from memory.config import get_config
         from memory.health import check_qdrant_health
-        from memory.qdrant_client import get_qdrant_client
         from memory.project import detect_project
+        from memory.qdrant_client import get_qdrant_client
+        from memory.search import MemorySearch
 
         mem_config = get_config()
         client = get_qdrant_client(mem_config)
@@ -149,7 +156,9 @@ def main() -> int:
         if not check_qdrant_health(client):
             logger.warning("qdrant_unavailable")
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection=COLLECTION_CONVENTIONS, status="failed").inc()
+                memory_retrievals_total.labels(
+                    collection=COLLECTION_CONVENTIONS, status="failed"
+                ).inc()
             return 0
 
         # Detect project for logging
@@ -160,12 +169,26 @@ def main() -> int:
         try:
             # Get limit from trigger config
             from memory.triggers import TRIGGER_CONFIG
+
             limit = TRIGGER_CONFIG.get("read_context", {}).get("max_results", 3)
 
             # CR-2 FIX: Add smart type filtering based on file context
             # Code files (py, js, etc.) → rule, guideline
             # Config files (yaml, json, etc.) → structure, naming
-            code_extensions = ["py", "js", "ts", "tsx", "jsx", "go", "rs", "java", "cpp", "c", "rb", "php"]
+            code_extensions = [
+                "py",
+                "js",
+                "ts",
+                "tsx",
+                "jsx",
+                "go",
+                "rs",
+                "java",
+                "cpp",
+                "c",
+                "rb",
+                "php",
+            ]
             if file_type in code_extensions:
                 type_filter = ["rule", "guideline"]
             else:
@@ -178,29 +201,37 @@ def main() -> int:
                 group_id=None,  # Conventions are global
                 limit=limit,
                 score_threshold=mem_config.similarity_threshold,
-                memory_type=type_filter  # CR-2 FIX: Smart type filtering
+                memory_type=type_filter,  # CR-2 FIX: Smart type filtering
             )
 
             if not results:
                 # No relevant practices found
                 duration_ms = (time.perf_counter() - start_time) * 1000
-                log_to_activity(f"📖 ReadContext: No results for {file_type} in {component or 'root'}", INSTALL_DIR)
-                logger.debug("no_best_practices_found", extra={
-                    "file_path": file_path,
-                    "file_type": file_type,
-                    "component": component,
-                    "query": search_query[:50],
-                    "duration_ms": round(duration_ms, 2)
-                })
+                log_to_activity(
+                    f"📖 ReadContext: No results for {file_type} in {component or 'root'}",
+                    INSTALL_DIR,
+                )
+                logger.debug(
+                    "no_best_practices_found",
+                    extra={
+                        "file_path": file_path,
+                        "file_type": file_type,
+                        "component": component,
+                        "query": search_query[:50],
+                        "duration_ms": round(duration_ms, 2),
+                    },
+                )
                 if memory_retrievals_total:
-                    memory_retrievals_total.labels(collection=COLLECTION_CONVENTIONS, status="empty").inc()
+                    memory_retrievals_total.labels(
+                        collection=COLLECTION_CONVENTIONS, status="empty"
+                    ).inc()
                 return 0
 
             # Format for stdout display
             output_parts = []
-            output_parts.append("\n" + "="*70)
+            output_parts.append("\n" + "=" * 70)
             output_parts.append("📖 RELEVANT CONVENTIONS (Read Context)")
-            output_parts.append("="*70)
+            output_parts.append("=" * 70)
 
             # Use relative path if shorter
             try:
@@ -218,7 +249,7 @@ def main() -> int:
             for i, practice in enumerate(results, 1):
                 output_parts.append(format_best_practice(practice, i))
 
-            output_parts.append("="*70 + "\n")
+            output_parts.append("=" * 70 + "\n")
 
             # Output to stdout (Claude sees this after Read execution)
             print("\n".join(output_parts))
@@ -226,23 +257,33 @@ def main() -> int:
             # Log success
             duration_ms = (time.perf_counter() - start_time) * 1000
             display_path = f"{file_type} in {component}" if component else file_type
-            log_to_activity(f"📖 ReadContext retrieved for {display_path} [{duration_ms:.0f}ms]", INSTALL_DIR)
-            logger.info("read_context_conventions_retrieved", extra={
-                "file_path": file_path,
-                "file_type": file_type,
-                "component": component,
-                "results_count": len(results),
-                "duration_ms": round(duration_ms, 2),
-                "project": project_name
-            })
+            log_to_activity(
+                f"📖 ReadContext retrieved for {display_path} [{duration_ms:.0f}ms]",
+                INSTALL_DIR,
+            )
+            logger.info(
+                "read_context_conventions_retrieved",
+                extra={
+                    "file_path": file_path,
+                    "file_type": file_type,
+                    "component": component,
+                    "results_count": len(results),
+                    "duration_ms": round(duration_ms, 2),
+                    "project": project_name,
+                },
+            )
 
             # Metrics
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection=COLLECTION_CONVENTIONS, status="success").inc()
+                memory_retrievals_total.labels(
+                    collection=COLLECTION_CONVENTIONS, status="success"
+                ).inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
             if hook_duration_seconds:
-                hook_duration_seconds.labels(hook_type="PostToolUse_ReadContext").observe(duration_ms / 1000.0)
+                hook_duration_seconds.labels(
+                    hook_type="PostToolUse_ReadContext"
+                ).observe(duration_ms / 1000.0)
 
         finally:
             search.close()
@@ -251,17 +292,20 @@ def main() -> int:
 
     except Exception as e:
         # Catch-all error handler - always gracefully degrade
-        logger.error("hook_failed", extra={
-            "error": str(e),
-            "error_type": type(e).__name__
-        })
+        logger.error(
+            "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
+        )
 
         # Metrics
         if memory_retrievals_total:
-            memory_retrievals_total.labels(collection=COLLECTION_CONVENTIONS, status="failed").inc()
+            memory_retrievals_total.labels(
+                collection=COLLECTION_CONVENTIONS, status="failed"
+            ).inc()
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PostToolUse_ReadContext").observe(duration_seconds)
+            hook_duration_seconds.labels(hook_type="PostToolUse_ReadContext").observe(
+                duration_seconds
+            )
 
         return 0  # Always exit 0 - graceful degradation
 

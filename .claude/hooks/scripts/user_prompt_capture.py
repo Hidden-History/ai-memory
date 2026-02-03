@@ -31,11 +31,14 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Configure structured logging
 from memory.logging_config import StructuredFormatter
+
 handler = logging.StreamHandler()
 handler.setFormatter(StructuredFormatter())
 logger = logging.getLogger("ai_memory.hooks")
@@ -90,7 +93,7 @@ def count_turns_from_transcript(transcript_path: str) -> int:
             return 0
 
         count = 0
-        with open(expanded_path, 'r', encoding='utf-8') as f:
+        with open(expanded_path, "r", encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     count += 1
@@ -117,14 +120,17 @@ def fork_to_background(hook_input: Dict[str, Any], turn_number: int) -> None:
         # Truncate long prompts before storage (Fix #12)
         prompt = hook_input.get("prompt", "")
         if len(prompt) > MAX_CONTENT_LENGTH:
-            hook_input["prompt"] = prompt[:MAX_CONTENT_LENGTH] + f"... [truncated from {len(prompt)} chars]"
+            hook_input["prompt"] = (
+                prompt[:MAX_CONTENT_LENGTH]
+                + f"... [truncated from {len(prompt)} chars]"
+            )
             logger.info(
                 "prompt_truncated",
                 extra={
                     "original_length": len(prompt),
                     "truncated_length": MAX_CONTENT_LENGTH,
-                    "session_id": hook_input.get("session_id")
-                }
+                    "session_id": hook_input.get("session_id"),
+                },
             )
 
         # Add turn_number to hook_input
@@ -139,21 +145,18 @@ def fork_to_background(hook_input: Dict[str, Any], turn_number: int) -> None:
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True  # Full detachment from parent
+            start_new_session=True,  # Full detachment from parent
         )
 
         # Write input and close stdin (non-blocking, CRITICAL FIX: error handling)
         try:
             if process.stdin:
-                process.stdin.write(input_json.encode('utf-8'))
+                process.stdin.write(input_json.encode("utf-8"))
                 process.stdin.close()
         except (BrokenPipeError, OSError) as e:
             logger.error(
                 "stdin_write_failed",
-                extra={
-                    "error": str(e),
-                    "error_type": type(e).__name__
-                }
+                extra={"error": str(e), "error_type": type(e).__name__},
             )
 
         logger.info(
@@ -161,18 +164,14 @@ def fork_to_background(hook_input: Dict[str, Any], turn_number: int) -> None:
             extra={
                 "hook_type": "UserPromptSubmit",
                 "session_id": hook_input["session_id"],
-                "turn_number": turn_number
-            }
+                "turn_number": turn_number,
+            },
         )
 
     except Exception as e:
         # Non-blocking error - log and continue
         logger.error(
-            "fork_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "fork_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
 
@@ -194,10 +193,7 @@ def main() -> int:
         except json.JSONDecodeError as e:
             logger.error(
                 "malformed_json",
-                extra={
-                    "error": str(e),
-                    "input_preview": raw_input[:100]
-                }
+                extra={"error": str(e), "input_preview": raw_input[:100]},
             )
             return 0  # Non-blocking - Claude continues
 
@@ -208,8 +204,8 @@ def main() -> int:
                 "validation_failed",
                 extra={
                     "reason": validation_error,
-                    "session_id": hook_input.get("session_id")
-                }
+                    "session_id": hook_input.get("session_id"),
+                },
             )
             return 0  # Non-blocking - graceful handling
 
@@ -226,7 +222,9 @@ def main() -> int:
         # Metrics: Record hook duration
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="UserPromptSubmit").observe(duration_seconds)
+            hook_duration_seconds.labels(hook_type="UserPromptSubmit").observe(
+                duration_seconds
+            )
 
         # Exit immediately after fork
         return 0
@@ -234,17 +232,15 @@ def main() -> int:
     except Exception as e:
         # Catch-all for unexpected errors
         logger.error(
-            "hook_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
         # Metrics: Record hook duration even on error
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="UserPromptSubmit").observe(duration_seconds)
+            hook_duration_seconds.labels(hook_type="UserPromptSubmit").observe(
+                duration_seconds
+            )
 
         return 1  # Non-blocking error
 

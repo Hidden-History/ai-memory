@@ -34,14 +34,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Setup Python path
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
+from memory.config import (
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+    COLLECTION_DISCUSSIONS,
+)
 from memory.hooks_common import setup_hook_logging
+from memory.models import MemoryType
 from memory.queue import MemoryQueue
 from memory.storage import MemoryStorage
-from memory.models import MemoryType
-from memory.config import COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS
 
 logger = setup_hook_logging("ai_memory.retry_processor")
 
@@ -51,17 +57,35 @@ DLQ_FILE = Path(INSTALL_DIR) / "queue" / "retry_queue_dlq.jsonl"
 
 def get_collection_for_type(memory_type: str) -> str:
     """Determine collection based on memory type."""
-    if memory_type in ["guideline", "rule", "naming", "port", "structure", "best_practice"]:
+    if memory_type in [
+        "guideline",
+        "rule",
+        "naming",
+        "port",
+        "structure",
+        "best_practice",
+    ]:
         return COLLECTION_CONVENTIONS
-    elif memory_type in ["decision", "session", "blocker", "preference", "context",
-                         "session_summary", "chat_memory", "agent_decision",
-                         "user_message", "agent_response"]:
+    elif memory_type in [
+        "decision",
+        "session",
+        "blocker",
+        "preference",
+        "context",
+        "session_summary",
+        "chat_memory",
+        "agent_decision",
+        "user_message",
+        "agent_response",
+    ]:
         return COLLECTION_DISCUSSIONS
     else:
         return COLLECTION_CODE_PATTERNS
 
 
-def process_entry(entry: dict, storage: MemoryStorage, dry_run: bool = False) -> tuple[bool, str]:
+def process_entry(
+    entry: dict, storage: MemoryStorage, dry_run: bool = False
+) -> tuple[bool, str]:
     """Process a single queue entry.
 
     Args:
@@ -100,6 +124,7 @@ def process_entry(entry: dict, storage: MemoryStorage, dry_run: bool = False) ->
 
         # Build memory params
         from memory.project import detect_project
+
         cwd = hook_input.get("cwd", "/")
         group_id = detect_project(cwd)
         memory_type = "implementation"
@@ -137,7 +162,10 @@ def process_entry(entry: dict, storage: MemoryStorage, dry_run: bool = False) ->
         return False, "No content found in entry"
 
     if dry_run:
-        return True, f"Would store: {len(content)} chars, type={memory_type}, group={group_id}"
+        return (
+            True,
+            f"Would store: {len(content)} chars, type={memory_type}, group={group_id}",
+        )
 
     try:
         # Convert string type to MemoryType enum
@@ -205,7 +233,10 @@ def process_queue(force: bool = False, dry_run: bool = False, limit: int = 100) 
         logger.info("queue_empty", extra={"details": "No items pending"})
         return stats
 
-    logger.info("processing_start", extra={"pending_count": len(pending), "force": force, "dry_run": dry_run})
+    logger.info(
+        "processing_start",
+        extra={"pending_count": len(pending), "force": force, "dry_run": dry_run},
+    )
 
     for entry in pending:
         entry_id = entry.get("id", "unknown")
@@ -220,20 +251,26 @@ def process_queue(force: bool = False, dry_run: bool = False, limit: int = 100) 
 
             if success:
                 stats["success"] += 1
-                logger.info("entry_processed", extra={
-                    "entry_id": entry_id,
-                    "result": message,
-                    "retry_count": retry_count
-                })
+                logger.info(
+                    "entry_processed",
+                    extra={
+                        "entry_id": entry_id,
+                        "result": message,
+                        "retry_count": retry_count,
+                    },
+                )
                 if not dry_run:
                     queue.dequeue(entry_id)
             else:
                 stats["failed"] += 1
-                logger.warning("entry_failed", extra={
-                    "entry_id": entry_id,
-                    "error_detail": message,
-                    "retry_count": retry_count
-                })
+                logger.warning(
+                    "entry_failed",
+                    extra={
+                        "entry_id": entry_id,
+                        "error_detail": message,
+                        "retry_count": retry_count,
+                    },
+                )
 
                 if not dry_run:
                     if retry_count >= max_retries - 1:
@@ -249,11 +286,14 @@ def process_queue(force: bool = False, dry_run: bool = False, limit: int = 100) 
             stats["failed"] += 1
             error_msg = f"{entry_id}: {type(e).__name__}: {str(e)[:100]}"
             stats["errors"].append(error_msg)
-            logger.error("processing_error", extra={
-                "entry_id": entry_id,
-                "error": str(e),
-                "error_type": type(e).__name__
-            })
+            logger.error(
+                "processing_error",
+                extra={
+                    "entry_id": entry_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
 
     logger.info("processing_complete", extra=stats)
     return stats
@@ -272,12 +312,28 @@ def clear_queue() -> int:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Process retry queue for failed memory operations")
-    parser.add_argument("--force", action="store_true", help="Also process items that exceeded max_retries")
-    parser.add_argument("--dry-run", action="store_true", help="Show what would be processed without making changes")
-    parser.add_argument("--limit", type=int, default=100, help="Maximum items to process (default: 100)")
-    parser.add_argument("--clear", action="store_true", help="Clear all items from queue (dangerous)")
-    parser.add_argument("--stats", action="store_true", help="Show queue statistics only")
+    parser = argparse.ArgumentParser(
+        description="Process retry queue for failed memory operations"
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Also process items that exceeded max_retries",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be processed without making changes",
+    )
+    parser.add_argument(
+        "--limit", type=int, default=100, help="Maximum items to process (default: 100)"
+    )
+    parser.add_argument(
+        "--clear", action="store_true", help="Clear all items from queue (dangerous)"
+    )
+    parser.add_argument(
+        "--stats", action="store_true", help="Show queue statistics only"
+    )
 
     args = parser.parse_args()
 
@@ -290,7 +346,7 @@ def main():
         print(f"  Awaiting backoff: {stats['awaiting_backoff']}")
         print(f"  Exhausted (max retries): {stats['exhausted']}")
         print(f"  By failure reason:")
-        for reason, count in stats['by_failure_reason'].items():
+        for reason, count in stats["by_failure_reason"].items():
             print(f"    {reason}: {count}")
         return 0
 
@@ -312,14 +368,14 @@ def main():
     print(f"  Failed: {stats['failed']}")
     print(f"  Moved to DLQ: {stats['moved_to_dlq']}")
 
-    if stats['errors']:
+    if stats["errors"]:
         print(f"\nErrors:")
-        for error in stats['errors'][:10]:
+        for error in stats["errors"][:10]:
             print(f"  - {error}")
-        if len(stats['errors']) > 10:
+        if len(stats["errors"]) > 10:
             print(f"  ... and {len(stats['errors']) - 10} more")
 
-    return 0 if stats['failed'] == 0 else 1
+    return 0 if stats["failed"] == 0 else 1
 
 
 if __name__ == "__main__":

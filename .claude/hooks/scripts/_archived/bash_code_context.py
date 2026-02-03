@@ -45,21 +45,24 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # CR-2 FIX: Use consolidated logging and metrics from hooks_common
 from memory.config import COLLECTION_CODE_PATTERNS
-from memory.hooks_common import setup_hook_logging, log_to_activity, get_metrics
+from memory.hooks_common import get_metrics, log_to_activity, setup_hook_logging
 
 logger = setup_hook_logging()
 
 # CR-2 FIX: Use consolidated metrics import
-memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = get_metrics()
+memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = (
+    get_metrics()
+)
 
 # Import activity logging (TECH-DEBT-014)
 from memory.activity_log import log_error_context_retrieval
-
 
 # Language detection by file extension
 LANGUAGE_MAP = {
@@ -107,17 +110,18 @@ def extract_file_paths(command: str) -> List[str]:
 
     for token in tokens:
         # Skip flags
-        if token.startswith('-'):
+        if token.startswith("-"):
             continue
 
         # Check if token looks like a file path
         # Contains / or . and has file extension
-        if ('/' in token or '.' in token) and not token.endswith(('/','.')):
+        if ("/" in token or "." in token) and not token.endswith(("/", ".")):
             # Remove quotes if present
-            token = token.strip('"\'')
+            token = token.strip("\"'")
 
             # Check if has recognized extension
             from pathlib import Path
+
             ext = Path(token).suffix
             if ext in LANGUAGE_MAP:
                 file_paths.append(token)
@@ -140,6 +144,7 @@ def detect_language(file_path: str) -> Optional[str]:
         - "README.md" → "markdown"
     """
     from pathlib import Path
+
     ext = Path(file_path).suffix.lower()
     return LANGUAGE_MAP.get(ext)
 
@@ -176,7 +181,7 @@ def format_implementation(impl: dict, index: int) -> str:
     tech_line = f"   {' | '.join(tech_parts)}" if tech_parts else ""
 
     # Add content preview (first 150 chars)
-    content_preview = content[:150].replace('\n', ' ').strip()
+    content_preview = content[:150].replace("\n", " ").strip()
     if len(content) > 150:
         content_preview += "..."
     pattern_line = f"   Pattern: {content_preview}"
@@ -247,11 +252,11 @@ def main() -> int:
 
         # Search code-patterns collection for implementation patterns
         # Import here to avoid circular dependencies
-        from memory.search import MemorySearch
         from memory.config import get_config
         from memory.health import check_qdrant_health
-        from memory.qdrant_client import get_qdrant_client
         from memory.project import detect_project
+        from memory.qdrant_client import get_qdrant_client
+        from memory.search import MemorySearch
 
         config = get_config()
         client = get_qdrant_client(config)
@@ -260,7 +265,9 @@ def main() -> int:
         if not check_qdrant_health(client):
             logger.warning("qdrant_unavailable")
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection=COLLECTION_CODE_PATTERNS, status="failed").inc()
+                memory_retrievals_total.labels(
+                    collection=COLLECTION_CODE_PATTERNS, status="failed"
+                ).inc()
             return 0
 
         # Detect project for group filtering
@@ -280,7 +287,7 @@ def main() -> int:
                 group_id=project_name,
                 limit=3,
                 score_threshold=0.0,
-                memory_type="implementation"
+                memory_type="implementation",
             )
 
             # Priority 2: Fallback to similar files by language
@@ -291,29 +298,37 @@ def main() -> int:
                     group_id=project_name,
                     limit=3,
                     score_threshold=0.4,
-                    memory_type="implementation"
+                    memory_type="implementation",
                 )
 
             if not results:
                 # No relevant code-patterns found - graceful degradation
                 duration_ms = (time.perf_counter() - start_time) * 1000
-                log_to_activity(f"🔧 CodeContext: No relevant code-patterns found for {target_file_path}", INSTALL_DIR)
-                logger.debug("no_code_patterns_found", extra={
-                    "command": command[:50],
-                    "file_path": target_file_path,
-                    "language": language,
-                    "duration_ms": round(duration_ms, 2)
-                })
+                log_to_activity(
+                    f"🔧 CodeContext: No relevant code-patterns found for {target_file_path}",
+                    INSTALL_DIR,
+                )
+                logger.debug(
+                    "no_code_patterns_found",
+                    extra={
+                        "command": command[:50],
+                        "file_path": target_file_path,
+                        "language": language,
+                        "duration_ms": round(duration_ms, 2),
+                    },
+                )
                 if memory_retrievals_total:
-                    memory_retrievals_total.labels(collection=COLLECTION_CODE_PATTERNS, status="empty").inc()
+                    memory_retrievals_total.labels(
+                        collection=COLLECTION_CODE_PATTERNS, status="empty"
+                    ).inc()
                 return 0
 
             # Format for stdout display
             # This output will be shown to Claude BEFORE the tool executes
             output_parts = []
-            output_parts.append("\n" + "="*70)
+            output_parts.append("\n" + "=" * 70)
             output_parts.append("## Code Context for Bash Command")
-            output_parts.append("="*70)
+            output_parts.append("=" * 70)
             output_parts.append(f"File: {target_file_path}")
             if language:
                 output_parts.append(f"Language: {language}")
@@ -323,34 +338,46 @@ def main() -> int:
                 output_parts.append(format_implementation(impl, i))
                 output_parts.append("")
 
-            output_parts.append("="*70 + "\n")
+            output_parts.append("=" * 70 + "\n")
 
             # Output to stdout (Claude sees this before tool execution)
             print("\n".join(output_parts))
 
             # Log success with user visibility
             duration_ms = (time.perf_counter() - start_time) * 1000
-            log_to_activity(f"🔧 CodeContext loaded {len(results)} code-patterns for {target_file_path} [{duration_ms:.0f}ms]", INSTALL_DIR)
+            log_to_activity(
+                f"🔧 CodeContext loaded {len(results)} code-patterns for {target_file_path} [{duration_ms:.0f}ms]",
+                INSTALL_DIR,
+            )
 
             # TECH-DEBT-014: Comprehensive logging with implementation results
-            log_error_context_retrieval(target_file_path, language, results, duration_ms)
+            log_error_context_retrieval(
+                target_file_path, language, results, duration_ms
+            )
 
-            logger.info("code_patterns_retrieved", extra={
-                "command": command[:50],
-                "file_path": target_file_path,
-                "language": language,
-                "results_count": len(results),
-                "duration_ms": round(duration_ms, 2),
-                "project": project_name
-            })
+            logger.info(
+                "code_patterns_retrieved",
+                extra={
+                    "command": command[:50],
+                    "file_path": target_file_path,
+                    "language": language,
+                    "results_count": len(results),
+                    "duration_ms": round(duration_ms, 2),
+                    "project": project_name,
+                },
+            )
 
             # Metrics
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection=COLLECTION_CODE_PATTERNS, status="success").inc()
+                memory_retrievals_total.labels(
+                    collection=COLLECTION_CODE_PATTERNS, status="success"
+                ).inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
             if hook_duration_seconds:
-                hook_duration_seconds.labels(hook_type="PreToolUse_CodeContext").observe(duration_ms / 1000.0)
+                hook_duration_seconds.labels(
+                    hook_type="PreToolUse_CodeContext"
+                ).observe(duration_ms / 1000.0)
 
         finally:
             search.close()
@@ -359,17 +386,20 @@ def main() -> int:
 
     except Exception as e:
         # Catch-all error handler - always gracefully degrade
-        logger.error("hook_failed", extra={
-            "error": str(e),
-            "error_type": type(e).__name__
-        })
+        logger.error(
+            "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
+        )
 
         # Metrics
         if memory_retrievals_total:
-            memory_retrievals_total.labels(collection=COLLECTION_CODE_PATTERNS, status="failed").inc()
+            memory_retrievals_total.labels(
+                collection=COLLECTION_CODE_PATTERNS, status="failed"
+            ).inc()
         if hook_duration_seconds:
-            duration_seconds = (time.perf_counter() - start_time)
-            hook_duration_seconds.labels(hook_type="PreToolUse_CodeContext").observe(duration_seconds)
+            duration_seconds = time.perf_counter() - start_time
+            hook_duration_seconds.labels(hook_type="PreToolUse_CodeContext").observe(
+                duration_seconds
+            )
 
         return 0  # Always exit 0 - graceful degradation
 

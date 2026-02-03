@@ -30,13 +30,13 @@ References:
 - src/memory/config.py (COLLECTION_NAMES)
 """
 
-import sys
-import os
 import argparse
 import logging
+import os
 import re
+import sys
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 # Add project src to path for local imports
 # CRITICAL: Check development location FIRST for testing unreleased changes
@@ -48,19 +48,29 @@ for path in [
         sys.path.insert(0, path)
         break
 
-from memory.config import get_config, COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS
-from memory.qdrant_client import get_qdrant_client, QdrantUnavailable
 from qdrant_client.models import Distance, VectorParams
 
+from memory.config import (
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+    COLLECTION_DISCUSSIONS,
+    get_config,
+)
+from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
+
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 # Old collections (v1.0)
 OLD_COLLECTIONS = ["implementations", "best_practices", "agent-memory"]
 
 # New collections (v2.0) - from config.py
-NEW_COLLECTIONS = [COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS]
+NEW_COLLECTIONS = [
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+    COLLECTION_DISCUSSIONS,
+]
 
 # Migration mapping: old_collection → (new_collection, default_type)
 MIGRATION_MAP = {
@@ -97,11 +107,11 @@ def infer_type_for_agent_memory(payload: Dict[str, Any]) -> str:
     existing_type = payload.get("type", "")
 
     # Check for decision markers
-    if re.search(r'\bDEC-\d+\b', content, re.IGNORECASE):
+    if re.search(r"\bDEC-\d+\b", content, re.IGNORECASE):
         return "decision"
 
     # Check for blocker markers
-    if re.search(r'\bBLK-\d+\b', content, re.IGNORECASE):
+    if re.search(r"\bBLK-\d+\b", content, re.IGNORECASE):
         return "blocker"
 
     # Check existing type field (legacy)
@@ -109,7 +119,7 @@ def infer_type_for_agent_memory(payload: Dict[str, Any]) -> str:
         return "session"
 
     # Check for preference markers
-    if re.search(r'\b(prefer|preference|like|dislike)\b', content, re.IGNORECASE):
+    if re.search(r"\b(prefer|preference|like|dislike)\b", content, re.IGNORECASE):
         return "preference"
 
     # Default to context
@@ -120,7 +130,7 @@ def create_collection_if_not_exists(
     qdrant_client: Any,
     collection_name: str,
     vector_size: int = VECTOR_SIZE,
-    distance: Distance = DISTANCE_METRIC
+    distance: Distance = DISTANCE_METRIC,
 ) -> bool:
     """Create a Qdrant collection if it doesn't exist.
 
@@ -138,19 +148,13 @@ def create_collection_if_not_exists(
     existing_names = [c.name for c in collections]
 
     if collection_name in existing_names:
-        logger.info(
-            "collection_exists",
-            extra={"collection": collection_name}
-        )
+        logger.info("collection_exists", extra={"collection": collection_name})
         return False
 
     # Create collection
     qdrant_client.create_collection(
         collection_name=collection_name,
-        vectors_config=VectorParams(
-            size=vector_size,
-            distance=distance
-        )
+        vectors_config=VectorParams(size=vector_size, distance=distance),
     )
 
     logger.info(
@@ -158,17 +162,15 @@ def create_collection_if_not_exists(
         extra={
             "collection": collection_name,
             "vector_size": vector_size,
-            "distance": distance.value
-        }
+            "distance": distance.value,
+        },
     )
 
     return True
 
 
 def migrate_point(
-    point: Any,
-    target_collection: str,
-    default_type: Optional[str] = None
+    point: Any, target_collection: str, default_type: Optional[str] = None
 ) -> Dict[str, Any]:
     """Migrate a single point to the new schema.
 
@@ -207,11 +209,7 @@ def migrate_point(
         }
         payload["type"] = type_remapping.get(existing_type, existing_type)
 
-    return {
-        "id": point_id,
-        "vector": point.vector,
-        "payload": payload
-    }
+    return {"id": point_id, "vector": point.vector, "payload": payload}
 
 
 def migrate_collection(
@@ -219,7 +217,7 @@ def migrate_collection(
     new_collection: str,
     default_type: Optional[str],
     dry_run: bool = False,
-    qdrant_client: Any = None
+    qdrant_client: Any = None,
 ) -> Dict[str, int]:
     """Migrate points from old collection to new collection.
 
@@ -242,8 +240,8 @@ def migrate_collection(
             "old_collection": old_collection,
             "new_collection": new_collection,
             "default_type": default_type,
-            "dry_run": dry_run
-        }
+            "dry_run": dry_run,
+        },
     )
 
     stats = {"total": 0, "migrated": 0, "failed": 0}
@@ -252,10 +250,7 @@ def migrate_collection(
     # Check if old collection exists
     collections = qdrant_client.get_collections().collections
     if old_collection not in [c.name for c in collections]:
-        logger.warning(
-            "old_collection_not_found",
-            extra={"collection": old_collection}
-        )
+        logger.warning("old_collection_not_found", extra={"collection": old_collection})
         return stats
 
     # Scroll through all points in old collection
@@ -263,7 +258,7 @@ def migrate_collection(
         collection_name=old_collection,
         limit=10000,
         with_payload=True,
-        with_vectors=True  # Need vectors for migration
+        with_vectors=True,  # Need vectors for migration
     )
 
     points, next_page_offset = scroll_result
@@ -283,17 +278,15 @@ def migrate_collection(
                     if len(batch) >= BATCH_SIZE:
                         try:
                             from qdrant_client.models import PointStruct
+
                             point_structs = [
                                 PointStruct(
-                                    id=p["id"],
-                                    vector=p["vector"],
-                                    payload=p["payload"]
+                                    id=p["id"], vector=p["vector"], payload=p["payload"]
                                 )
                                 for p in batch
                             ]
                             qdrant_client.upsert(
-                                collection_name=new_collection,
-                                points=point_structs
+                                collection_name=new_collection, points=point_structs
                             )
                             stats["migrated"] += len(batch)
                             logger.info(
@@ -301,8 +294,8 @@ def migrate_collection(
                                 extra={
                                     "old_collection": old_collection,
                                     "new_collection": new_collection,
-                                    "batch_size": len(batch)
-                                }
+                                    "batch_size": len(batch),
+                                },
                             )
                         except Exception as e:
                             logger.error(
@@ -310,8 +303,8 @@ def migrate_collection(
                                 extra={
                                     "error": str(e),
                                     "error_type": type(e).__name__,
-                                    "batch_size": len(batch)
-                                }
+                                    "batch_size": len(batch),
+                                },
                             )
                             stats["failed"] += len(batch)
 
@@ -326,8 +319,8 @@ def migrate_collection(
                     extra={
                         "point_id": str(point.id)[:8],
                         "error": str(e),
-                        "error_type": type(e).__name__
-                    }
+                        "error_type": type(e).__name__,
+                    },
                 )
                 stats["failed"] += 1
 
@@ -340,7 +333,7 @@ def migrate_collection(
             offset=next_page_offset,
             limit=10000,
             with_payload=True,
-            with_vectors=True
+            with_vectors=True,
         )
         points, next_page_offset = scroll_result
 
@@ -348,26 +341,20 @@ def migrate_collection(
     if batch and not dry_run:
         try:
             from qdrant_client.models import PointStruct
+
             point_structs = [
-                PointStruct(
-                    id=p["id"],
-                    vector=p["vector"],
-                    payload=p["payload"]
-                )
+                PointStruct(id=p["id"], vector=p["vector"], payload=p["payload"])
                 for p in batch
             ]
-            qdrant_client.upsert(
-                collection_name=new_collection,
-                points=point_structs
-            )
+            qdrant_client.upsert(collection_name=new_collection, points=point_structs)
             stats["migrated"] += len(batch)
             logger.info(
                 "final_batch_migrated",
                 extra={
                     "old_collection": old_collection,
                     "new_collection": new_collection,
-                    "batch_size": len(batch)
-                }
+                    "batch_size": len(batch),
+                },
             )
         except Exception as e:
             logger.error(
@@ -375,8 +362,8 @@ def migrate_collection(
                 extra={
                     "error": str(e),
                     "error_type": type(e).__name__,
-                    "batch_size": len(batch)
-                }
+                    "batch_size": len(batch),
+                },
             )
             stats["failed"] += len(batch)
 
@@ -386,8 +373,8 @@ def migrate_collection(
             "old_collection": old_collection,
             "new_collection": new_collection,
             "stats": stats,
-            "dry_run": dry_run
-        }
+            "dry_run": dry_run,
+        },
     )
 
     return stats
@@ -402,17 +389,15 @@ def main():
     """
     parser = argparse.ArgumentParser(
         description="Migrate Memory System v1.0 → v2.0 collections",
-        epilog="Exit 0: success/partial, Exit 1: critical error"
+        epilog="Exit 0: success/partial, Exit 1: critical error",
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview changes without applying them"
+        "--dry-run", action="store_true", help="Preview changes without applying them"
     )
     parser.add_argument(
         "--create-only",
         action="store_true",
-        help="Only create new collections, don't migrate data"
+        help="Only create new collections, don't migrate data",
     )
     args = parser.parse_args()
 
@@ -426,8 +411,8 @@ def main():
             extra={
                 "dry_run": args.dry_run,
                 "create_only": args.create_only,
-                "batch_size": BATCH_SIZE
-            }
+                "batch_size": BATCH_SIZE,
+            },
         )
 
         # Step 1: Create new collections
@@ -437,7 +422,7 @@ def main():
                 qdrant_client,
                 collection_name,
                 vector_size=VECTOR_SIZE,
-                distance=DISTANCE_METRIC
+                distance=DISTANCE_METRIC,
             )
             status = "Created" if created else "Already exists"
             sys.stdout.write(f"  {collection_name}: {status}\n")
@@ -458,7 +443,7 @@ def main():
                 new_collection=new_collection,
                 default_type=default_type,
                 dry_run=args.dry_run,
-                qdrant_client=qdrant_client
+                qdrant_client=qdrant_client,
             )
 
             # Accumulate stats
@@ -482,25 +467,21 @@ def main():
             f"{'='*50}\n"
         )
 
-        if not args.dry_run and total_stats['failed'] == 0:
+        if not args.dry_run and total_stats["failed"] == 0:
             sys.stdout.write("\n✓ Migration complete. Old collections preserved.\n")
             sys.stdout.write("  To remove old collections, use:\n")
             for old_coll in OLD_COLLECTIONS:
-                sys.stdout.write(f"    # qdrant_client.delete_collection('{old_coll}')\n")
+                sys.stdout.write(
+                    f"    # qdrant_client.delete_collection('{old_coll}')\n"
+                )
 
         logger.info(
             "migration_complete",
-            extra={
-                "total_stats": total_stats,
-                "dry_run": args.dry_run
-            }
+            extra={"total_stats": total_stats, "dry_run": args.dry_run},
         )
 
     except QdrantUnavailable as e:
-        logger.error(
-            "qdrant_unavailable",
-            extra={"error": str(e)}
-        )
+        logger.error("qdrant_unavailable", extra={"error": str(e)})
         sys.stdout.write(f"\nERROR: Qdrant unavailable: {e}\n")
         sys.stdout.write("Please ensure Qdrant is running:\n")
         sys.stdout.write("  docker compose -f docker/docker-compose.yml up -d\n")
@@ -508,8 +489,7 @@ def main():
 
     except Exception as e:
         logger.exception(
-            "migration_critical_error",
-            extra={"error_type": type(e).__name__}
+            "migration_critical_error", extra={"error_type": type(e).__name__}
         )
         sys.stdout.write(f"\nCRITICAL ERROR: {e}\n")
         sys.exit(1)

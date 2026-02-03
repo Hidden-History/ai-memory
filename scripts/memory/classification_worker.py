@@ -10,19 +10,19 @@ RESOURCE LIMITS:
 
 import argparse
 import asyncio
+import logging
 import signal
 import sys
-import logging
 import threading
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from memory.classifier import classify
-from memory.classifier.queue import dequeue_batch, get_queue_size, ClassificationTask
 from memory.classifier.config import CLASSIFIER_ENABLED
+from memory.classifier.queue import ClassificationTask, dequeue_batch, get_queue_size
 from memory.storage import update_point_payload
 
 logger = logging.getLogger("ai_memory.classifier.worker")
@@ -80,8 +80,8 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                         "classification_reasoning": result.reasoning,
                         "classified_at": datetime.now(timezone.utc).isoformat(),
                         "is_classified": True,
-                    }
-                )
+                    },
+                ),
             )
 
             if success:
@@ -103,7 +103,7 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                         "point_id": task.point_id,
                         "collection": task.collection,
                         "classified_type": result.classified_type,
-                    }
+                    },
                 )
                 return False
         else:
@@ -151,7 +151,9 @@ async def process_batch(executor: ThreadPoolExecutor) -> int:
     success_count = 0
     for r in results:
         if isinstance(r, Exception):
-            logger.error("task_exception", extra={"error": str(r), "type": type(r).__name__})
+            logger.error(
+                "task_exception", extra={"error": str(r), "type": type(r).__name__}
+            )
         elif r is True:
             success_count += 1
     logger.info(

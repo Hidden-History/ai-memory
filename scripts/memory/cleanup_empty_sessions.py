@@ -12,17 +12,18 @@ Usage:
     python3 scripts/memory/cleanup_empty_sessions.py            # Execute
 """
 
-import sys
-import os
 import argparse
-from typing import List, Dict
+import os
+import sys
+from typing import Dict, List
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
+from qdrant_client.models import FieldCondition, Filter, MatchValue
+
 from memory.config import get_config
 from memory.qdrant_client import get_qdrant_client
-from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 
 def is_empty_session_summary(content: str) -> bool:
@@ -37,7 +38,7 @@ def is_empty_session_summary(content: str) -> bool:
     indicators = [
         "Tools Used: None",
         "Files Modified (0)",
-        "User Interactions: 0 prompts"
+        "User Interactions: 0 prompts",
     ]
 
     # Must have all indicators
@@ -77,7 +78,7 @@ def find_empty_sessions(client, collection_name: str = "discussions") -> List[Di
             limit=limit,
             offset=offset,
             with_payload=True,
-            with_vectors=False  # Don't need vectors for cleanup
+            with_vectors=False,  # Don't need vectors for cleanup
         )
 
         if not results:
@@ -86,12 +87,14 @@ def find_empty_sessions(client, collection_name: str = "discussions") -> List[Di
         for point in results:
             content = point.payload.get("content", "")
             if is_empty_session_summary(content):
-                empty_sessions.append({
-                    "id": point.id,
-                    "content": content[:200],  # Preview
-                    "group_id": point.payload.get("group_id", "unknown"),
-                    "session_id": point.payload.get("session_id", "unknown")
-                })
+                empty_sessions.append(
+                    {
+                        "id": point.id,
+                        "content": content[:200],  # Preview
+                        "group_id": point.payload.get("group_id", "unknown"),
+                        "session_id": point.payload.get("session_id", "unknown"),
+                    }
+                )
 
         # Check if there are more results
         if next_offset is None:
@@ -109,10 +112,7 @@ def delete_points(client, collection_name: str, point_ids: List[str]) -> None:
         collection_name: Collection name
         point_ids: List of point IDs to delete
     """
-    client.delete(
-        collection_name=collection_name,
-        points_selector=point_ids
-    )
+    client.delete(collection_name=collection_name, points_selector=point_ids)
 
 
 def main():
@@ -120,12 +120,12 @@ def main():
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Preview what would be deleted without actually deleting"
+        help="Preview what would be deleted without actually deleting",
     )
     parser.add_argument(
         "--collection",
         default="discussions",
-        help="Collection to clean (default: discussions)"
+        help="Collection to clean (default: discussions)",
     )
     args = parser.parse_args()
 
@@ -158,7 +158,9 @@ def main():
         print(f"Would delete {len(empty_sessions)} empty session summaries")
     else:
         # Confirm deletion
-        response = input(f"\n⚠️  Delete {len(empty_sessions)} empty session summaries? (yes/no): ")
+        response = input(
+            f"\n⚠️  Delete {len(empty_sessions)} empty session summaries? (yes/no): "
+        )
         if response.lower() != "yes":
             print("❌ Cancelled")
             return
@@ -167,7 +169,9 @@ def main():
         point_ids = [s["id"] for s in empty_sessions]
         delete_points(client, args.collection, point_ids)
 
-        print(f"✓ Deleted {len(empty_sessions)} empty session summaries from {args.collection}")
+        print(
+            f"✓ Deleted {len(empty_sessions)} empty session summaries from {args.collection}"
+        )
 
 
 if __name__ == "__main__":

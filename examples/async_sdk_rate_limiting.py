@@ -20,12 +20,11 @@ import logging
 import os
 from pathlib import Path
 
-from src.memory import AsyncSDKWrapper, QueueTimeoutError, QueueDepthExceededError
+from src.memory import AsyncSDKWrapper, QueueDepthExceededError, QueueTimeoutError
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 logger = logging.getLogger(__name__)
@@ -40,8 +39,8 @@ async def tier1_configuration():
 
     async with AsyncSDKWrapper(
         cwd=cwd,
-        requests_per_minute=50,    # Tier 1 default
-        tokens_per_minute=30000    # Tier 1 default
+        requests_per_minute=50,  # Tier 1 default
+        tokens_per_minute=30000,  # Tier 1 default
     ) as wrapper:
 
         logger.info(f"Rate limiter configured:")
@@ -59,9 +58,7 @@ async def tier2_configuration():
     logger.info("Example 2: Tier 2 Configuration")
 
     async with AsyncSDKWrapper(
-        cwd=cwd,
-        requests_per_minute=100,   # Tier 2
-        tokens_per_minute=100000   # Tier 2
+        cwd=cwd, requests_per_minute=100, tokens_per_minute=100000  # Tier 2  # Tier 2
     ) as wrapper:
 
         logger.info(f"Rate limiter configured for Tier 2:")
@@ -80,8 +77,8 @@ async def custom_queue_limits():
         cwd=cwd,
         requests_per_minute=50,
         tokens_per_minute=30000,
-        max_queue_depth=25,      # Lower queue depth (default: 100)
-        queue_timeout=30.0       # Shorter timeout (default: 60s)
+        max_queue_depth=25,  # Lower queue depth (default: 100)
+        queue_timeout=30.0,  # Shorter timeout (default: 60s)
     ) as wrapper:
 
         logger.info(f"Custom queue configuration:")
@@ -99,10 +96,10 @@ async def handling_queue_errors():
     # Configure very low limits to trigger errors
     async with AsyncSDKWrapper(
         cwd=cwd,
-        requests_per_minute=2,     # Very low for demo
+        requests_per_minute=2,  # Very low for demo
         tokens_per_minute=1000,
-        max_queue_depth=3,         # Small queue
-        queue_timeout=5.0          # Short timeout
+        max_queue_depth=3,  # Small queue
+        queue_timeout=5.0,  # Short timeout
     ) as wrapper:
 
         try:
@@ -112,7 +109,7 @@ async def handling_queue_errors():
                 task = wrapper.send_message(
                     prompt=f"Request {i+1}",
                     model="claude-3-5-sonnet-20241022",
-                    max_tokens=50
+                    max_tokens=50,
                 )
                 tasks.append(task)
 
@@ -142,9 +139,7 @@ async def monitoring_rate_limiter_state():
     logger.info("Example 5: Monitoring Rate Limiter State")
 
     async with AsyncSDKWrapper(
-        cwd=cwd,
-        requests_per_minute=10,
-        tokens_per_minute=5000
+        cwd=cwd, requests_per_minute=10, tokens_per_minute=5000
     ) as wrapper:
 
         limiter = wrapper.rate_limiter
@@ -158,9 +153,7 @@ async def monitoring_rate_limiter_state():
         if os.getenv("ANTHROPIC_API_KEY"):
             logger.info("Sending request...")
             result = await wrapper.send_message(
-                prompt="Hello",
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=50
+                prompt="Hello", model="claude-3-5-sonnet-20241022", max_tokens=50
             )
 
             # Check state after request
@@ -180,10 +173,10 @@ async def tier3_high_volume():
 
     async with AsyncSDKWrapper(
         cwd=cwd,
-        requests_per_minute=1000,   # Tier 3+
-        tokens_per_minute=400000,   # Tier 3+
-        max_queue_depth=500,        # Larger queue for bursts
-        queue_timeout=120.0         # Longer timeout
+        requests_per_minute=1000,  # Tier 3+
+        tokens_per_minute=400000,  # Tier 3+
+        max_queue_depth=500,  # Larger queue for bursts
+        queue_timeout=120.0,  # Longer timeout
     ) as wrapper:
 
         logger.info(f"High volume configuration:")

@@ -18,18 +18,21 @@ Sources:
 - https://www.python-httpx.org/advanced/timeouts/
 """
 
-import sys
 import json
-import time
 import os
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     import httpx
 except ImportError:
-    print("Error: httpx library not found. Install with: pip install httpx", file=sys.stderr)
+    print(
+        "Error: httpx library not found. Install with: pip install httpx",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 # Configuration from environment (DEC-010: Jina Embeddings v2 Base Code = 768 dimensions)
@@ -41,6 +44,7 @@ SKIP_DOCKER_CHECKS = os.environ.get("SKIP_DOCKER_CHECKS", "").lower() == "true"
 @dataclass
 class HealthCheckResult:
     """Result of a single health check."""
+
     component: str
     status: str  # "healthy", "unhealthy", "warning"
     message: str
@@ -52,7 +56,7 @@ def check_qdrant(
     host: str = "localhost",
     port: int = 26350,
     timeout: int = 5,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
 ) -> HealthCheckResult:
     """
     Check Qdrant is running and collections exist.
@@ -61,7 +65,9 @@ def check_qdrant(
     Source: https://www.python-httpx.org/advanced/timeouts/
     """
     # Granular timeout: fast connect, reasonable read time
-    timeout_config = httpx.Timeout(connect=3.0, read=float(timeout), write=5.0, pool=3.0)
+    timeout_config = httpx.Timeout(
+        connect=3.0, read=float(timeout), write=5.0, pool=3.0
+    )
 
     # BUG-041: Use API key for authenticated Qdrant access
     # Load from environment if not explicitly provided
@@ -72,10 +78,7 @@ def check_qdrant(
     start = time.perf_counter()
     try:
         # Check Qdrant health endpoint (doesn't require auth)
-        response = httpx.get(
-            f"http://{host}:{port}/healthz",
-            timeout=timeout_config
-        )
+        response = httpx.get(f"http://{host}:{port}/healthz", timeout=timeout_config)
         latency = (time.perf_counter() - start) * 1000
 
         if response.status_code == 200:
@@ -83,7 +86,7 @@ def check_qdrant(
             collections_response = httpx.get(
                 f"http://{host}:{port}/collections",
                 timeout=timeout_config,
-                headers=headers
+                headers=headers,
             )
 
             if collections_response.status_code != 200:
@@ -91,18 +94,23 @@ def check_qdrant(
                     "qdrant",
                     "unhealthy",
                     f"Collections API failed: HTTP {collections_response.status_code}",
-                    latency
+                    latency,
                 )
 
-            collections = collections_response.json().get("result", {}).get("collections", [])
+            collections = (
+                collections_response.json().get("result", {}).get("collections", [])
+            )
             collection_names = [c["name"] for c in collections]
 
-            if "code-patterns" in collection_names and "conventions" in collection_names:
+            if (
+                "code-patterns" in collection_names
+                and "conventions" in collection_names
+            ):
                 return HealthCheckResult(
                     "qdrant",
                     "healthy",
                     f"Running with required collections ({len(collections)} total)",
-                    latency
+                    latency,
                 )
             else:
                 return HealthCheckResult(
@@ -110,14 +118,11 @@ def check_qdrant(
                     "warning",
                     f"Missing collections. Found: {collection_names}",
                     latency,
-                    "Run setup script to create collections"
+                    "Run setup script to create collections",
                 )
         else:
             return HealthCheckResult(
-                "qdrant",
-                "unhealthy",
-                f"HTTP {response.status_code}",
-                latency
+                "qdrant", "unhealthy", f"HTTP {response.status_code}", latency
             )
     except httpx.TimeoutException:
         latency = timeout * 1000
@@ -126,21 +131,19 @@ def check_qdrant(
             "unhealthy",
             f"Timeout after {timeout}s",
             latency,
-            "Service may be starting or hung - see TROUBLESHOOTING.md"
+            "Service may be starting or hung - see TROUBLESHOOTING.md",
         )
     except Exception as e:
         return HealthCheckResult(
             "qdrant",
             "unhealthy",
             str(e),
-            error_details="Check if service is running - see TROUBLESHOOTING.md"
+            error_details="Check if service is running - see TROUBLESHOOTING.md",
         )
 
 
 def check_embedding_service(
-    host: str = "localhost",
-    port: int = 28080,
-    timeout: int = 10
+    host: str = "localhost", port: int = 28080, timeout: int = 10
 ) -> HealthCheckResult:
     """
     Check embedding service is running and model is loaded.
@@ -149,13 +152,12 @@ def check_embedding_service(
     Source: https://www.python-httpx.org/advanced/timeouts/
     """
     # Longer read timeout for model-heavy services
-    timeout_config = httpx.Timeout(connect=3.0, read=float(timeout), write=5.0, pool=3.0)
+    timeout_config = httpx.Timeout(
+        connect=3.0, read=float(timeout), write=5.0, pool=3.0
+    )
     start = time.perf_counter()
     try:
-        response = httpx.get(
-            f"http://{host}:{port}/health",
-            timeout=timeout_config
-        )
+        response = httpx.get(f"http://{host}:{port}/health", timeout=timeout_config)
         latency = (time.perf_counter() - start) * 1000
 
         if response.status_code == 200:
@@ -167,7 +169,7 @@ def check_embedding_service(
                     "embedding",
                     "healthy",
                     f"Model '{model_name}' loaded and ready",
-                    latency
+                    latency,
                 )
             else:
                 return HealthCheckResult(
@@ -175,14 +177,11 @@ def check_embedding_service(
                     "warning",
                     "Service running but model not loaded",
                     latency,
-                    "Model may still be initializing (takes 10-30s on first start)"
+                    "Model may still be initializing (takes 10-30s on first start)",
                 )
         else:
             return HealthCheckResult(
-                "embedding",
-                "unhealthy",
-                f"HTTP {response.status_code}",
-                latency
+                "embedding", "unhealthy", f"HTTP {response.status_code}", latency
             )
     except httpx.TimeoutException:
         latency = timeout * 1000
@@ -191,21 +190,19 @@ def check_embedding_service(
             "unhealthy",
             f"Timeout after {timeout}s",
             latency,
-            "Model loading (10-30s on first start) - see TROUBLESHOOTING.md"
+            "Model loading (10-30s on first start) - see TROUBLESHOOTING.md",
         )
     except Exception as e:
         return HealthCheckResult(
             "embedding",
             "unhealthy",
             str(e),
-            error_details="Check if service is running - see TROUBLESHOOTING.md"
+            error_details="Check if service is running - see TROUBLESHOOTING.md",
         )
 
 
 def check_embedding_functionality(
-    host: str = "localhost",
-    port: int = 28080,
-    timeout: int = 30
+    host: str = "localhost", port: int = 28080, timeout: int = 30
 ) -> HealthCheckResult:
     """
     Test actual embedding generation (functional test).
@@ -216,13 +213,15 @@ def check_embedding_functionality(
     - https://www.python-httpx.org/advanced/timeouts/
     """
     # Longer timeout for actual embedding inference
-    timeout_config = httpx.Timeout(connect=3.0, read=float(timeout), write=10.0, pool=3.0)
+    timeout_config = httpx.Timeout(
+        connect=3.0, read=float(timeout), write=10.0, pool=3.0
+    )
     start = time.perf_counter()
     try:
         response = httpx.post(
             f"http://{host}:{port}/embed",
             json={"texts": ["test embedding generation for health check"]},
-            timeout=timeout_config
+            timeout=timeout_config,
         )
         latency = (time.perf_counter() - start) * 1000
 
@@ -237,7 +236,7 @@ def check_embedding_functionality(
                     "unhealthy",
                     "Empty embeddings returned",
                     latency,
-                    "Embedding service returned no vectors - check model status"
+                    "Embedding service returned no vectors - check model status",
                 )
 
             actual_dim = len(embeddings[0])
@@ -247,7 +246,7 @@ def check_embedding_functionality(
                     "embedding_test",
                     "healthy",
                     f"{actual_dim}d embeddings generated in {latency:.0f}ms",
-                    latency
+                    latency,
                 )
             else:
                 return HealthCheckResult(
@@ -255,14 +254,11 @@ def check_embedding_functionality(
                     "unhealthy",
                     f"Unexpected dimensions: {actual_dim} (expected {EXPECTED_EMBEDDING_DIMENSIONS})",
                     latency,
-                    "Embedding model may be misconfigured - check VECTOR_DIMENSIONS env var"
+                    "Embedding model may be misconfigured - check VECTOR_DIMENSIONS env var",
                 )
         else:
             return HealthCheckResult(
-                "embedding_test",
-                "unhealthy",
-                f"HTTP {response.status_code}",
-                latency
+                "embedding_test", "unhealthy", f"HTTP {response.status_code}", latency
             )
     except httpx.TimeoutException:
         latency = timeout * 1000
@@ -271,14 +267,14 @@ def check_embedding_functionality(
             "unhealthy",
             f"Timeout after {timeout}s",
             latency,
-            "Embedding generation taking too long - check service logs"
+            "Embedding generation taking too long - check service logs",
         )
     except Exception as e:
         return HealthCheckResult(
             "embedding_test",
             "unhealthy",
             str(e),
-            error_details="Failed to generate test embedding - see TROUBLESHOOTING.md"
+            error_details="Failed to generate test embedding - see TROUBLESHOOTING.md",
         )
 
 
@@ -310,7 +306,7 @@ def check_hooks_configured() -> HealthCheckResult:
         return HealthCheckResult(
             "hooks",
             "healthy",
-            f"All 3 hooks configured in project ({proj_total} entries)"
+            f"All 3 hooks configured in project ({proj_total} entries)",
         )
 
     # Fall back to user-level
@@ -320,7 +316,7 @@ def check_hooks_configured() -> HealthCheckResult:
         return HealthCheckResult(
             "hooks",
             "healthy",
-            f"All 3 hooks configured at user level ({user_total} entries)"
+            f"All 3 hooks configured at user level ({user_total} entries)",
         )
 
     # Neither has all hooks
@@ -329,7 +325,7 @@ def check_hooks_configured() -> HealthCheckResult:
         "hooks",
         "healthy",
         "Hooks configured in target project (not in current directory)",
-        error_details="Run health check from installed project directory to verify"
+        error_details="Run health check from installed project directory to verify",
     )
 
 
@@ -339,7 +335,9 @@ def check_hook_scripts() -> HealthCheckResult:
 
     2026 Best Practice: Verify permissions, not just existence.
     """
-    install_dir = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
+    install_dir = os.environ.get(
+        "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+    )
     hooks_dir = os.path.join(install_dir, ".claude/hooks/scripts")
 
     # BUG-041: session_stop.py deprecated (Phase 5.1), removed from required list
@@ -359,27 +357,25 @@ def check_hook_scripts() -> HealthCheckResult:
             "hook_scripts",
             "unhealthy",
             f"Missing scripts: {missing}",
-            error_details=f"Expected in {hooks_dir}"
+            error_details=f"Expected in {hooks_dir}",
         )
     elif not_executable:
         return HealthCheckResult(
             "hook_scripts",
             "warning",
             f"Not executable: {not_executable}",
-            error_details=f"Run: chmod +x {hooks_dir}/*.py"
+            error_details=f"Run: chmod +x {hooks_dir}/*.py",
         )
     else:
         return HealthCheckResult(
             "hook_scripts",
             "healthy",
-            f"All {len(required_scripts)} scripts present and executable"
+            f"All {len(required_scripts)} scripts present and executable",
         )
 
 
 def check_monitoring_api(
-    host: str = "localhost",
-    port: int = None,
-    timeout: int = 5
+    host: str = "localhost", port: int = None, timeout: int = 5
 ) -> HealthCheckResult:
     """
     Check monitoring API is running (optional service).
@@ -390,21 +386,17 @@ def check_monitoring_api(
     if port is None:
         port = MONITORING_PORT
 
-    timeout_config = httpx.Timeout(connect=3.0, read=float(timeout), write=5.0, pool=3.0)
+    timeout_config = httpx.Timeout(
+        connect=3.0, read=float(timeout), write=5.0, pool=3.0
+    )
     start = time.perf_counter()
     try:
-        response = httpx.get(
-            f"http://{host}:{port}/health",
-            timeout=timeout_config
-        )
+        response = httpx.get(f"http://{host}:{port}/health", timeout=timeout_config)
         latency = (time.perf_counter() - start) * 1000
 
         if response.status_code == 200:
             return HealthCheckResult(
-                "monitoring",
-                "healthy",
-                f"Monitoring API ready",
-                latency
+                "monitoring", "healthy", f"Monitoring API ready", latency
             )
         else:
             return HealthCheckResult(
@@ -412,7 +404,7 @@ def check_monitoring_api(
                 "warning",
                 f"HTTP {response.status_code}",
                 latency,
-                "Monitoring API not responding correctly (optional service)"
+                "Monitoring API not responding correctly (optional service)",
             )
     except httpx.TimeoutException:
         latency = timeout * 1000
@@ -421,14 +413,14 @@ def check_monitoring_api(
             "warning",
             f"Timeout after {timeout}s",
             latency,
-            "Monitoring API is optional - core services may still work"
+            "Monitoring API is optional - core services may still work",
         )
     except Exception as e:
         return HealthCheckResult(
             "monitoring",
             "warning",
             str(e),
-            error_details="Monitoring API is optional - check docker compose ps monitoring"
+            error_details="Monitoring API is optional - check docker compose ps monitoring",
         )
 
 
@@ -447,20 +439,24 @@ def run_health_checks() -> list[HealthCheckResult]:
 
     # Skip Docker-dependent checks if requested (e.g., macOS CI without Docker)
     if not SKIP_DOCKER_CHECKS:
-        checks.extend([
-            check_qdrant,
-            check_embedding_service,
-            check_embedding_functionality,
-        ])
+        checks.extend(
+            [
+                check_qdrant,
+                check_embedding_service,
+                check_embedding_functionality,
+            ]
+        )
         results_list = []
     else:
         # Add informational result about skipped checks
-        results_list = [HealthCheckResult(
-            "docker_checks",
-            "warning",
-            "Docker checks skipped (SKIP_DOCKER_CHECKS=true)",
-            error_details="Docker-dependent services not verified on this platform"
-        )]
+        results_list = [
+            HealthCheckResult(
+                "docker_checks",
+                "warning",
+                "Docker checks skipped (SKIP_DOCKER_CHECKS=true)",
+                error_details="Docker-dependent services not verified on this platform",
+            )
+        ]
 
     # Run checks in parallel with ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=6) as executor:
@@ -472,11 +468,11 @@ def run_health_checks() -> list[HealthCheckResult]:
                 results_list.append(result)
             except Exception as e:
                 check_name = future_to_check[future]
-                results_list.append(HealthCheckResult(
-                    check_name,
-                    "unhealthy",
-                    f"Check failed: {str(e)}"
-                ))
+                results_list.append(
+                    HealthCheckResult(
+                        check_name, "unhealthy", f"Check failed: {str(e)}"
+                    )
+                )
 
     # Sort by component name for consistent output
     results_list.sort(key=lambda r: r.component)
@@ -520,7 +516,9 @@ def print_results(results: list[HealthCheckResult]) -> bool:
     if not has_failures and not has_warnings:
         print("\033[92m  ✓ All checks passed! System is ready.\033[0m")
     elif not has_failures and has_warnings:
-        print("\033[93m  ✓ Core checks passed with warnings. System is functional.\033[0m")
+        print(
+            "\033[93m  ✓ Core checks passed with warnings. System is functional.\033[0m"
+        )
     else:
         print("\033[91m  ✗ Critical checks failed. See above for details.\033[0m")
         print("\033[90m    For troubleshooting help, see TROUBLESHOOTING.md\033[0m")

@@ -30,13 +30,13 @@ References:
 - models.py:136-138 (New optional fields)
 """
 
-import sys
-import os
 import argparse
 import logging
+import os
 import re
+import sys
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 # Add project src to path for local imports
 for path in [
@@ -48,10 +48,10 @@ for path in [
         break
 
 from memory.config import get_config
-from memory.qdrant_client import get_qdrant_client, QdrantUnavailable
+from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 # Collections to migrate
@@ -93,10 +93,10 @@ def infer_agent_from_source(source_hook: str, content: str) -> Optional[str]:
     for agent in VALID_AGENTS:
         # Look for patterns like "dev agent", "Agent: dev", "@dev", etc.
         patterns = [
-            rf'\b{agent}\s+agent\b',
-            rf'Agent:\s*{agent}\b',
-            rf'@{agent}\b',
-            rf'\[{agent}\]',
+            rf"\b{agent}\s+agent\b",
+            rf"Agent:\s*{agent}\b",
+            rf"@{agent}\b",
+            rf"\[{agent}\]",
         ]
         for pattern in patterns:
             if re.search(pattern, content, re.IGNORECASE):
@@ -105,8 +105,8 @@ def infer_agent_from_source(source_hook: str, content: str) -> Optional[str]:
                     extra={
                         "agent": agent,
                         "pattern": pattern,
-                        "source_hook": source_hook
-                    }
+                        "source_hook": source_hook,
+                    },
                 )
                 return agent
 
@@ -126,25 +126,24 @@ def infer_component_from_content(content: str) -> Optional[str]:
     """
     # Common component patterns (file paths, module names)
     component_patterns = {
-        r'src/auth/|authentication|AuthService': 'auth',
-        r'src/database/|db/|database|DatabaseService': 'database',
-        r'src/api/|api/|APIService|endpoint': 'api',
-        r'src/memory/|memory/|MemoryService': 'memory',
-        r'src/queue/|queue/|QueueService': 'queue',
-        r'src/embedding/|embedding/|EmbeddingService': 'embedding',
-        r'src/search/|search/|SearchService': 'search',
-        r'src/storage/|storage/|StorageService': 'storage',
-        r'docker/|Docker|container': 'docker',
-        r'tests?/|test_|Testing': 'tests',
-        r'scripts?/': 'scripts',
-        r'hooks?/|HookService': 'hooks',
+        r"src/auth/|authentication|AuthService": "auth",
+        r"src/database/|db/|database|DatabaseService": "database",
+        r"src/api/|api/|APIService|endpoint": "api",
+        r"src/memory/|memory/|MemoryService": "memory",
+        r"src/queue/|queue/|QueueService": "queue",
+        r"src/embedding/|embedding/|EmbeddingService": "embedding",
+        r"src/search/|search/|SearchService": "search",
+        r"src/storage/|storage/|StorageService": "storage",
+        r"docker/|Docker|container": "docker",
+        r"tests?/|test_|Testing": "tests",
+        r"scripts?/": "scripts",
+        r"hooks?/|HookService": "hooks",
     }
 
     for pattern, component in component_patterns.items():
         if re.search(pattern, content, re.IGNORECASE):
             logger.debug(
-                "component_inferred",
-                extra={"component": component, "pattern": pattern}
+                "component_inferred", extra={"component": component, "pattern": pattern}
             )
             return component
 
@@ -167,9 +166,9 @@ def infer_story_id_from_content(content: str) -> Optional[str]:
     """
     # Story patterns
     story_patterns = [
-        r'Story\s+(\d+\.\d+)',  # "Story 1.2"
-        r'Epic\s+(\d+)',  # "Epic 5"
-        r'\b([A-Z]+-\d+)\b',  # "AUTH-12"
+        r"Story\s+(\d+\.\d+)",  # "Story 1.2"
+        r"Epic\s+(\d+)",  # "Epic 5"
+        r"\b([A-Z]+-\d+)\b",  # "AUTH-12"
     ]
 
     for pattern in story_patterns:
@@ -177,8 +176,7 @@ def infer_story_id_from_content(content: str) -> Optional[str]:
         if match:
             story_id = match.group(1)
             logger.debug(
-                "story_id_inferred",
-                extra={"story_id": story_id, "pattern": pattern}
+                "story_id_inferred", extra={"story_id": story_id, "pattern": pattern}
             )
             return story_id
 
@@ -229,23 +227,18 @@ def process_point(point: Any, dry_run: bool = False) -> Dict[str, Any]:
     if "agent" not in payload or payload.get("agent") is None:
         # Try to infer agent
         inferred_agent = infer_agent_from_source(
-            payload.get("source_hook", ""),
-            payload.get("content", "")
+            payload.get("source_hook", ""), payload.get("content", "")
         )
         updates["agent"] = inferred_agent
 
     if "component" not in payload or payload.get("component") is None:
         # Try to infer component
-        inferred_component = infer_component_from_content(
-            payload.get("content", "")
-        )
+        inferred_component = infer_component_from_content(payload.get("content", ""))
         updates["component"] = inferred_component
 
     if "story_id" not in payload or payload.get("story_id") is None:
         # Try to infer story_id
-        inferred_story_id = infer_story_id_from_content(
-            payload.get("content", "")
-        )
+        inferred_story_id = infer_story_id_from_content(payload.get("content", ""))
         updates["story_id"] = inferred_story_id
 
     # Always add importance if missing (no inference, just default)
@@ -258,24 +251,14 @@ def process_point(point: Any, dry_run: bool = False) -> Dict[str, Any]:
     if needs_update:
         logger.debug(
             "point_needs_update",
-            extra={
-                "point_id": point_id[:8],
-                "updates": updates,
-                "dry_run": dry_run
-            }
+            extra={"point_id": point_id[:8], "updates": updates, "dry_run": dry_run},
         )
 
-    return {
-        "needs_update": needs_update,
-        "updates": updates,
-        "point_id": point_id
-    }
+    return {"needs_update": needs_update, "updates": updates, "point_id": point_id}
 
 
 def migrate_collection(
-    collection: str,
-    dry_run: bool = False,
-    qdrant_client: Any = None
+    collection: str, dry_run: bool = False, qdrant_client: Any = None
 ) -> Dict[str, int]:
     """Migrate a single collection.
 
@@ -293,7 +276,7 @@ def migrate_collection(
     """
     logger.info(
         "collection_migration_started",
-        extra={"collection": collection, "dry_run": dry_run}
+        extra={"collection": collection, "dry_run": dry_run},
     )
 
     stats = {"total": 0, "updated": 0, "skipped": 0, "failed": 0}
@@ -304,7 +287,7 @@ def migrate_collection(
         collection_name=collection,
         limit=10000,  # Large batch for initial read
         with_payload=True,
-        with_vectors=False  # Don't need vectors for this migration
+        with_vectors=False,  # Don't need vectors for this migration
     )
 
     points, next_page_offset = scroll_result
@@ -320,10 +303,9 @@ def migrate_collection(
                 stats["updated"] += 1
 
                 if not dry_run:
-                    batch_updates.append({
-                        "id": result["point_id"],
-                        "payload": result["updates"]
-                    })
+                    batch_updates.append(
+                        {"id": result["point_id"], "payload": result["updates"]}
+                    )
 
                     # Apply batch when full (each point individually since payloads differ)
                     if len(batch_updates) >= BATCH_SIZE:
@@ -333,7 +315,7 @@ def migrate_collection(
                                 qdrant_client.set_payload(
                                     collection_name=collection,
                                     payload=item["payload"],
-                                    points=[item["id"]]
+                                    points=[item["id"]],
                                 )
                             except Exception as e:
                                 logger.error(
@@ -342,8 +324,8 @@ def migrate_collection(
                                         "collection": collection,
                                         "point_id": item["id"][:8],
                                         "error": str(e),
-                                        "error_type": type(e).__name__
-                                    }
+                                        "error_type": type(e).__name__,
+                                    },
                                 )
                                 failed_in_batch += 1
 
@@ -355,8 +337,8 @@ def migrate_collection(
                             extra={
                                 "collection": collection,
                                 "batch_size": len(batch_updates),
-                                "failed": failed_in_batch
-                            }
+                                "failed": failed_in_batch,
+                            },
                         )
                         batch_updates = []
             else:
@@ -371,7 +353,7 @@ def migrate_collection(
             offset=next_page_offset,
             limit=10000,
             with_payload=True,
-            with_vectors=False
+            with_vectors=False,
         )
         points, next_page_offset = scroll_result
 
@@ -383,7 +365,7 @@ def migrate_collection(
                 qdrant_client.set_payload(
                     collection_name=collection,
                     payload=item["payload"],
-                    points=[item["id"]]
+                    points=[item["id"]],
                 )
             except Exception as e:
                 logger.error(
@@ -392,8 +374,8 @@ def migrate_collection(
                         "collection": collection,
                         "point_id": item["id"][:8],
                         "error": str(e),
-                        "error_type": type(e).__name__
-                    }
+                        "error_type": type(e).__name__,
+                    },
                 )
                 failed_in_batch += 1
 
@@ -404,25 +386,18 @@ def migrate_collection(
                 extra={
                     "collection": collection,
                     "total": len(batch_updates),
-                    "failed": failed_in_batch
-                }
+                    "failed": failed_in_batch,
+                },
             )
         else:
             logger.info(
                 "final_batch_applied",
-                extra={
-                    "collection": collection,
-                    "batch_size": len(batch_updates)
-                }
+                extra={"collection": collection, "batch_size": len(batch_updates)},
             )
 
     logger.info(
         "collection_migration_complete",
-        extra={
-            "collection": collection,
-            "stats": stats,
-            "dry_run": dry_run
-        }
+        extra={"collection": collection, "stats": stats, "dry_run": dry_run},
     )
 
     return stats
@@ -456,17 +431,15 @@ def main():
     """
     parser = argparse.ArgumentParser(
         description="Migrate existing memories to add new fields (agent, component, story_id, importance)",
-        epilog="Exit 0: success/partial, Exit 1: critical error"
+        epilog="Exit 0: success/partial, Exit 1: critical error",
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview changes without applying them"
+        "--dry-run", action="store_true", help="Preview changes without applying them"
     )
     parser.add_argument(
         "--collection",
         type=validate_collection,
-        help=f"Migrate single collection only. Options: {', '.join(COLLECTIONS)}"
+        help=f"Migrate single collection only. Options: {', '.join(COLLECTIONS)}",
     )
     args = parser.parse_args()
 
@@ -483,8 +456,8 @@ def main():
             extra={
                 "collections": collections_to_migrate,
                 "dry_run": args.dry_run,
-                "batch_size": BATCH_SIZE
-            }
+                "batch_size": BATCH_SIZE,
+            },
         )
 
         # Track overall statistics
@@ -496,7 +469,7 @@ def main():
                 stats = migrate_collection(
                     collection=collection,
                     dry_run=args.dry_run,
-                    qdrant_client=qdrant_client
+                    qdrant_client=qdrant_client,
                 )
 
                 # Accumulate stats
@@ -518,8 +491,8 @@ def main():
                     extra={
                         "collection": collection,
                         "error": str(e),
-                        "error_type": type(e).__name__
-                    }
+                        "error_type": type(e).__name__,
+                    },
                 )
                 sys.stdout.write(f"\nERROR migrating {collection}: {e}\n")
                 # Continue with other collections
@@ -540,15 +513,12 @@ def main():
             extra={
                 "total_stats": total_stats,
                 "dry_run": args.dry_run,
-                "collections": collections_to_migrate
-            }
+                "collections": collections_to_migrate,
+            },
         )
 
     except QdrantUnavailable as e:
-        logger.error(
-            "qdrant_unavailable",
-            extra={"error": str(e)}
-        )
+        logger.error("qdrant_unavailable", extra={"error": str(e)})
         sys.stdout.write(f"\nERROR: Qdrant unavailable: {e}\n")
         sys.stdout.write("Please ensure Qdrant is running:\n")
         sys.stdout.write("  docker compose -f docker/docker-compose.yml up -d\n")
@@ -556,8 +526,7 @@ def main():
 
     except Exception as e:
         logger.exception(
-            "migration_critical_error",
-            extra={"error_type": type(e).__name__}
+            "migration_critical_error", extra={"error_type": type(e).__name__}
         )
         sys.stdout.write(f"\nCRITICAL ERROR: {e}\n")
         sys.exit(1)

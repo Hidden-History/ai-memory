@@ -163,7 +163,9 @@ def create_point_from_template(
         "embedding_status": "complete",
         "embedding_model": "jina-embeddings-v2-base-en",
         # Timestamp fields (TECH-DEBT-028)
-        "timestamp": datetime.now(timezone.utc).isoformat(),  # Existing field (backwards compatible)
+        "timestamp": datetime.now(
+            timezone.utc
+        ).isoformat(),  # Existing field (backwards compatible)
         "source_date": (
             template.source_date.isoformat() if template.source_date else None
         ),  # TECH-DEBT-028: NEW optional field
@@ -179,7 +181,9 @@ def create_point_from_template(
     return PointStruct(id=point_id, vector=embedding, payload=payload)
 
 
-def get_existing_hashes(client: QdrantClient, collection: str = "conventions") -> set[str]:
+def get_existing_hashes(
+    client: QdrantClient, collection: str = "conventions"
+) -> set[str]:
     """Get all existing content_hash values from collection.
 
     Used for deduplication check before seeding (MED-3 fix).
@@ -228,8 +232,11 @@ def get_existing_hashes(client: QdrantClient, collection: str = "conventions") -
 
 
 def seed_templates(
-    templates: list[BestPracticeTemplate], config, dry_run: bool = False,
-    batch_size: int = 100, skip_duplicates: bool = True
+    templates: list[BestPracticeTemplate],
+    config,
+    dry_run: bool = False,
+    batch_size: int = 100,
+    skip_duplicates: bool = True,
 ) -> int:
     """Seed conventions collection with templates.
 
@@ -266,7 +273,7 @@ def seed_templates(
             port=config.qdrant_port,
             api_key=config.qdrant_api_key,
             https=config.qdrant_use_https,  # BP-040
-            timeout=10.0
+            timeout=10.0,
         )
 
         # Verify collection exists
@@ -279,14 +286,17 @@ def seed_templates(
                 extra={"collection": "conventions", "available": collection_names},
             )
             raise ConnectionError(
-                "Collection 'conventions' not found. "
-                "Run setup-collections.py first."
+                "Collection 'conventions' not found. " "Run setup-collections.py first."
             )
 
     except Exception as e:
         logger.error(
             "qdrant_connection_failed",
-            extra={"host": config.qdrant_host, "port": config.qdrant_port, "error": str(e)},
+            extra={
+                "host": config.qdrant_host,
+                "port": config.qdrant_port,
+                "error": str(e),
+            },
         )
         raise ConnectionError(f"Cannot connect to Qdrant: {e}") from e
 
@@ -339,7 +349,10 @@ def seed_templates(
             if dry_run:
                 logger.info(
                     "dry_run_would_upsert",
-                    extra={"count": len(batch_points), "batch": f"{i // batch_size + 1}"},
+                    extra={
+                        "count": len(batch_points),
+                        "batch": f"{i // batch_size + 1}",
+                    },
                 )
             else:
                 try:
@@ -466,12 +479,15 @@ Examples:
             templates_dir = Path.home() / ".ai-memory" / "templates" / "conventions"
 
     logger.info(
-        "seeding_started", extra={"templates_dir": str(templates_dir), "dry_run": args.dry_run}
+        "seeding_started",
+        extra={"templates_dir": str(templates_dir), "dry_run": args.dry_run},
     )
 
     # Check templates directory exists
     if not templates_dir.exists():
-        logger.error("templates_directory_not_found", extra={"path": str(templates_dir)})
+        logger.error(
+            "templates_directory_not_found", extra={"path": str(templates_dir)}
+        )
         print(f"\n❌ Templates directory not found: {templates_dir}")
         print("\nCreate templates directory and add JSON files:")
         print(f"  mkdir -p {templates_dir}")
@@ -482,7 +498,9 @@ Examples:
     json_files = list(templates_dir.glob("*.json"))
 
     if not json_files:
-        logger.warning("no_template_files_found", extra={"directory": str(templates_dir)})
+        logger.warning(
+            "no_template_files_found", extra={"directory": str(templates_dir)}
+        )
         print(f"\n⚠️  No .json files found in {templates_dir}")
         print("\nAdd template JSON files to seed best practices.\n")
         return 0
@@ -495,7 +513,8 @@ Examples:
             templates = load_templates_from_file(json_file)
             all_templates.extend(templates)
             logger.info(
-                "templates_loaded", extra={"file": json_file.name, "count": len(templates)}
+                "templates_loaded",
+                extra={"file": json_file.name, "count": len(templates)},
             )
         except Exception as e:
             logger.error(
@@ -512,7 +531,9 @@ Examples:
     if args.dry_run:
         print("\n  🔍 DRY RUN MODE - No actual seeding will occur\n")
         for i, template in enumerate(all_templates, 1):
-            print(f"  {i}. [{template.domain}] {template.type}: {template.content[:60]}...")
+            print(
+                f"  {i}. [{template.domain}] {template.type}: {template.content[:60]}..."
+            )
         print(f"\n{'=' * 70}\n")
         return 0
 

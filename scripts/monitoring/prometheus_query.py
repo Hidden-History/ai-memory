@@ -18,12 +18,12 @@ Exit Codes:
 """
 
 import argparse
+import base64
 import json
 import os
 import sys
-import urllib.request
 import urllib.parse
-import base64
+import urllib.request
 from datetime import datetime, timedelta
 
 # Configuration - credentials MUST be set via environment variables
@@ -60,7 +60,10 @@ def query_instant(query: str) -> dict:
             return json.loads(response.read().decode())
     except urllib.error.HTTPError as e:
         if e.code == 401:
-            print("❌ Authentication failed. Check PROMETHEUS_USER and PROMETHEUS_PASSWORD", file=sys.stderr)
+            print(
+                "❌ Authentication failed. Check PROMETHEUS_USER and PROMETHEUS_PASSWORD",
+                file=sys.stderr,
+            )
         raise
 
 
@@ -91,12 +94,14 @@ def query_range(query: str, start: str, end: str = "now", step: str = "15s") -> 
 
     end_time = now if end == "now" else datetime.fromisoformat(end)
 
-    params = urllib.parse.urlencode({
-        "query": query,
-        "start": start_time.timestamp(),
-        "end": end_time.timestamp(),
-        "step": step
-    })
+    params = urllib.parse.urlencode(
+        {
+            "query": query,
+            "start": start_time.timestamp(),
+            "end": end_time.timestamp(),
+            "step": step,
+        }
+    )
     full_url = f"{url}?{params}"
 
     request = urllib.request.Request(full_url)

@@ -46,16 +46,17 @@ from typing import Optional
 
 # Tenacity retry for BP-006 compliance (Issue #2)
 from tenacity import (
+    after_log,
+    before_log,
     retry,
     stop_after_attempt,
     wait_exponential,
-    before_log,
-    after_log,
 )
 
 # Optional tqdm for better UX (Issue #8)
 try:
     from tqdm import tqdm
+
     HAS_TQDM = True
 except ImportError:
     HAS_TQDM = False
@@ -63,15 +64,20 @@ except ImportError:
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from memory.config import get_config, EMBEDDING_MODEL, COLLECTION_DISCUSSIONS, EMBEDDING_DIMENSIONS
-from memory.embeddings import EmbeddingClient, EmbeddingError
 from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, FieldCondition, MatchValue, PointStruct
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
+
+from memory.config import (
+    COLLECTION_DISCUSSIONS,
+    EMBEDDING_DIMENSIONS,
+    EMBEDDING_MODEL,
+    get_config,
+)
+from memory.embeddings import EmbeddingClient, EmbeddingError
 
 # Configure structured logging
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -80,9 +86,7 @@ BATCH_DELAY = 0.5  # seconds between batches
 
 
 def get_pending_records(
-    client: QdrantClient,
-    collection: str,
-    limit: Optional[int] = None
+    client: QdrantClient, collection: str, limit: Optional[int] = None
 ) -> list:
     """Query records with embedding_status='pending'.
 
@@ -101,8 +105,7 @@ def get_pending_records(
         filter_condition = Filter(
             must=[
                 FieldCondition(
-                    key="embedding_status",
-                    match=MatchValue(value="pending")
+                    key="embedding_status", match=MatchValue(value="pending")
                 )
             ]
         )
@@ -141,14 +144,16 @@ def get_pending_records(
                 "large_dataset_warning",
                 extra={
                     "count": len(pending_records),
-                    "estimated_memory_mb": estimated_memory_mb
-                }
+                    "estimated_memory_mb": estimated_memory_mb,
+                },
             )
-            print(f"⚠️  Large dataset: {len(pending_records)} records (~{estimated_memory_mb:.0f}MB memory)")
+            print(
+                f"⚠️  Large dataset: {len(pending_records)} records (~{estimated_memory_mb:.0f}MB memory)"
+            )
 
         logger.info(
             "pending_records_retrieved",
-            extra={"count": len(pending_records), "collection": collection}
+            extra={"count": len(pending_records), "collection": collection},
         )
 
         return pending_records
@@ -156,7 +161,7 @@ def get_pending_records(
     except Exception as e:
         logger.error(
             "failed_to_retrieve_pending_records",
-            extra={"collection": collection, "error": str(e)}
+            extra={"collection": collection, "error": str(e)},
         )
         raise
 
@@ -167,9 +172,11 @@ def get_pending_records(
     wait=wait_exponential(multiplier=1, min=2, max=10),
     before=before_log(logger, logging.INFO),
     after=after_log(logger, logging.INFO),
-    reraise=True
+    reraise=True,
 )
-def _embed_with_retry(embed_client: EmbeddingClient, contents: list[str]) -> list[list[float]]:
+def _embed_with_retry(
+    embed_client: EmbeddingClient, contents: list[str]
+) -> list[list[float]]:
     """Embed with retry for transient failures.
 
     Args:
@@ -190,7 +197,7 @@ def backfill_batch(
     embed_client: EmbeddingClient,
     collection: str,
     records: list,
-    dry_run: bool = False
+    dry_run: bool = False,
 ) -> tuple[int, int, list[str]]:
     """Process a batch of records with SINGLE embedding call for efficiency.
 
@@ -210,10 +217,7 @@ def backfill_batch(
     # Dry run early exit
     if dry_run:
         for record in records:
-            logger.debug(
-                "dry_run_would_update",
-                extra={"record_id": str(record.id)}
-            )
+            logger.debug("dry_run_would_update", extra={"record_id": str(record.id)})
         return len(records), 0, []
 
     # Issue #1: Collect all content for batch embedding
@@ -225,8 +229,7 @@ def backfill_batch(
 
         if not content or not content.strip():
             logger.warning(
-                "skipping_empty_content",
-                extra={"record_id": str(record.id)}
+                "skipping_empty_content", extra={"record_id": str(record.id)}
             )
             continue
 
@@ -239,22 +242,13 @@ def backfill_batch(
 
     # Issue #1 & #2: SINGLE embedding call with retry for entire batch
     try:
-        logger.info(
-            "batch_embedding_start",
-            extra={"batch_size": len(contents)}
-        )
+        logger.info("batch_embedding_start", extra={"batch_size": len(contents)})
         vectors = _embed_with_retry(embed_client, contents)
-        logger.info(
-            "batch_embedding_complete",
-            extra={"batch_size": len(contents)}
-        )
+        logger.info("batch_embedding_complete", extra={"batch_size": len(contents)})
     except Exception as e:
         logger.error(
             "batch_embedding_failed",
-            extra={
-                "error": str(e),
-                "batch_size": len(contents)
-            }
+            extra={"error": str(e), "batch_size": len(contents)},
         )
         return 0, len(records), []
 
@@ -277,22 +271,11 @@ def backfill_batch(
             updated_payload["embedding_model"] = EMBEDDING_MODEL
 
             # Upsert with new vector and payload
-            point = PointStruct(
-                id=record.id,
-                vector=vector,
-                payload=updated_payload
-            )
+            point = PointStruct(id=record.id, vector=vector, payload=updated_payload)
 
-            client.upsert(
-                collection_name=collection,
-                points=[point],
-                wait=True
-            )
+            client.upsert(collection_name=collection, points=[point], wait=True)
 
-            logger.debug(
-                "record_updated",
-                extra={"record_id": str(record.id)}
-            )
+            logger.debug("record_updated", extra={"record_id": str(record.id)})
 
             completed += 1
             updated_ids.append(str(record.id))
@@ -300,10 +283,7 @@ def backfill_batch(
         except Exception as e:
             logger.error(
                 "record_update_failed",
-                extra={
-                    "record_id": str(record.id),
-                    "error": str(e)
-                }
+                extra={"record_id": str(record.id), "error": str(e)},
             )
             failed += 1
 
@@ -314,10 +294,7 @@ def backfill_batch(
 
 
 def verify_batch(
-    client: QdrantClient,
-    collection: str,
-    record_ids: list[str],
-    sample_size: int = 2
+    client: QdrantClient, collection: str, record_ids: list[str], sample_size: int = 2
 ) -> bool:
     """Spot-check that records were updated correctly.
 
@@ -340,15 +317,12 @@ def verify_batch(
     for record_id in sample_ids:
         try:
             result = client.retrieve(
-                collection_name=collection,
-                ids=[record_id],
-                with_vectors=True
+                collection_name=collection, ids=[record_id], with_vectors=True
             )
 
             if not result:
                 logger.warning(
-                    "verification_failed_not_found",
-                    extra={"record_id": record_id}
+                    "verification_failed_not_found", extra={"record_id": record_id}
                 )
                 return False
 
@@ -360,30 +334,25 @@ def verify_batch(
                     "verification_failed_status",
                     extra={
                         "record_id": record_id,
-                        "status": record.payload.get("embedding_status")
-                    }
+                        "status": record.payload.get("embedding_status"),
+                    },
                 )
                 return False
 
             # Check vector is non-zero (spot check first 10 dimensions)
             if all(v == 0 for v in record.vector[:10]):
                 logger.warning(
-                    "verification_failed_zero_vector",
-                    extra={"record_id": record_id}
+                    "verification_failed_zero_vector", extra={"record_id": record_id}
                 )
                 return False
 
         except Exception as e:
             logger.warning(
-                "verification_error",
-                extra={"record_id": record_id, "error": str(e)}
+                "verification_error", extra={"record_id": record_id, "error": str(e)}
             )
             return False
 
-    logger.debug(
-        "verification_passed",
-        extra={"sample_size": len(sample_ids)}
-    )
+    logger.debug("verification_passed", extra={"sample_size": len(sample_ids)})
     return True
 
 
@@ -417,21 +386,17 @@ def validate_embedding_service(embed_client: EmbeddingClient) -> bool:
             if service_model != "unknown" and EMBEDDING_MODEL not in service_model:
                 logger.warning(
                     "embedding_model_mismatch",
-                    extra={
-                        "expected": EMBEDDING_MODEL,
-                        "service": service_model
-                    }
+                    extra={"expected": EMBEDDING_MODEL, "service": service_model},
                 )
-                print(f"⚠️  Model mismatch: Expected '{EMBEDDING_MODEL}' but service reports '{service_model}'")
+                print(
+                    f"⚠️  Model mismatch: Expected '{EMBEDDING_MODEL}' but service reports '{service_model}'"
+                )
 
         return True
 
     except Exception as e:
         # Health check passed but model validation failed - non-critical
-        logger.warning(
-            "embedding_model_validation_failed",
-            extra={"error": str(e)}
-        )
+        logger.warning("embedding_model_validation_failed", extra={"error": str(e)})
         return True  # Don't fail on model validation errors
 
 
@@ -460,32 +425,26 @@ Examples:
 
   # Verbose logging
   python backfill_pending_embeddings.py -v
-        """
+        """,
     )
 
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview without making changes"
+        "--dry-run", action="store_true", help="Preview without making changes"
     )
 
-    parser.add_argument(
-        "--limit",
-        type=int,
-        help="Maximum records to process"
-    )
+    parser.add_argument("--limit", type=int, help="Maximum records to process")
 
     parser.add_argument(
         "--collection",
         default=COLLECTION_DISCUSSIONS,
-        help=f"Collection to backfill (default: {COLLECTION_DISCUSSIONS})"
+        help=f"Collection to backfill (default: {COLLECTION_DISCUSSIONS})",
     )
 
     parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
-        help="Enable verbose logging (DEBUG level)"
+        help="Enable verbose logging (DEBUG level)",
     )
 
     args = parser.parse_args()
@@ -509,7 +468,7 @@ Examples:
             port=config.qdrant_port,
             api_key=config.qdrant_api_key,
             https=config.qdrant_use_https,  # BP-040
-            timeout=10.0
+            timeout=10.0,
         )
 
         # Verify collection exists
@@ -519,7 +478,7 @@ Examples:
         if args.collection not in collection_names:
             logger.error(
                 "collection_not_found",
-                extra={"collection": args.collection, "available": collection_names}
+                extra={"collection": args.collection, "available": collection_names},
             )
             print(f"\n❌ Collection '{args.collection}' not found")
             print(f"Available collections: {', '.join(collection_names)}\n")
@@ -531,8 +490,8 @@ Examples:
             extra={
                 "host": config.qdrant_host,
                 "port": config.qdrant_port,
-                "error": str(e)
-            }
+                "error": str(e),
+            },
         )
         print(f"\n❌ Cannot connect to Qdrant: {e}")
         print("\nTroubleshooting:")
@@ -555,7 +514,9 @@ Examples:
             print("  1. Check embedding service status:")
             print("     docker compose logs embedding")
             print("  2. Verify port is accessible:")
-            print(f"     curl http://{config.embedding_host}:{config.embedding_port}/health\n")
+            print(
+                f"     curl http://{config.embedding_host}:{config.embedding_port}/health\n"
+            )
             return 1
 
         # Query pending records
@@ -569,11 +530,7 @@ Examples:
         print()
 
         try:
-            pending_records = get_pending_records(
-                client,
-                args.collection,
-                args.limit
-            )
+            pending_records = get_pending_records(client, args.collection, args.limit)
 
             if not pending_records:
                 print("  ✅ No pending records found - nothing to backfill")
@@ -603,27 +560,22 @@ Examples:
         batch_range = range(0, len(pending_records), BATCH_SIZE)
         if HAS_TQDM and not args.dry_run:
             batch_range = tqdm(
-                batch_range,
-                desc="Backfilling",
-                unit="batch",
-                total=total_batches
+                batch_range, desc="Backfilling", unit="batch", total=total_batches
             )
 
         # Issue #5: Keyboard interrupt handling
         try:
             for i in batch_range:
-                batch = pending_records[i:i + BATCH_SIZE]
+                batch = pending_records[i : i + BATCH_SIZE]
                 batch_num = i // BATCH_SIZE + 1
 
                 if not HAS_TQDM:
-                    print(f"  Processing batch {batch_num}/{total_batches} ({len(batch)} records)...")
+                    print(
+                        f"  Processing batch {batch_num}/{total_batches} ({len(batch)} records)..."
+                    )
 
                 successful, failed, updated_ids = backfill_batch(
-                    client,
-                    embed_client,
-                    args.collection,
-                    batch,
-                    dry_run=args.dry_run
+                    client, embed_client, args.collection, batch, dry_run=args.dry_run
                 )
 
                 total_successful += successful
@@ -633,8 +585,7 @@ Examples:
                 if updated_ids and not args.dry_run:
                     if not verify_batch(client, args.collection, updated_ids):
                         logger.warning(
-                            "batch_verification_failed",
-                            extra={"batch_num": batch_num}
+                            "batch_verification_failed", extra={"batch_num": batch_num}
                         )
 
                 # Delay between batches to avoid overwhelming service
@@ -663,7 +614,9 @@ Examples:
         print(f"  ✅ Successful:   {total_successful}")
         print(f"  ❌ Failed:       {total_failed}")
         if len(pending_records) > 0:
-            print(f"  📊 Success rate: {(total_successful / len(pending_records) * 100):.1f}%")
+            print(
+                f"  📊 Success rate: {(total_successful / len(pending_records) * 100):.1f}%"
+            )
         print(f"\n{'=' * 70}\n")
 
         logger.info(
@@ -672,8 +625,8 @@ Examples:
                 "total": len(pending_records),
                 "successful": total_successful,
                 "failed": total_failed,
-                "collection": args.collection
-            }
+                "collection": args.collection,
+            },
         )
 
         return 0 if total_failed == 0 else 1
@@ -685,10 +638,7 @@ Examples:
                 embed_client.close()
                 logger.debug("embedding_client_closed")
             except Exception as e:
-                logger.warning(
-                    "embedding_client_close_failed",
-                    extra={"error": str(e)}
-                )
+                logger.warning("embedding_client_close_failed", extra={"error": str(e)})
 
 
 if __name__ == "__main__":
