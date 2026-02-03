@@ -964,10 +964,12 @@ def main():
                 )
 
                 # Output conversation context to Claude
+                # TECH-DEBT-115: Add <retrieved_context> delimiters per BP-039 §1
+                formatted_context = f"<retrieved_context>\n{conversation_context}\n</retrieved_context>"
                 output = {
                     "hookSpecificOutput": {
                         "hookEventName": "SessionStart",
-                        "additionalContext": conversation_context,
+                        "additionalContext": formatted_context,
                     }
                 }
                 print(json.dumps(output))

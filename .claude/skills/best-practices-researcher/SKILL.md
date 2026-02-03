@@ -67,9 +67,42 @@ Search for current best practices (2024-2026). Source prioritization:
 
 Generate next BP-ID and create `oversight/knowledge/best-practices/BP-XXX-[topic].md`
 
-### Phase 4: Store to Database
+### Phase 4: Store to Database (MANDATORY)
 
-Store findings to Qdrant conventions collection using store_best_practice()
+**CRITICAL**: You MUST execute this code to store findings to the database.
+Without this step, research is lost and BUG-048 occurs.
+
+```python
+# MANDATORY - Execute this code block
+from memory.storage import store_best_practice
+import os
+
+# Get session_id from environment or use placeholder
+session_id = os.environ.get("CLAUDE_SESSION_ID", "manual-research")
+
+result = store_best_practice(
+    content="YOUR_FINDING_CONTENT_HERE",  # Replace with actual finding
+    session_id=session_id,
+    source_hook="manual",
+    domain="YOUR_DOMAIN",  # e.g., "python", "testing", "architecture"
+    tags=["YOUR", "TAGS"],  # Replace with relevant tags
+    source="SOURCE_URL",  # URL where you found this
+    source_date="2026-02-03",  # Today's date
+    auto_seeded=True,
+    type="guideline"  # Stored as guideline in conventions collection
+)
+
+# Verify storage succeeded
+if result.get("status") == "stored":
+    print(f"SUCCESS: Stored to conventions collection: {result['memory_id']}")
+else:
+    print(f"WARNING: {result.get('status', 'unknown')} - {result}")
+```
+
+**Checklist before moving to Phase 5**:
+- [ ] Executed store_best_practice() code above
+- [ ] Received "SUCCESS: Stored" confirmation
+- [ ] If duplicate, that's OK - finding already exists
 
 ### Phase 5: Skill Evaluation
 

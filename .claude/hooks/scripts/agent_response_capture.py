@@ -138,8 +138,9 @@ def fork_to_background(
         store_script = script_dir / "agent_response_store_async.py"
 
         # Build data for background process
+        # BUG-003 FIX: Use .get() pattern for safe session_id access
         store_data = {
-            "session_id": hook_input["session_id"],
+            "session_id": hook_input.get("session_id", "unknown"),
             "response_text": response_text,
             "turn_number": turn_number,
         }
