@@ -128,7 +128,8 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
         - tool_response: Response object with success boolean
     """
     # Check required fields (per Claude Code hook schema)
-    required_fields = ["tool_name", "tool_input", "cwd", "session_id"]
+    # Note: session_id removed - it's for audit trail only, not required for tenant isolation (BUG-058)
+    required_fields = ["tool_name", "tool_input", "cwd"]
     for field in required_fields:
         if field not in data:
             return f"missing_required_field_{field}"
@@ -196,7 +197,7 @@ def fork_to_background(hook_input: Dict[str, Any]) -> None:
             "background_forked",
             extra={
                 "tool_name": hook_input["tool_name"],
-                "session_id": hook_input["session_id"]
+                "session_id": hook_input.get("session_id", "unknown")
             }
         )
 

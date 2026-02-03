@@ -114,8 +114,17 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
         # Extract tool information
         tool_name = hook_input["tool_name"]
         tool_input = hook_input["tool_input"]
-        session_id = hook_input["session_id"]
         cwd = hook_input["cwd"]
+
+        # BUG-058 Fix: session_id is for audit trail, not tenant isolation (group_id handles that)
+        # Use graceful fallback per BP-037 (Fallback Tenant ID Pattern)
+        session_id = hook_input.get("session_id")
+        if not session_id:
+            session_id = "unknown"
+            logger.warning(
+                "session_id_missing_using_fallback",
+                extra={"cwd": cwd, "tool_name": tool_name}
+            )
 
         # Extract the actual code content for hashing and pattern extraction
         # For Edit tool, extract patterns from new_string (the actual code change)
