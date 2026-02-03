@@ -33,15 +33,15 @@ Created: 2026-01-17
 Follows patterns from validate_storage.py and check_duplicates.py
 """
 
-import os
-import sys
-import json
 import argparse
-import subprocess
-import time
+import json
 import logging
+import os
+import subprocess
+import sys
+import time
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 # Add src to path for imports
 # Try dev repo FIRST, then fall back to installed location
@@ -49,23 +49,25 @@ dev_src = Path(__file__).parent.parent.parent / "src"
 if dev_src.exists():
     sys.path.insert(0, str(dev_src))
 else:
-    INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+    INSTALL_DIR = os.environ.get(
+        "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+    )
     sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.config import get_config
-from memory.qdrant_client import QdrantUnavailable
 from memory.logging_config import StructuredFormatter
+from memory.qdrant_client import QdrantUnavailable
 
 # Import validation and duplicate detection modules
 try:
-    from validate_storage import validate_before_storage
     from check_duplicates import check_for_duplicates
+    from validate_storage import validate_before_storage
 except ImportError:
     # Running from dev repo - use absolute path
     scripts_dir = Path(__file__).parent
     sys.path.insert(0, str(scripts_dir))
-    from validate_storage import validate_before_storage
     from check_duplicates import check_for_duplicates
+    from validate_storage import validate_before_storage
 
 # Configure structured logging
 handler = logging.StreamHandler(sys.stderr)
@@ -76,7 +78,9 @@ logger.addHandler(handler)
 logger.propagate = False
 
 # Metadata defaults
-DEFAULT_SOURCE_HOOK = "manual"  # "manual" is for skill-based and workflow-driven storage
+DEFAULT_SOURCE_HOOK = (
+    "manual"  # "manual" is for skill-based and workflow-driven storage
+)
 DEFAULT_SESSION_ID = "workflow"
 
 # Required metadata fields
@@ -105,8 +109,7 @@ def validate_metadata(metadata: Dict[str, Any]) -> Tuple[bool, str]:
     missing_recommended = [f for f in RECOMMENDED_METADATA_FIELDS if f not in metadata]
     if missing_recommended:
         logger.warning(
-            "missing_recommended_fields",
-            extra={"fields": missing_recommended}
+            "missing_recommended_fields", extra={"fields": missing_recommended}
         )
 
     # Validate type field
@@ -124,13 +127,19 @@ def validate_metadata(metadata: Dict[str, Any]) -> Tuple[bool, str]:
         "agent_decision",
     ]
     if metadata.get("type") not in valid_types:
-        return False, f"Invalid type '{metadata.get('type')}'. Must be one of: {valid_types}"
+        return (
+            False,
+            f"Invalid type '{metadata.get('type')}'. Must be one of: {valid_types}",
+        )
 
     # Validate importance if provided
     if "importance" in metadata:
         valid_importance = ["critical", "high", "medium", "low"]
         if metadata["importance"] not in valid_importance:
-            return False, f"Invalid importance '{metadata['importance']}'. Must be: {valid_importance}"
+            return (
+                False,
+                f"Invalid importance '{metadata['importance']}'. Must be: {valid_importance}",
+            )
 
     return True, ""
 
@@ -165,12 +174,12 @@ def fork_background_storage(content: str, metadata: Dict[str, Any]) -> None:
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True  # Full detachment from parent
+            start_new_session=True,  # Full detachment from parent
         )
 
         # Write payload and close stdin (non-blocking)
         if process.stdin:
-            process.stdin.write(payload_json.encode('utf-8'))
+            process.stdin.write(payload_json.encode("utf-8"))
             process.stdin.close()
 
         logger.info(
@@ -179,17 +188,13 @@ def fork_background_storage(content: str, metadata: Dict[str, Any]) -> None:
                 "type": metadata.get("type"),
                 "story_id": metadata.get("story_id"),
                 "group_id": metadata.get("group_id"),
-            }
+            },
         )
 
     except Exception as e:
         # Log error but don't raise - graceful degradation
         logger.error(
-            "fork_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "fork_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
 
@@ -205,8 +210,8 @@ def store_synchronous(content: str, metadata: Dict[str, Any]) -> int:
         Exit code: 0 (success) or 1 (failure)
     """
     try:
-        from memory.storage import MemoryStorage
         from memory.models import MemoryType
+        from memory.storage import MemoryStorage
 
         # Get session_id and source_hook from metadata
         session_id = metadata.get("session_id", DEFAULT_SESSION_ID)
@@ -250,7 +255,7 @@ def store_synchronous(content: str, metadata: Dict[str, Any]) -> int:
                 "embedding_status": result.get("embedding_status"),
                 "type": memory_type_str,
                 "group_id": group_id,
-            }
+            },
         )
 
         print(f"\n✅ Memory stored successfully: {result['status']}")
@@ -260,24 +265,18 @@ def store_synchronous(content: str, metadata: Dict[str, Any]) -> int:
         return 0
 
     except QdrantUnavailable as e:
-        logger.error(
-            "qdrant_unavailable",
-            extra={"error": str(e)}
-        )
+        logger.error("qdrant_unavailable", extra={"error": str(e)})
         print(f"\n❌ ERROR: Qdrant unavailable - {e}", file=sys.stderr)
         return 1
 
     except Exception as e:
         logger.error(
-            "storage_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "storage_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
         print(f"\n❌ ERROR: Storage failed - {e}", file=sys.stderr)
         # Print traceback for debugging
         import traceback
+
         traceback.print_exc(file=sys.stderr)
         return 1
 
@@ -341,7 +340,9 @@ def main() -> int:
             with open(args.content_file, "r") as f:
                 content = f.read()
         except FileNotFoundError:
-            print(f"ERROR: Content file not found: {args.content_file}", file=sys.stderr)
+            print(
+                f"ERROR: Content file not found: {args.content_file}", file=sys.stderr
+            )
             return 1
         except Exception as e:
             print(f"ERROR: Failed to read content file: {e}", file=sys.stderr)
@@ -371,7 +372,9 @@ def main() -> int:
             with open(args.metadata_file, "r") as f:
                 metadata = json.load(f)
         except FileNotFoundError:
-            print(f"ERROR: Metadata file not found: {args.metadata_file}", file=sys.stderr)
+            print(
+                f"ERROR: Metadata file not found: {args.metadata_file}", file=sys.stderr
+            )
             return 1
         except json.JSONDecodeError as e:
             print(f"ERROR: Invalid metadata JSON in file: {e}", file=sys.stderr)
@@ -431,12 +434,18 @@ def main() -> int:
             print("\n" + "=" * 60, file=sys.stderr)
             print("DUPLICATE DETECTED", file=sys.stderr)
             print("=" * 60, file=sys.stderr)
-            print(f"Content hash: {dup_details.get('content_hash', '')[:16]}...", file=sys.stderr)
+            print(
+                f"Content hash: {dup_details.get('content_hash', '')[:16]}...",
+                file=sys.stderr,
+            )
 
             if dup_details.get("duplicates"):
                 print("\nExact duplicates found:", file=sys.stderr)
                 for dup in dup_details["duplicates"]:
-                    print(f"  - {dup['unique_id']} in {dup['collection']}", file=sys.stderr)
+                    print(
+                        f"  - {dup['unique_id']} in {dup['collection']}",
+                        file=sys.stderr,
+                    )
 
             if dup_details.get("similar"):
                 print("\nSemantically similar content:", file=sys.stderr)
@@ -444,7 +453,7 @@ def main() -> int:
                     print(
                         f"  - {sim['unique_id']} in {sim['collection']} "
                         f"(similarity: {sim['similarity']:.2%})",
-                        file=sys.stderr
+                        file=sys.stderr,
                     )
 
             print("\nMemory will NOT be stored (duplicate).", file=sys.stderr)
@@ -458,7 +467,7 @@ def main() -> int:
             "duration_ms": f"{duration_ms:.2f}",
             "type": metadata.get("type"),
             "story_id": metadata.get("story_id"),
-        }
+        },
     )
 
     # User notification

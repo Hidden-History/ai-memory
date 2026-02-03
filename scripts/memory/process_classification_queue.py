@@ -33,22 +33,33 @@ from pathlib import Path
 from typing import List, Optional
 
 # Setup Python path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
-from memory.hooks_common import setup_hook_logging
+import json
+from dataclasses import asdict
+
+from prometheus_client import (
+    REGISTRY,
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Histogram,
+    pushadd_to_gateway,
+)
+
+from memory.classifier.llm_classifier import classify
 from memory.classifier.queue import (
-    dequeue_batch,
-    get_queue_size,
-    ClassificationTask,
     MAX_BATCH_SIZE,
     QUEUE_DIR,
+    ClassificationTask,
+    dequeue_batch,
+    get_queue_size,
 )
-from memory.classifier.llm_classifier import classify
+from memory.hooks_common import setup_hook_logging
 from memory.storage import update_point_payload
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, pushadd_to_gateway, REGISTRY
-from dataclasses import asdict
-import json
 
 # =============================================================================
 # CONFIGURATION
@@ -74,38 +85,36 @@ registry = CollectorRegistry()
 
 # Queue processing metrics
 classifier_queue_processed_total = Counter(
-    'ai_memory_classifier_queue_processed_total',
-    'Total tasks processed from queue',
-    ['status'],  # success, failed, skipped
-    registry=registry
+    "ai_memory_classifier_queue_processed_total",
+    "Total tasks processed from queue",
+    ["status"],  # success, failed, skipped
+    registry=registry,
 )
 
 classifier_last_success_timestamp = Gauge(
-    'ai_memory_classifier_last_success_timestamp',
-    'Last successful batch timestamp',
-    registry=registry
+    "ai_memory_classifier_last_success_timestamp",
+    "Last successful batch timestamp",
+    registry=registry,
 )
 
 classifier_batch_duration_seconds = Histogram(
-    'ai_memory_classifier_batch_duration_seconds',
-    'Time to process batch',
+    "ai_memory_classifier_batch_duration_seconds",
+    "Time to process batch",
     registry=registry,
     # Buckets for LLM classification latency: 500ms - 60s
     # Covers fast classifications (<2s) and slow ones (>10s for long content)
-    buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0)
+    buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0),
 )
 
 classifier_queue_size_gauge = Gauge(
-    'ai_memory_classifier_queue_size',
-    'Current queue size',
-    registry=registry
+    "ai_memory_classifier_queue_size", "Current queue size", registry=registry
 )
 
 # LOW #9: Queue throughput metrics for trend analysis
 classifier_queue_dequeued_total = Counter(
-    'ai_memory_classifier_queue_dequeued_total',
-    'Total tasks dequeued from queue',
-    registry=registry
+    "ai_memory_classifier_queue_dequeued_total",
+    "Total tasks dequeued from queue",
+    registry=registry,
 )
 
 
@@ -131,10 +140,7 @@ def push_metrics() -> None:
         # Push worker's custom registry (queue metrics)
         # MEDIUM #5: Increased timeout from 0.5s to 2.0s for CPU bursts
         pushadd_to_gateway(
-            PUSHGATEWAY_URL,
-            job=JOB_NAME,
-            registry=registry,
-            timeout=2.0
+            PUSHGATEWAY_URL, job=JOB_NAME, registry=registry, timeout=2.0
         )
 
         # BUG-021 FIX: Also push global REGISTRY (classifier LLM metrics)
@@ -144,12 +150,12 @@ def push_metrics() -> None:
             PUSHGATEWAY_URL,
             job=JOB_NAME,
             registry=REGISTRY,  # Global registry with classifier metrics
-            timeout=2.0
+            timeout=2.0,
         )
     except Exception as e:
         logger.warning(
             "pushgateway_push_failed",
-            extra={"error": str(e), "error_type": type(e).__name__}
+            extra={"error": str(e), "error_type": type(e).__name__},
         )
 
 
@@ -160,11 +166,14 @@ def _touch_health_file() -> None:
         logger.debug("health_file_updated", extra={"path": "/tmp/worker.health"})
     except Exception as e:
         # F3: Log failure for debugging (non-blocking, graceful degradation)
-        logger.warning("health_file_update_failed", extra={
-            "path": "/tmp/worker.health",
-            "error": str(e),
-            "error_type": type(e).__name__
-        })
+        logger.warning(
+            "health_file_update_failed",
+            extra={
+                "path": "/tmp/worker.health",
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
 
 
 def _move_to_dlq(task: ClassificationTask, error: str) -> None:
@@ -194,8 +203,8 @@ def _move_to_dlq(task: ClassificationTask, error: str) -> None:
                 "point_id": task.point_id,
                 "collection": task.collection,
                 "error": error[:100],  # Truncate for logs
-                "dlq_file": str(DLQ_FILE)
-            }
+                "dlq_file": str(DLQ_FILE),
+            },
         )
     except Exception as dlq_error:
         # DLQ failure is logged but doesn't propagate
@@ -204,14 +213,15 @@ def _move_to_dlq(task: ClassificationTask, error: str) -> None:
             extra={
                 "point_id": task.point_id,
                 "error": str(dlq_error),
-                "error_type": type(dlq_error).__name__
-            }
+                "error_type": type(dlq_error).__name__,
+            },
         )
 
 
 # =============================================================================
 # CLASSIFICATION WORKER
 # =============================================================================
+
 
 class ClassificationWorker:
     """Asyncio daemon for processing classification queue.
@@ -223,7 +233,9 @@ class ClassificationWorker:
     - Prometheus metrics push
     """
 
-    def __init__(self, batch_size: int = BATCH_SIZE, poll_interval: float = POLL_INTERVAL):
+    def __init__(
+        self, batch_size: int = BATCH_SIZE, poll_interval: float = POLL_INTERVAL
+    ):
         """Initialize worker.
 
         Args:
@@ -243,10 +255,10 @@ class ClassificationWorker:
 
     async def process_queue(self):
         """Main processing loop with graceful shutdown."""
-        logger.info("classifier_worker_started", extra={
-            "batch_size": self.batch_size,
-            "poll_interval": self.poll_interval
-        })
+        logger.info(
+            "classifier_worker_started",
+            extra={"batch_size": self.batch_size, "poll_interval": self.poll_interval},
+        )
 
         while not self.shutdown_event.is_set():
             try:
@@ -256,14 +268,16 @@ class ClassificationWorker:
                 if tasks:
                     logger.info(
                         "batch_dequeued",
-                        extra={"count": len(tasks), "remaining": get_queue_size()}
+                        extra={"count": len(tasks), "remaining": get_queue_size()},
                     )
 
                     # LOW #9: Track dequeue rate for metrics
                     classifier_queue_dequeued_total.inc(len(tasks))
 
                     # MEDIUM #4: Track in-flight batch for graceful shutdown
-                    self.current_batch_task = asyncio.create_task(self.process_batch(tasks))
+                    self.current_batch_task = asyncio.create_task(
+                        self.process_batch(tasks)
+                    )
                     await self.current_batch_task
                     self.current_batch_task = None
 
@@ -278,8 +292,8 @@ class ClassificationWorker:
                 # MEDIUM #2: Exponential backoff on repeated errors
                 self.consecutive_failures += 1
                 backoff = min(
-                    self.poll_interval * (2 ** self.consecutive_failures),
-                    self.max_backoff
+                    self.poll_interval * (2**self.consecutive_failures),
+                    self.max_backoff,
                 )
                 logger.error(
                     "processing_error",
@@ -287,8 +301,8 @@ class ClassificationWorker:
                         "error": str(e),
                         "error_type": type(e).__name__,
                         "consecutive_failures": self.consecutive_failures,
-                        "backoff_seconds": backoff
-                    }
+                        "backoff_seconds": backoff,
+                    },
                 )
                 # Continue processing after error (don't crash daemon)
                 await asyncio.sleep(backoff)
@@ -304,7 +318,7 @@ class ClassificationWorker:
         # Process all tasks concurrently - BP-039 pattern
         results = await asyncio.gather(
             *[self.process_task(task) for task in tasks],
-            return_exceptions=True  # Prevent one failure from killing batch
+            return_exceptions=True,  # Prevent one failure from killing batch
         )
 
         # Track results
@@ -320,10 +334,10 @@ class ClassificationWorker:
                         "point_id": task.point_id,
                         "collection": task.collection,
                         "error": str(result),
-                        "error_type": type(result).__name__
-                    }
+                        "error_type": type(result).__name__,
+                    },
                 )
-                classifier_queue_processed_total.labels(status='failed').inc()
+                classifier_queue_processed_total.labels(status="failed").inc()
                 failed_count += 1
 
                 # MEDIUM #6: Move failed task to dead letter queue
@@ -351,8 +365,8 @@ class ClassificationWorker:
                 "success": success_count,
                 "failed": failed_count,
                 "skipped": skipped_count,
-                "duration_seconds": batch_duration
-            }
+                "duration_seconds": batch_duration,
+            },
         )
 
         # Push metrics to Pushgateway (non-blocking)
@@ -379,8 +393,8 @@ class ClassificationWorker:
             extra={
                 "point_id": task.point_id,
                 "collection": task.collection,
-                "current_type": task.current_type
-            }
+                "current_type": task.current_type,
+            },
         )
 
         # MEDIUM #3: Run classification in executor to avoid blocking event loop
@@ -393,7 +407,7 @@ class ClassificationWorker:
             task.content,
             task.collection,
             task.current_type,
-            None  # file_path - no file context in queue
+            None,  # file_path - no file context in queue
         )
 
         # Check if reclassification occurred
@@ -404,10 +418,10 @@ class ClassificationWorker:
                     "point_id": task.point_id,
                     "type": result.classified_type,
                     "confidence": result.confidence,
-                    "provider": result.provider_used
-                }
+                    "provider": result.provider_used,
+                },
             )
-            classifier_queue_processed_total.labels(status='skipped').inc()
+            classifier_queue_processed_total.labels(status="skipped").inc()
             return None  # Signal task was skipped
 
         # Update Qdrant payload with new classification
@@ -426,7 +440,7 @@ class ClassificationWorker:
         success = update_point_payload(
             collection=task.collection,
             point_id=task.point_id,
-            payload_updates=payload_updates
+            payload_updates=payload_updates,
         )
 
         if not success:
@@ -435,8 +449,8 @@ class ClassificationWorker:
                 extra={
                     "point_id": task.point_id,
                     "collection": task.collection,
-                    "classified_type": result.classified_type
-                }
+                    "classified_type": result.classified_type,
+                },
             )
             raise ValueError(f"Failed to update payload for point {task.point_id}")
 
@@ -447,11 +461,11 @@ class ClassificationWorker:
                 "original_type": task.current_type,
                 "classified_type": result.classified_type,
                 "confidence": result.confidence,
-                "provider": result.provider_used
-            }
+                "provider": result.provider_used,
+            },
         )
 
-        classifier_queue_processed_total.labels(status='success').inc()
+        classifier_queue_processed_total.labels(status="success").inc()
         return True
 
     def _handle_shutdown(self) -> None:
@@ -470,12 +484,15 @@ class ClassificationWorker:
         loop.add_signal_handler(signal.SIGTERM, self._handle_shutdown)
         loop.add_signal_handler(signal.SIGINT, self._handle_shutdown)
 
-        logger.info("worker_started", extra={
-            "batch_size": self.batch_size,
-            "poll_interval": self.poll_interval,
-            "pushgateway": PUSHGATEWAY_URL,
-            "pushgateway_enabled": PUSHGATEWAY_ENABLED
-        })
+        logger.info(
+            "worker_started",
+            extra={
+                "batch_size": self.batch_size,
+                "poll_interval": self.poll_interval,
+                "pushgateway": PUSHGATEWAY_URL,
+                "pushgateway_enabled": PUSHGATEWAY_ENABLED,
+            },
+        )
 
         # BUG-045: Create health file at startup (not just after first batch)
         # Root cause: Health file only created after batch processing completed.
@@ -493,7 +510,7 @@ class ClassificationWorker:
                 except Exception as e:
                     logger.warning(
                         "in_flight_batch_error_during_shutdown",
-                        extra={"error": str(e), "error_type": type(e).__name__}
+                        extra={"error": str(e), "error_type": type(e).__name__},
                     )
             logger.info("worker_shutdown_complete")
 
@@ -501,6 +518,7 @@ class ClassificationWorker:
 # =============================================================================
 # ENTRY POINT
 # =============================================================================
+
 
 def main() -> None:
     """Entry point - uses low-level API for graceful shutdown.

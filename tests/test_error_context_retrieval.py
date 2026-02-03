@@ -8,7 +8,6 @@ Tests:
 - Graceful degradation
 """
 
-
 import pytest
 
 # Mock the missing functions from error_context_retrieval.py

@@ -46,9 +46,9 @@ def get_latest_version() -> Optional[str]:
     # 2026 Best Practice: Explicit timeout with connect/read separation
     timeout = httpx.Timeout(
         connect=5.0,  # 5 seconds to establish connection
-        read=10.0,    # 10 seconds to read response
-        write=5.0,    # 5 seconds to send request
-        pool=5.0      # 5 seconds to acquire connection from pool
+        read=10.0,  # 10 seconds to read response
+        write=5.0,  # 5 seconds to send request
+        pool=5.0,  # 5 seconds to acquire connection from pool
     )
 
     # 2026 Best Practice: Retry with exponential backoff
@@ -59,7 +59,7 @@ def get_latest_version() -> Optional[str]:
                 url,
                 timeout=timeout,
                 headers={"Accept": "application/vnd.github+json"},
-                follow_redirects=True
+                follow_redirects=True,
             )
 
             response.raise_for_status()
@@ -72,19 +72,22 @@ def get_latest_version() -> Optional[str]:
             last_error = "Timeout checking for updates (network slow or offline)"
             # Exponential backoff: 1s, 2s, 4s
             if attempt < MAX_RETRIES - 1:
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
         except httpx.HTTPStatusError as e:
             # Don't retry 4xx errors (client errors)
             if 400 <= e.response.status_code < 500:
-                print(f"⚠️  HTTP error checking for updates: {e.response.status_code}", file=sys.stderr)
+                print(
+                    f"⚠️  HTTP error checking for updates: {e.response.status_code}",
+                    file=sys.stderr,
+                )
                 return None
             last_error = f"HTTP error: {e.response.status_code}"
             if attempt < MAX_RETRIES - 1:
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
         except httpx.RequestError as e:
             last_error = f"Network error: {e}"
             if attempt < MAX_RETRIES - 1:
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
         except (KeyError, ValueError) as e:
             print(f"⚠️  Unexpected API response format: {e}", file=sys.stderr)
             return None

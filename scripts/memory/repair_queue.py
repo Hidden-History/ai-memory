@@ -57,7 +57,9 @@ def validate_entry(entry: dict) -> bool:
     return all(field in entry for field in required_fields)
 
 
-def repair_queue(queue_path: Path, dry_run: bool, verbose: bool) -> tuple[int, int, int]:
+def repair_queue(
+    queue_path: Path, dry_run: bool, verbose: bool
+) -> tuple[int, int, int]:
     """
     Repair the queue file by extracting valid JSON entries.
 
@@ -151,7 +153,9 @@ def repair_queue(queue_path: Path, dry_run: bool, verbose: bool) -> tuple[int, i
         print(f"\nRepair complete. {valid_count} valid entries preserved.")
 
         if corrupt_count > 0:
-            print(f"\n⚠ {corrupt_count} corrupt entries lost. Check {corrupt_backup} if needed.")
+            print(
+                f"\n⚠ {corrupt_count} corrupt entries lost. Check {corrupt_backup} if needed."
+            )
 
     except Exception as e:
         print(f"\n✗ Error during repair: {e}")
@@ -176,9 +180,7 @@ def main() -> int:
 
     try:
         valid, corrupt, recovered = repair_queue(
-            args.queue_path,
-            args.dry_run,
-            args.verbose
+            args.queue_path, args.dry_run, args.verbose
         )
 
         # Return success if no errors occurred

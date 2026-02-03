@@ -30,11 +30,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Add src to path for imports (must be inline before importing from memory)
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # CR-3.3: Use consolidated logging and transcript reading
-from memory.hooks_common import setup_hook_logging, read_transcript
+from memory.hooks_common import read_transcript, setup_hook_logging
+
 logger = setup_hook_logging()
 
 # Import metrics for Prometheus instrumentation
@@ -64,7 +67,9 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
 # CR-3.3: read_transcript() moved to hooks_common.py
 
 
-def extract_last_assistant_message(entries: List[Dict[str, Any]], max_retries: int = 5, retry_delay: float = 0.1) -> Optional[str]:
+def extract_last_assistant_message(
+    entries: List[Dict[str, Any]], max_retries: int = 5, retry_delay: float = 0.1
+) -> Optional[str]:
     """Extract the last assistant message from transcript with retry for timing issues.
 
     Args:
@@ -114,7 +119,9 @@ def extract_last_assistant_message(entries: List[Dict[str, Any]], max_retries: i
     return None
 
 
-def fork_to_background(hook_input: Dict[str, Any], response_text: str, turn_number: int) -> None:
+def fork_to_background(
+    hook_input: Dict[str, Any], response_text: str, turn_number: int
+) -> None:
     """Fork storage operation to background process.
 
     Args:
@@ -134,7 +141,7 @@ def fork_to_background(hook_input: Dict[str, Any], response_text: str, turn_numb
         store_data = {
             "session_id": hook_input["session_id"],
             "response_text": response_text,
-            "turn_number": turn_number
+            "turn_number": turn_number,
         }
 
         # Serialize data for background process
@@ -146,21 +153,18 @@ def fork_to_background(hook_input: Dict[str, Any], response_text: str, turn_numb
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True  # Full detachment from parent
+            start_new_session=True,  # Full detachment from parent
         )
 
         # Write input and close stdin (non-blocking, CRITICAL FIX: error handling)
         try:
             if process.stdin:
-                process.stdin.write(input_json.encode('utf-8'))
+                process.stdin.write(input_json.encode("utf-8"))
                 process.stdin.close()
         except (BrokenPipeError, OSError) as e:
             logger.error(
                 "stdin_write_failed",
-                extra={
-                    "error": str(e),
-                    "error_type": type(e).__name__
-                }
+                extra={"error": str(e), "error_type": type(e).__name__},
             )
 
         logger.info(
@@ -169,18 +173,14 @@ def fork_to_background(hook_input: Dict[str, Any], response_text: str, turn_numb
                 "hook_type": "Stop",
                 "session_id": hook_input["session_id"],
                 "turn_number": turn_number,
-                "response_length": len(response_text)
-            }
+                "response_length": len(response_text),
+            },
         )
 
     except Exception as e:
         # Non-blocking error - log and continue
         logger.error(
-            "fork_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "fork_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
 
@@ -202,10 +202,7 @@ def main() -> int:
         except json.JSONDecodeError as e:
             logger.error(
                 "malformed_json",
-                extra={
-                    "error": str(e),
-                    "input_preview": raw_input[:100]
-                }
+                extra={"error": str(e), "input_preview": raw_input[:100]},
             )
             return 0  # Non-blocking - Claude continues
 
@@ -216,8 +213,8 @@ def main() -> int:
                 "validation_failed",
                 extra={
                     "reason": validation_error,
-                    "session_id": hook_input.get("session_id")
-                }
+                    "session_id": hook_input.get("session_id"),
+                },
             )
             return 0  # Non-blocking - graceful handling
 
@@ -228,7 +225,7 @@ def main() -> int:
         if not transcript_entries:
             logger.info(
                 "no_transcript_skipping",
-                extra={"session_id": hook_input.get("session_id")}
+                extra={"session_id": hook_input.get("session_id")},
             )
             return 0
 
@@ -255,13 +252,18 @@ def main() -> int:
         if not response_text:
             logger.info(
                 "no_assistant_message_found",
-                extra={"session_id": hook_input.get("session_id"), "attempts": max_retries + 1}
+                extra={
+                    "session_id": hook_input.get("session_id"),
+                    "attempts": max_retries + 1,
+                },
             )
             return 0
 
         # Count turns (HIGH FIX: count only assistant messages for agent turn number)
         # Current response is already included in transcript_entries
-        assistant_count = sum(1 for e in transcript_entries if e.get("type") == "assistant")
+        assistant_count = sum(
+            1 for e in transcript_entries if e.get("type") == "assistant"
+        )
         # Validate turn number (Fix #3: bounds checking prevents corruption)
         turn_number = max(1, min(assistant_count, 10000))  # Bounds: 1 to 10000
 
@@ -279,11 +281,7 @@ def main() -> int:
     except Exception as e:
         # Catch-all for unexpected errors
         logger.error(
-            "hook_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
         # Metrics: Record hook duration even on error

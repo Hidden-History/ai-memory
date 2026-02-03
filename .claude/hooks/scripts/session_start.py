@@ -11,35 +11,51 @@ Best Practices (2026):
 - https://signoz.io/guides/python-logging-best-practices/ (Structured Logging 2025)
 """
 
-import sys
 import json
-import os
 import logging
+import os
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 # Add src to path for system python3 execution
 # Use INSTALL_DIR to find installed module (fixes path calculation bug)
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 local_src = os.path.join(INSTALL_DIR, "src")
 
 # Always use INSTALL_DIR for src path (multi-project support)
 sys.path.insert(0, local_src)
 
-from memory.config import get_config, COLLECTION_DISCUSSIONS, COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS
-from memory.qdrant_client import get_qdrant_client
+from memory.activity_log import (
+    log_conversation_context_injection,
+    log_error,
+    log_session_start,
+)
+from memory.config import (
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+    COLLECTION_DISCUSSIONS,
+    get_config,
+)
+from memory.filters import (
+    filter_low_value_content,
+    is_duplicate_message,
+    smart_truncate,
+)
 from memory.health import check_qdrant_health
-from memory.project import detect_project
 from memory.logging_config import configure_logging
-from memory.activity_log import log_session_start, log_conversation_context_injection, log_error
 from memory.metrics_push import track_hook_duration
-from memory.filters import filter_low_value_content, smart_truncate, is_duplicate_message
+from memory.project import detect_project
+from memory.qdrant_client import get_qdrant_client
 
 # Configure structured logging (Story 6.2)
 # Log to stderr since stdout is reserved for context injection
 handler = logging.StreamHandler(sys.stderr)
 from memory.logging_config import StructuredFormatter
+
 handler.setFormatter(StructuredFormatter())
 logger = logging.getLogger("ai_memory.hooks")
 logger.setLevel(logging.INFO)
@@ -48,7 +64,11 @@ logger.propagate = False
 
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
 try:
-    from memory.metrics import memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds
+    from memory.metrics import (
+        hook_duration_seconds,
+        memory_retrievals_total,
+        retrieval_duration_seconds,
+    )
 except ImportError:
     # Graceful degradation if metrics unavailable
     logger.warning("metrics_module_unavailable")
@@ -58,7 +78,7 @@ except ImportError:
 
 # TECH-DEBT-067: V2.0 token tracking metrics
 try:
-    from memory.metrics import tokens_consumed_total, context_injection_tokens
+    from memory.metrics import context_injection_tokens, tokens_consumed_total
 except ImportError:
     tokens_consumed_total = None
     context_injection_tokens = None
@@ -85,9 +105,7 @@ def estimate_tokens(content: str) -> int:
 
 
 def inject_with_priority(
-    session_summaries: list[dict],
-    other_memories: list[dict],
-    token_budget: int
+    session_summaries: list[dict], other_memories: list[dict], token_budget: int
 ) -> str:
     """Inject memories with priority ordering (TECH-DEBT-047).
 
@@ -118,7 +136,9 @@ def inject_with_priority(
     """
     # Validate token budget (TECH-DEBT-047 LOW-10 fix)
     if token_budget <= 0:
-        logger.warning("inject_with_priority_invalid_budget", extra={"budget": token_budget})
+        logger.warning(
+            "inject_with_priority_invalid_budget", extra={"budget": token_budget}
+        )
         return ""
 
     result = []
@@ -130,8 +150,8 @@ def inject_with_priority(
         "priority_injection_phase1_summaries",
         extra={
             "summary_budget": summary_budget,
-            "summary_count": len(session_summaries)
-        }
+            "summary_count": len(session_summaries),
+        },
     )
 
     if session_summaries:
@@ -169,7 +189,7 @@ def inject_with_priority(
             time_str = ""
             if timestamp:
                 try:
-                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
                     time_str = dt.strftime("%H:%M")
                 except (ValueError, AttributeError):
                     time_str = ""
@@ -186,13 +206,15 @@ def inject_with_priority(
                 logger.debug(
                     "summary_skipped_budget_exceeded",
                     extra={
-                        "summary_preview": content[:50] + "..." if len(content) > 50 else content,
+                        "summary_preview": (
+                            content[:50] + "..." if len(content) > 50 else content
+                        ),
                         "summary_tokens": summary_tokens,
                         "budget_remaining": summary_budget - tokens_used,
                         "summary_index": summaries_added,
                         "tokens_used": tokens_used,
-                        "summary_budget": summary_budget
-                    }
+                        "summary_budget": summary_budget,
+                    },
                 )
                 break  # Stop adding summaries
 
@@ -206,8 +228,8 @@ def inject_with_priority(
             extra={
                 "summaries_added": summaries_added,
                 "tokens_used": tokens_used,
-                "summary_budget": summary_budget
-            }
+                "summary_budget": summary_budget,
+            },
         )
 
         # BUG-026 FIX: Extract rich context from most recent summary
@@ -225,7 +247,11 @@ def inject_with_priority(
                 for prompt_data in last_user_prompts:
                     if tokens_used >= summary_budget:
                         break
-                    content = prompt_data.get("content", "") if isinstance(prompt_data, dict) else str(prompt_data)
+                    content = (
+                        prompt_data.get("content", "")
+                        if isinstance(prompt_data, dict)
+                        else str(prompt_data)
+                    )
                     if not content or not content.strip():
                         continue
 
@@ -258,7 +284,11 @@ def inject_with_priority(
                 for response_data in last_agent_responses:
                     if tokens_used >= summary_budget:
                         break
-                    content = response_data.get("content", "") if isinstance(response_data, dict) else str(response_data)
+                    content = (
+                        response_data.get("content", "")
+                        if isinstance(response_data, dict)
+                        else str(response_data)
+                    )
                     if not content or not content.strip():
                         continue
 
@@ -287,8 +317,8 @@ def inject_with_priority(
                     "user_prompts_available": len(last_user_prompts),
                     "agent_responses_available": len(last_agent_responses),
                     "tokens_used_after_rich": tokens_used,
-                    "summary_budget": summary_budget
-                }
+                    "summary_budget": summary_budget,
+                },
             )
 
     # Phase 2: Other memories (fixed 40% allocation)
@@ -304,8 +334,8 @@ def inject_with_priority(
             "fixed_budget": fixed_other_budget,
             "effective_budget": other_budget,
             "other_count": len(other_memories),
-            "tokens_used_by_summaries": tokens_used
-        }
+            "tokens_used_by_summaries": tokens_used,
+        },
     )
 
     if other_memories and other_budget > 0:
@@ -353,14 +383,16 @@ def inject_with_priority(
                 logger.debug(
                     "memory_skipped_budget_exceeded",
                     extra={
-                        "memory_preview": content[:50] + "..." if len(content) > 50 else content,
+                        "memory_preview": (
+                            content[:50] + "..." if len(content) > 50 else content
+                        ),
                         "memory_type": memory_type,
                         "memory_tokens": memory_tokens,
                         "budget_remaining": token_budget - tokens_used,
                         "tokens_used": tokens_used,
                         "token_budget": token_budget,
-                        "memories_added": memories_added
-                    }
+                        "memories_added": memories_added,
+                    },
                 )
                 break  # Stop adding memories
 
@@ -374,8 +406,8 @@ def inject_with_priority(
             extra={
                 "memories_added": memories_added,
                 "tokens_used": tokens_used,
-                "token_budget": token_budget
-            }
+                "token_budget": token_budget,
+            },
         )
 
     logger.info(
@@ -383,14 +415,18 @@ def inject_with_priority(
         extra={
             "total_tokens_used": tokens_used,
             "token_budget": token_budget,
-            "utilization_pct": int((tokens_used / token_budget) * 100) if token_budget > 0 else 0
-        }
+            "utilization_pct": (
+                int((tokens_used / token_budget) * 100) if token_budget > 0 else 0
+            ),
+        },
     )
 
     return "\n".join(result)
 
 
-def retrieve_session_summaries(client, project_name: str, limit: int = 20) -> list[dict]:
+def retrieve_session_summaries(
+    client, project_name: str, limit: int = 20
+) -> list[dict]:
     """Retrieve session summaries from discussions collection.
 
     Extracts shared retrieval logic used by both get_conversation_context()
@@ -405,14 +441,15 @@ def retrieve_session_summaries(client, project_name: str, limit: int = 20) -> li
         List of summary dicts sorted by timestamp (most recent first).
         Returns empty list if no summaries found or on error.
     """
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
     from memory.config import TYPE_SESSION
 
     try:
         summary_filter = Filter(
             must=[
                 FieldCondition(key="group_id", match=MatchValue(value=project_name)),
-                FieldCondition(key="type", match=MatchValue(value=TYPE_SESSION))
+                FieldCondition(key="type", match=MatchValue(value=TYPE_SESSION)),
             ]
         )
 
@@ -422,7 +459,7 @@ def retrieve_session_summaries(client, project_name: str, limit: int = 20) -> li
             limit=limit,
             with_payload=True,
             with_vectors=False,
-            timeout=2  # 2s timeout to stay within <3s SLA
+            timeout=2,  # 2s timeout to stay within <3s SLA
         )
 
         if not summary_results[0]:
@@ -431,29 +468,35 @@ def retrieve_session_summaries(client, project_name: str, limit: int = 20) -> li
         summaries = []
         for point in summary_results[0]:
             payload = point.payload
-            summaries.append({
-                "content": payload.get("content", ""),
-                "timestamp": payload.get("created_at", payload.get("timestamp", "")),
-                "type": payload.get("type", "session"),
-                "first_user_prompt": payload.get("first_user_prompt", ""),
-                "last_user_prompts": payload.get("last_user_prompts", []),
-                "last_agent_responses": payload.get("last_agent_responses", []),
-                "session_metadata": payload.get("session_metadata", {})
-            })
+            summaries.append(
+                {
+                    "content": payload.get("content", ""),
+                    "timestamp": payload.get(
+                        "created_at", payload.get("timestamp", "")
+                    ),
+                    "type": payload.get("type", "session"),
+                    "first_user_prompt": payload.get("first_user_prompt", ""),
+                    "last_user_prompts": payload.get("last_user_prompts", []),
+                    "last_agent_responses": payload.get("last_agent_responses", []),
+                    "session_metadata": payload.get("session_metadata", {}),
+                }
+            )
 
         # Sort by timestamp descending (most recent first)
         summaries.sort(key=lambda s: s.get("timestamp", ""), reverse=True)
         return summaries
 
     except Exception as e:
-        logger.warning("retrieve_session_summaries_failed", extra={
-            "project_name": project_name,
-            "error": str(e)
-        })
+        logger.warning(
+            "retrieve_session_summaries_failed",
+            extra={"project_name": project_name, "error": str(e)},
+        )
         return []
 
 
-def get_conversation_context(config, session_id: str, project_name: str, limit: int = 3) -> str:
+def get_conversation_context(
+    config, session_id: str, project_name: str, limit: int = 3
+) -> str:
     """Retrieve rich session summaries for post-compaction context injection.
 
     V2.1 Simplified Architecture:
@@ -502,7 +545,7 @@ def get_conversation_context(config, session_id: str, project_name: str, limit: 
             time_str = ""
             if timestamp:
                 try:
-                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
                     time_str = dt.strftime("%H:%M")
                 except (ValueError, AttributeError):
                     time_str = ""
@@ -518,7 +561,11 @@ def get_conversation_context(config, session_id: str, project_name: str, limit: 
         if last_user_prompts:
             lines.append("\n## Recent User Messages\n")
             for prompt_data in last_user_prompts:
-                content = prompt_data.get("content", "") if isinstance(prompt_data, dict) else str(prompt_data)
+                content = (
+                    prompt_data.get("content", "")
+                    if isinstance(prompt_data, dict)
+                    else str(prompt_data)
+                )
                 # Filter and truncate
                 filtered_content = filter_low_value_content(content)
                 if filtered_content.strip():
@@ -531,7 +578,11 @@ def get_conversation_context(config, session_id: str, project_name: str, limit: 
         if last_agent_responses:
             lines.append("\n## Agent Context Summary\n")
             for response_data in last_agent_responses:
-                content = response_data.get("content", "") if isinstance(response_data, dict) else str(response_data)
+                content = (
+                    response_data.get("content", "")
+                    if isinstance(response_data, dict)
+                    else str(response_data)
+                )
                 # Filter and truncate agent responses more aggressively
                 filtered_content = filter_low_value_content(content)
                 if filtered_content.strip():
@@ -543,10 +594,10 @@ def get_conversation_context(config, session_id: str, project_name: str, limit: 
 
     except Exception as e:
         # Graceful degradation - conversation context is optional
-        logger.warning("conversation_context_failed", extra={
-            "session_id": session_id,
-            "error": str(e)
-        })
+        logger.warning(
+            "conversation_context_failed",
+            extra={"session_id": session_id, "error": str(e)},
+        )
         return ""
 
 
@@ -566,17 +617,22 @@ def main():
             # Extract context
             cwd = hook_input.get("cwd", os.getcwd())
             session_id = hook_input.get("session_id", "unknown")
-            trigger = hook_input.get("source", "startup")  # startup, resume, compact, clear
+            trigger = hook_input.get(
+                "source", "startup"
+            )  # startup, resume, compact, clear
             project_name = detect_project(cwd)  # FR13 - automatic project detection
 
             # BUG-020 DEBUG: Log every hook invocation to detect duplicates
-            logger.debug("session_start_invoked", extra={
-                "session_id": session_id,
-                "trigger": trigger,
-                "project": project_name,
-                "pid": os.getpid(),
-                "hook_input": hook_input
-            })
+            logger.debug(
+                "session_start_invoked",
+                extra={
+                    "session_id": session_id,
+                    "trigger": trigger,
+                    "project": project_name,
+                    "pid": os.getpid(),
+                    "hook_input": hook_input,
+                },
+            )
 
             # Check Qdrant health (graceful degradation if down)
             config = get_config()
@@ -585,50 +641,81 @@ def main():
                 log_empty_session(
                     session_id=session_id,
                     project=project_name,
-                    reason="qdrant_unavailable"
+                    reason="qdrant_unavailable",
                 )
 
                 # Metrics: Retrieval failed due to Qdrant unavailable (Story 6.1, AC 6.1.3)
                 # TECH-DEBT-012: Changed from "combined" to "discussions"
                 if memory_retrievals_total:
-                    memory_retrievals_total.labels(collection=COLLECTION_DISCUSSIONS, status="failed").inc()
+                    memory_retrievals_total.labels(
+                        collection=COLLECTION_DISCUSSIONS, status="failed"
+                    ).inc()
 
                 # Empty context JSON - Claude continues without memories
-                print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}}))
+                print(
+                    json.dumps(
+                        {
+                            "hookSpecificOutput": {
+                                "hookEventName": "SessionStart",
+                                "additionalContext": "",
+                            }
+                        }
+                    )
+                )
                 sys.exit(0)
 
             # V2.0 Phase 5: Inject on resume and compact (conversation continuity)
             # startup/clear: No injection - we don't know context yet or user wants fresh start
             if trigger in ["startup", "clear"]:
                 duration_ms = (time.perf_counter() - start_time) * 1000
-                logger.info("v2_no_injection", extra={
-                    "trigger": trigger,
-                    "session_id": session_id,
-                    "project": project_name,
-                    "reason": "V2.0 injects on resume and compact only",
-                    "duration_ms": round(duration_ms, 2)
-                })
+                logger.info(
+                    "v2_no_injection",
+                    extra={
+                        "trigger": trigger,
+                        "session_id": session_id,
+                        "project": project_name,
+                        "reason": "V2.0 injects on resume and compact only",
+                        "duration_ms": round(duration_ms, 2),
+                    },
+                )
 
                 # User notification - V2.0 behavior
-                print(f"🧠 AI Memory V2.0: No injection on {trigger} (fresh start) [{duration_ms:.0f}ms]", file=sys.stderr)
+                print(
+                    f"🧠 AI Memory V2.0: No injection on {trigger} (fresh start) [{duration_ms:.0f}ms]",
+                    file=sys.stderr,
+                )
 
                 # Empty context JSON - no injection on startup/resume/clear
-                print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}}))
+                print(
+                    json.dumps(
+                        {
+                            "hookSpecificOutput": {
+                                "hookEventName": "SessionStart",
+                                "additionalContext": "",
+                            }
+                        }
+                    )
+                )
                 sys.exit(0)
 
             # On resume or compact: Inject conversation context to restore working memory
-            logger.info("v2_context_injection", extra={
-                "trigger": trigger,
-                "session_id": session_id,
-                "project": project_name
-            })
+            logger.info(
+                "v2_context_injection",
+                extra={
+                    "trigger": trigger,
+                    "session_id": session_id,
+                    "project": project_name,
+                },
+            )
 
             # TECH-DEBT-047: Priority-based injection
             # Phase 1: Retrieve session summaries (60% of budget)
             # Phase 2: Retrieve other memories - decisions, patterns, conventions (40% of budget)
 
             # Retrieve session summaries using shared helper (TECH-DEBT-047 refactor)
-            session_summaries = retrieve_session_summaries(client, project_name, limit=20)
+            session_summaries = retrieve_session_summaries(
+                client, project_name, limit=20
+            )
             # Take top 5 most recent
             session_summaries = session_summaries[:5]
 
@@ -638,7 +725,7 @@ def main():
             memories_per_collection = {
                 COLLECTION_DISCUSSIONS: 0,
                 COLLECTION_CODE_PATTERNS: 0,
-                COLLECTION_CONVENTIONS: 0
+                COLLECTION_CONVENTIONS: 0,
             }
             try:
                 from memory.search import MemorySearch
@@ -649,9 +736,9 @@ def main():
                     first_summary = session_summaries[0]
                     # Try multiple fields for better query relevance
                     query = (
-                        first_summary.get("first_user_prompt") or
-                        first_summary.get("content", "")[:200] or  # Use content preview
-                        "recent implementation patterns"
+                        first_summary.get("first_user_prompt")
+                        or first_summary.get("content", "")[:200]  # Use content preview
+                        or "recent implementation patterns"
                     )
 
                 # Search for relevant memories across collections
@@ -664,13 +751,15 @@ def main():
                     group_id=project_name,
                     limit=3,
                     memory_type="decision",
-                    fast_mode=True  # Use fast mode for triggers
+                    fast_mode=True,  # Use fast mode for triggers
                 )
                 other_memories.extend(decisions)
                 memories_per_collection[COLLECTION_DISCUSSIONS] = len(decisions)
                 # Track retrieval metric for discussions
                 if memory_retrievals_total and decisions:
-                    memory_retrievals_total.labels(collection=COLLECTION_DISCUSSIONS, status="success").inc(len(decisions))
+                    memory_retrievals_total.labels(
+                        collection=COLLECTION_DISCUSSIONS, status="success"
+                    ).inc(len(decisions))
 
                 # Search patterns from code-patterns
                 patterns = searcher.search(
@@ -678,13 +767,15 @@ def main():
                     collection=COLLECTION_CODE_PATTERNS,
                     group_id=project_name,
                     limit=3,
-                    fast_mode=True
+                    fast_mode=True,
                 )
                 other_memories.extend(patterns)
                 memories_per_collection[COLLECTION_CODE_PATTERNS] = len(patterns)
                 # Track retrieval metric for code-patterns
                 if memory_retrievals_total and patterns:
-                    memory_retrievals_total.labels(collection=COLLECTION_CODE_PATTERNS, status="success").inc(len(patterns))
+                    memory_retrievals_total.labels(
+                        collection=COLLECTION_CODE_PATTERNS, status="success"
+                    ).inc(len(patterns))
 
                 # Search conventions (no group_id filter - shared)
                 conventions = searcher.search(
@@ -692,28 +783,30 @@ def main():
                     collection=COLLECTION_CONVENTIONS,
                     group_id=None,  # Shared across projects
                     limit=2,
-                    fast_mode=True
+                    fast_mode=True,
                 )
                 other_memories.extend(conventions)
                 memories_per_collection[COLLECTION_CONVENTIONS] = len(conventions)
                 # Track retrieval metric for conventions
                 if memory_retrievals_total and conventions:
-                    memory_retrievals_total.labels(collection=COLLECTION_CONVENTIONS, status="success").inc(len(conventions))
+                    memory_retrievals_total.labels(
+                        collection=COLLECTION_CONVENTIONS, status="success"
+                    ).inc(len(conventions))
 
                 searcher.close()
 
             except Exception as e:
-                logger.warning("other_memories_retrieval_failed", extra={
-                    "session_id": session_id,
-                    "error": str(e)
-                })
+                logger.warning(
+                    "other_memories_retrieval_failed",
+                    extra={"session_id": session_id, "error": str(e)},
+                )
                 other_memories = []
 
             # Use priority injection (TECH-DEBT-047)
             conversation_context = inject_with_priority(
                 session_summaries=session_summaries,
                 other_memories=other_memories,
-                token_budget=config.token_budget
+                token_budget=config.token_budget,
             )
 
             # Calculate duration for logging
@@ -731,41 +824,58 @@ def main():
                 if estimated_tokens > token_budget:
                     # Context exceeds budget - truncate to fit
                     target_chars = token_budget * 4
-                    conversation_context = conversation_context[:target_chars] + f"\n\n... [truncated - exceeded token budget of {token_budget} tokens]"
-                    logger.warning("context_truncated_budget_exceeded", extra={
-                        "session_id": session_id,
-                        "project": project_name,
-                        "original_chars": context_char_count,
-                        "truncated_chars": target_chars,
-                        "token_budget": token_budget,
-                        "estimated_tokens": estimated_tokens
-                    })
+                    conversation_context = (
+                        conversation_context[:target_chars]
+                        + f"\n\n... [truncated - exceeded token budget of {token_budget} tokens]"
+                    )
+                    logger.warning(
+                        "context_truncated_budget_exceeded",
+                        extra={
+                            "session_id": session_id,
+                            "project": project_name,
+                            "original_chars": context_char_count,
+                            "truncated_chars": target_chars,
+                            "token_budget": token_budget,
+                            "estimated_tokens": estimated_tokens,
+                        },
+                    )
 
                 # Log successful conversation context retrieval
-                message_count = conversation_context.count("**User") + conversation_context.count("**Agent")
+                message_count = conversation_context.count(
+                    "**User"
+                ) + conversation_context.count("**Agent")
                 summary_count = conversation_context.count("**Summary")
                 total_count = message_count + summary_count
-                logger.info("conversation_context_injected", extra={
-                    "session_id": session_id,
-                    "project": project_name,
-                    "message_count": message_count,
-                    "summary_count": summary_count,
-                    "duration_ms": round(duration_ms, 2),
-                    "final_chars": len(conversation_context)
-                })
+                logger.info(
+                    "conversation_context_injected",
+                    extra={
+                        "session_id": session_id,
+                        "project": project_name,
+                        "message_count": message_count,
+                        "summary_count": summary_count,
+                        "duration_ms": round(duration_ms, 2),
+                        "final_chars": len(conversation_context),
+                    },
+                )
 
                 # User notification - conversation context injected
-                print(f"🧠 AI Memory V2.0: Conversation context restored ({total_count} items: {summary_count} summaries, {message_count} messages) [{duration_ms:.0f}ms]", file=sys.stderr)
+                print(
+                    f"🧠 AI Memory V2.0: Conversation context restored ({total_count} items: {summary_count} summaries, {message_count} messages) [{duration_ms:.0f}ms]",
+                    file=sys.stderr,
+                )
 
                 # BUG-020 DEBUG: Log counts before activity log write
-                logger.debug("pre_activity_log", extra={
-                    "session_id": session_id,
-                    "trigger": trigger,
-                    "message_count": message_count,
-                    "summary_count": summary_count,
-                    "total_count": total_count,
-                    "pid": os.getpid()
-                })
+                logger.debug(
+                    "pre_activity_log",
+                    extra={
+                        "session_id": session_id,
+                        "trigger": trigger,
+                        "message_count": message_count,
+                        "summary_count": summary_count,
+                        "total_count": total_count,
+                        "pid": os.getpid(),
+                    },
+                )
 
                 # Activity log for visibility (V2.0 - log what was actually injected)
                 log_conversation_context_injection(
@@ -774,56 +884,68 @@ def main():
                     message_count=message_count,
                     summary_count=summary_count,
                     duration_ms=duration_ms,
-                    context_preview=conversation_context[:200] if conversation_context else ""
+                    context_preview=(
+                        conversation_context[:200] if conversation_context else ""
+                    ),
                 )
 
                 # Metrics: Successful conversation context injection
                 if memory_retrievals_total:
-                    memory_retrievals_total.labels(collection=COLLECTION_DISCUSSIONS, status="success").inc()
+                    memory_retrievals_total.labels(
+                        collection=COLLECTION_DISCUSSIONS, status="success"
+                    ).inc()
                 if hook_duration_seconds:
-                    hook_duration_seconds.labels(hook_type="SessionStart").observe(duration_seconds)
+                    hook_duration_seconds.labels(hook_type="SessionStart").observe(
+                        duration_seconds
+                    )
 
                 # TECH-DEBT-067: Track token usage
                 if context_injection_tokens:
                     token_count = estimate_tokens(conversation_context)
                     context_injection_tokens.labels(
-                        hook_type="SessionStart",
-                        collection=COLLECTION_DISCUSSIONS
+                        hook_type="SessionStart", collection=COLLECTION_DISCUSSIONS
                     ).observe(token_count)
                 if tokens_consumed_total:
                     token_count = estimate_tokens(conversation_context)
                     tokens_consumed_total.labels(
-                        operation="injection",
-                        direction="output",
-                        project=project_name
+                        operation="injection", direction="output", project=project_name
                     ).inc(token_count)
 
                 # TECH-DEBT-070: Push metrics to Pushgateway (async to avoid latency)
-                from memory.metrics_push import push_context_injection_metrics_async, push_token_metrics_async
+                from memory.metrics_push import (
+                    push_context_injection_metrics_async,
+                    push_token_metrics_async,
+                )
 
                 # BUG-021 fix: Push context injection metrics per collection
                 # Distribute tokens proportionally based on memory counts
-                total_memories = sum(memories_per_collection.values()) + len(session_summaries)
+                total_memories = sum(memories_per_collection.values()) + len(
+                    session_summaries
+                )
                 if total_memories > 0:
                     # Session summaries go to discussions collection
-                    session_tokens = int(token_count * len(session_summaries) / total_memories)
+                    session_tokens = int(
+                        token_count * len(session_summaries) / total_memories
+                    )
                     if session_tokens > 0:
                         push_context_injection_metrics_async(
                             hook_type="SessionStart",
                             collection=COLLECTION_DISCUSSIONS,
                             project=project_name,
-                            token_count=session_tokens
+                            token_count=session_tokens,
                         )
                     # Other memories by their source collection
                     for collection, count in memories_per_collection.items():
                         if count > 0:
-                            collection_tokens = int(token_count * count / total_memories)
+                            collection_tokens = int(
+                                token_count * count / total_memories
+                            )
                             if collection_tokens > 0:
                                 push_context_injection_metrics_async(
                                     hook_type="SessionStart",
                                     collection=collection,
                                     project=project_name,
-                                    token_count=collection_tokens
+                                    token_count=collection_tokens,
                                 )
                 else:
                     # Fallback: all tokens to discussions
@@ -831,42 +953,59 @@ def main():
                         hook_type="SessionStart",
                         collection=COLLECTION_DISCUSSIONS,
                         project=project_name,
-                        token_count=token_count
+                        token_count=token_count,
                     )
 
                 push_token_metrics_async(
                     operation="injection",
                     direction="output",
                     project=project_name,
-                    token_count=token_count
+                    token_count=token_count,
                 )
 
                 # Output conversation context to Claude
                 output = {
                     "hookSpecificOutput": {
                         "hookEventName": "SessionStart",
-                        "additionalContext": conversation_context
+                        "additionalContext": conversation_context,
                     }
                 }
                 print(json.dumps(output))
                 sys.exit(0)
             else:
                 # No conversation context available (new session or no prior conversation)
-                logger.warning("no_conversation_context", extra={
-                    "session_id": session_id,
-                    "project": project_name,
-                    "duration_ms": round(duration_ms, 2)
-                })
+                logger.warning(
+                    "no_conversation_context",
+                    extra={
+                        "session_id": session_id,
+                        "project": project_name,
+                        "duration_ms": round(duration_ms, 2),
+                    },
+                )
 
                 # User notification - no conversation context
-                print(f"🧠 AI Memory V2.0: No conversation context available [{duration_ms:.0f}ms]", file=sys.stderr)
+                print(
+                    f"🧠 AI Memory V2.0: No conversation context available [{duration_ms:.0f}ms]",
+                    file=sys.stderr,
+                )
 
                 # Metrics: Empty conversation context
                 if memory_retrievals_total:
-                    memory_retrievals_total.labels(collection=COLLECTION_DISCUSSIONS, status="empty").inc()
+                    memory_retrievals_total.labels(
+                        collection=COLLECTION_DISCUSSIONS, status="empty"
+                    ).inc()
 
                 # Empty context JSON
-                print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}}))
+                print(
+                    json.dumps(
+                        {
+                            "hookSpecificOutput": {
+                                "hookEventName": "SessionStart",
+                                "additionalContext": "",
+                            }
+                        }
+                    )
+                )
                 sys.exit(0)
 
         except Exception as e:
@@ -876,14 +1015,27 @@ def main():
             # Metrics: Retrieval failed with exception (Story 6.1, AC 6.1.3)
             # TECH-DEBT-012: Changed from "combined" to "discussions"
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection=COLLECTION_DISCUSSIONS, status="failed").inc()
+                memory_retrievals_total.labels(
+                    collection=COLLECTION_DISCUSSIONS, status="failed"
+                ).inc()
             if hook_duration_seconds:
                 duration_ms = (time.perf_counter() - start_time) * 1000
                 duration_seconds = duration_ms / 1000.0
-                hook_duration_seconds.labels(hook_type="SessionStart").observe(duration_seconds)
+                hook_duration_seconds.labels(hook_type="SessionStart").observe(
+                    duration_seconds
+                )
 
             # Empty context JSON on error
-            print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ""}}))
+            print(
+                json.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "SessionStart",
+                            "additionalContext": "",
+                        }
+                    }
+                )
+            )
             sys.exit(0)  # Always exit 0
 
 
@@ -907,7 +1059,7 @@ def log_empty_session(
     project: str,
     reason: str,
     query: str = "",
-    duration_ms: float = 0.0
+    duration_ms: float = 0.0,
 ):
     """Log when session retrieval returns no results.
 
@@ -923,27 +1075,32 @@ def log_empty_session(
         - "qdrant_unavailable": Qdrant service is down/unreachable
         - "below_threshold": Memories exist but none above similarity threshold
     """
-    logger.warning("session_retrieval_empty", extra={
-        "session_id": session_id,
-        "project": project,
-        "reason": reason,
-        "query_preview": query[:100] if query else "",
-        "duration_ms": round(duration_ms, 2),
-        "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-    })
+    logger.warning(
+        "session_retrieval_empty",
+        extra={
+            "session_id": session_id,
+            "project": project,
+            "reason": reason,
+            "query_preview": query[:100] if query else "",
+            "duration_ms": round(duration_ms, 2),
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        },
+    )
 
     # Also log to session file if enabled
     if os.getenv("SESSION_LOG_ENABLED", "false").lower() == "true":
         try:
             from memory.session_logger import log_to_session_file
 
-            log_to_session_file({
-                "session_id": session_id,
-                "project": project,
-                "reason": reason,
-                "results_count": 0,
-                "duration_ms": round(duration_ms, 2)
-            })
+            log_to_session_file(
+                {
+                    "session_id": session_id,
+                    "project": project,
+                    "reason": reason,
+                    "results_count": 0,
+                    "duration_ms": round(duration_ms, 2),
+                }
+            )
         except ImportError:
             # Graceful degradation if session_logger unavailable
             pass

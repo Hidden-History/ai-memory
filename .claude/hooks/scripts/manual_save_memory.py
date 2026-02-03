@@ -28,32 +28,44 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 # BUG-044: Add memory module to path before imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
-src_path = os.path.join(INSTALL_DIR, 'src')
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
+src_path = os.path.join(INSTALL_DIR, "src")
 
 # Validate path exists for graceful degradation
 if not os.path.exists(src_path):
     print(f"⚠️  Warning: Memory module not found at {src_path}", file=sys.stderr)
-    print(f"⚠️  /save-memory will not function without proper installation", file=sys.stderr)
+    print(
+        f"⚠️  /save-memory will not function without proper installation",
+        file=sys.stderr,
+    )
     sys.exit(1)  # Non-blocking error - graceful degradation
 
 sys.path.insert(0, src_path)
 
+from memory.activity_log import log_manual_save
+from memory.config import (
+    COLLECTION_DISCUSSIONS,
+    EMBEDDING_DIMENSIONS,
+    EMBEDDING_MODEL,
+    get_config,
+)
+from memory.embeddings import EmbeddingClient, EmbeddingError
+
 # Now memory module imports will work
 from memory.hooks_common import setup_hook_logging
-
-from memory.config import get_config, COLLECTION_DISCUSSIONS, EMBEDDING_DIMENSIONS, EMBEDDING_MODEL
-from memory.queue import queue_operation
-from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 from memory.project import detect_project
-from memory.embeddings import EmbeddingClient, EmbeddingError
-from memory.activity_log import log_manual_save
+from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
+from memory.queue import queue_operation
 
 # Configure structured logging using shared utility (CR-4 Wave 2)
 logger = setup_hook_logging("ai_memory.manual")
 
 # Log successful path setup (F7: telemetry)
-logger.debug("python_path_configured", extra={"install_dir": INSTALL_DIR, "src_path": src_path})
+logger.debug(
+    "python_path_configured", extra={"install_dir": INSTALL_DIR, "src_path": src_path}
+)
 
 # Import Qdrant-specific exceptions
 try:
@@ -80,10 +92,12 @@ def store_manual_summary(project_name: str, description: str, session_id: str) -
         bool: True if stored successfully, False if queued
     """
     try:
+        import uuid
+
         from qdrant_client.models import PointStruct
+
         from memory.models import EmbeddingStatus
         from memory.validation import compute_content_hash
-        import uuid
 
         # Build summary content
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -109,14 +123,18 @@ This session summary was manually saved by the user using /save-memory command.
             embedding_status = EmbeddingStatus.COMPLETE.value
             logger.info(
                 "embedding_generated",
-                extra={"memory_id": memory_id, "dimensions": len(vector)}
+                extra={"memory_id": memory_id, "dimensions": len(vector)},
             )
         except EmbeddingError as e:
             # CR-4.4: Explicitly set FAILED status when embedding generation fails
             embedding_status = EmbeddingStatus.FAILED.value
             logger.warning(
                 "embedding_failed_using_placeholder",
-                extra={"error": str(e), "memory_id": memory_id, "embedding_status": "failed"}
+                extra={
+                    "error": str(e),
+                    "memory_id": memory_id,
+                    "embedding_status": "failed",
+                },
             )
             # Continue with zero vector - will be backfilled later
 
@@ -132,20 +150,14 @@ This session summary was manually saved by the user using /save-memory command.
             "embedding_model": EMBEDDING_MODEL,  # CR-4.8
             "importance": "normal",
             "manual_save": True,
-            "user_description": description
+            "user_description": description,
         }
 
         # Store to discussions collection
         client = get_qdrant_client()
         client.upsert(
             collection_name=COLLECTION_DISCUSSIONS,
-            points=[
-                PointStruct(
-                    id=memory_id,
-                    vector=vector,
-                    payload=payload
-                )
-            ]
+            points=[PointStruct(id=memory_id, vector=vector, payload=payload)],
         )
 
         logger.info(
@@ -153,20 +165,25 @@ This session summary was manually saved by the user using /save-memory command.
             extra={
                 "memory_id": memory_id,
                 "session_id": session_id,
-                "group_id": project_name
-            }
+                "group_id": project_name,
+            },
         )
 
         return True
 
-    except (ResponseHandlingException, UnexpectedResponse, ApiException, QdrantUnavailable) as e:
+    except (
+        ResponseHandlingException,
+        UnexpectedResponse,
+        ApiException,
+        QdrantUnavailable,
+    ) as e:
         logger.warning(
             "storage_failed_queuing",
             extra={
                 "error": str(e),
                 "error_type": type(e).__name__,
-                "project": project_name
-            }
+                "project": project_name,
+            },
         )
         # Queue for background processing
         queue_data = {
@@ -175,18 +192,14 @@ This session summary was manually saved by the user using /save-memory command.
             "memory_type": "session",
             "source_hook": "ManualSave",
             "session_id": session_id,
-            "importance": "normal"
+            "importance": "normal",
         }
         queue_operation(queue_data)
         return False
 
     except Exception as e:
         logger.error(
-            "unexpected_error",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "unexpected_error", extra={"error": str(e), "error_type": type(e).__name__}
         )
         return False
 

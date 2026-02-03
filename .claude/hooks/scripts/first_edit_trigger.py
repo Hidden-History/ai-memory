@@ -38,17 +38,21 @@ import time
 from pathlib import Path
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Configure structured logging using shared utility
 from memory.config import COLLECTION_CODE_PATTERNS
-from memory.hooks_common import setup_hook_logging, log_to_activity, get_metrics
+from memory.hooks_common import get_metrics, log_to_activity, setup_hook_logging
 
 logger = setup_hook_logging()
 
 # CR-2 FIX: Use consolidated metrics import
-memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = get_metrics()
+memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = (
+    get_metrics()
+)
 
 # Display formatting constants
 MAX_CONTENT_CHARS = 400  # Maximum characters to show in context output
@@ -120,14 +124,14 @@ def main() -> int:
             return 0
 
         # Check if this is the first edit to this file in this session (trigger condition)
-        from memory.triggers import is_first_edit_in_session, TRIGGER_CONFIG
+        from memory.triggers import TRIGGER_CONFIG, is_first_edit_in_session
 
         if not is_first_edit_in_session(file_path, session_id):
             # Not first edit - skip retrieval
-            logger.debug("subsequent_edit_skipping_trigger", extra={
-                "file_path": file_path,
-                "session_id": session_id
-            })
+            logger.debug(
+                "subsequent_edit_skipping_trigger",
+                extra={"file_path": file_path, "session_id": session_id},
+            )
             return 0
 
         # First edit detected - retrieve patterns
@@ -141,11 +145,11 @@ def main() -> int:
         query = f"File patterns for {file_path}"
 
         # Search code-patterns collection
-        from memory.search import MemorySearch
         from memory.config import get_config
         from memory.health import check_qdrant_health
-        from memory.qdrant_client import get_qdrant_client
         from memory.project import detect_project
+        from memory.qdrant_client import get_qdrant_client
+        from memory.search import MemorySearch
 
         mem_config = get_config()
         client = get_qdrant_client(mem_config)
@@ -154,7 +158,9 @@ def main() -> int:
         if not check_qdrant_health(client):
             logger.warning("qdrant_unavailable")
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection=COLLECTION_CODE_PATTERNS, status="failed").inc()
+                memory_retrievals_total.labels(
+                    collection=COLLECTION_CODE_PATTERNS, status="failed"
+                ).inc()
             return 0
 
         # Detect project for filtering
@@ -169,38 +175,46 @@ def main() -> int:
                 group_id=project_name,  # Project-specific patterns
                 limit=config.get("max_results", 3),
                 score_threshold=mem_config.similarity_threshold,
-                memory_type=config.get("type_filter", "file_pattern")
+                memory_type=config.get("type_filter", "file_pattern"),
             )
 
             if not results:
                 # No relevant patterns found
                 duration_ms = (time.perf_counter() - start_time) * 1000
-                log_to_activity(f"✏️ FirstEdit: No patterns found for {file_path}", INSTALL_DIR)
-                logger.debug("no_patterns_found", extra={
-                    "file_path": file_path,
-                    "query": query,
-                    "session_id": session_id,
-                    "duration_ms": round(duration_ms, 2)
-                })
+                log_to_activity(
+                    f"✏️ FirstEdit: No patterns found for {file_path}", INSTALL_DIR
+                )
+                logger.debug(
+                    "no_patterns_found",
+                    extra={
+                        "file_path": file_path,
+                        "query": query,
+                        "session_id": session_id,
+                        "duration_ms": round(duration_ms, 2),
+                    },
+                )
                 if memory_retrievals_total:
-                    memory_retrievals_total.labels(collection=COLLECTION_CODE_PATTERNS, status="empty").inc()
+                    memory_retrievals_total.labels(
+                        collection=COLLECTION_CODE_PATTERNS, status="empty"
+                    ).inc()
 
                 # Push trigger metrics even when no results
                 from memory.metrics_push import push_trigger_metrics_async
+
                 push_trigger_metrics_async(
                     trigger_type="first_edit",
                     status="empty",
                     project=project_name,
                     results_count=0,
-                    duration_seconds=duration_ms / 1000.0
+                    duration_seconds=duration_ms / 1000.0,
                 )
                 return 0
 
             # Format for stdout display
             output_parts = []
-            output_parts.append("\n" + "="*70)
+            output_parts.append("\n" + "=" * 70)
             output_parts.append("✏️ FILE PATTERNS (First Edit)")
-            output_parts.append("="*70)
+            output_parts.append("=" * 70)
             output_parts.append(f"File: {file_path}")
             output_parts.append(f"Session: {session_id[:SESSION_ID_DISPLAY_LEN]}...")
             output_parts.append("")
@@ -208,38 +222,49 @@ def main() -> int:
             for i, pattern in enumerate(results, 1):
                 output_parts.append(format_pattern(pattern, i))
 
-            output_parts.append("="*70 + "\n")
+            output_parts.append("=" * 70 + "\n")
 
             # Output to stdout (Claude sees this before tool execution)
             print("\n".join(output_parts))
 
             # Log success
             duration_ms = (time.perf_counter() - start_time) * 1000
-            log_to_activity(f"✏️ FirstEdit patterns retrieved for {file_path} [{duration_ms:.0f}ms]", INSTALL_DIR)
-            logger.info("first_edit_patterns_retrieved", extra={
-                "file_path": file_path,
-                "session_id": session_id,
-                "results_count": len(results),
-                "duration_ms": round(duration_ms, 2),
-                "project": project_name
-            })
+            log_to_activity(
+                f"✏️ FirstEdit patterns retrieved for {file_path} [{duration_ms:.0f}ms]",
+                INSTALL_DIR,
+            )
+            logger.info(
+                "first_edit_patterns_retrieved",
+                extra={
+                    "file_path": file_path,
+                    "session_id": session_id,
+                    "results_count": len(results),
+                    "duration_ms": round(duration_ms, 2),
+                    "project": project_name,
+                },
+            )
 
             # Metrics
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection=COLLECTION_CODE_PATTERNS, status="success").inc()
+                memory_retrievals_total.labels(
+                    collection=COLLECTION_CODE_PATTERNS, status="success"
+                ).inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
             if hook_duration_seconds:
-                hook_duration_seconds.labels(hook_type="PreToolUse_FirstEdit").observe(duration_ms / 1000.0)
+                hook_duration_seconds.labels(hook_type="PreToolUse_FirstEdit").observe(
+                    duration_ms / 1000.0
+                )
 
             # Push trigger metrics to Pushgateway
             from memory.metrics_push import push_trigger_metrics_async
+
             push_trigger_metrics_async(
                 trigger_type="first_edit",
                 status="success",
                 project=project_name,
                 results_count=len(results),
-                duration_seconds=duration_ms / 1000.0
+                duration_seconds=duration_ms / 1000.0,
             )
 
         finally:
@@ -249,26 +274,30 @@ def main() -> int:
 
     except Exception as e:
         # Catch-all error handler - always gracefully degrade
-        logger.error("hook_failed", extra={
-            "error": str(e),
-            "error_type": type(e).__name__
-        })
+        logger.error(
+            "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
+        )
 
         # Metrics
         if memory_retrievals_total:
-            memory_retrievals_total.labels(collection=COLLECTION_CODE_PATTERNS, status="failed").inc()
+            memory_retrievals_total.labels(
+                collection=COLLECTION_CODE_PATTERNS, status="failed"
+            ).inc()
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PreToolUse_FirstEdit").observe(duration_seconds)
+            hook_duration_seconds.labels(hook_type="PreToolUse_FirstEdit").observe(
+                duration_seconds
+            )
 
         # Push failure metrics
         from memory.metrics_push import push_trigger_metrics_async
+
         push_trigger_metrics_async(
             trigger_type="first_edit",
             status="failed",
-            project=project_name if 'project_name' in dir() else "unknown",
+            project=project_name if "project_name" in dir() else "unknown",
             results_count=0,
-            duration_seconds=duration_seconds
+            duration_seconds=duration_seconds,
         )
 
         return 0  # Always exit 0 - graceful degradation

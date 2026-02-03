@@ -32,26 +32,28 @@ Created: 2026-01-17
 AI Memory Module - Workflow Integration
 """
 
+import argparse
+import json
 import os
 import sys
-import json
-import argparse
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Try to import from installed location first, fall back to relative
 try:
-    from memory.search import MemorySearch
     from memory.config import get_config
+    from memory.search import MemorySearch
 except ImportError:
     # Running from dev repo
     sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
-    from memory.search import MemorySearch
     from memory.config import get_config
+    from memory.search import MemorySearch
 
 
 def build_search_query(story_id: str, component: str, agent: str) -> str:
@@ -78,11 +80,7 @@ def build_search_query(story_id: str, component: str, agent: str) -> str:
     return " ".join(query_parts)
 
 
-def search_memories(
-    query: str,
-    cwd: str = None,
-    limit: int = 5
-) -> Dict[str, Any]:
+def search_memories(query: str, cwd: str = None, limit: int = 5) -> Dict[str, Any]:
     """
     Search for relevant memories in code-patterns and conventions.
 
@@ -106,9 +104,7 @@ def search_memories(
         # Search both collections (code-patterns + conventions)
         # Returns: {"code-patterns": [...], "conventions": [...]}
         results = search.search_both_collections(
-            query=query,
-            cwd=cwd,  # Auto-detects group_id if provided
-            limit=limit
+            query=query, cwd=cwd, limit=limit  # Auto-detects group_id if provided
         )
 
         # Flatten results from both collections
@@ -116,38 +112,36 @@ def search_memories(
 
         # Add code-patterns
         for mem in results.get("code-patterns", []):
-            all_memories.append({
-                "content": mem.get("content", ""),
-                "type": mem.get("type", "unknown"),
-                "similarity": round(mem.get("score", 0.0), 2),
-                "collection": mem.get("collection", "code-patterns"),
-            })
+            all_memories.append(
+                {
+                    "content": mem.get("content", ""),
+                    "type": mem.get("type", "unknown"),
+                    "similarity": round(mem.get("score", 0.0), 2),
+                    "collection": mem.get("collection", "code-patterns"),
+                }
+            )
 
         # Add conventions
         for mem in results.get("conventions", []):
-            all_memories.append({
-                "content": mem.get("content", ""),
-                "type": mem.get("type", "unknown"),
-                "similarity": round(mem.get("score", 0.0), 2),
-                "collection": mem.get("collection", "conventions"),
-            })
+            all_memories.append(
+                {
+                    "content": mem.get("content", ""),
+                    "type": mem.get("type", "unknown"),
+                    "similarity": round(mem.get("score", 0.0), 2),
+                    "collection": mem.get("collection", "conventions"),
+                }
+            )
 
         # Sort by similarity (highest first)
         all_memories.sort(key=lambda x: x["similarity"], reverse=True)
 
-        return {
-            "memories": all_memories,
-            "count": len(all_memories)
-        }
+        return {"memories": all_memories, "count": len(all_memories)}
 
     except Exception as e:
         # Graceful degradation: Return empty result on any error
         # Write error to stderr for debugging, but don't fail the workflow
         print(f"Warning: Memory search failed: {e}", file=sys.stderr)
-        return {
-            "memories": [],
-            "count": 0
-        }
+        return {"memories": [], "count": 0}
 
 
 def main():
@@ -156,31 +150,20 @@ def main():
         description="Search for relevant memories before starting dev work"
     )
 
+    parser.add_argument("--story-id", help="User story identifier (e.g., 'story-2-1')")
+    parser.add_argument("--component", help="Component name (e.g., 'auth', 'api')")
+    parser.add_argument("--agent", help="Agent type (e.g., 'dev', 'test')")
     parser.add_argument(
-        "--story-id",
-        help="User story identifier (e.g., 'story-2-1')"
+        "--query", help="Custom search query (overrides auto-generated query)"
     )
     parser.add_argument(
-        "--component",
-        help="Component name (e.g., 'auth', 'api')"
-    )
-    parser.add_argument(
-        "--agent",
-        help="Agent type (e.g., 'dev', 'test')"
-    )
-    parser.add_argument(
-        "--query",
-        help="Custom search query (overrides auto-generated query)"
-    )
-    parser.add_argument(
-        "--cwd",
-        help="Working directory for project detection (optional)"
+        "--cwd", help="Working directory for project detection (optional)"
     )
     parser.add_argument(
         "--limit",
         type=int,
         default=5,
-        help="Maximum results per collection (default: 5)"
+        help="Maximum results per collection (default: 5)",
     )
 
     args = parser.parse_args()
@@ -191,7 +174,10 @@ def main():
     else:
         # Build query from story context
         if not args.story_id and not args.component and not args.agent:
-            print("Error: Must provide --query OR at least one of --story-id, --component, --agent", file=sys.stderr)
+            print(
+                "Error: Must provide --query OR at least one of --story-id, --component, --agent",
+                file=sys.stderr,
+            )
             # Graceful degradation: Return empty result instead of exit 1
             print(json.dumps({"memories": [], "count": 0}, indent=2))
             sys.exit(0)
@@ -199,7 +185,7 @@ def main():
         query = build_search_query(
             story_id=args.story_id or "",
             component=args.component or "",
-            agent=args.agent or ""
+            agent=args.agent or "",
         )
 
     # Search memories

@@ -18,17 +18,20 @@ import json
 import logging
 import os
 import sys
+from typing import Any, Dict
+
 import requests
-from typing import Dict, Any
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.config import get_config
-from memory.qdrant_client import get_qdrant_client, QdrantUnavailable
-from memory.project import detect_project
 from memory.logging_config import StructuredFormatter
+from memory.project import detect_project
+from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 
 # Configure structured logging
 handler = logging.StreamHandler()
@@ -59,26 +62,17 @@ def check_qdrant_health() -> Dict[str, Any]:
                 info = client.get_collection(name)
                 collection_stats[name] = {
                     "points_count": info.points_count,
-                    "status": info.status.name
+                    "status": info.status.name,
                 }
             except Exception as e:
                 collection_stats[name] = {"error": str(e)}
 
-        return {
-            "healthy": True,
-            "collections": collection_stats
-        }
+        return {"healthy": True, "collections": collection_stats}
 
     except QdrantUnavailable as e:
-        return {
-            "healthy": False,
-            "error": f"Qdrant unavailable: {e}"
-        }
+        return {"healthy": False, "error": f"Qdrant unavailable: {e}"}
     except Exception as e:
-        return {
-            "healthy": False,
-            "error": str(e)
-        }
+        return {"healthy": False, "error": str(e)}
 
 
 def check_embedding_service() -> Dict[str, Any]:
@@ -93,30 +87,15 @@ def check_embedding_service() -> Dict[str, Any]:
     try:
         response = requests.get(embedding_url, timeout=2)
         if response.status_code == 200:
-            return {
-                "healthy": True,
-                "url": embedding_url
-            }
+            return {"healthy": True, "url": embedding_url}
         else:
-            return {
-                "healthy": False,
-                "error": f"HTTP {response.status_code}"
-            }
+            return {"healthy": False, "error": f"HTTP {response.status_code}"}
     except requests.exceptions.Timeout:
-        return {
-            "healthy": False,
-            "error": "Timeout"
-        }
+        return {"healthy": False, "error": "Timeout"}
     except requests.exceptions.ConnectionError:
-        return {
-            "healthy": False,
-            "error": "Connection refused"
-        }
+        return {"healthy": False, "error": "Connection refused"}
     except Exception as e:
-        return {
-            "healthy": False,
-            "error": str(e)
-        }
+        return {"healthy": False, "error": str(e)}
 
 
 def format_size(count: int) -> str:
@@ -197,9 +176,13 @@ def main() -> int:
     else:
         print("⚠️  Memory system has issues - check services above")
         print("\nTroubleshooting:")
-        print("   1. Check Docker services: docker compose -f docker/docker-compose.yml ps")
+        print(
+            "   1. Check Docker services: docker compose -f docker/docker-compose.yml ps"
+        )
         print("   2. View logs: docker compose -f docker/docker-compose.yml logs")
-        print("   3. Restart services: docker compose -f docker/docker-compose.yml restart")
+        print(
+            "   3. Restart services: docker compose -f docker/docker-compose.yml restart"
+        )
 
     return 0
 

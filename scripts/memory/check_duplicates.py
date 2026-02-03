@@ -24,29 +24,31 @@ Created: 2026-01-17
 Adapted from proven patterns for AI Memory Module
 """
 
+import argparse
+import hashlib
+import json
 import os
 import sys
-import json
-import hashlib
-import argparse
 from pathlib import Path
-from typing import Any, Optional, Tuple, List, Dict
+from typing import Any, Dict, List, Optional, Tuple
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Try to import from installed location first, fall back to relative
 try:
     from memory.config import get_config
-    from memory.qdrant_client import get_qdrant_client, QdrantUnavailable
     from memory.embeddings import EmbeddingClient, EmbeddingError
+    from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 except ImportError:
     # Running from dev repo
     sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
     from memory.config import get_config
-    from memory.qdrant_client import get_qdrant_client, QdrantUnavailable
     from memory.embeddings import EmbeddingClient, EmbeddingError
+    from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 
 # Collection names
 COLLECTIONS_TO_CHECK = [
@@ -92,14 +94,16 @@ def check_hash_duplicate(client, content_hash: str) -> Tuple[bool, List[Dict]]:
                 payload = point.payload or {}
                 existing_hash = payload.get("content_hash", "")
                 if existing_hash == content_hash:
-                    duplicates.append({
-                        "collection": coll_name,
-                        "unique_id": payload.get("unique_id", ""),
-                        "type": payload.get("type", ""),
-                        "match_type": "exact_hash",
-                        "similarity": 1.0,
-                        "point_id": point.id,
-                    })
+                    duplicates.append(
+                        {
+                            "collection": coll_name,
+                            "unique_id": payload.get("unique_id", ""),
+                            "type": payload.get("type", ""),
+                            "match_type": "exact_hash",
+                            "similarity": 1.0,
+                            "point_id": point.id,
+                        }
+                    )
 
         except Exception as e:
             # Collection might not exist yet
@@ -146,14 +150,16 @@ def check_semantic_duplicate(client, content: str) -> Tuple[bool, List[Dict]]:
             for result in results.points:
                 if result.score >= SIMILARITY_THRESHOLD:
                     payload = result.payload or {}
-                    similar.append({
-                        "collection": coll_name,
-                        "unique_id": payload.get("unique_id", ""),
-                        "type": payload.get("type", ""),
-                        "match_type": "semantic",
-                        "similarity": result.score,
-                        "point_id": result.id,
-                    })
+                    similar.append(
+                        {
+                            "collection": coll_name,
+                            "unique_id": payload.get("unique_id", ""),
+                            "type": payload.get("type", ""),
+                            "match_type": "semantic",
+                            "similarity": result.score,
+                            "point_id": result.id,
+                        }
+                    )
 
         except Exception as e:
             # Collection might not exist yet

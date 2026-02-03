@@ -41,7 +41,9 @@ from pathlib import Path
 # Use project root during development, installed location in production
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 
 # Prefer local src if running from project, fallback to installed
 if (PROJECT_ROOT / "src" / "memory").exists():
@@ -49,15 +51,15 @@ if (PROJECT_ROOT / "src" / "memory").exists():
 else:
     sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
+from qdrant_client.models import PointStruct
+
 from memory.config import get_config
 from memory.embeddings import EmbeddingClient, EmbeddingError
-from memory.qdrant_client import get_qdrant_client, QdrantUnavailable
-from memory.models import MemoryType, EmbeddingStatus, VALID_AGENTS
-from memory.validation import compute_content_hash
 from memory.logging_config import StructuredFormatter
+from memory.models import VALID_AGENTS, EmbeddingStatus, MemoryType
 from memory.project import detect_project
-
-from qdrant_client.models import PointStruct
+from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
+from memory.validation import compute_content_hash
 
 # Configure structured logging (Story 6.2)
 handler = logging.StreamHandler()
@@ -68,7 +70,9 @@ logger.addHandler(handler)
 logger.propagate = False
 
 
-def store_chat_memory(session_id: str, agent: str, content: str, cwd: str = None) -> bool:
+def store_chat_memory(
+    session_id: str, agent: str, content: str, cwd: str = None
+) -> bool:
     """Store chat memory to discussions collection.
 
     Args:
@@ -91,8 +95,8 @@ def store_chat_memory(session_id: str, agent: str, content: str, cwd: str = None
                 extra={
                     "agent": agent,
                     "valid_agents": VALID_AGENTS,
-                    "session_id": session_id
-                }
+                    "session_id": session_id,
+                },
             )
             # Continue with invalid agent for graceful degradation
 
@@ -102,17 +106,12 @@ def store_chat_memory(session_id: str, agent: str, content: str, cwd: str = None
             try:
                 group_id = detect_project(cwd)
                 logger.debug(
-                    "project_detected",
-                    extra={"cwd": cwd, "group_id": group_id}
+                    "project_detected", extra={"cwd": cwd, "group_id": group_id}
                 )
             except Exception as e:
                 logger.warning(
                     "project_detection_failed",
-                    extra={
-                        "cwd": cwd,
-                        "error": str(e),
-                        "fallback": "unknown-project"
-                    }
+                    extra={"cwd": cwd, "error": str(e), "fallback": "unknown-project"},
                 )
 
         # Generate embedding with graceful degradation
@@ -126,19 +125,12 @@ def store_chat_memory(session_id: str, agent: str, content: str, cwd: str = None
             embedding_status = EmbeddingStatus.COMPLETE.value
             logger.debug(
                 "embedding_generated",
-                extra={
-                    "session_id": session_id,
-                    "dimensions": len(vector)
-                }
+                extra={"session_id": session_id, "dimensions": len(vector)},
             )
         except EmbeddingError as e:
             logger.warning(
                 "embedding_failed_using_placeholder",
-                extra={
-                    "error": str(e),
-                    "session_id": session_id,
-                    "agent": agent
-                }
+                extra={"error": str(e), "session_id": session_id, "agent": agent},
             )
             # Continue with zero vector - graceful degradation
 
@@ -164,13 +156,7 @@ def store_chat_memory(session_id: str, agent: str, content: str, cwd: str = None
         client = get_qdrant_client()
         client.upsert(
             collection_name="discussions",
-            points=[
-                PointStruct(
-                    id=memory_id,
-                    vector=vector,
-                    payload=payload
-                )
-            ]
+            points=[PointStruct(id=memory_id, vector=vector, payload=payload)],
         )
 
         logger.info(
@@ -181,8 +167,8 @@ def store_chat_memory(session_id: str, agent: str, content: str, cwd: str = None
                 "agent": agent,
                 "group_id": group_id,
                 "embedding_status": embedding_status,
-                "content_length": len(content)
-            }
+                "content_length": len(content),
+            },
         )
 
         return True
@@ -190,11 +176,7 @@ def store_chat_memory(session_id: str, agent: str, content: str, cwd: str = None
     except QdrantUnavailable as e:
         logger.warning(
             "qdrant_unavailable",
-            extra={
-                "error": str(e),
-                "session_id": session_id,
-                "agent": agent
-            }
+            extra={"error": str(e), "session_id": session_id, "agent": agent},
         )
         return False
 
@@ -205,8 +187,8 @@ def store_chat_memory(session_id: str, agent: str, content: str, cwd: str = None
                 "error": str(e),
                 "error_type": type(e).__name__,
                 "session_id": session_id,
-                "agent": agent
-            }
+                "agent": agent,
+            },
         )
         return False
 
@@ -220,25 +202,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Store chat memory to discussions collection"
     )
+    parser.add_argument("--session-id", required=True, help="Claude session ID")
     parser.add_argument(
-        "--session-id",
-        required=True,
-        help="Claude session ID"
+        "--agent", required=True, help=f"BMAD agent name ({', '.join(VALID_AGENTS)})"
     )
     parser.add_argument(
-        "--agent",
-        required=True,
-        help=f"BMAD agent name ({', '.join(VALID_AGENTS)})"
+        "--content", required=True, help="Conversation context to store"
     )
     parser.add_argument(
-        "--content",
-        required=True,
-        help="Conversation context to store"
-    )
-    parser.add_argument(
-        "--cwd",
-        required=False,
-        help="Optional working directory for project detection"
+        "--cwd", required=False, help="Optional working directory for project detection"
     )
 
     try:
@@ -252,10 +224,13 @@ def main() -> int:
                 extra={
                     "content_length": content_len,
                     "minimum": 10,
-                    "session_id": args.session_id
-                }
+                    "session_id": args.session_id,
+                },
             )
-            print(f"⚠️  AI Memory: Content too short ({content_len} chars, minimum 10)", file=sys.stderr)
+            print(
+                f"⚠️  AI Memory: Content too short ({content_len} chars, minimum 10)",
+                file=sys.stderr,
+            )
             return 0  # Graceful exit
 
         if content_len > 100000:
@@ -264,8 +239,8 @@ def main() -> int:
                 extra={
                     "content_length": content_len,
                     "maximum": 100000,
-                    "session_id": args.session_id
-                }
+                    "session_id": args.session_id,
+                },
             )
             args.content = args.content[:100000]  # Truncate to max
 
@@ -274,19 +249,19 @@ def main() -> int:
             session_id=args.session_id,
             agent=args.agent,
             content=args.content,
-            cwd=args.cwd
+            cwd=args.cwd,
         )
 
         if success:
             print(
                 f"💬 AI Memory: Chat memory stored for {args.agent} "
                 f"({len(args.content)} chars)",
-                file=sys.stderr
+                file=sys.stderr,
             )
         else:
             print(
                 f"⚠️  AI Memory: Chat memory storage failed (graceful degradation)",
-                file=sys.stderr
+                file=sys.stderr,
             )
 
         # Always exit 0 for graceful degradation
@@ -294,11 +269,7 @@ def main() -> int:
 
     except Exception as e:
         logger.error(
-            "script_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "script_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
         print(f"⚠️  AI Memory: Script error (graceful degradation)", file=sys.stderr)
         return 0  # Always exit 0

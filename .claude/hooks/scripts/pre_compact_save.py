@@ -42,20 +42,23 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Add src to path for imports (must be inline before importing from memory)
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # CR-3.3: Use consolidated logging and transcript reading
-from memory.hooks_common import setup_hook_logging, read_transcript, log_to_activity
+from memory.hooks_common import log_to_activity, read_transcript, setup_hook_logging
+
 logger = setup_hook_logging()
 
-from memory.config import get_config, COLLECTION_DISCUSSIONS
-from memory.graceful import graceful_hook
-from memory.queue import queue_operation
-from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
-from memory.project import detect_project
-from memory.activity_log import log_session_end, log_precompact
+from memory.activity_log import log_precompact, log_session_end
+from memory.config import COLLECTION_DISCUSSIONS, get_config
 from memory.embeddings import EmbeddingClient, EmbeddingError
+from memory.graceful import graceful_hook
+from memory.project import detect_project
+from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
+from memory.queue import queue_operation
 from memory.validation import compute_content_hash
 
 # Import metrics for Prometheus instrumentation
@@ -73,7 +76,7 @@ try:
         ResponseHandlingException,
         UnexpectedResponse,
     )
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
 except ImportError:
     # Graceful degradation if qdrant-client not installed
     ApiException = Exception
@@ -168,7 +171,9 @@ def analyze_transcript(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
             # Store non-trivial prompts (>20 chars, not just commands)
             if prompt_text and len(prompt_text.strip()) > 20:
                 # Truncate very long prompts but keep more context than before
-                truncated = prompt_text[:3000] if len(prompt_text) > 3000 else prompt_text
+                truncated = (
+                    prompt_text[:3000] if len(prompt_text) > 3000 else prompt_text
+                )
                 user_prompts.append((turn_index, truncated))
 
         elif entry_type == "assistant":
@@ -200,7 +205,9 @@ def analyze_transcript(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
             response_text = "\n".join(response_text_parts)
             if response_text and len(response_text.strip()) > 50:
                 # Truncate very long responses but keep meaningful context
-                truncated = response_text[:2000] if len(response_text) > 2000 else response_text
+                truncated = (
+                    response_text[:2000] if len(response_text) > 2000 else response_text
+                )
                 assistant_responses.append((turn_index, truncated))
 
     # Extract key prompts for rich summary
@@ -212,8 +219,12 @@ def analyze_transcript(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
     last_user_prompts = []
     if len(user_prompts) > 1:
         # Get last 5, excluding first if it would be duplicated
-        recent_prompts = user_prompts[-5:] if len(user_prompts) >= 5 else user_prompts[1:]
-        last_user_prompts = [{"turn": idx, "content": content} for idx, content in recent_prompts]
+        recent_prompts = (
+            user_prompts[-5:] if len(user_prompts) >= 5 else user_prompts[1:]
+        )
+        last_user_prompts = [
+            {"turn": idx, "content": content} for idx, content in recent_prompts
+        ]
     elif len(user_prompts) == 1:
         # Only one prompt - it's both first and last
         last_user_prompts = []
@@ -222,7 +233,9 @@ def analyze_transcript(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
     last_agent_responses = []
     if assistant_responses:
         recent_responses = assistant_responses[-2:]
-        last_agent_responses = [{"turn": idx, "content": content} for idx, content in recent_responses]
+        last_agent_responses = [
+            {"turn": idx, "content": content} for idx, content in recent_responses
+        ]
 
     return {
         "tools_used": sorted(list(tools_used)),
@@ -231,11 +244,13 @@ def analyze_transcript(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
         "first_user_prompt": first_user_prompt,
         "last_user_prompts": last_user_prompts,
         "last_agent_responses": last_agent_responses,
-        "total_entries": len(entries)
+        "total_entries": len(entries),
     }
 
 
-def build_session_summary(hook_input: Dict[str, Any], transcript_analysis: Dict[str, Any]) -> Dict[str, Any]:
+def build_session_summary(
+    hook_input: Dict[str, Any], transcript_analysis: Dict[str, Any]
+) -> Dict[str, Any]:
     """Build rich session summary from transcript analysis.
 
     V2.1 Enhancement: Rich summary includes conversation context for post-compact injection.
@@ -277,17 +292,15 @@ def build_session_summary(hook_input: Dict[str, Any], transcript_analysis: Dict[
     # V2.1: Include first user prompt (task requirements)
     first_prompt = transcript_analysis.get("first_user_prompt", "")
     if first_prompt:
-        summary_parts.extend([
-            "",
-            "Key Activities:",
-            f"- User goals: {first_prompt}"
-        ])
+        summary_parts.extend(["", "Key Activities:", f"- User goals: {first_prompt}"])
 
     # V2.1: Include last user prompts for follow-up context
     last_prompts = transcript_analysis.get("last_user_prompts", [])
     if last_prompts:
         # Add last prompt as "follow-up work" in key activities
-        last_prompt_content = last_prompts[-1].get("content", "") if last_prompts else ""
+        last_prompt_content = (
+            last_prompts[-1].get("content", "") if last_prompts else ""
+        )
         if last_prompt_content and last_prompt_content != first_prompt:
             summary_parts.append(f"- Follow-up work: {last_prompt_content}")
 
@@ -300,7 +313,9 @@ def build_session_summary(hook_input: Dict[str, Any], transcript_analysis: Dict[
         "memory_type": "session",
         "source_hook": "PreCompact",
         "session_id": session_id,
-        "importance": "high" if trigger == "auto" else "normal",  # Auto-compact = long session = high importance
+        "importance": (
+            "high" if trigger == "auto" else "normal"
+        ),  # Auto-compact = long session = high importance
         # V2.1: Rich conversation context for post-compact injection
         "first_user_prompt": first_prompt,
         "last_user_prompts": transcript_analysis.get("last_user_prompts", []),
@@ -309,10 +324,12 @@ def build_session_summary(hook_input: Dict[str, Any], transcript_analysis: Dict[
             "trigger": trigger,
             "tools_used": transcript_analysis["tools_used"],
             "files_modified": len(transcript_analysis["files_modified"]),
-            "files_list": transcript_analysis["files_modified"][:20],  # Store first 20 file paths
+            "files_list": transcript_analysis["files_modified"][
+                :20
+            ],  # Store first 20 file paths
             "user_interactions": transcript_analysis["user_prompts_count"],
-            "transcript_entries": transcript_analysis["total_entries"]
-        }
+            "transcript_entries": transcript_analysis["total_entries"],
+        },
     }
 
 
@@ -331,10 +348,12 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
     try:
         # Store WITHOUT embedding generation for <10s completion
         # Pattern: Store with pending status, background process generates embeddings
+        import uuid
+
         from qdrant_client.models import PointStruct
+
         from memory.models import EmbeddingStatus
         from memory.validation import compute_content_hash
-        import uuid
 
         # Build payload
         content_hash = compute_content_hash(summary_data["content"])
@@ -351,12 +370,12 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             embedding_status = EmbeddingStatus.COMPLETE.value
             logger.info(
                 "embedding_generated",
-                extra={"memory_id": memory_id, "dimensions": len(vector)}
+                extra={"memory_id": memory_id, "dimensions": len(vector)},
             )
         except EmbeddingError as e:
             logger.warning(
                 "embedding_failed_using_placeholder",
-                extra={"error": str(e), "memory_id": memory_id}
+                extra={"error": str(e), "memory_id": memory_id},
             )
             # Continue with zero vector - will be backfilled later
 
@@ -368,7 +387,9 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             "source_hook": summary_data["source_hook"],
             "session_id": summary_data["session_id"],
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "created_at": datetime.now(timezone.utc).isoformat(),  # V2.1: Explicit created_at
+            "created_at": datetime.now(
+                timezone.utc
+            ).isoformat(),  # V2.1: Explicit created_at
             "embedding_status": embedding_status,
             "embedding_model": "jina-embeddings-v2-base-en",
             "importance": summary_data.get("importance", "normal"),
@@ -376,20 +397,14 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             "first_user_prompt": summary_data.get("first_user_prompt", ""),
             "last_user_prompts": summary_data.get("last_user_prompts", []),
             "last_agent_responses": summary_data.get("last_agent_responses", []),
-            "session_metadata": summary_data.get("session_metadata", {})
+            "session_metadata": summary_data.get("session_metadata", {}),
         }
 
         # Store to discussions collection (v2.0)
         client = get_qdrant_client()
         client.upsert(
             collection_name=COLLECTION_DISCUSSIONS,
-            points=[
-                PointStruct(
-                    id=memory_id,
-                    vector=vector,
-                    payload=payload
-                )
-            ]
+            points=[PointStruct(id=memory_id, vector=vector, payload=payload)],
         )
 
         # Structured logging
@@ -400,8 +415,8 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 "session_id": summary_data["session_id"],
                 "group_id": summary_data["group_id"],
                 "source_hook": "PreCompact",
-                "embedding_status": "pending"
-            }
+                "embedding_status": "pending",
+            },
         )
 
         # Metrics: Increment capture counter on success
@@ -409,7 +424,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             memory_captures_total.labels(
                 hook_type="PreCompact",
                 status="success",
-                project=summary_data["group_id"] or "unknown"
+                project=summary_data["group_id"] or "unknown",
             ).inc()
 
         return True
@@ -422,15 +437,15 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 "error": str(e),
                 "error_type": type(e).__name__,
                 "session_id": summary_data["session_id"],
-                "group_id": summary_data["group_id"]
-            }
+                "group_id": summary_data["group_id"],
+            },
         )
         queue_operation(summary_data)
         if memory_captures_total:
             memory_captures_total.labels(
                 hook_type="PreCompact",
                 status="queued",
-                project=summary_data["group_id"] or "unknown"
+                project=summary_data["group_id"] or "unknown",
             ).inc()
         return False
 
@@ -442,15 +457,15 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 "error": str(e),
                 "error_type": type(e).__name__,
                 "session_id": summary_data["session_id"],
-                "group_id": summary_data["group_id"]
-            }
+                "group_id": summary_data["group_id"],
+            },
         )
         queue_operation(summary_data)
         if memory_captures_total:
             memory_captures_total.labels(
                 hook_type="PreCompact",
                 status="queued",
-                project=summary_data["group_id"] or "unknown"
+                project=summary_data["group_id"] or "unknown",
             ).inc()
         return False
 
@@ -461,8 +476,8 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             extra={
                 "error": str(e),
                 "session_id": summary_data["session_id"],
-                "group_id": summary_data["group_id"]
-            }
+                "group_id": summary_data["group_id"],
+            },
         )
 
         queue_success = queue_operation(summary_data)
@@ -471,28 +486,28 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 "session_summary_queued",
                 extra={
                     "session_id": summary_data["session_id"],
-                    "group_id": summary_data["group_id"]
-                }
+                    "group_id": summary_data["group_id"],
+                },
             )
             if memory_captures_total:
                 memory_captures_total.labels(
                     hook_type="PreCompact",
                     status="queued",
-                    project=summary_data["group_id"] or "unknown"
+                    project=summary_data["group_id"] or "unknown",
                 ).inc()
         else:
             logger.error(
                 "queue_failed",
                 extra={
                     "session_id": summary_data["session_id"],
-                    "group_id": summary_data["group_id"]
-                }
+                    "group_id": summary_data["group_id"],
+                },
             )
             if memory_captures_total:
                 memory_captures_total.labels(
                     hook_type="PreCompact",
                     status="failed",
-                    project=summary_data["group_id"] or "unknown"
+                    project=summary_data["group_id"] or "unknown",
                 ).inc()
 
         return False
@@ -505,15 +520,15 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 "error": str(e),
                 "error_type": type(e).__name__,
                 "session_id": summary_data["session_id"],
-                "group_id": summary_data["group_id"]
-            }
+                "group_id": summary_data["group_id"],
+            },
         )
         queue_operation(summary_data)
         if memory_captures_total:
             memory_captures_total.labels(
                 hook_type="PreCompact",
                 status="queued",
-                project=summary_data["group_id"] or "unknown"
+                project=summary_data["group_id"] or "unknown",
             ).inc()
         return False
 
@@ -525,8 +540,8 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 "error": str(e),
                 "error_type": type(e).__name__,
                 "session_id": summary_data["session_id"],
-                "group_id": summary_data["group_id"]
-            }
+                "group_id": summary_data["group_id"],
+            },
         )
 
         queue_operation(summary_data)
@@ -534,7 +549,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             memory_captures_total.labels(
                 hook_type="PreCompact",
                 status="queued",
-                project=summary_data["group_id"] or "unknown"
+                project=summary_data["group_id"] or "unknown",
             ).inc()
         return False
 
@@ -562,9 +577,7 @@ def should_store_summary(summary_data: Dict[str, Any]) -> bool:
 
     # Skip if no tools used AND no files modified AND 0 user prompts
     has_no_activity = (
-        len(tools_used) == 0 and
-        files_modified == 0 and
-        user_interactions == 0
+        len(tools_used) == 0 and files_modified == 0 and user_interactions == 0
     )
 
     if has_no_activity:
@@ -586,10 +599,7 @@ def check_duplicate_hash(content_hash: str, group_id: str, client) -> Optional[s
     """
     # Check if Qdrant models are available
     if Filter is None or FieldCondition is None or MatchValue is None:
-        logger.warning(
-            "qdrant_models_unavailable",
-            extra={"group_id": group_id}
-        )
+        logger.warning("qdrant_models_unavailable", extra={"group_id": group_id})
         return None  # Fail open - allow storage
 
     try:
@@ -598,9 +608,7 @@ def check_duplicate_hash(content_hash: str, group_id: str, client) -> Optional[s
             collection_name=COLLECTION_DISCUSSIONS,
             scroll_filter=Filter(
                 must=[
-                    FieldCondition(
-                        key="group_id", match=MatchValue(value=group_id)
-                    ),
+                    FieldCondition(key="group_id", match=MatchValue(value=group_id)),
                     FieldCondition(
                         key="content_hash", match=MatchValue(value=content_hash)
                     ),
@@ -621,8 +629,8 @@ def check_duplicate_hash(content_hash: str, group_id: str, client) -> Optional[s
             extra={
                 "error": str(e),
                 "error_type": type(e).__name__,
-                "group_id": group_id
-            }
+                "group_id": group_id,
+            },
         )
         return None
 
@@ -650,10 +658,7 @@ def main() -> int:
         except json.JSONDecodeError as e:
             logger.error(
                 "malformed_json",
-                extra={
-                    "error": str(e),
-                    "input_preview": raw_input[:100]
-                }
+                extra={"error": str(e), "input_preview": raw_input[:100]},
             )
             return 0  # Allow compaction to proceed
 
@@ -664,8 +669,8 @@ def main() -> int:
                 "validation_failed",
                 extra={
                     "reason": validation_error,
-                    "session_id": hook_input.get("session_id")
-                }
+                    "session_id": hook_input.get("session_id"),
+                },
             )
             return 0  # Allow compaction to proceed
 
@@ -678,11 +683,14 @@ def main() -> int:
                 "no_transcript_skipping",
                 extra={
                     "session_id": hook_input.get("session_id"),
-                    "transcript_path": transcript_path
-                }
+                    "transcript_path": transcript_path,
+                },
             )
             # User notification - no transcript to save
-            print("📤 AI Memory: No session transcript to save (empty transcript)", file=sys.stderr)
+            print(
+                "📤 AI Memory: No session transcript to save (empty transcript)",
+                file=sys.stderr,
+            )
             return 0  # Allow compaction to proceed
 
         # Analyze transcript
@@ -702,10 +710,13 @@ def main() -> int:
                 extra={
                     "session_id": summary_data["session_id"],
                     "group_id": project,
-                    "reason": "no_activity"
-                }
+                    "reason": "no_activity",
+                },
             )
-            print(f"📤 AI Memory: Skipping empty session summary for {project}", file=sys.stderr)
+            print(
+                f"📤 AI Memory: Skipping empty session summary for {project}",
+                file=sys.stderr,
+            )
             return 0  # Allow compaction to proceed
 
         # Validation 2: Check for duplicate content hash
@@ -716,7 +727,9 @@ def main() -> int:
             duplicate_id = check_duplicate_hash(content_hash, project, client)
 
             if duplicate_id:
-                log_to_activity(f"⏭️  PreCompact skipped: Duplicate content (hash: {content_hash[:16]})")
+                log_to_activity(
+                    f"⏭️  PreCompact skipped: Duplicate content (hash: {content_hash[:16]})"
+                )
                 logger.info(
                     "summary_skipped_duplicate",
                     extra={
@@ -724,10 +737,13 @@ def main() -> int:
                         "group_id": project,
                         "content_hash": content_hash,
                         "duplicate_id": duplicate_id,
-                        "reason": "duplicate_hash"
-                    }
+                        "reason": "duplicate_hash",
+                    },
                 )
-                print(f"📤 AI Memory: Skipping duplicate session summary for {project}", file=sys.stderr)
+                print(
+                    f"📤 AI Memory: Skipping duplicate session summary for {project}",
+                    file=sys.stderr,
+                )
                 return 0  # Allow compaction to proceed
         except Exception as e:
             # Fail open on duplicate check error - allow storage
@@ -736,8 +752,8 @@ def main() -> int:
                 extra={
                     "error": str(e),
                     "error_type": type(e).__name__,
-                    "group_id": project
-                }
+                    "group_id": project,
+                },
             )
 
         # Set up timeout using signal (Unix only)
@@ -757,8 +773,8 @@ def main() -> int:
                 "storage_timeout",
                 extra={
                     "session_id": summary_data["session_id"],
-                    "timeout": PRECOMPACT_HOOK_TIMEOUT
-                }
+                    "timeout": PRECOMPACT_HOOK_TIMEOUT,
+                },
             )
             queue_operation(summary_data)
         finally:
@@ -771,30 +787,41 @@ def main() -> int:
         # Metrics: Record hook duration
         duration_ms = (time.perf_counter() - start_time) * 1000
         if hook_duration_seconds:
-            hook_duration_seconds.labels(hook_type="PreCompact").observe(duration_ms / 1000)
+            hook_duration_seconds.labels(hook_type="PreCompact").observe(
+                duration_ms / 1000
+            )
 
         # User notification via stderr (visible to user, not Claude)
         project = summary_data.get("group_id", "unknown")
         trigger = hook_input["trigger"]
-        print(f"📤 AI Memory: Session summary saved for {project} (trigger: {trigger}) [{duration_ms:.0f}ms]", file=sys.stderr)
+        print(
+            f"📤 AI Memory: Session summary saved for {project} (trigger: {trigger}) [{duration_ms:.0f}ms]",
+            file=sys.stderr,
+        )
 
         # Activity log with full content
-        tools_list = ", ".join(transcript_analysis["tools_used"]) if transcript_analysis["tools_used"] else "None"
+        tools_list = (
+            ", ".join(transcript_analysis["tools_used"])
+            if transcript_analysis["tools_used"]
+            else "None"
+        )
         files_count = len(transcript_analysis["files_modified"])
         prompts_count = transcript_analysis["user_prompts_count"]
 
         # Log summary header
-        session_id = summary_data.get('session_id', 'unknown')
+        session_id = summary_data.get("session_id", "unknown")
         session_short = session_id[:8] if len(session_id) >= 8 else session_id
 
         # TECH-DEBT-014: Comprehensive logging with full session content
         metadata = {
-            'tools_used': transcript_analysis["tools_used"],
-            'files_modified': len(transcript_analysis["files_modified"]),
-            'prompts_count': transcript_analysis["user_prompts_count"],
-            'content_hash': content_hash
+            "tools_used": transcript_analysis["tools_used"],
+            "files_modified": len(transcript_analysis["files_modified"]),
+            "prompts_count": transcript_analysis["user_prompts_count"],
+            "content_hash": content_hash,
         }
-        log_precompact(project, session_short, summary_data["content"], metadata, duration_ms)
+        log_precompact(
+            project, session_short, summary_data["content"], metadata, duration_ms
+        )
 
         # ALWAYS exit 0 to allow compaction to proceed
         return 0
@@ -802,17 +829,15 @@ def main() -> int:
     except Exception as e:
         # Catch-all for unexpected errors
         logger.error(
-            "hook_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
         # Metrics: Record hook duration even on error
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PreCompact").observe(duration_seconds)
+            hook_duration_seconds.labels(hook_type="PreCompact").observe(
+                duration_seconds
+            )
 
         # Non-blocking error - allow compaction to proceed
         return 0

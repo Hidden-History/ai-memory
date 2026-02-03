@@ -30,17 +30,14 @@ from typing import Dict, List, Optional, Set, Tuple
 from ruamel.yaml import YAML
 
 # Configure structured logging per project conventions
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("bmad.scripts.sprint_status")
 
 
 # Story pattern regexes
-STORY_DONE_START = re.compile(r'^Story\s+(\d+)\.(\d+):', re.IGNORECASE)
-STORY_DONE_ANYWHERE = re.compile(r'Story\s+(\d+)\.(\d+)\s+complete', re.IGNORECASE)
-STORY_WIP = re.compile(r'(?:WIP|\[WIP\])\s+Story\s+(\d+)\.(\d+)', re.IGNORECASE)
+STORY_DONE_START = re.compile(r"^Story\s+(\d+)\.(\d+):", re.IGNORECASE)
+STORY_DONE_ANYWHERE = re.compile(r"Story\s+(\d+)\.(\d+)\s+complete", re.IGNORECASE)
+STORY_WIP = re.compile(r"(?:WIP|\[WIP\])\s+Story\s+(\d+)\.(\d+)", re.IGNORECASE)
 
 
 def get_git_commits(num_commits: int = 20) -> List[str]:
@@ -63,10 +60,10 @@ def get_git_commits(num_commits: int = 20) -> List[str]:
     try:
         # F3 Fix: Stream commits line-by-line to prevent memory exhaustion
         process = subprocess.Popen(
-            ['git', 'log', '--oneline', f'-{num_commits}'],
+            ["git", "log", "--oneline", f"-{num_commits}"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
         )
 
         commits = []
@@ -80,15 +77,16 @@ def get_git_commits(num_commits: int = 20) -> List[str]:
         return_code = process.wait()
         if return_code != 0:
             stderr_output = process.stderr.read()
-            raise subprocess.CalledProcessError(return_code, 'git log', stderr=stderr_output)
+            raise subprocess.CalledProcessError(
+                return_code, "git log", stderr=stderr_output
+            )
 
         return commits
 
     except subprocess.CalledProcessError as e:
-        logger.error("git_command_failed", extra={
-            "command": "git log",
-            "error": str(e)
-        })
+        logger.error(
+            "git_command_failed", extra={"command": "git log", "error": str(e)}
+        )
         raise
 
 
@@ -125,12 +123,15 @@ def parse_story_updates(commits: List[str]) -> Dict[str, str]:
         if match:
             epic, story = match.groups()
             story_id = f"{epic}-{story}"
-            updates[story_id] = 'done'
-            logger.info("pattern_matched", extra={
-                "pattern": "done_start",
-                "story_id": story_id,
-                "commit": commit[:60]
-            })
+            updates[story_id] = "done"
+            logger.info(
+                "pattern_matched",
+                extra={
+                    "pattern": "done_start",
+                    "story_id": story_id,
+                    "commit": commit[:60],
+                },
+            )
             continue
 
         # Check for "Story X.Y complete" anywhere in message (done)
@@ -138,12 +139,15 @@ def parse_story_updates(commits: List[str]) -> Dict[str, str]:
         if match:
             epic, story = match.groups()
             story_id = f"{epic}-{story}"
-            updates[story_id] = 'done'
-            logger.info("pattern_matched", extra={
-                "pattern": "done_anywhere",
-                "story_id": story_id,
-                "commit": commit[:60]
-            })
+            updates[story_id] = "done"
+            logger.info(
+                "pattern_matched",
+                extra={
+                    "pattern": "done_anywhere",
+                    "story_id": story_id,
+                    "commit": commit[:60],
+                },
+            )
             continue
 
         # Check for WIP patterns in message (in-progress)
@@ -152,13 +156,16 @@ def parse_story_updates(commits: List[str]) -> Dict[str, str]:
             epic, story = match.groups()
             story_id = f"{epic}-{story}"
             # Only set to in-progress if not already marked done
-            if story_id not in updates or updates[story_id] != 'done':
-                updates[story_id] = 'in-progress'
-                logger.info("pattern_matched", extra={
-                    "pattern": "wip",
-                    "story_id": story_id,
-                    "commit": commit[:60]
-                })
+            if story_id not in updates or updates[story_id] != "done":
+                updates[story_id] = "in-progress"
+                logger.info(
+                    "pattern_matched",
+                    extra={
+                        "pattern": "wip",
+                        "story_id": story_id,
+                        "commit": commit[:60],
+                    },
+                )
 
     return updates
 
@@ -167,7 +174,7 @@ def update_sprint_status_yaml(
     yaml_path: Path,
     updates: Dict[str, str],
     dry_run: bool = False,
-    strict: bool = False
+    strict: bool = False,
 ) -> Tuple[int, int]:
     """Update sprint-status.yaml with story status changes.
 
@@ -191,12 +198,12 @@ def update_sprint_status_yaml(
 
     # F2 Fix: File locking to prevent concurrent modification
     # Acquire lock before read-modify-write operation
-    lock_path = yaml_path.with_suffix('.lock')
+    lock_path = yaml_path.with_suffix(".lock")
     lock_file = None
 
     try:
         # Create lock file
-        lock_file = open(lock_path, 'w')
+        lock_file = open(lock_path, "w")
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)  # Exclusive lock
         logger.debug("lock_acquired", extra={"lock_path": str(lock_path)})
 
@@ -206,23 +213,22 @@ def update_sprint_status_yaml(
         yaml.default_flow_style = False
 
         try:
-            with open(yaml_path, 'r') as f:
+            with open(yaml_path, "r") as f:
                 data = yaml.load(f)
         except FileNotFoundError:
             logger.error("yaml_file_not_found", extra={"path": str(yaml_path)})
             raise FileNotFoundError(f"sprint-status.yaml not found at {yaml_path}")
         except Exception as e:
-            logger.error("yaml_parse_failed", extra={
-                "path": str(yaml_path),
-                "error": str(e)
-            })
+            logger.error(
+                "yaml_parse_failed", extra={"path": str(yaml_path), "error": str(e)}
+            )
             raise ValueError(f"Failed to parse YAML: {e}")
 
-        if not data or 'epics' not in data:
-            logger.error("yaml_invalid_structure", extra={
-                "path": str(yaml_path),
-                "has_epics": 'epics' in (data or {})
-            })
+        if not data or "epics" not in data:
+            logger.error(
+                "yaml_invalid_structure",
+                extra={"path": str(yaml_path), "has_epics": "epics" in (data or {})},
+            )
             raise ValueError("YAML file missing 'epics' key")
 
         # Track updates
@@ -233,7 +239,7 @@ def update_sprint_status_yaml(
         # Apply updates
         for story_id, new_status in updates.items():
             # Parse story_id (e.g., "6-5" → epic "epic-6", story key "6-5-...")
-            parts = story_id.split('-')
+            parts = story_id.split("-")
             if len(parts) < 2:
                 logger.warning("invalid_story_id", extra={"story_id": story_id})
                 continue
@@ -242,100 +248,109 @@ def update_sprint_status_yaml(
             epic_key = f"epic-{epic_num}"
 
             # Find epic
-            if epic_key not in data['epics']:
-                logger.warning("epic_not_found", extra={
-                    "epic_key": epic_key,
-                    "story_id": story_id
-                })
+            if epic_key not in data["epics"]:
+                logger.warning(
+                    "epic_not_found", extra={"epic_key": epic_key, "story_id": story_id}
+                )
                 not_found_count += 1
                 continue
 
-            epic = data['epics'][epic_key]
-            if 'stories' not in epic:
-                logger.warning("epic_has_no_stories", extra={
-                    "epic_key": epic_key,
-                    "story_id": story_id
-                })
+            epic = data["epics"][epic_key]
+            if "stories" not in epic:
+                logger.warning(
+                    "epic_has_no_stories",
+                    extra={"epic_key": epic_key, "story_id": story_id},
+                )
                 not_found_count += 1
                 continue
 
             # Find story (key starts with story_id pattern)
             story_found = False
-            for story_key, story_data in epic['stories'].items():
+            for story_key, story_data in epic["stories"].items():
                 # Match story keys like "6-5-retrieval-session-logs"
-                if story_key.startswith(story_id + '-') or story_key == story_id:
-                    current_status = story_data.get('status', 'unknown')
+                if story_key.startswith(story_id + "-") or story_key == story_id:
+                    current_status = story_data.get("status", "unknown")
 
                     # Skip if already at target status
                     if current_status == new_status:
-                        logger.info("status_unchanged", extra={
-                            "story_key": story_key,
-                            "status": current_status
-                        })
+                        logger.info(
+                            "status_unchanged",
+                            extra={"story_key": story_key, "status": current_status},
+                        )
                         story_found = True
                         break
 
                     # Skip if trying to move backwards (done → in-progress)
-                    if current_status == 'done' and new_status != 'done':
-                        logger.info("status_skip_backward", extra={
-                            "story_key": story_key,
-                            "current": current_status,
-                            "proposed": new_status
-                        })
+                    if current_status == "done" and new_status != "done":
+                        logger.info(
+                            "status_skip_backward",
+                            extra={
+                                "story_key": story_key,
+                                "current": current_status,
+                                "proposed": new_status,
+                            },
+                        )
                         story_found = True
                         break
 
                     # Update status
-                    story_data['status'] = new_status
+                    story_data["status"] = new_status
                     updated_count += 1
                     updated_stories.add(story_key)
-                    logger.info("status_updated", extra={
-                        "story_key": story_key,
-                        "old_status": current_status,
-                        "new_status": new_status
-                    })
+                    logger.info(
+                        "status_updated",
+                        extra={
+                            "story_key": story_key,
+                            "old_status": current_status,
+                            "new_status": new_status,
+                        },
+                    )
                     story_found = True
                     break
 
             if not story_found:
-                logger.warning("story_not_found", extra={
-                    "story_id": story_id,
-                    "epic_key": epic_key
-                })
+                logger.warning(
+                    "story_not_found",
+                    extra={"story_id": story_id, "epic_key": epic_key},
+                )
                 not_found_count += 1
 
         # Write back to file if not dry-run
         if not dry_run and updated_count > 0:
             # F14 Fix: Atomic write using temp file to prevent corruption
-            temp_path = yaml_path.with_suffix('.yaml.tmp')
+            temp_path = yaml_path.with_suffix(".yaml.tmp")
             try:
                 # Write to temp file first
-                with open(temp_path, 'w') as f:
+                with open(temp_path, "w") as f:
                     yaml.dump(data, f)
                 # Atomic rename (overwrites only if write succeeded)
                 temp_path.replace(yaml_path)
-                logger.info("yaml_written", extra={
-                    "path": str(yaml_path),
-                    "stories_updated": updated_count
-                })
+                logger.info(
+                    "yaml_written",
+                    extra={"path": str(yaml_path), "stories_updated": updated_count},
+                )
             except Exception as e:
                 # Clean up temp file on error
                 if temp_path.exists():
                     temp_path.unlink()
-                logger.error("yaml_write_failed", extra={
-                    "path": str(yaml_path),
-                    "error": str(e)
-                })
+                logger.error(
+                    "yaml_write_failed", extra={"path": str(yaml_path), "error": str(e)}
+                )
                 raise
         elif dry_run and updated_count > 0:
-            logger.info("dry_run_complete", extra={
-                "would_update": updated_count,
-                "stories": sorted(updated_stories)
-            })
+            logger.info(
+                "dry_run_complete",
+                extra={
+                    "would_update": updated_count,
+                    "stories": sorted(updated_stories),
+                },
+            )
 
         # F15 Fix: Strict mode errors on story not found
         if strict and not_found_count > 0:
-            raise ValueError(f"Strict mode: {not_found_count} story ID(s) not found in YAML")
+            raise ValueError(
+                f"Strict mode: {not_found_count} story ID(s) not found in YAML"
+            )
 
         return updated_count, not_found_count
 
@@ -362,27 +377,30 @@ def main() -> int:
         description="Update sprint-status.yaml from git commits"
     )
     parser.add_argument(
-        '--commits',
+        "--commits",
         type=int,
         default=20,
-        help='Number of recent commits to parse (default: 20)'
+        help="Number of recent commits to parse (default: 20)",
     )
     parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Show changes without writing to file'
+        "--dry-run", action="store_true", help="Show changes without writing to file"
     )
     parser.add_argument(
-        '--strict',
-        action='store_true',
-        help='Error if any story IDs are not found (F15 - for CI enforcement)'
+        "--strict",
+        action="store_true",
+        help="Error if any story IDs are not found (F15 - for CI enforcement)",
     )
     args = parser.parse_args()
 
     # Determine project root and YAML path
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
-    yaml_path = project_root / '_bmad-output' / 'implementation-artifacts' / 'sprint-status.yaml'
+    yaml_path = (
+        project_root
+        / "_bmad-output"
+        / "implementation-artifacts"
+        / "sprint-status.yaml"
+    )
 
     try:
         # Fetch commits
@@ -396,25 +414,24 @@ def main() -> int:
             logger.info("no_updates_found", extra={"commits_scanned": len(commits)})
             return 0
 
-        logger.info("updates_parsed", extra={
-            "total_updates": len(updates),
-            "updates": updates
-        })
+        logger.info(
+            "updates_parsed", extra={"total_updates": len(updates), "updates": updates}
+        )
 
         # Apply updates to YAML
         updated, not_found = update_sprint_status_yaml(
-            yaml_path,
-            updates,
-            dry_run=args.dry_run,
-            strict=args.strict
+            yaml_path, updates, dry_run=args.dry_run, strict=args.strict
         )
 
         # Summary
-        logger.info("update_complete", extra={
-            "stories_updated": updated,
-            "stories_not_found": not_found,
-            "dry_run": args.dry_run
-        })
+        logger.info(
+            "update_complete",
+            extra={
+                "stories_updated": updated,
+                "stories_not_found": not_found,
+                "dry_run": args.dry_run,
+            },
+        )
 
         return 0
 
@@ -428,10 +445,9 @@ def main() -> int:
         logger.error("git_error", extra={"error": str(e)})
         return 1
     except Exception as e:
-        logger.error("unexpected_error", extra={
-            "error": str(e),
-            "type": type(e).__name__
-        })
+        logger.error(
+            "unexpected_error", extra={"error": str(e), "type": type(e).__name__}
+        )
         return 1
 
 

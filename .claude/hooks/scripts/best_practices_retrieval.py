@@ -47,17 +47,31 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 # Setup Python path using shared utility (CR-4 Wave 2)
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) + "/src")
-from memory.hooks_common import setup_python_path, setup_hook_logging, log_to_activity, get_metrics, LANGUAGE_MAP, PREVIEW_MAX_CHARS
+sys.path.insert(
+    0,
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    + "/src",
+)
+from memory.hooks_common import (
+    LANGUAGE_MAP,
+    PREVIEW_MAX_CHARS,
+    get_metrics,
+    log_to_activity,
+    setup_hook_logging,
+    setup_python_path,
+)
 
 INSTALL_DIR = setup_python_path()
 
 # Configure structured logging using shared utility (CR-4 Wave 2)
 from memory.config import COLLECTION_CONVENTIONS, VALID_AGENTS
+
 logger = setup_hook_logging("ai_memory.hooks")
 
 # Import metrics using shared utility (CR-4 Wave 2)
-memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = get_metrics()
+memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = (
+    get_metrics()
+)
 
 
 def detect_component_from_path(file_path: str) -> Tuple[str, str]:
@@ -86,7 +100,16 @@ def detect_component_from_path(file_path: str) -> Tuple[str, str]:
     parts = Path(file_path).parts
 
     # Find common source markers
-    source_markers = {'src', 'lib', 'app', 'tests', 'test', 'scripts', '.claude', 'docker'}
+    source_markers = {
+        "src",
+        "lib",
+        "app",
+        "tests",
+        "test",
+        "scripts",
+        ".claude",
+        "docker",
+    }
     marker_idx = None
     for i, part in enumerate(parts):
         if part.lower() in source_markers:
@@ -236,7 +259,9 @@ def main() -> int:
         # Check if explicitly invoked (not auto-triggered)
         # When auto-trigger is removed from settings.json, this script
         # will only be called by review agents or manual skills
-        explicit_mode = os.environ.get("BMAD_BEST_PRACTICES_EXPLICIT", "false").lower() == "true"
+        explicit_mode = (
+            os.environ.get("BMAD_BEST_PRACTICES_EXPLICIT", "false").lower() == "true"
+        )
 
         # If called without explicit flag and not by a review agent, exit silently
         # This is a safety check in case the hook is re-enabled accidentally
@@ -245,9 +270,16 @@ def main() -> int:
             agent_type = os.environ.get("BMAD_AGENT_TYPE", "").lower()
             # CR-4.9: Use VALID_AGENTS from config + additional review-specific agents
             # TEA + review agents always check best practices (TECH-DEBT-015 pending: full redesign)
-            review_agents = list(VALID_AGENTS) + ["code-review", "adversarial-review", "security-auditor", "code-reviewer"]
+            review_agents = list(VALID_AGENTS) + [
+                "code-review",
+                "adversarial-review",
+                "security-auditor",
+                "code-reviewer",
+            ]
             if agent_type not in review_agents:
-                logger.debug("conventions_skipped_no_trigger", extra={"agent_type": agent_type})
+                logger.debug(
+                    "conventions_skipped_no_trigger", extra={"agent_type": agent_type}
+                )
                 return 0  # Silent exit - no injection
 
         # Parse hook input from stdin
@@ -280,11 +312,11 @@ def main() -> int:
 
         # Search conventions collection
         # Import here to avoid circular dependencies
-        from memory.search import MemorySearch
         from memory.config import get_config
         from memory.health import check_qdrant_health
-        from memory.qdrant_client import get_qdrant_client
         from memory.project import detect_project
+        from memory.qdrant_client import get_qdrant_client
+        from memory.search import MemorySearch
 
         config = get_config()
         client = get_qdrant_client(config)
@@ -293,7 +325,9 @@ def main() -> int:
         if not check_qdrant_health(client):
             logger.warning("qdrant_unavailable")
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection=COLLECTION_CONVENTIONS, status="failed").inc()
+                memory_retrievals_total.labels(
+                    collection=COLLECTION_CONVENTIONS, status="failed"
+                ).inc()
             return 0
 
         # Detect project for logging
@@ -311,30 +345,37 @@ def main() -> int:
                 collection=COLLECTION_CONVENTIONS,
                 group_id=None,  # Conventions are shared across projects
                 limit=3,  # Up to 3 relevant practices (requirement)
-                score_threshold=threshold
+                score_threshold=threshold,
             )
 
             if not results:
                 # No relevant practices found - log to activity file for visibility
                 duration_ms = (time.perf_counter() - start_time) * 1000
-                log_to_activity(f"🔍 PreToolUse searched conventions for {file_path} (0 results) [{duration_ms:.0f}ms]")
-                logger.debug("no_conventions_found", extra={
-                    "file_path": file_path,
-                    "component": component,
-                    "domain": domain,
-                    "query": query,
-                    "duration_ms": round(duration_ms, 2)
-                })
+                log_to_activity(
+                    f"🔍 PreToolUse searched conventions for {file_path} (0 results) [{duration_ms:.0f}ms]"
+                )
+                logger.debug(
+                    "no_conventions_found",
+                    extra={
+                        "file_path": file_path,
+                        "component": component,
+                        "domain": domain,
+                        "query": query,
+                        "duration_ms": round(duration_ms, 2),
+                    },
+                )
                 if memory_retrievals_total:
-                    memory_retrievals_total.labels(collection=COLLECTION_CONVENTIONS, status="empty").inc()
+                    memory_retrievals_total.labels(
+                        collection=COLLECTION_CONVENTIONS, status="empty"
+                    ).inc()
                 return 0
 
             # Format for stdout display
             # This output will be shown to Claude BEFORE the tool executes
             output_parts = []
-            output_parts.append("\n" + "="*70)
+            output_parts.append("\n" + "=" * 70)
             output_parts.append("🎯 RELEVANT BEST PRACTICES")
-            output_parts.append("="*70)
+            output_parts.append("=" * 70)
             output_parts.append(f"File: {file_path}")
             output_parts.append(f"Component: {component} | Domain: {domain}")
             output_parts.append("")
@@ -342,30 +383,39 @@ def main() -> int:
             for i, practice in enumerate(results, 1):
                 output_parts.append(format_best_practice(practice, i))
 
-            output_parts.append("="*70 + "\n")
+            output_parts.append("=" * 70 + "\n")
 
             # Output to stdout (Claude sees this before tool execution)
             print("\n".join(output_parts))
 
             # Log success with user visibility
             duration_ms = (time.perf_counter() - start_time) * 1000
-            log_to_activity(f"🎯 Best practices retrieved (explicit) for {file_path} [{duration_ms:.0f}ms]")
-            logger.info("conventions_retrieved", extra={
-                "file_path": file_path,
-                "component": component,
-                "domain": domain,
-                "results_count": len(results),
-                "duration_ms": round(duration_ms, 2),
-                "project": project_name
-            })
+            log_to_activity(
+                f"🎯 Best practices retrieved (explicit) for {file_path} [{duration_ms:.0f}ms]"
+            )
+            logger.info(
+                "conventions_retrieved",
+                extra={
+                    "file_path": file_path,
+                    "component": component,
+                    "domain": domain,
+                    "results_count": len(results),
+                    "duration_ms": round(duration_ms, 2),
+                    "project": project_name,
+                },
+            )
 
             # Metrics
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection=COLLECTION_CONVENTIONS, status="success").inc()
+                memory_retrievals_total.labels(
+                    collection=COLLECTION_CONVENTIONS, status="success"
+                ).inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
             if hook_duration_seconds:
-                hook_duration_seconds.labels(hook_type="PreToolUse").observe(duration_ms / 1000.0)
+                hook_duration_seconds.labels(hook_type="PreToolUse").observe(
+                    duration_ms / 1000.0
+                )
 
         finally:
             search.close()
@@ -374,17 +424,20 @@ def main() -> int:
 
     except Exception as e:
         # Catch-all error handler - always gracefully degrade
-        logger.error("hook_failed", extra={
-            "error": str(e),
-            "error_type": type(e).__name__
-        })
+        logger.error(
+            "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
+        )
 
         # Metrics
         if memory_retrievals_total:
-            memory_retrievals_total.labels(collection=COLLECTION_CONVENTIONS, status="failed").inc()
+            memory_retrievals_total.labels(
+                collection=COLLECTION_CONVENTIONS, status="failed"
+            ).inc()
         if hook_duration_seconds:
             duration_seconds = (time.perf_counter() - start_time) / 1000.0
-            hook_duration_seconds.labels(hook_type="PreToolUse").observe(duration_seconds)
+            hook_duration_seconds.labels(hook_type="PreToolUse").observe(
+                duration_seconds
+            )
 
         return 0  # Always exit 0 - graceful degradation
 

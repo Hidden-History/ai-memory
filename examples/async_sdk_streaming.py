@@ -29,8 +29,7 @@ from src.memory import AsyncSDKWrapper
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 logger = logging.getLogger(__name__)
@@ -58,11 +57,11 @@ async def basic_streaming():
         async for chunk in wrapper.send_message_buffered(
             prompt="Write a haiku about Python programming",
             model="claude-3-5-sonnet-20241022",
-            max_tokens=200
+            max_tokens=200,
         ):
             # Print chunk as it arrives (note: current implementation
             # returns full response after buffering for retry reliability)
-            print(chunk, end='', flush=True)
+            print(chunk, end="", flush=True)
 
         print("\n" + "-" * 60)
         logger.info("Streaming complete")
@@ -85,12 +84,10 @@ async def streaming_with_processing():
         full_response = []
 
         async for chunk in wrapper.send_message_buffered(
-            prompt=prompt,
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=500
+            prompt=prompt, model="claude-3-5-sonnet-20241022", max_tokens=500
         ):
             full_response.append(chunk)
-            print(chunk, end='', flush=True)
+            print(chunk, end="", flush=True)
 
         print("\n" + "-" * 60)
 
@@ -116,7 +113,7 @@ async def streaming_multiple():
         prompts = [
             "What is async/await?",
             "How does rate limiting work?",
-            "What is exponential backoff?"
+            "What is exponential backoff?",
         ]
 
         for i, prompt in enumerate(prompts, 1):
@@ -124,11 +121,9 @@ async def streaming_multiple():
             print("-" * 60)
 
             async for chunk in wrapper.send_message_buffered(
-                prompt=prompt,
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=150
+                prompt=prompt, model="claude-3-5-sonnet-20241022", max_tokens=150
             ):
-                print(chunk, end='', flush=True)
+                print(chunk, end="", flush=True)
 
             print("\n")
 
@@ -144,9 +139,7 @@ async def streaming_with_retry_simulation():
 
     # Use low rate limits to potentially trigger rate limiting
     async with AsyncSDKWrapper(
-        cwd=cwd,
-        requests_per_minute=5,
-        tokens_per_minute=5000
+        cwd=cwd, requests_per_minute=5, tokens_per_minute=5000
     ) as wrapper:
 
         print("\nSending rapid streaming requests...")
@@ -161,9 +154,9 @@ async def streaming_with_retry_simulation():
                 async for chunk in wrapper.send_message_buffered(
                     prompt=f"Count to {i+1}",
                     model="claude-3-5-sonnet-20241022",
-                    max_tokens=50
+                    max_tokens=50,
                 ):
-                    print(chunk, end='', flush=True)
+                    print(chunk, end="", flush=True)
 
                 print()  # Newline after chunk
 
@@ -191,12 +184,10 @@ async def streaming_long_response():
         start_time = asyncio.get_event_loop().time()
 
         async for chunk in wrapper.send_message_buffered(
-            prompt=prompt,
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=800
+            prompt=prompt, model="claude-3-5-sonnet-20241022", max_tokens=800
         ):
             chars_received += len(chunk)
-            print(chunk, end='', flush=True)
+            print(chunk, end="", flush=True)
 
         elapsed = asyncio.get_event_loop().time() - start_time
 

@@ -17,23 +17,28 @@ Usage:
 - Granular httpx timeouts
 """
 
-import sys
-import os
-import json
 import argparse
+import json
+import os
+import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass
 from typing import Optional, Tuple
 
 try:
     import httpx
 except ImportError:
-    print("Error: httpx library not found. Install with: pip install httpx", file=sys.stderr)
+    print(
+        "Error: httpx library not found. Install with: pip install httpx",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 # Default configuration
-INSTALL_DIR = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 
 # Qdrant configuration
 QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
@@ -55,6 +60,7 @@ RESET = "\033[0m"
 @dataclass
 class CollectionBackup:
     """Metadata for a single collection backup."""
+
     name: str
     records: int
     snapshot_file: str
@@ -65,6 +71,7 @@ class CollectionBackup:
 @dataclass
 class BackupManifest:
     """Complete backup manifest for verification during restore."""
+
     backup_date: str
     ai_memory_version: str
     qdrant_host: str
@@ -115,7 +122,7 @@ def verify_backup(backup_dir: Path) -> BackupManifest:
         qdrant_port=data.get("qdrant_port", 26350),
         collections=data.get("collections", {}),
         config_files=data.get("config_files", []),
-        includes_logs=data.get("includes_logs", False)
+        includes_logs=data.get("includes_logs", False),
     )
 
     # Verify all snapshot files exist
@@ -137,7 +144,7 @@ def collection_exists(collection_name: str) -> bool:
         response = httpx.get(
             f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}",
             headers=get_headers(),
-            timeout=timeout_config
+            timeout=timeout_config,
         )
         return response.status_code == 200
     except Exception:
@@ -151,7 +158,7 @@ def delete_collection(collection_name: str) -> bool:
     response = httpx.delete(
         f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}",
         headers=get_headers(),
-        timeout=timeout_config
+        timeout=timeout_config,
     )
 
     return response.status_code == 200
@@ -170,7 +177,7 @@ def upload_snapshot(collection_name: str, snapshot_path: Path) -> bool:
         connect=3.0,
         read=float(SNAPSHOT_UPLOAD_TIMEOUT),
         write=float(SNAPSHOT_UPLOAD_TIMEOUT),
-        pool=3.0
+        pool=3.0,
     )
 
     headers = get_headers()
@@ -182,7 +189,7 @@ def upload_snapshot(collection_name: str, snapshot_path: Path) -> bool:
             f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/upload",
             headers=headers,
             content=f,  # httpx streams file objects automatically
-            timeout=timeout_config
+            timeout=timeout_config,
         )
 
     if response.status_code != 200:
@@ -198,22 +205,21 @@ def recover_collection(collection_name: str, snapshot_name: str) -> bool:
     Returns: True if successful
     """
     timeout_config = httpx.Timeout(
-        connect=3.0,
-        read=float(SNAPSHOT_RECOVER_TIMEOUT),
-        write=5.0,
-        pool=3.0
+        connect=3.0, read=float(SNAPSHOT_RECOVER_TIMEOUT), write=5.0, pool=3.0
     )
 
     response = httpx.put(
         f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/{snapshot_name}/recover",
         headers=get_headers(),
-        timeout=timeout_config
+        timeout=timeout_config,
     )
 
     return response.status_code == 200
 
 
-def restore_config_files(backup_dir: Path, target_dir: Path, force: bool = False) -> tuple[list[str], list[str]]:
+def restore_config_files(
+    backup_dir: Path, target_dir: Path, force: bool = False
+) -> tuple[list[str], list[str]]:
     """
     Restore configuration files from backup.
 
@@ -261,10 +267,14 @@ def restore_config_files(backup_dir: Path, target_dir: Path, force: bool = False
 def main() -> int:
     parser = argparse.ArgumentParser(description="Restore AI Memory from backup")
     parser.add_argument("backup_dir", type=str, help="Path to backup directory")
-    parser.add_argument("--restore-config", action="store_true",
-                        help="Also restore configuration files")
-    parser.add_argument("--force", action="store_true",
-                        help="Overwrite existing collections without confirmation")
+    parser.add_argument(
+        "--restore-config", action="store_true", help="Also restore configuration files"
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing collections without confirmation",
+    )
     args = parser.parse_args()
 
     backup_dir = Path(args.backup_dir)
@@ -287,7 +297,9 @@ def main() -> int:
 
         # Parse and display backup date
         try:
-            backup_date = datetime.fromisoformat(manifest.backup_date.replace("Z", "+00:00"))
+            backup_date = datetime.fromisoformat(
+                manifest.backup_date.replace("Z", "+00:00")
+            )
             print(f"  Backup date: {backup_date.strftime('%Y-%m-%d %H:%M:%S')}")
         except Exception:
             print(f"  Backup date: {manifest.backup_date}")
@@ -315,10 +327,12 @@ def main() -> int:
         response = httpx.get(
             f"http://{QDRANT_HOST}:{QDRANT_PORT}/healthz",
             headers=get_headers(),
-            timeout=timeout_config
+            timeout=timeout_config,
         )
         if response.status_code != 200:
-            print(f"    {RED}✗ Qdrant not responding (HTTP {response.status_code}){RESET}")
+            print(
+                f"    {RED}✗ Qdrant not responding (HTTP {response.status_code}){RESET}"
+            )
             return 3  # Exit code 3 = Qdrant connection failed
         print(f"    {GREEN}✓{RESET} Connected")
     except Exception as e:
@@ -366,7 +380,9 @@ def main() -> int:
                     print(f"      {RED}✗ Failed to delete existing collection{RESET}")
                     # Rollback previously restored collections
                     if restored_collections:
-                        print(f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}")
+                        print(
+                            f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
+                        )
                         for restored in restored_collections:
                             delete_collection(restored)
                     return 4
@@ -376,7 +392,9 @@ def main() -> int:
                 print(f"      {RED}✗ Snapshot upload failed{RESET}")
                 # Rollback previously restored collections
                 if restored_collections:
-                    print(f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}")
+                    print(
+                        f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
+                    )
                     for restored in restored_collections:
                         delete_collection(restored)
                 return 4
@@ -390,7 +408,9 @@ def main() -> int:
                 print(f"      {RED}✗ Collection recovery failed{RESET}")
                 # Rollback previously restored collections
                 if restored_collections:
-                    print(f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}")
+                    print(
+                        f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
+                    )
                     for restored in restored_collections:
                         delete_collection(restored)
                 return 4
@@ -403,7 +423,9 @@ def main() -> int:
             print(f"      {RED}✗ Error: {e}{RESET}")
             # Rollback previously restored collections
             if restored_collections:
-                print(f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}")
+                print(
+                    f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
+                )
                 for restored in restored_collections:
                     delete_collection(restored)
             return 4
@@ -413,7 +435,9 @@ def main() -> int:
         print()
         print("  Restoring config files...")
         try:
-            restored, skipped = restore_config_files(backup_dir, Path(INSTALL_DIR), force=args.force)
+            restored, skipped = restore_config_files(
+                backup_dir, Path(INSTALL_DIR), force=args.force
+            )
             for f in restored:
                 print(f"    {GREEN}✓{RESET} {f}")
             for f in skipped:

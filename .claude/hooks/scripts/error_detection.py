@@ -33,18 +33,27 @@ import time
 from pathlib import Path
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.config import COLLECTION_CODE_PATTERNS, get_config
-from memory.hooks_common import setup_hook_logging, log_to_activity, extract_error_signature, get_metrics
-from memory.search import MemorySearch
+from memory.hooks_common import (
+    extract_error_signature,
+    get_metrics,
+    log_to_activity,
+    setup_hook_logging,
+)
 from memory.project import detect_project
+from memory.search import MemorySearch
 
 logger = setup_hook_logging()
 
 # CR-2 FIX: Use consolidated metrics import
-memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = get_metrics()
+memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = (
+    get_metrics()
+)
 
 
 def detect_error(tool_response: dict) -> bool:
@@ -69,12 +78,12 @@ def detect_error(tool_response: dict) -> bool:
     # Error pattern check
     # FIX #2: Added "bug" pattern per spec (TRIGGER 1 line 1071)
     error_patterns = [
-        r'(?i)\berror\b',
-        r'(?i)\bexception\b',
-        r'(?i)\btraceback\b',
-        r'(?i)\bfailed\b',
-        r'(?i)\bfatal\b',
-        r'(?i)\bbug\b',  # SPEC REQUIREMENT
+        r"(?i)\berror\b",
+        r"(?i)\bexception\b",
+        r"(?i)\btraceback\b",
+        r"(?i)\bfailed\b",
+        r"(?i)\bfatal\b",
+        r"(?i)\bbug\b",  # SPEC REQUIREMENT
     ]
     for pattern in error_patterns:
         if re.search(pattern, output):
@@ -127,7 +136,9 @@ def main() -> int:
 
         # Validate Bash tool
         if hook_input.get("tool_name") != "Bash":
-            logger.debug("not_bash_tool", extra={"tool_name": hook_input.get("tool_name")})
+            logger.debug(
+                "not_bash_tool", extra={"tool_name": hook_input.get("tool_name")}
+            )
             return 0
 
         tool_response = hook_input.get("tool_response", {})
@@ -157,23 +168,29 @@ def main() -> int:
                 group_id=project_name,
                 limit=3,
                 score_threshold=0.5,
-                memory_type="error_fix"
+                memory_type="error_fix",
             )
 
             if not results:
                 # No similar fixes found - log for visibility
                 duration_ms = (time.perf_counter() - start_time) * 1000
-                log_to_activity(f"🔧 ErrorDetection: Error detected but no similar fixes found [{duration_ms:.0f}ms]", INSTALL_DIR)
-                logger.debug("no_error_fixes_found", extra={"error": error_signature[:50]})
+                log_to_activity(
+                    f"🔧 ErrorDetection: Error detected but no similar fixes found [{duration_ms:.0f}ms]",
+                    INSTALL_DIR,
+                )
+                logger.debug(
+                    "no_error_fixes_found", extra={"error": error_signature[:50]}
+                )
 
                 # Push trigger metrics even when no results
                 from memory.metrics_push import push_trigger_metrics_async
+
                 push_trigger_metrics_async(
                     trigger_type="error_detection",
                     status="empty",
                     project=project_name,
                     results_count=0,
-                    duration_seconds=duration_ms / 1000.0
+                    duration_seconds=duration_ms / 1000.0,
                 )
                 return 0
 
@@ -183,43 +200,54 @@ def main() -> int:
             if len(error_signature) > 100:
                 error_display += "..."
 
-            output_parts = ["\n" + "="*70]
+            output_parts = ["\n" + "=" * 70]
             output_parts.append("🔧 SIMILAR ERROR FIXES FOUND")
-            output_parts.append("="*70)
+            output_parts.append("=" * 70)
             output_parts.append(f"Current error: {error_display}")
             output_parts.append("")
 
             for i, fix in enumerate(results, 1):
                 output_parts.append(format_error_fix(fix, i))
 
-            output_parts.append("="*70 + "\n")
+            output_parts.append("=" * 70 + "\n")
 
             print("\n".join(output_parts))
 
             duration_ms = (time.perf_counter() - start_time) * 1000
-            log_to_activity(f"🔧 ErrorFixes retrieved {len(results)} similar fixes [{duration_ms:.0f}ms]", INSTALL_DIR)
-            logger.info("error_fixes_retrieved", extra={
-                "results_count": len(results),
-                "duration_ms": round(duration_ms, 2),
-                "error_signature": error_signature[:50]
-            })
+            log_to_activity(
+                f"🔧 ErrorFixes retrieved {len(results)} similar fixes [{duration_ms:.0f}ms]",
+                INSTALL_DIR,
+            )
+            logger.info(
+                "error_fixes_retrieved",
+                extra={
+                    "results_count": len(results),
+                    "duration_ms": round(duration_ms, 2),
+                    "error_signature": error_signature[:50],
+                },
+            )
 
             # Metrics
             if memory_retrievals_total:
-                memory_retrievals_total.labels(collection=COLLECTION_CODE_PATTERNS, status="success").inc()
+                memory_retrievals_total.labels(
+                    collection=COLLECTION_CODE_PATTERNS, status="success"
+                ).inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
             if hook_duration_seconds:
-                hook_duration_seconds.labels(hook_type="PostToolUse_ErrorDetection").observe(duration_ms / 1000.0)
+                hook_duration_seconds.labels(
+                    hook_type="PostToolUse_ErrorDetection"
+                ).observe(duration_ms / 1000.0)
 
             # Push trigger metrics to Pushgateway
             from memory.metrics_push import push_trigger_metrics_async
+
             push_trigger_metrics_async(
                 trigger_type="error_detection",
                 status="success",
                 project=project_name,
                 results_count=len(results),
-                duration_seconds=duration_ms / 1000.0
+                duration_seconds=duration_ms / 1000.0,
             )
 
         finally:
@@ -228,23 +256,30 @@ def main() -> int:
         return 0
 
     except Exception as e:
-        logger.error("hook_failed", extra={"error": str(e), "error_type": type(e).__name__})
+        logger.error(
+            "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
+        )
 
         # Metrics
         if memory_retrievals_total:
-            memory_retrievals_total.labels(collection=COLLECTION_CODE_PATTERNS, status="failed").inc()
+            memory_retrievals_total.labels(
+                collection=COLLECTION_CODE_PATTERNS, status="failed"
+            ).inc()
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PostToolUse_ErrorDetection").observe(duration_seconds)
+            hook_duration_seconds.labels(
+                hook_type="PostToolUse_ErrorDetection"
+            ).observe(duration_seconds)
 
         # Push failure metrics
         from memory.metrics_push import push_trigger_metrics_async
+
         push_trigger_metrics_async(
             trigger_type="error_detection",
             status="failed",
-            project=project_name if 'project_name' in dir() else "unknown",
+            project=project_name if "project_name" in dir() else "unknown",
             results_count=0,
-            duration_seconds=duration_seconds
+            duration_seconds=duration_seconds,
         )
 
         return 0  # Graceful degradation

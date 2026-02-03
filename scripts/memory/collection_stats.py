@@ -23,6 +23,7 @@ src_path = Path(__file__).parent.parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
 from qdrant_client import QdrantClient
+
 from memory.config import get_config
 from memory.stats import get_collection_stats
 from memory.warnings import check_collection_thresholds
@@ -56,7 +57,7 @@ def main():
             host=config.qdrant_host,
             port=config.qdrant_port,
             api_key=config.qdrant_api_key,
-            https=config.qdrant_use_https  # BP-040
+            https=config.qdrant_use_https,  # BP-040
         )
 
         print("=" * 60)
@@ -70,9 +71,7 @@ def main():
 
                 print(f"\n📦 {collection_name}")
                 print(f"   Total memories: {stats.total_points:,}")
-                print(
-                    f"   Indexed memories: {stats.indexed_points:,}"
-                )
+                print(f"   Indexed memories: {stats.indexed_points:,}")
                 print(f"   Segments: {stats.segments_count}")
                 print(f"   Disk size: {format_bytes(stats.disk_size_bytes)}")
                 print(f"   Last updated: {stats.last_updated or 'N/A'}")

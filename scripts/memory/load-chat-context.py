@@ -33,22 +33,24 @@ Created: 2026-01-17
 AI Memory Module - Session Continuity
 """
 
+import argparse
+import json
 import os
 import sys
-import json
-import argparse
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 # Try to import from installed location first, fall back to relative
 try:
     from memory.config import get_config
-    from memory.qdrant_client import get_qdrant_client
     from memory.models import MemoryType
+    from memory.qdrant_client import get_qdrant_client
 except ImportError:
     # Running from dev repo
     sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
@@ -56,7 +58,7 @@ except ImportError:
     from memory.qdrant_client import get_qdrant_client
     from memory.models import MemoryType
 
-from qdrant_client.models import Filter, FieldCondition, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 # Valid BMAD agents (defined locally for compatibility with older installed versions)
 VALID_AGENTS = [
@@ -73,9 +75,7 @@ VALID_AGENTS = [
 
 
 def load_chat_context(
-    agent: str,
-    session_id: Optional[str] = None,
-    limit: int = 5
+    agent: str, session_id: Optional[str] = None, limit: int = 5
 ) -> Dict[str, Any]:
     """
     Load recent chat memories for session continuity.
@@ -104,7 +104,7 @@ def load_chat_context(
         if agent not in VALID_AGENTS:
             print(
                 f"Warning: Invalid agent '{agent}'. Valid agents: {', '.join(VALID_AGENTS)}",
-                file=sys.stderr
+                file=sys.stderr,
             )
             return {"memories": [], "count": 0}
 
@@ -115,24 +115,15 @@ def load_chat_context(
         # Build filter conditions
         filter_conditions = [
             # Filter by type=chat_memory (use string value for compatibility)
-            FieldCondition(
-                key="type",
-                match=MatchValue(value="chat_memory")
-            ),
+            FieldCondition(key="type", match=MatchValue(value="chat_memory")),
             # Filter by agent
-            FieldCondition(
-                key="agent",
-                match=MatchValue(value=agent)
-            )
+            FieldCondition(key="agent", match=MatchValue(value=agent)),
         ]
 
         # Optionally filter by session_id
         if session_id:
             filter_conditions.append(
-                FieldCondition(
-                    key="session_id",
-                    match=MatchValue(value=session_id)
-                )
+                FieldCondition(key="session_id", match=MatchValue(value=session_id))
             )
 
         query_filter = Filter(must=filter_conditions)
@@ -146,7 +137,7 @@ def load_chat_context(
             scroll_filter=query_filter,
             limit=limit * 2,  # Fetch extra to ensure we get recent ones after sorting
             with_payload=True,
-            with_vectors=False  # Don't need embeddings for context loading
+            with_vectors=False,  # Don't need embeddings for context loading
         )
 
         # Extract points from scroll response
@@ -157,12 +148,14 @@ def load_chat_context(
         memories = []
         for point in points:
             payload = point.payload
-            memories.append({
-                "content": payload.get("content", ""),
-                "timestamp": payload.get("timestamp", ""),
-                "session_id": payload.get("session_id", ""),
-                "agent": payload.get("agent", "")
-            })
+            memories.append(
+                {
+                    "content": payload.get("content", ""),
+                    "timestamp": payload.get("timestamp", ""),
+                    "session_id": payload.get("session_id", ""),
+                    "agent": payload.get("agent", ""),
+                }
+            )
 
         # Sort by timestamp descending (most recent first)
         memories.sort(key=lambda x: x["timestamp"], reverse=True)
@@ -170,19 +163,13 @@ def load_chat_context(
         # Limit to requested number
         memories = memories[:limit]
 
-        return {
-            "memories": memories,
-            "count": len(memories)
-        }
+        return {"memories": memories, "count": len(memories)}
 
     except Exception as e:
         # Graceful degradation: Return empty result on any error
         # Write error to stderr for debugging, but don't fail the workflow
         print(f"Warning: Chat context loading failed: {e}", file=sys.stderr)
-        return {
-            "memories": [],
-            "count": 0
-        }
+        return {"memories": [], "count": 0}
 
 
 def main():
@@ -200,24 +187,24 @@ Examples:
 
   # Load context for PM agent with default limit (5)
   python load-chat-context.py --agent pm
-        """
+        """,
     )
 
     parser.add_argument(
         "--session-id",
-        help="Session ID to filter by (optional, searches all sessions if omitted)"
+        help="Session ID to filter by (optional, searches all sessions if omitted)",
     )
     parser.add_argument(
         "--agent",
         required=True,
         choices=VALID_AGENTS,
-        help=f"BMAD agent type. Valid agents: {', '.join(VALID_AGENTS)}"
+        help=f"BMAD agent type. Valid agents: {', '.join(VALID_AGENTS)}",
     )
     parser.add_argument(
         "--limit",
         type=int,
         default=5,
-        help="Maximum number of memories to return (default: 5)"
+        help="Maximum number of memories to return (default: 5)",
     )
 
     args = parser.parse_args()
@@ -230,9 +217,7 @@ Examples:
 
     # Load chat context
     result = load_chat_context(
-        agent=args.agent,
-        session_id=args.session_id,
-        limit=args.limit
+        agent=args.agent, session_id=args.session_id, limit=args.limit
     )
 
     # Output JSON to stdout for context injection

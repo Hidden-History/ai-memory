@@ -25,8 +25,7 @@ from src.memory import AsyncSDKWrapper
 
 # Configure logging to see what's happening
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 logger = logging.getLogger(__name__)
@@ -49,7 +48,7 @@ async def basic_conversation():
     async with AsyncSDKWrapper(
         cwd=cwd,
         requests_per_minute=50,  # Tier 1 default
-        tokens_per_minute=30000  # Tier 1 default
+        tokens_per_minute=30000,  # Tier 1 default
     ) as wrapper:
 
         # Log session information
@@ -61,7 +60,7 @@ async def basic_conversation():
         result1 = await wrapper.send_message(
             prompt="What is the capital of France?",
             model="claude-3-5-sonnet-20241022",
-            max_tokens=100
+            max_tokens=100,
         )
 
         print(f"\n[Turn {result1['turn_number']}]")
@@ -72,7 +71,7 @@ async def basic_conversation():
         result2 = await wrapper.send_message(
             prompt="What is its population?",
             model="claude-3-5-sonnet-20241022",
-            max_tokens=100
+            max_tokens=100,
         )
 
         print(f"[Turn {result2['turn_number']}]")
@@ -96,7 +95,7 @@ async def rate_limiting_example():
     async with AsyncSDKWrapper(
         cwd=cwd,
         requests_per_minute=5,  # Low limit for demo
-        tokens_per_minute=5000   # Low limit for demo
+        tokens_per_minute=5000,  # Low limit for demo
     ) as wrapper:
 
         logger.info("Sending 3 rapid requests...")
@@ -107,7 +106,7 @@ async def rate_limiting_example():
             task = wrapper.send_message(
                 prompt=f"Count to {i+1}",
                 model="claude-3-5-sonnet-20241022",
-                max_tokens=50
+                max_tokens=50,
             )
             tasks.append(task)
 
@@ -132,9 +131,7 @@ async def error_handling_example():
 
             # This will succeed even if storage fails (graceful degradation)
             result = await wrapper.send_message(
-                prompt="Hello!",
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=50
+                prompt="Hello!", model="claude-3-5-sonnet-20241022", max_tokens=50
             )
 
             print(f"\nResponse: {result['content']}")

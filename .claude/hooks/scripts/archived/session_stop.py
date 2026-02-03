@@ -51,18 +51,20 @@ from typing import Any, Dict, Optional
 
 # Add src to path for imports
 # Use INSTALL_DIR to find installed module (fixes path calculation bug)
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
+from memory.activity_log import log_session_end
 from memory.config import get_config
-from memory.graceful import graceful_hook, exit_success, exit_graceful
+from memory.embeddings import EmbeddingClient, EmbeddingError
+from memory.graceful import exit_graceful, exit_success, graceful_hook
+from memory.logging_config import StructuredFormatter
+from memory.project import detect_project
+from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 from memory.queue import queue_operation
 from memory.storage import MemoryStorage
-from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
-from memory.project import detect_project
-from memory.logging_config import StructuredFormatter
-from memory.activity_log import log_session_end
-from memory.embeddings import EmbeddingClient, EmbeddingError
 
 # Configure structured logging (Story 6.2)
 handler = logging.StreamHandler()
@@ -145,7 +147,7 @@ def build_session_summary(hook_input: Dict[str, Any]) -> Dict[str, Any]:
 
     # AC 2.4.2: Extract tools used from transcript
     # Look for patterns like "[Edit tool]", "[Bash tool]", etc.
-    tools_pattern = r'\[(\w+)\s+tool\]'
+    tools_pattern = r"\[(\w+)\s+tool\]"
     tools_found = re.findall(tools_pattern, transcript, re.IGNORECASE)
     unique_tools = list(set(tools_found))
 
@@ -166,7 +168,7 @@ def build_session_summary(hook_input: Dict[str, Any]) -> Dict[str, Any]:
         f"Files Modified: {files_modified}",
         "",
         "Key Activities:",
-        key_activities
+        key_activities,
     ]
 
     summary_content = "\n".join(summary_parts)
@@ -182,8 +184,8 @@ def build_session_summary(hook_input: Dict[str, Any]) -> Dict[str, Any]:
         "session_metadata": {
             "duration_ms": metadata.get("duration_ms", 0),
             "tools_used": unique_tools,
-            "files_modified": files_modified
-        }
+            "files_modified": files_modified,
+        },
     }
 
 
@@ -209,10 +211,12 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
     try:
         # AC 2.4.1: Store directly WITHOUT embedding generation for <5s completion
         # Architecture pattern: Store with pending status, background process generates embeddings
+        import uuid
+
         from qdrant_client.models import PointStruct
+
         from memory.models import EmbeddingStatus
         from memory.validation import compute_content_hash
-        import uuid
 
         # Build payload
         content_hash = compute_content_hash(summary_data["content"])
@@ -229,12 +233,12 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             embedding_status = EmbeddingStatus.COMPLETE.value
             logger.info(
                 "embedding_generated",
-                extra={"memory_id": memory_id, "dimensions": len(vector)}
+                extra={"memory_id": memory_id, "dimensions": len(vector)},
             )
         except EmbeddingError as e:
             logger.warning(
                 "embedding_failed_using_placeholder",
-                extra={"error": str(e), "memory_id": memory_id}
+                extra={"error": str(e), "memory_id": memory_id},
             )
             # Continue with zero vector - will be backfilled later
 
@@ -249,20 +253,14 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             "embedding_status": embedding_status,
             "embedding_model": "nomic-embed-code",
             "importance": summary_data.get("importance", "normal"),
-            "session_metadata": summary_data.get("session_metadata", {})
+            "session_metadata": summary_data.get("session_metadata", {}),
         }
 
         # Store to agent-memory collection for session summaries
         client = get_qdrant_client()
         client.upsert(
             collection_name="agent-memory",
-            points=[
-                PointStruct(
-                    id=memory_id,
-                    vector=vector,
-                    payload=payload
-                )
-            ]
+            points=[PointStruct(id=memory_id, vector=vector, payload=payload)],
         )
 
         # AC 2.4.3: Structured logging
@@ -272,8 +270,8 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 "memory_id": memory_id,
                 "session_id": summary_data["session_id"],
                 "group_id": summary_data["group_id"],
-                "embedding_status": "pending"
-            }
+                "embedding_status": "pending",
+            },
         )
 
         # Metrics: Increment capture counter on success (Story 6.1)
@@ -281,7 +279,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             memory_captures_total.labels(
                 hook_type="Stop",
                 status="success",
-                project=summary_data["group_id"] or "unknown"
+                project=summary_data["group_id"] or "unknown",
             ).inc()
 
         return True
@@ -294,8 +292,8 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 "error": str(e),
                 "error_type": type(e).__name__,
                 "session_id": summary_data["session_id"],
-                "group_id": summary_data["group_id"]
-            }
+                "group_id": summary_data["group_id"],
+            },
         )
         queue_operation(summary_data)
         # Metrics: Increment capture counter for queued (Story 6.1)
@@ -303,7 +301,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             memory_captures_total.labels(
                 hook_type="Stop",
                 status="queued",
-                project=summary_data["group_id"] or "unknown"
+                project=summary_data["group_id"] or "unknown",
             ).inc()
         return False
 
@@ -315,8 +313,8 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 "error": str(e),
                 "error_type": type(e).__name__,
                 "session_id": summary_data["session_id"],
-                "group_id": summary_data["group_id"]
-            }
+                "group_id": summary_data["group_id"],
+            },
         )
         queue_operation(summary_data)
         # Metrics: Increment capture counter for queued (Story 6.1)
@@ -324,7 +322,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             memory_captures_total.labels(
                 hook_type="Stop",
                 status="queued",
-                project=summary_data["group_id"] or "unknown"
+                project=summary_data["group_id"] or "unknown",
             ).inc()
         return False
 
@@ -335,8 +333,8 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             extra={
                 "error": str(e),
                 "session_id": summary_data["session_id"],
-                "group_id": summary_data["group_id"]
-            }
+                "group_id": summary_data["group_id"],
+            },
         )
 
         # AC 2.4.3: NEVER retry - queue for background processing
@@ -346,30 +344,30 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 "session_summary_queued",
                 extra={
                     "session_id": summary_data["session_id"],
-                    "group_id": summary_data["group_id"]
-                }
+                    "group_id": summary_data["group_id"],
+                },
             )
             # Metrics: Increment capture counter for queued (Story 6.1)
             if memory_captures_total:
                 memory_captures_total.labels(
                     hook_type="Stop",
                     status="queued",
-                    project=summary_data["group_id"] or "unknown"
+                    project=summary_data["group_id"] or "unknown",
                 ).inc()
         else:
             logger.error(
                 "queue_failed",
                 extra={
                     "session_id": summary_data["session_id"],
-                    "group_id": summary_data["group_id"]
-                }
+                    "group_id": summary_data["group_id"],
+                },
             )
             # Metrics: Increment capture counter for failed (Story 6.1)
             if memory_captures_total:
                 memory_captures_total.labels(
                     hook_type="Stop",
                     status="failed",
-                    project=summary_data["group_id"] or "unknown"
+                    project=summary_data["group_id"] or "unknown",
                 ).inc()
 
         return False  # Queued, not stored directly
@@ -382,8 +380,8 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 "error": str(e),
                 "error_type": type(e).__name__,
                 "session_id": summary_data["session_id"],
-                "group_id": summary_data["group_id"]
-            }
+                "group_id": summary_data["group_id"],
+            },
         )
         queue_operation(summary_data)
         # Metrics: Increment capture counter for queued (Story 6.1)
@@ -391,7 +389,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             memory_captures_total.labels(
                 hook_type="Stop",
                 status="queued",
-                project=summary_data["group_id"] or "unknown"
+                project=summary_data["group_id"] or "unknown",
             ).inc()
         return False
 
@@ -403,8 +401,8 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 "error": str(e),
                 "error_type": type(e).__name__,
                 "session_id": summary_data["session_id"],
-                "group_id": summary_data["group_id"]
-            }
+                "group_id": summary_data["group_id"],
+            },
         )
 
         # AC 2.4.3: Queue on any failure
@@ -414,7 +412,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
             memory_captures_total.labels(
                 hook_type="Stop",
                 status="queued",
-                project=summary_data["group_id"] or "unknown"
+                project=summary_data["group_id"] or "unknown",
             ).inc()
         return False
 
@@ -452,10 +450,7 @@ def main() -> int:
         except json.JSONDecodeError as e:
             logger.error(
                 "malformed_json",
-                extra={
-                    "error": str(e),
-                    "input_preview": raw_input[:100]
-                }
+                extra={"error": str(e), "input_preview": raw_input[:100]},
             )
             return 0  # AC 2.4.4: Exit 0 for invalid input (graceful)
 
@@ -466,8 +461,8 @@ def main() -> int:
                 "validation_failed",
                 extra={
                     "reason": validation_error,
-                    "session_id": hook_input.get("session_id")
-                }
+                    "session_id": hook_input.get("session_id"),
+                },
             )
             return 0  # AC 2.4.4: Exit 0 for invalid input (graceful)
 
@@ -476,12 +471,14 @@ def main() -> int:
         if not transcript:
             logger.info(
                 "no_transcript_skipping",
-                extra={
-                    "session_id": hook_input.get("session_id")
-                }
+                extra={"session_id": hook_input.get("session_id")},
             )
             # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
-            print(json.dumps({"systemMessage": "📤 AI Memory: No session transcript to save"}))
+            print(
+                json.dumps(
+                    {"systemMessage": "📤 AI Memory: No session transcript to save"}
+                )
+            )
             sys.stdout.flush()  # Ensure output is flushed before exit
             return 0  # AC 2.4.1: Exit 0 immediately if no transcript
 
@@ -506,8 +503,8 @@ def main() -> int:
                 "storage_timeout",
                 extra={
                     "session_id": summary_data["session_id"],
-                    "timeout": STOP_HOOK_TIMEOUT
-                }
+                    "timeout": STOP_HOOK_TIMEOUT,
+                },
             )
             queue_operation(summary_data)
         finally:
@@ -525,7 +522,9 @@ def main() -> int:
         # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
         # Icon: 📤 for session summary (matches 🧠 retrieval, 📥 capture)
         project = summary_data.get("group_id", "unknown")
-        message = f"📤 AI Memory: Session summary saved for {project} [{duration_ms:.0f}ms]"
+        message = (
+            f"📤 AI Memory: Session summary saved for {project} [{duration_ms:.0f}ms]"
+        )
         print(json.dumps({"systemMessage": message}))
         sys.stdout.flush()  # Ensure output is flushed before exit
 
@@ -539,11 +538,7 @@ def main() -> int:
     except Exception as e:
         # Catch-all for unexpected errors (should be rare due to @graceful_hook)
         logger.error(
-            "hook_failed",
-            extra={
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
+            "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
         # Metrics: Record hook duration even on error (Story 6.1, AC 6.1.3)

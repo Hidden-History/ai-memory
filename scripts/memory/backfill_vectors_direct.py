@@ -20,13 +20,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, FieldCondition, MatchValue, PointVectors
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointVectors
 
 from memory.config import (
-    get_config,
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
     COLLECTION_DISCUSSIONS,
+    get_config,
 )
 from memory.embeddings import EmbeddingClient, EmbeddingError
 
@@ -38,7 +38,11 @@ logging.basicConfig(
 logger = logging.getLogger("ai_memory.backfill")
 
 # All V2.0 collections
-ALL_COLLECTIONS = [COLLECTION_DISCUSSIONS, COLLECTION_CODE_PATTERNS, COLLECTION_CONVENTIONS]
+ALL_COLLECTIONS = [
+    COLLECTION_DISCUSSIONS,
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+]
 
 
 def count_pending(client: QdrantClient, collection: str) -> int:
@@ -284,11 +288,13 @@ def main():
             host=config.qdrant_host,
             port=config.qdrant_port,
             api_key=config.qdrant_api_key,
-            https=config.qdrant_use_https  # BP-040
+            https=config.qdrant_use_https,  # BP-040
         )
     except Exception as e:
         logger.error("qdrant_connection_failed", extra={"error": str(e)})
-        print(f"ERROR: Could not connect to Qdrant at {config.qdrant_host}:{config.qdrant_port}")
+        print(
+            f"ERROR: Could not connect to Qdrant at {config.qdrant_host}:{config.qdrant_port}"
+        )
         sys.exit(1)
 
     # Determine collections to process
@@ -323,7 +329,9 @@ def main():
         # Health check
         if not embed_client.health_check():
             logger.error("embedding_service_unavailable")
-            print(f"ERROR: Embedding service not available at {config.embedding_host}:{config.embedding_port}")
+            print(
+                f"ERROR: Embedding service not available at {config.embedding_host}:{config.embedding_port}"
+            )
             sys.exit(1)
 
         for collection in collections:

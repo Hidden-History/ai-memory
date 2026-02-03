@@ -27,41 +27,46 @@ import os
 import sys
 import threading
 import time
-from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Set, Tuple
 
 # Path setup
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
-from memory.config import COLLECTION_DISCUSSIONS, COLLECTION_CONVENTIONS, get_config
+from memory.config import COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS, get_config
+from memory.health import check_qdrant_health
+from memory.hooks_common import get_metrics, log_to_activity, setup_hook_logging
+from memory.project import detect_project
+from memory.qdrant_client import get_qdrant_client
+from memory.search import MemorySearch
 from memory.triggers import (
+    detect_best_practices_keywords,
     detect_decision_keywords,
     detect_session_history_keywords,
-    detect_best_practices_keywords,
 )
-from memory.hooks_common import setup_hook_logging, get_metrics, log_to_activity
-from memory.search import MemorySearch
-from memory.health import check_qdrant_health
-from memory.qdrant_client import get_qdrant_client
-from memory.project import detect_project
 
 logger = setup_hook_logging()
 
 # Configuration
 MAX_RESULTS_PER_TYPE = 2  # Limit per trigger type
-MAX_TOTAL_RESULTS = 5     # Total results to show
-SEARCH_TIMEOUT = 3.0      # Seconds per search
+MAX_TOTAL_RESULTS = 5  # Total results to show
+SEARCH_TIMEOUT = 3.0  # Seconds per search
 CIRCUIT_BREAKER_THRESHOLD = 3  # Failures before opening
-CIRCUIT_BREAKER_RESET = 60     # Seconds to reset
+CIRCUIT_BREAKER_RESET = 60  # Seconds to reset
+
 
 @dataclass
 class TriggerResult:
     """Result from a single trigger type."""
+
     trigger_type: str  # "decision", "session", "best_practices"
     topic: str
     results: List[dict]
     search_time_ms: float
+
 
 @dataclass
 class CircuitBreaker:
@@ -69,6 +74,7 @@ class CircuitBreaker:
 
     CR-FIX HIGH-3: Added RLock for thread safety under concurrent hook invocations.
     """
+
     failures: int = 0
     last_failure: float = 0.0
     is_open: bool = False
@@ -81,7 +87,9 @@ class CircuitBreaker:
             self.last_failure = time.time()
             if self.failures >= CIRCUIT_BREAKER_THRESHOLD:
                 self.is_open = True
-                logger.warning("circuit_breaker_opened", extra={"failures": self.failures})
+                logger.warning(
+                    "circuit_breaker_opened", extra={"failures": self.failures}
+                )
 
     def record_success(self):
         """Record a success (thread-safe)."""
@@ -102,8 +110,10 @@ class CircuitBreaker:
                 return True
             return False
 
+
 # Global circuit breaker (persists across hook calls via module state)
 _circuit_breaker = CircuitBreaker()
+
 
 async def detect_all_triggers(prompt: str) -> Dict[str, Optional[str]]:
     """Run all keyword detectors synchronously.
@@ -120,6 +130,7 @@ async def detect_all_triggers(prompt: str) -> Dict[str, Optional[str]]:
         "best_practices": detect_best_practices_keywords(prompt),
     }
 
+
 async def search_single_trigger(
     search_client: MemorySearch,
     trigger_type: str,
@@ -127,7 +138,7 @@ async def search_single_trigger(
     collection: str,
     type_filter: Optional[str],
     group_id: str,
-    mem_config
+    mem_config,
 ) -> TriggerResult:
     """Execute single trigger search with shared client and timeout.
 
@@ -171,30 +182,32 @@ async def search_single_trigger(
             trigger_type=trigger_type,
             topic=topic,
             results=results,
-            search_time_ms=(time.time() - start) * 1000
+            search_time_ms=(time.time() - start) * 1000,
         )
 
     except asyncio.TimeoutError:
-        logger.warning("search_timeout", extra={
-            "trigger_type": trigger_type,
-            "timeout_seconds": SEARCH_TIMEOUT
-        })
+        logger.warning(
+            "search_timeout",
+            extra={"trigger_type": trigger_type, "timeout_seconds": SEARCH_TIMEOUT},
+        )
         _circuit_breaker.record_failure()
         return TriggerResult(trigger_type, topic, [], (time.time() - start) * 1000)
 
     except Exception as e:
-        logger.error("search_error", extra={
-            "trigger_type": trigger_type,
-            "error": str(e),
-            "error_type": type(e).__name__
-        })
+        logger.error(
+            "search_error",
+            extra={
+                "trigger_type": trigger_type,
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
         _circuit_breaker.record_failure()
         return TriggerResult(trigger_type, topic, [], (time.time() - start) * 1000)
 
+
 async def search_all_triggered(
-    triggers: Dict[str, Optional[str]],
-    group_id: str,
-    mem_config
+    triggers: Dict[str, Optional[str]], group_id: str, mem_config
 ) -> List[TriggerResult]:
     """Run all triggered searches in parallel with shared client.
 
@@ -220,28 +233,43 @@ async def search_all_triggered(
         tasks = []
 
         if triggers.get("decision"):
-            tasks.append(search_single_trigger(
-                search_client,  # Pass shared client
-                "decision", triggers["decision"],
-                COLLECTION_DISCUSSIONS, None,  # Search ALL discussion types (decision, session, blocker, preference, user_message, agent_response)
-                group_id, mem_config
-            ))
+            tasks.append(
+                search_single_trigger(
+                    search_client,  # Pass shared client
+                    "decision",
+                    triggers["decision"],
+                    COLLECTION_DISCUSSIONS,
+                    None,  # Search ALL discussion types (decision, session, blocker, preference, user_message, agent_response)
+                    group_id,
+                    mem_config,
+                )
+            )
 
         if triggers.get("session"):
-            tasks.append(search_single_trigger(
-                search_client,  # Pass shared client
-                "session", triggers["session"],
-                COLLECTION_DISCUSSIONS, "session",
-                group_id, mem_config
-            ))
+            tasks.append(
+                search_single_trigger(
+                    search_client,  # Pass shared client
+                    "session",
+                    triggers["session"],
+                    COLLECTION_DISCUSSIONS,
+                    "session",
+                    group_id,
+                    mem_config,
+                )
+            )
 
         if triggers.get("best_practices"):
-            tasks.append(search_single_trigger(
-                search_client,  # Pass shared client
-                "best_practices", triggers["best_practices"],
-                COLLECTION_CONVENTIONS, None,
-                group_id, mem_config
-            ))
+            tasks.append(
+                search_single_trigger(
+                    search_client,  # Pass shared client
+                    "best_practices",
+                    triggers["best_practices"],
+                    COLLECTION_CONVENTIONS,
+                    None,
+                    group_id,
+                    mem_config,
+                )
+            )
 
         if not tasks:
             return []
@@ -252,6 +280,7 @@ async def search_all_triggered(
         # CR-FIX HIGH-1: Clean up shared client
         search_client.close()
 
+
 def deduplicate_results(trigger_results: List[TriggerResult]) -> List[dict]:
     """Deduplicate results by content_hash, priority order."""
 
@@ -259,7 +288,9 @@ def deduplicate_results(trigger_results: List[TriggerResult]) -> List[dict]:
     priority = {"decision": 0, "session": 1, "best_practices": 2}
 
     # Sort by priority
-    sorted_results = sorted(trigger_results, key=lambda r: priority.get(r.trigger_type, 99))
+    sorted_results = sorted(
+        trigger_results, key=lambda r: priority.get(r.trigger_type, 99)
+    )
 
     seen_hashes: Set[str] = set()
     deduplicated: List[dict] = []
@@ -269,8 +300,12 @@ def deduplicate_results(trigger_results: List[TriggerResult]) -> List[dict]:
             # CR-FIX MED-1: Use proper hash fallback instead of first 50 chars
             content_hash = result.get("content_hash")
             if not content_hash:
-                logger.warning("missing_content_hash", extra={"result_id": result.get("id")})
-                content_hash = hashlib.sha256(result.get("content", "").encode()).hexdigest()
+                logger.warning(
+                    "missing_content_hash", extra={"result_id": result.get("id")}
+                )
+                content_hash = hashlib.sha256(
+                    result.get("content", "").encode()
+                ).hexdigest()
 
             if content_hash not in seen_hashes:
                 seen_hashes.add(content_hash)
@@ -281,6 +316,7 @@ def deduplicate_results(trigger_results: List[TriggerResult]) -> List[dict]:
                     return deduplicated
 
     return deduplicated
+
 
 def format_result(result: dict, index: int) -> str:
     """Format single result for stdout (no truncation for full context)."""
@@ -295,6 +331,7 @@ def format_result(result: dict, index: int) -> str:
         header += f" - {', '.join(tags)}"
 
     return f"{header}\n{content}\n"
+
 
 async def main_async() -> int:
     """Main async entry point."""
@@ -318,11 +355,14 @@ async def main_async() -> int:
             logger.debug("no_triggers_matched")
             return 0
 
-        logger.info("triggers_detected", extra={
-            "decision": bool(triggers.get("decision")),
-            "session": bool(triggers.get("session")),
-            "best_practices": bool(triggers.get("best_practices")),
-        })
+        logger.info(
+            "triggers_detected",
+            extra={
+                "decision": bool(triggers.get("decision")),
+                "session": bool(triggers.get("session")),
+                "best_practices": bool(triggers.get("best_practices")),
+            },
+        )
 
         # Initialize Qdrant connection
         mem_config = get_config()
@@ -368,13 +408,14 @@ async def main_async() -> int:
             logger.info("no_results_found")
             # Activity log for visibility even when no results
             total_time = (time.time() - start_time) * 1000
-            triggered_names = ', '.join(k for k, v in triggers.items() if v)
+            triggered_names = ", ".join(k for k, v in triggers.items() if v)
             log_to_activity(
                 f"🎯 KeywordTrigger ({triggered_names}): No relevant memories found [{total_time:.0f}ms]",
-                INSTALL_DIR
+                INSTALL_DIR,
             )
             # TECH-DEBT-070: Push accurate metrics (async to avoid latency)
             from memory.metrics_push import push_trigger_metrics_async
+
             duration_seconds = time.time() - start_time
 
             for trigger_type in ["decision", "session", "best_practices"]:
@@ -388,20 +429,25 @@ async def main_async() -> int:
                         status=status,
                         project=project_name,
                         results_count=0,  # Nothing shown to user
-                        duration_seconds=duration_seconds
+                        duration_seconds=duration_seconds,
                     )
 
-                    logger.info("trigger_metrics", extra={
-                        "trigger": trigger_type,
-                        "found": found,
-                        "shown": 0,
-                        "deduplicated": found,
-                    })
+                    logger.info(
+                        "trigger_metrics",
+                        extra={
+                            "trigger": trigger_type,
+                            "found": found,
+                            "shown": 0,
+                            "deduplicated": found,
+                        },
+                    )
             return 0
 
         # Step 4: Format and output
         output_lines = ["=" * 70, "🎯 RELEVANT MEMORIES", "=" * 70]
-        output_lines.append(f"Triggers: {', '.join(k for k, v in triggers.items() if v)}\n")
+        output_lines.append(
+            f"Triggers: {', '.join(k for k, v in triggers.items() if v)}\n"
+        )
 
         for i, result in enumerate(final_results, 1):
             output_lines.append(format_result(result, i))
@@ -411,24 +457,28 @@ async def main_async() -> int:
 
         # Activity log for user visibility
         total_time = (time.time() - start_time) * 1000
-        triggered_names = ', '.join(k for k, v in triggers.items() if v)
-        types_found = set(r.get('type', 'unknown') for r in final_results)
+        triggered_names = ", ".join(k for k, v in triggers.items() if v)
+        types_found = set(r.get("type", "unknown") for r in final_results)
         log_to_activity(
             f"🎯 KeywordTrigger ({triggered_names}): {len(final_results)} memories found "
             f"[types: {', '.join(types_found)}] [{total_time:.0f}ms]",
-            INSTALL_DIR
+            INSTALL_DIR,
         )
 
         # Metrics
-        logger.info("unified_trigger_complete", extra={
-            "total_time_ms": total_time,
-            "triggers_fired": triggered_count,
-            "results_returned": len(final_results),
-            "searches_performed": len(trigger_results),
-        })
+        logger.info(
+            "unified_trigger_complete",
+            extra={
+                "total_time_ms": total_time,
+                "triggers_fired": triggered_count,
+                "results_returned": len(final_results),
+                "searches_performed": len(trigger_results),
+            },
+        )
 
         # TECH-DEBT-070: Push accurate metrics for each trigger type (async)
         from memory.metrics_push import push_trigger_metrics_async
+
         duration_seconds = time.time() - start_time
 
         for trigger_type in ["decision", "session", "best_practices"]:
@@ -444,28 +494,33 @@ async def main_async() -> int:
                     status=status,
                     project=project_name,
                     results_count=shown,  # What user actually sees
-                    duration_seconds=duration_seconds
+                    duration_seconds=duration_seconds,
                 )
 
-                logger.info("trigger_metrics", extra={
-                    "trigger": trigger_type,
-                    "found": found,
-                    "shown": shown,
-                    "deduplicated": found - shown,
-                })
+                logger.info(
+                    "trigger_metrics",
+                    extra={
+                        "trigger": trigger_type,
+                        "found": found,
+                        "shown": shown,
+                        "deduplicated": found - shown,
+                    },
+                )
 
         return 0
 
     except Exception as e:
-        logger.error("unified_trigger_failed", extra={
-            "error": str(e),
-            "error_type": type(e).__name__
-        })
+        logger.error(
+            "unified_trigger_failed",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
         return 0  # Graceful degradation
+
 
 def main() -> int:
     """Sync entry point."""
     return asyncio.run(main_async())
+
 
 if __name__ == "__main__":
     sys.exit(main())

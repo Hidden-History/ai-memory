@@ -14,8 +14,8 @@ Reference: TECH-DEBT-054, Chunking-Strategy-V1.md
 
 import argparse
 import logging
-import sys
 import re
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -24,14 +24,14 @@ import yaml
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from memory.config import get_config, COLLECTION_CONVENTIONS
-from memory.storage import MemoryStorage
 from memory.chunking import ProseChunker, ProseChunkerConfig
+from memory.config import COLLECTION_CONVENTIONS, get_config
+from memory.storage import MemoryStorage
 
 logger = logging.getLogger("ai_memory.ingest")
 
 # Frontmatter pattern (YAML between --- markers)
-FRONTMATTER_PATTERN = re.compile(r'^---\s*\n(.*?)\n---\s*\n', re.DOTALL)
+FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
 def parse_frontmatter(content: str) -> tuple[dict, str]:
@@ -48,12 +48,12 @@ def parse_frontmatter(content: str) -> tuple[dict, str]:
     if match:
         try:
             frontmatter = yaml.safe_load(match.group(1))
-            remaining = content[match.end():]
+            remaining = content[match.end() :]
             return frontmatter or {}, remaining
         except yaml.YAMLError as e:
             logger.warning(
                 "frontmatter_parse_failed",
-                extra={"error": str(e), "error_type": type(e).__name__}
+                extra={"error": str(e), "error_type": type(e).__name__},
             )
             return {}, content
 
@@ -75,7 +75,7 @@ def extract_title(content: str, frontmatter: dict) -> str:
         return frontmatter["title"]
 
     # Look for first H1 heading
-    h1_match = re.search(r'^#\s+(.+)', content, re.MULTILINE)
+    h1_match = re.search(r"^#\s+(.+)", content, re.MULTILINE)
     if h1_match:
         return h1_match.group(1).strip()
 
@@ -112,7 +112,7 @@ def ingest_file(
             extra={
                 "file_path": str(file_path),
                 "error": str(e),
-            }
+            },
         )
         return 0
     except Exception as e:
@@ -121,7 +121,7 @@ def ingest_file(
             extra={
                 "file_path": str(file_path),
                 "error": str(e),
-            }
+            },
         )
         return 0
 
@@ -142,7 +142,7 @@ def ingest_file(
             extra={
                 "type": type(tags).__name__,
                 "file_path": str(file_path),
-            }
+            },
         )
         tags = []
 
@@ -156,14 +156,11 @@ def ingest_file(
         metadata={
             "title": title,
             "file_path": str(file_path),
-        }
+        },
     )
 
     if not chunks:
-        logger.warning(
-            "no_chunks_generated",
-            extra={"file_path": str(file_path)}
-        )
+        logger.warning("no_chunks_generated", extra={"file_path": str(file_path)})
         return 0
 
     logger.info(
@@ -174,14 +171,14 @@ def ingest_file(
             "memory_type": memory_type,
             "tags": tags,
             "file_path": str(file_path),
-        }
+        },
     )
 
     if dry_run:
         for i, chunk in enumerate(chunks):
             logger.info(
                 "dry_run_chunk",
-                extra={"chunk_index": i, "size_chars": len(chunk.content)}
+                extra={"chunk_index": i, "size_chars": len(chunk.content)},
             )
         return len(chunks)
 
@@ -204,19 +201,17 @@ def ingest_file(
                     "total_chunks": len(chunks),
                     "title": title,
                     "file_path": str(file_path),
-                }
+                },
             )
 
             logger.debug(
-                "chunk_stored",
-                extra={"chunk_index": i, "memory_id": memory_id}
+                "chunk_stored", extra={"chunk_index": i, "memory_id": memory_id}
             )
             stored += 1
 
         except Exception as e:
             logger.error(
-                "chunk_store_failed",
-                extra={"chunk_index": i, "error": str(e)}
+                "chunk_store_failed", extra={"chunk_index": i, "error": str(e)}
             )
 
     return stored
@@ -247,8 +242,7 @@ def ingest_directory(
     files = list(directory.glob(pattern))
 
     logger.info(
-        "files_discovered",
-        extra={"count": len(files), "directory": str(directory)}
+        "files_discovered", extra={"count": len(files), "directory": str(directory)}
     )
 
     total_files = 0
@@ -268,56 +262,34 @@ def main():
     parser = argparse.ArgumentParser(
         description="Ingest markdown files into BMAD memory"
     )
+    parser.add_argument("--dir", type=Path, help="Directory containing markdown files")
+    parser.add_argument("--file", type=Path, help="Single markdown file to ingest")
     parser.add_argument(
-        "--dir",
-        type=Path,
-        help="Directory containing markdown files"
+        "--group-id", default="shared", help="Project group ID (default: shared)"
     )
     parser.add_argument(
-        "--file",
-        type=Path,
-        help="Single markdown file to ingest"
+        "--dry-run", action="store_true", help="Preview without storing"
     )
     parser.add_argument(
-        "--group-id",
-        default="shared",
-        help="Project group ID (default: shared)"
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview without storing"
-    )
-    parser.add_argument(
-        "--no-recursive",
-        action="store_true",
-        help="Don't scan subdirectories"
+        "--no-recursive", action="store_true", help="Don't scan subdirectories"
     )
     parser.add_argument(
         "--max-chunk-size",
         type=int,
         default=500,
-        help="Maximum chunk size in characters (default: 500)"
+        help="Maximum chunk size in characters (default: 500)",
     )
-    parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Verbose output"
-    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
 
     args = parser.parse_args()
 
     # Setup logging
     level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(levelname)s: %(message)s"
-    )
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
     if not args.dir and not args.file:
         logger.error(
-            "missing_input",
-            extra={"error": "Either --dir or --file is required"}
+            "missing_input", extra={"error": "Either --dir or --file is required"}
         )
         sys.exit(1)
 
@@ -334,15 +306,12 @@ def main():
             "qdrant_port": config.qdrant_port,
             "collection": COLLECTION_CONVENTIONS,
             "group_id": args.group_id,
-        }
+        },
     )
 
     if args.file:
         if not args.file.exists():
-            logger.error(
-                "file_not_found",
-                extra={"file_path": str(args.file)}
-            )
+            logger.error("file_not_found", extra={"file_path": str(args.file)})
             sys.exit(1)
 
         chunks = ingest_file(args.file, storage, chunker, args.group_id, args.dry_run)
@@ -352,15 +321,12 @@ def main():
                 "files": 1,
                 "chunks": chunks,
                 "dry_run": args.dry_run,
-            }
+            },
         )
 
     elif args.dir:
         if not args.dir.exists():
-            logger.error(
-                "directory_not_found",
-                extra={"directory": str(args.dir)}
-            )
+            logger.error("directory_not_found", extra={"directory": str(args.dir)})
             sys.exit(1)
 
         files, chunks = ingest_directory(
@@ -377,11 +343,14 @@ def main():
                 "files": files,
                 "chunks": chunks,
                 "dry_run": args.dry_run,
-            }
+            },
         )
 
     if args.dry_run:
-        logger.info("dry_run_notice", extra={"message": "No data was stored. Remove --dry-run to store."})
+        logger.info(
+            "dry_run_notice",
+            extra={"message": "No data was stored. Remove --dry-run to store."},
+        )
 
 
 if __name__ == "__main__":

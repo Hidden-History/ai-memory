@@ -24,19 +24,21 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 # Add src to path for imports
-INSTALL_DIR = os.environ.get('AI_MEMORY_INSTALL_DIR', os.path.expanduser('~/.ai-memory'))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
+from memory.activity_log import log_memory_search
 from memory.config import get_config
-from memory.search import MemorySearch
-from memory.project import detect_project
 from memory.intent import detect_intent, get_target_collection
 from memory.logging_config import StructuredFormatter
-from memory.activity_log import log_memory_search
 from memory.metrics_push import push_skill_metrics_async
+from memory.project import detect_project
+from memory.search import MemorySearch
 
 # Configure structured logging
 handler = logging.StreamHandler()
@@ -50,7 +52,14 @@ logger.propagate = False
 VALID_TYPES = {
     "code-patterns": ["implementation", "error_fix", "refactor", "file_pattern"],
     "conventions": ["rule", "guideline", "port", "naming", "structure"],
-    "discussions": ["decision", "session", "blocker", "preference", "user_message", "agent_response"],
+    "discussions": [
+        "decision",
+        "session",
+        "blocker",
+        "preference",
+        "user_message",
+        "agent_response",
+    ],
 }
 ALL_VALID_TYPES = set(t for types in VALID_TYPES.values() for t in types)
 
@@ -88,41 +97,44 @@ Examples:
   search_cli.py "error handling" --collection conventions
   search_cli.py "database" --type error_fix --limit 5
   search_cli.py "why postgres" --intent why
-        """
+        """,
     )
 
     parser.add_argument("query", help="Search query text")
 
     parser.add_argument(
-        "-c", "--collection",
+        "-c",
+        "--collection",
         choices=["code-patterns", "conventions", "discussions", "all"],
         default="all",
-        help="Target collection (default: all)"
+        help="Target collection (default: all)",
     )
 
     parser.add_argument(
-        "-t", "--type",
+        "-t",
+        "--type",
         help="Filter by memory type. Valid types: implementation, error_fix, refactor, "
-             "file_pattern, rule, guideline, port, naming, structure, decision, session, "
-             "blocker, preference, user_message, agent_response"
+        "file_pattern, rule, guideline, port, naming, structure, decision, session, "
+        "blocker, preference, user_message, agent_response",
     )
 
     parser.add_argument(
-        "-i", "--intent",
+        "-i",
+        "--intent",
         choices=["how", "what", "why"],
-        help="Use intent detection to route query"
+        help="Use intent detection to route query",
     )
 
     parser.add_argument(
-        "-l", "--limit",
+        "-l",
+        "--limit",
         type=positive_int,
         default=3,
-        help="Max results per collection (default: 3, must be >= 1)"
+        help="Max results per collection (default: 3, must be >= 1)",
     )
 
     parser.add_argument(
-        "-g", "--group-id",
-        help="Override project detection with specific group_id"
+        "-g", "--group-id", help="Override project detection with specific group_id"
     )
 
     return parser.parse_args()
@@ -189,16 +201,13 @@ def main() -> int:
         intent_map = {
             "how": "code-patterns",
             "what": "conventions",
-            "why": "discussions"
+            "why": "discussions",
         }
         target_collection = intent_map[args.intent]
         collections = [target_collection]
         logger.info(
             "intent_override",
-            extra={
-                "user_intent": args.intent,
-                "target_collection": target_collection
-            }
+            extra={"user_intent": args.intent, "target_collection": target_collection},
         )
         print(f"\n🔍 Searching memory for: '{query}'")
         print(f"   Intent: {args.intent} → {target_collection}")
@@ -223,8 +232,8 @@ def main() -> int:
             "type_filter": args.type,
             "intent": args.intent,
             "limit": args.limit,
-            "group_id": project_name
-        }
+            "group_id": project_name,
+        },
     )
 
     try:
@@ -243,7 +252,7 @@ def main() -> int:
                     "query": query,
                     "collection": collection,
                     "group_id": group_id,
-                    "limit": args.limit
+                    "limit": args.limit,
                 }
 
                 # Add type filter if specified
@@ -261,10 +270,7 @@ def main() -> int:
             except Exception as e:
                 logger.warning(
                     "collection_search_failed",
-                    extra={
-                        "collection": collection,
-                        "error": str(e)
-                    }
+                    extra={"collection": collection, "error": str(e)},
                 )
                 print(f"⚠️  Could not search {collection}: {e}", file=sys.stderr)
 
@@ -284,14 +290,14 @@ def main() -> int:
                 query=query,
                 results_count=len(all_results),
                 duration_ms=duration_ms,
-                results=all_results[:3]  # Top 3 for preview
+                results=all_results[:3],  # Top 3 for preview
             )
 
             # Push metrics to Pushgateway
             push_skill_metrics_async(
                 skill_name="search-memory",
                 status="success",
-                duration_seconds=duration_ms / 1000.0
+                duration_seconds=duration_ms / 1000.0,
             )
         else:
             print("\n❌ No memories found matching your query")
@@ -302,14 +308,14 @@ def main() -> int:
                 project=project_name,
                 query=query,
                 results_count=0,
-                duration_ms=duration_ms
+                duration_ms=duration_ms,
             )
 
             # Push empty metrics
             push_skill_metrics_async(
                 skill_name="search-memory",
                 status="empty",
-                duration_seconds=duration_ms / 1000.0
+                duration_seconds=duration_ms / 1000.0,
             )
 
         return 0
@@ -321,16 +327,10 @@ def main() -> int:
         push_skill_metrics_async(
             skill_name="search-memory",
             status="failed",
-            duration_seconds=duration_ms / 1000.0
+            duration_seconds=duration_ms / 1000.0,
         )
 
-        logger.error(
-            "search_failed",
-            extra={
-                "error": str(e),
-                "query": query
-            }
-        )
+        logger.error("search_failed", extra={"error": str(e), "query": query})
         print(f"❌ Search failed: {e}", file=sys.stderr)
         return 1
 

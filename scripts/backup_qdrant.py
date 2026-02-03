@@ -17,21 +17,24 @@ Usage:
 - Granular httpx timeouts
 """
 
-import sys
-import os
-import json
-import time
-import shutil
 import argparse
+import json
+import os
+import shutil
+import sys
+import time
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from dataclasses import dataclass, asdict
 from typing import Optional
 
 try:
     import httpx
 except ImportError:
-    print("Error: httpx library not found. Install with: pip install httpx", file=sys.stderr)
+    print(
+        "Error: httpx library not found. Install with: pip install httpx",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 # Default configuration
@@ -39,7 +42,9 @@ except ImportError:
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parent  # scripts/ -> repo root
 DEFAULT_BACKUP_DIR = os.environ.get("AI_MEMORY_BACKUP_DIR", str(REPO_DIR / "backups"))
-INSTALL_DIR = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 
 # Qdrant configuration
 QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
@@ -64,6 +69,7 @@ RESET = "\033[0m"
 @dataclass
 class CollectionBackup:
     """Metadata for a single collection backup."""
+
     name: str
     records: int
     snapshot_file: str
@@ -74,6 +80,7 @@ class CollectionBackup:
 @dataclass
 class BackupManifest:
     """Complete backup manifest for verification during restore."""
+
     backup_date: str
     ai_memory_version: str
     qdrant_host: str
@@ -152,7 +159,7 @@ def delete_server_snapshot(collection_name: str, snapshot_name: str) -> bool:
         response = httpx.delete(
             f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/{snapshot_name}",
             headers=get_headers(),
-            timeout=timeout_config
+            timeout=timeout_config,
         )
         return response.status_code == 200
     except Exception:
@@ -170,11 +177,13 @@ def get_collection_info(collection_name: str) -> dict:
     response = httpx.get(
         f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}",
         headers=get_headers(),
-        timeout=timeout_config
+        timeout=timeout_config,
     )
 
     if response.status_code != 200:
-        raise RuntimeError(f"Failed to get collection info: HTTP {response.status_code}")
+        raise RuntimeError(
+            f"Failed to get collection info: HTTP {response.status_code}"
+        )
 
     data = response.json()
     result = data.get("result", {})
@@ -182,7 +191,7 @@ def get_collection_info(collection_name: str) -> dict:
     return {
         "name": collection_name,
         "points_count": result.get("points_count", 0),
-        "vectors_count": result.get("vectors_count", 0)
+        "vectors_count": result.get("vectors_count", 0),
     }
 
 
@@ -193,16 +202,13 @@ def create_snapshot(collection_name: str) -> str:
     Returns: snapshot name string (e.g., "snapshot-xxx.snapshot")
     """
     timeout_config = httpx.Timeout(
-        connect=3.0,
-        read=float(SNAPSHOT_CREATE_TIMEOUT),
-        write=5.0,
-        pool=3.0
+        connect=3.0, read=float(SNAPSHOT_CREATE_TIMEOUT), write=5.0, pool=3.0
     )
 
     response = httpx.post(
         f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots",
         headers=get_headers(),
-        timeout=timeout_config
+        timeout=timeout_config,
     )
 
     if response.status_code != 200:
@@ -215,24 +221,27 @@ def create_snapshot(collection_name: str) -> str:
     return data["result"]["name"]
 
 
-def download_snapshot(collection_name: str, snapshot_name: str, output_path: Path) -> int:
+def download_snapshot(
+    collection_name: str, snapshot_name: str, output_path: Path
+) -> int:
     """
     Download a snapshot to the specified path.
 
     Returns: file size in bytes
     """
     timeout_config = httpx.Timeout(
-        connect=3.0,
-        read=float(SNAPSHOT_DOWNLOAD_TIMEOUT),
-        write=5.0,
-        pool=3.0
+        connect=3.0, read=float(SNAPSHOT_DOWNLOAD_TIMEOUT), write=5.0, pool=3.0
     )
 
     url = f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/{snapshot_name}"
 
-    with httpx.stream("GET", url, headers=get_headers(), timeout=timeout_config) as response:
+    with httpx.stream(
+        "GET", url, headers=get_headers(), timeout=timeout_config
+    ) as response:
         if response.status_code != 200:
-            raise RuntimeError(f"Failed to download snapshot: HTTP {response.status_code}")
+            raise RuntimeError(
+                f"Failed to download snapshot: HTTP {response.status_code}"
+            )
 
         with open(output_path, "wb") as f:
             for chunk in response.iter_bytes():
@@ -289,7 +298,7 @@ def create_manifest(
     backup_dir: Path,
     collections: list[CollectionBackup],
     config_files: list,
-    includes_logs: bool
+    includes_logs: bool,
 ) -> None:
     """Write manifest.json to backup directory."""
     manifest = BackupManifest(
@@ -299,7 +308,7 @@ def create_manifest(
         qdrant_port=QDRANT_PORT,
         collections={c.name: asdict(c) for c in collections},
         config_files=config_files,
-        includes_logs=includes_logs
+        includes_logs=includes_logs,
     )
 
     manifest_path = backup_dir / "manifest.json"
@@ -309,10 +318,16 @@ def create_manifest(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Backup AI Memory Qdrant database")
-    parser.add_argument("--output", "-o", type=str, default=DEFAULT_BACKUP_DIR,
-                        help="Backup output directory")
-    parser.add_argument("--include-logs", action="store_true",
-                        help="Include logs directory in backup")
+    parser.add_argument(
+        "--output",
+        "-o",
+        type=str,
+        default=DEFAULT_BACKUP_DIR,
+        help="Backup output directory",
+    )
+    parser.add_argument(
+        "--include-logs", action="store_true", help="Include logs directory in backup"
+    )
     args = parser.parse_args()
 
     # Create timestamped backup directory
@@ -336,10 +351,12 @@ def main() -> int:
         response = httpx.get(
             f"http://{QDRANT_HOST}:{QDRANT_PORT}/healthz",
             headers=get_headers(),
-            timeout=timeout_config
+            timeout=timeout_config,
         )
         if response.status_code != 200:
-            print(f"  {RED}✗ Qdrant not responding (HTTP {response.status_code}){RESET}")
+            print(
+                f"  {RED}✗ Qdrant not responding (HTTP {response.status_code}){RESET}"
+            )
             return 1
     except Exception as e:
         print(f"  {RED}✗ Cannot connect to Qdrant: {e}{RESET}")
@@ -359,7 +376,9 @@ def main() -> int:
 
         if not has_space:
             print(f"  {RED}✗ Insufficient disk space{RESET}")
-            print(f"    Estimated: {format_size(estimated_size)}, Available: {format_size(free_bytes)}")
+            print(
+                f"    Estimated: {format_size(estimated_size)}, Available: {format_size(free_bytes)}"
+            )
             return 3
         print(f"    {GREEN}✓{RESET} {format_size(free_bytes)} available")
     except Exception as e:
@@ -391,7 +410,9 @@ def main() -> int:
             if delete_server_snapshot(collection, snapshot_name):
                 pass  # Silent success
             else:
-                print(f"    {YELLOW}!{RESET} Could not delete server snapshot (non-critical)")
+                print(
+                    f"    {YELLOW}!{RESET} Could not delete server snapshot (non-critical)"
+                )
 
             # 5. Store metadata
             backup = CollectionBackup(
@@ -399,11 +420,13 @@ def main() -> int:
                 records=records,
                 snapshot_file=f"{collection}.snapshot",
                 size_bytes=size_bytes,
-                created_at=datetime.now(timezone.utc).isoformat()
+                created_at=datetime.now(timezone.utc).isoformat(),
             )
             collection_backups.append(backup)
 
-            print(f"    {GREEN}✓{RESET} {records} records, snapshot created ({format_size(size_bytes)})")
+            print(
+                f"    {GREEN}✓{RESET} {records} records, snapshot created ({format_size(size_bytes)})"
+            )
 
         except Exception as e:
             print(f"    {RED}✗ Failed: {e}{RESET}")
