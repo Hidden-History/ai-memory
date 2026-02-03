@@ -54,7 +54,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=0.61.0,<1.0.0" },
     { name = "bandit", extras = ["toml"], marker = "extra == 'dev'", specifier = ">=1.7.0,<2.0.0" },
-    { name = "black", marker = "extra == 'dev'", specifier = ">=25.0.0,<26.0.0" },
+    { name = "black", marker = "extra == 'dev'", specifier = ">=25.0.0,<27.0.0" },
     { name = "httpx", specifier = ">=0.27.0,<1.0.0" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.13.0,<8.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.19.0,<2.0.0" },

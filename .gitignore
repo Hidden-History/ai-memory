@@ -65,3 +65,6 @@ migration-backup*/
 
 # Oversight directory (private - stored in parent dev-ai-memory/oversight/)
 oversight/
+
+# Claude Code local settings (user-specific)
+.claude/settings.json

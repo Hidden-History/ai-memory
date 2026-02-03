@@ -15,6 +15,22 @@ import sys
 import pytest
 
 
+def _qdrant_available() -> bool:
+    """Check if Qdrant is available for integration tests.
+
+    Returns:
+        True if Qdrant is reachable, False otherwise.
+    """
+    try:
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(url="http://localhost:6333", timeout=1.0)
+        client.get_collections()
+        return True
+    except Exception:
+        return False
+
+
 class TestNewFileTriggerHook:
     """Integration tests for new_file_trigger.py hook."""
 
@@ -216,6 +232,10 @@ class TestHooksGracefulDegradation:
         )
         assert result.returncode == 0
 
+    @pytest.mark.skipif(
+        os.environ.get("CI") == "true" or not _qdrant_available(),
+        reason="Requires running Qdrant instance (skipped in CI or when Qdrant unavailable)",
+    )
     def test_hook_completes_within_timeout(self, hook_script):
         """All hooks complete within reasonable time."""
         hook_input = {"cwd": "/tmp"}
