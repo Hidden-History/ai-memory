@@ -29,6 +29,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Maximum response size to prevent memory issues in background process (100KB)
+MAX_RESPONSE_SIZE = 100 * 1024
+
 # Add src to path for imports (must be inline before importing from memory)
 INSTALL_DIR = os.environ.get(
     "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
@@ -267,6 +270,18 @@ def main() -> int:
         )
         # Validate turn number (Fix #3: bounds checking prevents corruption)
         turn_number = max(1, min(assistant_count, 10000))  # Bounds: 1 to 10000
+
+        # Truncate large responses to prevent memory issues in background process
+        if len(response_text) > MAX_RESPONSE_SIZE:
+            logger.warning(
+                "response_text_truncated",
+                extra={
+                    "original_size": len(response_text),
+                    "max_size": MAX_RESPONSE_SIZE,
+                    "session_id": hook_input.get("session_id"),
+                },
+            )
+            response_text = response_text[:MAX_RESPONSE_SIZE] + "\n... [truncated]"
 
         # Fork to background
         fork_to_background(hook_input, response_text, turn_number)

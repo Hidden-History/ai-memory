@@ -302,7 +302,7 @@ services:
     # Run as host user for queue file access (bind mount permissions)
     user: "${UID:-1000}:${GID:-1000}"
     stop_grace_period: 30s
-    # Security hardening (2025 best practices)
+    # Security hardening (2026 best practices)
     security_opt:
       - no-new-privileges:true
     cap_drop:

@@ -21,7 +21,8 @@ try:
     _test_chunker = ASTChunker()
     del _test_chunker
     AST_CHUNKER_AVAILABLE = True
-except (ImportError, Exception):
+except (ImportError, ModuleNotFoundError, OSError):
+    # tree-sitter native dependencies may not be available in all test environments
     AST_CHUNKER_AVAILABLE = False
     ASTChunker = None
 

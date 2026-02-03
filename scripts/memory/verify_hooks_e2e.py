@@ -775,7 +775,8 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
         try:
             storage.close()
             search.close()
-        except:
+        except Exception:
+            # Cleanup errors are non-fatal
             pass
 
         return True

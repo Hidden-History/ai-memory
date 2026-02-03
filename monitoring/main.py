@@ -8,6 +8,7 @@ FastAPI monitoring service following 2026 best practices:
 - OpenAPI auto-documentation
 """
 
+import asyncio
 import logging
 import os
 from typing import Any, Dict, Optional
@@ -92,8 +93,6 @@ def sanitize_log_input(value: str, max_length: int = 200) -> str:
     sanitized = "".join(c for c in value if c.isprintable())
     return sanitized[:max_length]
 
-
-import asyncio
 
 # Import metrics module to register metrics with Prometheus (Story 6.1)
 import sys
