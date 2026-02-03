@@ -82,15 +82,34 @@ logger.propagate = False  # Prevent duplicate logs
 
 
 def sanitize_log_input(value: str, max_length: int = 200) -> str:
-    """Sanitize user input for safe logging per security best practices.
+    """
+    Sanitize user input for safe logging per security best practices.
 
-    Prevents log injection attacks by removing control characters and
-    limiting length. TECH-DEBT-100 fix for CodeQL HIGH severity findings.
+    Uses repr() for CodeQL-recognized sanitization, then strips quotes
+    and truncates to max_length. This prevents log injection by:
+    1. Escaping all control characters (repr behavior)
+    2. Removing non-printable characters
+    3. Truncating to prevent log flooding
+
+    Args:
+        value: User-provided input to sanitize
+        max_length: Maximum length of output (default 200)
+
+    Returns:
+        Sanitized string safe for logging
     """
     if not isinstance(value, str):
         value = str(value)
-    # Remove control characters and limit length
-    sanitized = "".join(c for c in value if c.isprintable())
+    # Use repr() for CodeQL-recognized sanitization
+    # This escapes newlines, tabs, and other control characters
+    sanitized = repr(value)
+    # Remove the quotes added by repr()
+    if (sanitized.startswith("'") and sanitized.endswith("'")) or (
+        sanitized.startswith('"') and sanitized.endswith('"')
+    ):
+        sanitized = sanitized[1:-1]
+    # Additional filter for any remaining non-printable chars
+    sanitized = "".join(c for c in sanitized if c.isprintable())
     return sanitized[:max_length]
 
 
@@ -406,7 +425,7 @@ async def get_memory(memory_id: str, collection: str = "code-patterns"):
             return MemoryResponse(
                 status="not_found",
                 data=None,
-                error=f"Memory {memory_id} not found in {collection}",
+                error=f"Memory {sanitize_log_input(memory_id)} not found in {sanitize_log_input(collection)}",
             )
 
     except UnexpectedResponse as e:
@@ -454,7 +473,7 @@ async def collection_stats(collection: str):
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Collection {collection} not found",
+            detail=f"Collection {sanitize_log_input(collection)} not found",
         )
 
 
@@ -520,5 +539,7 @@ async def search_memories(request: SearchRequest):
             },
         )
         return SearchResponse(
-            status="error", results=[], error=f"Search failed: {str(e)}"
+            status="error",
+            results=[],
+            error=f"Search failed: {sanitize_log_input(str(e))}",
         )
