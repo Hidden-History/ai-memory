@@ -184,20 +184,25 @@ def check_hook_scripts_exist(results: TestResults, verbose: bool = False) -> boo
     return all_passed
 
 
-def check_settings_json(results: TestResults, verbose: bool = False) -> bool:
+def check_settings_json(
+    results: TestResults, verbose: bool = False, project_path: Optional[Path] = None
+) -> bool:
     """Verify .claude/settings.json has correct hook configuration.
 
     Args:
         results: TestResults tracker
         verbose: Print detailed information
+        project_path: Target project directory (defaults to CWD)
 
     Returns:
         True if configuration is valid
     """
     print_section("2. Claude Code Settings Configuration")
 
-    project_root = get_project_root()
-    settings_path = project_root / ".claude" / "settings.json"
+    # Settings.json lives in the TARGET project, not the ai-memory installation
+    # Use provided project_path, or fall back to CWD (where user runs the script)
+    target_project = project_path if project_path else Path.cwd()
+    settings_path = target_project / ".claude" / "settings.json"
 
     if not settings_path.exists():
         results.add_fail("settings_exists", f"Settings file not found: {settings_path}")
@@ -886,6 +891,12 @@ Examples:
         action="store_true",
         help="Run only basic checks (scripts + config, skip services + workflow)",
     )
+    parser.add_argument(
+        "--project",
+        type=Path,
+        default=None,
+        help="Target project directory where hooks are installed (default: current working directory)",
+    )
 
     args = parser.parse_args()
 
@@ -901,7 +912,7 @@ Examples:
 
     # Run checks
     check_hook_scripts_exist(results, args.verbose)
-    check_settings_json(results, args.verbose)
+    check_settings_json(results, args.verbose, args.project)
 
     if not args.skip_docker and not args.quick:
         docker_ok = check_docker_services(results, args.verbose)
