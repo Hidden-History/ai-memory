@@ -67,7 +67,7 @@ Traditional knowledge bases require upfront schema design and manual curation. A
 
 - 🗂️ **Three Specialized Collections**: code-patterns (HOW), conventions (WHAT), discussions (WHY)
 - 🎯 **15 Memory Types**: Precise categorization for implementation, errors, decisions, and more
-- ⚡ **5 Automatic Triggers**: Smart context injection when you need it most
+- ⚡ **6 Automatic Triggers**: Smart context injection when you need it most
 - 🔍 **Intent Detection**: Automatically routes queries to the right collection
 - 💬 **Conversation Memory**: Turn-by-turn capture with post-compaction context continuity
 - 🔁 **Cascading Search**: Falls back across collections for comprehensive results
@@ -228,7 +228,8 @@ The memory system automatically retrieves relevant context:
 - **New File Creation**: Retrieves naming conventions and structure patterns
 - **First Edit**: Retrieves file-specific patterns on first modification
 - **Decision Keywords**: "Why did we..." triggers decision memory retrieval
-- **Best Practices**: "How should I..." triggers convention retrieval
+- **Best Practices Keywords**: "How should I..." triggers convention retrieval
+- **Session History Keywords**: "What have we done..." triggers session summary retrieval
 
 ### Trigger Keyword Reference
 
