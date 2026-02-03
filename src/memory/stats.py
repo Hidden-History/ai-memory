@@ -70,6 +70,10 @@ class CollectionStats:
 def get_collection_stats(client: QdrantClient, collection_name: str) -> CollectionStats:
     """Get comprehensive statistics for a collection.
 
+    ⚠️ ADMIN FUNCTION: This function queries across ALL projects to gather
+    collection-wide statistics. It intentionally bypasses tenant isolation
+    for administrative monitoring purposes. Do not expose to end users.
+
     Args:
         client: Initialized Qdrant client
         collection_name: Name of collection to analyze

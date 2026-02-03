@@ -4,7 +4,7 @@ This roadmap outlines the development direction for AI Memory Module. Community 
 
 ---
 
-## Current Release: v2.0.2 (Released 2026-02-03)
+## Current Release: v2.0.3 (Released 2026-02-03)
 
 **V2.0 Architecture** - Complete memory system redesign with specialized collections, automatic triggers, and intelligent context injection.
 

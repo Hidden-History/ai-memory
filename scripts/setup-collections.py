@@ -9,6 +9,7 @@ Creates three v2.0 collections:
 Implements Story 1.3 AC 1.3.1.
 """
 
+import logging
 import sys
 from pathlib import Path
 
@@ -31,6 +32,8 @@ from memory.config import (
     get_config,
 )
 from memory.qdrant_client import get_qdrant_client
+
+logger = logging.getLogger(__name__)
 
 
 def create_collections(dry_run: bool = False) -> None:
@@ -83,63 +86,69 @@ def create_collections(dry_run: bool = False) -> None:
 
         # Create keyword indexes for filtering
         # These enable fast payload filtering for multi-tenancy and provenance
-        # group_id uses is_tenant=True for optimized multi-project storage layout
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="group_id",
-            field_schema=KeywordIndexParams(
-                type="keyword",
-                is_tenant=True,  # Optimizes storage for multi-tenant filtering
-            ),
-        )
-
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="type",
-            field_schema=PayloadSchemaType.KEYWORD,
-        )
-
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="source_hook",
-            field_schema=PayloadSchemaType.KEYWORD,
-        )
-
-        # BP-038 Section 3.3: content_hash index for O(1) dedup lookup
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="content_hash",
-            field_schema=KeywordIndexParams(type="keyword"),
-        )
-
-        # Create full-text index on content field
-        # Enables hybrid search (semantic + keyword)
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="content",
-            field_schema=TextIndexParams(
-                type="text",
-                tokenizer=TokenizerType.WORD,
-                min_token_len=2,
-                max_token_len=20,
-            ),
-        )
-
-        # BP-038 Section 2.1: timestamp index for recency queries
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="timestamp",
-            field_schema=PayloadSchemaType.DATETIME,
-        )
-
-        # BP-038 Section 2.1: file_path index for code-patterns only
-        # Enables file-specific pattern lookup
-        if collection_name == COLLECTION_CODE_PATTERNS:
+        # Wrapped in try/except to handle Qdrant connection/permission failures
+        try:
+            # group_id uses is_tenant=True for optimized multi-project storage layout
             client.create_payload_index(
                 collection_name=collection_name,
-                field_name="file_path",
+                field_name="group_id",
+                field_schema=KeywordIndexParams(
+                    type="keyword",
+                    is_tenant=True,  # Optimizes storage for multi-tenant filtering
+                ),
+            )
+
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="type",
                 field_schema=PayloadSchemaType.KEYWORD,
             )
+
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="source_hook",
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
+
+            # BP-038 Section 3.3: content_hash index for O(1) dedup lookup
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="content_hash",
+                field_schema=KeywordIndexParams(type="keyword"),
+            )
+
+            # Create full-text index on content field
+            # Enables hybrid search (semantic + keyword)
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="content",
+                field_schema=TextIndexParams(
+                    type="text",
+                    tokenizer=TokenizerType.WORD,
+                    min_token_len=2,
+                    max_token_len=20,
+                ),
+            )
+
+            # BP-038 Section 2.1: timestamp index for recency queries
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="timestamp",
+                field_schema=PayloadSchemaType.DATETIME,
+            )
+
+            # BP-038 Section 2.1: file_path index for code-patterns only
+            # Enables file-specific pattern lookup
+            if collection_name == COLLECTION_CODE_PATTERNS:
+                client.create_payload_index(
+                    collection_name=collection_name,
+                    field_name="file_path",
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to create indexes for {collection_name}: {e}")
+            raise RuntimeError(f"Index creation failed for {collection_name}") from e
 
         print(f"Created collection: {collection_name}")
 
