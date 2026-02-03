@@ -121,8 +121,11 @@ class MemoryConfig(BaseSettings):
         default=5, ge=1, le=50, description="Maximum memories to retrieve per session"
     )
 
+    # Token budget increased from 2000 to 4000 per BP-039 Section 3:
+    # "Target 50% context window utilization" - higher budget enables richer context injection
+    # for complex sessions. Can increase to 6000 if needed (TECH-DEBT-116).
     token_budget: int = Field(
-        default=2000,
+        default=4000,
         ge=100,
         le=100000,
         description="Token budget for context injection. Controls how much context is sent to Claude.",

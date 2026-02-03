@@ -40,7 +40,7 @@ Organized by collection:
 - **similarity_threshold** - Minimum relevance score for search results (default: 0.7)
 - **dedup_threshold** - Similarity threshold for duplicate detection (default: 0.95)
 - **max_retrievals** - Maximum memories per search (default: 5)
-- **token_budget** - Maximum tokens for context injection (default: 2000)
+- **token_budget** - Maximum tokens for context injection (default: 4000, per BP-039)
 
 ### Services
 Shows connection details for:
@@ -123,7 +123,7 @@ Configuration can be customized via environment variables or `.env` file:
 SIMILARITY_THRESHOLD=0.7    # Retrieval relevance cutoff
 DEDUP_THRESHOLD=0.95        # Duplicate detection sensitivity
 MAX_RETRIEVALS=5            # Results per search
-TOKEN_BUDGET=2000           # Context injection limit
+TOKEN_BUDGET=4000           # Context injection limit (per BP-039)
 
 # Service endpoints
 QDRANT_HOST=localhost

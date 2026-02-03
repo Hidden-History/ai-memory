@@ -515,7 +515,7 @@ def get_conversation_context(
         Formatted markdown string with session context,
         or empty string if no summaries found.
 
-    Token Budget: ~2000 tokens per summary, configurable via config.token_budget
+    Token Budget: ~4000 tokens default (per BP-039), configurable via config.token_budget
     """
     try:
         client = get_qdrant_client(config)
