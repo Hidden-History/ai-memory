@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 (Nothing yet)
 
+## [2.0.2] - 2026-02-03
+
+### Fixed
+- **BUG-054**: Installer now runs `pip install` for Python dependencies
+- **BUG-051**: SessionStart hook timeout parameter cast to int (was float)
+- **BUG-058**: store_async.py handles missing session_id gracefully with .get() fallback
+
+### Added
+- `scripts/backup_qdrant.py` - Database backup with manifest verification
+- `scripts/restore_qdrant.py` - Database restore with rollback on failure
+- `scripts/upgrade.sh` - Upgrade script for existing installations
+- `docs/BACKUP-RESTORE.md` - Complete backup/restore documentation
+- `backups/` directory for storing backups outside install location
+
+### Changed
+- black version constraint updated to allow 26.x (`<26.0.0` → `<27.0.0`)
+- 66 files reformatted with black 26.1.0
+
 ## [2.0.0] - 2026-01-29
 
 ### Added
@@ -72,5 +90,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
+[2.0.2]: https://github.com/Hidden-History/ai-memory/compare/v2.0.0...v2.0.2
 [1.0.1]: https://github.com/Hidden-History/ai-memory/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Hidden-History/ai-memory/releases/tag/v1.0.0

@@ -692,6 +692,40 @@ Access Grafana at `http://localhost:23000` (admin/admin):
 
 See `docs/prometheus-queries.md` for query examples.
 
+## 💾 Backup & Restore
+
+Protect your AI memories with built-in backup and restore scripts.
+
+### Quick Backup
+
+```bash
+# Setup (one-time)
+cd /path/to/ai-memory
+python3 -m venv .venv && source .venv/bin/activate
+pip install httpx
+
+# Get your Qdrant API key
+cat ~/.ai-memory/docker/.env | grep QDRANT_API_KEY
+export QDRANT_API_KEY="your-key-here"
+
+# Run backup
+python scripts/backup_qdrant.py
+```
+
+Backups are stored in `backups/` directory with timestamped folders containing:
+
+- Collection snapshots (discussions, conventions, code-patterns)
+- Configuration files
+- Verification manifest
+
+### Quick Restore
+
+```bash
+python scripts/restore_qdrant.py backups/2026-02-03_143052
+```
+
+See [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) for complete instructions including troubleshooting.
+
 ## 📈 Performance
 
 ### ⚡ Benchmarks
