@@ -225,3 +225,218 @@ class TestPushFailureMetrics:
                 component="embedding", error_code="EMBEDDING_TIMEOUT"
             )
             assert "metrics_fork_failed" in caplog.text
+
+
+# ==============================================================================
+# NEW NFR PUSH FUNCTION TESTS (MED-3)
+# ==============================================================================
+
+
+class TestPushHookMetricsWithProject:
+    """Tests for hook metrics push with project label (CRIT-1 fix)."""
+
+    def test_async_push_includes_project(self):
+        """Verify project label is passed to subprocess."""
+        from memory.metrics_push import push_hook_metrics_async
+
+        with patch("subprocess.Popen") as mock_popen:
+            push_hook_metrics_async(
+                hook_name="session_start",
+                duration_seconds=0.3,
+                success=True,
+                project="test-project",
+            )
+            mock_popen.assert_called_once()
+
+            # Extract the command passed to subprocess
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]  # [sys.executable, '-c', '<script>']
+
+            # Verify the metrics data dict includes project
+            assert '"project": "test-project"' in inline_script
+            assert '["hook_type", "status", "project"]' in inline_script
+
+    def test_default_project_is_unknown(self):
+        """Verify default project is 'unknown' when not specified."""
+        from memory.metrics_push import push_hook_metrics_async
+
+        with patch("subprocess.Popen") as mock_popen:
+            push_hook_metrics_async(
+                hook_name="session_start",
+                duration_seconds=0.3,
+                success=True,
+            )
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]
+            assert '"project": "unknown"' in inline_script
+
+
+class TestPushDedupDurationMetrics:
+    """Tests for NFR-P4 dedup duration metric push."""
+
+    def test_async_push_uses_subprocess(self):
+        """Verify fork pattern is used for dedup duration."""
+        from memory.metrics_push import push_dedup_duration_metrics_async
+
+        with patch("subprocess.Popen") as mock_popen:
+            push_dedup_duration_metrics_async(
+                collection="code-patterns",
+                project="test-project",
+                duration_seconds=0.05,
+            )
+            mock_popen.assert_called_once()
+
+    def test_includes_collection_and_project_labels(self):
+        """Verify collection and project labels are passed."""
+        from memory.metrics_push import push_dedup_duration_metrics_async
+
+        with patch("subprocess.Popen") as mock_popen:
+            push_dedup_duration_metrics_async(
+                collection="discussions",
+                project="my-project",
+                duration_seconds=0.08,
+            )
+
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]
+
+            assert '"collection": "discussions"' in inline_script
+            assert '"project": "my-project"' in inline_script
+            assert "aimemory_dedup_check_duration_seconds" in inline_script
+
+    def test_fork_failure_logged(self, caplog):
+        """Verify fork failures are logged gracefully."""
+        from memory.metrics_push import push_dedup_duration_metrics_async
+
+        with patch("subprocess.Popen", side_effect=OSError("fork failed")):
+            push_dedup_duration_metrics_async(
+                collection="code-patterns",
+                project="test-project",
+                duration_seconds=0.05,
+            )
+            assert "metrics_fork_failed" in caplog.text
+
+
+class TestPushSessionInjectionMetrics:
+    """Tests for NFR-P3 session injection duration metric push."""
+
+    def test_async_push_uses_subprocess(self):
+        """Verify fork pattern is used for session injection."""
+        from memory.metrics_push import push_session_injection_metrics_async
+
+        with patch("subprocess.Popen") as mock_popen:
+            push_session_injection_metrics_async(
+                project="test-project",
+                duration_seconds=1.5,
+            )
+            mock_popen.assert_called_once()
+
+    def test_includes_project_label(self):
+        """Verify project label is passed to subprocess."""
+        from memory.metrics_push import push_session_injection_metrics_async
+
+        with patch("subprocess.Popen") as mock_popen:
+            push_session_injection_metrics_async(
+                project="my-project",
+                duration_seconds=2.0,
+            )
+
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]
+
+            assert '"project": "my-project"' in inline_script
+            assert "aimemory_session_injection_duration_seconds" in inline_script
+
+    def test_fork_failure_logged(self, caplog):
+        """Verify fork failures are logged gracefully."""
+        from memory.metrics_push import push_session_injection_metrics_async
+
+        with patch("subprocess.Popen", side_effect=OSError("fork failed")):
+            push_session_injection_metrics_async(
+                project="test-project",
+                duration_seconds=1.5,
+            )
+            assert "metrics_fork_failed" in caplog.text
+
+
+class TestPushDeduplicationMetrics:
+    """Tests for deduplication event counter push."""
+
+    def test_async_push_uses_subprocess(self):
+        """Verify fork pattern is used for deduplication events."""
+        from memory.metrics_push import push_deduplication_metrics_async
+
+        with patch("subprocess.Popen") as mock_popen:
+            push_deduplication_metrics_async(
+                action="skipped_duplicate",
+                collection="code-patterns",
+                project="test-project",
+            )
+            mock_popen.assert_called_once()
+
+    def test_includes_action_collection_project_labels(self):
+        """Verify all three labels are passed."""
+        from memory.metrics_push import push_deduplication_metrics_async
+
+        with patch("subprocess.Popen") as mock_popen:
+            push_deduplication_metrics_async(
+                action="stored",
+                collection="discussions",
+                project="my-project",
+            )
+
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]
+
+            assert '"action": "stored"' in inline_script
+            assert '"collection": "discussions"' in inline_script
+            assert '"project": "my-project"' in inline_script
+
+
+class TestPushQueueMetrics:
+    """Tests for queue size gauge push."""
+
+    def test_async_push_uses_subprocess(self):
+        """Verify fork pattern is used for queue metrics."""
+        from memory.metrics_push import push_queue_metrics_async
+
+        with patch("subprocess.Popen") as mock_popen:
+            push_queue_metrics_async(
+                pending_count=5,
+                exhausted_count=2,
+                ready_count=3,
+            )
+            mock_popen.assert_called_once()
+
+
+class TestPushSkillMetrics:
+    """Tests for skill invocation metrics push."""
+
+    def test_async_push_uses_subprocess(self):
+        """Verify fork pattern is used for skill metrics."""
+        from memory.metrics_push import push_skill_metrics_async
+
+        with patch("subprocess.Popen") as mock_popen:
+            push_skill_metrics_async(
+                skill_name="search-memory",
+                status="success",
+                duration_seconds=1.2,
+            )
+            mock_popen.assert_called_once()
+
+    def test_includes_skill_name_and_status(self):
+        """Verify skill_name and status labels are passed."""
+        from memory.metrics_push import push_skill_metrics_async
+
+        with patch("subprocess.Popen") as mock_popen:
+            push_skill_metrics_async(
+                skill_name="memory-status",
+                status="empty",
+                duration_seconds=0.5,
+            )
+
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]
+
+            assert '"skill_name": "memory-status"' in inline_script
+            assert '"status": "empty"' in inline_script

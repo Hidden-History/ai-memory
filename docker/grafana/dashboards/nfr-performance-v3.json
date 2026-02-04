@@ -1,0 +1,1341 @@
+{
+  "uid": "ai-memory-nfr-performance-v3",
+  "title": "NFR Performance Overview (V3)",
+  "tags": [
+    "ai-memory",
+    "nfr",
+    "performance",
+    "v3",
+    "slo"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "project",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(aimemory_hook_duration_seconds_count, project)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "hook_type",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(aimemory_hook_duration_seconds_count, hook_type)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "NFR Status Summary",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "NFR-P1: Hook Latency",
+      "description": "**Target:** <500ms (p95)\n**Metric:** aimemory_hook_duration_seconds\n**Colors:** Green <400ms | Yellow 400-500ms | Red >500ms",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aimemory_hook_duration_seconds_bucket{project=~\"$project\"}[5m])) by (le))",
+          "refId": "A",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 0.4,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 0.5,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "NFR-P2: Batch Embedding",
+      "description": "**Target:** <2s (p95)\n**Metric:** aimemory_embedding_batch_duration_seconds\n**Colors:** Green <1.6s | Yellow 1.6-2s | Red >2s",
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aimemory_embedding_batch_duration_seconds_bucket[5m])) by (le))",
+          "refId": "A",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 1.6,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 2.0,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "NFR-P3: Session Injection",
+      "description": "**Target:** <3s (p95)\n**Metric:** aimemory_session_injection_duration_seconds\n**Colors:** Green <2.4s | Yellow 2.4-3s | Red >3s",
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aimemory_session_injection_duration_seconds_bucket[5m])) by (le))",
+          "refId": "A",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 2.4,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 3.0,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "NFR-P4: Dedup Check",
+      "description": "**Target:** <100ms (p95)\n**Metric:** aimemory_dedup_check_duration_seconds\n**Colors:** Green <80ms | Yellow 80-100ms | Red >100ms",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aimemory_dedup_check_duration_seconds_bucket[5m])) by (le))",
+          "refId": "A",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 0.08,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 0.1,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "NFR-P5: Retrieval Query",
+      "description": "**Target:** <500ms (p95)\n**Metric:** aimemory_retrieval_query_duration_seconds\n**Colors:** Green <400ms | Yellow 400-500ms | Red >500ms",
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aimemory_retrieval_query_duration_seconds_bucket[5m])) by (le))",
+          "refId": "A",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 0.4,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 0.5,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "NFR-P6: Realtime Embedding",
+      "description": "**Target:** <500ms (p95)\n**Metric:** aimemory_embedding_realtime_duration_seconds\n**Colors:** Green <400ms | Yellow 400-500ms | Red >500ms",
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aimemory_embedding_realtime_duration_seconds_bucket[5m])) by (le))",
+          "refId": "A",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 0.4,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 0.5,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "NFR-P1: Hook Latency by Type",
+      "description": "**Metric:** aimemory_hook_duration_seconds\n**Target:** <500ms (p95)\n**hook_type values:** UserPromptSubmit, Stop, PostToolUse, PostToolUse_Error, PreCompact (CAPTURE) | PostToolUse_ErrorDetection, PreToolUse_NewFile, PreToolUse_FirstEdit, SessionStart, PreToolUse (RETRIEVAL)",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aimemory_hook_duration_seconds_bucket{project=~\"$project\"}[5m])) by (le, hook_type))",
+          "refId": "A",
+          "legendFormat": "{{hook_type}}"
+        },
+        {
+          "expr": "vector(0.5)",
+          "refId": "B",
+          "legendFormat": "NFR Target (500ms)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 0.4,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 0.5,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "NFR Target (500ms)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [10, 10],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "NFR-P2/P6: Embedding Latency",
+      "description": "**Batch (NFR-P2):** <2s target\n**Realtime (NFR-P6):** <500ms target\n**Metrics:** aimemory_embedding_batch_duration_seconds, aimemory_embedding_realtime_duration_seconds",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aimemory_embedding_batch_duration_seconds_bucket[5m])) by (le))",
+          "refId": "A",
+          "legendFormat": "Batch (NFR-P2)"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aimemory_embedding_realtime_duration_seconds_bucket[5m])) by (le))",
+          "refId": "B",
+          "legendFormat": "Realtime (NFR-P6)"
+        },
+        {
+          "expr": "vector(2.0)",
+          "refId": "C",
+          "legendFormat": "Batch Target (2s)"
+        },
+        {
+          "expr": "vector(0.5)",
+          "refId": "D",
+          "legendFormat": "Realtime Target (500ms)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Batch Target (2s)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [10, 10],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Realtime Target (500ms)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [5, 5],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FADE2A"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "NFR-P3: Session Injection",
+      "description": "**Metric:** aimemory_session_injection_duration_seconds\n**Target:** <3s (p95)\n**Trigger:** SessionStart hook (resume | compact)",
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aimemory_session_injection_duration_seconds_bucket[5m])) by (le))",
+          "refId": "A",
+          "legendFormat": "Session Injection p95"
+        },
+        {
+          "expr": "vector(3.0)",
+          "refId": "B",
+          "legendFormat": "NFR Target (3s)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 2.4,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 3.0,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "NFR Target (3s)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [10, 10],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "NFR-P4: Dedup Check",
+      "description": "**Metric:** aimemory_dedup_check_duration_seconds\n**Target:** <100ms (p95)",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aimemory_dedup_check_duration_seconds_bucket[5m])) by (le))",
+          "refId": "A",
+          "legendFormat": "Dedup Check p95"
+        },
+        {
+          "expr": "vector(0.1)",
+          "refId": "B",
+          "legendFormat": "NFR Target (100ms)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 0.08,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 0.1,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "NFR Target (100ms)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [10, 10],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "NFR-P5: Retrieval Query",
+      "description": "**Metric:** aimemory_retrieval_query_duration_seconds\n**Target:** <500ms (p95)",
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aimemory_retrieval_query_duration_seconds_bucket[5m])) by (le))",
+          "refId": "A",
+          "legendFormat": "Retrieval Query p95"
+        },
+        {
+          "expr": "vector(0.5)",
+          "refId": "B",
+          "legendFormat": "NFR Target (500ms)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 0.4,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 0.5,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "NFR Target (500ms)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [10, 10],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 200,
+      "type": "row",
+      "title": "SLO Compliance",
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 20,
+      "type": "gauge",
+      "title": "NFR-P1 SLO",
+      "description": "Percentage of hooks completing <500ms",
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_bucket{le=\"0.5\", project=~\"$project\"}[5m])) / sum(rate(aimemory_hook_duration_seconds_count{project=~\"$project\"}[5m])) * 100",
+          "refId": "A",
+          "legendFormat": "SLO %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "noValue": "No data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#F2495C"
+              },
+              {
+                "value": 90,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 95,
+                "color": "#73BF69"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 21,
+      "type": "gauge",
+      "title": "NFR-P2 SLO",
+      "description": "Percentage of batch embeddings completing <2s",
+      "gridPos": {
+        "x": 4,
+        "y": 30,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(aimemory_embedding_batch_duration_seconds_bucket{le=\"2.0\"}[5m])) / sum(rate(aimemory_embedding_batch_duration_seconds_count[5m])) * 100",
+          "refId": "A",
+          "legendFormat": "SLO %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "noValue": "No data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#F2495C"
+              },
+              {
+                "value": 90,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 95,
+                "color": "#73BF69"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 22,
+      "type": "gauge",
+      "title": "NFR-P3 SLO",
+      "description": "Percentage of session injections completing <3s",
+      "gridPos": {
+        "x": 8,
+        "y": 30,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(aimemory_session_injection_duration_seconds_bucket{le=\"3.0\"}[5m])) / sum(rate(aimemory_session_injection_duration_seconds_count[5m])) * 100",
+          "refId": "A",
+          "legendFormat": "SLO %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "noValue": "No data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#F2495C"
+              },
+              {
+                "value": 90,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 95,
+                "color": "#73BF69"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 23,
+      "type": "gauge",
+      "title": "NFR-P4 SLO",
+      "description": "Percentage of dedup checks completing <100ms",
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(aimemory_dedup_check_duration_seconds_bucket{le=\"0.1\"}[5m])) / sum(rate(aimemory_dedup_check_duration_seconds_count[5m])) * 100",
+          "refId": "A",
+          "legendFormat": "SLO %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "noValue": "No data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#F2495C"
+              },
+              {
+                "value": 90,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 95,
+                "color": "#73BF69"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 24,
+      "type": "gauge",
+      "title": "NFR-P5 SLO",
+      "description": "Percentage of retrieval queries completing <500ms",
+      "gridPos": {
+        "x": 16,
+        "y": 30,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(aimemory_retrieval_query_duration_seconds_bucket{le=\"0.5\"}[5m])) / sum(rate(aimemory_retrieval_query_duration_seconds_count[5m])) * 100",
+          "refId": "A",
+          "legendFormat": "SLO %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "noValue": "No data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#F2495C"
+              },
+              {
+                "value": 90,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 95,
+                "color": "#73BF69"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 25,
+      "type": "gauge",
+      "title": "NFR-P6 SLO",
+      "description": "Percentage of realtime embeddings completing <500ms",
+      "gridPos": {
+        "x": 20,
+        "y": 30,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(aimemory_embedding_realtime_duration_seconds_bucket{le=\"0.5\"}[5m])) / sum(rate(aimemory_embedding_realtime_duration_seconds_count[5m])) * 100",
+          "refId": "A",
+          "legendFormat": "SLO %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "noValue": "No data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#F2495C"
+              },
+              {
+                "value": 90,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 95,
+                "color": "#73BF69"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    }
+  ],
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "liveNow": false,
+  "style": "dark"
+}

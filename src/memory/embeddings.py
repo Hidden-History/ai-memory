@@ -134,11 +134,11 @@ class EmbeddingClient:
             embeddings = response.json()["embeddings"]
 
             # Metrics: Embedding request success (Story 6.1, AC 6.1.3)
-            # TECH-DEBT-067: Add embedding_type label (always "dense" for now)
+            # TECH-DEBT-067: Add embedding_type and context labels
             duration_seconds = time.perf_counter() - start_time
             if embedding_requests_total:
                 embedding_requests_total.labels(
-                    status="success", embedding_type="dense"
+                    status="success", embedding_type="dense", context="realtime", project="unknown"
                 ).inc()
             if embedding_duration_seconds:
                 embedding_duration_seconds.labels(embedding_type="dense").observe(
@@ -150,6 +150,7 @@ class EmbeddingClient:
                 status="success",
                 embedding_type="dense",
                 duration_seconds=duration_seconds,
+                context="realtime",
             )
 
             return embeddings
@@ -165,11 +166,11 @@ class EmbeddingClient:
             )
 
             # Metrics: Embedding request timeout (Story 6.1, AC 6.1.3)
-            # TECH-DEBT-067: Add embedding_type label (always "dense" for now)
+            # TECH-DEBT-067: Add embedding_type and context labels
             duration_seconds = time.perf_counter() - start_time
             if embedding_requests_total:
                 embedding_requests_total.labels(
-                    status="timeout", embedding_type="dense"
+                    status="timeout", embedding_type="dense", context="realtime", project="unknown"
                 ).inc()
             if embedding_duration_seconds:
                 embedding_duration_seconds.labels(embedding_type="dense").observe(
@@ -179,7 +180,9 @@ class EmbeddingClient:
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
                 failure_events_total.labels(
-                    component="embedding", error_code="EMBEDDING_TIMEOUT"
+                    component="embedding",
+                    error_code="EMBEDDING_TIMEOUT",
+                    project="unknown",
                 ).inc()
 
             # Push to Pushgateway for hook subprocess visibility
@@ -187,9 +190,12 @@ class EmbeddingClient:
                 status="timeout",
                 embedding_type="dense",
                 duration_seconds=duration_seconds,
+                context="realtime",
             )
             push_failure_metrics_async(
-                component="embedding", error_code="EMBEDDING_TIMEOUT"
+                component="embedding",
+                error_code="EMBEDDING_TIMEOUT",
+                project="unknown",
             )
 
             raise EmbeddingError("EMBEDDING_TIMEOUT") from e
@@ -205,11 +211,11 @@ class EmbeddingClient:
             )
 
             # Metrics: Embedding request failed (Story 6.1, AC 6.1.3)
-            # TECH-DEBT-067: Add embedding_type label (always "dense" for now)
+            # TECH-DEBT-067: Add embedding_type and context labels
             duration_seconds = time.perf_counter() - start_time
             if embedding_requests_total:
                 embedding_requests_total.labels(
-                    status="failed", embedding_type="dense"
+                    status="failed", embedding_type="dense", context="realtime", project="unknown"
                 ).inc()
             if embedding_duration_seconds:
                 embedding_duration_seconds.labels(embedding_type="dense").observe(
@@ -219,7 +225,9 @@ class EmbeddingClient:
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
                 failure_events_total.labels(
-                    component="embedding", error_code="EMBEDDING_ERROR"
+                    component="embedding",
+                    error_code="EMBEDDING_ERROR",
+                    project="unknown",
                 ).inc()
 
             # Push to Pushgateway for hook subprocess visibility
@@ -227,9 +235,12 @@ class EmbeddingClient:
                 status="failed",
                 embedding_type="dense",
                 duration_seconds=duration_seconds,
+                context="realtime",
             )
             push_failure_metrics_async(
-                component="embedding", error_code="EMBEDDING_ERROR"
+                component="embedding",
+                error_code="EMBEDDING_ERROR",
+                project="unknown",
             )
 
             raise EmbeddingError(f"EMBEDDING_ERROR: {e}") from e

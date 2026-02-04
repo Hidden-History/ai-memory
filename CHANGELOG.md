@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Metrics renamed from `ai_memory_*` to `aimemory_*` (BP-045 compliance)
+- All metrics now include `project` label for multi-tenancy
+- NFR-P2 and NFR-P6 now have separate metrics (was shared)
+- All hooks now push project label to metrics (TECH-DEBT-124)
+
+### Added
+- NFR-P3 dedicated metric: `aimemory_session_injection_duration_seconds`
+- NFR-P4 dedicated metric: `aimemory_dedup_check_duration_seconds`
+- Grafana V3 dashboards: NFR Performance, Hook Activity, Memory Operations, System Health
+- BP-045: Prometheus metrics naming conventions documentation
+- `docs/MONITORING.md`: Comprehensive monitoring guide
+
 ### Fixed
+- **BUG-019**: Metrics were misleading (shared metrics for different NFRs)
+- **BUG-021**: Some metrics not collecting (missing NFR-P4, wrong naming)
 - **BUG-059**: restore_qdrant.py snapshot restore now works correctly
   - Changed upload from PUT to POST with multipart/form-data (Qdrant 1.16+ API)
   - Fixed recover endpoint to use `/snapshots/recover` with JSON body location
@@ -95,6 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.2...HEAD
 [2.0.2]: https://github.com/Hidden-History/ai-memory/compare/v2.0.0...v2.0.2
 [1.0.1]: https://github.com/Hidden-History/ai-memory/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Hidden-History/ai-memory/releases/tag/v1.0.0

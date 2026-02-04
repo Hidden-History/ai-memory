@@ -673,25 +673,48 @@ For more detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ## 📊 Monitoring
 
-### Grafana Dashboards
+### Grafana Dashboards (V3)
 
 Access Grafana at `http://localhost:23000` (admin/admin):
 
-- **Memory Overview**: Captures, retrievals, collection sizes
-- **Trigger Performance**: Trigger fires, response times, results
-- **Collection Health**: Per-collection metrics, deduplication
-- **Embedding Metrics**: Generation times, success rates
+| Dashboard | Purpose |
+|-----------|---------|
+| **NFR Performance Overview** | All 6 NFR metrics with SLO compliance |
+| **Hook Activity** | Hook execution rates, latency heatmaps |
+| **Memory Operations** | Captures, retrievals, deduplication |
+| **System Health** | Service status, error rates |
+
+### Performance Targets (NFRs)
+
+| NFR | Metric | Target |
+|-----|--------|--------|
+| NFR-P1 | Hook execution | <500ms |
+| NFR-P2 | Batch embedding | <2s |
+| NFR-P3 | Session injection | <3s |
+| NFR-P4 | Dedup check | <100ms |
+| NFR-P5 | Retrieval query | <500ms |
+| NFR-P6 | Real-time embedding | <500ms |
+
+### Service Ports
+
+| Service | Port |
+|---------|------|
+| Grafana | 23000 |
+| Prometheus | 29090 |
+| Pushgateway | 29091 |
 
 ### Key Metrics
 
+All metrics use `aimemory_` prefix (BP-045 compliant):
+
 | Metric | Description |
 |--------|-------------|
-| `ai_memory_memory_captures_total` | Total memory capture attempts |
-| `ai_memory_trigger_fires_total` | Automatic trigger activations |
-| `ai_memory_retrieval_duration_seconds` | Search response times |
-| `ai_memory_tokens_consumed_total` | Token usage by operation |
+| `aimemory_hook_duration_seconds` | Hook execution time (NFR-P1) |
+| `aimemory_captures_total` | Total memory capture attempts |
+| `aimemory_retrievals_total` | Total retrieval operations |
+| `aimemory_trigger_fires_total` | Automatic trigger activations |
 
-See `docs/prometheus-queries.md` for query examples.
+See [docs/MONITORING.md](docs/MONITORING.md) for complete monitoring guide and [docs/prometheus-queries.md](docs/prometheus-queries.md) for query examples.
 
 ## 💾 Backup & Restore
 
