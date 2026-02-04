@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BUG-019**: Metrics were misleading (shared metrics for different NFRs)
 - **BUG-021**: Some metrics not collecting (missing NFR-P4, wrong naming)
 - **BUG-059**: restore_qdrant.py snapshot restore now works correctly
+- **CI Tests**: Fixed test_monitoring_performance.py label mismatches:
+  - Added missing `collection` label to `memory_captures_total` test calls
+  - Added missing `status`, `project` labels to `hook_duration_seconds` test calls
+  - Reformatted with black 26.1.0 (was using 25.12.0 locally)
   - Changed upload from PUT to POST with multipart/form-data (Qdrant 1.16+ API)
   - Fixed recover endpoint to use `/snapshots/recover` with JSON body location
   - Added `create_collection_for_restore()` for fresh install support
