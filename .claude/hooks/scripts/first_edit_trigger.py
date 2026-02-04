@@ -252,9 +252,11 @@ def main() -> int:
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
             if hook_duration_seconds:
-                hook_duration_seconds.labels(hook_type="PreToolUse_FirstEdit").observe(
-                    duration_ms / 1000.0
-                )
+                hook_duration_seconds.labels(
+                    hook_type="PreToolUse_FirstEdit",
+                    status="success",
+                    project=project_name,
+                ).observe(duration_ms / 1000.0)
 
             # Push trigger metrics to Pushgateway
             from memory.metrics_push import push_trigger_metrics_async
@@ -285,9 +287,11 @@ def main() -> int:
             ).inc()
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PreToolUse_FirstEdit").observe(
-                duration_seconds
-            )
+            hook_duration_seconds.labels(
+                hook_type="PreToolUse_FirstEdit",
+                status="error",
+                project=project_name if "project_name" in dir() else "unknown",
+            ).observe(duration_seconds)
 
         # Push failure metrics
         from memory.metrics_push import push_trigger_metrics_async

@@ -11,8 +11,18 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture
+def hook_env():
+    """Environment variables for running hook scripts."""
+    env = os.environ.copy()
+    # Point to source directory for imports
+    env["AI_MEMORY_INSTALL_DIR"] = str(Path(__file__).parent.parent)
+    return env
 
 
 def _qdrant_available() -> bool:
@@ -40,7 +50,7 @@ class TestNewFileTriggerHook:
         project_root = os.path.dirname(os.path.dirname(__file__))
         return os.path.join(project_root, ".claude/hooks/scripts/new_file_trigger.py")
 
-    def test_hook_handles_malformed_json(self, hook_script):
+    def test_hook_handles_malformed_json(self, hook_script, hook_env):
         """Hook gracefully degrades on malformed JSON input."""
         result = subprocess.run(
             [sys.executable, hook_script],
@@ -48,11 +58,12 @@ class TestNewFileTriggerHook:
             capture_output=True,
             text=True,
             timeout=5,
+            env=hook_env,
         )
         # Should exit 0 (graceful degradation)
         assert result.returncode == 0
 
-    def test_hook_handles_missing_file_path(self, hook_script):
+    def test_hook_handles_missing_file_path(self, hook_script, hook_env):
         """Hook handles missing file_path in tool_input."""
         hook_input = {
             "tool_name": "Write",
@@ -65,11 +76,12 @@ class TestNewFileTriggerHook:
             capture_output=True,
             text=True,
             timeout=5,
+            env=hook_env,
         )
         # Should exit 0 (graceful degradation)
         assert result.returncode == 0
 
-    def test_hook_handles_wrong_tool(self, hook_script):
+    def test_hook_handles_wrong_tool(self, hook_script, hook_env):
         """Hook ignores non-Write tools."""
         hook_input = {
             "tool_name": "Read",
@@ -82,6 +94,7 @@ class TestNewFileTriggerHook:
             capture_output=True,
             text=True,
             timeout=5,
+            env=hook_env,
         )
         # Should exit 0 (not this hook's concern)
         assert result.returncode == 0
@@ -98,7 +111,7 @@ class TestFirstEditTriggerHook:
         project_root = os.path.dirname(os.path.dirname(__file__))
         return os.path.join(project_root, ".claude/hooks/scripts/first_edit_trigger.py")
 
-    def test_hook_handles_malformed_json(self, hook_script):
+    def test_hook_handles_malformed_json(self, hook_script, hook_env):
         """Hook gracefully degrades on malformed JSON input."""
         result = subprocess.run(
             [sys.executable, hook_script],
@@ -106,11 +119,12 @@ class TestFirstEditTriggerHook:
             capture_output=True,
             text=True,
             timeout=5,
+            env=hook_env,
         )
         # Should exit 0 (graceful degradation)
         assert result.returncode == 0
 
-    def test_hook_handles_missing_session_id(self, hook_script):
+    def test_hook_handles_missing_session_id(self, hook_script, hook_env):
         """Hook handles missing session_id."""
         hook_input = {
             "tool_name": "Edit",
@@ -124,11 +138,12 @@ class TestFirstEditTriggerHook:
             capture_output=True,
             text=True,
             timeout=5,
+            env=hook_env,
         )
         # Should exit 0 (graceful degradation)
         assert result.returncode == 0
 
-    def test_hook_handles_wrong_tool(self, hook_script):
+    def test_hook_handles_wrong_tool(self, hook_script, hook_env):
         """Hook ignores non-Edit tools."""
         hook_input = {
             "tool_name": "Write",
@@ -142,6 +157,7 @@ class TestFirstEditTriggerHook:
             capture_output=True,
             text=True,
             timeout=5,
+            env=hook_env,
         )
         # Should exit 0 (not this hook's concern)
         assert result.returncode == 0
@@ -159,7 +175,7 @@ class TestUnifiedKeywordTriggerHook:
             project_root, ".claude/hooks/scripts/unified_keyword_trigger.py"
         )
 
-    def test_hook_handles_malformed_json(self, hook_script):
+    def test_hook_handles_malformed_json(self, hook_script, hook_env):
         """Hook gracefully degrades on malformed JSON input."""
         result = subprocess.run(
             [sys.executable, hook_script],
@@ -167,11 +183,12 @@ class TestUnifiedKeywordTriggerHook:
             capture_output=True,
             text=True,
             timeout=5,
+            env=hook_env,
         )
         # Should exit 0 (graceful degradation)
         assert result.returncode == 0
 
-    def test_hook_handles_missing_prompt(self, hook_script):
+    def test_hook_handles_missing_prompt(self, hook_script, hook_env):
         """Hook handles missing prompt."""
         hook_input = {
             "cwd": "/tmp"
@@ -183,11 +200,12 @@ class TestUnifiedKeywordTriggerHook:
             capture_output=True,
             text=True,
             timeout=5,
+            env=hook_env,
         )
         # Should exit 0 (graceful degradation)
         assert result.returncode == 0
 
-    def test_hook_handles_no_keywords(self, hook_script):
+    def test_hook_handles_no_keywords(self, hook_script, hook_env):
         """Hook handles prompts without decision keywords."""
         hook_input = {
             "prompt": "How do I implement authentication?",  # Unified trigger uses "prompt" not "user_input"
@@ -199,6 +217,7 @@ class TestUnifiedKeywordTriggerHook:
             capture_output=True,
             text=True,
             timeout=5,
+            env=hook_env,
         )
         # Should exit 0 (no keywords detected)
         assert result.returncode == 0
@@ -221,7 +240,7 @@ class TestHooksGracefulDegradation:
         project_root = os.path.dirname(os.path.dirname(__file__))
         return os.path.join(project_root, request.param)
 
-    def test_hook_exits_zero_on_empty_input(self, hook_script):
+    def test_hook_exits_zero_on_empty_input(self, hook_script, hook_env):
         """All hooks exit 0 on empty stdin."""
         result = subprocess.run(
             [sys.executable, hook_script],
@@ -229,6 +248,7 @@ class TestHooksGracefulDegradation:
             capture_output=True,
             text=True,
             timeout=5,
+            env=hook_env,
         )
         assert result.returncode == 0
 
@@ -236,7 +256,7 @@ class TestHooksGracefulDegradation:
         os.environ.get("CI") == "true" or not _qdrant_available(),
         reason="Requires running Qdrant instance (skipped in CI or when Qdrant unavailable)",
     )
-    def test_hook_completes_within_timeout(self, hook_script):
+    def test_hook_completes_within_timeout(self, hook_script, hook_env):
         """All hooks complete within reasonable time."""
         hook_input = {"cwd": "/tmp"}
         result = subprocess.run(

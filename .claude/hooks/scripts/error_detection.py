@@ -236,7 +236,9 @@ def main() -> int:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
             if hook_duration_seconds:
                 hook_duration_seconds.labels(
-                    hook_type="PostToolUse_ErrorDetection"
+                    hook_type="PostToolUse_ErrorDetection",
+                    status="success",
+                    project=project_name,
                 ).observe(duration_ms / 1000.0)
 
             # Push trigger metrics to Pushgateway
@@ -267,8 +269,11 @@ def main() -> int:
             ).inc()
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
+            proj = project_name if "project_name" in dir() else "unknown"
             hook_duration_seconds.labels(
-                hook_type="PostToolUse_ErrorDetection"
+                hook_type="PostToolUse_ErrorDetection",
+                status="error",
+                project=proj,
             ).observe(duration_seconds)
 
         # Push failure metrics

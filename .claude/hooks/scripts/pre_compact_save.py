@@ -786,15 +786,15 @@ def main() -> int:
             except (AttributeError, ValueError):
                 pass
 
+        # User notification via stderr (visible to user, not Claude)
+        project = summary_data.get("group_id", "unknown")
+
         # Metrics: Record hook duration
         duration_ms = (time.perf_counter() - start_time) * 1000
         if hook_duration_seconds:
-            hook_duration_seconds.labels(hook_type="PreCompact").observe(
-                duration_ms / 1000
-            )
-
-        # User notification via stderr (visible to user, not Claude)
-        project = summary_data.get("group_id", "unknown")
+            hook_duration_seconds.labels(
+                hook_type="PreCompact", status="success", project=project
+            ).observe(duration_ms / 1000)
         trigger = hook_input["trigger"]
         print(
             f"📤 AI Memory: Session summary saved for {project} (trigger: {trigger}) [{duration_ms:.0f}ms]",
@@ -837,9 +837,13 @@ def main() -> int:
         # Metrics: Record hook duration even on error
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PreCompact").observe(
-                duration_seconds
-            )
+            # Try to get project from summary_data if available
+            project = "unknown"
+            if "summary_data" in dir() and summary_data:
+                project = summary_data.get("group_id", "unknown")
+            hook_duration_seconds.labels(
+                hook_type="PreCompact", status="error", project=project
+            ).observe(duration_seconds)
 
         # Non-blocking error - allow compaction to proceed
         return 0

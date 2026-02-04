@@ -52,8 +52,10 @@ logger.propagate = False
 # Import metrics for Prometheus instrumentation
 try:
     from memory.metrics import hook_duration_seconds
+    from memory.storage import detect_project
 except ImportError:
     hook_duration_seconds = None
+    detect_project = None
 
 
 def detect_error_indicators(output: str, exit_code: Optional[int]) -> bool:
@@ -392,9 +394,10 @@ def main() -> int:
         # Metrics: Record hook duration
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PostToolUse_Error").observe(
-                duration_seconds
-            )
+            project = detect_project(os.getcwd()) if detect_project else "unknown"
+            hook_duration_seconds.labels(
+                hook_type="PostToolUse_Error", status="success", project=project
+            ).observe(duration_seconds)
 
         return 0
 
@@ -406,9 +409,10 @@ def main() -> int:
         # Metrics: Record hook duration even on error
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PostToolUse_Error").observe(
-                duration_seconds
-            )
+            project = detect_project(os.getcwd()) if detect_project else "unknown"
+            hook_duration_seconds.labels(
+                hook_type="PostToolUse_Error", status="error", project=project
+            ).observe(duration_seconds)
 
         return 1  # Non-blocking error
 

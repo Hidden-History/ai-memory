@@ -413,9 +413,9 @@ def main() -> int:
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
             if hook_duration_seconds:
-                hook_duration_seconds.labels(hook_type="PreToolUse").observe(
-                    duration_ms / 1000.0
-                )
+                hook_duration_seconds.labels(
+                    hook_type="PreToolUse", status="success", project=project_name
+                ).observe(duration_ms / 1000.0)
 
         finally:
             search.close()
@@ -435,9 +435,10 @@ def main() -> int:
             ).inc()
         if hook_duration_seconds:
             duration_seconds = (time.perf_counter() - start_time) / 1000.0
-            hook_duration_seconds.labels(hook_type="PreToolUse").observe(
-                duration_seconds
-            )
+            proj = project_name if "project_name" in dir() else "unknown"
+            hook_duration_seconds.labels(
+                hook_type="PreToolUse", status="error", project=proj
+            ).observe(duration_seconds)
 
         return 0  # Always exit 0 - graceful degradation
 
