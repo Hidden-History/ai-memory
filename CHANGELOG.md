@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(Nothing yet)
+### Fixed
+- **BUG-059**: restore_qdrant.py snapshot restore now works correctly
+  - Changed upload from PUT to POST with multipart/form-data (Qdrant 1.16+ API)
+  - Fixed recover endpoint to use `/snapshots/recover` with JSON body location
+  - Added `create_collection_for_restore()` for fresh install support
+  - Removed collection deletion before upload (was causing 404 errors)
 
 ## [2.0.2] - 2026-02-03
 

@@ -24,7 +24,6 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
 
 try:
     import httpx
@@ -113,7 +112,7 @@ def verify_backup(backup_dir: Path) -> BackupManifest:
         with open(manifest_path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        raise RuntimeError(f"Invalid manifest.json: {e}")
+        raise RuntimeError(f"Invalid manifest.json: {e}") from e
 
     manifest = BackupManifest(
         backup_date=data.get("backup_date", "unknown"),
@@ -164,14 +163,43 @@ def delete_collection(collection_name: str) -> bool:
     return response.status_code == 200
 
 
+def create_collection_for_restore(collection_name: str) -> bool:
+    """
+    Create an empty collection for snapshot restore (fresh install case).
+
+    Uses AI Memory default vector configuration. The snapshot recover
+    operation will replace collection data with the backup contents.
+
+    Args:
+        collection_name: Name of the collection to create
+
+    Returns:
+        True if collection created successfully
+    """
+    timeout_config = httpx.Timeout(connect=3.0, read=30.0, write=5.0, pool=3.0)
+
+    response = httpx.put(
+        f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}",
+        headers=get_headers(),
+        json={
+            "vectors": {
+                "size": 1536,  # AI Memory default (OpenAI text-embedding-ada-002)
+                "distance": "Cosine",
+            }
+        },
+        timeout=timeout_config,
+    )
+
+    return response.status_code == 200
+
+
 def upload_snapshot(collection_name: str, snapshot_path: Path) -> bool:
     """
-    Upload a snapshot file to Qdrant using streaming.
+    Upload a snapshot file to Qdrant using multipart form data.
+
+    Qdrant 1.16+ requires POST with multipart/form-data for snapshot upload.
 
     Returns: True if successful
-
-    Note: Uses streaming upload to avoid loading entire snapshot into memory.
-    Large snapshots (>1GB) would cause memory exhaustion without streaming.
     """
     timeout_config = httpx.Timeout(
         connect=3.0,
@@ -181,26 +209,25 @@ def upload_snapshot(collection_name: str, snapshot_path: Path) -> bool:
     )
 
     headers = get_headers()
-    headers["Content-Type"] = "application/octet-stream"
+    # Note: Don't set Content-Type - httpx sets it automatically for multipart
 
-    # Stream file instead of loading into memory (fixes memory exhaustion for large snapshots)
     with open(snapshot_path, "rb") as f:
-        response = httpx.put(
+        response = httpx.post(
             f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/upload",
             headers=headers,
-            content=f,  # httpx streams file objects automatically
+            files={"snapshot": (snapshot_path.name, f, "application/octet-stream")},
             timeout=timeout_config,
         )
 
-    if response.status_code != 200:
-        return False
-
-    return True
+    return response.status_code == 200
 
 
 def recover_collection(collection_name: str, snapshot_name: str) -> bool:
     """
     Recover a collection from an uploaded snapshot.
+
+    Qdrant 1.16+ requires the snapshot location in the request body.
+    Uploaded snapshots are stored at /qdrant/snapshots/{collection}/{snapshot}
 
     Returns: True if successful
     """
@@ -208,9 +235,16 @@ def recover_collection(collection_name: str, snapshot_name: str) -> bool:
         connect=3.0, read=float(SNAPSHOT_RECOVER_TIMEOUT), write=5.0, pool=3.0
     )
 
+    headers = get_headers()
+    headers["Content-Type"] = "application/json"
+
+    # Uploaded snapshots are stored in /qdrant/snapshots/{collection_name}/
+    snapshot_location = f"file:///qdrant/snapshots/{collection_name}/{snapshot_name}"
+
     response = httpx.put(
-        f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/{snapshot_name}/recover",
-        headers=get_headers(),
+        f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/recover",
+        headers=headers,
+        json={"location": snapshot_location},
         timeout=timeout_config,
     )
 
@@ -341,7 +375,7 @@ def main() -> int:
 
     # Check for existing collections
     existing_collections = []
-    for name in manifest.collections.keys():
+    for name in manifest.collections:
         if collection_exists(name):
             existing_collections.append(name)
 
@@ -374,10 +408,15 @@ def main() -> int:
         print(f"    Restoring {name} ({records} records)...")
 
         try:
-            # Delete existing collection if present
-            if name in existing_collections:
-                if not delete_collection(name):
-                    print(f"      {RED}✗ Failed to delete existing collection{RESET}")
+            # Note: We don't delete existing collections before restore.
+            # Qdrant's snapshot recover replaces collection data in-place.
+            # Deleting first would cause upload to fail with 404.
+
+            # If collection doesn't exist (fresh install), create it first
+            if name not in existing_collections:
+                print("      Creating collection...")
+                if not create_collection_for_restore(name):
+                    print(f"      {RED}✗ Failed to create collection{RESET}")
                     # Rollback previously restored collections
                     if restored_collections:
                         print(
@@ -386,8 +425,9 @@ def main() -> int:
                         for restored in restored_collections:
                             delete_collection(restored)
                     return 4
+                print(f"      {GREEN}✓{RESET} Collection created")
 
-            # Upload snapshot
+            # Upload snapshot (collection must exist)
             if not upload_snapshot(name, snapshot_path):
                 print(f"      {RED}✗ Snapshot upload failed{RESET}")
                 # Rollback previously restored collections
