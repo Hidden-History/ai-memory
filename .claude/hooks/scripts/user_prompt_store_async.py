@@ -149,6 +149,7 @@ def store_user_message(hook_input: Dict[str, Any]) -> bool:
                     hook_type="UserPromptSubmit",
                     status="duplicate",
                     project=group_id or "unknown",
+                    collection="discussions",
                 ).inc()
             return True
 
@@ -260,6 +261,7 @@ def store_user_message(hook_input: Dict[str, Any]) -> bool:
                 hook_type="UserPromptSubmit",
                 status="success",
                 project=group_id or "unknown",
+                collection="discussions",
             ).inc()
 
         # BUG-037: Push capture metrics to Pushgateway for Grafana visibility
@@ -330,6 +332,7 @@ def store_user_message(hook_input: Dict[str, Any]) -> bool:
                 hook_type="UserPromptSubmit",
                 status="queued",
                 project=queue_data["group_id"] or "unknown",
+                collection="discussions",
             ).inc()
 
         return False
@@ -353,7 +356,10 @@ def store_user_message(hook_input: Dict[str, Any]) -> bool:
 
         if memory_captures_total:
             memory_captures_total.labels(
-                hook_type="UserPromptSubmit", status="failed", project="unknown"
+                hook_type="UserPromptSubmit",
+                status="failed",
+                project="unknown",
+                collection="discussions",
             ).inc()
 
         return False

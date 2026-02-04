@@ -142,7 +142,7 @@
       },
       "targets": [
         {
-          "expr": "up{job=\"embedding\"} or up{job=\"jina\"} or vector(0)",
+          "expr": "up{job=\"embedding-service\"} or vector(0)",
           "refId": "A",
           "legendFormat": "Embedding"
         }

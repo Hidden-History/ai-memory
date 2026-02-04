@@ -1,6 +1,7 @@
 """Prometheus metrics for memory classification.
 
 TECH-DEBT-069: Classification monitoring per spec section 5.1.
+BP-045: Uses `aimemory_*` prefix for all metrics.
 """
 
 import logging
@@ -31,28 +32,28 @@ __all__ = [
 
 # Request tracking
 classifier_requests_total = Counter(
-    "ai_memory_classifier_requests_total",
+    "aimemory_classifier_requests_total",
     "Total classification requests",
     ["provider", "status", "classified_type"],
 )
 
 # Token usage
 classifier_tokens_total = Counter(
-    "ai_memory_classifier_tokens_total",
+    "aimemory_classifier_tokens_total",
     "Total tokens used by classifier",
     ["provider", "direction"],  # direction: input/output
 )
 
 # Cost tracking (in micro-dollars for precision)
 classifier_cost_microdollars = Counter(
-    "ai_memory_classifier_cost_microdollars_total",
+    "aimemory_classifier_cost_microdollars_total",
     "Estimated cost in micro-dollars (divide by 1e6 for USD)",
     ["provider"],
 )
 
 # Latency
 classifier_latency_seconds = Histogram(
-    "ai_memory_classifier_latency_seconds",
+    "aimemory_classifier_latency_seconds",
     "Classification latency",
     ["provider"],
     buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
@@ -60,33 +61,33 @@ classifier_latency_seconds = Histogram(
 
 # Fallbacks
 classifier_fallbacks_total = Counter(
-    "ai_memory_classifier_fallbacks_total",
+    "aimemory_classifier_fallbacks_total",
     "Provider fallback events",
     ["from_provider", "to_provider", "reason"],
 )
 
 # Rule-based classification (no LLM needed)
 classifier_rule_matches_total = Counter(
-    "ai_memory_classifier_rule_matches_total",
+    "aimemory_classifier_rule_matches_total",
     "Successful rule-based classifications",
     ["rule_type"],
 )
 
 # Significance filtering
 classifier_significance_skips_total = Counter(
-    "ai_memory_classifier_significance_skips_total",
+    "aimemory_classifier_significance_skips_total",
     "Content skipped due to low significance",
     ["level"],
 )
 
 # Queue status
 classifier_queue_size = Gauge(
-    "ai_memory_classifier_queue_size", "Current size of classification retry queue"
+    "aimemory_classifier_queue_size", "Current size of classification retry queue"
 )
 
 # Confidence distribution
 classifier_confidence = Histogram(
-    "ai_memory_classifier_confidence",
+    "aimemory_classifier_confidence",
     "Classification confidence scores",
     ["classified_type"],
     buckets=[0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0],

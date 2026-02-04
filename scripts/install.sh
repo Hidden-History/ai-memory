@@ -739,6 +739,79 @@ install_python_dependencies() {
         else
             pip_exit_code=$?
         fi
+
+        # ============================================
+        # Venv Verification (TECH-DEBT-136)
+        # ============================================
+        if [[ $pip_exit_code -eq 0 ]]; then
+            echo ""
+            log_info "Verifying venv installation..."
+
+            VENV_PYTHON="$venv_dir/bin/python"
+
+            # Check venv Python exists
+            if [ ! -f "$VENV_PYTHON" ]; then
+                log_error "Venv Python not found at $VENV_PYTHON"
+                log_error "Venv creation failed. Please check permissions and disk space."
+                exit 1
+            fi
+
+            # Verify critical packages are importable
+            log_info "Checking critical dependencies..."
+
+            CRITICAL_PACKAGES=(
+                "qdrant_client:Qdrant client for memory storage"
+                "prometheus_client:Prometheus metrics"
+                "httpx:HTTP client for embedding service"
+                "pydantic:Configuration validation"
+                "structlog:Logging"
+            )
+
+            FAILED_PACKAGES=()
+
+            for pkg_info in "${CRITICAL_PACKAGES[@]}"; do
+                pkg_name="${pkg_info%%:*}"
+                pkg_desc="${pkg_info##*:}"
+
+                if ! "$VENV_PYTHON" -c "import $pkg_name" 2>/dev/null; then
+                    echo "  ✗ $pkg_name ($pkg_desc) - FAILED"
+                    FAILED_PACKAGES+=("$pkg_name")
+                else
+                    echo "  ✓ $pkg_name"
+                fi
+            done
+
+            if [ ${#FAILED_PACKAGES[@]} -gt 0 ]; then
+                echo ""
+                log_error "Critical packages failed to import: ${FAILED_PACKAGES[*]}"
+                log_error "Installation cannot continue. Please check:"
+                echo "  1. Network connectivity (packages may not have downloaded)"
+                echo "  2. Disk space"
+                echo "  3. Python version compatibility"
+                exit 1
+            fi
+
+            # Check optional packages (warn but don't fail)
+            log_info "Checking optional dependencies..."
+
+            OPTIONAL_PACKAGES=(
+                "tree_sitter:AST-based code chunking"
+                "tree_sitter_python:Python code parsing"
+            )
+
+            for pkg_info in "${OPTIONAL_PACKAGES[@]}"; do
+                pkg_name="${pkg_info%%:*}"
+                pkg_desc="${pkg_info##*:}"
+
+                if ! "$VENV_PYTHON" -c "import $pkg_name" 2>/dev/null; then
+                    echo "  ⚠ $pkg_name ($pkg_desc) - Not available (optional feature disabled)"
+                else
+                    echo "  ✓ $pkg_name"
+                fi
+            done
+
+            log_success "Venv verification passed. All critical packages available."
+        fi
     fi
 
     # Handle pip failure gracefully - warn but don't abort install

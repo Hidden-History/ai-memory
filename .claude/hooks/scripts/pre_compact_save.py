@@ -427,6 +427,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 hook_type="PreCompact",
                 status="success",
                 project=summary_data["group_id"] or "unknown",
+                collection="discussions",
             ).inc()
 
         return True
@@ -448,6 +449,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 hook_type="PreCompact",
                 status="queued",
                 project=summary_data["group_id"] or "unknown",
+                collection="discussions",
             ).inc()
         return False
 
@@ -468,6 +470,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 hook_type="PreCompact",
                 status="queued",
                 project=summary_data["group_id"] or "unknown",
+                collection="discussions",
             ).inc()
         return False
 
@@ -496,6 +499,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                     hook_type="PreCompact",
                     status="queued",
                     project=summary_data["group_id"] or "unknown",
+                    collection="discussions",
                 ).inc()
         else:
             logger.error(
@@ -510,6 +514,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                     hook_type="PreCompact",
                     status="failed",
                     project=summary_data["group_id"] or "unknown",
+                    collection="discussions",
                 ).inc()
 
         return False
@@ -531,6 +536,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 hook_type="PreCompact",
                 status="queued",
                 project=summary_data["group_id"] or "unknown",
+                collection="discussions",
             ).inc()
         return False
 
@@ -552,6 +558,7 @@ def store_session_summary(summary_data: Dict[str, Any]) -> bool:
                 hook_type="PreCompact",
                 status="queued",
                 project=summary_data["group_id"] or "unknown",
+                collection="discussions",
             ).inc()
         return False
 

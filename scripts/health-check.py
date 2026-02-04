@@ -424,6 +424,69 @@ def check_monitoring_api(
         )
 
 
+def check_venv_health() -> HealthCheckResult:
+    """
+    Verify venv exists and has required packages (TECH-DEBT-136).
+
+    Checks that the virtual environment is functional and critical
+    packages are importable.
+    """
+    import subprocess
+    from pathlib import Path
+
+    install_dir = os.environ.get(
+        "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+    )
+    venv_python = Path(install_dir) / ".venv" / "bin" / "python"
+
+    # Check venv Python exists
+    if not venv_python.exists():
+        return HealthCheckResult(
+            "venv",
+            "unhealthy",
+            f"Venv Python not found at {venv_python}",
+            error_details="Re-run installer or manually create venv",
+        )
+
+    # Critical packages that must be importable
+    critical_packages = [
+        "qdrant_client",
+        "prometheus_client",
+        "httpx",
+        "pydantic",
+        "structlog",
+    ]
+
+    failed_packages = []
+    for pkg in critical_packages:
+        try:
+            result = subprocess.run(
+                [str(venv_python), "-c", f"import {pkg}"],
+                capture_output=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                failed_packages.append(pkg)
+        except subprocess.TimeoutExpired:
+            failed_packages.append(f"{pkg}(timeout)")
+        except Exception:
+            failed_packages.append(f"{pkg}(error)")
+
+    if failed_packages:
+        return HealthCheckResult(
+            "venv",
+            "unhealthy",
+            f"Missing packages: {', '.join(failed_packages)}",
+            error_details="Re-run installer or: pip install -e ~/.ai-memory[dev]",
+        )
+
+    return HealthCheckResult(
+        "venv",
+        "healthy",
+        f"Venv OK, {len(critical_packages)} critical packages verified",
+    )
+
+
 def run_health_checks() -> list[HealthCheckResult]:
     """
     Run all health checks in parallel for speed.
@@ -435,6 +498,7 @@ def run_health_checks() -> list[HealthCheckResult]:
         check_hooks_configured,
         check_hook_scripts,
         check_monitoring_api,
+        check_venv_health,
     ]
 
     # Skip Docker-dependent checks if requested (e.g., macOS CI without Docker)

@@ -21,4 +21,5 @@
 basic_auth_users:
   # Username: admin
   # Password: Set in docker/.env as PROMETHEUS_ADMIN_PASSWORD (bcrypt hash below)
-  admin: $2b$12$qSnTg/yNNTEZKmze4mICjuPOuEl.nkFrU6yWOGFcdNlAT8ys/E9xG
+  # Hash regenerated: 2026-02-04 (TECH-DEBT-132)
+  admin: $2b$12$sfBBzc0ejy4ugHj0eGsPp.mw9gJEE.XZwzjUDGeAJnIiZCFOhd7le

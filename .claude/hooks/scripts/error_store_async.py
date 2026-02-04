@@ -260,6 +260,7 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
                 hook_type="PostToolUse_Error",
                 status="success",
                 project=group_id or "unknown",
+                collection="code-patterns",
             ).inc()
 
     except ResponseHandlingException as e:
@@ -307,7 +308,10 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
                 project = "unknown"
 
             memory_captures_total.labels(
-                hook_type="PostToolUse_Error", status="failed", project=project
+                hook_type="PostToolUse_Error",
+                status="failed",
+                project=project,
+                collection="code-patterns",
             ).inc()
 
         queue_operation(error_context, "unexpected_error")

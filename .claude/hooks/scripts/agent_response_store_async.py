@@ -147,7 +147,10 @@ def store_agent_response(store_data: Dict[str, Any]) -> bool:
             )
             if memory_captures_total:
                 memory_captures_total.labels(
-                    hook_type="Stop", status="duplicate", project=group_id or "unknown"
+                    hook_type="Stop",
+                    status="duplicate",
+                    project=group_id or "unknown",
+                    collection="discussions",
                 ).inc()
             return True
 
@@ -256,7 +259,10 @@ def store_agent_response(store_data: Dict[str, Any]) -> bool:
         # Metrics
         if memory_captures_total:
             memory_captures_total.labels(
-                hook_type="Stop", status="success", project=group_id or "unknown"
+                hook_type="Stop",
+                status="success",
+                project=group_id or "unknown",
+                collection="discussions",
             ).inc()
 
         # BUG-037: Push capture metrics to Pushgateway for Grafana visibility
@@ -327,6 +333,7 @@ def store_agent_response(store_data: Dict[str, Any]) -> bool:
                 hook_type="Stop",
                 status="queued",
                 project=queue_data["group_id"] or "unknown",
+                collection="discussions",
             ).inc()
 
         return False
@@ -350,7 +357,10 @@ def store_agent_response(store_data: Dict[str, Any]) -> bool:
 
         if memory_captures_total:
             memory_captures_total.labels(
-                hook_type="Stop", status="failed", project="unknown"
+                hook_type="Stop",
+                status="failed",
+                project="unknown",
+                collection="discussions",
             ).inc()
 
         return False

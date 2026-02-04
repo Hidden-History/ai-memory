@@ -364,7 +364,10 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
         if memory_captures_total:
             # Increment by number of chunks stored
             memory_captures_total.labels(
-                hook_type="PostToolUse", status="success", project=group_id or "unknown"
+                hook_type="PostToolUse",
+                status="success",
+                project=group_id or "unknown",
+                collection="code-patterns",
             ).inc(len(points_to_store))
 
         # TECH-DEBT-070: Push metrics to Pushgateway (async to avoid latency)
@@ -443,7 +446,10 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
                 project = "unknown"
 
             memory_captures_total.labels(
-                hook_type="PostToolUse", status="failed", project=project
+                hook_type="PostToolUse",
+                status="failed",
+                project=project,
+                collection="code-patterns",
             ).inc()
 
         # AC 2.1.2: Queue on any failure

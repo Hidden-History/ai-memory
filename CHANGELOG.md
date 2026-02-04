@@ -8,12 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Hook commands now use venv Python: `$AI_MEMORY_INSTALL_DIR/.venv/bin/python`
+- `docker/.env.example` reorganized with quick setup guide and sync warnings
 - Metrics renamed from `ai_memory_*` to `aimemory_*` (BP-045 compliance)
 - All metrics now include `project` label for multi-tenancy
 - NFR-P2 and NFR-P6 now have separate metrics (was shared)
 - All hooks now push project label to metrics (TECH-DEBT-124)
 
 ### Added
+- Venv health check function in `health-check.py` (TECH-DEBT-136)
+- Venv verification during installation with fail-fast behavior
+- Troubleshooting documentation for dependency issues
+- Best practices research: BP-046 Claude Code hooks Python environment
 - NFR-P3 dedicated metric: `aimemory_session_injection_duration_seconds`
 - NFR-P4 dedicated metric: `aimemory_dedup_check_duration_seconds`
 - Grafana V3 dashboards: NFR Performance, Hook Activity, Memory Operations, System Health
@@ -21,6 +27,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MONITORING.md`: Comprehensive monitoring guide
 
 ### Fixed
+- **CRITICAL: Hook Python interpreter path** (TECH-DEBT-135)
+  - Hooks were configured to use system `python3` instead of venv interpreter
+  - This caused ALL hook dependencies to be unavailable (qdrant-client, prometheus_client, tree-sitter, httpx, etc.)
+  - **Symptoms**: Silent failures, `ModuleNotFoundError` in logs, memory operations not working, "tree-sitter not installed" warnings
+  - **Root Cause**: `generate_settings.py` used bare `python3` instead of `$AI_MEMORY_INSTALL_DIR/.venv/bin/python`
+  - **Action Required for Existing Installations**: Re-run `./scripts/install.sh` to regenerate `.claude/settings.json` with correct Python path
+- **Hook metrics missing collection label** (TECH-DEBT-131)
+  - `memory_captures_total` metric expected 4 labels but hooks only passed 3
+  - Caused `ValueError` after successful storage (data saved but error logged)
+  - Fixed in 5 async storage scripts (19 total label additions)
+- **Venv verification added to installer** (TECH-DEBT-136)
+  - Installer now verifies venv creation and critical package imports
+  - Fails fast with clear error message if dependencies unavailable
+  - Added troubleshooting documentation
+- **Classifier metrics prefix** (TECH-DEBT-128)
+  - Migrated `classifier/metrics.py` from `ai_memory_classifier_*` to `aimemory_classifier_*` per BP-045
+  - Updated legacy dashboards (classifier-health.json, memory-overview.json) to match
+- **Docker environment configuration** (TECH-DEBT-127)
+  - Created `docker/.env` with all required secrets
+  - Enhanced `docker/.env.example` with generation commands and sync warnings
+  - Fixed Grafana security secret key configuration
 - **BUG-019**: Metrics were misleading (shared metrics for different NFRs)
 - **BUG-021**: Some metrics not collecting (missing NFR-P4, wrong naming)
 - **BUG-059**: restore_qdrant.py snapshot restore now works correctly
