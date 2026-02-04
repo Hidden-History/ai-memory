@@ -483,7 +483,11 @@ class MemoryStorage:
                 failure_events_total.labels(
                     component="embedding",
                     error_code="EMBEDDING_TIMEOUT",
-                    project=memories[0].get("group_id", "unknown") if memories else "unknown",
+                    project=(
+                        memories[0].get("group_id", "unknown")
+                        if memories
+                        else "unknown"
+                    ),
                 ).inc()
 
             embeddings = [[0.0] * 768 for _ in contents]  # DEC-010: 768d placeholder
@@ -572,7 +576,11 @@ class MemoryStorage:
                 failure_events_total.labels(
                     component="qdrant",
                     error_code="QDRANT_UNAVAILABLE",
-                    project=memories[0].get("group_id", "unknown") if memories else "unknown",
+                    project=(
+                        memories[0].get("group_id", "unknown")
+                        if memories
+                        else "unknown"
+                    ),
                 ).inc()
 
             raise QdrantUnavailable(f"Failed to batch store memories: {e}") from e

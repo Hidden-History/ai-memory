@@ -143,31 +143,113 @@ def test_histogram_metrics_have_correct_buckets():
     )
 
     # hook_duration_seconds: NFR-P1 <500ms - buckets focused on sub-second
-    expected_hook_buckets = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.0, 5.0, float("inf")]
+    expected_hook_buckets = [
+        0.05,
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.75,
+        1.0,
+        2.0,
+        5.0,
+        float("inf"),
+    ]
     assert hook_duration_seconds._upper_bounds == expected_hook_buckets
 
     # embedding_batch_duration_seconds: NFR-P2 <2s
-    expected_batch_buckets = [0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0, float("inf")]
+    expected_batch_buckets = [
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        3.0,
+        5.0,
+        10.0,
+        float("inf"),
+    ]
     assert embedding_batch_duration_seconds._upper_bounds == expected_batch_buckets
 
     # session_injection_duration_seconds: NFR-P3 <3s
-    expected_session_buckets = [0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, float("inf")]
+    expected_session_buckets = [
+        0.1,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        4.0,
+        5.0,
+        float("inf"),
+    ]
     assert session_injection_duration_seconds._upper_bounds == expected_session_buckets
 
     # dedup_check_duration_seconds: NFR-P4 <100ms
-    expected_dedup_buckets = [0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.5, 1.0, float("inf")]
+    expected_dedup_buckets = [
+        0.01,
+        0.025,
+        0.05,
+        0.075,
+        0.1,
+        0.15,
+        0.2,
+        0.5,
+        1.0,
+        float("inf"),
+    ]
     assert dedup_check_duration_seconds._upper_bounds == expected_dedup_buckets
 
     # retrieval_query_duration_seconds: NFR-P5 <500ms
-    expected_retrieval_query_buckets = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.0, float("inf")]
-    assert retrieval_query_duration_seconds._upper_bounds == expected_retrieval_query_buckets
+    expected_retrieval_query_buckets = [
+        0.05,
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.75,
+        1.0,
+        2.0,
+        float("inf"),
+    ]
+    assert (
+        retrieval_query_duration_seconds._upper_bounds
+        == expected_retrieval_query_buckets
+    )
 
     # embedding_realtime_duration_seconds: NFR-P6 <500ms
-    expected_realtime_buckets = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.0, float("inf")]
-    assert embedding_realtime_duration_seconds._upper_bounds == expected_realtime_buckets
+    expected_realtime_buckets = [
+        0.05,
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.75,
+        1.0,
+        2.0,
+        float("inf"),
+    ]
+    assert (
+        embedding_realtime_duration_seconds._upper_bounds == expected_realtime_buckets
+    )
 
     # Legacy deprecated metrics (kept for backward compatibility)
-    expected_embedding_buckets = [0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, float("inf")]
+    expected_embedding_buckets = [
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.0,
+        5.0,
+        10.0,
+        float("inf"),
+    ]
     assert embedding_duration_seconds._upper_bounds == expected_embedding_buckets
 
     expected_retrieval_buckets = [0.1, 0.5, 1.0, 2.0, 3.0, 5.0, float("inf")]
@@ -203,7 +285,10 @@ def test_histogram_metrics_have_correct_labels():
     assert retrieval_query_duration_seconds._labelnames == ("collection", "project")
 
     # NFR-P6: embedding_realtime_duration_seconds
-    assert embedding_realtime_duration_seconds._labelnames == ("embedding_type", "project")
+    assert embedding_realtime_duration_seconds._labelnames == (
+        "embedding_type",
+        "project",
+    )
 
     # Legacy deprecated metrics (kept for backward compatibility)
     assert embedding_duration_seconds._labelnames == ("embedding_type",)

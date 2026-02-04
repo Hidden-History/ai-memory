@@ -310,7 +310,9 @@ class MemorySearch:
             # Metrics: Increment failed retrieval counter (Story 6.1, AC 6.1.3)
             if memory_retrievals_total:
                 memory_retrievals_total.labels(
-                    collection=collection, status="failed", project=group_id or "unknown"
+                    collection=collection,
+                    status="failed",
+                    project=group_id or "unknown",
                 ).inc()
 
             # Metrics: Increment failure event for alerting (Story 6.1, AC 6.1.4)

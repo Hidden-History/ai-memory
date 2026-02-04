@@ -100,7 +100,8 @@ class TestConcurrentExecution:
     def slow_lock_script(self, tmp_path):
         """Create a script that holds a lock for 5 seconds using pure fcntl."""
         script = tmp_path / "slow_lock.py"
-        script.write_text("""
+        script.write_text(
+            """
 import time
 import sys
 import os
@@ -122,7 +123,8 @@ try:
 except (IOError, OSError):
     print("Lock conflict")
     sys.exit(1)
-""")
+"""
+        )
         return script
 
     def test_concurrent_execution_blocked(

@@ -138,7 +138,10 @@ class EmbeddingClient:
             duration_seconds = time.perf_counter() - start_time
             if embedding_requests_total:
                 embedding_requests_total.labels(
-                    status="success", embedding_type="dense", context="realtime", project="unknown"
+                    status="success",
+                    embedding_type="dense",
+                    context="realtime",
+                    project="unknown",
                 ).inc()
             if embedding_duration_seconds:
                 embedding_duration_seconds.labels(embedding_type="dense").observe(
@@ -170,7 +173,10 @@ class EmbeddingClient:
             duration_seconds = time.perf_counter() - start_time
             if embedding_requests_total:
                 embedding_requests_total.labels(
-                    status="timeout", embedding_type="dense", context="realtime", project="unknown"
+                    status="timeout",
+                    embedding_type="dense",
+                    context="realtime",
+                    project="unknown",
                 ).inc()
             if embedding_duration_seconds:
                 embedding_duration_seconds.labels(embedding_type="dense").observe(
@@ -215,7 +221,10 @@ class EmbeddingClient:
             duration_seconds = time.perf_counter() - start_time
             if embedding_requests_total:
                 embedding_requests_total.labels(
-                    status="failed", embedding_type="dense", context="realtime", project="unknown"
+                    status="failed",
+                    embedding_type="dense",
+                    context="realtime",
+                    project="unknown",
                 ).inc()
             if embedding_duration_seconds:
                 embedding_duration_seconds.labels(embedding_type="dense").observe(
