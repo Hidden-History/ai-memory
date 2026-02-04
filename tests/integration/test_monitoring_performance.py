@@ -41,7 +41,7 @@ class TestMonitoringPerformance:
         for i in range(iterations):
             # Simulate typical metrics operations during memory capture
             memory_captures_total.labels(
-                hook_type="PostToolUse", status="success", project="perf-test"
+                hook_type="PostToolUse", status="success", project="perf-test", collection="code-patterns"
             ).inc()
             collection_size.labels(collection="code-patterns", project="perf-test").set(
                 i
@@ -170,7 +170,7 @@ class TestMonitoringPerformance:
             # Simulate full monitoring instrumentation
             # 1. Metrics collection
             memory_captures_total.labels(
-                hook_type="PostToolUse", status="success", project="nfr-test"
+                hook_type="PostToolUse", status="success", project="nfr-test", collection="code-patterns"
             ).inc()
             collection_size.labels(collection="code-patterns", project="nfr-test").set(
                 i * 100
