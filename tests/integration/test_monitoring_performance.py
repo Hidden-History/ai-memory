@@ -49,7 +49,9 @@ class TestMonitoringPerformance:
             collection_size.labels(collection="code-patterns", project="perf-test").set(
                 i
             )
-            hook_duration_seconds.labels(hook_type="PostToolUse").observe(0.123)
+            hook_duration_seconds.labels(
+                hook_type="PostToolUse", status="success", project="perf-test"
+            ).observe(0.123)
 
         elapsed_ms = (time.perf_counter() - start) * 1000
         avg_per_operation = elapsed_ms / iterations
@@ -181,7 +183,9 @@ class TestMonitoringPerformance:
             collection_size.labels(collection="code-patterns", project="nfr-test").set(
                 i * 100
             )
-            hook_duration_seconds.labels(hook_type="PostToolUse").observe(0.123)
+            hook_duration_seconds.labels(
+                hook_type="PostToolUse", status="success", project="nfr-test"
+            ).observe(0.123)
 
             # 2. Structured logging
             logger.info(
