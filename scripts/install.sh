@@ -848,8 +848,16 @@ copy_files() {
     # Copy core files (preserve directory structure)
     log_info "Copying docker configuration..."
     cp -r "$SOURCE_DIR/docker/"* "$INSTALL_DIR/docker/"
-    # BUG-040: Explicitly copy dotfiles (.env, .gitignore, etc.) - bash glob * doesn't match dotfiles
-    cp "$SOURCE_DIR/docker/".* "$INSTALL_DIR/docker/" 2>/dev/null || true
+    # BUG-040: Explicitly copy dotfiles - glob .* matches . and .. causing failures
+    # Copy .env if it exists in source (contains credentials)
+    if [[ -f "$SOURCE_DIR/docker/.env" ]]; then
+        cp "$SOURCE_DIR/docker/.env" "$INSTALL_DIR/docker/"
+        log_info "Copied docker/.env with credentials from source"
+    fi
+    # Copy .env.example if it exists
+    if [[ -f "$SOURCE_DIR/docker/.env.example" ]]; then
+        cp "$SOURCE_DIR/docker/.env.example" "$INSTALL_DIR/docker/"
+    fi
 
     log_info "Copying Python memory modules..."
     cp -r "$SOURCE_DIR/src/memory/"* "$INSTALL_DIR/src/memory/"
