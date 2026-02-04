@@ -230,7 +230,9 @@ def main() -> int:
             # Metrics
             if memory_retrievals_total:
                 memory_retrievals_total.labels(
-                    collection=COLLECTION_CODE_PATTERNS, status="success"
+                    collection=COLLECTION_CODE_PATTERNS,
+                    status="success",
+                    project=project_name,
                 ).inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
@@ -263,13 +265,15 @@ def main() -> int:
         )
 
         # Metrics
+        proj = project_name if "project_name" in dir() else "unknown"
         if memory_retrievals_total:
             memory_retrievals_total.labels(
-                collection=COLLECTION_CODE_PATTERNS, status="failed"
+                collection=COLLECTION_CODE_PATTERNS,
+                status="failed",
+                project=proj,
             ).inc()
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            proj = project_name if "project_name" in dir() else "unknown"
             hook_duration_seconds.labels(
                 hook_type="PostToolUse_ErrorDetection",
                 status="error",

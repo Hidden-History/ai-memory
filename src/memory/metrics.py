@@ -41,10 +41,10 @@ memory_captures_total = Counter(
 memory_retrievals_total = Counter(
     "aimemory_retrievals_total",
     "Total memory retrieval attempts",
-    ["collection", "status"],
+    ["collection", "status", "project"],
     # status: success, empty, failed
     # collection: code-patterns, conventions, discussions, combined
-    # project: project name for multi-tenancy filtering
+    # project: project name for multi-tenancy filtering (required per §7.3)
 )
 
 embedding_requests_total = Counter(

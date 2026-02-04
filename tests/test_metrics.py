@@ -96,8 +96,8 @@ def test_counter_metrics_have_correct_labels():
         "collection",
     )
 
-    # memory_retrievals_total: ["collection", "status"]
-    assert memory_retrievals_total._labelnames == ("collection", "status")
+    # memory_retrievals_total: ["collection", "status", "project"] per §7.3 multi-tenancy
+    assert memory_retrievals_total._labelnames == ("collection", "status", "project")
 
     # embedding_requests_total: ["status", "embedding_type", "context", "project"]
     assert embedding_requests_total._labelnames == (
