@@ -692,126 +692,115 @@ install_python_dependencies() {
         log_info "Copied requirements.txt to $INSTALL_DIR"
     fi
 
-    # Detect if running in a virtual environment
-    local in_venv=false
-    if [[ -n "${VIRTUAL_ENV:-}" ]] || [[ -n "${CONDA_PREFIX:-}" ]] || \
-       python3 -c "import sys; sys.exit(0 if sys.prefix != sys.base_prefix else 1)" 2>/dev/null; then
-        in_venv=true
-        log_info "Virtual environment detected"
+    # ============================================
+    # Always create venv at INSTALL_DIR/.venv
+    # (TECH-DEBT-135: hooks require this path)
+    # ============================================
+    local venv_dir="$INSTALL_DIR/.venv"
+    local pip_exit_code=0
+
+    # Check for existing user venv (informational only)
+    if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+        log_info "User venv detected at $VIRTUAL_ENV (will create isolated venv for hooks)"
     fi
 
-    # Install dependencies
-    local pip_exit_code=0
-    if [[ "$in_venv" == true ]]; then
-        # Already in venv - install directly
-        log_info "Installing with pip install -e \".[dev]\"..."
-        if pip install -e "$INSTALL_DIR[dev]" 2>&1 | tail -5; then
-            log_success "Python dependencies installed successfully"
-        else
-            pip_exit_code=$?
-        fi
+    # Create or reuse installation venv
+    if [[ -d "$venv_dir" ]]; then
+        log_info "Using existing venv at $venv_dir"
     else
-        # No venv - check for PEP 668 (externally-managed-environment)
-        # Create a venv in INSTALL_DIR to avoid system Python conflicts
-        local venv_dir="$INSTALL_DIR/.venv"
+        log_info "Creating virtual environment at $venv_dir..."
+        if ! python3 -m venv "$venv_dir"; then
+            log_warning "Failed to create virtual environment"
+            log_warning "Python dependencies NOT installed"
+            log_info "To install manually:"
+            log_info "  python3 -m venv $venv_dir"
+            log_info "  source $venv_dir/bin/activate"
+            log_info "  pip install -e \"$INSTALL_DIR[dev]\""
+            return 0  # Don't fail install
+        fi
+        log_success "Virtual environment created"
+    fi
 
-        if [[ -d "$venv_dir" ]]; then
-            log_info "Using existing venv at $venv_dir"
-        else
-            log_info "Creating virtual environment at $venv_dir (PEP 668 compliance)..."
-            if ! python3 -m venv "$venv_dir"; then
-                log_warning "Failed to create virtual environment"
-                log_warning "Python dependencies NOT installed"
-                log_info "To install manually:"
-                log_info "  python3 -m venv $venv_dir"
-                log_info "  source $venv_dir/bin/activate"
-                log_info "  pip install -e \"$INSTALL_DIR[dev]\""
-                return 0  # Don't fail install
+    # Install in the installation venv (not user's venv)
+    log_info "Installing with pip install -e \".[dev]\"..."
+    if "$venv_dir/bin/pip" install -e "$INSTALL_DIR[dev]" 2>&1 | tail -5; then
+        log_success "Python dependencies installed successfully"
+        log_info "Hooks will use: $venv_dir/bin/python"
+    else
+        pip_exit_code=$?
+    fi
+
+    # ============================================
+    # Venv Verification (TECH-DEBT-136)
+    # ============================================
+    if [[ $pip_exit_code -eq 0 ]]; then
+        echo ""
+        log_info "Verifying venv installation..."
+
+        VENV_PYTHON="$venv_dir/bin/python"
+
+        # Check venv Python exists
+        if [ ! -f "$VENV_PYTHON" ]; then
+            log_error "Venv Python not found at $VENV_PYTHON"
+            log_error "Venv creation failed. Please check permissions and disk space."
+            exit 1
+        fi
+
+        # Verify critical packages are importable
+        log_info "Checking critical dependencies..."
+
+        CRITICAL_PACKAGES=(
+            "qdrant_client:Qdrant client for memory storage"
+            "prometheus_client:Prometheus metrics"
+            "httpx:HTTP client for embedding service"
+            "pydantic:Configuration validation"
+            "structlog:Logging"
+        )
+
+        FAILED_PACKAGES=()
+
+        for pkg_info in "${CRITICAL_PACKAGES[@]}"; do
+            pkg_name="${pkg_info%%:*}"
+            pkg_desc="${pkg_info##*:}"
+
+            if ! "$VENV_PYTHON" -c "import $pkg_name" 2>/dev/null; then
+                echo "  ✗ $pkg_name ($pkg_desc) - FAILED"
+                FAILED_PACKAGES+=("$pkg_name")
+            else
+                echo "  ✓ $pkg_name"
             fi
-            log_success "Virtual environment created"
-        fi
+        done
 
-        # Install in the created venv
-        log_info "Installing with pip install -e \".[dev]\"..."
-        if "$venv_dir/bin/pip" install -e "$INSTALL_DIR[dev]" 2>&1 | tail -5; then
-            log_success "Python dependencies installed successfully"
-            log_info "Activate venv with: source $venv_dir/bin/activate"
-        else
-            pip_exit_code=$?
-        fi
-
-        # ============================================
-        # Venv Verification (TECH-DEBT-136)
-        # ============================================
-        if [[ $pip_exit_code -eq 0 ]]; then
+        if [ ${#FAILED_PACKAGES[@]} -gt 0 ]; then
             echo ""
-            log_info "Verifying venv installation..."
-
-            VENV_PYTHON="$venv_dir/bin/python"
-
-            # Check venv Python exists
-            if [ ! -f "$VENV_PYTHON" ]; then
-                log_error "Venv Python not found at $VENV_PYTHON"
-                log_error "Venv creation failed. Please check permissions and disk space."
-                exit 1
-            fi
-
-            # Verify critical packages are importable
-            log_info "Checking critical dependencies..."
-
-            CRITICAL_PACKAGES=(
-                "qdrant_client:Qdrant client for memory storage"
-                "prometheus_client:Prometheus metrics"
-                "httpx:HTTP client for embedding service"
-                "pydantic:Configuration validation"
-                "structlog:Logging"
-            )
-
-            FAILED_PACKAGES=()
-
-            for pkg_info in "${CRITICAL_PACKAGES[@]}"; do
-                pkg_name="${pkg_info%%:*}"
-                pkg_desc="${pkg_info##*:}"
-
-                if ! "$VENV_PYTHON" -c "import $pkg_name" 2>/dev/null; then
-                    echo "  ✗ $pkg_name ($pkg_desc) - FAILED"
-                    FAILED_PACKAGES+=("$pkg_name")
-                else
-                    echo "  ✓ $pkg_name"
-                fi
-            done
-
-            if [ ${#FAILED_PACKAGES[@]} -gt 0 ]; then
-                echo ""
-                log_error "Critical packages failed to import: ${FAILED_PACKAGES[*]}"
-                log_error "Installation cannot continue. Please check:"
-                echo "  1. Network connectivity (packages may not have downloaded)"
-                echo "  2. Disk space"
-                echo "  3. Python version compatibility"
-                exit 1
-            fi
-
-            # Check optional packages (warn but don't fail)
-            log_info "Checking optional dependencies..."
-
-            OPTIONAL_PACKAGES=(
-                "tree_sitter:AST-based code chunking"
-                "tree_sitter_python:Python code parsing"
-            )
-
-            for pkg_info in "${OPTIONAL_PACKAGES[@]}"; do
-                pkg_name="${pkg_info%%:*}"
-                pkg_desc="${pkg_info##*:}"
-
-                if ! "$VENV_PYTHON" -c "import $pkg_name" 2>/dev/null; then
-                    echo "  ⚠ $pkg_name ($pkg_desc) - Not available (optional feature disabled)"
-                else
-                    echo "  ✓ $pkg_name"
-                fi
-            done
-
-            log_success "Venv verification passed. All critical packages available."
+            log_error "Critical packages failed to import: ${FAILED_PACKAGES[*]}"
+            log_error "Installation cannot continue. Please check:"
+            echo "  1. Network connectivity (packages may not have downloaded)"
+            echo "  2. Disk space"
+            echo "  3. Python version compatibility"
+            exit 1
         fi
+
+        # Check optional packages (warn but don't fail)
+        log_info "Checking optional dependencies..."
+
+        OPTIONAL_PACKAGES=(
+            "tree_sitter:AST-based code chunking"
+            "tree_sitter_python:Python code parsing"
+        )
+
+        for pkg_info in "${OPTIONAL_PACKAGES[@]}"; do
+            pkg_name="${pkg_info%%:*}"
+            pkg_desc="${pkg_info##*:}"
+
+            if ! "$VENV_PYTHON" -c "import $pkg_name" 2>/dev/null; then
+                echo "  ⚠ $pkg_name ($pkg_desc) - Not available (optional feature disabled)"
+            else
+                echo "  ✓ $pkg_name"
+            fi
+        done
+
+        log_success "Venv verification passed. All critical packages available."
     fi
 
     # Handle pip failure gracefully - warn but don't abort install
@@ -820,12 +809,8 @@ install_python_dependencies() {
         log_warning "Python dependencies NOT installed - hooks may not work correctly"
         echo ""
         echo "To install manually:"
-        if [[ "$in_venv" == true ]]; then
-            echo "  pip install -e \"$INSTALL_DIR[dev]\""
-        else
-            echo "  source $INSTALL_DIR/.venv/bin/activate"
-            echo "  pip install -e \"$INSTALL_DIR[dev]\""
-        fi
+        echo "  source $INSTALL_DIR/.venv/bin/activate"
+        echo "  pip install -e \"$INSTALL_DIR[dev]\""
         echo ""
     fi
 
