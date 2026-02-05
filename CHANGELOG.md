@@ -8,12 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- (No changes yet)
+
+### Added
+- (No additions yet)
+
+### Fixed
+- (No fixes yet)
+
+## [2.0.3] - 2026-02-05
+
+### Changed
 - Hook commands now use venv Python: `$AI_MEMORY_INSTALL_DIR/.venv/bin/python`
 - `docker/.env.example` reorganized with quick setup guide and sync warnings
 - Metrics renamed from `ai_memory_*` to `aimemory_*` (BP-045 compliance)
 - All metrics now include `project` label for multi-tenancy
 - NFR-P2 and NFR-P6 now have separate metrics (was shared)
 - All hooks now push project label to metrics (TECH-DEBT-124)
+- Hook labels standardized to CamelCase ("SessionStart", "PreToolUse_NewFile")
 
 ### Added
 - Venv health check function in `health-check.py` (TECH-DEBT-136)
@@ -25,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Grafana V3 dashboards: NFR Performance, Hook Activity, Memory Operations, System Health
 - BP-045: Prometheus metrics naming conventions documentation
 - `docs/MONITORING.md`: Comprehensive monitoring guide
+- TECH-DEBT-100: Log sanitization with `sanitize_log_input()`
+- TECH-DEBT-104: content_hash index for O(1) dedup lookup
+- TECH-DEBT-111: Typed events (CaptureEvent, RetrievalEvent)
+- TECH-DEBT-115: Context injection delimiters `<retrieved_context>`
+- TECH-DEBT-116: Token budget increased to 4000
+- Prometheus Dockerfile with entrypoint script for config templating
 
 ### Fixed
 - **CRITICAL: Hook Python interpreter path** (TECH-DEBT-135)
@@ -51,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BUG-019**: Metrics were misleading (shared metrics for different NFRs)
 - **BUG-021**: Some metrics not collecting (missing NFR-P4, wrong naming)
 - **BUG-059**: restore_qdrant.py snapshot restore now works correctly
+- **#13**: E2E test now uses `--project` argument or current working directory
 - **CI Tests**: Fixed test_monitoring_performance.py label mismatches:
   - Added missing `collection` label to `memory_captures_total` test calls
   - Added missing `status`, `project` labels to `hook_duration_seconds` test calls
