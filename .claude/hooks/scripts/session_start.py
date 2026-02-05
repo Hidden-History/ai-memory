@@ -47,7 +47,10 @@ from memory.filters import (
 )
 from memory.health import check_qdrant_health
 from memory.logging_config import configure_logging
-from memory.metrics_push import track_hook_duration
+from memory.metrics_push import (
+    push_session_injection_metrics_async,
+    track_hook_duration,
+)
 from memory.project import detect_project
 from memory.qdrant_client import get_qdrant_client
 
@@ -591,7 +594,7 @@ def main():
     """
     start_time = time.perf_counter()
 
-    with track_hook_duration("session_start"):
+    with track_hook_duration("SessionStart"):
         try:
             # Parse hook input (SessionStart provides cwd, session_id)
             hook_input = parse_hook_input()
@@ -902,9 +905,14 @@ def main():
                     token_count=token_count,
                 )
 
+                # TECH-DEBT-089: Push session injection duration for NFR-P3 tracking
+                push_session_injection_metrics_async(project_name, duration_seconds)
+
                 # Output conversation context to Claude
                 # TECH-DEBT-115: Add <retrieved_context> delimiters per BP-039 §1
-                formatted_context = f"<retrieved_context>\n{conversation_context}\n</retrieved_context>"
+                formatted_context = (
+                    f"<retrieved_context>\n{conversation_context}\n</retrieved_context>"
+                )
                 output = {
                     "hookSpecificOutput": {
                         "hookEventName": "SessionStart",

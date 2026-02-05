@@ -91,7 +91,7 @@ def main() -> int:
     """
     start_time = time.perf_counter()
 
-    with track_hook_duration("new_file_trigger"):
+    with track_hook_duration("PreToolUse_NewFile"):
         try:
             # Parse hook input from stdin
             try:

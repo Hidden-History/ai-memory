@@ -83,22 +83,19 @@ services:
       start_period: 10s
 
   prometheus:
-    image: prom/prometheus:v2.55.1
+    build:
+      context: ./prometheus
+      dockerfile: Dockerfile
     container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-prometheus
     profiles: ["monitoring"]
     ports:
       - "127.0.0.1:29090:9090"
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/web.yml:/etc/prometheus/web.yml:ro
       - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--web.config.file=/etc/prometheus/web.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=30d'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
+    environment:
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - PROMETHEUS_ADMIN_PASSWORD=${PROMETHEUS_ADMIN_PASSWORD}
     restart: unless-stopped
     # Security hardening (2026 best practices)
     security_opt:

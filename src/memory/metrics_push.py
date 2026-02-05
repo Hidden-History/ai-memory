@@ -243,7 +243,7 @@ def track_hook_duration(hook_name: str, project: str = "unknown"):
         project: Project name for multi-tenancy (Core-Architecture-Principle-V2.md §7.3)
 
     Usage:
-        with track_hook_duration("session_start", project="my-project"):
+        with track_hook_duration("SessionStart", project="my-project"):
             # hook logic here
             pass
     """
@@ -1189,6 +1189,170 @@ except Exception as e:
     except Exception as e:
         logger.warning(
             "metrics_fork_failed", extra={"error": str(e), "metric": "dedup_duration"}
+        )
+
+
+def push_collection_size_metrics_async(collection: str, project: str, point_count: int):
+    """Push collection size metrics asynchronously (fire-and-forget).
+
+    Updates the gauge for collection vector counts, enabling dashboard
+    visualization of memory storage usage per project.
+
+    Args:
+        collection: code-patterns, conventions, discussions
+        project: Project name (or "all" for total)
+        point_count: Number of vectors in collection
+    """
+    if not PUSHGATEWAY_ENABLED:
+        return
+
+    # Validate labels
+    collection = _validate_label(collection, "collection", VALID_COLLECTIONS)
+    project = _validate_label(project, "project")
+
+    try:
+        # Serialize metrics data for background process
+        metrics_data = {
+            "collection": collection,
+            "project": project,
+            "point_count": point_count,
+        }
+
+        # Fork to background using subprocess.Popen
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                f"""
+import json, os
+from prometheus_client import CollectorRegistry, Gauge, pushadd_to_gateway
+
+data = json.loads({json.dumps(metrics_data)!r})
+registry = CollectorRegistry()
+
+collection_size = Gauge(
+    "aimemory_collection_size",
+    "Number of memories in collection",
+    ["collection", "project"],
+    registry=registry
+)
+collection_size.labels(
+    collection=data["collection"],
+    project=data["project"]
+).set(data["point_count"])
+
+try:
+    pushadd_to_gateway(
+        os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
+        job="ai_memory_hooks",
+        registry=registry,
+        timeout=0.5
+    )
+except Exception as e:
+    import logging
+    logging.getLogger("ai_memory.metrics").warning(
+        "pushgateway_async_failed",
+        extra={{"error": str(e), "metric": "collection_size"}}
+    )
+""",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "metrics_fork_failed",
+            extra={"error": str(e), "metric": "collection_size"},
+        )
+
+
+def push_chunking_metrics_async(
+    chunk_type: str, project: str, chunk_count: int, duration_seconds: float
+):
+    """Push chunking operation metrics asynchronously (fire-and-forget).
+
+    Tracks AST, Markdown, and Prose chunker operations.
+
+    Args:
+        chunk_type: ast, markdown, prose
+        project: Project name
+        chunk_count: Number of chunks created
+        duration_seconds: Chunking operation duration
+    """
+    if not PUSHGATEWAY_ENABLED:
+        return
+
+    # Validate labels
+    project = _validate_label(project, "project")
+
+    try:
+        # Serialize metrics data for background process
+        metrics_data = {
+            "chunk_type": chunk_type,
+            "project": project,
+            "chunk_count": chunk_count,
+            "duration_seconds": duration_seconds,
+        }
+
+        # Fork to background using subprocess.Popen
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                f"""
+import json, os
+from prometheus_client import CollectorRegistry, Counter, Histogram, pushadd_to_gateway
+
+data = json.loads({json.dumps(metrics_data)!r})
+registry = CollectorRegistry()
+
+ops = Counter(
+    "aimemory_chunking_operations_total",
+    "Total chunking operations",
+    ["chunk_type", "project"],
+    registry=registry
+)
+ops.labels(
+    chunk_type=data["chunk_type"],
+    project=data["project"]
+).inc(data["chunk_count"])
+
+duration = Histogram(
+    "aimemory_chunking_duration_seconds",
+    "Chunking operation duration",
+    ["chunk_type", "project"],
+    registry=registry,
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0)
+)
+duration.labels(
+    chunk_type=data["chunk_type"],
+    project=data["project"]
+).observe(data["duration_seconds"])
+
+try:
+    pushadd_to_gateway(
+        os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
+        job="ai_memory_hooks",
+        registry=registry,
+        timeout=0.5
+    )
+except Exception as e:
+    import logging
+    logging.getLogger("ai_memory.metrics").warning(
+        "pushgateway_async_failed",
+        extra={{"error": str(e), "metric": "chunking"}}
+    )
+""",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "metrics_fork_failed",
+            extra={"error": str(e), "metric": "chunking"},
         )
 
 
