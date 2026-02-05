@@ -39,12 +39,10 @@ Exit Codes:
 """
 
 import json
-import logging
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional, Tuple
 
 # Setup Python path using shared utility (CR-4 Wave 2)
 sys.path.insert(
@@ -74,7 +72,7 @@ memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = (
 )
 
 
-def detect_component_from_path(file_path: str) -> Tuple[str, str]:
+def detect_component_from_path(file_path: str) -> tuple[str, str]:
     """Extract component and domain from file path.
 
     Uses path segments to infer what part of the system is being modified.

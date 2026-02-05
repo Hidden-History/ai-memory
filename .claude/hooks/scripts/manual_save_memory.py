@@ -18,14 +18,9 @@ Exit Codes:
 - Store to discussions collection
 """
 
-import json
-import logging
 import os
 import sys
-import time
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, Optional
 
 # BUG-044: Add memory module to path before imports
 INSTALL_DIR = os.environ.get(
@@ -37,7 +32,7 @@ src_path = os.path.join(INSTALL_DIR, "src")
 if not os.path.exists(src_path):
     print(f"⚠️  Warning: Memory module not found at {src_path}", file=sys.stderr)
     print(
-        f"⚠️  /save-memory will not function without proper installation",
+        "⚠️  /save-memory will not function without proper installation",
         file=sys.stderr,
     )
     sys.exit(1)  # Non-blocking error - graceful degradation
@@ -49,7 +44,6 @@ from memory.config import (
     COLLECTION_DISCUSSIONS,
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL,
-    get_config,
 )
 from memory.embeddings import EmbeddingClient, EmbeddingError
 
@@ -232,7 +226,7 @@ def main() -> int:
             print(f"   Note: {description}")
         return 0
     else:
-        print(f"⚠️  Session summary queued for background storage (Qdrant unavailable)")
+        print("⚠️  Session summary queued for background storage (Qdrant unavailable)")
         return 0  # Still return 0 - queuing is acceptable
 
 

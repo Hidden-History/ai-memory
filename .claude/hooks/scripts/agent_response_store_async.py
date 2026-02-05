@@ -5,13 +5,11 @@ Stores agent responses to discussions collection with proper deduplication.
 """
 
 import json
-import logging
 import os
 import sys
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import httpx  # For specific exception types
 
@@ -71,7 +69,7 @@ except ImportError:
 # CR-1.2: _log_to_activity removed - using consolidated function from hooks_common
 
 
-def store_agent_response(store_data: Dict[str, Any]) -> bool:
+def store_agent_response(store_data: dict[str, Any]) -> bool:
     """Store agent response to discussions collection.
 
     Args:

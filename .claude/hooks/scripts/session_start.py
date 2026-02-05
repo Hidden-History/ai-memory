@@ -16,8 +16,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import datetime, timezone
 
 # Add src to path for system python3 execution
 # Use INSTALL_DIR to find installed module (fixes path calculation bug)
@@ -31,8 +30,6 @@ sys.path.insert(0, local_src)
 
 from memory.activity_log import (
     log_conversation_context_injection,
-    log_error,
-    log_session_start,
 )
 from memory.config import (
     COLLECTION_CODE_PATTERNS,
@@ -42,11 +39,9 @@ from memory.config import (
 )
 from memory.filters import (
     filter_low_value_content,
-    is_duplicate_message,
     smart_truncate,
 )
 from memory.health import check_qdrant_health
-from memory.logging_config import configure_logging
 from memory.metrics_push import (
     push_session_injection_metrics_async,
     track_hook_duration,

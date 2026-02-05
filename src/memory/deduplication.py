@@ -26,11 +26,13 @@ from .config import get_config
 from .embeddings import EmbeddingClient, EmbeddingError
 
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
+# TECH-DEBT-089: push_dedup_duration_metrics_async for dedup timing
+# BUG-021: push_deduplication_metrics_async for Pushgateway
 try:
     from .metrics import deduplication_events_total
     from .metrics_push import (
-        push_dedup_duration_metrics_async,  # TECH-DEBT-089: Push dedup timing
-        push_deduplication_metrics_async,  # BUG-021: Push to Pushgateway
+        push_dedup_duration_metrics_async,
+        push_deduplication_metrics_async,
     )
 except ImportError:
     deduplication_events_total = None

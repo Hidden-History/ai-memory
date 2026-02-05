@@ -21,13 +21,12 @@ Input Schema:
 """
 
 import json
-import logging
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Maximum response size to prevent memory issues in background process (100KB)
 MAX_RESPONSE_SIZE = 100 * 1024
@@ -52,7 +51,7 @@ except ImportError:
     detect_project = None
 
 
-def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
+def validate_hook_input(data: dict[str, Any]) -> str | None:
     """Validate hook input against expected schema.
 
     Args:
@@ -73,8 +72,8 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
 
 
 def extract_last_assistant_message(
-    entries: List[Dict[str, Any]], max_retries: int = 5, retry_delay: float = 0.1
-) -> Optional[str]:
+    entries: list[dict[str, Any]], max_retries: int = 5, retry_delay: float = 0.1
+) -> str | None:
     """Extract the last assistant message from transcript with retry for timing issues.
 
     Args:
@@ -125,7 +124,7 @@ def extract_last_assistant_message(
 
 
 def fork_to_background(
-    hook_input: Dict[str, Any], response_text: str, turn_number: int
+    hook_input: dict[str, Any], response_text: str, turn_number: int
 ) -> None:
     """Fork storage operation to background process.
 

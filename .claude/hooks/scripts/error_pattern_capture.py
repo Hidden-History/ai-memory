@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # Add src to path for imports
 INSTALL_DIR = os.environ.get(
@@ -36,8 +36,7 @@ INSTALL_DIR = os.environ.get(
 )
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
-from memory.activity_log import log_capture, log_error_capture
-from memory.hooks_common import log_to_activity
+from memory.activity_log import log_error_capture
 
 # Configure structured logging
 from memory.logging_config import StructuredFormatter
@@ -58,7 +57,7 @@ except ImportError:
     detect_project = None
 
 
-def detect_error_indicators(output: str, exit_code: Optional[int]) -> bool:
+def detect_error_indicators(output: str, exit_code: int | None) -> bool:
     """Detect if output contains error indicators.
 
     Args:
@@ -100,7 +99,7 @@ def detect_error_indicators(output: str, exit_code: Optional[int]) -> bool:
     return False
 
 
-def extract_file_line_references(output: str) -> List[Dict[str, Any]]:
+def extract_file_line_references(output: str) -> list[dict[str, Any]]:
     """Extract file:line references from error output.
 
     Common patterns:
@@ -139,7 +138,7 @@ def extract_file_line_references(output: str) -> List[Dict[str, Any]]:
     return references
 
 
-def extract_stack_trace(output: str) -> Optional[str]:
+def extract_stack_trace(output: str) -> str | None:
     """Extract stack trace from error output.
 
     Args:
@@ -203,7 +202,7 @@ def extract_error_message(output: str) -> str:
     return "Error detected in command output"
 
 
-def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
+def validate_hook_input(data: dict[str, Any]) -> str | None:
     """Validate hook input for Bash tool.
 
     Args:
@@ -230,7 +229,7 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def extract_error_context(hook_input: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def extract_error_context(hook_input: dict[str, Any]) -> dict[str, Any] | None:
     """Extract error context from Bash tool output.
 
     Args:
@@ -276,7 +275,7 @@ def extract_error_context(hook_input: Dict[str, Any]) -> Optional[Dict[str, Any]
     return context
 
 
-def fork_to_background(error_context: Dict[str, Any]) -> None:
+def fork_to_background(error_context: dict[str, Any]) -> None:
     """Fork error storage to background process.
 
     Args:

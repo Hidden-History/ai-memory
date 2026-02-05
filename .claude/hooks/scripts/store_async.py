@@ -17,12 +17,9 @@ Sources:
 
 import asyncio
 import json
-import logging
 import os
 import sys
-import time
-from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # CR-1.7: Setup path inline (must happen BEFORE any memory.* imports)
 INSTALL_DIR = os.environ.get(
@@ -33,7 +30,7 @@ sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 # Import pattern extraction (Story 2.3)
 from datetime import datetime, timezone
 
-from memory.chunking import ChunkResult, IntelligentChunker
+from memory.chunking import IntelligentChunker
 from memory.config import COLLECTION_CODE_PATTERNS
 from memory.extraction import extract_patterns
 from memory.filters import ImplementationFilter
@@ -87,7 +84,7 @@ except ImportError:
 # CR-1.3: queue_to_file() removed - using consolidated queue_operation() from queue.py
 
 
-async def store_memory_async(hook_input: Dict[str, Any]) -> None:
+async def store_memory_async(hook_input: dict[str, Any]) -> None:
     """Store captured pattern to Qdrant (AC 2.1.2).
 
     Args:

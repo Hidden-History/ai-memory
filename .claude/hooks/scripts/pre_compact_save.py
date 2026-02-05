@@ -31,15 +31,12 @@ Sources:
 """
 
 import json
-import logging
 import os
-import re
 import signal
 import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Add src to path for imports (must be inline before importing from memory)
 INSTALL_DIR = os.environ.get(
@@ -52,8 +49,8 @@ from memory.hooks_common import log_to_activity, read_transcript, setup_hook_log
 
 logger = setup_hook_logging()
 
-from memory.activity_log import log_precompact, log_session_end
-from memory.config import COLLECTION_DISCUSSIONS, get_config
+from memory.activity_log import log_precompact
+from memory.config import COLLECTION_DISCUSSIONS
 from memory.embeddings import EmbeddingClient, EmbeddingError
 from memory.graceful import graceful_hook
 from memory.project import detect_project
@@ -90,7 +87,7 @@ except ImportError:
 PRECOMPACT_HOOK_TIMEOUT = int(os.getenv("PRECOMPACT_HOOK_TIMEOUT", "10"))  # Default 10s
 
 
-def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
+def validate_hook_input(data: dict[str, Any]) -> str | None:
     """Validate PreCompact hook input against expected schema.
 
     Args:
@@ -123,7 +120,7 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
 # CR-3.3: read_transcript() moved to hooks_common.py
 
 
-def analyze_transcript(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+def analyze_transcript(entries: list[dict[str, Any]]) -> dict[str, Any]:
     """Analyze transcript to extract key activities and conversation context.
 
     V2.1 Enhancement: Rich summary for post-compact injection.
@@ -251,8 +248,8 @@ def analyze_transcript(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def build_session_summary(
-    hook_input: Dict[str, Any], transcript_analysis: Dict[str, Any]
-) -> Dict[str, Any]:
+    hook_input: dict[str, Any], transcript_analysis: dict[str, Any]
+) -> dict[str, Any]:
     """Build rich session summary from transcript analysis.
 
     V2.1 Enhancement: Rich summary includes conversation context for post-compact injection.
@@ -335,7 +332,7 @@ def build_session_summary(
     }
 
 
-def store_session_summary(summary_data: Dict[str, Any]) -> bool:
+def store_session_summary(summary_data: dict[str, Any]) -> bool:
     """Store session summary to discussions collection.
 
     Args:
@@ -568,7 +565,7 @@ def timeout_handler(signum, frame):
     raise TimeoutError("Storage timeout exceeded")
 
 
-def should_store_summary(summary_data: Dict[str, Any]) -> bool:
+def should_store_summary(summary_data: dict[str, Any]) -> bool:
     """Validate if summary has meaningful content worth storing.
 
     Args:
@@ -595,7 +592,7 @@ def should_store_summary(summary_data: Dict[str, Any]) -> bool:
     return True
 
 
-def check_duplicate_hash(content_hash: str, group_id: str, client) -> Optional[str]:
+def check_duplicate_hash(content_hash: str, group_id: str, client) -> str | None:
     """Check if content hash already exists in recent memories.
 
     Args:

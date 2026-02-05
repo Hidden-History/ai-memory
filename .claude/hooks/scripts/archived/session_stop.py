@@ -46,8 +46,7 @@ import signal
 import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # Add src to path for imports
 # Use INSTALL_DIR to find installed module (fixes path calculation bug)
@@ -57,14 +56,12 @@ INSTALL_DIR = os.environ.get(
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.activity_log import log_session_end
-from memory.config import get_config
 from memory.embeddings import EmbeddingClient, EmbeddingError
-from memory.graceful import exit_graceful, exit_success, graceful_hook
+from memory.graceful import graceful_hook
 from memory.logging_config import StructuredFormatter
 from memory.project import detect_project
 from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 from memory.queue import queue_operation
-from memory.storage import MemoryStorage
 
 # Configure structured logging (Story 6.2)
 handler = logging.StreamHandler()
@@ -99,7 +96,7 @@ except ImportError:
 STOP_HOOK_TIMEOUT = int(os.getenv("STOP_HOOK_TIMEOUT", "5"))  # Default 5s
 
 
-def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
+def validate_hook_input(data: dict[str, Any]) -> str | None:
     """Validate hook input against expected schema.
 
     AC 2.4.4: Input schema validation
@@ -123,7 +120,7 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def build_session_summary(hook_input: Dict[str, Any]) -> Dict[str, Any]:
+def build_session_summary(hook_input: dict[str, Any]) -> dict[str, Any]:
     """Build session summary with metadata extraction.
 
     AC 2.4.2: Extract key session information
@@ -189,7 +186,7 @@ def build_session_summary(hook_input: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def store_session_summary(summary_data: Dict[str, Any]) -> bool:
+def store_session_summary(summary_data: dict[str, Any]) -> bool:
     """Store session summary using sync QdrantClient.
 
     AC 2.4.1: Synchronous execution (Stop hook allows this)

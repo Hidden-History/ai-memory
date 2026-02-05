@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # Add src to path for imports
 INSTALL_DIR = os.environ.get(
@@ -59,7 +59,7 @@ except ImportError:
 MAX_CONTENT_LENGTH = 10000  # Embeddings handle large text well
 
 
-def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
+def validate_hook_input(data: dict[str, Any]) -> str | None:
     """Validate hook input against expected schema.
 
     Args:
@@ -95,7 +95,7 @@ def count_turns_from_transcript(transcript_path: str) -> int:
             return 0
 
         count = 0
-        with open(expanded_path, "r", encoding="utf-8") as f:
+        with open(expanded_path, encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     count += 1
@@ -104,7 +104,7 @@ def count_turns_from_transcript(transcript_path: str) -> int:
         return 0
 
 
-def fork_to_background(hook_input: Dict[str, Any], turn_number: int) -> None:
+def fork_to_background(hook_input: dict[str, Any], turn_number: int) -> None:
     """Fork storage operation to background process.
 
     Args:

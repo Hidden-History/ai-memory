@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # Add src to path for imports
 # Use INSTALL_DIR to find installed module (fixes path calculation bug)
@@ -114,7 +114,7 @@ def detect_language(file_path: str) -> str:
     return language_map.get(ext, "unknown")
 
 
-def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
+def validate_hook_input(data: dict[str, Any]) -> str | None:
     """Validate hook input against expected schema.
 
     AC 2.1.3: Input schema validation
@@ -161,7 +161,7 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def fork_to_background(hook_input: Dict[str, Any]) -> None:
+def fork_to_background(hook_input: dict[str, Any]) -> None:
     """Fork storage operation to background process.
 
     AC 2.1.1: Modern Python fork pattern using subprocess.Popen
@@ -293,11 +293,11 @@ def main() -> int:
             content_lines = len(content.split("\n"))
 
             # Build multi-line activity log entry
-            log_message = f"📥 PostToolUse captured implementation:\n"
+            log_message = "📥 PostToolUse captured implementation:\n"
             log_message += f"  File: {file_path}\n"
             log_message += f"  Tool: {tool_name} | Language: {language}\n"
             log_message += f"  Lines: {content_lines}\n"
-            log_message += f"  Content:\n"
+            log_message += "  Content:\n"
 
             # F1: Limit to first 100 lines to prevent disk exhaustion
             MAX_LINES = 100
