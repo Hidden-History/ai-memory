@@ -12,9 +12,11 @@ set -e
 # Create runtime config directory
 mkdir -p /etc/prometheus/runtime
 
-# Substitute environment variables in config
-envsubst '${QDRANT_API_KEY} ${PROMETHEUS_ADMIN_PASSWORD}' \
-    < /etc/prometheus/prometheus.yml.template \
+# Substitute environment variables in config using sed (Busybox compatible)
+# envsubst requires musl libc which doesn't exist in Prometheus image
+sed -e "s|\${QDRANT_API_KEY}|${QDRANT_API_KEY}|g" \
+    -e "s|\${PROMETHEUS_ADMIN_PASSWORD}|${PROMETHEUS_ADMIN_PASSWORD}|g" \
+    /etc/prometheus/prometheus.yml.template \
     > /etc/prometheus/runtime/prometheus.yml
 
 echo "Environment variables substituted in prometheus.yml"

@@ -1,16 +1,9 @@
 # Prometheus with environment variable substitution support
 # Allows secrets to be injected at runtime from .env file
-
-# Stage 1: Get envsubst binary from Alpine
-FROM alpine:3.21 AS builder
-RUN apk add --no-cache gettext
-
-# Stage 2: Prometheus with envsubst
+# Uses sed instead of envsubst (Busybox compatible, no external deps)
 FROM prom/prometheus:v2.55.1
 
-# Copy envsubst from builder (prom/prometheus is Busybox-based, no apk)
 USER root
-COPY --from=builder /usr/bin/envsubst /usr/bin/envsubst
 
 # Copy entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/
