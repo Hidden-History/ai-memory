@@ -980,8 +980,8 @@
     {
       "id": 20,
       "type": "gauge",
-      "title": "NFR-P1 SLO",
-      "description": "Percentage of hooks completing <500ms",
+      "title": "Hook Latency SLO (<500ms)",
+      "description": "NFR-P1: Percentage of hooks completing <500ms",
       "gridPos": {
         "x": 0,
         "y": 30,
@@ -1039,8 +1039,8 @@
     {
       "id": 21,
       "type": "gauge",
-      "title": "NFR-P2 SLO",
-      "description": "Percentage of batch embeddings completing <2s",
+      "title": "Batch Embedding SLO (<2s)",
+      "description": "NFR-P2: Percentage of batch embeddings completing <2s",
       "gridPos": {
         "x": 4,
         "y": 30,
@@ -1098,8 +1098,8 @@
     {
       "id": 22,
       "type": "gauge",
-      "title": "NFR-P3 SLO",
-      "description": "Percentage of session injections completing <3s",
+      "title": "Session Start SLO (<3s)",
+      "description": "NFR-P3: Percentage of session injections completing <3s",
       "gridPos": {
         "x": 8,
         "y": 30,
@@ -1157,8 +1157,8 @@
     {
       "id": 23,
       "type": "gauge",
-      "title": "NFR-P4 SLO",
-      "description": "Percentage of dedup checks completing <100ms",
+      "title": "Deduplication SLO (<100ms)",
+      "description": "NFR-P4: Percentage of dedup checks completing <100ms",
       "gridPos": {
         "x": 12,
         "y": 30,
@@ -1216,8 +1216,8 @@
     {
       "id": 24,
       "type": "gauge",
-      "title": "NFR-P5 SLO",
-      "description": "Percentage of retrieval queries completing <500ms",
+      "title": "Retrieval Query SLO (<500ms)",
+      "description": "NFR-P5: Percentage of retrieval queries completing <500ms",
       "gridPos": {
         "x": 16,
         "y": 30,
@@ -1275,8 +1275,8 @@
     {
       "id": 25,
       "type": "gauge",
-      "title": "NFR-P6 SLO",
-      "description": "Percentage of realtime embeddings completing <500ms",
+      "title": "Real-time Embedding SLO (<500ms)",
+      "description": "NFR-P6: Percentage of realtime embeddings completing <500ms",
       "gridPos": {
         "x": 20,
         "y": 30,

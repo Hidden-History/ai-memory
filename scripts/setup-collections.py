@@ -18,8 +18,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from qdrant_client.models import (
     Distance,
+    HnswConfigDiff,
     KeywordIndexParams,
     PayloadSchemaType,
+    ScalarQuantization,
+    ScalarQuantizationConfig,
+    ScalarType,
     TextIndexParams,
     TokenizerType,
     VectorParams,
@@ -80,8 +84,29 @@ def create_collections(dry_run: bool = False) -> None:
 
         if client.collection_exists(collection_name):
             client.delete_collection(collection_name)
+
+        # BP-038 Section 2.1: HNSW on-disk for memory efficiency
+        hnsw_config = HnswConfigDiff(
+            m=16,
+            ef_construct=100,
+            full_scan_threshold=10000,
+            on_disk=True,
+        )
+
+        # BP-038 Section 2.1: Scalar int8 quantization for 4x compression
+        quantization_config = ScalarQuantization(
+            scalar=ScalarQuantizationConfig(
+                type=ScalarType.INT8,
+                quantile=0.99,
+                always_ram=True,
+            )
+        )
+
         client.create_collection(
-            collection_name=collection_name, vectors_config=vector_config
+            collection_name=collection_name,
+            vectors_config=vector_config,
+            hnsw_config=hnsw_config,
+            quantization_config=quantization_config,
         )
 
         # Create keyword indexes for filtering
