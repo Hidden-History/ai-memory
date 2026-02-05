@@ -1,11 +1,17 @@
 """Push metrics to Prometheus Pushgateway for short-lived hook processes.
 
-Provides async push functions for hooks:
-- push_hook_metrics_async() - Hook execution duration
+Provides async push functions for hooks aligned with NFR performance requirements:
+- push_hook_metrics_async() - Hook execution duration (NFR-P1: <500ms)
+- push_embedding_metrics_async() - Embedding generation (NFR-P2/P6)
+- push_session_injection_metrics_async() - SessionStart injection (NFR-P3: <3s)
+- push_dedup_metrics_async() - Deduplication checks (NFR-P4: <100ms)
+- push_retrieval_metrics_async() - Query latency (NFR-P5: <500ms)
 - push_trigger_metrics_async() - Trigger activations
 - push_token_metrics_async() - Token consumption
 - push_context_injection_metrics_async() - Context injection
 - push_capture_metrics_async() - Memory captures
+
+Metric naming follows BP-045: aimemory_{component}_{metric}_{unit}
 
 All push functions use subprocess fork pattern to avoid blocking hook execution.
 """
@@ -43,6 +49,7 @@ VALID_HOOK_TYPES = {
     "SessionStart",
     "UserPromptSubmit",
     "PreToolUse",
+    "PreToolUse_NewFile",  # CR-3: New file creation trigger variant
     "PostToolUse",
     "PreCompact",
     "Stop",
@@ -84,23 +91,32 @@ def _validate_label(
     return value
 
 
-def push_hook_metrics(hook_name: str, duration_seconds: float, success: bool = True):
-    """Push hook execution metrics to Pushgateway.
+def push_hook_metrics(
+    hook_name: str,
+    duration_seconds: float,
+    success: bool = True,
+    project: str = "unknown",
+):
+    """Push hook execution metrics to Pushgateway (NFR-P1: <500ms).
 
     Args:
         hook_name: Name of the hook (e.g., 'session_start', 'post_tool_capture')
         duration_seconds: Hook execution duration in seconds
         success: Whether the hook executed successfully
+        project: Project name for multi-tenancy (Core-Architecture-Principle-V2.md §7.3)
     """
     if not PUSHGATEWAY_ENABLED:
         return
 
+    # Validate labels
+    project = _validate_label(project, "project")
+
     registry = CollectorRegistry()
 
     duration = Histogram(
-        "ai_memory_hook_latency",
-        "Hook execution duration",
-        ["hook_type", "status"],
+        "aimemory_hook_duration_seconds",
+        "Hook execution duration (NFR-P1: <500ms)",
+        ["hook_type", "status", "project"],
         registry=registry,
         buckets=(
             0.05,
@@ -116,7 +132,9 @@ def push_hook_metrics(hook_name: str, duration_seconds: float, success: bool = T
         ),  # Focus on <500ms requirement
     )
     duration.labels(
-        hook_type=hook_name, status="success" if success else "error"
+        hook_type=hook_name,
+        status="success" if success else "error",
+        project=project,
     ).observe(duration_seconds)
 
     try:
@@ -127,7 +145,7 @@ def push_hook_metrics(hook_name: str, duration_seconds: float, success: bool = T
         logger.warning(
             "pushgateway_push_failed",
             extra={
-                "metric": "ai_memory_hook_latency",
+                "metric": "aimemory_hook_duration_seconds",
                 "error": str(e),
                 "error_type": type(e).__name__,
             },
@@ -135,20 +153,30 @@ def push_hook_metrics(hook_name: str, duration_seconds: float, success: bool = T
 
 
 def push_hook_metrics_async(
-    hook_name: str, duration_seconds: float, success: bool = True
+    hook_name: str,
+    duration_seconds: float,
+    success: bool = True,
+    project: str = "unknown",
 ):
     """Push hook execution metrics to Pushgateway asynchronously (fire-and-forget).
+
+    NFR-P1: Hook execution time <500ms
 
     Uses subprocess.Popen to fork the push operation to background, ensuring
     hooks complete in <500ms even if Pushgateway is unreachable.
 
     Args:
-        hook_name: Name of the hook (e.g., 'session_start', 'post_tool_capture')
+        hook_name: Name of the hook (e.g., 'SessionStart', 'PreToolUse_NewFile')
         duration_seconds: Hook execution duration in seconds
         success: Whether the hook executed successfully
+        project: Project name for multi-tenancy (Core-Architecture-Principle-V2.md §7.3)
     """
     if not PUSHGATEWAY_ENABLED:
         return
+
+    # Validate labels (CR-2: Added hook_name validation)
+    hook_name = _validate_label(hook_name, "hook_type", VALID_HOOK_TYPES)
+    project = _validate_label(project, "project")
 
     try:
         # Serialize metrics data for background process
@@ -156,6 +184,7 @@ def push_hook_metrics_async(
             "hook_name": hook_name,
             "duration_seconds": duration_seconds,
             "success": success,
+            "project": project,
         }
 
         # Fork to background using subprocess.Popen
@@ -163,28 +192,29 @@ def push_hook_metrics_async(
             [
                 sys.executable,
                 "-c",
-                """
-import sys, json, os
+                f"""
+import json, os
 from prometheus_client import CollectorRegistry, Histogram, pushadd_to_gateway
 
-data = json.loads(sys.argv[1])
+data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 duration = Histogram(
-    "ai_memory_hook_latency",
-    "Hook execution duration",
-    ["hook_type", "status"],
+    "aimemory_hook_duration_seconds",
+    "Hook execution duration (NFR-P1: <500ms)",
+    ["hook_type", "status", "project"],
     registry=registry,
     buckets=(0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.0, 5.0)
 )
 duration.labels(
     hook_type=data["hook_name"],
-    status="success" if data["success"] else "error"
+    status="success" if data["success"] else "error",
+    project=data["project"]
 ).observe(data["duration_seconds"])
 
 try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
-        job=os.getenv("JOB_NAME", "ai_memory_hooks"),
+        job="ai_memory_hooks",
         registry=registry,
         timeout=0.5
     )
@@ -192,10 +222,9 @@ except Exception as e:
     import logging
     logging.getLogger("ai_memory.metrics").warning(
         "pushgateway_async_failed",
-        extra={"error": str(e), "metric": "hook_duration"}
+        extra={{"error": str(e), "metric": "hook_duration"}}
     )
 """,
-                json.dumps(metrics_data),
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -206,16 +235,17 @@ except Exception as e:
 
 
 @contextmanager
-def track_hook_duration(hook_name: str):
+def track_hook_duration(hook_name: str, project: str = "unknown"):
     """Context manager to track and push hook duration.
 
     Uses async push to ensure <500ms hook performance even if Pushgateway is down.
 
     Args:
         hook_name: Name of the hook being tracked
+        project: Project name for multi-tenancy (Core-Architecture-Principle-V2.md §7.3)
 
     Usage:
-        with track_hook_duration("session_start"):
+        with track_hook_duration("SessionStart", project="my-project"):
             # hook logic here
             pass
     """
@@ -229,7 +259,7 @@ def track_hook_duration(hook_name: str):
     finally:
         duration = time.time() - start
         push_hook_metrics_async(
-            hook_name, duration, success
+            hook_name, duration, success, project
         )  # Fire-and-forget for <500ms
 
 
@@ -280,7 +310,7 @@ data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 fires = Counter(
-    "ai_memory_trigger_fires_total",
+    "aimemory_trigger_fires_total",
     "Total trigger activations",
     ["trigger_type", "status", "project"],
     registry=registry
@@ -292,13 +322,13 @@ fires.labels(
 ).inc()
 
 results = Histogram(
-    "ai_memory_trigger_results_returned",
+    "aimemory_trigger_results_returned",
     "Number of results per trigger",
-    ["trigger_type"],
+    ["trigger_type", "project"],
     registry=registry,
     buckets=(0, 1, 2, 3, 5, 10, 20)
 )
-results.labels(trigger_type=data["trigger_type"]).observe(data["results_count"])
+results.labels(trigger_type=data["trigger_type"], project=data["project"]).observe(data["results_count"])
 
 try:
     pushadd_to_gateway(
@@ -334,7 +364,7 @@ def push_token_metrics_async(
 
     Args:
         operation: capture, retrieval, trigger, injection
-        direction: input, output
+        direction: input, output, stored
         project: Project name
         token_count: Number of tokens
     """
@@ -368,7 +398,7 @@ data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 tokens = Counter(
-    "ai_memory_tokens_consumed_total",
+    "aimemory_tokens_consumed_total",
     "Total tokens consumed",
     ["operation", "direction", "project"],
     registry=registry
@@ -451,7 +481,7 @@ data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 injection = Histogram(
-    "ai_memory_context_injection_tokens",
+    "aimemory_context_injection_tokens",
     "Tokens injected per hook",
     ["hook_type", "collection", "project"],
     registry=registry,
@@ -535,7 +565,7 @@ data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 captures = Counter(
-    "ai_memory_captures_total",
+    "aimemory_captures_total",
     "Total memory captures",
     ["hook_type", "status", "project", "collection"],
     registry=registry
@@ -573,9 +603,16 @@ except Exception as e:
 
 
 def push_embedding_metrics_async(
-    status: str, embedding_type: str, duration_seconds: float
+    status: str,
+    embedding_type: str,
+    duration_seconds: float,
+    context: str = "realtime",
+    project: str = "unknown",
 ):
     """Push embedding request metrics asynchronously (fire-and-forget).
+
+    NFR-P2: Batch embedding latency <2s (context="batch")
+    NFR-P6: Real-time embedding latency <500ms (context="realtime")
 
     Uses subprocess fork pattern to avoid blocking hook execution.
     Pushes both Counter and Histogram metrics for Grafana dashboard visibility.
@@ -584,6 +621,8 @@ def push_embedding_metrics_async(
         status: success, timeout, failed
         embedding_type: dense, sparse_bm25, sparse_splade
         duration_seconds: Embedding generation duration
+        context: "realtime" (NFR-P6) or "batch" (NFR-P2) - determines latency target
+        project: Project name for multi-tenancy
     """
     if not PUSHGATEWAY_ENABLED:
         return
@@ -593,6 +632,7 @@ def push_embedding_metrics_async(
     embedding_type = _validate_label(
         embedding_type, "embedding_type", VALID_EMBEDDING_TYPES
     )
+    project = _validate_label(project, "project")
 
     try:
         # Serialize metrics data for background process
@@ -600,6 +640,8 @@ def push_embedding_metrics_async(
             "status": status,
             "embedding_type": embedding_type,
             "duration_seconds": duration_seconds,
+            "context": context,
+            "project": project,
         }
 
         # Fork to background using subprocess.Popen
@@ -615,24 +657,38 @@ data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 requests = Counter(
-    "ai_memory_embedding_requests_total",
+    "aimemory_embedding_requests_total",
     "Total embedding requests",
-    ["status", "embedding_type"],
+    ["status", "embedding_type", "context"],
     registry=registry
 )
 requests.labels(
     status=data["status"],
-    embedding_type=data["embedding_type"]
+    embedding_type=data["embedding_type"],
+    context=data["context"]
 ).inc()
 
-duration = Histogram(
-    "ai_memory_embedding_latency",
-    "Embedding generation duration",
-    ["embedding_type"],
-    registry=registry,
-    buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0)
-)
-duration.labels(embedding_type=data["embedding_type"]).observe(data["duration_seconds"])
+# Use appropriate histogram based on context
+if data["context"] == "batch":
+    # NFR-P2: Batch embedding <2s
+    duration = Histogram(
+        "aimemory_embedding_batch_duration_seconds",
+        "Batch embedding generation duration (NFR-P2: <2s)",
+        ["embedding_type", "project"],
+        registry=registry,
+        buckets=(0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0)
+    )
+else:
+    # NFR-P6: Real-time embedding <500ms
+    duration = Histogram(
+        "aimemory_embedding_realtime_duration_seconds",
+        "Real-time embedding generation duration (NFR-P6: <500ms)",
+        ["embedding_type", "project"],
+        registry=registry,
+        buckets=(0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.0)
+    )
+
+duration.labels(embedding_type=data["embedding_type"], project=data["project"]).observe(data["duration_seconds"])
 
 try:
     pushadd_to_gateway(
@@ -659,8 +715,12 @@ except Exception as e:
         )
 
 
-def push_retrieval_metrics_async(collection: str, status: str, duration_seconds: float):
+def push_retrieval_metrics_async(
+    collection: str, status: str, duration_seconds: float, project: str = "unknown"
+):
     """Push memory retrieval metrics asynchronously (fire-and-forget).
+
+    NFR-P5: Retrieval query latency <500ms
 
     Uses subprocess fork pattern to avoid blocking hook execution.
     Pushes both Counter and Histogram metrics for Grafana dashboard visibility.
@@ -669,6 +729,7 @@ def push_retrieval_metrics_async(collection: str, status: str, duration_seconds:
         collection: code-patterns, conventions, discussions
         status: success, empty, failed
         duration_seconds: Retrieval operation duration
+        project: Project name for multi-tenancy
     """
     if not PUSHGATEWAY_ENABLED:
         return
@@ -676,6 +737,7 @@ def push_retrieval_metrics_async(collection: str, status: str, duration_seconds:
     # Validate labels (HIGH-1)
     collection = _validate_label(collection, "collection", VALID_COLLECTIONS)
     status = _validate_label(status, "status", VALID_STATUSES)
+    project = _validate_label(project, "project")
 
     try:
         # Serialize metrics data for background process
@@ -683,6 +745,7 @@ def push_retrieval_metrics_async(collection: str, status: str, duration_seconds:
             "collection": collection,
             "status": status,
             "duration_seconds": duration_seconds,
+            "project": project,
         }
 
         # Fork to background using subprocess.Popen
@@ -698,23 +761,26 @@ data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 retrievals = Counter(
-    "ai_memory_retrievals_total",
+    "aimemory_retrievals_total",
     "Total memory retrievals",
-    ["collection", "status"],
+    ["collection", "status", "project"],
     registry=registry
 )
 retrievals.labels(
     collection=data["collection"],
-    status=data["status"]
+    status=data["status"],
+    project=data["project"]
 ).inc()
 
+# NFR-P5: Retrieval query latency <500ms
 duration = Histogram(
-    "ai_memory_search_latency",
-    "Memory retrieval duration",
+    "aimemory_retrieval_query_duration_seconds",
+    "Memory retrieval query duration (NFR-P5: <500ms)",
+    ["collection", "project"],
     registry=registry,
-    buckets=(0.1, 0.5, 1.0, 2.0, 3.0, 5.0)
+    buckets=(0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.0)
 )
-duration.observe(data["duration_seconds"])
+duration.labels(collection=data["collection"], project=data["project"]).observe(data["duration_seconds"])
 
 try:
     pushadd_to_gateway(
@@ -741,7 +807,9 @@ except Exception as e:
         )
 
 
-def push_failure_metrics_async(component: str, error_code: str):
+def push_failure_metrics_async(
+    component: str, error_code: str, project: str = "unknown"
+):
     """Push failure event metrics asynchronously (fire-and-forget).
 
     Uses subprocess fork pattern to avoid blocking hook execution.
@@ -750,6 +818,7 @@ def push_failure_metrics_async(component: str, error_code: str):
     Args:
         component: qdrant, embedding, queue, hook
         error_code: QDRANT_UNAVAILABLE, EMBEDDING_TIMEOUT, EMBEDDING_ERROR, VALIDATION_ERROR
+        project: Project name for multi-tenancy
     """
     if not PUSHGATEWAY_ENABLED:
         return
@@ -757,10 +826,15 @@ def push_failure_metrics_async(component: str, error_code: str):
     # Validate labels (HIGH-1)
     component = _validate_label(component, "component", VALID_COMPONENTS)
     error_code = _validate_label(error_code, "error_code", VALID_ERROR_CODES)
+    project = _validate_label(project, "project")
 
     try:
         # Serialize metrics data for background process
-        metrics_data = {"component": component, "error_code": error_code}
+        metrics_data = {
+            "component": component,
+            "error_code": error_code,
+            "project": project,
+        }
 
         # Fork to background using subprocess.Popen
         subprocess.Popen(
@@ -775,14 +849,15 @@ data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 failures = Counter(
-    "ai_memory_failure_events_total",
+    "aimemory_failure_events_total",
     "Total failure events",
-    ["component", "error_code"],
+    ["component", "error_code", "project"],
     registry=registry
 )
 failures.labels(
     component=data["component"],
-    error_code=data["error_code"]
+    error_code=data["error_code"],
+    project=data["project"]
 ).inc()
 
 try:
@@ -851,7 +926,7 @@ data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 invocations = Counter(
-    "ai_memory_skill_invocations_total",
+    "aimemory_skill_invocations_total",
     "Total skill invocations",
     ["skill_name", "status"],
     registry=registry
@@ -862,7 +937,7 @@ invocations.labels(
 ).inc()
 
 duration = Histogram(
-    "ai_memory_skill_duration_seconds",
+    "aimemory_skill_duration_seconds",
     "Skill execution duration",
     ["skill_name"],
     registry=registry,
@@ -901,7 +976,7 @@ def push_deduplication_metrics_async(action: str, collection: str, project: str)
     Uses subprocess fork pattern to avoid blocking hook execution.
     Tracks when duplicates are detected vs unique memories stored.
 
-    BUG-021: Created to push ai_memory_dedup_matches metric.
+    BUG-021: Created to push aimemory_dedup_events_total metric.
 
     Args:
         action: skipped_duplicate (duplicate detected), stored (unique memory)
@@ -933,8 +1008,8 @@ data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 dedup = Counter(
-    "ai_memory_dedup_matches",
-    "Memories deduplicated (not stored)",
+    "aimemory_dedup_events_total",
+    "Deduplication outcomes (stored vs skipped)",
     ["action", "collection", "project"],
     registry=registry
 )
@@ -1005,7 +1080,7 @@ data = json.loads({json.dumps(metrics_data)!r})
 registry = CollectorRegistry()
 
 queue_size = Gauge(
-    "ai_memory_queue_size",
+    "aimemory_queue_size",
     "Pending items in retry queue",
     ["status"],
     registry=registry
@@ -1036,4 +1111,321 @@ except Exception as e:
     except Exception as e:
         logger.warning(
             "metrics_fork_failed", extra={"error": str(e), "metric": "queue_size"}
+        )
+
+
+def push_dedup_duration_metrics_async(
+    collection: str, project: str, duration_seconds: float
+):
+    """Push deduplication check duration metrics asynchronously (fire-and-forget).
+
+    NFR-P4: Deduplication check time <100ms
+
+    Uses subprocess fork pattern to avoid blocking hook execution.
+    Tracks how long deduplication checks take.
+
+    Args:
+        collection: code-patterns, conventions, discussions
+        project: Project name
+        duration_seconds: Deduplication check duration
+    """
+    if not PUSHGATEWAY_ENABLED:
+        return
+
+    # Validate labels
+    collection = _validate_label(collection, "collection", VALID_COLLECTIONS)
+    project = _validate_label(project, "project")
+
+    try:
+        # Serialize metrics data for background process
+        metrics_data = {
+            "collection": collection,
+            "project": project,
+            "duration_seconds": duration_seconds,
+        }
+
+        # Fork to background using subprocess.Popen
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                f"""
+import json, os
+from prometheus_client import CollectorRegistry, Histogram, pushadd_to_gateway
+
+data = json.loads({json.dumps(metrics_data)!r})
+registry = CollectorRegistry()
+
+# NFR-P4: Deduplication check time <100ms
+duration = Histogram(
+    "aimemory_dedup_check_duration_seconds",
+    "Deduplication check time (NFR-P4: <100ms)",
+    ["collection", "project"],
+    registry=registry,
+    buckets=(0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.5, 1.0)
+)
+duration.labels(
+    collection=data["collection"],
+    project=data["project"]
+).observe(data["duration_seconds"])
+
+try:
+    pushadd_to_gateway(
+        os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
+        job="ai_memory_hooks",
+        registry=registry,
+        timeout=0.5
+    )
+except Exception as e:
+    import logging
+    logging.getLogger("ai_memory.metrics").warning(
+        "pushgateway_async_failed",
+        extra={{"error": str(e), "metric": "dedup_duration"}}
+    )
+""",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "metrics_fork_failed", extra={"error": str(e), "metric": "dedup_duration"}
+        )
+
+
+def push_collection_size_metrics_async(collection: str, project: str, point_count: int):
+    """Push collection size metrics asynchronously (fire-and-forget).
+
+    Updates the gauge for collection vector counts, enabling dashboard
+    visualization of memory storage usage per project.
+
+    Args:
+        collection: code-patterns, conventions, discussions
+        project: Project name (or "all" for total)
+        point_count: Number of vectors in collection
+    """
+    if not PUSHGATEWAY_ENABLED:
+        return
+
+    # Validate labels
+    collection = _validate_label(collection, "collection", VALID_COLLECTIONS)
+    project = _validate_label(project, "project")
+
+    try:
+        # Serialize metrics data for background process
+        metrics_data = {
+            "collection": collection,
+            "project": project,
+            "point_count": point_count,
+        }
+
+        # Fork to background using subprocess.Popen
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                f"""
+import json, os
+from prometheus_client import CollectorRegistry, Gauge, pushadd_to_gateway
+
+data = json.loads({json.dumps(metrics_data)!r})
+registry = CollectorRegistry()
+
+collection_size = Gauge(
+    "aimemory_collection_size",
+    "Number of memories in collection",
+    ["collection", "project"],
+    registry=registry
+)
+collection_size.labels(
+    collection=data["collection"],
+    project=data["project"]
+).set(data["point_count"])
+
+try:
+    pushadd_to_gateway(
+        os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
+        job="ai_memory_hooks",
+        registry=registry,
+        timeout=0.5
+    )
+except Exception as e:
+    import logging
+    logging.getLogger("ai_memory.metrics").warning(
+        "pushgateway_async_failed",
+        extra={{"error": str(e), "metric": "collection_size"}}
+    )
+""",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "metrics_fork_failed",
+            extra={"error": str(e), "metric": "collection_size"},
+        )
+
+
+def push_chunking_metrics_async(
+    chunk_type: str, project: str, chunk_count: int, duration_seconds: float
+):
+    """Push chunking operation metrics asynchronously (fire-and-forget).
+
+    Tracks AST, Markdown, and Prose chunker operations.
+
+    Args:
+        chunk_type: ast, markdown, prose
+        project: Project name
+        chunk_count: Number of chunks created
+        duration_seconds: Chunking operation duration
+    """
+    if not PUSHGATEWAY_ENABLED:
+        return
+
+    # Validate labels
+    project = _validate_label(project, "project")
+
+    try:
+        # Serialize metrics data for background process
+        metrics_data = {
+            "chunk_type": chunk_type,
+            "project": project,
+            "chunk_count": chunk_count,
+            "duration_seconds": duration_seconds,
+        }
+
+        # Fork to background using subprocess.Popen
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                f"""
+import json, os
+from prometheus_client import CollectorRegistry, Counter, Histogram, pushadd_to_gateway
+
+data = json.loads({json.dumps(metrics_data)!r})
+registry = CollectorRegistry()
+
+ops = Counter(
+    "aimemory_chunking_operations_total",
+    "Total chunking operations",
+    ["chunk_type", "project"],
+    registry=registry
+)
+ops.labels(
+    chunk_type=data["chunk_type"],
+    project=data["project"]
+).inc(data["chunk_count"])
+
+duration = Histogram(
+    "aimemory_chunking_duration_seconds",
+    "Chunking operation duration",
+    ["chunk_type", "project"],
+    registry=registry,
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0)
+)
+duration.labels(
+    chunk_type=data["chunk_type"],
+    project=data["project"]
+).observe(data["duration_seconds"])
+
+try:
+    pushadd_to_gateway(
+        os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
+        job="ai_memory_hooks",
+        registry=registry,
+        timeout=0.5
+    )
+except Exception as e:
+    import logging
+    logging.getLogger("ai_memory.metrics").warning(
+        "pushgateway_async_failed",
+        extra={{"error": str(e), "metric": "chunking"}}
+    )
+""",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "metrics_fork_failed",
+            extra={"error": str(e), "metric": "chunking"},
+        )
+
+
+def push_session_injection_metrics_async(project: str, duration_seconds: float):
+    """Push session injection duration metrics asynchronously (fire-and-forget).
+
+    NFR-P3: SessionStart injection time <3s
+
+    Uses subprocess fork pattern to avoid blocking hook execution.
+    Tracks how long SessionStart context injection takes.
+
+    Args:
+        project: Project name
+        duration_seconds: Session injection duration
+    """
+    if not PUSHGATEWAY_ENABLED:
+        return
+
+    # Validate labels
+    project = _validate_label(project, "project")
+
+    try:
+        # Serialize metrics data for background process
+        metrics_data = {
+            "project": project,
+            "duration_seconds": duration_seconds,
+        }
+
+        # Fork to background using subprocess.Popen
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                f"""
+import json, os
+from prometheus_client import CollectorRegistry, Histogram, pushadd_to_gateway
+
+data = json.loads({json.dumps(metrics_data)!r})
+registry = CollectorRegistry()
+
+# NFR-P3: SessionStart injection time <3s
+duration = Histogram(
+    "aimemory_session_injection_duration_seconds",
+    "SessionStart context injection time (NFR-P3: <3s)",
+    ["project"],
+    registry=registry,
+    buckets=(0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0)
+)
+duration.labels(project=data["project"]).observe(data["duration_seconds"])
+
+try:
+    pushadd_to_gateway(
+        os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
+        job="ai_memory_hooks",
+        registry=registry,
+        timeout=0.5
+    )
+except Exception as e:
+    import logging
+    logging.getLogger("ai_memory.metrics").warning(
+        "pushgateway_async_failed",
+        extra={{"error": str(e), "metric": "session_injection"}}
+    )
+""",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "metrics_fork_failed",
+            extra={"error": str(e), "metric": "session_injection"},
         )

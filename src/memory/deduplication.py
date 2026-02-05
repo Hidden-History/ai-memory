@@ -11,6 +11,7 @@ Best Practices: https://github.com/MinishLab/semhash (SemHash 2025 patterns)
 import asyncio
 import hashlib
 import logging
+import time
 from dataclasses import dataclass
 
 from qdrant_client import AsyncQdrantClient
@@ -25,13 +26,17 @@ from .config import get_config
 from .embeddings import EmbeddingClient, EmbeddingError
 
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
+# TECH-DEBT-089: push_dedup_duration_metrics_async for dedup timing
+# BUG-021: push_deduplication_metrics_async for Pushgateway
 try:
     from .metrics import deduplication_events_total
     from .metrics_push import (
-        push_deduplication_metrics_async,  # BUG-021: Push to Pushgateway
+        push_dedup_duration_metrics_async,
+        push_deduplication_metrics_async,
     )
 except ImportError:
     deduplication_events_total = None
+    push_dedup_duration_metrics_async = None
     push_deduplication_metrics_async = None
 
 __all__ = ["DuplicationCheckResult", "compute_content_hash", "is_duplicate"]
@@ -150,6 +155,9 @@ async def is_duplicate(
     config = get_config()
     dedup_threshold = threshold if threshold is not None else config.dedup_threshold
 
+    # TECH-DEBT-089: Track dedup check duration for NFR-P4 (<100ms)
+    dedup_start_time = time.time()
+
     logger.debug(
         "dedup_check_started",
         extra={
@@ -206,6 +214,11 @@ async def is_duplicate(
                 push_deduplication_metrics_async(
                     action="skipped_duplicate", collection=collection, project=group_id
                 )
+
+            # TECH-DEBT-089: Push dedup duration for NFR-P4 tracking
+            if push_dedup_duration_metrics_async:
+                dedup_duration = time.time() - dedup_start_time
+                push_dedup_duration_metrics_async(collection, group_id, dedup_duration)
 
             return DuplicationCheckResult(
                 is_duplicate=True,
@@ -266,6 +279,13 @@ async def is_duplicate(
                         project=group_id,
                     )
 
+                # TECH-DEBT-089: Push dedup duration for NFR-P4 tracking
+                if push_dedup_duration_metrics_async:
+                    dedup_duration = time.time() - dedup_start_time
+                    push_dedup_duration_metrics_async(
+                        collection, group_id, dedup_duration
+                    )
+
                 return DuplicationCheckResult(
                     is_duplicate=True,
                     reason="semantic_similarity",
@@ -277,6 +297,11 @@ async def is_duplicate(
                 "similarity_check_no_match",
                 extra={"threshold": dedup_threshold, "group_id": group_id},
             )
+
+            # TECH-DEBT-089: Push dedup duration for NFR-P4 tracking
+            if push_dedup_duration_metrics_async:
+                dedup_duration = time.time() - dedup_start_time
+                push_dedup_duration_metrics_async(collection, group_id, dedup_duration)
 
             # No duplicates found
             return DuplicationCheckResult(
@@ -312,6 +337,10 @@ async def is_duplicate(
                 "stage": "qdrant_query",
             },
         )
+        # CR-4: Push duration metrics on error for NFR-P4 observability
+        if push_dedup_duration_metrics_async:
+            dedup_duration = time.time() - dedup_start_time
+            push_dedup_duration_metrics_async(collection, group_id, dedup_duration)
         # Fail open: allow storage on error
         return DuplicationCheckResult(
             is_duplicate=False, reason="error_fail_open", existing_id=None
@@ -328,6 +357,10 @@ async def is_duplicate(
                 "stage": "qdrant_query",
             },
         )
+        # CR-4: Push duration metrics on error for NFR-P4 observability
+        if push_dedup_duration_metrics_async:
+            dedup_duration = time.time() - dedup_start_time
+            push_dedup_duration_metrics_async(collection, group_id, dedup_duration)
         # Fail open: allow storage on error
         return DuplicationCheckResult(
             is_duplicate=False, reason="error_fail_open", existing_id=None
@@ -339,6 +372,10 @@ async def is_duplicate(
             "dedup_failed_qdrant_unavailable",
             extra={"error": str(e), "group_id": group_id},
         )
+        # CR-4: Push duration metrics on error for NFR-P4 observability
+        if push_dedup_duration_metrics_async:
+            dedup_duration = time.time() - dedup_start_time
+            push_dedup_duration_metrics_async(collection, group_id, dedup_duration)
         return DuplicationCheckResult(
             is_duplicate=False, reason="error_fail_open", existing_id=None
         )
@@ -355,6 +392,10 @@ async def is_duplicate(
                 "stage": "qdrant_query",
             },
         )
+        # CR-4: Push duration metrics on error for NFR-P4 observability
+        if push_dedup_duration_metrics_async:
+            dedup_duration = time.time() - dedup_start_time
+            push_dedup_duration_metrics_async(collection, group_id, dedup_duration)
         # Fail open: allow storage on error
         return DuplicationCheckResult(
             is_duplicate=False, reason="error_fail_open", existing_id=None
@@ -370,6 +411,10 @@ async def is_duplicate(
                 "group_id": group_id,
             },
         )
+        # CR-4: Push duration metrics on error for NFR-P4 observability
+        if push_dedup_duration_metrics_async:
+            dedup_duration = time.time() - dedup_start_time
+            push_dedup_duration_metrics_async(collection, group_id, dedup_duration)
         # Fail open: allow storage on any error
         return DuplicationCheckResult(
             is_duplicate=False, reason="error_fail_open", existing_id=None

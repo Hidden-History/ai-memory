@@ -17,6 +17,7 @@ from .config import MemoryConfig, get_config
 __all__ = [
     "QdrantUnavailable",
     "check_qdrant_health",
+    "create_content_hash_index",
     "create_group_id_index",
     "get_qdrant_client",
 ]
@@ -170,3 +171,37 @@ def create_group_id_index(
             },
         )
         raise
+
+
+def create_content_hash_index(client: QdrantClient, collection_name: str) -> None:
+    """Create payload index for content_hash field for O(1) dedup lookup.
+
+    Per BP-038 Section 3.3: content_hash index required for all collections.
+    Enables efficient deduplication by allowing direct payload filtering
+    instead of O(n) scroll-based lookup.
+
+    Args:
+        client: QdrantClient instance
+        collection_name: Collection to create index on
+
+    Example:
+        >>> client = get_qdrant_client()
+        >>> create_content_hash_index(client, "code-patterns")
+        >>> # Index now enables O(1) content_hash lookup for dedup
+    """
+    try:
+        client.create_payload_index(
+            collection_name=collection_name,
+            field_name="content_hash",
+            field_schema=KeywordIndexParams(type="keyword"),
+        )
+        logger.info(
+            "content_hash_index_created",
+            extra={"collection": collection_name},
+        )
+    except Exception as e:
+        # Idempotent: index may already exist
+        logger.warning(
+            "content_hash_index_exists_or_failed",
+            extra={"error": str(e)},
+        )

@@ -51,10 +51,12 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
     # Use environment variable reference for portability
     # Quotes go around the full path including script name
     hooks_base = "$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts"
+    # TECH-DEBT-135: Use venv Python to access all dependencies (qdrant-client, etc.)
+    venv_python = '"$AI_MEMORY_INSTALL_DIR/.venv/bin/python"'
 
     session_start_hook = {
         "type": "command",
-        "command": f'python3 "{hooks_base}/session_start.py"',
+        "command": f'{venv_python} "{hooks_base}/session_start.py"',
         "timeout": 30000,
     }
 
@@ -99,7 +101,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'python3 "{hooks_base}/user_prompt_capture.py"',
+                            "command": f'{venv_python} "{hooks_base}/user_prompt_capture.py"',
                         }
                     ]
                 },
@@ -107,7 +109,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'python3 "{hooks_base}/unified_keyword_trigger.py"',
+                            "command": f'{venv_python} "{hooks_base}/unified_keyword_trigger.py"',
                             "timeout": 5000,
                         }
                     ]
@@ -119,7 +121,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'python3 "{hooks_base}/new_file_trigger.py"',
+                            "command": f'{venv_python} "{hooks_base}/new_file_trigger.py"',
                             "timeout": 2000,
                         }
                     ],
@@ -129,7 +131,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'python3 "{hooks_base}/first_edit_trigger.py"',
+                            "command": f'{venv_python} "{hooks_base}/first_edit_trigger.py"',
                             "timeout": 2000,
                         }
                     ],
@@ -141,12 +143,12 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'python3 "{hooks_base}/error_detection.py"',
+                            "command": f'{venv_python} "{hooks_base}/error_detection.py"',
                             "timeout": 2000,
                         },
                         {
                             "type": "command",
-                            "command": f'python3 "{hooks_base}/error_pattern_capture.py"',
+                            "command": f'{venv_python} "{hooks_base}/error_pattern_capture.py"',
                         },
                     ],
                 },
@@ -155,7 +157,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'python3 "{hooks_base}/post_tool_capture.py"',
+                            "command": f'{venv_python} "{hooks_base}/post_tool_capture.py"',
                         }
                     ],
                 },
@@ -166,7 +168,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'python3 "{hooks_base}/pre_compact_save.py"',
+                            "command": f'{venv_python} "{hooks_base}/pre_compact_save.py"',
                             "timeout": 10000,
                         }
                     ],
@@ -177,7 +179,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'python3 "{hooks_base}/agent_response_capture.py"',
+                            "command": f'{venv_python} "{hooks_base}/agent_response_capture.py"',
                         }
                     ]
                 }

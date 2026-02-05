@@ -36,13 +36,10 @@ Exit Codes:
 """
 
 import json
-import logging
 import os
-import re
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 # Add src to path for imports
 INSTALL_DIR = os.environ.get(
@@ -89,7 +86,7 @@ LANGUAGE_MAP = {
 }
 
 
-def extract_file_paths(command: str) -> List[str]:
+def extract_file_paths(command: str) -> list[str]:
     """Extract file paths from bash command.
 
     Args:
@@ -129,7 +126,7 @@ def extract_file_paths(command: str) -> List[str]:
     return file_paths
 
 
-def detect_language(file_path: str) -> Optional[str]:
+def detect_language(file_path: str) -> str | None:
     """Detect programming language from file extension.
 
     Args:
@@ -143,7 +140,6 @@ def detect_language(file_path: str) -> Optional[str]:
         - "tests/test.ts" → "typescript"
         - "README.md" → "markdown"
     """
-    from pathlib import Path
 
     ext = Path(file_path).suffix.lower()
     return LANGUAGE_MAP.get(ext)

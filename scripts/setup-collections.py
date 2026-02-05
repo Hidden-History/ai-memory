@@ -9,6 +9,7 @@ Creates three v2.0 collections:
 Implements Story 1.3 AC 1.3.1.
 """
 
+import logging
 import sys
 from pathlib import Path
 
@@ -17,8 +18,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from qdrant_client.models import (
     Distance,
+    HnswConfigDiff,
     KeywordIndexParams,
     PayloadSchemaType,
+    ScalarQuantization,
+    ScalarQuantizationConfig,
+    ScalarType,
     TextIndexParams,
     TokenizerType,
     VectorParams,
@@ -31,6 +36,8 @@ from memory.config import (
     get_config,
 )
 from memory.qdrant_client import get_qdrant_client
+
+logger = logging.getLogger(__name__)
 
 
 def create_collections(dry_run: bool = False) -> None:
@@ -77,46 +84,96 @@ def create_collections(dry_run: bool = False) -> None:
 
         if client.collection_exists(collection_name):
             client.delete_collection(collection_name)
+
+        # BP-038 Section 2.1: HNSW on-disk for memory efficiency
+        hnsw_config = HnswConfigDiff(
+            m=16,
+            ef_construct=100,
+            full_scan_threshold=10000,
+            on_disk=True,
+        )
+
+        # BP-038 Section 2.1: Scalar int8 quantization for 4x compression
+        quantization_config = ScalarQuantization(
+            scalar=ScalarQuantizationConfig(
+                type=ScalarType.INT8,
+                quantile=0.99,
+                always_ram=True,
+            )
+        )
+
         client.create_collection(
-            collection_name=collection_name, vectors_config=vector_config
+            collection_name=collection_name,
+            vectors_config=vector_config,
+            hnsw_config=hnsw_config,
+            quantization_config=quantization_config,
         )
 
         # Create keyword indexes for filtering
         # These enable fast payload filtering for multi-tenancy and provenance
-        # group_id uses is_tenant=True for optimized multi-project storage layout
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="group_id",
-            field_schema=KeywordIndexParams(
-                type="keyword",
-                is_tenant=True,  # Optimizes storage for multi-tenant filtering
-            ),
-        )
+        # Wrapped in try/except to handle Qdrant connection/permission failures
+        try:
+            # group_id uses is_tenant=True for optimized multi-project storage layout
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="group_id",
+                field_schema=KeywordIndexParams(
+                    type="keyword",
+                    is_tenant=True,  # Optimizes storage for multi-tenant filtering
+                ),
+            )
 
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="type",
-            field_schema=PayloadSchemaType.KEYWORD,
-        )
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="type",
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
 
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="source_hook",
-            field_schema=PayloadSchemaType.KEYWORD,
-        )
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="source_hook",
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
 
-        # Create full-text index on content field
-        # Enables hybrid search (semantic + keyword)
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="content",
-            field_schema=TextIndexParams(
-                type="text",
-                tokenizer=TokenizerType.WORD,
-                min_token_len=2,
-                max_token_len=20,
-            ),
-        )
+            # BP-038 Section 3.3: content_hash index for O(1) dedup lookup
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="content_hash",
+                field_schema=KeywordIndexParams(type="keyword"),
+            )
+
+            # Create full-text index on content field
+            # Enables hybrid search (semantic + keyword)
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="content",
+                field_schema=TextIndexParams(
+                    type="text",
+                    tokenizer=TokenizerType.WORD,
+                    min_token_len=2,
+                    max_token_len=20,
+                ),
+            )
+
+            # BP-038 Section 2.1: timestamp index for recency queries
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="timestamp",
+                field_schema=PayloadSchemaType.DATETIME,
+            )
+
+            # BP-038 Section 2.1: file_path index for code-patterns only
+            # Enables file-specific pattern lookup
+            if collection_name == COLLECTION_CODE_PATTERNS:
+                client.create_payload_index(
+                    collection_name=collection_name,
+                    field_name="file_path",
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to create indexes for {collection_name}: {e}")
+            raise RuntimeError(f"Index creation failed for {collection_name}") from e
 
         print(f"Created collection: {collection_name}")
 

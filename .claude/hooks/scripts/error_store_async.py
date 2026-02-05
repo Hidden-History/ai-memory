@@ -13,9 +13,7 @@ import json
 import logging
 import os
 import sys
-import time
-from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # CR-1.7: Setup path inline (must happen BEFORE any memory.* imports)
 INSTALL_DIR = os.environ.get(
@@ -67,7 +65,7 @@ from memory.hooks_common import get_hook_timeout, log_to_activity
 from memory.queue import queue_operation
 
 
-def format_error_content(error_context: Dict[str, Any]) -> str:
+def format_error_content(error_context: dict[str, Any]) -> str:
     """Format error context into searchable content string.
 
     Args:
@@ -116,7 +114,7 @@ def format_error_content(error_context: Dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
-async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
+async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
     """Store error pattern to Qdrant.
 
     Args:
@@ -260,6 +258,7 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
                 hook_type="PostToolUse_Error",
                 status="success",
                 project=group_id or "unknown",
+                collection="code-patterns",
             ).inc()
 
     except ResponseHandlingException as e:
@@ -307,7 +306,10 @@ async def store_error_pattern_async(error_context: Dict[str, Any]) -> None:
                 project = "unknown"
 
             memory_captures_total.labels(
-                hook_type="PostToolUse_Error", status="failed", project=project
+                hook_type="PostToolUse_Error",
+                status="failed",
+                project=project,
+                collection="code-patterns",
             ).inc()
 
         queue_operation(error_context, "unexpected_error")

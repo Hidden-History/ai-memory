@@ -21,13 +21,15 @@ Input Schema:
 """
 
 import json
-import logging
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+# Maximum response size to prevent memory issues in background process (100KB)
+MAX_RESPONSE_SIZE = 100 * 1024
 
 # Add src to path for imports (must be inline before importing from memory)
 INSTALL_DIR = os.environ.get(
@@ -43,11 +45,13 @@ logger = setup_hook_logging()
 # Import metrics for Prometheus instrumentation
 try:
     from memory.metrics import hook_duration_seconds
+    from memory.storage import detect_project
 except ImportError:
     hook_duration_seconds = None
+    detect_project = None
 
 
-def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
+def validate_hook_input(data: dict[str, Any]) -> str | None:
     """Validate hook input against expected schema.
 
     Args:
@@ -68,8 +72,8 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
 
 
 def extract_last_assistant_message(
-    entries: List[Dict[str, Any]], max_retries: int = 5, retry_delay: float = 0.1
-) -> Optional[str]:
+    entries: list[dict[str, Any]], max_retries: int = 5, retry_delay: float = 0.1
+) -> str | None:
     """Extract the last assistant message from transcript with retry for timing issues.
 
     Args:
@@ -120,7 +124,7 @@ def extract_last_assistant_message(
 
 
 def fork_to_background(
-    hook_input: Dict[str, Any], response_text: str, turn_number: int
+    hook_input: dict[str, Any], response_text: str, turn_number: int
 ) -> None:
     """Fork storage operation to background process.
 
@@ -138,8 +142,9 @@ def fork_to_background(
         store_script = script_dir / "agent_response_store_async.py"
 
         # Build data for background process
+        # BUG-003 FIX: Use .get() pattern for safe session_id access
         store_data = {
-            "session_id": hook_input["session_id"],
+            "session_id": hook_input.get("session_id", "unknown"),
             "response_text": response_text,
             "turn_number": turn_number,
         }
@@ -171,7 +176,7 @@ def fork_to_background(
             "background_forked",
             extra={
                 "hook_type": "Stop",
-                "session_id": hook_input["session_id"],
+                "session_id": hook_input.get("session_id", "unknown"),
                 "turn_number": turn_number,
                 "response_length": len(response_text),
             },
@@ -267,13 +272,28 @@ def main() -> int:
         # Validate turn number (Fix #3: bounds checking prevents corruption)
         turn_number = max(1, min(assistant_count, 10000))  # Bounds: 1 to 10000
 
+        # Truncate large responses to prevent memory issues in background process
+        if len(response_text) > MAX_RESPONSE_SIZE:
+            logger.warning(
+                "response_text_truncated",
+                extra={
+                    "original_size": len(response_text),
+                    "max_size": MAX_RESPONSE_SIZE,
+                    "session_id": hook_input.get("session_id"),
+                },
+            )
+            response_text = response_text[:MAX_RESPONSE_SIZE] + "\n... [truncated]"
+
         # Fork to background
         fork_to_background(hook_input, response_text, turn_number)
 
         # Metrics: Record hook duration
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="Stop").observe(duration_seconds)
+            project = detect_project(os.getcwd()) if detect_project else "unknown"
+            hook_duration_seconds.labels(
+                hook_type="Stop", status="success", project=project
+            ).observe(duration_seconds)
 
         # Exit immediately after fork
         return 0
@@ -287,7 +307,10 @@ def main() -> int:
         # Metrics: Record hook duration even on error
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="Stop").observe(duration_seconds)
+            project = detect_project(os.getcwd()) if detect_project else "unknown"
+            hook_duration_seconds.labels(
+                hook_type="Stop", status="error", project=project
+            ).observe(duration_seconds)
 
         return 1  # Non-blocking error
 

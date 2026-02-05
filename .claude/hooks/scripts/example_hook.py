@@ -27,7 +27,7 @@ def check_service_available(host: str, port: int, timeout: float = 2.0) -> bool:
         sock = socket.create_connection((host, port), timeout=timeout)
         sock.close()
         return True
-    except (socket.timeout, socket.error, ConnectionRefusedError, OSError):
+    except (TimeoutError, ConnectionRefusedError, OSError):
         return False
 
 

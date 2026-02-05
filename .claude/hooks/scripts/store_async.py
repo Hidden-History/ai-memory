@@ -17,12 +17,9 @@ Sources:
 
 import asyncio
 import json
-import logging
 import os
 import sys
-import time
-from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # CR-1.7: Setup path inline (must happen BEFORE any memory.* imports)
 INSTALL_DIR = os.environ.get(
@@ -33,7 +30,7 @@ sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 # Import pattern extraction (Story 2.3)
 from datetime import datetime, timezone
 
-from memory.chunking import ChunkResult, IntelligentChunker
+from memory.chunking import IntelligentChunker
 from memory.config import COLLECTION_CODE_PATTERNS
 from memory.extraction import extract_patterns
 from memory.filters import ImplementationFilter
@@ -87,7 +84,7 @@ except ImportError:
 # CR-1.3: queue_to_file() removed - using consolidated queue_operation() from queue.py
 
 
-async def store_memory_async(hook_input: Dict[str, Any]) -> None:
+async def store_memory_async(hook_input: dict[str, Any]) -> None:
     """Store captured pattern to Qdrant (AC 2.1.2).
 
     Args:
@@ -121,10 +118,17 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
             https=qdrant_use_https,
         )
 
-        # Extract tool information
-        tool_name = hook_input["tool_name"]
-        tool_input = hook_input["tool_input"]
-        cwd = hook_input["cwd"]
+        # Extract tool information (TECH-DEBT-097: safe .get() access)
+        tool_name = hook_input.get("tool_name", "")
+        tool_input = hook_input.get("tool_input", {})
+        cwd = hook_input.get("cwd", "")
+
+        if not tool_name or not cwd:
+            logger.error(
+                "missing_required_fields",
+                extra={"has_tool_name": bool(tool_name), "has_cwd": bool(cwd)},
+            )
+            return
 
         # BUG-058 Fix: session_id is for audit trail, not tenant isolation (group_id handles that)
         # Use graceful fallback per BP-037 (Fallback Tenant ID Pattern)
@@ -357,7 +361,10 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
         if memory_captures_total:
             # Increment by number of chunks stored
             memory_captures_total.labels(
-                hook_type="PostToolUse", status="success", project=group_id or "unknown"
+                hook_type="PostToolUse",
+                status="success",
+                project=group_id or "unknown",
+                collection="code-patterns",
             ).inc(len(points_to_store))
 
         # TECH-DEBT-070: Push metrics to Pushgateway (async to avoid latency)
@@ -436,7 +443,10 @@ async def store_memory_async(hook_input: Dict[str, Any]) -> None:
                 project = "unknown"
 
             memory_captures_total.labels(
-                hook_type="PostToolUse", status="failed", project=project
+                hook_type="PostToolUse",
+                status="failed",
+                project=project,
+                collection="code-patterns",
             ).inc()
 
         # AC 2.1.2: Queue on any failure

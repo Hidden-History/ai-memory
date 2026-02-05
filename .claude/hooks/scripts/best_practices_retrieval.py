@@ -39,12 +39,10 @@ Exit Codes:
 """
 
 import json
-import logging
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional, Tuple
 
 # Setup Python path using shared utility (CR-4 Wave 2)
 sys.path.insert(
@@ -74,7 +72,7 @@ memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = (
 )
 
 
-def detect_component_from_path(file_path: str) -> Tuple[str, str]:
+def detect_component_from_path(file_path: str) -> tuple[str, str]:
     """Extract component and domain from file path.
 
     Uses path segments to infer what part of the system is being modified.
@@ -321,17 +319,19 @@ def main() -> int:
         config = get_config()
         client = get_qdrant_client(config)
 
+        # Detect project for metrics (required per §7.3 multi-tenancy)
+        project_name = detect_project(cwd)
+
         # Check Qdrant health (graceful degradation if down)
         if not check_qdrant_health(client):
             logger.warning("qdrant_unavailable")
             if memory_retrievals_total:
                 memory_retrievals_total.labels(
-                    collection=COLLECTION_CONVENTIONS, status="failed"
+                    collection=COLLECTION_CONVENTIONS,
+                    status="failed",
+                    project=project_name,
                 ).inc()
             return 0
-
-        # Detect project for logging
-        project_name = detect_project(cwd)
 
         # Search for relevant best practices
         search = MemorySearch(config)
@@ -366,7 +366,9 @@ def main() -> int:
                 )
                 if memory_retrievals_total:
                     memory_retrievals_total.labels(
-                        collection=COLLECTION_CONVENTIONS, status="empty"
+                        collection=COLLECTION_CONVENTIONS,
+                        status="empty",
+                        project=project_name,
                     ).inc()
                 return 0
 
@@ -408,14 +410,16 @@ def main() -> int:
             # Metrics
             if memory_retrievals_total:
                 memory_retrievals_total.labels(
-                    collection=COLLECTION_CONVENTIONS, status="success"
+                    collection=COLLECTION_CONVENTIONS,
+                    status="success",
+                    project=project_name,
                 ).inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
             if hook_duration_seconds:
-                hook_duration_seconds.labels(hook_type="PreToolUse").observe(
-                    duration_ms / 1000.0
-                )
+                hook_duration_seconds.labels(
+                    hook_type="PreToolUse", status="success", project=project_name
+                ).observe(duration_ms / 1000.0)
 
         finally:
             search.close()
@@ -429,15 +433,18 @@ def main() -> int:
         )
 
         # Metrics
+        proj = project_name if "project_name" in dir() else "unknown"
         if memory_retrievals_total:
             memory_retrievals_total.labels(
-                collection=COLLECTION_CONVENTIONS, status="failed"
+                collection=COLLECTION_CONVENTIONS,
+                status="failed",
+                project=proj,
             ).inc()
         if hook_duration_seconds:
             duration_seconds = (time.perf_counter() - start_time) / 1000.0
-            hook_duration_seconds.labels(hook_type="PreToolUse").observe(
-                duration_seconds
-            )
+            hook_duration_seconds.labels(
+                hook_type="PreToolUse", status="error", project=proj
+            ).observe(duration_seconds)
 
         return 0  # Always exit 0 - graceful degradation
 

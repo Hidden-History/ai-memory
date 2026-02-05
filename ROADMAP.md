@@ -1,185 +1,205 @@
 # AI Memory Module - Roadmap
 
-This roadmap outlines the planned development direction for AI Memory Module. Community feedback and contributions help shape these priorities.
+This roadmap outlines the development direction for AI Memory Module. Community feedback and contributions help shape these priorities.
 
 ---
 
-## Current Release: v1.0.0 ✅ (Released 2026-01-14)
+## Current Release: v2.0.3 (Released 2026-02-03)
 
-**Initial Public Release** - Production-ready semantic memory for Claude Code
+**V2.0 Architecture** - Complete memory system redesign with specialized collections, automatic triggers, and intelligent context injection.
 
-### Delivered Features
-- ✅ One-command installation with automatic configuration
-- ✅ Automatic memory capture from Write/Edit operations (PostToolUse hook)
-- ✅ Intelligent memory retrieval at session start (SessionStart hook)
-- ✅ Session summarization at session end (Stop hook)
-- ✅ Multi-project isolation with `group_id` filtering
-- ✅ Docker stack: Qdrant + Jina Embeddings + Streamlit Dashboard
-- ✅ Monitoring: Prometheus metrics + Grafana dashboards
-- ✅ Deduplication (content hash + semantic similarity)
-- ✅ Graceful degradation (Claude works without memory)
-- ✅ Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
-- ✅ Test suite: Unit, Integration, E2E, Performance
+### Architecture Overview
+
+**Three-Collection Memory System** (V2.7 Architecture Spec):
+
+| Collection | Purpose | Example Types |
+|------------|---------|---------------|
+| **code-patterns** | HOW things are built | implementation, error_fix, refactor, file_pattern |
+| **conventions** | WHAT rules to follow | rule, guideline, port, naming, structure |
+| **discussions** | WHY things were decided | decision, session, preference, user_message, agent_response |
+
+**Best Practices Applied**:
+- **BP-038** (Qdrant Best Practices 2026): HNSW configuration, payload indexing, 8-bit scalar quantization
+- **BP-039** (RAG Best Practices): Intent detection, token budgets, context injection
+- **BP-040** (Event-Driven Architecture): Hook classification, graceful degradation
+
+### V2.0.x Features
+
+- **15 Memory Types** for precise categorization
+- **6 Automatic Triggers** (signal-driven retrieval):
+  1. **Error Detection** - Retrieves past error fixes when commands fail
+  2. **New File Creation** - Retrieves naming conventions and structure patterns
+  3. **First Edit to File** - Retrieves file-specific patterns on first modification
+  4. **Decision Keywords** - "why did we..." triggers decision memory retrieval
+  5. **Best Practices Keywords** - "how should I..." triggers convention retrieval
+  6. **Session History Keywords** - "what have we done..." triggers session summaries
+- **Intent Detection** - Routes queries to appropriate collections automatically
+- **Rich Session Summaries** - PreCompact stores full conversation context for resume
+- **Knowledge Discovery**:
+  - `best-practices-researcher` skill - Web research with local Qdrant caching
+  - `skill-creator` agent - Generates Claude Code skills from research
+  - `search-memory` skill - Semantic search across collections
+- **Backup & Restore** - `backup_qdrant.py` and `restore_qdrant.py` scripts
+- **Graceful Degradation** - Claude works even when services are temporarily unavailable
+- **Multi-Project Isolation** - `group_id` filtering keeps projects separate
+
+### V2.0.2 Fixes
+- Installer now runs `pip install` for Python dependencies (BUG-054)
+- SessionStart hook timeout parameter cast to int (BUG-051)
+- store_async.py handles missing session_id gracefully (BUG-058)
 
 ---
 
-## Planned - v1.1.0: Performance & Stability (Q1 2026)
+## Planned - v2.0.3: Quality & Performance (In Progress)
 
-**Theme:** Production hardening and performance optimization
+**Theme:** Technical debt resolution and performance optimization
 
-### Performance Improvements
-- [ ] **Query optimization for large collections** (>100k memories)
-  - Implement pagination for search results
-  - Add query result caching with TTL
-  - Optimize Qdrant payload indexing
-- [ ] **Batch embedding generation improvements**
-  - Parallel embedding processing
-  - Connection pooling for embedding service
-  - Reduce embedding service warmup time
-- [ ] **Memory usage reduction in hook scripts**
-  - Streamline Python imports
-  - Reduce fork overhead in PostToolUse
-  - Implement memory profiling in CI
+### Performance
+- [ ] **TECH-DEBT-104**: Add `content_hash` payload index for O(1) deduplication
+- [ ] **TECH-DEBT-117**: Add retrieval latency NFR (<500ms)
+- [ ] **TECH-DEBT-118**: Clarify embedding latency NFR (batch vs real-time)
 
-### Stability Enhancements
-- [ ] **Enhanced error recovery mechanisms**
-  - Retry logic with exponential backoff for Qdrant connections
-  - Circuit breaker pattern for embedding service
-  - Better handling of partial failures
-- [ ] **Improved deduplication accuracy**
-  - Tunable similarity thresholds per project
-  - Fuzzy file path matching (handle renames)
-  - Better handling of code refactoring
-- [ ] **Docker health check refinements**
-  - More granular health metrics
-  - Startup probe vs liveness probe separation
-  - Better error diagnostics in health script
+### Documentation
+- [x] **TECH-DEBT-109**: ROADMAP.md rewrite for V2.0+ architecture
+- [x] **TECH-DEBT-108**: Update trigger count from 5 to 6 in README (verified in v2.0.3)
 
-### Developer Experience
-- [ ] **VS Code extension for memory browsing**
-  - Tree view of memories by project
-  - Search and filter interface
-  - Quick memory inspection
-- [ ] **CLI tool for memory management**
-  - `ai-memory search "query"` - Search memories
-  - `ai-memory stats` - Show collection statistics
-  - `ai-memory prune --before DATE` - Remove old memories
-- [ ] **Enhanced debugging output**
-  - Structured logging with log levels
-  - Trace IDs for request correlation
-  - Debug mode for verbose hook output
+### Configuration
+- [x] **TECH-DEBT-116**: Increase token budget from 2000 to 4000 per BP-039 Section 3
+
+**Target Release:** February 2026
+
+---
+
+## Planned - v2.1: Resilience & Quality (Q1 2026)
+
+**Theme:** Circuit breaker implementation and code quality improvements
+
+### Resilience
+- [ ] **TECH-DEBT-081**: Circuit Breaker Pattern Implementation
+  - failure_threshold=5, reset_timeout=30s, half-open state per BP-040 Section 6
+- [ ] **TECH-DEBT-080**: Service Down Graceful Degradation Testing
+  - Verify Qdrant unavailability handling and queue fallback
+- [ ] **TECH-DEBT-078**: Automatic Queue Processor
+  - Background thread in classifier-worker container
+
+### Code Quality
+- [ ] **TECH-DEBT-102**: Migrate to asyncio.TaskGroup (Python 3.11+)
+  - 11 places using legacy asyncio.create_task()
+- [ ] **TECH-DEBT-111**: Strongly-typed hook event classes
+  - Add CaptureEvent, RetrievalEvent dataclasses per BP-040 Section 1
+- [ ] **TECH-DEBT-113**: Keyword pattern collision detection
+  - 63 patterns in triggers.py need maintenance workflow
+- [ ] **TECH-DEBT-115**: Context injection delimiter spec
+  - Add `<retrieved_context>` format for source attribution per BP-039 Section 1
+
+### Data Quality
+- [ ] **TECH-DEBT-059**: Backfill embeddings script
+  - 762 records pending migration
+- [ ] **TECH-DEBT-048**: Filter low-value agent responses
+- [ ] **TECH-DEBT-049**: Deduplicate similar user messages
+- [ ] **TECH-DEBT-050**: Smart truncation for context injection
 
 **Target Release:** March 2026
 
 ---
 
-## Planned - v1.2.0: Advanced Features (Q2 2026)
+## Planned - v2.2: Search Intelligence (Q2 2026)
 
-**Theme:** Intelligence and integrations
+**Theme:** Hybrid search and advanced retrieval
 
-### Intelligence Improvements
-- [ ] **Context-aware memory ranking**
-  - Boost memories from recently modified files
-  - Temporal relevance scoring (recency + access frequency)
-  - Project-specific relevance tuning
-- [ ] **Temporal memory decay**
-  - Configurable decay functions (exponential, linear)
-  - Preserve "evergreen" memories (best practices)
-  - Automatic archival of old memories
-- [ ] **Cross-project pattern detection**
-  - Identify common patterns across projects
-  - Suggest reusable abstractions
-  - Best practice propagation
+### Search Improvements
+- [ ] **TECH-DEBT-058**: Hybrid Search (BM25 + Dense Vectors)
+  - +15-25% accuracy improvement per BP-039 Section 5
+  - Reciprocal Rank Fusion (RRF) for result combination
+- [ ] **TECH-DEBT-003**: Embedding Migration Phases 2-3
+  - SPLADE sparse vectors for keyword matching
+  - ColBERT reranking (+15-20% accuracy per BP-039 Section 5)
+- [ ] **TECH-DEBT-055**: Late chunking for long documents
+  - +24% accuracy for documents >2000 tokens
 
-### Integrations
-- [ ] **GitHub Copilot integration**
-  - Expose memories via Copilot context
-  - Memory-aware code suggestions
-  - Integration with Copilot Chat
-- [ ] **Slack notifications**
-  - Daily digest of new memories
-  - Alerts for significant pattern changes
-  - Team memory sharing
-- [ ] **Export to Notion/Obsidian**
-  - Export memories as Markdown
-  - Automated sync to knowledge bases
-  - Bi-directional links
+### Architecture
+- [ ] **TECH-DEBT-114**: Entity memory tier
+  - Hierarchical memory for cross-session entity knowledge per BP-039 Section 4
+- [ ] **TECH-DEBT-110**: Event sourcing / audit trail
+  - Append-only event log with hash-chain verification per BP-040 Section 7
+- [ ] **TECH-DEBT-112**: Multi-agent lifecycle events
+  - MultiAgentInitializedEvent, BeforeMultiAgentInvocationEvent per BP-040 Section 1
 
-### Monitoring Enhancements
-- [ ] **Loki log aggregation** (DEC-007 follow-up)
-  - Centralized log collection from all services
-  - Log querying interface in Grafana
-  - Correlation between logs and metrics
-- [ ] **Advanced Grafana dashboards**
-  - Memory growth trends
-  - Search performance analytics
-  - Hook execution timings
-- [ ] **Usage analytics**
-  - Most frequently retrieved memories
-  - Memory lifecycle metrics
-  - User behavior insights
+### Performance
+- [ ] **TECH-DEBT-106**: HNSW inline_storage (Qdrant 1.16+)
+  - Disk optimization with inline_storage=True
+- [ ] **TECH-DEBT-107**: gRPC client for higher throughput
+  - prefer_grpc=True for Qdrant connections
+- [ ] **TECH-DEBT-060**: Cross-collection deduplication
+
+### Code Quality
+- [ ] **TECH-DEBT-105**: Add type hints for mypy strict mode
+- [ ] **TECH-DEBT-001**: Python 3.12+ optimizations
 
 **Target Release:** June 2026
 
 ---
 
-## Planned - v2.0.0: Major Architectural Improvements (TBD)
+## Planned - v3.0: Enterprise & Extensibility (Q3-Q4 2026)
 
-**Theme:** Extensibility and enterprise features
+**Theme:** CI/CD enhancements and enterprise features
 
-### Architecture
-- [ ] **Plugin system for custom extractors**
-  - Extract memories from images/diagrams
-  - Custom memory types beyond implementation/best_practice
-  - User-defined extraction logic
-- [ ] **Distributed deployment support**
-  - Multi-node Qdrant cluster
-  - Load-balanced embedding service
-  - Centralized memory repository
-- [ ] **Alternative vector DB support**
-  - Milvus adapter
-  - Weaviate adapter
-  - Pluggable storage backend
+### CI/CD (TECH-DEBT-096)
+- [ ] Automated documentation deployment
+- [ ] PyPI Trusted Publishing
+- [ ] AI workflow enhancements
+- [ ] Artifact attestation
 
 ### Enterprise Features
-- [ ] **Team collaboration**
-  - Shared memory pools across teams
-  - Access control and permissions
-  - Memory review and approval workflows
-- [ ] **SSO integration**
-  - SAML 2.0 support
-  - OAuth 2.0 / OIDC
-  - Active Directory integration
-- [ ] **Role-based access control (RBAC)**
-  - Admin, Editor, Viewer roles
-  - Project-level permissions
-  - Audit logging
+- [ ] Team collaboration with shared memory pools
+- [ ] Access control and permissions
+- [ ] Memory review and approval workflows
+- [ ] SSO integration (SAML 2.0, OAuth 2.0 / OIDC)
+- [ ] Role-based access control (RBAC)
+
+### Architecture
+- [ ] Plugin system for custom extractors
+- [ ] Distributed deployment support (multi-node Qdrant)
+- [ ] Alternative vector DB support (Milvus, Weaviate adapters)
 
 **Target Release:** To be determined based on community demand
 
 ---
 
+## Best Practices Foundation
+
+This system is built on verified best practices research:
+
+| BP-ID | Topic | Applied |
+|-------|-------|---------|
+| **BP-038** | Qdrant Best Practices 2026 | Collection design, HNSW config, payload indexing, quantization |
+| **BP-039** | RAG Best Practices | Intent detection, token budgets, context injection, hybrid search planning |
+| **BP-040** | Event-Driven Architecture | Hook classification, graceful degradation, circuit breaker planning |
+| **BP-037** | Multi-Tenancy Patterns | group_id isolation, is_tenant config, mandatory tenant filter |
+
+---
+
 ## Community Requests
 
-Features requested by the community will be tracked here. Submit feature requests via [GitHub Issues](https://github.com/Hidden-History/ai-memory/issues/new?template=feature_request.yml).
+Features requested by the community are tracked here. Submit requests via [GitHub Issues](https://github.com/Hidden-History/ai-memory/issues/new?template=feature_request.yml).
 
 ### Under Consideration
-_No community requests yet - be the first to suggest a feature!_
+_Submit a feature request to be the first!_
 
 ### Recently Implemented
-_Features from community feedback that made it into releases will be listed here._
+- **V2.0 Three-Collection Architecture** - Community feedback on memory organization
+- **Session History Trigger** - Requested continuity for "where were we" questions
+- **Backup/Restore Scripts** - Production deployment requirements
 
 ---
 
 ## How to Contribute
 
-We welcome contributions! Here's how you can help shape the roadmap:
-
 ### Submit Feature Requests
-Use our [Feature Request template](https://github.com/Hidden-History/ai-memory/issues/new?template=feature_request.yml) to propose new features.
+Use our [Feature Request template](https://github.com/Hidden-History/ai-memory/issues/new?template=feature_request.yml).
 
 ### Vote on Existing Proposals
-React with 👍 on issues you'd like to see prioritized.
+React with a thumbs-up on issues you want prioritized.
 
 ### Contribute Code
 1. Check issues labeled [`help wanted`](https://github.com/Hidden-History/ai-memory/labels/help%20wanted)
@@ -187,7 +207,7 @@ React with 👍 on issues you'd like to see prioritized.
 3. Submit a PR linked to the relevant issue
 
 ### Join Discussions
-Participate in [GitHub Discussions](https://github.com/Hidden-History/ai-memory/discussions) to share ideas and provide feedback.
+Participate in [GitHub Discussions](https://github.com/Hidden-History/ai-memory/discussions).
 
 ---
 
@@ -198,19 +218,12 @@ Participate in [GitHub Discussions](https://github.com/Hidden-History/ai-memory/
 3. **Community-Driven** - Your feedback shapes priorities
 4. **Incremental Delivery** - Small, frequent releases over big-bang updates
 5. **Backward Compatibility** - Breaking changes only in major versions (x.0.0)
+6. **Best Practices Foundation** - All features verified against current research (BP-xxx)
 
 ---
 
-## Questions?
-
-- **When will feature X be released?** Check the milestone and target dates above. These are estimates and may shift based on priorities.
-- **Can I contribute to a roadmap item?** Absolutely! Comment on the related issue or create one if it doesn't exist.
-- **How do I request a feature?** Use the [Feature Request template](https://github.com/Hidden-History/ai-memory/issues/new?template=feature_request.yml).
-- **Will my feature request be implemented?** We review all requests, but can't guarantee implementation. Upvote features you want to see!
-
----
-
-**Last Updated:** 2026-01-14
+**Last Updated:** 2026-02-03
+**Architecture Version:** V2.7
 **Maintainer:** [@Hidden-History](https://github.com/Hidden-History)
 
-_This roadmap is a living document and will evolve based on community feedback and project needs._
+_This roadmap is a living document and evolves based on community feedback and project needs._

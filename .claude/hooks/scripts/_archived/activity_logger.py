@@ -12,7 +12,6 @@ import json
 import logging
 import os
 import sys
-import time
 from pathlib import Path
 
 # CR-4.3: Use Path operations instead of string concatenation

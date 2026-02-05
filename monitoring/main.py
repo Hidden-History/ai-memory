@@ -8,6 +8,7 @@ FastAPI monitoring service following 2026 best practices:
 - OpenAPI auto-documentation
 """
 
+import asyncio
 import logging
 import os
 from typing import Any, Dict, Optional
@@ -79,7 +80,38 @@ logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False  # Prevent duplicate logs
 
-import asyncio
+
+def sanitize_log_input(value: str, max_length: int = 200) -> str:
+    """
+    Sanitize user input for safe logging per security best practices.
+
+    Uses repr() for CodeQL-recognized sanitization, then strips quotes
+    and truncates to max_length. This prevents log injection by:
+    1. Escaping all control characters (repr behavior)
+    2. Removing non-printable characters
+    3. Truncating to prevent log flooding
+
+    Args:
+        value: User-provided input to sanitize
+        max_length: Maximum length of output (default 200)
+
+    Returns:
+        Sanitized string safe for logging
+    """
+    if not isinstance(value, str):
+        value = str(value)
+    # Use repr() for CodeQL-recognized sanitization
+    # This escapes newlines, tabs, and other control characters
+    sanitized = repr(value)
+    # Remove the quotes added by repr()
+    if (sanitized.startswith("'") and sanitized.endswith("'")) or (
+        sanitized.startswith('"') and sanitized.endswith('"')
+    ):
+        sanitized = sanitized[1:-1]
+    # Additional filter for any remaining non-printable chars
+    sanitized = "".join(c for c in sanitized if c.isprintable())
+    return sanitized[:max_length]
+
 
 # Import metrics module to register metrics with Prometheus (Story 6.1)
 import sys
@@ -376,22 +408,31 @@ async def get_memory(memory_id: str, collection: str = "code-patterns"):
         if result:
             logger.info(
                 "memory_retrieved",
-                extra={"memory_id": memory_id, "collection": collection},
+                extra={
+                    "memory_id": sanitize_log_input(memory_id),
+                    "collection": sanitize_log_input(collection),
+                },
             )
             return MemoryResponse(status="success", data=result[0].payload)
         else:
             logger.info(
                 "memory_not_found",
-                extra={"memory_id": memory_id, "collection": collection},
+                extra={
+                    "memory_id": sanitize_log_input(memory_id),
+                    "collection": sanitize_log_input(collection),
+                },
             )
             return MemoryResponse(
                 status="not_found",
                 data=None,
-                error=f"Memory {memory_id} not found in {collection}",
+                error=f"Memory {sanitize_log_input(memory_id)} not found in {sanitize_log_input(collection)}",
             )
 
     except UnexpectedResponse as e:
-        logger.error("qdrant_error", extra={"error": str(e), "memory_id": memory_id})
+        logger.error(
+            "qdrant_error",
+            extra={"error": str(e), "memory_id": sanitize_log_input(memory_id)},
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Qdrant unavailable"
         )
@@ -412,7 +453,10 @@ async def collection_stats(collection: str):
         info = await client.get_collection(collection)
         logger.info(
             "collection_stats_retrieved",
-            extra={"collection": collection, "points_count": info.points_count},
+            extra={
+                "collection": sanitize_log_input(collection),
+                "points_count": info.points_count,
+            },
         )
         return {
             "status": "success",
@@ -423,10 +467,13 @@ async def collection_stats(collection: str):
             "qdrant_status": info.status,
         }
     except UnexpectedResponse:
-        logger.warning("collection_not_found", extra={"collection": collection})
+        logger.warning(
+            "collection_not_found",
+            extra={"collection": sanitize_log_input(collection)},
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Collection {collection} not found",
+            detail=f"Collection {sanitize_log_input(collection)} not found",
         )
 
 
@@ -475,7 +522,7 @@ async def search_memories(request: SearchRequest):
         logger.info(
             "search_completed",
             extra={
-                "collection": request.collection,
+                "collection": sanitize_log_input(request.collection),
                 "query_length": len(request.query),
                 "results_count": len(matching_results),
             },
@@ -485,8 +532,14 @@ async def search_memories(request: SearchRequest):
 
     except UnexpectedResponse as e:
         logger.error(
-            "search_failed", extra={"error": str(e), "collection": request.collection}
+            "search_failed",
+            extra={
+                "error": str(e),
+                "collection": sanitize_log_input(request.collection),
+            },
         )
         return SearchResponse(
-            status="error", results=[], error=f"Search failed: {str(e)}"
+            status="error",
+            results=[],
+            error=f"Search failed: {sanitize_log_input(str(e))}",
         )

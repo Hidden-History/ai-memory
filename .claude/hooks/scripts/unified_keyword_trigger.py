@@ -22,13 +22,11 @@ CR Fixes Applied:
 import asyncio
 import hashlib
 import json
-import logging
 import os
 import sys
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 # Path setup
 INSTALL_DIR = os.environ.get(
@@ -38,7 +36,7 @@ sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.config import COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS, get_config
 from memory.health import check_qdrant_health
-from memory.hooks_common import get_metrics, log_to_activity, setup_hook_logging
+from memory.hooks_common import log_to_activity, setup_hook_logging
 from memory.project import detect_project
 from memory.qdrant_client import get_qdrant_client
 from memory.search import MemorySearch
@@ -64,7 +62,7 @@ class TriggerResult:
 
     trigger_type: str  # "decision", "session", "best_practices"
     topic: str
-    results: List[dict]
+    results: list[dict]
     search_time_ms: float
 
 
@@ -115,7 +113,7 @@ class CircuitBreaker:
 _circuit_breaker = CircuitBreaker()
 
 
-async def detect_all_triggers(prompt: str) -> Dict[str, Optional[str]]:
+async def detect_all_triggers(prompt: str) -> dict[str, str | None]:
     """Run all keyword detectors synchronously.
 
     CR-FIX CRIT-1: These are trivial string operations (<0.1ms each).
@@ -136,7 +134,7 @@ async def search_single_trigger(
     trigger_type: str,
     topic: str,
     collection: str,
-    type_filter: Optional[str],
+    type_filter: str | None,
     group_id: str,
     mem_config,
 ) -> TriggerResult:
@@ -207,8 +205,8 @@ async def search_single_trigger(
 
 
 async def search_all_triggered(
-    triggers: Dict[str, Optional[str]], group_id: str, mem_config
-) -> List[TriggerResult]:
+    triggers: dict[str, str | None], group_id: str, mem_config
+) -> list[TriggerResult]:
     """Run all triggered searches in parallel with shared client.
 
     CR-FIX HIGH-1: Creates ONE MemorySearch instance for all searches,
@@ -281,7 +279,7 @@ async def search_all_triggered(
         search_client.close()
 
 
-def deduplicate_results(trigger_results: List[TriggerResult]) -> List[dict]:
+def deduplicate_results(trigger_results: list[TriggerResult]) -> list[dict]:
     """Deduplicate results by content_hash, priority order."""
 
     # Priority: decision > session > best_practices
@@ -292,8 +290,8 @@ def deduplicate_results(trigger_results: List[TriggerResult]) -> List[dict]:
         trigger_results, key=lambda r: priority.get(r.trigger_type, 99)
     )
 
-    seen_hashes: Set[str] = set()
-    deduplicated: List[dict] = []
+    seen_hashes: set[str] = set()
+    deduplicated: list[dict] = []
 
     for tr in sorted_results:
         for result in tr.results:

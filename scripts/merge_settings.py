@@ -71,10 +71,11 @@ def normalize_hook_command(command: str) -> str:
     Normalize a hook command for deduplication comparison.
 
     Extracts the script filename from commands that may use either:
-    - $AI_MEMORY_INSTALL_DIR variable: python3 "$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/session_start.py"
+    - Venv Python (TECH-DEBT-135): "$AI_MEMORY_INSTALL_DIR/.venv/bin/python" ".../.claude/hooks/scripts/session_start.py"
+    - Legacy python3: python3 "$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/session_start.py"
     - Absolute paths: python3 "/path/to/install/.claude/hooks/scripts/session_start.py"
 
-    This allows deduplication to work regardless of path format.
+    This allows deduplication to work regardless of path format or Python interpreter.
 
     Args:
         command: The command string from a hook configuration
@@ -83,13 +84,18 @@ def normalize_hook_command(command: str) -> str:
         Normalized command identifier (script filename for BMAD hooks, original for others)
 
     BUG-039 Fix: Enables deduplication when paths differ in format but reference same script.
+    TECH-DEBT-135: Extended to handle venv Python path format.
     """
     import re
 
-    # Pattern to match BMAD hook commands with either path format
-    # Matches: python3 "path/.claude/hooks/scripts/scriptname.py"
+    # Pattern to match BMAD hook commands with either interpreter format
+    # Matches both:
+    #   python3 "path/.claude/hooks/scripts/scriptname.py"
+    #   "$.../.venv/bin/python" "path/.claude/hooks/scripts/scriptname.py"
     # Captures the script filename
-    pattern = r'python3\s+"[^"]*?\.claude/hooks/scripts/([^"]+)"'
+    pattern = (
+        r'(?:python3|"[^"]*\.venv/bin/python")\s+"[^"]*?\.claude/hooks/scripts/([^"]+)"'
+    )
     match = re.search(pattern, command)
     if match:
         # Return just the script name as the normalized identifier

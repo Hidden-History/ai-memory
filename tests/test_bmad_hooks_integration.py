@@ -37,6 +37,23 @@ from typing import Any
 
 import pytest
 
+
+def _qdrant_available() -> bool:
+    """Check if Qdrant is available for integration tests.
+
+    Returns:
+        True if Qdrant is reachable, False otherwise.
+    """
+    try:
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(url="http://localhost:6333", timeout=1.0)
+        client.get_collections()
+        return True
+    except Exception:
+        return False
+
+
 # Project paths
 PROJECT_ROOT = Path(__file__).parent.parent
 SCRIPTS_DIR = PROJECT_ROOT / "scripts" / "memory"
@@ -256,6 +273,10 @@ class TestPostWorkStore:
         assert result["exit_code"] == 1
         assert "Missing required metadata fields" in result["stderr"]
 
+    @pytest.mark.skipif(
+        os.environ.get("CI") == "true" or not _qdrant_available(),
+        reason="Requires running Qdrant instance (skipped in CI or when Qdrant unavailable)",
+    )
     def test_validates_invalid_type(self):
         """Test metadata validation rejects invalid type values."""
         script = SCRIPTS_DIR / "post-work-store.py"

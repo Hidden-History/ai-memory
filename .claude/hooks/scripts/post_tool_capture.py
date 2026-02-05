@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # Add src to path for imports
 # Use INSTALL_DIR to find installed module (fixes path calculation bug)
@@ -46,8 +46,10 @@ logger.propagate = False
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
 try:
     from memory.metrics import hook_duration_seconds
+    from memory.storage import detect_project
 except ImportError:
     hook_duration_seconds = None
+    detect_project = None
 
 
 def _log_to_activity(message: str) -> None:
@@ -112,7 +114,7 @@ def detect_language(file_path: str) -> str:
     return language_map.get(ext, "unknown")
 
 
-def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
+def validate_hook_input(data: dict[str, Any]) -> str | None:
     """Validate hook input against expected schema.
 
     AC 2.1.3: Input schema validation
@@ -138,9 +140,9 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
         if field not in data:
             return f"missing_required_field_{field}"
 
-    # AC 2.1.1: Validate tool_name
+    # AC 2.1.1: Validate tool_name (TECH-DEBT-097: safe .get() access)
     valid_tools = ["Edit", "Write", "NotebookEdit"]
-    if data["tool_name"] not in valid_tools:
+    if data.get("tool_name", "") not in valid_tools:
         return "invalid_tool_name"
 
     # AC 2.1.1: Validate tool completed successfully
@@ -159,7 +161,7 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def fork_to_background(hook_input: Dict[str, Any]) -> None:
+def fork_to_background(hook_input: dict[str, Any]) -> None:
     """Fork storage operation to background process.
 
     AC 2.1.1: Modern Python fork pattern using subprocess.Popen
@@ -200,7 +202,7 @@ def fork_to_background(hook_input: Dict[str, Any]) -> None:
         logger.info(
             "background_forked",
             extra={
-                "tool_name": hook_input["tool_name"],
+                "tool_name": hook_input.get("tool_name", "unknown"),
                 "session_id": hook_input.get("session_id", "unknown"),
             },
         )
@@ -291,11 +293,11 @@ def main() -> int:
             content_lines = len(content.split("\n"))
 
             # Build multi-line activity log entry
-            log_message = f"📥 PostToolUse captured implementation:\n"
+            log_message = "📥 PostToolUse captured implementation:\n"
             log_message += f"  File: {file_path}\n"
             log_message += f"  Tool: {tool_name} | Language: {language}\n"
             log_message += f"  Lines: {content_lines}\n"
-            log_message += f"  Content:\n"
+            log_message += "  Content:\n"
 
             # F1: Limit to first 100 lines to prevent disk exhaustion
             MAX_LINES = 100
@@ -326,9 +328,10 @@ def main() -> int:
         # Metrics: Record hook duration (Story 6.1, AC 6.1.3)
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PostToolUse").observe(
-                duration_seconds
-            )
+            project = detect_project(os.getcwd()) if detect_project else "unknown"
+            hook_duration_seconds.labels(
+                hook_type="PostToolUse", status="success", project=project
+            ).observe(duration_seconds)
 
         # AC 2.1.1: Exit immediately after fork (NFR-P1)
         return 0
@@ -342,9 +345,10 @@ def main() -> int:
         # Metrics: Record hook duration even on error (Story 6.1, AC 6.1.3)
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PostToolUse").observe(
-                duration_seconds
-            )
+            project = detect_project(os.getcwd()) if detect_project else "unknown"
+            hook_duration_seconds.labels(
+                hook_type="PostToolUse", status="error", project=project
+            ).observe(duration_seconds)
 
         return 1  # Non-blocking error
 

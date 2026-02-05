@@ -294,7 +294,9 @@ class MemoryStorage:
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
                 failure_events_total.labels(
-                    component="embedding", error_code="EMBEDDING_TIMEOUT"
+                    component="embedding",
+                    error_code="EMBEDDING_TIMEOUT",
+                    project=group_id,
                 ).inc()
 
             embedding = [0.0] * 768  # DEC-010: Zero vector placeholder
@@ -326,7 +328,10 @@ class MemoryStorage:
             # Metrics: Memory capture success (Story 6.1, AC 6.1.3)
             if memory_captures_total:
                 memory_captures_total.labels(
-                    hook_type=source_hook, status="success", project=group_id
+                    hook_type=source_hook,
+                    status="success",
+                    project=group_id,
+                    collection=collection,
                 ).inc()
 
             return {
@@ -350,13 +355,18 @@ class MemoryStorage:
             # Metrics: Memory capture failed (Story 6.1, AC 6.1.3)
             if memory_captures_total:
                 memory_captures_total.labels(
-                    hook_type=source_hook, status="failed", project=group_id
+                    hook_type=source_hook,
+                    status="failed",
+                    project=group_id,
+                    collection=collection,
                 ).inc()
 
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
                 failure_events_total.labels(
-                    component="qdrant", error_code="QDRANT_UNAVAILABLE"
+                    component="qdrant",
+                    error_code="QDRANT_UNAVAILABLE",
+                    project=group_id,
                 ).inc()
 
             raise QdrantUnavailable(f"Failed to store memory: {e}") from e
@@ -471,7 +481,13 @@ class MemoryStorage:
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
                 failure_events_total.labels(
-                    component="embedding", error_code="EMBEDDING_TIMEOUT"
+                    component="embedding",
+                    error_code="EMBEDDING_TIMEOUT",
+                    project=(
+                        memories[0].get("group_id", "unknown")
+                        if memories
+                        else "unknown"
+                    ),
                 ).inc()
 
             embeddings = [[0.0] * 768 for _ in contents]  # DEC-010: 768d placeholder
@@ -558,7 +574,13 @@ class MemoryStorage:
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
                 failure_events_total.labels(
-                    component="qdrant", error_code="QDRANT_UNAVAILABLE"
+                    component="qdrant",
+                    error_code="QDRANT_UNAVAILABLE",
+                    project=(
+                        memories[0].get("group_id", "unknown")
+                        if memories
+                        else "unknown"
+                    ),
                 ).inc()
 
             raise QdrantUnavailable(f"Failed to batch store memories: {e}") from e

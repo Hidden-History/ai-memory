@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # Add src to path for imports
 INSTALL_DIR = os.environ.get(
@@ -49,15 +49,17 @@ logger.propagate = False
 # Import metrics for Prometheus instrumentation
 try:
     from memory.metrics import hook_duration_seconds
+    from memory.storage import detect_project
 except ImportError:
     hook_duration_seconds = None
+    detect_project = None
 
 # Maximum content length for user prompts (prevents payload bloat)
 # V2.0 Fix: Truncate extremely long prompts to avoid Qdrant payload issues
 MAX_CONTENT_LENGTH = 10000  # Embeddings handle large text well
 
 
-def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
+def validate_hook_input(data: dict[str, Any]) -> str | None:
     """Validate hook input against expected schema.
 
     Args:
@@ -93,7 +95,7 @@ def count_turns_from_transcript(transcript_path: str) -> int:
             return 0
 
         count = 0
-        with open(expanded_path, "r", encoding="utf-8") as f:
+        with open(expanded_path, encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     count += 1
@@ -102,7 +104,7 @@ def count_turns_from_transcript(transcript_path: str) -> int:
         return 0
 
 
-def fork_to_background(hook_input: Dict[str, Any], turn_number: int) -> None:
+def fork_to_background(hook_input: dict[str, Any], turn_number: int) -> None:
     """Fork storage operation to background process.
 
     Args:
@@ -163,7 +165,7 @@ def fork_to_background(hook_input: Dict[str, Any], turn_number: int) -> None:
             "background_forked",
             extra={
                 "hook_type": "UserPromptSubmit",
-                "session_id": hook_input["session_id"],
+                "session_id": hook_input.get("session_id", "unknown"),
                 "turn_number": turn_number,
             },
         )
@@ -222,9 +224,10 @@ def main() -> int:
         # Metrics: Record hook duration
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="UserPromptSubmit").observe(
-                duration_seconds
-            )
+            project = detect_project(os.getcwd()) if detect_project else "unknown"
+            hook_duration_seconds.labels(
+                hook_type="UserPromptSubmit", status="success", project=project
+            ).observe(duration_seconds)
 
         # Exit immediately after fork
         return 0
@@ -238,9 +241,10 @@ def main() -> int:
         # Metrics: Record hook duration even on error
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="UserPromptSubmit").observe(
-                duration_seconds
-            )
+            project = detect_project(os.getcwd()) if detect_project else "unknown"
+            hook_duration_seconds.labels(
+                hook_type="UserPromptSubmit", status="error", project=project
+            ).observe(duration_seconds)
 
         return 1  # Non-blocking error
 

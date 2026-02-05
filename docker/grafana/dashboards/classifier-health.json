@@ -169,7 +169,7 @@
       "id": 1,
       "type": "stat",
       "title": "Total Classifications",
-      "description": "**Metric:** `ai_memory_classifier_requests_total`\n**Measures:** Total classification requests sent to providers\n**Formula:** `sum(ai_memory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"})`\n**Expected:** Growing as memories captured\n**Note:** Includes both success and error requests",
+      "description": "**Metric:** `aimemory_classifier_requests_total`\n**Measures:** Total classification requests sent to providers\n**Formula:** `sum(aimemory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"})`\n**Expected:** Growing as memories captured\n**Note:** Includes both success and error requests",
       "gridPos": {
         "x": 0,
         "y": 6,
@@ -178,7 +178,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ai_memory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"})",
+          "expr": "sum(aimemory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"})",
           "refId": "A",
           "legendFormat": "Total Classifications"
         }
@@ -222,7 +222,7 @@
       "id": 2,
       "type": "stat",
       "title": "Classification Success Rate",
-      "description": "**Metric:** `ai_memory_classifier_requests_total`\n**Measures:** Percentage of successful classification requests\n**Formula:** `sum(ai_memory_classifier_requests_total{status=\"success\", ...}) / sum(ai_memory_classifier_requests_total{...}) * 100`\n**NFR:** >95% success rate\n**Thresholds:** Green >95% | Yellow 90-95% | Red <90%",
+      "description": "**Metric:** `aimemory_classifier_requests_total`\n**Measures:** Percentage of successful classification requests\n**Formula:** `sum(aimemory_classifier_requests_total{status=\"success\", ...}) / sum(aimemory_classifier_requests_total{...}) * 100`\n**NFR:** >95% success rate\n**Thresholds:** Green >95% | Yellow 90-95% | Red <90%",
       "gridPos": {
         "x": 8,
         "y": 6,
@@ -231,7 +231,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ai_memory_classifier_requests_total{status=\"success\", provider=~\"$provider\", classified_type=~\"$type\"}) / sum(ai_memory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"}) * 100",
+          "expr": "sum(aimemory_classifier_requests_total{status=\"success\", provider=~\"$provider\", classified_type=~\"$type\"}) / sum(aimemory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"}) * 100",
           "refId": "A",
           "legendFormat": "Success Rate"
         }
@@ -285,7 +285,7 @@
       "id": 3,
       "type": "stat",
       "title": "Queue Skipped (Already Classified)",
-      "description": "**Metric:** `ai_memory_classifier_queue_processed_total{status=\"skipped\"}`\n**Measures:** Items skipped because already classified\n**Purpose:** Shows deduplication effectiveness\n**Expected:** Growing as queue processes duplicate requests\n**Note:** High skipped count = good deduplication",
+      "description": "**Metric:** `aimemory_classifier_queue_processed_total{status=\"skipped\"}`\n**Measures:** Items skipped because already classified\n**Purpose:** Shows deduplication effectiveness\n**Expected:** Growing as queue processes duplicate requests\n**Note:** High skipped count = good deduplication",
       "gridPos": {
         "x": 16,
         "y": 6,
@@ -294,7 +294,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ai_memory_classifier_queue_processed_total{status=\"skipped\"})",
+          "expr": "sum(aimemory_classifier_queue_processed_total{status=\"skipped\"})",
           "refId": "A",
           "legendFormat": "Skipped"
         }
@@ -338,7 +338,7 @@
       "id": 4,
       "type": "timeseries",
       "title": "Classification Requests by Type",
-      "description": "**Metric:** `ai_memory_classifier_requests_total`\n**Groups by:** `classified_type` (decision, blocker, user_message, etc.)\n**Shows:** Distribution of memory types being classified\n**Expected:** user_message and agent_response most common",
+      "description": "**Metric:** `aimemory_classifier_requests_total`\n**Groups by:** `classified_type` (decision, blocker, user_message, etc.)\n**Shows:** Distribution of memory types being classified\n**Expected:** user_message and agent_response most common",
       "gridPos": {
         "x": 0,
         "y": 12,
@@ -347,7 +347,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (classified_type) (ai_memory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"})",
+          "expr": "sum by (classified_type) (aimemory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"})",
           "refId": "A",
           "legendFormat": "{{classified_type}}"
         }
@@ -389,7 +389,7 @@
       "id": 5,
       "type": "timeseries",
       "title": "Provider Usage",
-      "description": "**Metric:** `ai_memory_classifier_requests_total`\n**Groups by:** `provider` (ollama, openrouter, openai, claude)\n**Shows:** Which provider is handling classifications\n**Expected:** Primary provider handling most traffic",
+      "description": "**Metric:** `aimemory_classifier_requests_total`\n**Groups by:** `provider` (ollama, openrouter, openai, claude)\n**Shows:** Which provider is handling classifications\n**Expected:** Primary provider handling most traffic",
       "gridPos": {
         "x": 0,
         "y": 12,
@@ -398,7 +398,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (provider) (ai_memory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"})",
+          "expr": "sum by (provider) (aimemory_classifier_requests_total{provider=~\"$provider\", classified_type=~\"$type\"})",
           "refId": "A",
           "legendFormat": "{{provider}}"
         }
@@ -440,7 +440,7 @@
       "id": 6,
       "type": "timeseries",
       "title": "Classifier Fallbacks",
-      "description": "**Metric:** `ai_memory_classifier_fallbacks_total`\n**Measures:** Provider fallback events (primary provider failed, switched to backup)\n**Formula:** `sum by (from_provider, to_provider) (ai_memory_classifier_fallbacks_total)`\n**Expected:** Rare - spikes indicate primary provider issues\n**Action:** If frequent, investigate primary provider health\n**See:** src/memory/classifier.py (fallback logic)",
+      "description": "**Metric:** `aimemory_classifier_fallbacks_total`\n**Measures:** Provider fallback events (primary provider failed, switched to backup)\n**Formula:** `sum by (from_provider, to_provider) (aimemory_classifier_fallbacks_total)`\n**Expected:** Rare - spikes indicate primary provider issues\n**Action:** If frequent, investigate primary provider health\n**See:** src/memory/classifier.py (fallback logic)",
       "gridPos": {
         "x": 0,
         "y": 22,
@@ -449,7 +449,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (from_provider, to_provider) (ai_memory_classifier_fallbacks_total)",
+          "expr": "sum by (from_provider, to_provider) (aimemory_classifier_fallbacks_total)",
           "refId": "A",
           "legendFormat": "{{from_provider}} \u2192 {{to_provider}}"
         }
@@ -494,7 +494,7 @@
       "id": 7,
       "type": "timeseries",
       "title": "Token Usage - Input Tokens by Provider",
-      "description": "**Metric:** `ai_memory_classifier_tokens_total`\n**Measures:** Cumulative input tokens sent to classification providers\n**Formula:** `sum by (provider) (ai_memory_classifier_tokens_total{direction=\"input\", provider=~\"$provider\"})`\n**Purpose:** Cost tracking and provider usage monitoring\n**Expected:** Ollama (local) should be free, API providers incur costs\n**Note:** Pushgateway counter - NO rate() per BP-028\n**See:** BP-028 (Pushgateway), src/memory/classifier.py",
+      "description": "**Metric:** `aimemory_classifier_tokens_total`\n**Measures:** Cumulative input tokens sent to classification providers\n**Formula:** `sum by (provider) (aimemory_classifier_tokens_total{direction=\"input\", provider=~\"$provider\"})`\n**Purpose:** Cost tracking and provider usage monitoring\n**Expected:** Ollama (local) should be free, API providers incur costs\n**Note:** Pushgateway counter - NO rate() per BP-028\n**See:** BP-028 (Pushgateway), src/memory/classifier.py",
       "gridPos": {
         "x": 0,
         "y": 22,
@@ -503,7 +503,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (provider) (ai_memory_classifier_tokens_total{direction=\"input\", provider=~\"$provider\"})",
+          "expr": "sum by (provider) (aimemory_classifier_tokens_total{direction=\"input\", provider=~\"$provider\"})",
           "refId": "A",
           "legendFormat": "{{provider}} (input)"
         }
@@ -548,7 +548,7 @@
       "id": 8,
       "type": "timeseries",
       "title": "Token Usage - Output Tokens by Provider",
-      "description": "**Metric:** `ai_memory_classifier_tokens_total`\n**Measures:** Cumulative output tokens received from classification providers\n**Formula:** `sum by (provider) (ai_memory_classifier_tokens_total{direction=\"output\", provider=~\"$provider\"})`\n**Purpose:** Cost tracking - output tokens may have different pricing\n**Expected:** Output tokens typically lower than input (classification results are concise)\n**Note:** Pushgateway counter - NO rate() per BP-028\n**See:** BP-028 (Pushgateway), src/memory/classifier.py",
+      "description": "**Metric:** `aimemory_classifier_tokens_total`\n**Measures:** Cumulative output tokens received from classification providers\n**Formula:** `sum by (provider) (aimemory_classifier_tokens_total{direction=\"output\", provider=~\"$provider\"})`\n**Purpose:** Cost tracking - output tokens may have different pricing\n**Expected:** Output tokens typically lower than input (classification results are concise)\n**Note:** Pushgateway counter - NO rate() per BP-028\n**See:** BP-028 (Pushgateway), src/memory/classifier.py",
       "gridPos": {
         "x": 12,
         "y": 22,
@@ -557,7 +557,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (provider) (ai_memory_classifier_tokens_total{direction=\"output\", provider=~\"$provider\"})",
+          "expr": "sum by (provider) (aimemory_classifier_tokens_total{direction=\"output\", provider=~\"$provider\"})",
           "refId": "A",
           "legendFormat": "{{provider}} (output)"
         }
@@ -602,7 +602,7 @@
       "id": 9,
       "type": "stat",
       "title": "Queue Size",
-      "description": "**Metric:** `ai_memory_classifier_queue_size`\n**Measures:** Current number of items waiting for classification\n**Thresholds:** Green 0-10 | Yellow 10-50 | Red >50\n**Action:** High queue = provider bottleneck or failure",
+      "description": "**Metric:** `aimemory_classifier_queue_size`\n**Measures:** Current number of items waiting for classification\n**Thresholds:** Green 0-10 | Yellow 10-50 | Red >50\n**Action:** High queue = provider bottleneck or failure",
       "gridPos": {
         "x": 0,
         "y": 30,
@@ -611,7 +611,7 @@
       },
       "targets": [
         {
-          "expr": "ai_memory_classifier_queue_size",
+          "expr": "aimemory_classifier_queue_size",
           "refId": "A",
           "legendFormat": "Queue Size"
         }
@@ -663,7 +663,7 @@
       "id": 10,
       "type": "stat",
       "title": "Last Success",
-      "description": "**Metric:** `ai_memory_classifier_last_success_timestamp`\n**Measures:** Unix timestamp of last successful classification\n**Purpose:** Alert if no recent classifications",
+      "description": "**Metric:** `aimemory_classifier_last_success_timestamp`\n**Measures:** Unix timestamp of last successful classification\n**Purpose:** Alert if no recent classifications",
       "gridPos": {
         "x": 6,
         "y": 30,
@@ -672,7 +672,7 @@
       },
       "targets": [
         {
-          "expr": "time() - ai_memory_classifier_last_success_timestamp",
+          "expr": "time() - aimemory_classifier_last_success_timestamp",
           "refId": "A",
           "legendFormat": "Seconds ago"
         }
@@ -724,7 +724,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "Classification Latency (p50/p95/p99)",
-      "description": "**Metric:** `ai_memory_classifier_latency_seconds_bucket`\n**Measures:** Classification request duration by percentile\n**Target:** p95 < 2s for interactive experience\n**Thresholds:** Green <1s | Yellow 1-2s | Red >2s",
+      "description": "**Metric:** `aimemory_classifier_latency_seconds_bucket`\n**Measures:** Classification request duration by percentile\n**Target:** p95 < 2s for interactive experience\n**Thresholds:** Green <1s | Yellow 1-2s | Red >2s",
       "gridPos": {
         "x": 12,
         "y": 30,
@@ -733,17 +733,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(ai_memory_classifier_latency_seconds_bucket{provider=~\"$provider\"}[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(aimemory_classifier_latency_seconds_bucket{provider=~\"$provider\"}[5m])))",
           "refId": "A",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_memory_classifier_latency_seconds_bucket{provider=~\"$provider\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(aimemory_classifier_latency_seconds_bucket{provider=~\"$provider\"}[5m])))",
           "refId": "B",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(ai_memory_classifier_latency_seconds_bucket{provider=~\"$provider\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(aimemory_classifier_latency_seconds_bucket{provider=~\"$provider\"}[5m])))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -805,7 +805,7 @@
       "id": 12,
       "type": "heatmap",
       "title": "Confidence Distribution by Type",
-      "description": "**Metric:** `ai_memory_classifier_confidence_bucket`\n**Measures:** Distribution of classification confidence scores by type\n**Purpose:** Identify types that consistently get low confidence scores\n**Expected:** Most classifications >0.7 confidence",
+      "description": "**Metric:** `aimemory_classifier_confidence_bucket`\n**Measures:** Distribution of classification confidence scores by type\n**Purpose:** Identify types that consistently get low confidence scores\n**Expected:** Most classifications >0.7 confidence",
       "gridPos": {
         "x": 0,
         "y": 38,
@@ -814,7 +814,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (le, classified_type) (rate(ai_memory_classifier_confidence_bucket{classified_type=~\"$type\"}[5m]))",
+          "expr": "sum by (le, classified_type) (rate(aimemory_classifier_confidence_bucket{classified_type=~\"$type\"}[5m]))",
           "refId": "A",
           "format": "heatmap",
           "legendFormat": "{{le}}"
@@ -847,7 +847,7 @@
       "id": 13,
       "type": "timeseries",
       "title": "Batch Processing Duration",
-      "description": "**Metric:** `ai_memory_classifier_batch_duration_seconds_bucket`\n**Measures:** Time to process classification batches\n**Purpose:** Monitor batch processing efficiency",
+      "description": "**Metric:** `aimemory_classifier_batch_duration_seconds_bucket`\n**Measures:** Time to process classification batches\n**Purpose:** Monitor batch processing efficiency",
       "gridPos": {
         "x": 0,
         "y": 46,
@@ -856,7 +856,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_memory_classifier_batch_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(aimemory_classifier_batch_duration_seconds_bucket[5m])))",
           "refId": "A",
           "legendFormat": "Batch p95"
         }
@@ -901,7 +901,7 @@
       "id": 14,
       "type": "stat",
       "title": "Queue Dequeued Total",
-      "description": "**Metric:** `ai_memory_classifier_queue_dequeued_total`\n**Measures:** Total items pulled from queue for processing\n**Expected:** Should match or exceed processed total",
+      "description": "**Metric:** `aimemory_classifier_queue_dequeued_total`\n**Measures:** Total items pulled from queue for processing\n**Expected:** Should match or exceed processed total",
       "gridPos": {
         "x": 12,
         "y": 46,
@@ -910,7 +910,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ai_memory_classifier_queue_dequeued_total)",
+          "expr": "sum(aimemory_classifier_queue_dequeued_total)",
           "refId": "A",
           "legendFormat": "Dequeued"
         }
@@ -954,7 +954,7 @@
       "id": 15,
       "type": "stat",
       "title": "Queue Processed Total",
-      "description": "**Metric:** `ai_memory_classifier_queue_processed_total`\n**Measures:** Total items successfully processed from queue\n**Status breakdown:** success, error, skipped",
+      "description": "**Metric:** `aimemory_classifier_queue_processed_total`\n**Measures:** Total items successfully processed from queue\n**Status breakdown:** success, error, skipped",
       "gridPos": {
         "x": 18,
         "y": 46,
@@ -963,7 +963,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ai_memory_classifier_queue_processed_total)",
+          "expr": "sum(aimemory_classifier_queue_processed_total)",
           "refId": "A",
           "legendFormat": "Processed"
         }

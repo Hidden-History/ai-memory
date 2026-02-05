@@ -310,13 +310,17 @@ class MemorySearch:
             # Metrics: Increment failed retrieval counter (Story 6.1, AC 6.1.3)
             if memory_retrievals_total:
                 memory_retrievals_total.labels(
-                    collection=collection, status="failed"
+                    collection=collection,
+                    status="failed",
+                    project=group_id or "unknown",
                 ).inc()
 
             # Metrics: Increment failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
                 failure_events_total.labels(
-                    component="qdrant", error_code="QDRANT_UNAVAILABLE"
+                    component="qdrant",
+                    error_code="QDRANT_UNAVAILABLE",
+                    project=group_id or "unknown",
                 ).inc()
 
             # Push to Pushgateway for hook subprocess visibility
@@ -324,9 +328,12 @@ class MemorySearch:
                 collection=collection,
                 status="failed",
                 duration_seconds=duration_seconds,
+                project=group_id or "unknown",
             )
             push_failure_metrics_async(
-                component="qdrant", error_code="QDRANT_UNAVAILABLE"
+                component="qdrant",
+                error_code="QDRANT_UNAVAILABLE",
+                project=group_id or "unknown",
             )
 
             logger.error(
@@ -360,13 +367,16 @@ class MemorySearch:
         # Metrics: Increment retrieval counter with success/empty status (Story 6.1, AC 6.1.3)
         status = "success" if memories else "empty"
         if memory_retrievals_total:
-            memory_retrievals_total.labels(collection=collection, status=status).inc()
+            memory_retrievals_total.labels(
+                collection=collection, status=status, project=group_id or "unknown"
+            ).inc()
 
         # Push to Pushgateway for hook subprocess visibility
         push_retrieval_metrics_async(
             collection=collection,
             status=status,
             duration_seconds=time.perf_counter() - start_time,
+            project=group_id or "unknown",
         )
 
         # Structured logging

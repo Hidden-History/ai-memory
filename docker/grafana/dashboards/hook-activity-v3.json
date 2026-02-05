@@ -1,0 +1,1354 @@
+{
+  "uid": "ai-memory-hook-activity-v3",
+  "title": "Hook Activity (V3)",
+  "tags": [
+    "ai-memory",
+    "hooks",
+    "activity",
+    "v3"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "project",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(aimemory_hook_duration_seconds_count, project)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "hook_type",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(aimemory_hook_duration_seconds_count, hook_type)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Hook Execution Rate",
+      "description": "**Metric:** aimemory_hook_duration_seconds_count\n**Stacked by:** hook_type\n**CAPTURE hooks:** UserPromptSubmit, Stop, PostToolUse, PostToolUse_Error, PreCompact\n**RETRIEVAL hooks:** PostToolUse_ErrorDetection, PreToolUse_NewFile, PreToolUse_FirstEdit, SessionStart, PreToolUse",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{project=~\"$project\"}[5m])) by (hook_type)",
+          "refId": "A",
+          "legendFormat": "{{hook_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 30,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "sum",
+            "lastNotNull"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "CAPTURE vs RETRIEVAL",
+      "description": "**CAPTURE:** Store to database (UserPromptSubmit, Stop, PostToolUse, PostToolUse_Error, PreCompact)\n**RETRIEVAL:** Query database (PostToolUse_ErrorDetection, PreToolUse_NewFile, PreToolUse_FirstEdit, SessionStart, PreToolUse)",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=~\"UserPromptSubmit|Stop|PostToolUse|PostToolUse_Error|PreCompact\", project=~\"$project\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "CAPTURE"
+        },
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=~\"PostToolUse_ErrorDetection|PreToolUse_NewFile|PreToolUse_FirstEdit|SessionStart|PreToolUse\", project=~\"$project\"}[5m]))",
+          "refId": "B",
+          "legendFormat": "RETRIEVAL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CAPTURE"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "RETRIEVAL"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "sum",
+            "lastNotNull"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Hook Success/Error Rate",
+      "description": "**Metric:** aimemory_hook_duration_seconds_count by status\n**Labels:** status=success, status=error",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{status=\"success\", project=~\"$project\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "Success"
+        },
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{status=\"error\", project=~\"$project\"}[5m]))",
+          "refId": "B",
+          "legendFormat": "Error"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Error"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "sum",
+            "lastNotNull"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 4,
+      "type": "heatmap",
+      "title": "Hook Latency Heatmap",
+      "description": "**Metric:** aimemory_hook_duration_seconds_bucket\n**Format:** Histogram buckets showing latency distribution",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_bucket{project=~\"$project\"}[5m])) by (le)",
+          "refId": "A",
+          "format": "heatmap",
+          "legendFormat": "{{le}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          }
+        }
+      },
+      "options": {
+        "calculate": false,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Spectral",
+          "reverse": true,
+          "exponent": 0.5
+        },
+        "yAxis": {
+          "unit": "s",
+          "axisPlacement": "left"
+        },
+        "cellGap": 1,
+        "filterValues": {
+          "le": 1e-9
+        },
+        "tooltip": {
+          "show": true,
+          "yHistogram": true
+        },
+        "legend": {
+          "show": true
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Keyword Triggers",
+      "description": "**Metric:** aimemory_trigger_fires_total\n**trigger_type values:** decision_keywords, session_keywords, best_practices_keywords",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(aimemory_trigger_fires_total{project=~\"$project\"}[5m])) by (trigger_type)",
+          "refId": "A",
+          "legendFormat": "{{trigger_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never"
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "sum",
+            "lastNotNull"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Slowest Hooks",
+      "description": "Top 10 hooks by p99 latency",
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.99, sum(rate(aimemory_hook_duration_seconds_bucket{project=~\"$project\"}[5m])) by (le, hook_type, project)))",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 0.4,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 0.5,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "p99 Latency"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "p99 Latency",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "hook_type": "Hook Type",
+              "project": "Project",
+              "Value": "p99 Latency"
+            },
+            "indexByName": {
+              "hook_type": 0,
+              "project": 1,
+              "Value": 2
+            }
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Total Hook Executions (1h)",
+      "description": "Total hook executions in the last hour",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "Total"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Error Rate",
+      "description": "Percentage of hooks with errors",
+      "gridPos": {
+        "x": 6,
+        "y": 32,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{status=\"error\", project=~\"$project\"}[5m])) / sum(rate(aimemory_hook_duration_seconds_count{project=~\"$project\"}[5m])) * 100",
+          "refId": "A",
+          "legendFormat": "Error %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "noValue": "0%",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 1,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 5,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "CAPTURE Hooks (1h)",
+      "description": "Total CAPTURE hook executions",
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=~\"UserPromptSubmit|Stop|PostToolUse|PostToolUse_Error|PreCompact\", project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "CAPTURE"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "RETRIEVAL Hooks (1h)",
+      "description": "Total RETRIEVAL hook executions",
+      "gridPos": {
+        "x": 18,
+        "y": 32,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=~\"PostToolUse_ErrorDetection|PreToolUse_NewFile|PreToolUse_FirstEdit|SessionStart|PreToolUse|UserPromptSubmit_Decision|UserPromptSubmit_BestPractices\", project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "RETRIEVAL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 200,
+      "type": "row",
+      "title": "Individual Hook Monitoring (11 Hooks)",
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 201,
+      "type": "row",
+      "title": "CAPTURE Hooks (5 hooks - Store to Database)",
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "user_prompt_capture",
+      "description": "**Hook:** UserPromptSubmit\n**Purpose:** Store user messages to discussions collection\n**Type:** user_message",
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"UserPromptSubmit\", project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "Executions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "agent_response_capture",
+      "description": "**Hook:** Stop\n**Purpose:** Store agent responses to discussions collection\n**Type:** agent_response",
+      "gridPos": {
+        "x": 4,
+        "y": 38,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"Stop\", project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "Executions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "post_tool_capture",
+      "description": "**Hook:** PostToolUse (Edit|Write)\n**Purpose:** Capture code patterns to code-patterns collection\n**Type:** implementation",
+      "gridPos": {
+        "x": 8,
+        "y": 38,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"PostToolUse\", project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "Executions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "error_pattern_capture",
+      "description": "**Hook:** PostToolUse_Error (Bash)\n**Purpose:** Store error patterns to code-patterns collection\n**Type:** error_fix",
+      "gridPos": {
+        "x": 12,
+        "y": 38,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"PostToolUse_Error\", project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "Executions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "pre_compact_save",
+      "description": "**Hook:** PreCompact\n**Purpose:** Save session summary to discussions collection\n**Type:** session",
+      "gridPos": {
+        "x": 16,
+        "y": 38,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"PreCompact\", project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "Executions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 202,
+      "type": "row",
+      "title": "RETRIEVAL Hooks (6 hooks - Query Database)",
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "error_detection",
+      "description": "**Hook:** PostToolUse_ErrorDetection (Bash)\n**Purpose:** Retrieve similar error fixes from code-patterns\n**Type Filter:** error_fix",
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"PostToolUse_ErrorDetection\", project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "Executions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "new_file_trigger",
+      "description": "**Hook:** PreToolUse_NewFile (Write)\n**Purpose:** Retrieve naming conventions from conventions\n**Type Filter:** naming, structure",
+      "gridPos": {
+        "x": 4,
+        "y": 43,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"PreToolUse_NewFile\", project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "Executions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "first_edit_trigger",
+      "description": "**Hook:** PreToolUse_FirstEdit (Edit)\n**Purpose:** Retrieve file patterns from code-patterns\n**Type Filter:** file_pattern",
+      "gridPos": {
+        "x": 8,
+        "y": 43,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"PreToolUse_FirstEdit\", project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "Executions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "decision_keyword_trigger",
+      "description": "**Hook:** UserPromptSubmit_Decision\n**Purpose:** Retrieve past decisions from discussions\n**Type Filter:** decision\n**Keywords:** why did we, what was decided, remember when",
+      "gridPos": {
+        "x": 12,
+        "y": 43,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"UserPromptSubmit_Decision\", project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "Executions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "best_practices_keyword_trigger",
+      "description": "**Hook:** UserPromptSubmit_BestPractices\n**Purpose:** Retrieve best practices from conventions\n**Type Filter:** guideline\n**Keywords:** best practice, convention, how should I",
+      "gridPos": {
+        "x": 16,
+        "y": 43,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"UserPromptSubmit_BestPractices\", project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "Executions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "session_start",
+      "description": "**Hook:** SessionStart (resume|compact)\n**Purpose:** Inject conversation context from rich summaries\n**Type Filter:** session",
+      "gridPos": {
+        "x": 20,
+        "y": 43,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"SessionStart\", project=~\"$project\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "Executions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "0",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Hook Execution Timeline by Script",
+      "description": "All 11 hooks over time grouped by script name",
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"UserPromptSubmit\", project=~\"$project\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "user_prompt_capture"
+        },
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"Stop\", project=~\"$project\"}[5m]))",
+          "refId": "B",
+          "legendFormat": "agent_response_capture"
+        },
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"PostToolUse\", project=~\"$project\"}[5m]))",
+          "refId": "C",
+          "legendFormat": "post_tool_capture"
+        },
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"PostToolUse_Error\", project=~\"$project\"}[5m]))",
+          "refId": "D",
+          "legendFormat": "error_pattern_capture"
+        },
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"PreCompact\", project=~\"$project\"}[5m]))",
+          "refId": "E",
+          "legendFormat": "pre_compact_save"
+        },
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"PostToolUse_ErrorDetection\", project=~\"$project\"}[5m]))",
+          "refId": "F",
+          "legendFormat": "error_detection"
+        },
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"PreToolUse_NewFile\", project=~\"$project\"}[5m]))",
+          "refId": "G",
+          "legendFormat": "new_file_trigger"
+        },
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"PreToolUse_FirstEdit\", project=~\"$project\"}[5m]))",
+          "refId": "H",
+          "legendFormat": "first_edit_trigger"
+        },
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"UserPromptSubmit_Decision\", project=~\"$project\"}[5m]))",
+          "refId": "I",
+          "legendFormat": "decision_keyword_trigger"
+        },
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"UserPromptSubmit_BestPractices\", project=~\"$project\"}[5m]))",
+          "refId": "J",
+          "legendFormat": "best_practices_keyword_trigger"
+        },
+        {
+          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"SessionStart\", project=~\"$project\"}[5m]))",
+          "refId": "K",
+          "legendFormat": "session_start"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never"
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "sum",
+            "lastNotNull"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    }
+  ],
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "liveNow": false,
+  "style": "dark"
+}

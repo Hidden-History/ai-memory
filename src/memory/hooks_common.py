@@ -191,7 +191,9 @@ def get_metrics():
         >>> from memory.hooks_common import get_metrics
         >>> memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = get_metrics()
         >>> if memory_retrievals_total:
-        ...     memory_retrievals_total.labels(collection="code-patterns", status="success").inc()
+        ...     memory_retrievals_total.labels(
+        ...         collection="code-patterns", status="success", project="my-project"
+        ...     ).inc()
     """
     logger = logging.getLogger("ai_memory.hooks")
     try:

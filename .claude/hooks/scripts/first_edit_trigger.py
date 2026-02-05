@@ -31,11 +31,9 @@ Exit Codes:
 """
 
 import json
-import logging
 import os
 import sys
 import time
-from pathlib import Path
 
 # Add src to path for imports
 INSTALL_DIR = os.environ.get(
@@ -154,17 +152,19 @@ def main() -> int:
         mem_config = get_config()
         client = get_qdrant_client(mem_config)
 
+        # Detect project for metrics (required per §7.3 multi-tenancy)
+        project_name = detect_project(cwd)
+
         # Check Qdrant health
         if not check_qdrant_health(client):
             logger.warning("qdrant_unavailable")
             if memory_retrievals_total:
                 memory_retrievals_total.labels(
-                    collection=COLLECTION_CODE_PATTERNS, status="failed"
+                    collection=COLLECTION_CODE_PATTERNS,
+                    status="failed",
+                    project=project_name,
                 ).inc()
             return 0
-
-        # Detect project for filtering
-        project_name = detect_project(cwd)
 
         # Search for relevant file patterns
         search = MemorySearch(mem_config)
@@ -195,7 +195,9 @@ def main() -> int:
                 )
                 if memory_retrievals_total:
                     memory_retrievals_total.labels(
-                        collection=COLLECTION_CODE_PATTERNS, status="empty"
+                        collection=COLLECTION_CODE_PATTERNS,
+                        status="empty",
+                        project=project_name,
                     ).inc()
 
                 # Push trigger metrics even when no results
@@ -247,14 +249,18 @@ def main() -> int:
             # Metrics
             if memory_retrievals_total:
                 memory_retrievals_total.labels(
-                    collection=COLLECTION_CODE_PATTERNS, status="success"
+                    collection=COLLECTION_CODE_PATTERNS,
+                    status="success",
+                    project=project_name,
                 ).inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
             if hook_duration_seconds:
-                hook_duration_seconds.labels(hook_type="PreToolUse_FirstEdit").observe(
-                    duration_ms / 1000.0
-                )
+                hook_duration_seconds.labels(
+                    hook_type="PreToolUse_FirstEdit",
+                    status="success",
+                    project=project_name,
+                ).observe(duration_ms / 1000.0)
 
             # Push trigger metrics to Pushgateway
             from memory.metrics_push import push_trigger_metrics_async
@@ -279,15 +285,20 @@ def main() -> int:
         )
 
         # Metrics
+        proj = project_name if "project_name" in dir() else "unknown"
         if memory_retrievals_total:
             memory_retrievals_total.labels(
-                collection=COLLECTION_CODE_PATTERNS, status="failed"
+                collection=COLLECTION_CODE_PATTERNS,
+                status="failed",
+                project=proj,
             ).inc()
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PreToolUse_FirstEdit").observe(
-                duration_seconds
-            )
+            hook_duration_seconds.labels(
+                hook_type="PreToolUse_FirstEdit",
+                status="error",
+                project=proj,
+            ).observe(duration_seconds)
 
         # Push failure metrics
         from memory.metrics_push import push_trigger_metrics_async

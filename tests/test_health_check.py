@@ -500,6 +500,7 @@ class TestCheckMonitoringApi:
 class TestRunHealthChecks:
     """Test run_health_checks parallel execution."""
 
+    @patch("health_check.check_venv_health")
     @patch("health_check.check_monitoring_api")
     @patch("health_check.check_hook_scripts")
     @patch("health_check.check_hooks_configured")
@@ -514,6 +515,7 @@ class TestRunHealthChecks:
         mock_hooks,
         mock_scripts,
         mock_monitoring,
+        mock_venv,
     ):
         """Test all checks run in parallel."""
         # Mock each check to return unique results and add __name__ attribute
@@ -537,6 +539,9 @@ class TestRunHealthChecks:
         mock_monitoring.return_value = HealthCheckResult("monitoring", "healthy", "OK")
         mock_monitoring.__name__ = "check_monitoring_api"
 
+        mock_venv.return_value = HealthCheckResult("venv", "healthy", "OK")
+        mock_venv.__name__ = "check_venv_health"
+
         results = run_health_checks()
 
         # All checks should be called
@@ -546,9 +551,10 @@ class TestRunHealthChecks:
         assert mock_hooks.called
         assert mock_scripts.called
         assert mock_monitoring.called
+        assert mock_venv.called
 
-        # Should return 6 results (including monitoring)
-        assert len(results) == 6
+        # Should return 7 results (including monitoring and venv)
+        assert len(results) == 7
 
         # Results should be sorted by component name
         components = [r.component for r in results]
@@ -567,6 +573,7 @@ class TestRunHealthChecks:
             patch("health_check.check_hooks_configured") as mock_hooks,
             patch("health_check.check_hook_scripts") as mock_scripts,
             patch("health_check.check_monitoring_api") as mock_monitoring,
+            patch("health_check.check_venv_health") as mock_venv,
         ):
 
             mock_embed.return_value = HealthCheckResult("embedding", "healthy", "OK")
@@ -590,10 +597,13 @@ class TestRunHealthChecks:
             )
             mock_monitoring.__name__ = "check_monitoring_api"
 
+            mock_venv.return_value = HealthCheckResult("venv", "healthy", "OK")
+            mock_venv.__name__ = "check_venv_health"
+
             results = run_health_checks()
 
-            # Should still get results for all checks (6 including monitoring)
-            assert len(results) == 6
+            # Should still get results for all checks (7 including monitoring and venv)
+            assert len(results) == 7
 
             # The failed check should have status unhealthy
             qdrant_result = next(r for r in results if r.component == "check_qdrant")

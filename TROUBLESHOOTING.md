@@ -64,6 +64,77 @@ lsof -i :28000  # Monitoring API
 **Symptom**: Collections named `implementations`, `best_practices`, `agent-memory`.
 **Workaround**: Upgrade to V2.0 which uses new collection names: `code-patterns`, `conventions`, `discussions`.
 
+---
+
+## Venv and Dependency Issues (TECH-DEBT-136)
+
+### Symptoms
+- Hooks fail with `ModuleNotFoundError`
+- "tree-sitter not installed" message
+- Memory operations silently fail
+- Health check shows "venv unhealthy"
+
+### Diagnosis
+
+Run the health check:
+```bash
+python scripts/health-check.py
+```
+
+Or test manually:
+```bash
+~/.ai-memory/.venv/bin/python -c "import qdrant_client; print('OK')"
+```
+
+If this fails with `ModuleNotFoundError`, the venv is broken or incomplete.
+
+### Fix
+
+**Option 1: Re-run the installer**
+```bash
+cd /path/to/ai-memory
+./scripts/install.sh
+```
+
+The installer now verifies all critical packages after installation and will fail loudly if any are missing.
+
+**Option 2: Manually recreate venv**
+```bash
+rm -rf ~/.ai-memory/.venv
+python3 -m venv ~/.ai-memory/.venv
+~/.ai-memory/.venv/bin/pip install -e /path/to/ai-memory[dev]
+```
+
+**Option 3: Install missing packages**
+```bash
+~/.ai-memory/.venv/bin/pip install qdrant-client prometheus-client httpx pydantic structlog
+```
+
+### Critical Packages
+
+These packages are required for hooks to function:
+
+| Package | Purpose |
+|---------|---------|
+| `qdrant_client` | Qdrant client for memory storage |
+| `prometheus_client` | Prometheus metrics |
+| `httpx` | HTTP client for embedding service |
+| `pydantic` | Configuration validation |
+| `structlog` | Logging |
+
+### Optional Packages
+
+These packages enable additional features but are not required:
+
+| Package | Purpose |
+|---------|---------|
+| `tree_sitter` | AST-based code chunking |
+| `tree_sitter_python` | Python code parsing |
+
+If these are missing, you'll see warnings but core functionality works.
+
+---
+
 ## Services Won't Start
 
 ### Symptom: Docker Compose Fails

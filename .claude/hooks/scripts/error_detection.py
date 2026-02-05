@@ -25,12 +25,10 @@ Exit Codes:
 """
 
 import json
-import logging
 import os
 import re
 import sys
 import time
-from pathlib import Path
 
 # Add src to path for imports
 INSTALL_DIR = os.environ.get(
@@ -230,13 +228,17 @@ def main() -> int:
             # Metrics
             if memory_retrievals_total:
                 memory_retrievals_total.labels(
-                    collection=COLLECTION_CODE_PATTERNS, status="success"
+                    collection=COLLECTION_CODE_PATTERNS,
+                    status="success",
+                    project=project_name,
                 ).inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
             if hook_duration_seconds:
                 hook_duration_seconds.labels(
-                    hook_type="PostToolUse_ErrorDetection"
+                    hook_type="PostToolUse_ErrorDetection",
+                    status="success",
+                    project=project_name,
                 ).observe(duration_ms / 1000.0)
 
             # Push trigger metrics to Pushgateway
@@ -261,14 +263,19 @@ def main() -> int:
         )
 
         # Metrics
+        proj = project_name if "project_name" in dir() else "unknown"
         if memory_retrievals_total:
             memory_retrievals_total.labels(
-                collection=COLLECTION_CODE_PATTERNS, status="failed"
+                collection=COLLECTION_CODE_PATTERNS,
+                status="failed",
+                project=proj,
             ).inc()
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
             hook_duration_seconds.labels(
-                hook_type="PostToolUse_ErrorDetection"
+                hook_type="PostToolUse_ErrorDetection",
+                status="error",
+                project=proj,
             ).observe(duration_seconds)
 
         # Push failure metrics

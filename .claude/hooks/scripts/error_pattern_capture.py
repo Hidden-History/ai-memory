@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # Add src to path for imports
 INSTALL_DIR = os.environ.get(
@@ -36,8 +36,7 @@ INSTALL_DIR = os.environ.get(
 )
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
-from memory.activity_log import log_capture, log_error_capture
-from memory.hooks_common import log_to_activity
+from memory.activity_log import log_error_capture
 
 # Configure structured logging
 from memory.logging_config import StructuredFormatter
@@ -52,11 +51,13 @@ logger.propagate = False
 # Import metrics for Prometheus instrumentation
 try:
     from memory.metrics import hook_duration_seconds
+    from memory.storage import detect_project
 except ImportError:
     hook_duration_seconds = None
+    detect_project = None
 
 
-def detect_error_indicators(output: str, exit_code: Optional[int]) -> bool:
+def detect_error_indicators(output: str, exit_code: int | None) -> bool:
     """Detect if output contains error indicators.
 
     Args:
@@ -98,7 +99,7 @@ def detect_error_indicators(output: str, exit_code: Optional[int]) -> bool:
     return False
 
 
-def extract_file_line_references(output: str) -> List[Dict[str, Any]]:
+def extract_file_line_references(output: str) -> list[dict[str, Any]]:
     """Extract file:line references from error output.
 
     Common patterns:
@@ -137,7 +138,7 @@ def extract_file_line_references(output: str) -> List[Dict[str, Any]]:
     return references
 
 
-def extract_stack_trace(output: str) -> Optional[str]:
+def extract_stack_trace(output: str) -> str | None:
     """Extract stack trace from error output.
 
     Args:
@@ -201,7 +202,7 @@ def extract_error_message(output: str) -> str:
     return "Error detected in command output"
 
 
-def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
+def validate_hook_input(data: dict[str, Any]) -> str | None:
     """Validate hook input for Bash tool.
 
     Args:
@@ -228,7 +229,7 @@ def validate_hook_input(data: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def extract_error_context(hook_input: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def extract_error_context(hook_input: dict[str, Any]) -> dict[str, Any] | None:
     """Extract error context from Bash tool output.
 
     Args:
@@ -274,7 +275,7 @@ def extract_error_context(hook_input: Dict[str, Any]) -> Optional[Dict[str, Any]
     return context
 
 
-def fork_to_background(error_context: Dict[str, Any]) -> None:
+def fork_to_background(error_context: dict[str, Any]) -> None:
     """Fork error storage to background process.
 
     Args:
@@ -305,8 +306,8 @@ def fork_to_background(error_context: Dict[str, Any]) -> None:
         logger.info(
             "error_pattern_forked",
             extra={
-                "command": error_context["command"][:50],
-                "session_id": error_context["session_id"],
+                "command": error_context.get("command", "")[:50],
+                "session_id": error_context.get("session_id", "unknown"),
             },
         )
 
@@ -376,14 +377,14 @@ def main() -> int:
         fork_to_background(error_context)
 
         # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
-        error_msg = error_context["error_message"]
+        error_msg = error_context.get("error_message", "Unknown error")
         message = f"🔴 AI Memory: Captured error pattern: {error_msg}"
         print(json.dumps({"systemMessage": message}))
         sys.stdout.flush()  # Ensure output is flushed before exit
 
         # Activity log with proper error icon (no truncation)
         log_error_capture(
-            command=error_context["command"],
+            command=error_context.get("command", ""),
             error_msg=error_msg,
             exit_code=error_context.get("exit_code", -1),
             output=error_context.get("output", ""),
@@ -392,9 +393,10 @@ def main() -> int:
         # Metrics: Record hook duration
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PostToolUse_Error").observe(
-                duration_seconds
-            )
+            project = detect_project(os.getcwd()) if detect_project else "unknown"
+            hook_duration_seconds.labels(
+                hook_type="PostToolUse_Error", status="success", project=project
+            ).observe(duration_seconds)
 
         return 0
 
@@ -406,9 +408,10 @@ def main() -> int:
         # Metrics: Record hook duration even on error
         if hook_duration_seconds:
             duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(hook_type="PostToolUse_Error").observe(
-                duration_seconds
-            )
+            project = detect_project(os.getcwd()) if detect_project else "unknown"
+            hook_duration_seconds.labels(
+                hook_type="PostToolUse_Error", status="error", project=project
+            ).observe(duration_seconds)
 
         return 1  # Non-blocking error
 

@@ -1,6 +1,7 @@
 """Test error pattern capture hook functionality."""
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -22,7 +23,16 @@ def hook_script():
     return script_path
 
 
-def test_error_pattern_detection(hook_script):
+@pytest.fixture
+def hook_env():
+    """Environment variables for running hook scripts."""
+    env = os.environ.copy()
+    # Point to source directory for imports
+    env["AI_MEMORY_INSTALL_DIR"] = str(Path(__file__).parent.parent)
+    return env
+
+
+def test_error_pattern_detection(hook_script, hook_env):
     """Test that error patterns are detected from Bash failures."""
     # Simulate Claude Code hook input for a failed Bash command
     hook_input = {
@@ -47,6 +57,7 @@ ZeroDivisionError: division by zero""",
         input=json.dumps(hook_input),
         capture_output=True,
         text=True,
+        env=hook_env,
     )
 
     # Hook should exit 0 (non-blocking)
@@ -56,7 +67,7 @@ ZeroDivisionError: division by zero""",
     # Note: Background fork means storage happens async, so we just verify hook succeeds
 
 
-def test_no_error_pattern_for_success(hook_script):
+def test_no_error_pattern_for_success(hook_script, hook_env):
     """Test that successful commands don't trigger error capture."""
     # Simulate successful Bash command
     hook_input = {
@@ -73,13 +84,14 @@ def test_no_error_pattern_for_success(hook_script):
         input=json.dumps(hook_input),
         capture_output=True,
         text=True,
+        env=hook_env,
     )
 
     # Should still exit 0, but not capture anything
     assert result.returncode == 0
 
 
-def test_file_line_reference_extraction(hook_script):
+def test_file_line_reference_extraction(hook_script, hook_env):
     """Test extraction of file:line references from errors."""
     hook_input = {
         "tool_name": "Bash",
@@ -100,12 +112,13 @@ File "tests/test_foo.py", line 25, in test_calculation""",
         input=json.dumps(hook_input),
         capture_output=True,
         text=True,
+        env=hook_env,
     )
 
     assert result.returncode == 0
 
 
-def test_malformed_json_graceful_handling(hook_script):
+def test_malformed_json_graceful_handling(hook_script, hook_env):
     """Test graceful handling of malformed JSON input."""
     malformed_input = "{ this is not valid json }"
 
@@ -114,13 +127,14 @@ def test_malformed_json_graceful_handling(hook_script):
         input=malformed_input,
         capture_output=True,
         text=True,
+        env=hook_env,
     )
 
     # Should exit 0 (non-blocking error)
     assert result.returncode == 0
 
 
-def test_non_bash_tool_skipped(hook_script):
+def test_non_bash_tool_skipped(hook_script, hook_env):
     """Test that non-Bash tools are skipped."""
     hook_input = {
         "tool_name": "Edit",
@@ -139,6 +153,7 @@ def test_non_bash_tool_skipped(hook_script):
         input=json.dumps(hook_input),
         capture_output=True,
         text=True,
+        env=hook_env,
     )
 
     # Should exit 0 and skip processing

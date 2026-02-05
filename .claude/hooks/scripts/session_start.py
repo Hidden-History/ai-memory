@@ -16,8 +16,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import datetime, timezone
 
 # Add src to path for system python3 execution
 # Use INSTALL_DIR to find installed module (fixes path calculation bug)
@@ -31,8 +30,6 @@ sys.path.insert(0, local_src)
 
 from memory.activity_log import (
     log_conversation_context_injection,
-    log_error,
-    log_session_start,
 )
 from memory.config import (
     COLLECTION_CODE_PATTERNS,
@@ -42,12 +39,13 @@ from memory.config import (
 )
 from memory.filters import (
     filter_low_value_content,
-    is_duplicate_message,
     smart_truncate,
 )
 from memory.health import check_qdrant_health
-from memory.logging_config import configure_logging
-from memory.metrics_push import track_hook_duration
+from memory.metrics_push import (
+    push_session_injection_metrics_async,
+    track_hook_duration,
+)
 from memory.project import detect_project
 from memory.qdrant_client import get_qdrant_client
 
@@ -62,26 +60,8 @@ logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False
 
-# Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
-try:
-    from memory.metrics import (
-        hook_duration_seconds,
-        memory_retrievals_total,
-        retrieval_duration_seconds,
-    )
-except ImportError:
-    # Graceful degradation if metrics unavailable
-    logger.warning("metrics_module_unavailable")
-    memory_retrievals_total = None
-    retrieval_duration_seconds = None
-    hook_duration_seconds = None
-
-# TECH-DEBT-067: V2.0 token tracking metrics
-try:
-    from memory.metrics import context_injection_tokens, tokens_consumed_total
-except ImportError:
-    tokens_consumed_total = None
-    context_injection_tokens = None
+# Note: Inline metrics removed - using push_* functions from metrics_push module instead
+# See TECH-DEBT-070 for push-based metrics architecture
 
 
 def estimate_tokens(content: str) -> int:
@@ -515,7 +495,7 @@ def get_conversation_context(
         Formatted markdown string with session context,
         or empty string if no summaries found.
 
-    Token Budget: ~2000 tokens per summary, configurable via config.token_budget
+    Token Budget: ~4000 tokens default (per BP-039), configurable via config.token_budget
     """
     try:
         client = get_qdrant_client(config)
@@ -609,7 +589,7 @@ def main():
     """
     start_time = time.perf_counter()
 
-    with track_hook_duration("session_start"):
+    with track_hook_duration("SessionStart"):
         try:
             # Parse hook input (SessionStart provides cwd, session_id)
             hook_input = parse_hook_input()
@@ -643,13 +623,6 @@ def main():
                     project=project_name,
                     reason="qdrant_unavailable",
                 )
-
-                # Metrics: Retrieval failed due to Qdrant unavailable (Story 6.1, AC 6.1.3)
-                # TECH-DEBT-012: Changed from "combined" to "discussions"
-                if memory_retrievals_total:
-                    memory_retrievals_total.labels(
-                        collection=COLLECTION_DISCUSSIONS, status="failed"
-                    ).inc()
 
                 # Empty context JSON - Claude continues without memories
                 print(
@@ -755,11 +728,6 @@ def main():
                 )
                 other_memories.extend(decisions)
                 memories_per_collection[COLLECTION_DISCUSSIONS] = len(decisions)
-                # Track retrieval metric for discussions
-                if memory_retrievals_total and decisions:
-                    memory_retrievals_total.labels(
-                        collection=COLLECTION_DISCUSSIONS, status="success"
-                    ).inc(len(decisions))
 
                 # Search patterns from code-patterns
                 patterns = searcher.search(
@@ -771,11 +739,6 @@ def main():
                 )
                 other_memories.extend(patterns)
                 memories_per_collection[COLLECTION_CODE_PATTERNS] = len(patterns)
-                # Track retrieval metric for code-patterns
-                if memory_retrievals_total and patterns:
-                    memory_retrievals_total.labels(
-                        collection=COLLECTION_CODE_PATTERNS, status="success"
-                    ).inc(len(patterns))
 
                 # Search conventions (no group_id filter - shared)
                 conventions = searcher.search(
@@ -787,11 +750,6 @@ def main():
                 )
                 other_memories.extend(conventions)
                 memories_per_collection[COLLECTION_CONVENTIONS] = len(conventions)
-                # Track retrieval metric for conventions
-                if memory_retrievals_total and conventions:
-                    memory_retrievals_total.labels(
-                        collection=COLLECTION_CONVENTIONS, status="success"
-                    ).inc(len(conventions))
 
                 searcher.close()
 
@@ -889,29 +847,8 @@ def main():
                     ),
                 )
 
-                # Metrics: Successful conversation context injection
-                if memory_retrievals_total:
-                    memory_retrievals_total.labels(
-                        collection=COLLECTION_DISCUSSIONS, status="success"
-                    ).inc()
-                if hook_duration_seconds:
-                    hook_duration_seconds.labels(hook_type="SessionStart").observe(
-                        duration_seconds
-                    )
-
-                # TECH-DEBT-067: Track token usage
-                if context_injection_tokens:
-                    token_count = estimate_tokens(conversation_context)
-                    context_injection_tokens.labels(
-                        hook_type="SessionStart", collection=COLLECTION_DISCUSSIONS
-                    ).observe(token_count)
-                if tokens_consumed_total:
-                    token_count = estimate_tokens(conversation_context)
-                    tokens_consumed_total.labels(
-                        operation="injection", direction="output", project=project_name
-                    ).inc(token_count)
-
                 # TECH-DEBT-070: Push metrics to Pushgateway (async to avoid latency)
+                token_count = estimate_tokens(conversation_context)
                 from memory.metrics_push import (
                     push_context_injection_metrics_async,
                     push_token_metrics_async,
@@ -963,11 +900,18 @@ def main():
                     token_count=token_count,
                 )
 
+                # TECH-DEBT-089: Push session injection duration for NFR-P3 tracking
+                push_session_injection_metrics_async(project_name, duration_seconds)
+
                 # Output conversation context to Claude
+                # TECH-DEBT-115: Add <retrieved_context> delimiters per BP-039 §1
+                formatted_context = (
+                    f"<retrieved_context>\n{conversation_context}\n</retrieved_context>"
+                )
                 output = {
                     "hookSpecificOutput": {
                         "hookEventName": "SessionStart",
-                        "additionalContext": conversation_context,
+                        "additionalContext": formatted_context,
                     }
                 }
                 print(json.dumps(output))
@@ -989,12 +933,6 @@ def main():
                     file=sys.stderr,
                 )
 
-                # Metrics: Empty conversation context
-                if memory_retrievals_total:
-                    memory_retrievals_total.labels(
-                        collection=COLLECTION_DISCUSSIONS, status="empty"
-                    ).inc()
-
                 # Empty context JSON
                 print(
                     json.dumps(
@@ -1011,19 +949,6 @@ def main():
         except Exception as e:
             # CRITICAL: Never crash or block Claude (FR30, NFR-R4)
             logger.error("retrieval_failed", extra={"error": str(e)})
-
-            # Metrics: Retrieval failed with exception (Story 6.1, AC 6.1.3)
-            # TECH-DEBT-012: Changed from "combined" to "discussions"
-            if memory_retrievals_total:
-                memory_retrievals_total.labels(
-                    collection=COLLECTION_DISCUSSIONS, status="failed"
-                ).inc()
-            if hook_duration_seconds:
-                duration_ms = (time.perf_counter() - start_time) * 1000
-                duration_seconds = duration_ms / 1000.0
-                hook_duration_seconds.labels(hook_type="SessionStart").observe(
-                    duration_seconds
-                )
 
             # Empty context JSON on error
             print(

@@ -733,3 +733,56 @@ def is_first_edit_in_session(file_path: str, session_id: str) -> bool:
             )
 
         return is_first
+
+
+def validate_keyword_patterns() -> list[str]:
+    """Detect keyword pattern collisions per BP-040.
+
+    Analyzes all keyword patterns in TRIGGER_CONFIG for substring collisions
+    where one pattern contains another, which could cause unexpected trigger
+    behavior (shorter pattern fires when longer was intended).
+
+    Returns:
+        List of collision warning strings. Empty list if no collisions.
+
+    Examples:
+        >>> warnings = validate_keyword_patterns()
+        >>> # If "best practice" and "best practices" both exist:
+        >>> # "Collision: 'best practice' overlaps with 'best practices'" in warnings
+    """
+    warnings = []
+    all_patterns: list[tuple[str, str]] = []  # (pattern, trigger_name)
+
+    for trigger_name, config in TRIGGER_CONFIG.items():
+        patterns = config.get("patterns", [])
+        for pattern in patterns:
+            pattern_lower = pattern.lower()
+            # Check for substring collisions with existing patterns
+            for existing_pattern, existing_trigger in all_patterns:
+                existing_lower = existing_pattern.lower()
+                if pattern_lower != existing_lower:
+                    if pattern_lower in existing_lower:
+                        warnings.append(
+                            f"Collision: '{pattern}' ({trigger_name}) is substring of "
+                            f"'{existing_pattern}' ({existing_trigger})"
+                        )
+                    elif existing_lower in pattern_lower:
+                        warnings.append(
+                            f"Collision: '{existing_pattern}' ({existing_trigger}) is substring of "
+                            f"'{pattern}' ({trigger_name})"
+                        )
+            all_patterns.append((pattern, trigger_name))
+
+    return warnings
+
+
+# TECH-DEBT-113: Run validation at module load (development check)
+_collision_warnings = validate_keyword_patterns()
+if _collision_warnings:
+    logger.warning(
+        "keyword_pattern_collisions_detected",
+        extra={
+            "collision_count": len(_collision_warnings),
+            "warnings": _collision_warnings[:5],
+        },
+    )
