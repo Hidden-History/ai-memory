@@ -21,7 +21,8 @@ COPY prometheus.yml /etc/prometheus/prometheus.yml.template
 
 # CR-1: Create runtime directory as root before switching to nobody
 # The entrypoint needs to write the processed config here
-RUN mkdir -p /etc/prometheus/runtime && chown nobody:nogroup /etc/prometheus/runtime
+# Use numeric IDs (65534:65534) - Busybox doesn't have nogroup
+RUN mkdir -p /etc/prometheus/runtime && chown 65534:65534 /etc/prometheus/runtime
 
 USER nobody
 
