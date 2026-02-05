@@ -5,6 +5,10 @@
 
 set -e
 
+# CR-7: Validate required environment variables
+: "${QDRANT_API_KEY:?Error: QDRANT_API_KEY must be set}"
+: "${PROMETHEUS_ADMIN_PASSWORD:?Error: PROMETHEUS_ADMIN_PASSWORD must be set}"
+
 # Create runtime config directory
 mkdir -p /etc/prometheus/runtime
 

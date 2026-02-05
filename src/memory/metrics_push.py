@@ -49,6 +49,7 @@ VALID_HOOK_TYPES = {
     "SessionStart",
     "UserPromptSubmit",
     "PreToolUse",
+    "PreToolUse_NewFile",  # CR-3: New file creation trigger variant
     "PostToolUse",
     "PreCompact",
     "Stop",
@@ -165,7 +166,7 @@ def push_hook_metrics_async(
     hooks complete in <500ms even if Pushgateway is unreachable.
 
     Args:
-        hook_name: Name of the hook (e.g., 'session_start', 'post_tool_capture')
+        hook_name: Name of the hook (e.g., 'SessionStart', 'PreToolUse_NewFile')
         duration_seconds: Hook execution duration in seconds
         success: Whether the hook executed successfully
         project: Project name for multi-tenancy (Core-Architecture-Principle-V2.md §7.3)
@@ -173,7 +174,8 @@ def push_hook_metrics_async(
     if not PUSHGATEWAY_ENABLED:
         return
 
-    # Validate labels
+    # Validate labels (CR-2: Added hook_name validation)
+    hook_name = _validate_label(hook_name, "hook_type", VALID_HOOK_TYPES)
     project = _validate_label(project, "project")
 
     try:

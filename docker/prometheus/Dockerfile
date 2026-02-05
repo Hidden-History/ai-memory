@@ -13,6 +13,10 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Copy config template
 COPY prometheus.yml /etc/prometheus/prometheus.yml.template
 
+# CR-1: Create runtime directory as root before switching to nobody
+# The entrypoint needs to write the processed config here
+RUN mkdir -p /etc/prometheus/runtime && chown nobody:nogroup /etc/prometheus/runtime
+
 USER nobody
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

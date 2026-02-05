@@ -335,6 +335,10 @@ async def is_duplicate(
                 "stage": "qdrant_query",
             },
         )
+        # CR-4: Push duration metrics on error for NFR-P4 observability
+        if push_dedup_duration_metrics_async:
+            dedup_duration = time.time() - dedup_start_time
+            push_dedup_duration_metrics_async(collection, group_id, dedup_duration)
         # Fail open: allow storage on error
         return DuplicationCheckResult(
             is_duplicate=False, reason="error_fail_open", existing_id=None
@@ -351,6 +355,10 @@ async def is_duplicate(
                 "stage": "qdrant_query",
             },
         )
+        # CR-4: Push duration metrics on error for NFR-P4 observability
+        if push_dedup_duration_metrics_async:
+            dedup_duration = time.time() - dedup_start_time
+            push_dedup_duration_metrics_async(collection, group_id, dedup_duration)
         # Fail open: allow storage on error
         return DuplicationCheckResult(
             is_duplicate=False, reason="error_fail_open", existing_id=None
@@ -362,6 +370,10 @@ async def is_duplicate(
             "dedup_failed_qdrant_unavailable",
             extra={"error": str(e), "group_id": group_id},
         )
+        # CR-4: Push duration metrics on error for NFR-P4 observability
+        if push_dedup_duration_metrics_async:
+            dedup_duration = time.time() - dedup_start_time
+            push_dedup_duration_metrics_async(collection, group_id, dedup_duration)
         return DuplicationCheckResult(
             is_duplicate=False, reason="error_fail_open", existing_id=None
         )
@@ -378,6 +390,10 @@ async def is_duplicate(
                 "stage": "qdrant_query",
             },
         )
+        # CR-4: Push duration metrics on error for NFR-P4 observability
+        if push_dedup_duration_metrics_async:
+            dedup_duration = time.time() - dedup_start_time
+            push_dedup_duration_metrics_async(collection, group_id, dedup_duration)
         # Fail open: allow storage on error
         return DuplicationCheckResult(
             is_duplicate=False, reason="error_fail_open", existing_id=None
@@ -393,6 +409,10 @@ async def is_duplicate(
                 "group_id": group_id,
             },
         )
+        # CR-4: Push duration metrics on error for NFR-P4 observability
+        if push_dedup_duration_metrics_async:
+            dedup_duration = time.time() - dedup_start_time
+            push_dedup_duration_metrics_async(collection, group_id, dedup_duration)
         # Fail open: allow storage on any error
         return DuplicationCheckResult(
             is_duplicate=False, reason="error_fail_open", existing_id=None
