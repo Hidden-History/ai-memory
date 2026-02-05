@@ -30,8 +30,6 @@ try:
     from .metrics import deduplication_events_total
     from .metrics_push import (
         push_dedup_duration_metrics_async,  # TECH-DEBT-089: Push dedup timing
-    )
-    from .metrics_push import (
         push_deduplication_metrics_async,  # BUG-021: Push to Pushgateway
     )
 except ImportError:
