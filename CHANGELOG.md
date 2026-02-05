@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - (No fixes yet)
 
-## [2.0.3] - 2026-02-05
+## 2.0.3 - 2026-02-05
 
 ### Changed
 - Hook commands now use venv Python: `$AI_MEMORY_INSTALL_DIR/.venv/bin/python`
