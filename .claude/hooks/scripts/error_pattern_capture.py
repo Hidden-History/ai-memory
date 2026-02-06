@@ -51,7 +51,7 @@ logger.propagate = False
 # TECH-DEBT-142: Import push metrics for Pushgateway
 try:
     from memory.metrics_push import track_hook_duration
-    from memory.storage import detect_project
+    from memory.project import detect_project
 except ImportError:
     track_hook_duration = None
     detect_project = None
@@ -335,7 +335,7 @@ def main() -> int:
         if local_src.exists():
             sys.path.insert(0, str(local_src))
         from memory.metrics_push import track_hook_duration
-        from memory.storage import detect_project
+        from memory.project import detect_project
 
         track_hook_duration_func = track_hook_duration
         detect_project_func = detect_project

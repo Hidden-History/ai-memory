@@ -49,7 +49,7 @@ logger.propagate = False
 # TECH-DEBT-142: Import push metrics for Pushgateway
 try:
     from memory.metrics_push import push_hook_metrics_async
-    from memory.storage import detect_project
+    from memory.project import detect_project
 except ImportError:
     push_hook_metrics_async = None
     detect_project = None

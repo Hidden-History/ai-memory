@@ -64,6 +64,13 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
   - Converted all hook scripts from local `hook_duration_seconds` to push-based metrics
   - Removed dead local metric imports/definitions from 10 hook scripts
 
+#### Phase 3: Verification
+- **Wrong `detect_project` import** in 4 hook scripts (pre-existing)
+  - `post_tool_capture.py`, `error_pattern_capture.py`, `user_prompt_capture.py`, `agent_response_capture.py` imported from `memory.storage` instead of `memory.project`
+  - Caused silent project detection failure (fell back to "unknown")
+  - Fixed: all 4 files now import from `memory.project`
+- **BUG-047**: Verified fixed - installer properly quotes all path variables, handles spaces
+
 ### Changed
 - Dashboard hook_type labels standardized to PascalCase across all Grafana panels
 - Classifier `record_classification()` and `record_fallback()` now require `project` parameter
