@@ -1,14 +1,5 @@
-# Prometheus Web Configuration - Basic Authentication
-#
-# WARNING: This is a placeholder file.
-# The actual bcrypt hash is generated during installation from PROMETHEUS_ADMIN_PASSWORD.
-#
-# If you see "unauthorized" errors in Grafana:
-#   1. Ensure PROMETHEUS_ADMIN_PASSWORD is set in docker/.env
-#   2. Re-run the installer to regenerate this file
-#   3. Or manually generate: python3 -c "import bcrypt; print(bcrypt.hashpw(b'PASSWORD', bcrypt.gensalt(12)).decode())"
-#
-# This file is overwritten by install.sh with the correct bcrypt hash.
-
+# Prometheus basic auth configuration
+# Hash generated from password in docker/.env (PROMETHEUS_ADMIN_PASSWORD)
+# To regenerate: python3 -c "import bcrypt; print(bcrypt.hashpw(b'<password>', bcrypt.gensalt(12)).decode())"
 basic_auth_users:
-  admin: $2b$12$PLACEHOLDER_HASH_REGENERATE_BY_RUNNING_INSTALLER
+  admin: $2b$12$5gnFhIL/NInJct55V7vh5Oe4VKKvBODi58423aKZdy5oh9Jl63Etu

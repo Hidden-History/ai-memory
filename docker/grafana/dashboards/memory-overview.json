@@ -96,7 +96,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "# AI Memory System - Overview Dashboard\n\n**Purpose:** Daily operational monitoring - answering \"How many memories captured?\", \"What's the success rate?\", \"What's the latency?\"\n\n**Audience:** Operators, Engineering Leads\n\n**Available Metrics:** `aimemory_captures_total`, `aimemory_hook_latency_bucket`, `aimemory_embedding_latency_bucket`, `aimemory_search_latency_bucket`, `aimemory_tokens_consumed_total`\n\n**Template Variables:** Use dropdowns above to filter by project or hook type"
+        "content": "# AI Memory System - Overview Dashboard\n\n**Purpose:** Daily operational monitoring - answering \"How many memories captured?\", \"What's the success rate?\", \"What's the latency?\"\n\n**Audience:** Operators, Engineering Leads\n\n**Available Metrics:** `aimemory_captures_total`, `aimemory_hook_duration_seconds_bucket`, `aimemory_embedding_batch_duration_seconds_bucket`, `aimemory_embedding_realtime_duration_seconds_bucket`, `aimemory_retrieval_query_duration_seconds_bucket`, `aimemory_tokens_consumed_total`\n\n**Template Variables:** Use dropdowns above to filter by project or hook type"
       }
     },
     {
@@ -386,7 +386,7 @@
       "id": 6,
       "type": "timeseries",
       "title": "Hook Latency (p50/p95/p99)",
-      "description": "**Metric:** `aimemory_hook_latency_bucket`\n**Measures:** Hook execution time percentiles\n**NFR:** p95 < 500ms (BP-022)\n**Thresholds:** Green <500ms | Yellow 500ms-1s | Red >1s",
+      "description": "**Metric:** `aimemory_hook_duration_seconds_bucket`\n**Measures:** Hook execution time percentiles\n**NFR:** p95 < 500ms (BP-022)\n**Thresholds:** Green <500ms | Yellow 500ms-1s | Red >1s",
       "gridPos": {
         "x": 0,
         "y": 18,
@@ -395,17 +395,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(aimemory_hook_latency_bucket[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (increase(aimemory_hook_duration_seconds_bucket[1h])))",
           "refId": "A",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(aimemory_hook_latency_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(aimemory_hook_duration_seconds_bucket[1h])))",
           "refId": "B",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(aimemory_hook_latency_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(aimemory_hook_duration_seconds_bucket[1h])))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -465,7 +465,7 @@
       "id": 7,
       "type": "timeseries",
       "title": "Embedding Latency (p50/p95/p99)",
-      "description": "**Metric:** `aimemory_embedding_latency_bucket`\n**Measures:** Embedding generation time percentiles\n**NFR:** p95 < 2s (BP-022)\n**Thresholds:** Green <2s | Yellow 2-5s | Red >5s",
+      "description": "**Metric:** `aimemory_embedding_batch_duration_seconds_bucket` + `aimemory_embedding_realtime_duration_seconds_bucket`\n**Measures:** Combined embedding generation time percentiles (batch + realtime)\n**NFR:** p95 < 2s (batch), <500ms (realtime) (BP-022)\n**Thresholds:** Green <2s | Yellow 2-5s | Red >5s",
       "gridPos": {
         "x": 12,
         "y": 18,
@@ -474,17 +474,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(aimemory_embedding_latency_bucket[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (increase(aimemory_embedding_batch_duration_seconds_bucket[1h]) or increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])))",
           "refId": "A",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(aimemory_embedding_latency_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(aimemory_embedding_batch_duration_seconds_bucket[1h]) or increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])))",
           "refId": "B",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(aimemory_embedding_latency_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(aimemory_embedding_batch_duration_seconds_bucket[1h]) or increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -553,17 +553,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(aimemory_search_latency_bucket[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (increase(aimemory_search_latency_bucket[1h])))",
           "refId": "A",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(aimemory_search_latency_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(aimemory_search_latency_bucket[1h])))",
           "refId": "B",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(aimemory_search_latency_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(aimemory_search_latency_bucket[1h])))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -934,17 +934,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(aimemory_classifier_latency_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (increase(aimemory_classifier_latency_seconds_bucket[1h])))",
           "refId": "A",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(aimemory_classifier_latency_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(aimemory_classifier_latency_seconds_bucket[1h])))",
           "refId": "B",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(aimemory_classifier_latency_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(aimemory_classifier_latency_seconds_bucket[1h])))",
           "refId": "C",
           "legendFormat": "p99"
         }

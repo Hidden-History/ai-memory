@@ -76,7 +76,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_captures_total{project=~\"$project\", collection=~\"$collection\"}[5m])) by (collection)",
+          "expr": "sum(increase(aimemory_captures_total{project=~\"$project\", collection=~\"$collection\"}[1h])) by (collection)",
           "refId": "A",
           "legendFormat": "{{collection}}"
         }
@@ -180,7 +180,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_retrievals_total{project=~\"$project\", collection=~\"$collection\"}[5m])) by (collection)",
+          "expr": "sum(increase(aimemory_retrievals_total{project=~\"$project\", collection=~\"$collection\"}[1h])) by (collection)",
           "refId": "A",
           "legendFormat": "{{collection}}"
         }
@@ -356,7 +356,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_dedup_check_duration_seconds_bucket{project=~\"$project\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_dedup_check_duration_seconds_bucket{project=~\"$project\"}[1h])) by (le))",
           "refId": "A",
           "legendFormat": "p95"
         }
@@ -417,7 +417,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_dedup_events_total{action=\"skipped_duplicate\", project=~\"$project\"}[5m])) / (sum(rate(aimemory_dedup_events_total{project=~\"$project\"}[5m])) > 0) * 100 or vector(0)",
+          "expr": "sum(increase(aimemory_dedup_events_total{action=\"skipped_duplicate\", project=~\"$project\"}[1h])) / (sum(increase(aimemory_dedup_events_total{project=~\"$project\"}[1h])) > 0) * 100 or vector(0)",
           "refId": "A",
           "legendFormat": "Dedup %"
         }
@@ -478,7 +478,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_context_injection_tokens_sum{project=~\"$project\"}[5m])) by (hook_type)",
+          "expr": "sum(increase(aimemory_context_injection_tokens_sum{project=~\"$project\"}[1h])) by (hook_type)",
           "refId": "A",
           "legendFormat": "{{hook_type}}"
         }
@@ -592,17 +592,17 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_captures_total{status=\"success\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_captures_total{status=\"success\", project=~\"$project\"}[1h]))",
           "refId": "A",
           "legendFormat": "Success"
         },
         {
-          "expr": "sum(rate(aimemory_captures_total{status=\"queued\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_captures_total{status=\"queued\", project=~\"$project\"}[1h]))",
           "refId": "B",
           "legendFormat": "Queued"
         },
         {
-          "expr": "sum(rate(aimemory_captures_total{status=\"failed\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_captures_total{status=\"failed\", project=~\"$project\"}[1h]))",
           "refId": "C",
           "legendFormat": "Failed"
         }
@@ -699,17 +699,17 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_retrievals_total{status=\"success\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_retrievals_total{status=\"success\", project=~\"$project\"}[1h]))",
           "refId": "A",
           "legendFormat": "Success"
         },
         {
-          "expr": "sum(rate(aimemory_retrievals_total{status=\"empty\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_retrievals_total{status=\"empty\", project=~\"$project\"}[1h]))",
           "refId": "B",
           "legendFormat": "Empty"
         },
         {
-          "expr": "sum(rate(aimemory_retrievals_total{status=\"failed\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_retrievals_total{status=\"failed\", project=~\"$project\"}[1h]))",
           "refId": "C",
           "legendFormat": "Failed"
         }
@@ -998,7 +998,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_chunking_operations_total{project=~\"$project\"}[5m])) by (chunk_type)",
+          "expr": "sum(increase(aimemory_chunking_operations_total{project=~\"$project\"}[1h])) by (chunk_type)",
           "refId": "A",
           "legendFormat": "{{chunk_type}}"
         }
@@ -1102,7 +1102,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_chunking_duration_seconds_bucket{project=~\"$project\"}[5m])) by (le, chunk_type))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_chunking_duration_seconds_bucket{project=~\"$project\"}[1h])) by (le, chunk_type))",
           "refId": "A",
           "legendFormat": "{{chunk_type}} p95"
         }
@@ -1302,12 +1302,12 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_embedding_batch_duration_seconds_count{project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_embedding_batch_duration_seconds_count{project=~\"$project\"}[1h]))",
           "refId": "A",
           "legendFormat": "Batch"
         },
         {
-          "expr": "sum(rate(aimemory_embedding_realtime_duration_seconds_count{project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_embedding_realtime_duration_seconds_count{project=~\"$project\"}[1h]))",
           "refId": "B",
           "legendFormat": "Realtime"
         }
@@ -1389,12 +1389,12 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_embedding_batch_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_batch_duration_seconds_bucket[1h])) by (le))",
           "refId": "A",
           "legendFormat": "Batch p95"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_embedding_realtime_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])) by (le))",
           "refId": "B",
           "legendFormat": "Realtime p95"
         },
@@ -1598,7 +1598,7 @@
       },
       "targets": [
         {
-          "expr": "(sum(rate(aimemory_embedding_batch_duration_seconds_sum[5m])) + sum(rate(aimemory_embedding_realtime_duration_seconds_sum[5m]))) / (sum(rate(aimemory_embedding_batch_duration_seconds_count[5m])) + sum(rate(aimemory_embedding_realtime_duration_seconds_count[5m])))",
+          "expr": "(sum(increase(aimemory_embedding_batch_duration_seconds_sum[1h])) + sum(increase(aimemory_embedding_realtime_duration_seconds_sum[1h]))) / (sum(increase(aimemory_embedding_batch_duration_seconds_count[1h])) + sum(increase(aimemory_embedding_realtime_duration_seconds_count[1h])))",
           "refId": "A",
           "legendFormat": "Avg Latency"
         }
