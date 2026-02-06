@@ -60,6 +60,12 @@ try:
 except ImportError:
     memory_captures_total = None
 
+# TECH-DEBT-075: Import push metrics for Pushgateway
+try:
+    from memory.metrics_push import push_capture_metrics_async
+except ImportError:
+    push_capture_metrics_async = None
+
 # CR-1.2, CR-1.3, CR-1.4: Use consolidated utility functions
 from memory.hooks_common import get_hook_timeout, log_to_activity
 from memory.queue import queue_operation
@@ -252,7 +258,7 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             },
         )
 
-        # Metrics: Increment capture counter
+        # Metrics: Increment capture counter (local)
         if memory_captures_total:
             memory_captures_total.labels(
                 hook_type="PostToolUse_Error",
@@ -260,6 +266,16 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 project=group_id or "unknown",
                 collection="code-patterns",
             ).inc()
+
+        # TECH-DEBT-075: Push metrics to Pushgateway
+        if push_capture_metrics_async:
+            push_capture_metrics_async(
+                hook_type="PostToolUse_Error",
+                status="success",
+                project=group_id or "unknown",
+                collection="code-patterns",
+                count=1,
+            )
 
     except ResponseHandlingException as e:
         # CR-1.2, CR-1.3: Use consolidated functions
@@ -296,21 +312,31 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             "storage_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
-        # Metrics: Increment capture counter for failures
-        if memory_captures_total:
-            try:
-                project = error_context.get("cwd", "unknown")
-                if project != "unknown":
-                    project = detect_project(project)
-            except Exception:
-                project = "unknown"
+        # Metrics: Increment capture counter for failures (local)
+        try:
+            project = error_context.get("cwd", "unknown")
+            if project != "unknown":
+                project = detect_project(project)
+        except Exception:
+            project = "unknown"
 
+        if memory_captures_total:
             memory_captures_total.labels(
                 hook_type="PostToolUse_Error",
                 status="failed",
                 project=project,
                 collection="code-patterns",
             ).inc()
+
+        # TECH-DEBT-075: Push metrics to Pushgateway
+        if push_capture_metrics_async:
+            push_capture_metrics_async(
+                hook_type="PostToolUse_Error",
+                status="failed",
+                project=project,
+                collection="code-patterns",
+                count=1,
+            )
 
         queue_operation(error_context, "unexpected_error")
 

@@ -66,10 +66,15 @@ from memory.config import COLLECTION_CONVENTIONS, VALID_AGENTS
 
 logger = setup_hook_logging("ai_memory.hooks")
 
-# Import metrics using shared utility (CR-4 Wave 2)
-memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = (
-    get_metrics()
-)
+# Import metrics using shared utility (CR-4 Wave 2, TECH-DEBT-142: Remove local hook_duration_seconds)
+memory_retrievals_total, retrieval_duration_seconds, _ = get_metrics()
+
+# TECH-DEBT-142: Import push metrics for Pushgateway
+try:
+    from memory.metrics_push import push_hook_metrics_async, push_retrieval_metrics_async
+except ImportError:
+    push_hook_metrics_async = None
+    push_retrieval_metrics_async = None
 
 
 def detect_component_from_path(file_path: str) -> tuple[str, str]:
@@ -416,10 +421,24 @@ def main() -> int:
                 ).inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
-            if hook_duration_seconds:
-                hook_duration_seconds.labels(
-                    hook_type="PreToolUse", status="success", project=project_name
-                ).observe(duration_ms / 1000.0)
+
+            # TECH-DEBT-075: Push retrieval metrics to Pushgateway
+            if push_retrieval_metrics_async:
+                push_retrieval_metrics_async(
+                    collection="code-patterns",
+                    status="success" if matches else "empty",
+                    duration_seconds=duration_ms / 1000.0,
+                    project=project_name,
+                )
+
+            # TECH-DEBT-142: Push hook duration to Pushgateway
+            if push_hook_metrics_async:
+                push_hook_metrics_async(
+                    hook_name="UserPromptSubmit",
+                    duration_seconds=duration_ms / 1000.0,
+                    success=True,
+                    project=project_name,
+                )
 
         finally:
             search.close()
@@ -440,11 +459,16 @@ def main() -> int:
                 status="failed",
                 project=proj,
             ).inc()
-        if hook_duration_seconds:
-            duration_seconds = (time.perf_counter() - start_time) / 1000.0
-            hook_duration_seconds.labels(
-                hook_type="PreToolUse", status="error", project=proj
-            ).observe(duration_seconds)
+
+        # TECH-DEBT-142: Push hook duration to Pushgateway (error case)
+        if push_hook_metrics_async:
+            duration_seconds = time.perf_counter() - start_time
+            push_hook_metrics_async(
+                hook_name="UserPromptSubmit",
+                duration_seconds=duration_seconds,
+                success=False,
+                project=proj,
+            )
 
         return 0  # Always exit 0 - graceful degradation
 

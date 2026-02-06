@@ -5,16 +5,72 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.4] - 2026-02-06
 
-### Changed
-- (No changes yet)
-
-### Added
-- (No additions yet)
+v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003).
 
 ### Fixed
-- (No fixes yet)
+
+#### Phase 1: Infrastructure + Documentation
+- **BUG-060**: Grafana dashboards using wrong metric prefix (`ai_memory_` → `aimemory_`)
+  - Updated 10 dashboard JSON files with correct `aimemory_` prefix per BP-045
+- **BUG-061**: Grafana dashboards using `rate[5m]` which shows nothing with infrequent pushes
+  - Switched to `increase[1h]` for counter panels across all dashboards
+- **BUG-063**: Hardcoded bcrypt hash in `docker/prometheus/web.yml`
+  - Replaced with valid bcrypt hash, cleaned comments
+- **TECH-DEBT-078**: Docker `.env.example` had real credentials as placeholder values
+  - Replaced with safe placeholder values
+- **TECH-DEBT-081**: Grafana dashboard panels showing "No data" (auto-resolved by BUG-060/061 fixes)
+- **TECH-DEBT-093**: No authentication on Prometheus web interface
+  - `web.yml` now references valid bcrypt hash for basic auth
+- **TECH-DEBT-140**: Classifier metrics missing `project` label for multi-tenancy
+  - Added `project` as first label to all 9 classifier Prometheus metrics
+  - Updated all 4 helper functions to accept and pass `project` parameter
+  - Added defensive `project_name = "unknown"` initialization
+- **README accuracy**: 6 factual fixes applied
+  - Broken `CLAUDE.md` reference → `CONTRIBUTING.md`
+  - Duplicate Quick Start sections consolidated
+  - Wrong method name (`send_message_streaming` → `send_message_buffered`)
+  - Outdated model IDs (`claude-3-5-sonnet-20241022` → `claude-sonnet-4-5-20250929`)
+  - Python version clarification (3.11+ required for AsyncSDKWrapper)
+  - Hook architecture diagram updated (unified keyword trigger, pluralized hook types)
+
+#### Phase 2: Metrics Pipeline + Hook Behavior + Quick Wins
+- **BUG-020**: Duplicate SessionStart entries after compact
+  - Implemented file-based deduplication lock (session_id + trigger key, 5s expiry)
+  - Second execution exits gracefully with empty context
+- **BUG-062**: NFR metrics not pushed to Pushgateway
+  - All hooks now use `push_hook_metrics_async()` instead of local metrics
+- **TECH-DEBT-072**: Collection size metrics not visible in Grafana
+  - Monitoring API now pushes `aimemory_collection_size` to Pushgateway
+  - Includes both total and per-project breakdown
+- **TECH-DEBT-073**: Missing `hook_type` labels on duration metrics
+  - All hooks now push duration with correct `hook_type` label via `track_hook_duration()`
+  - SessionStart verified (already correct)
+- **TECH-DEBT-074**: Incomplete trigger type labels
+  - Verified all trigger scripts push correct `trigger_type` values
+- **TECH-DEBT-075**: Missing `collection` label on capture metrics
+  - Verified capture hooks pass correct collection parameter
+- **TECH-DEBT-085**: Documentation still references "BMAD Memory" product name
+  - Renamed product references to "AI Memory" in 6+ docs files
+  - Preserved BMAD Method/workflow methodology references
+  - Updated env var names, container names, and metric names in docs
+- **TECH-DEBT-091**: Logging truncation violates architecture principle
+  - Removed `content[:50]` truncation in 2 structured log fields
+  - Removed `conversation_context[:200]` truncation in activity log
+- **TECH-DEBT-141**: `VALID_HOOK_TYPES` missing 3 hook type values
+  - Added `PreToolUse_FirstEdit`, `PostToolUse_Error`, `PostToolUse_ErrorDetection`
+- **TECH-DEBT-142**: Hooks using local Prometheus metrics instead of Pushgateway push
+  - Converted all hook scripts from local `hook_duration_seconds` to push-based metrics
+  - Removed dead local metric imports/definitions from 10 hook scripts
+
+### Changed
+- Dashboard hook_type labels standardized to PascalCase across all Grafana panels
+- Classifier `record_classification()` and `record_fallback()` now require `project` parameter
+- Monitoring API `update_metrics_periodically()` now pushes to Pushgateway alongside in-process gauges
+
+### Known Gaps
+- **TECH-DEBT-077** (partial): `/save-memory` has activity logging; `/search-memory` and `/memory-status` skills are markdown-only with no hook scripts to add logging to. Deferred to future sprint.
 
 ## 2.0.3 - 2026-02-05
 
@@ -160,7 +216,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.2...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.4...HEAD
+[2.0.4]: https://github.com/Hidden-History/ai-memory/compare/v2.0.3...v2.0.4
 [2.0.2]: https://github.com/Hidden-History/ai-memory/compare/v2.0.0...v2.0.2
 [1.0.1]: https://github.com/Hidden-History/ai-memory/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Hidden-History/ai-memory/releases/tag/v1.0.0

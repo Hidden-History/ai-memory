@@ -43,12 +43,12 @@ logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False
 
-# Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
+# Import push metrics for Pushgateway (TECH-DEBT-142)
 try:
-    from memory.metrics import hook_duration_seconds
+    from memory.metrics_push import track_hook_duration
     from memory.storage import detect_project
 except ImportError:
-    hook_duration_seconds = None
+    track_hook_duration = None
     detect_project = None
 
 
@@ -223,134 +223,129 @@ def main() -> int:
     Returns:
         Exit code: 0 (success) or 1 (non-blocking error)
     """
-    global hook_duration_seconds
-    start_time = time.perf_counter()
+    import contextlib
 
-    # Late import of metrics after sys.path is configured (Story 6.1, AC 6.1.3)
+    # TECH-DEBT-142: Late import of push metrics after sys.path is configured
+    track_hook_duration_func = None
+    detect_project_func = None
     try:
         script_dir = Path(__file__).parent
         project_root = script_dir.parent.parent.parent
         local_src = project_root / "src"
         if local_src.exists():
             sys.path.insert(0, str(local_src))
-        from memory.metrics import hook_duration_seconds as _hook_metric
+        from memory.metrics_push import track_hook_duration
+        from memory.storage import detect_project
 
-        hook_duration_seconds = _hook_metric
+        track_hook_duration_func = track_hook_duration
+        detect_project_func = detect_project
     except ImportError:
-        logger.warning("metrics_module_unavailable")
-        hook_duration_seconds = None
+        logger.warning("metrics_push_module_unavailable")
 
-    try:
-        # Read hook input from stdin (Claude Code convention)
-        raw_input = sys.stdin.read()
+    # Detect project for metrics
+    project = detect_project_func(os.getcwd()) if detect_project_func else "unknown"
 
-        # AC 2.1.3: Handle malformed JSON (FR34)
+    # HIGH-1 FIX: Use proper with statement to ensure __exit__() on all paths
+    cm = track_hook_duration_func("PostToolUse", project=project) if track_hook_duration_func else contextlib.nullcontext()
+
+    with cm:
         try:
-            hook_input = json.loads(raw_input)
-        except json.JSONDecodeError as e:
-            logger.error(
-                "malformed_json",
-                extra={"error": str(e), "input_preview": raw_input[:100]},
-            )
-            return 0  # Non-blocking - Claude continues
+            # Read hook input from stdin (Claude Code convention)
+            raw_input = sys.stdin.read()
 
-        # AC 2.1.3: Validate schema
-        validation_error = validate_hook_input(hook_input)
-        if validation_error:
-            logger.info(
-                "validation_failed",
-                extra={
-                    "reason": validation_error,
-                    "tool_name": hook_input.get("tool_name"),
-                    "tool_status": hook_input.get("tool_status"),
-                },
-            )
-            return 0  # Non-blocking - graceful handling
-
-        # TECH-DEBT-010: Extract content and log to activity before fork
-        tool_name = hook_input.get("tool_name", "")
-        tool_input = hook_input.get("tool_input", {})
-        tool_response = hook_input.get("tool_response", {})
-
-        # Extract file path (F3: tool-specific path extraction)
-        if tool_name == "NotebookEdit":
-            file_path = tool_input.get("notebook_path", "")
-        else:
-            file_path = tool_response.get("filePath") or tool_input.get("file_path", "")
-
-        # Extract content based on tool type
-        content = ""
-        if tool_name == "Edit":
-            content = tool_input.get("new_string", "")
-        elif tool_name == "Write":
-            content = tool_input.get("content", "")
-        elif tool_name == "NotebookEdit":
-            content = tool_input.get("new_source", "")
-
-        # Log full content with metadata if we have both file path and content
-        if file_path and content:
-            language = detect_language(file_path)
-            content_lines = len(content.split("\n"))
-
-            # Build multi-line activity log entry
-            log_message = "📥 PostToolUse captured implementation:\n"
-            log_message += f"  File: {file_path}\n"
-            log_message += f"  Tool: {tool_name} | Language: {language}\n"
-            log_message += f"  Lines: {content_lines}\n"
-            log_message += "  Content:\n"
-
-            # F1: Limit to first 100 lines to prevent disk exhaustion
-            MAX_LINES = 100
-            for line in content.split("\n")[:MAX_LINES]:
-                log_message += f"    {line}\n"
-
-            if content_lines > MAX_LINES:
-                log_message += (
-                    f"    ... [TRUNCATED: {content_lines - MAX_LINES} more lines]\n"
+            # AC 2.1.3: Handle malformed JSON (FR34)
+            try:
+                hook_input = json.loads(raw_input)
+            except json.JSONDecodeError as e:
+                logger.error(
+                    "malformed_json",
+                    extra={"error": str(e), "input_preview": raw_input[:100]},
                 )
+                return 0  # Non-blocking - Claude continues
 
-            _log_to_activity(log_message)
+            # AC 2.1.3: Validate schema
+            validation_error = validate_hook_input(hook_input)
+            if validation_error:
+                logger.info(
+                    "validation_failed",
+                    extra={
+                        "reason": validation_error,
+                        "tool_name": hook_input.get("tool_name"),
+                        "tool_status": hook_input.get("tool_status"),
+                    },
+                )
+                return 0  # Non-blocking - graceful handling
 
-        # AC 2.1.1: Fork to background for <500ms performance
-        fork_to_background(hook_input)
+            # TECH-DEBT-010: Extract content and log to activity before fork
+            tool_name = hook_input.get("tool_name", "")
+            tool_input = hook_input.get("tool_input", {})
+            tool_response = hook_input.get("tool_response", {})
 
-        # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
-        file_path = hook_input.get("tool_response", {}).get("filePath", "")
-        file_name = file_path.split("/")[-1] if file_path else "file"
-        tool_name = hook_input.get("tool_name", "Edit")
-        message = f"📥 AI Memory: Capturing {file_name} (via {tool_name})"
-        print(json.dumps({"systemMessage": message}))
-        sys.stdout.flush()  # Ensure output is flushed before exit
+            # Extract file path (F3: tool-specific path extraction)
+            if tool_name == "NotebookEdit":
+                file_path = tool_input.get("notebook_path", "")
+            else:
+                file_path = tool_response.get("filePath") or tool_input.get("file_path", "")
 
-        # Activity log handled by _log_to_activity() above (TECH-DEBT-010)
-        # Old log_capture() call removed - full content logging now in place
+            # Extract content based on tool type
+            content = ""
+            if tool_name == "Edit":
+                content = tool_input.get("new_string", "")
+            elif tool_name == "Write":
+                content = tool_input.get("content", "")
+            elif tool_name == "NotebookEdit":
+                content = tool_input.get("new_source", "")
 
-        # Metrics: Record hook duration (Story 6.1, AC 6.1.3)
-        if hook_duration_seconds:
-            duration_seconds = time.perf_counter() - start_time
-            project = detect_project(os.getcwd()) if detect_project else "unknown"
-            hook_duration_seconds.labels(
-                hook_type="PostToolUse", status="success", project=project
-            ).observe(duration_seconds)
+            # Log full content with metadata if we have both file path and content
+            if file_path and content:
+                language = detect_language(file_path)
+                content_lines = len(content.split("\n"))
 
-        # AC 2.1.1: Exit immediately after fork (NFR-P1)
-        return 0
+                # Build multi-line activity log entry
+                log_message = "📥 PostToolUse captured implementation:\n"
+                log_message += f"  File: {file_path}\n"
+                log_message += f"  Tool: {tool_name} | Language: {language}\n"
+                log_message += f"  Lines: {content_lines}\n"
+                log_message += "  Content:\n"
 
-    except Exception as e:
-        # Catch-all for unexpected errors
-        logger.error(
-            "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
-        )
+                # F1: Limit to first 100 lines to prevent disk exhaustion
+                MAX_LINES = 100
+                for line in content.split("\n")[:MAX_LINES]:
+                    log_message += f"    {line}\n"
 
-        # Metrics: Record hook duration even on error (Story 6.1, AC 6.1.3)
-        if hook_duration_seconds:
-            duration_seconds = time.perf_counter() - start_time
-            project = detect_project(os.getcwd()) if detect_project else "unknown"
-            hook_duration_seconds.labels(
-                hook_type="PostToolUse", status="error", project=project
-            ).observe(duration_seconds)
+                if content_lines > MAX_LINES:
+                    log_message += (
+                        f"    ... [TRUNCATED: {content_lines - MAX_LINES} more lines]\n"
+                    )
 
-        return 1  # Non-blocking error
+                _log_to_activity(log_message)
+
+            # AC 2.1.1: Fork to background for <500ms performance
+            fork_to_background(hook_input)
+
+            # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
+            file_path = hook_input.get("tool_response", {}).get("filePath", "")
+            file_name = file_path.split("/")[-1] if file_path else "file"
+            tool_name = hook_input.get("tool_name", "Edit")
+            message = f"📥 AI Memory: Capturing {file_name} (via {tool_name})"
+            print(json.dumps({"systemMessage": message}))
+            sys.stdout.flush()  # Ensure output is flushed before exit
+
+            # Activity log handled by _log_to_activity() above (TECH-DEBT-010)
+            # Old log_capture() call removed - full content logging now in place
+
+            # AC 2.1.1: Exit immediately after fork (NFR-P1)
+            # HIGH-1 FIX: Context manager automatically calls __exit__() on return
+            return 0
+
+        except Exception as e:
+            # Catch-all for unexpected errors
+            logger.error(
+                "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
+            )
+
+            # HIGH-1 FIX: Context manager automatically calls __exit__() on exception
+            return 1  # Non-blocking error
 
 
 if __name__ == "__main__":

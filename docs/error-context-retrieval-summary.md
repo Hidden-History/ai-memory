@@ -169,7 +169,7 @@ For complete error learning, use both hooks:
 }
 ```
 
-## Installation via BMAD Install Script
+## Installation via AI Memory Install Script
 
 When running `./scripts/install.sh /path/to/project`, the hook will be:
 

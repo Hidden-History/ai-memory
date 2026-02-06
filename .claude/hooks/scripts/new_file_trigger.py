@@ -46,10 +46,14 @@ from memory.metrics_push import track_hook_duration
 
 logger = setup_hook_logging()
 
-# CR-2 FIX: Use consolidated metrics import
-memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = (
-    get_metrics()
-)
+# CR-2 FIX: Use consolidated metrics import (TECH-DEBT-142: Remove local hook_duration_seconds)
+memory_retrievals_total, retrieval_duration_seconds, _ = get_metrics()
+
+# TECH-DEBT-075: Import push retrieval metrics for Pushgateway
+try:
+    from memory.metrics_push import push_retrieval_metrics_async
+except ImportError:
+    push_retrieval_metrics_async = None
 
 # Display formatting constants
 MAX_CONTENT_CHARS = 400  # Maximum characters to show in context output
@@ -262,12 +266,17 @@ def main() -> int:
                     ).inc()
                 if retrieval_duration_seconds:
                     retrieval_duration_seconds.observe(duration_ms / 1000.0)
-                if hook_duration_seconds:
-                    hook_duration_seconds.labels(
-                        hook_type="PreToolUse_NewFile",
-                        status="success",
+
+                # TECH-DEBT-075: Push retrieval metrics to Pushgateway
+                if push_retrieval_metrics_async:
+                    push_retrieval_metrics_async(
+                        collection="conventions",
+                        status="success" if conventions else "empty",
+                        duration_seconds=duration_ms / 1000.0,
                         project=project_name,
-                    ).observe(duration_ms / 1000.0)
+                    )
+
+                # TECH-DEBT-142: Hook duration already tracked by track_hook_duration context manager
 
                 # Push trigger metrics to Pushgateway
                 from memory.metrics_push import push_trigger_metrics_async
@@ -299,13 +308,8 @@ def main() -> int:
                     status="failed",
                     project=proj,
                 ).inc()
-            if hook_duration_seconds:
-                duration_seconds = time.perf_counter() - start_time
-                hook_duration_seconds.labels(
-                    hook_type="PreToolUse_NewFile",
-                    status="error",
-                    project=proj,
-                ).observe(duration_seconds)
+
+            # TECH-DEBT-142: Hook duration (including error) already tracked by track_hook_duration context manager
 
             # Push failure metrics
             from memory.metrics_push import push_trigger_metrics_async

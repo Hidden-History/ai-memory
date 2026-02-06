@@ -48,12 +48,12 @@ logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False
 
-# Import metrics for Prometheus instrumentation
+# TECH-DEBT-142: Import push metrics for Pushgateway
 try:
-    from memory.metrics import hook_duration_seconds
+    from memory.metrics_push import track_hook_duration
     from memory.storage import detect_project
 except ImportError:
-    hook_duration_seconds = None
+    track_hook_duration = None
     detect_project = None
 
 
@@ -323,97 +323,92 @@ def main() -> int:
     Returns:
         Exit code: 0 (success) or 1 (non-blocking error)
     """
-    global hook_duration_seconds
-    start_time = time.perf_counter()
+    import contextlib
 
-    # Late import of metrics
+    # TECH-DEBT-142: Late import of push metrics
+    track_hook_duration_func = None
+    detect_project_func = None
     try:
         script_dir = Path(__file__).parent
         project_root = script_dir.parent.parent.parent
         local_src = project_root / "src"
         if local_src.exists():
             sys.path.insert(0, str(local_src))
-        from memory.metrics import hook_duration_seconds as _hook_metric
+        from memory.metrics_push import track_hook_duration
+        from memory.storage import detect_project
 
-        hook_duration_seconds = _hook_metric
+        track_hook_duration_func = track_hook_duration
+        detect_project_func = detect_project
     except ImportError:
-        logger.warning("metrics_module_unavailable")
-        hook_duration_seconds = None
+        logger.warning("metrics_push_module_unavailable")
 
-    try:
-        # Read hook input from stdin
-        raw_input = sys.stdin.read()
+    # Detect project for metrics
+    project = detect_project_func(os.getcwd()) if detect_project_func else "unknown"
 
-        # Parse JSON
+    # HIGH-2 FIX: Use proper with statement to ensure __exit__() on all paths
+    cm = track_hook_duration_func("PostToolUse_Error", project=project) if track_hook_duration_func else contextlib.nullcontext()
+
+    with cm:
         try:
-            hook_input = json.loads(raw_input)
-        except json.JSONDecodeError as e:
-            logger.error(
-                "malformed_json",
-                extra={"error": str(e), "input_preview": raw_input[:100]},
+            # Read hook input from stdin
+            raw_input = sys.stdin.read()
+
+            # Parse JSON
+            try:
+                hook_input = json.loads(raw_input)
+            except json.JSONDecodeError as e:
+                logger.error(
+                    "malformed_json",
+                    extra={"error": str(e), "input_preview": raw_input[:100]},
+                )
+                return 0  # Non-blocking
+
+            # Validate schema
+            validation_error = validate_hook_input(hook_input)
+            if validation_error:
+                logger.info(
+                    "validation_failed",
+                    extra={
+                        "reason": validation_error,
+                        "tool_name": hook_input.get("tool_name"),
+                    },
+                )
+                return 0  # Non-blocking
+
+            # Extract error context
+            error_context = extract_error_context(hook_input)
+
+            if error_context is None:
+                # No error detected - normal completion
+                return 0
+
+            # Fork to background
+            fork_to_background(error_context)
+
+            # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
+            error_msg = error_context.get("error_message", "Unknown error")
+            message = f"🔴 AI Memory: Captured error pattern: {error_msg}"
+            print(json.dumps({"systemMessage": message}))
+            sys.stdout.flush()  # Ensure output is flushed before exit
+
+            # Activity log with proper error icon (no truncation)
+            log_error_capture(
+                command=error_context.get("command", ""),
+                error_msg=error_msg,
+                exit_code=error_context.get("exit_code", -1),
+                output=error_context.get("output", ""),
             )
-            return 0  # Non-blocking
 
-        # Validate schema
-        validation_error = validate_hook_input(hook_input)
-        if validation_error:
-            logger.info(
-                "validation_failed",
-                extra={
-                    "reason": validation_error,
-                    "tool_name": hook_input.get("tool_name"),
-                },
-            )
-            return 0  # Non-blocking
-
-        # Extract error context
-        error_context = extract_error_context(hook_input)
-
-        if error_context is None:
-            # No error detected - normal completion
+            # HIGH-2 FIX: Context manager automatically calls __exit__() on return
             return 0
 
-        # Fork to background
-        fork_to_background(error_context)
+        except Exception as e:
+            logger.error(
+                "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
+            )
 
-        # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
-        error_msg = error_context.get("error_message", "Unknown error")
-        message = f"🔴 AI Memory: Captured error pattern: {error_msg}"
-        print(json.dumps({"systemMessage": message}))
-        sys.stdout.flush()  # Ensure output is flushed before exit
-
-        # Activity log with proper error icon (no truncation)
-        log_error_capture(
-            command=error_context.get("command", ""),
-            error_msg=error_msg,
-            exit_code=error_context.get("exit_code", -1),
-            output=error_context.get("output", ""),
-        )
-
-        # Metrics: Record hook duration
-        if hook_duration_seconds:
-            duration_seconds = time.perf_counter() - start_time
-            project = detect_project(os.getcwd()) if detect_project else "unknown"
-            hook_duration_seconds.labels(
-                hook_type="PostToolUse_Error", status="success", project=project
-            ).observe(duration_seconds)
-
-        return 0
-
-    except Exception as e:
-        logger.error(
-            "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
-        )
-
-        # Metrics: Record hook duration even on error
-        if hook_duration_seconds:
-            duration_seconds = time.perf_counter() - start_time
-            project = detect_project(os.getcwd()) if detect_project else "unknown"
-            hook_duration_seconds.labels(
-                hook_type="PostToolUse_Error", status="error", project=project
-            ).observe(duration_seconds)
-
-        return 1  # Non-blocking error
+            # HIGH-2 FIX: Context manager automatically calls __exit__() on exception
+            return 1  # Non-blocking error
 
 
 if __name__ == "__main__":

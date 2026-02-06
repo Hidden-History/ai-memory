@@ -186,9 +186,7 @@ def inject_with_priority(
                 logger.debug(
                     "summary_skipped_budget_exceeded",
                     extra={
-                        "summary_preview": (
-                            content[:50] + "..." if len(content) > 50 else content
-                        ),
+                        "summary_content": content,
                         "summary_tokens": summary_tokens,
                         "budget_remaining": summary_budget - tokens_used,
                         "summary_index": summaries_added,
@@ -363,9 +361,7 @@ def inject_with_priority(
                 logger.debug(
                     "memory_skipped_budget_exceeded",
                     extra={
-                        "memory_preview": (
-                            content[:50] + "..." if len(content) > 50 else content
-                        ),
+                        "memory_content": content,
                         "memory_type": memory_type,
                         "memory_tokens": memory_tokens,
                         "budget_remaining": token_budget - tokens_used,
@@ -602,6 +598,48 @@ def main():
             )  # startup, resume, compact, clear
             project_name = detect_project(cwd)  # FR13 - automatic project detection
 
+            # BUG-020: Deduplication lock to prevent double execution
+            import tempfile
+
+            lock_key = f"{session_id}_{trigger}"
+            lock_dir = os.path.join(tempfile.gettempdir(), "ai-memory-locks")
+            os.makedirs(lock_dir, exist_ok=True)
+            lock_file_path = os.path.join(lock_dir, f"session_start_{lock_key}.lock")
+
+            # Check if lock exists and is recent (within 5 seconds)
+            try:
+                if os.path.exists(lock_file_path):
+                    lock_age = time.time() - os.path.getmtime(lock_file_path)
+                    if lock_age < 5.0:
+                        logger.info(
+                            "session_start_dedup_skipped",
+                            extra={
+                                "session_id": session_id,
+                                "trigger": trigger,
+                                "lock_age_seconds": lock_age,
+                                "pid": os.getpid(),
+                            },
+                        )
+                        # Output empty context so Claude proceeds normally
+                        print(
+                            json.dumps(
+                                {
+                                    "hookSpecificOutput": {
+                                        "hookEventName": "SessionStart",
+                                        "additionalContext": "",
+                                    }
+                                }
+                            )
+                        )
+                        sys.exit(0)
+
+                # Acquire lock - write current PID
+                with open(lock_file_path, "w") as lf:
+                    lf.write(str(os.getpid()))
+            except OSError:
+                # Lock mechanism failure should never block Claude startup
+                logger.debug("dedup_lock_failed", extra={"error": "OSError"})
+
             # BUG-020 DEBUG: Log every hook invocation to detect duplicates
             logger.debug(
                 "session_start_invoked",
@@ -635,6 +673,14 @@ def main():
                         }
                     )
                 )
+
+                # BUG-020: Clean up dedup lock
+                try:
+                    if os.path.exists(lock_file_path):
+                        os.remove(lock_file_path)
+                except OSError:
+                    pass  # Best effort cleanup
+
                 sys.exit(0)
 
             # V2.0 Phase 5: Inject on resume and compact (conversation continuity)
@@ -669,6 +715,14 @@ def main():
                         }
                     )
                 )
+
+                # BUG-020: Clean up dedup lock
+                try:
+                    if os.path.exists(lock_file_path):
+                        os.remove(lock_file_path)
+                except OSError:
+                    pass  # Best effort cleanup
+
                 sys.exit(0)
 
             # On resume or compact: Inject conversation context to restore working memory
@@ -843,7 +897,7 @@ def main():
                     summary_count=summary_count,
                     duration_ms=duration_ms,
                     context_preview=(
-                        conversation_context[:200] if conversation_context else ""
+                        conversation_context if conversation_context else ""
                     ),
                 )
 
@@ -915,6 +969,14 @@ def main():
                     }
                 }
                 print(json.dumps(output))
+
+                # BUG-020: Clean up dedup lock
+                try:
+                    if os.path.exists(lock_file_path):
+                        os.remove(lock_file_path)
+                except OSError:
+                    pass  # Best effort cleanup
+
                 sys.exit(0)
             else:
                 # No conversation context available (new session or no prior conversation)
@@ -944,6 +1006,14 @@ def main():
                         }
                     )
                 )
+
+                # BUG-020: Clean up dedup lock
+                try:
+                    if os.path.exists(lock_file_path):
+                        os.remove(lock_file_path)
+                except OSError:
+                    pass  # Best effort cleanup
+
                 sys.exit(0)
 
         except Exception as e:
