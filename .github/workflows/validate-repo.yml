@@ -1,0 +1,72 @@
+---
+name: Repo Integrity Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-structure:
+    name: Validate Repo Structure
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for pov-oversight-agent contamination
+        run: |
+          FOUND=0
+          if [ -d "pov" ]; then
+            echo "::error::Found 'pov/' directory (belongs to pov-oversight-agent)"
+            FOUND=1
+          fi
+          for file in install-windows.bat pov-parzival.customize.yaml \
+                      ESCALATION-ADOPTION-GUIDE.md \
+                      IMPLEMENTATION-PLAN-SUBAGENT-ENHANCEMENTS.md \
+                      INSTALL-GUIDE.md; do
+            if [ -f "$file" ]; then
+              echo "::error::Found '$file' (belongs to pov-oversight-agent)"
+              FOUND=1
+            fi
+          done
+          if [ $FOUND -ne 0 ]; then exit 1; fi
+          echo "No POV contamination found."
+
+      - name: Check for workspace-only files
+        run: |
+          FOUND=0
+          for dir in oversight _bmad _bmad-output; do
+            if [ -d "$dir" ]; then
+              echo "::error::Found '$dir/' (workspace-only)"
+              FOUND=1
+            fi
+          done
+          if [ $FOUND -ne 0 ]; then exit 1; fi
+          echo "No workspace contamination found."
+
+      - name: Check for absolute workspace paths
+        run: |
+          if grep -rn --include='*.py' --include='*.md' --include='*.yaml' \
+                      --include='*.yml' --include='*.sh' --include='*.json' \
+                      --include='*.toml' --include='*.ts' \
+                      -E '/mnt/e/projects/|/dev-multi-agent/' . 2>/dev/null | \
+                      grep -v 'scripts/git-hooks/pre-commit'; then
+            echo "::error::Absolute workspace paths found in committed files"
+            exit 1
+          fi
+          echo "No absolute workspace paths found."
+
+      - name: Validate expected structure
+        run: |
+          for item in src/ tests/ docker/ pyproject.toml .gitignore; do
+            if [ ! -e "$item" ]; then
+              echo "::error::Expected '$item' not found in ai-memory"
+              exit 1
+            fi
+          done
+          echo "Structure validation passed."

@@ -68,3 +68,13 @@ oversight/
 
 # Claude Code local settings (user-specific)
 .claude/settings.json
+
+# --- Cross-Contamination Guards ---
+# These patterns are unique to pov-oversight-agent and should never appear here
+pov/
+install-windows.bat
+pov-parzival.customize.yaml
+
+# --- Workspace-only directories ---
+_bmad/
+_bmad-output/
