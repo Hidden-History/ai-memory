@@ -32,6 +32,15 @@ from memory.hooks_common import log_to_activity, setup_hook_logging
 
 logger = setup_hook_logging()
 
+# TECH-DEBT-151: Smart truncation for user prompts (max 2000 tokens)
+try:
+    import tiktoken
+    from memory.chunking.truncation import smart_end
+    TRUNCATION_AVAILABLE = True
+except ImportError:
+    TRUNCATION_AVAILABLE = False
+    logger.warning("truncation_module_unavailable", extra={"module": "memory.chunking.truncation"})
+
 from memory.config import (
     COLLECTION_DISCUSSIONS,
     EMBEDDING_MODEL,
@@ -163,6 +172,61 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
             logger.info("empty_content_skipped", extra={"session_id": session_id})
             return True
 
+        # TECH-DEBT-151: Apply smart truncation for user prompts (max 2000 tokens)
+        # Per Chunking-Strategy-V2.md Section 2.4: user messages stored whole, max 2000 tokens
+        prompt_content = prompt
+        original_token_count = 0
+        truncated = False
+
+        if TRUNCATION_AVAILABLE:
+            try:
+                enc = tiktoken.get_encoding("cl100k_base")
+                original_token_count = len(enc.encode(prompt))
+
+                if original_token_count > 2000:
+                    # Apply smart_end truncation at sentence boundary
+                    prompt_content = smart_end(prompt, max_tokens=2000)
+                    truncated = True
+                    final_token_count = len(enc.encode(prompt_content))
+                    logger.info(
+                        "user_prompt_truncated",
+                        extra={
+                            "original_tokens": original_token_count,
+                            "final_tokens": final_token_count,
+                            "session_id": session_id,
+                        },
+                    )
+                else:
+                    final_token_count = original_token_count
+            except Exception as e:
+                logger.warning(
+                    "truncation_failed_using_original",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                )
+                prompt_content = prompt
+                truncated = False
+                # Estimate tokens if tiktoken fails
+                final_token_count = len(prompt) // 4
+                original_token_count = final_token_count
+        else:
+            # Truncation not available - estimate tokens
+            final_token_count = len(prompt) // 4
+            original_token_count = final_token_count
+
+        # Add chunking_metadata to payload (per Chunking-Strategy-V2.md Section 5)
+        payload["chunking_metadata"] = {
+            "chunk_type": "smart_end" if truncated else "whole",
+            "chunk_index": 0,
+            "total_chunks": 1,
+            "chunk_size_tokens": final_token_count,
+            "overlap_tokens": 0,
+            "original_size_tokens": original_token_count,
+            "truncated": truncated,
+        }
+
+        # Update content in payload with truncated version
+        payload["content"] = prompt_content
+
         # BUG-010 Fix: Generate embedding with retry for transient failures.
         # Per BP-023: retry → fallback → degradation. 2-3 retries before zero vector.
         # embedding_status="pending" allows backfill worker to retry later (TECH-DEBT-059).
@@ -181,7 +245,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 with EmbeddingClient(config) as embed_client:
                     return embed_client.embed([content])[0]
 
-            vector = _embed_with_retry(prompt)
+            vector = _embed_with_retry(prompt_content)  # Use truncated content
             payload["embedding_status"] = "complete"
             logger.info("embedding_generated", extra={"dimensions": len(vector)})
         except Exception as e:

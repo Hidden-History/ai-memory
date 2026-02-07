@@ -17,11 +17,15 @@ from .prose_chunker import ProseChunker, ProseChunkerConfig
 
 logger = logging.getLogger("ai_memory.chunking")
 
-# TECH-DEBT-089: Import metrics push for chunking instrumentation
-try:
-    from memory.metrics_push import push_chunking_metrics_async
-except ImportError:
-    push_chunking_metrics_async = None
+# TECH-DEBT-089: Lazy import to avoid circular dependency
+# (chunking/__init__.py -> metrics_push -> storage -> chunking/truncation)
+def _get_metrics_push():
+    """Lazy import of push_chunking_metrics_async to avoid circular import."""
+    try:
+        from memory.metrics_push import push_chunking_metrics_async
+        return push_chunking_metrics_async
+    except ImportError:
+        return None
 
 
 class IntelligentChunker:
@@ -209,6 +213,7 @@ class IntelligentChunker:
             # If AST chunking returned results, use them
             if chunks:
                 # TECH-DEBT-089: Push chunking metrics
+                push_chunking_metrics_async = _get_metrics_push()
                 if push_chunking_metrics_async:
                     duration = time.time() - chunk_start_time
                     push_chunking_metrics_async("ast", "unknown", len(chunks), duration)
@@ -242,6 +247,7 @@ class IntelligentChunker:
 
             if chunks:
                 # TECH-DEBT-089: Push chunking metrics
+                push_chunking_metrics_async = _get_metrics_push()
                 if push_chunking_metrics_async:
                     duration = time.time() - chunk_start_time
                     push_chunking_metrics_async(
@@ -266,6 +272,7 @@ class IntelligentChunker:
         )
 
         # TECH-DEBT-089: Push chunking metrics for whole content fallback
+        push_chunking_metrics_async = _get_metrics_push()
         if push_chunking_metrics_async:
             duration = time.time() - chunk_start_time
             # Use content_type.value for chunk_type when falling back

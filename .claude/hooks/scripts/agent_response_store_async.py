@@ -32,6 +32,15 @@ from memory.hooks_common import log_to_activity, setup_hook_logging
 
 logger = setup_hook_logging()
 
+# TECH-DEBT-151: Smart truncation for agent responses (max 3000 tokens)
+try:
+    import tiktoken
+    from memory.chunking.truncation import smart_end
+    TRUNCATION_AVAILABLE = True
+except ImportError:
+    TRUNCATION_AVAILABLE = False
+    logger.warning("truncation_module_unavailable", extra={"module": "memory.chunking.truncation"})
+
 from memory.config import (
     COLLECTION_DISCUSSIONS,
     EMBEDDING_MODEL,
@@ -164,6 +173,61 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
             logger.info("empty_content_skipped", extra={"session_id": session_id})
             return True
 
+        # TECH-DEBT-151: Apply smart truncation for agent responses (max 3000 tokens)
+        # Per Chunking-Strategy-V2.md Section 2.4: agent responses stored whole, max 3000 tokens
+        response_content = response_text
+        original_token_count = 0
+        truncated = False
+
+        if TRUNCATION_AVAILABLE:
+            try:
+                enc = tiktoken.get_encoding("cl100k_base")
+                original_token_count = len(enc.encode(response_text))
+
+                if original_token_count > 3000:
+                    # Apply smart_end truncation at sentence boundary
+                    response_content = smart_end(response_text, max_tokens=3000)
+                    truncated = True
+                    final_token_count = len(enc.encode(response_content))
+                    logger.info(
+                        "agent_response_truncated",
+                        extra={
+                            "original_tokens": original_token_count,
+                            "final_tokens": final_token_count,
+                            "session_id": session_id,
+                        },
+                    )
+                else:
+                    final_token_count = original_token_count
+            except Exception as e:
+                logger.warning(
+                    "truncation_failed_using_original",
+                    extra={"error": str(e), "error_type": type(e).__name__},
+                )
+                response_content = response_text
+                truncated = False
+                # Estimate tokens if tiktoken fails
+                final_token_count = len(response_text) // 4
+                original_token_count = final_token_count
+        else:
+            # Truncation not available - estimate tokens
+            final_token_count = len(response_text) // 4
+            original_token_count = final_token_count
+
+        # Add chunking_metadata to payload (per Chunking-Strategy-V2.md Section 5)
+        payload["chunking_metadata"] = {
+            "chunk_type": "smart_end" if truncated else "whole",
+            "chunk_index": 0,
+            "total_chunks": 1,
+            "chunk_size_tokens": final_token_count,
+            "overlap_tokens": 0,
+            "original_size_tokens": original_token_count,
+            "truncated": truncated,
+        }
+
+        # Update content in payload with truncated version
+        payload["content"] = response_content
+
         # BUG-010 Fix: Generate embedding with retry for transient failures.
         # Per BP-023: retry → fallback → degradation. 2-3 retries before zero vector.
         # embedding_status="pending" allows backfill worker to retry later (TECH-DEBT-059).
@@ -182,7 +246,7 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                 with EmbeddingClient(config) as embed_client:
                     return embed_client.embed([content])[0]
 
-            vector = _embed_with_retry(response_text)
+            vector = _embed_with_retry(response_content)  # Use truncated content
             payload["embedding_status"] = "complete"
             logger.info("embedding_generated", extra={"dimensions": len(vector)})
         except Exception as e:

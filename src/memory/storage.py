@@ -23,6 +23,9 @@ from .models import EmbeddingStatus, MemoryPayload, MemoryType
 from .qdrant_client import QdrantUnavailable, get_qdrant_client
 from .validation import compute_content_hash, validate_payload
 
+# Smart truncation for content that should remain whole
+from .chunking.truncation import smart_end
+
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
 try:
     from .metrics import (
@@ -40,30 +43,6 @@ except ImportError:
 __all__ = ["MemoryStorage", "store_best_practice", "update_point_payload"]
 
 logger = logging.getLogger("ai_memory.storage")
-
-
-def _enforce_content_limit(content: str, memory_type: MemoryType) -> str:
-    """Truncate content to respect token limits by memory type.
-
-    Limits (approximate tokens, ~4 chars/token):
-    - session (discussions): 400 tokens = 1600 chars
-    - implementation (code-patterns): 300 tokens = 1200 chars
-    - guideline (conventions): 150 tokens = 600 chars
-
-    Returns truncated content with [TRUNCATED] marker if cut.
-    """
-    LIMITS = {
-        MemoryType.SESSION: 1600,  # 400 tokens
-        MemoryType.IMPLEMENTATION: 1200,  # 300 tokens
-        MemoryType.GUIDELINE: 600,  # 150 tokens
-        MemoryType.ERROR_FIX: 1200,  # 300 tokens
-    }
-    limit = LIMITS.get(memory_type, 1200)  # default 300 tokens
-
-    if len(content) <= limit:
-        return content
-
-    return content[: limit - 12] + " [TRUNCATED]"
 
 
 class MemoryStorage:
@@ -195,19 +174,27 @@ class MemoryStorage:
         if created_at is None:
             created_at = datetime.now(timezone.utc).isoformat()
 
-        # TECH-DEBT-012 Round 3: Enforce content size limits
-        original_length = len(content)
-        content = _enforce_content_limit(content, memory_type)
+        # Route content based on type per Chunking-Strategy-V2.md
+        # User messages and agent responses: whole message with smart truncation if needed
+        if memory_type in [MemoryType.USER_MESSAGE, MemoryType.AGENT_RESPONSE]:
+            max_tokens = 2000 if memory_type == MemoryType.USER_MESSAGE else 3000
+            original_length = len(content)
+            content = smart_end(content, max_tokens)
 
-        if len(content) < original_length:
-            logger.info(
-                "content_truncated",
-                extra={
-                    "original_length": original_length,
-                    "truncated_length": len(content),
-                    "memory_type": memory_type.value,
-                },
-            )
+            if len(content) < original_length:
+                logger.info(
+                    "content_smart_truncated",
+                    extra={
+                        "original_length": original_length,
+                        "truncated_length": len(content),
+                        "memory_type": memory_type.value,
+                        "strategy": "smart_end",
+                        "max_tokens": max_tokens,
+                    },
+                )
+        # Guidelines, implementations, sessions: should be chunked by IntelligentChunker
+        # NOTE: Chunking integration handled by hooks-specialist (Teammate 2)
+        # For now, these types pass through unchanged - will be chunked by hook scripts
 
         # Build payload with computed hash
         content_hash = compute_content_hash(content)
@@ -502,24 +489,31 @@ class MemoryStorage:
             if created_at is None:
                 created_at = datetime.now(timezone.utc).isoformat()
 
-            # TECH-DEBT-012 Round 3: Enforce content size limits
+            # Get content and memory_type
+            content = memory["content"]
             memory_type = (
                 MemoryType(memory["type"])
                 if isinstance(memory["type"], str)
                 else memory["type"]
             )
-            original_length = len(memory["content"])
-            content = _enforce_content_limit(memory["content"], memory_type)
 
-            if len(content) < original_length:
-                logger.info(
-                    "batch_content_truncated",
-                    extra={
-                        "original_length": original_length,
-                        "truncated_length": len(content),
-                        "memory_type": memory_type.value,
-                    },
-                )
+            # Route content based on type per Chunking-Strategy-V2.md
+            if memory_type in [MemoryType.USER_MESSAGE, MemoryType.AGENT_RESPONSE]:
+                max_tokens = 2000 if memory_type == MemoryType.USER_MESSAGE else 3000
+                original_length = len(content)
+                content = smart_end(content, max_tokens)
+
+                if len(content) < original_length:
+                    logger.info(
+                        "batch_content_smart_truncated",
+                        extra={
+                            "original_length": original_length,
+                            "truncated_length": len(content),
+                            "memory_type": memory_type.value,
+                            "strategy": "smart_end",
+                            "max_tokens": max_tokens,
+                        },
+                    )
 
             content_hash = compute_content_hash(content)
 

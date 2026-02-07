@@ -70,6 +70,14 @@ except ImportError:
 from memory.hooks_common import get_hook_timeout, log_to_activity
 from memory.queue import queue_operation
 
+# TECH-DEBT-151: Structured truncation for error output (max 800 tokens)
+try:
+    import tiktoken
+    from memory.chunking.truncation import structured_truncate
+    TRUNCATION_AVAILABLE = True
+except ImportError:
+    TRUNCATION_AVAILABLE = False
+
 
 def format_error_content(error_context: dict[str, Any]) -> str:
     """Format error context into searchable content string.
@@ -112,10 +120,30 @@ def format_error_content(error_context: dict[str, Any]) -> str:
         parts.append("\nStack Trace:")
         parts.append(error_context["stack_trace"])
 
-    # Output (truncated)
+    # Output (smart truncation)
+    # TECH-DEBT-151: Use structured truncation instead of hard [:500] truncation
     if error_context.get("output"):
         parts.append("\nCommand Output:")
-        parts.append(error_context["output"][:500])  # Limit to 500 chars
+        if TRUNCATION_AVAILABLE:
+            try:
+                # Structured truncation preserves command + error + output structure
+                sections = {
+                    "command": error_context.get("command", ""),
+                    "error": error_context.get("error_message", ""),
+                    "output": error_context.get("output", "")
+                }
+                truncated_output = structured_truncate(
+                    error_context["output"],
+                    max_tokens=800,
+                    sections=sections
+                )
+                parts.append(truncated_output)
+            except Exception as e:
+                # Fallback to original content if truncation fails
+                parts.append(error_context["output"])
+        else:
+            # Truncation not available - use original (with char limit as fallback)
+            parts.append(error_context["output"][:2000])
 
     return "\n".join(parts)
 
@@ -181,6 +209,16 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
         file_refs = error_context.get("file_references", [])
         primary_file = file_refs[0]["file"] if file_refs else "unknown"
 
+        # Calculate token count for metadata
+        if TRUNCATION_AVAILABLE:
+            try:
+                enc = tiktoken.get_encoding("cl100k_base")
+                content_tokens = len(enc.encode(content))
+            except Exception:
+                content_tokens = len(content) // 4
+        else:
+            content_tokens = len(content) // 4
+
         # Build Qdrant payload
         payload = {
             "content": content,
@@ -197,6 +235,14 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             "file_references": file_refs,
             "has_stack_trace": bool(error_context.get("stack_trace")),
             "tags": ["error", "bash_failure"],
+            # TECH-DEBT-151: Add chunking metadata per Chunking-Strategy-V2.md Section 5
+            "chunking_metadata": {
+                "chunk_type": "structured_smart_truncate",
+                "chunk_index": 0,
+                "total_chunks": 1,
+                "chunk_size_tokens": content_tokens,
+                "overlap_tokens": 0,
+            },
         }
 
         logger.info(
