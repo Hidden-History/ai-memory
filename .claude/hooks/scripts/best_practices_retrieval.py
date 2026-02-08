@@ -263,14 +263,14 @@ def main() -> int:
         # When auto-trigger is removed from settings.json, this script
         # will only be called by review agents or manual skills
         explicit_mode = (
-            os.environ.get("BMAD_BEST_PRACTICES_EXPLICIT", "false").lower() == "true"
+            os.environ.get("AI_MEMORY_BEST_PRACTICES_EXPLICIT", "false").lower() == "true"
         )
 
         # If called without explicit flag and not by a review agent, exit silently
         # This is a safety check in case the hook is re-enabled accidentally
         if not explicit_mode:
             # Check for review agent context
-            agent_type = os.environ.get("BMAD_AGENT_TYPE", "").lower()
+            agent_type = os.environ.get("AI_MEMORY_AGENT_TYPE", "").lower()
             # CR-4.9: Use VALID_AGENTS from config + additional review-specific agents
             # TEA + review agents always check best practices (TECH-DEBT-015 pending: full redesign)
             review_agents = list(VALID_AGENTS) + [
@@ -426,7 +426,7 @@ def main() -> int:
             if push_retrieval_metrics_async:
                 push_retrieval_metrics_async(
                     collection="code-patterns",
-                    status="success" if matches else "empty",
+                    status="success" if results else "empty",
                     duration_seconds=duration_ms / 1000.0,
                     project=project_name,
                 )
@@ -434,7 +434,7 @@ def main() -> int:
             # TECH-DEBT-142: Push hook duration to Pushgateway
             if push_hook_metrics_async:
                 push_hook_metrics_async(
-                    hook_name="UserPromptSubmit",
+                    hook_name="PreToolUse_BestPractices",
                     duration_seconds=duration_ms / 1000.0,
                     success=True,
                     project=project_name,
@@ -464,7 +464,7 @@ def main() -> int:
         if push_hook_metrics_async:
             duration_seconds = time.perf_counter() - start_time
             push_hook_metrics_async(
-                hook_name="UserPromptSubmit",
+                hook_name="PreToolUse_BestPractices",
                 duration_seconds=duration_seconds,
                 success=False,
                 project=proj,

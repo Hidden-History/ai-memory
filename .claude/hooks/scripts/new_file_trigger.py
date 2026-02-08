@@ -271,7 +271,7 @@ def main() -> int:
                 if push_retrieval_metrics_async:
                     push_retrieval_metrics_async(
                         collection="conventions",
-                        status="success" if conventions else "empty",
+                        status="success" if results else "empty",
                         duration_seconds=duration_ms / 1000.0,
                         project=project_name,
                     )
@@ -312,6 +312,7 @@ def main() -> int:
             # TECH-DEBT-142: Hook duration (including error) already tracked by track_hook_duration context manager
 
             # Push failure metrics
+            duration_seconds = time.perf_counter() - start_time
             from memory.metrics_push import push_trigger_metrics_async
 
             push_trigger_metrics_async(

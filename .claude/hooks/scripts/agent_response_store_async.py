@@ -32,14 +32,15 @@ from memory.hooks_common import log_to_activity, setup_hook_logging
 
 logger = setup_hook_logging()
 
-# TECH-DEBT-151: Smart truncation for agent responses (max 3000 tokens)
+# TECH-DEBT-151 Phase 3: Topical chunking for oversized agent responses (V2.1 zero-truncation)
 try:
     import tiktoken
-    from memory.chunking.truncation import smart_end
-    TRUNCATION_AVAILABLE = True
+    from memory.chunking.prose_chunker import ProseChunker, ProseChunkerConfig
+    from memory.validation import compute_content_hash as _compute_chunk_hash
+    CHUNKING_AVAILABLE = True
 except ImportError:
-    TRUNCATION_AVAILABLE = False
-    logger.warning("truncation_module_unavailable", extra={"module": "memory.chunking.truncation"})
+    CHUNKING_AVAILABLE = False
+    logger.warning("chunking_module_unavailable", extra={"module": "memory.chunking.prose_chunker"})
 
 from memory.config import (
     COLLECTION_DISCUSSIONS,
@@ -173,100 +174,127 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
             logger.info("empty_content_skipped", extra={"session_id": session_id})
             return True
 
-        # TECH-DEBT-151: Apply smart truncation for agent responses (max 3000 tokens)
-        # Per Chunking-Strategy-V2.md Section 2.4: agent responses stored whole, max 3000 tokens
-        response_content = response_text
+        # TECH-DEBT-151 Phase 3: Zero-truncation — chunk if over 3000 tokens
+        # Per Chunking-Strategy-V2.md V2.1 Section 2.4
+        chunks_to_store = []  # List of (content, chunking_metadata) tuples
         original_token_count = 0
-        truncated = False
 
-        if TRUNCATION_AVAILABLE:
+        if CHUNKING_AVAILABLE:
             try:
                 enc = tiktoken.get_encoding("cl100k_base")
                 original_token_count = len(enc.encode(response_text))
 
                 if original_token_count > 3000:
-                    # Apply smart_end truncation at sentence boundary
-                    response_content = smart_end(response_text, max_tokens=3000)
-                    truncated = True
-                    final_token_count = len(enc.encode(response_content))
-                    logger.info(
-                        "agent_response_truncated",
-                        extra={
-                            "original_tokens": original_token_count,
-                            "final_tokens": final_token_count,
-                            "session_id": session_id,
-                        },
-                    )
+                    # Topical chunking: 512 tokens, 15% overlap
+                    chunker_config = ProseChunkerConfig(max_chunk_size=2048, overlap_ratio=0.15)
+                    prose_chunker = ProseChunker(chunker_config)
+                    chunk_results = prose_chunker.chunk(response_text, source="agent_response")
+
+                    if chunk_results:
+                        for i, cr in enumerate(chunk_results):
+                            chunk_tokens = len(enc.encode(cr.content))
+                            chunks_to_store.append((cr.content, {
+                                "chunk_type": "topical",
+                                "chunk_index": i,
+                                "total_chunks": len(chunk_results),
+                                "chunk_size_tokens": chunk_tokens,
+                                "overlap_tokens": cr.metadata.overlap_tokens,
+                                "original_size_tokens": original_token_count,
+                            }))
+                        logger.info(
+                            "agent_response_chunked",
+                            extra={
+                                "original_tokens": original_token_count,
+                                "num_chunks": len(chunk_results),
+                                "session_id": session_id,
+                            },
+                        )
+                    else:
+                        # ProseChunker returned empty — store whole as fallback
+                        chunks_to_store.append((response_text, {
+                            "chunk_type": "whole",
+                            "chunk_index": 0,
+                            "total_chunks": 1,
+                            "chunk_size_tokens": original_token_count,
+                            "overlap_tokens": 0,
+                            "original_size_tokens": original_token_count,
+                        }))
                 else:
-                    final_token_count = original_token_count
+                    # Under threshold — store whole
+                    chunks_to_store.append((response_text, {
+                        "chunk_type": "whole",
+                        "chunk_index": 0,
+                        "total_chunks": 1,
+                        "chunk_size_tokens": original_token_count,
+                        "overlap_tokens": 0,
+                        "original_size_tokens": original_token_count,
+                    }))
             except Exception as e:
-                logger.warning(
-                    "truncation_failed_using_original",
-                    extra={"error": str(e), "error_type": type(e).__name__},
-                )
-                response_content = response_text
-                truncated = False
-                # Estimate tokens if tiktoken fails
-                final_token_count = len(response_text) // 4
-                original_token_count = final_token_count
+                logger.warning("chunking_failed_storing_whole", extra={"error": str(e)})
+                chunks_to_store.append((response_text, {
+                    "chunk_type": "whole",
+                    "chunk_index": 0,
+                    "total_chunks": 1,
+                    "chunk_size_tokens": len(response_text) // 4,
+                    "overlap_tokens": 0,
+                    "original_size_tokens": len(response_text) // 4,
+                }))
         else:
-            # Truncation not available - estimate tokens
-            final_token_count = len(response_text) // 4
-            original_token_count = final_token_count
+            # Chunking not available — store whole
+            est_tokens = len(response_text) // 4
+            chunks_to_store.append((response_text, {
+                "chunk_type": "whole",
+                "chunk_index": 0,
+                "total_chunks": 1,
+                "chunk_size_tokens": est_tokens,
+                "overlap_tokens": 0,
+                "original_size_tokens": est_tokens,
+            }))
 
-        # Add chunking_metadata to payload (per Chunking-Strategy-V2.md Section 5)
-        payload["chunking_metadata"] = {
-            "chunk_type": "smart_end" if truncated else "whole",
-            "chunk_index": 0,
-            "total_chunks": 1,
-            "chunk_size_tokens": final_token_count,
-            "overlap_tokens": 0,
-            "original_size_tokens": original_token_count,
-            "truncated": truncated,
-        }
+        # Embed and store all chunks
+        from memory.embeddings import EmbeddingClient
 
-        # Update content in payload with truncated version
-        payload["content"] = response_content
-
-        # BUG-010 Fix: Generate embedding with retry for transient failures.
-        # Per BP-023: retry → fallback → degradation. 2-3 retries before zero vector.
-        # embedding_status="pending" allows backfill worker to retry later (TECH-DEBT-059).
-        try:
-            from memory.embeddings import EmbeddingClient
-
-            @retry(
-                stop=stop_after_attempt(3),
-                wait=wait_exponential(multiplier=0.5, min=0.5, max=2),
-                retry=retry_if_exception_type(
-                    (httpx.TimeoutException, httpx.ConnectError, ConnectionError)
-                ),
-                reraise=True,
-            )
-            def _embed_with_retry(content: str) -> list:
-                with EmbeddingClient(config) as embed_client:
-                    return embed_client.embed([content])[0]
-
-            vector = _embed_with_retry(response_content)  # Use truncated content
-            payload["embedding_status"] = "complete"
-            logger.info("embedding_generated", extra={"dimensions": len(vector)})
-        except Exception as e:
-            # Graceful degradation: Use zero vector if all retries fail
-            logger.warning(
-                "embedding_failed_using_zero_vector",
-                extra={"error": str(e), "error_type": type(e).__name__},
-            )
-            vector = [0.0] * config.embedding_dimension
-            payload["embedding_status"] = "pending"
-
-        # Store to Qdrant
-        client.upsert(
-            collection_name=COLLECTION_DISCUSSIONS,
-            points=[PointStruct(id=memory_id, vector=vector, payload=payload)],
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2),
+            retry=retry_if_exception_type(
+                (httpx.TimeoutException, httpx.ConnectError, ConnectionError)
+            ),
+            reraise=True,
         )
+        def _embed_batch_with_retry(contents: list[str]) -> list[list]:
+            with EmbeddingClient(config) as embed_client:
+                return embed_client.embed(contents)
+
+        chunk_contents = [c for c, _ in chunks_to_store]
+        try:
+            vectors = _embed_batch_with_retry(chunk_contents)
+            embedding_status = "complete"
+        except Exception as e:
+            logger.warning("embedding_failed_using_zero_vectors", extra={"error": str(e)})
+            vectors = [[0.0] * config.embedding_dimension for _ in chunks_to_store]
+            embedding_status = "pending"
+
+        # Build points for all chunks
+        points = []
+        for i, ((chunk_content, chunk_meta), vector) in enumerate(zip(chunks_to_store, vectors)):
+            chunk_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{content_hash}:chunk:{i}")) if len(chunks_to_store) > 1 else memory_id
+            chunk_payload = {
+                **payload,
+                "content": chunk_content,
+                "content_hash": _compute_chunk_hash(chunk_content) if len(chunks_to_store) > 1 else content_hash,
+                "parent_content_hash": content_hash if len(chunks_to_store) > 1 else None,
+                "embedding_status": embedding_status,
+                "chunking_metadata": chunk_meta,
+            }
+            points.append(PointStruct(id=chunk_id, vector=vector, payload=chunk_payload))
+
+        # Store all chunks to Qdrant
+        client.upsert(collection_name=COLLECTION_DISCUSSIONS, points=points)
 
         # BUG-036: Include project name for multi-project visibility
         log_to_activity(
-            f"✅ AgentResponse stored: Turn {turn_number} [{group_id}]", INSTALL_DIR
+            f"✅ AgentResponse stored: Turn {turn_number} [{group_id}] ({len(points)} chunks)", INSTALL_DIR
         )
         logger.info(
             "agent_response_stored",
@@ -279,7 +307,7 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
             },
         )
 
-        # BUG-024: Enqueue for LLM classification
+        # BUG-024: Enqueue for LLM classification (first chunk only)
         try:
             from memory.classifier.config import CLASSIFIER_ENABLED
             from memory.classifier.queue import (
@@ -289,9 +317,9 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
 
             if CLASSIFIER_ENABLED:
                 task = ClassificationTask(
-                    point_id=memory_id,
+                    point_id=points[0].id if points else memory_id,
                     collection=COLLECTION_DISCUSSIONS,
-                    content=response_text[:2000],  # Truncate for classifier
+                    content=response_text[:2000],  # Classifier input limit
                     current_type="agent_response",
                     group_id=group_id,
                     source_hook="Stop",
@@ -301,7 +329,7 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                 logger.debug(
                     "classification_enqueued",
                     extra={
-                        "point_id": memory_id,
+                        "point_id": points[0].id if points else memory_id,
                         "collection": COLLECTION_DISCUSSIONS,
                         "current_type": "agent_response",
                     },

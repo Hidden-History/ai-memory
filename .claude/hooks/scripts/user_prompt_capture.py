@@ -56,7 +56,7 @@ except ImportError:
 
 # Maximum content length for user prompts (prevents payload bloat)
 # V2.0 Fix: Truncate extremely long prompts to avoid Qdrant payload issues
-MAX_CONTENT_LENGTH = 10000  # Embeddings handle large text well
+MAX_CONTENT_LENGTH = 100000  # Embeddings handle large text well
 
 
 def validate_hook_input(data: dict[str, Any]) -> str | None:

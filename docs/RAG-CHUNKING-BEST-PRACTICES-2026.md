@@ -1,8 +1,10 @@
 # RAG Chunking & Embedding Best Practices (2026 Research)
 
+> **SUPERSEDED**: This is a research reference document. The authoritative implementation spec is **`oversight/specs/Chunking-Strategy-V2.md`** (V2.1). Where this document recommends truncation patterns (e.g., `smart_end`, `truncate_at_sentence_boundary`), the V2.1 spec mandates **topical chunking** instead — no content is ever truncated for storage. Refer to the spec for all implementation decisions.
+
 **Research Date:** 2026-02-06
 **Context:** Qdrant + Jina embeddings (768-dim, 8192 token context)
-**Current System:** Hard truncation at storage time (600-1600 chars)
+**Current System:** ~~Hard truncation at storage time (600-1600 chars)~~ **REMOVED in v2.0.4** — replaced with topical chunking per Chunking-Strategy-V2.md
 
 ---
 

@@ -1,8 +1,10 @@
 # Conversation Memory Best Practices for Vector Databases (2026)
 
+> **SUPERSEDED**: This is a research reference document. The authoritative implementation spec is **`oversight/specs/Chunking-Strategy-V2.md`** (V2.1). Where this document recommends truncation for storage, the V2.1 spec mandates **zero truncation** — content is chunked into multiple vectors, never discarded. Refer to the spec for all implementation decisions.
+
 **Date:** 2026-02-06
 **Technology Stack:** Qdrant + Jina Embeddings (768-dim, 8192 token context)
-**Document Version:** 1.0
+**Document Version:** 1.1 (superseded notice added 2026-02-07)
 
 ## Executive Summary
 

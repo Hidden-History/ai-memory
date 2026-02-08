@@ -47,28 +47,32 @@
         "type": "custom",
         "options": [
           {
-            "text": "user_prompt_capture",
-            "value": "user_prompt_capture"
+            "text": "UserPromptSubmit",
+            "value": "UserPromptSubmit"
           },
           {
-            "text": "agent_response_capture",
-            "value": "agent_response_capture"
+            "text": "Stop",
+            "value": "Stop"
           },
           {
-            "text": "post_tool_capture",
-            "value": "post_tool_capture"
+            "text": "PreToolUse_FirstEdit",
+            "value": "PreToolUse_FirstEdit"
           },
           {
-            "text": "error_pattern_capture",
-            "value": "error_pattern_capture"
+            "text": "PostToolUse_ErrorDetection",
+            "value": "PostToolUse_ErrorDetection"
           },
           {
-            "text": "pre_compact_save",
-            "value": "pre_compact_save"
+            "text": "PreToolUse_BestPractices",
+            "value": "PreToolUse_BestPractices"
           },
           {
-            "text": "session_start",
-            "value": "session_start"
+            "text": "PreCompact",
+            "value": "PreCompact"
+          },
+          {
+            "text": "PreToolUse_NewFile",
+            "value": "PreToolUse_NewFile"
           }
         ],
         "multi": true,

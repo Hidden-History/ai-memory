@@ -142,8 +142,9 @@ def format_error_content(error_context: dict[str, Any]) -> str:
                 # Fallback to original content if truncation fails
                 parts.append(error_context["output"])
         else:
-            # Truncation not available - use original (with char limit as fallback)
-            parts.append(error_context["output"][:2000])
+            # Truncation not available - store full output (V2.1 zero-truncation principle)
+            logger.warning("storing_full_output_no_truncation", extra={"output_length": len(error_context["output"])})
+            parts.append(error_context["output"])
 
     return "\n".join(parts)
 

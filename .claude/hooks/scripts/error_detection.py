@@ -244,7 +244,7 @@ def main() -> int:
             if push_retrieval_metrics_async:
                 push_retrieval_metrics_async(
                     collection="code-patterns",
-                    status="success" if solutions else "empty",
+                    status="success" if results else "empty",
                     duration_seconds=duration_ms / 1000.0,
                     project=project_name,
                 )
@@ -289,8 +289,8 @@ def main() -> int:
             ).inc()
 
         # TECH-DEBT-142: Push hook duration to Pushgateway (error case)
+        duration_seconds = time.perf_counter() - start_time
         if push_hook_metrics_async:
-            duration_seconds = time.perf_counter() - start_time
             push_hook_metrics_async(
                 hook_name="PostToolUse_ErrorDetection",
                 duration_seconds=duration_seconds,
