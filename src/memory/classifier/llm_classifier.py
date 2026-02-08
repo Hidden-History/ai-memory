@@ -273,6 +273,12 @@ def _classify_with_llm(
     Returns:
         ClassificationResult from successful provider or fallback to current_type
     """
+    # Defensive: Initialize project_name with safe default before any operations
+    project_name = "unknown"
+
+    # BP-045: Detect project for multi-tenancy metric labels
+    project_name = detect_project(os.getcwd()) if detect_project else "unknown"
+
     # Get cached provider chain (builds if needed)
     providers = _get_provider_chain()
 
@@ -303,7 +309,10 @@ def _classify_with_llm(
                 # Record fallback if there's a next provider
                 if idx < len(providers) - 1:
                     record_fallback(
-                        provider_name, providers[idx + 1].name, "circuit_open"
+                        provider_name,
+                        providers[idx + 1].name,
+                        "circuit_open",
+                        project=project_name,
                     )
                 continue
 
@@ -316,7 +325,10 @@ def _classify_with_llm(
                 # Record fallback if there's a next provider
                 if idx < len(providers) - 1:
                     record_fallback(
-                        provider_name, providers[idx + 1].name, "rate_limited"
+                        provider_name,
+                        providers[idx + 1].name,
+                        "rate_limited",
+                        project=project_name,
                     )
                 continue
 
@@ -329,7 +341,10 @@ def _classify_with_llm(
                 circuit_breaker.record_failure(provider_name, "unavailable")
                 if idx < len(providers) - 1:
                     record_fallback(
-                        provider_name, providers[idx + 1].name, "unavailable"
+                        provider_name,
+                        providers[idx + 1].name,
+                        "unavailable",
+                        project=project_name,
                     )
                 continue
 
@@ -361,6 +376,7 @@ def _classify_with_llm(
                     classified_type=validated_type,
                     success=True,
                     latency_seconds=latency_seconds,
+                    project=project_name,
                     confidence=response.confidence,
                     input_tokens=response.input_tokens,
                     output_tokens=response.output_tokens,
@@ -374,9 +390,6 @@ def _classify_with_llm(
                     and isinstance(response.input_tokens, int)
                     and response.input_tokens > 0
                 ):
-                    project_name = (
-                        detect_project(os.getcwd()) if detect_project else "unknown"
-                    )
                     push_token_metrics_async(
                         operation="classification",
                         direction="input",
@@ -389,9 +402,6 @@ def _classify_with_llm(
                     and isinstance(response.output_tokens, int)
                     and response.output_tokens > 0
                 ):
-                    project_name = (
-                        detect_project(os.getcwd()) if detect_project else "unknown"
-                    )
                     push_token_metrics_async(
                         operation="classification",
                         direction="output",
@@ -444,11 +454,17 @@ def _classify_with_llm(
                 latency_seconds=(
                     time.time() - start_time if "start_time" in locals() else 0
                 ),
+                project=project_name,
             )
 
             # Record fallback if there's a next provider
             if idx < len(providers) - 1:
-                record_fallback(provider_name, providers[idx + 1].name, error_type)
+                record_fallback(
+                    provider_name,
+                    providers[idx + 1].name,
+                    error_type,
+                    project=project_name,
+                )
 
             logger.warning(
                 "provider_failed",

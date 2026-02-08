@@ -32,7 +32,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "query": "label_values(ai_memory_captures_total, project)",
+        "query": "label_values(aimemory_captures_total, project)",
         "refresh": 2,
         "includeAll": true,
         "allValue": ".*",
@@ -733,17 +733,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(aimemory_classifier_latency_seconds_bucket{provider=~\"$provider\"}[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (increase(aimemory_classifier_latency_seconds_bucket{provider=~\"$provider\"}[1h])))",
           "refId": "A",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(aimemory_classifier_latency_seconds_bucket{provider=~\"$provider\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(aimemory_classifier_latency_seconds_bucket{provider=~\"$provider\"}[1h])))",
           "refId": "B",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(aimemory_classifier_latency_seconds_bucket{provider=~\"$provider\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(aimemory_classifier_latency_seconds_bucket{provider=~\"$provider\"}[1h])))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -814,7 +814,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (le, classified_type) (rate(aimemory_classifier_confidence_bucket{classified_type=~\"$type\"}[5m]))",
+          "expr": "sum by (le, classified_type) (increase(aimemory_classifier_confidence_bucket{classified_type=~\"$type\"}[1h]))",
           "refId": "A",
           "format": "heatmap",
           "legendFormat": "{{le}}"
@@ -856,7 +856,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(aimemory_classifier_batch_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(aimemory_classifier_batch_duration_seconds_bucket[1h])))",
           "refId": "A",
           "legendFormat": "Batch p95"
         }

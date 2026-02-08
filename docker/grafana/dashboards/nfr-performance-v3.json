@@ -89,7 +89,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_hook_duration_seconds_bucket{project=~\"$project\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_hook_duration_seconds_bucket{project=~\"$project\"}[1h])) by (le))",
           "refId": "A",
           "legendFormat": "p95"
         }
@@ -150,7 +150,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_embedding_batch_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_batch_duration_seconds_bucket[1h])) by (le))",
           "refId": "A",
           "legendFormat": "p95"
         }
@@ -211,7 +211,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_session_injection_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_session_injection_duration_seconds_bucket[1h])) by (le))",
           "refId": "A",
           "legendFormat": "p95"
         }
@@ -272,7 +272,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_dedup_check_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_dedup_check_duration_seconds_bucket[1h])) by (le))",
           "refId": "A",
           "legendFormat": "p95"
         }
@@ -333,7 +333,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_retrieval_query_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_retrieval_query_duration_seconds_bucket[1h])) by (le))",
           "refId": "A",
           "legendFormat": "p95"
         }
@@ -394,7 +394,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_embedding_realtime_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])) by (le))",
           "refId": "A",
           "legendFormat": "p95"
         }
@@ -455,7 +455,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_hook_duration_seconds_bucket{project=~\"$project\"}[5m])) by (le, hook_type))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_hook_duration_seconds_bucket{project=~\"$project\"}[1h])) by (le, hook_type))",
           "refId": "A",
           "legendFormat": "{{hook_type}}"
         },
@@ -559,12 +559,12 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_embedding_batch_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_batch_duration_seconds_bucket[1h])) by (le))",
           "refId": "A",
           "legendFormat": "Batch (NFR-P2)"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_embedding_realtime_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])) by (le))",
           "refId": "B",
           "legendFormat": "Realtime (NFR-P6)"
         },
@@ -678,7 +678,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_session_injection_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_session_injection_duration_seconds_bucket[1h])) by (le))",
           "refId": "A",
           "legendFormat": "Session Injection p95"
         },
@@ -778,7 +778,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_dedup_check_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_dedup_check_duration_seconds_bucket[1h])) by (le))",
           "refId": "A",
           "legendFormat": "Dedup Check p95"
         },
@@ -878,7 +878,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_retrieval_query_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_retrieval_query_duration_seconds_bucket[1h])) by (le))",
           "refId": "A",
           "legendFormat": "Retrieval Query p95"
         },
@@ -990,7 +990,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_bucket{le=\"0.5\", project=~\"$project\"}[5m])) / sum(rate(aimemory_hook_duration_seconds_count{project=~\"$project\"}[5m])) * 100",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_bucket{le=\"0.5\", project=~\"$project\"}[1h])) / sum(increase(aimemory_hook_duration_seconds_count{project=~\"$project\"}[1h])) * 100",
           "refId": "A",
           "legendFormat": "SLO %"
         }
@@ -1049,7 +1049,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_embedding_batch_duration_seconds_bucket{le=\"2.0\"}[5m])) / sum(rate(aimemory_embedding_batch_duration_seconds_count[5m])) * 100",
+          "expr": "sum(increase(aimemory_embedding_batch_duration_seconds_bucket{le=\"2.0\"}[1h])) / sum(increase(aimemory_embedding_batch_duration_seconds_count[1h])) * 100",
           "refId": "A",
           "legendFormat": "SLO %"
         }
@@ -1108,7 +1108,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_session_injection_duration_seconds_bucket{le=\"3.0\"}[5m])) / sum(rate(aimemory_session_injection_duration_seconds_count[5m])) * 100",
+          "expr": "sum(increase(aimemory_session_injection_duration_seconds_bucket{le=\"3.0\"}[1h])) / sum(increase(aimemory_session_injection_duration_seconds_count[1h])) * 100",
           "refId": "A",
           "legendFormat": "SLO %"
         }
@@ -1167,7 +1167,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_dedup_check_duration_seconds_bucket{le=\"0.1\"}[5m])) / sum(rate(aimemory_dedup_check_duration_seconds_count[5m])) * 100",
+          "expr": "sum(increase(aimemory_dedup_check_duration_seconds_bucket{le=\"0.1\"}[1h])) / sum(increase(aimemory_dedup_check_duration_seconds_count[1h])) * 100",
           "refId": "A",
           "legendFormat": "SLO %"
         }
@@ -1226,7 +1226,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_retrieval_query_duration_seconds_bucket{le=\"0.5\"}[5m])) / sum(rate(aimemory_retrieval_query_duration_seconds_count[5m])) * 100",
+          "expr": "sum(increase(aimemory_retrieval_query_duration_seconds_bucket{le=\"0.5\"}[1h])) / sum(increase(aimemory_retrieval_query_duration_seconds_count[1h])) * 100",
           "refId": "A",
           "legendFormat": "SLO %"
         }
@@ -1285,7 +1285,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_embedding_realtime_duration_seconds_bucket{le=\"0.5\"}[5m])) / sum(rate(aimemory_embedding_realtime_duration_seconds_count[5m])) * 100",
+          "expr": "sum(increase(aimemory_embedding_realtime_duration_seconds_bucket{le=\"0.5\"}[1h])) / sum(increase(aimemory_embedding_realtime_duration_seconds_count[1h])) * 100",
           "refId": "A",
           "legendFormat": "SLO %"
         }

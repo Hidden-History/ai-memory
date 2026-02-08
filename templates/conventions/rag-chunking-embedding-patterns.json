@@ -1,0 +1,182 @@
+[
+  {
+    "content": "ANTI-PATTERN: Hard character-based truncation destroys semantic coherence and degrades retrieval accuracy by 15-35%. Use sentence-boundary aware truncation or semantic chunking instead. Research shows fixed-size character truncation can cut mid-thought, mix multiple topics, and lose critical context at boundaries.",
+    "type": "rule",
+    "domain": "rag",
+    "importance": "high",
+    "tags": ["rag", "truncation", "anti-pattern", "retrieval-quality", "semantic-coherence"],
+    "source": "https://stackoverflow.blog/2024/12/27/breaking-up-is-hard-to-do-chunking-in-rag-applications/",
+    "source_date": "2024-12-27"
+  },
+  {
+    "content": "Chunking strategy affects RAG accuracy by ~60%, while vector database choice affects it by ~10%. Teams spend weeks evaluating vector databases when their chunking strategy is losing 15% recall. Prioritize chunking optimization over database selection.",
+    "type": "guideline",
+    "domain": "rag",
+    "importance": "high",
+    "tags": ["rag", "chunking", "optimization", "priorities", "accuracy"],
+    "source": "https://qdrant.tech/course/essentials/day-1/chunking-strategies/",
+    "source_date": "2025-01-15"
+  },
+  {
+    "content": "For Jina embeddings (768-dim, 8192 token context): Optimal performance at 2048-4096 tokens per chunk. While model supports 8192 tokens, embedding quality degrades beyond 4096. Use late chunking for documents >4096 tokens to preserve cross-chunk context.",
+    "type": "guideline",
+    "domain": "embeddings",
+    "importance": "high",
+    "tags": ["jina", "embeddings", "chunk-size", "optimization", "late-chunking"],
+    "source": "https://www.elastic.co/docs/explore-analyze/machine-learning/nlp/ml-nlp-jina",
+    "source_date": "2025-12-10"
+  },
+  {
+    "content": "Content size strategy: <500 tokens = store whole; 500-2000 tokens = store whole with optional semantic chunking; 2000-4000 tokens = semantic chunking with 10-20% overlap; >4000 tokens = late chunking or hierarchical chunking with summarization.",
+    "type": "guideline",
+    "domain": "rag",
+    "importance": "high",
+    "tags": ["rag", "chunking", "content-sizing", "strategy"],
+    "source": "https://weaviate.io/blog/chunking-strategies-for-rag",
+    "source_date": "2025-11-20"
+  },
+  {
+    "content": "Chunk overlap: Use 10-20% overlap (50-100 tokens for 512-token chunks) to preserve context at boundaries. Overlap prevents information loss when relevant content spans chunk boundaries. Semantic coherence improves by 35% vs non-overlapping chunks.",
+    "type": "guideline",
+    "domain": "rag",
+    "importance": "high",
+    "tags": ["rag", "chunking", "overlap", "context-preservation"],
+    "source": "https://weaviate.io/blog/chunking-strategies-for-rag",
+    "source_date": "2025-11-20"
+  },
+  {
+    "content": "Sentence-boundary truncation vs character cutoff: Always respect linguistic boundaries (sentences, paragraphs). Semantic-aware chunking improves retrieval precision by 20-40% and reduces hallucinations proportionally. Smart algorithms handle edge cases like 'Dr. Smith' or '3.14'.",
+    "type": "guideline",
+    "domain": "rag",
+    "importance": "high",
+    "tags": ["rag", "truncation", "sentence-boundaries", "semantic-chunking"],
+    "source": "https://www.firecrawl.dev/blog/best-chunking-strategies-rag-2025",
+    "source_date": "2025-10-15"
+  },
+  {
+    "content": "Embedding quality vs content length: Very short content (<100 tokens) and very long content (>4000 tokens) both produce lower-quality embeddings. Optimal range: 256-1024 tokens. Long-context models show performance degradation beyond 4K tokens despite supporting 8K+ context.",
+    "type": "guideline",
+    "domain": "embeddings",
+    "importance": "high",
+    "tags": ["embeddings", "content-length", "quality", "optimization"],
+    "source": "https://www.jinaai.cn/news/long-context-embedding-models-are-blind-beyond-4k-tokens/",
+    "source_date": "2025-09-08"
+  },
+  {
+    "content": "Late chunking technique: Embed entire document first (using long-context models), then extract chunk embeddings from token-level representations. Preserves cross-chunk context unlike naive chunking (chunk first, embed second). Supported by jina-embeddings-v3 and v4 via late_chunking parameter.",
+    "type": "guideline",
+    "domain": "embeddings",
+    "importance": "high",
+    "tags": ["jina", "late-chunking", "embeddings", "context-preservation"],
+    "source": "https://jina.ai/news/late-chunking-in-long-context-embedding-models/",
+    "source_date": "2025-08-22"
+  },
+  {
+    "content": "Dual-storage architecture: Store full content in activity log (audit trail) and optimized chunks in vector DB. This pattern separates concerns: full context for debugging/audit, semantic chunks for retrieval. Production systems report 60-80% cache hit rates with hot/cold storage tiers.",
+    "type": "guideline",
+    "domain": "rag",
+    "importance": "high",
+    "tags": ["rag", "architecture", "dual-storage", "audit-trail"],
+    "source": "https://www.chitika.com/document-storage-strategies-rag/",
+    "source_date": "2026-01-10"
+  },
+  {
+    "content": "Error logs storage: Store full context (command + output + solution) in activity log, chunk semantically for vector DB. Include complete error trace for debugging, but embed only: error type, key symptoms, and solution. Chunk size: 300-500 tokens with error message prioritized.",
+    "type": "guideline",
+    "domain": "rag",
+    "importance": "high",
+    "tags": ["error-logs", "chunking", "debugging", "context"],
+    "source": "https://redis.io/blog/context-window-overflow/",
+    "source_date": "2026-01-15"
+  },
+  {
+    "content": "Code embedding: Use AST-based chunking at function/class level, not file-level. AST-aware chunks align with semantic boundaries and improve IoU (intersection over union) for code retrieval. Tools: code-chunk, cAST. Prepend context (file path, class name) to each function chunk.",
+    "type": "guideline",
+    "domain": "code",
+    "importance": "high",
+    "tags": ["code", "ast", "chunking", "embeddings"],
+    "source": "https://supermemory.ai/blog/building-code-chunk-ast-aware-code-chunking/",
+    "source_date": "2025-11-05"
+  },
+  {
+    "content": "Best practices/guidelines storage: Use section-aware chunking for structured documents. Each guideline/rule should be a separate chunk (100-300 tokens). Include document-level metadata (title, category) as payload fields, not in embedding. Avoid duplicating metadata across chunks.",
+    "type": "guideline",
+    "domain": "rag",
+    "importance": "medium",
+    "tags": ["guidelines", "chunking", "metadata", "structured-docs"],
+    "source": "https://qdrant.tech/documentation/concepts/payload/",
+    "source_date": "2025-12-01"
+  },
+  {
+    "content": "Qdrant payload optimization: Store document-level metadata in payload (title, category, timestamp). Use OnDisk storage for large payloads (abstracts, full text). InMemory storage for frequently-accessed metadata only. Text fields consume space based on length - optimize accordingly.",
+    "type": "guideline",
+    "domain": "qdrant",
+    "importance": "medium",
+    "tags": ["qdrant", "payload", "storage", "optimization"],
+    "source": "https://qdrant.tech/documentation/concepts/storage/",
+    "source_date": "2025-12-01"
+  },
+  {
+    "content": "Truncation with markers: If truncation is necessary, use explicit markers like [TRUNCATED] or [CONTINUED]. Mark position (beginning-truncated vs end-truncated). Beginning-heavy truncation loses context; end-heavy loses conclusions. For summaries, prioritize beginning; for solutions, prioritize end.",
+    "type": "guideline",
+    "domain": "rag",
+    "importance": "medium",
+    "tags": ["truncation", "markers", "context-preservation"],
+    "source": "https://www.mindfiretechnology.com/blog/archive/avoiding-text-truncations-in-rag/",
+    "source_date": "2025-10-20"
+  },
+  {
+    "content": "Matryoshka embeddings (OpenAI, Cohere): Models trained with MRL front-load general information at beginning of vector. Supports dimension truncation (768→384→256) with minimal loss. Trade-off: captures general relevance well but loses specific details/nuance at lower dimensions.",
+    "type": "guideline",
+    "domain": "embeddings",
+    "importance": "medium",
+    "tags": ["embeddings", "matryoshka", "dimension-reduction", "optimization"],
+    "source": "https://milvus.io/ai-quick-reference/how-does-sequence-length-truncation-limiting-the-number-of-tokens-affect-the-performance-of-sentence-transformer-embeddings-in-capturing-meaning",
+    "source_date": "2025-11-12"
+  },
+  {
+    "content": "Hybrid search best practice: Combine dense (semantic) and sparse (keyword/BM25) retrieval. Dense captures meaning, sparse catches exact matches. Production tools (Pinecone, Weaviate) offer native hybrid search with SPLADE/BM25. Reduces retrieval failures by mitigating semantic-only blind spots.",
+    "type": "guideline",
+    "domain": "rag",
+    "importance": "high",
+    "tags": ["rag", "hybrid-search", "retrieval", "bm25", "semantic"],
+    "source": "https://brlikhon.engineer/blog/building-production-rag-systems-in-2026-complete-architecture-guide",
+    "source_date": "2026-01-20"
+  },
+  {
+    "content": "Session summaries storage: Store full conversation in activity log, summarized version (300-500 tokens) in vector DB. Use LLM to extract: key decisions, unresolved questions, action items. Chunk by topic if summary >500 tokens. Prioritize recent context over chronological completeness.",
+    "type": "guideline",
+    "domain": "rag",
+    "importance": "medium",
+    "tags": ["session-summaries", "chunking", "summarization"],
+    "source": "https://redis.io/blog/context-window-overflow/",
+    "source_date": "2026-01-15"
+  },
+  {
+    "content": "Retrieval accuracy quantification: Hard truncation causes 15-35% retrieval accuracy loss. Semantic chunking improves precision by 20-40%. Chunk overlap reduces boundary errors by 35%. Poor chunking compounds with other failures: 95% accuracy per layer = 81% overall reliability (0.95^3).",
+    "type": "guideline",
+    "domain": "rag",
+    "importance": "high",
+    "tags": ["rag", "metrics", "accuracy", "benchmarks"],
+    "source": "https://arxiv.org/html/2506.00054v1",
+    "source_date": "2025-06-01"
+  },
+  {
+    "content": "Context window overflow handling: For LLM errors due to context limits: 1) Smart chunking with relevance filtering, 2) Semantic caching (50-80% cost reduction), 3) RAG optimization with reranking, 4) Agent memory with context grading. Chunk-based inference processes only relevant portions.",
+    "type": "guideline",
+    "domain": "rag",
+    "importance": "high",
+    "tags": ["context-overflow", "chunking", "optimization", "llm"],
+    "source": "https://redis.io/blog/context-window-overflow/",
+    "source_date": "2026-01-15"
+  },
+  {
+    "content": "Production RAG hallucination reduction: Better chunking (preserve structure) + reranking (filter irrelevant) + context grading (validate relevance) + output validation (check against context) reduces hallucinations from 20% to 2-5%. Each layer must succeed to avoid compounding failures.",
+    "type": "guideline",
+    "domain": "rag",
+    "importance": "high",
+    "tags": ["rag", "hallucinations", "quality", "validation"],
+    "source": "https://brlikhon.engineer/blog/building-production-rag-systems-in-2026-complete-tutorial-with-langchain-pinecone",
+    "source_date": "2026-01-20"
+  }
+]

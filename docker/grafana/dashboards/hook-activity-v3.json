@@ -76,7 +76,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{project=~\"$project\"}[5m])) by (hook_type)",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{project=~\"$project\"}[1h])) by (hook_type)",
           "refId": "A",
           "legendFormat": "{{hook_type}}"
         }
@@ -133,12 +133,12 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=~\"UserPromptSubmit|Stop|PostToolUse|PostToolUse_Error|PreCompact\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=~\"UserPromptSubmit|Stop|PostToolUse|PostToolUse_Error|PreCompact\", project=~\"$project\"}[1h]))",
           "refId": "A",
           "legendFormat": "CAPTURE"
         },
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=~\"PostToolUse_ErrorDetection|PreToolUse_NewFile|PreToolUse_FirstEdit|SessionStart|PreToolUse\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=~\"PostToolUse_ErrorDetection|PreToolUse_NewFile|PreToolUse_FirstEdit|SessionStart|PreToolUse\", project=~\"$project\"}[1h]))",
           "refId": "B",
           "legendFormat": "RETRIEVAL"
         }
@@ -220,12 +220,12 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{status=\"success\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{status=\"success\", project=~\"$project\"}[1h]))",
           "refId": "A",
           "legendFormat": "Success"
         },
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{status=\"error\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{status=\"error\", project=~\"$project\"}[1h]))",
           "refId": "B",
           "legendFormat": "Error"
         }
@@ -307,7 +307,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_bucket{project=~\"$project\"}[5m])) by (le)",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_bucket{project=~\"$project\"}[1h])) by (le)",
           "refId": "A",
           "format": "heatmap",
           "legendFormat": "{{le}}"
@@ -366,7 +366,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_trigger_fires_total{project=~\"$project\"}[5m])) by (trigger_type)",
+          "expr": "sum(increase(aimemory_trigger_fires_total{project=~\"$project\"}[1h])) by (trigger_type)",
           "refId": "A",
           "legendFormat": "{{trigger_type}}"
         }
@@ -419,7 +419,7 @@
       },
       "targets": [
         {
-          "expr": "topk(10, histogram_quantile(0.99, sum(rate(aimemory_hook_duration_seconds_bucket{project=~\"$project\"}[5m])) by (le, hook_type, project)))",
+          "expr": "topk(10, histogram_quantile(0.99, sum(increase(aimemory_hook_duration_seconds_bucket{project=~\"$project\"}[1h])) by (le, hook_type, project)))",
           "refId": "A",
           "format": "table",
           "instant": true
@@ -572,7 +572,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{status=\"error\", project=~\"$project\"}[5m])) / sum(rate(aimemory_hook_duration_seconds_count{project=~\"$project\"}[5m])) * 100",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{status=\"error\", project=~\"$project\"}[1h])) / sum(increase(aimemory_hook_duration_seconds_count{project=~\"$project\"}[1h])) * 100",
           "refId": "A",
           "legendFormat": "Error %"
         }
@@ -1254,57 +1254,57 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"UserPromptSubmit\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"UserPromptSubmit\", project=~\"$project\"}[1h]))",
           "refId": "A",
           "legendFormat": "user_prompt_capture"
         },
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"Stop\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"Stop\", project=~\"$project\"}[1h]))",
           "refId": "B",
           "legendFormat": "agent_response_capture"
         },
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"PostToolUse\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"PostToolUse\", project=~\"$project\"}[1h]))",
           "refId": "C",
           "legendFormat": "post_tool_capture"
         },
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"PostToolUse_Error\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"PostToolUse_Error\", project=~\"$project\"}[1h]))",
           "refId": "D",
           "legendFormat": "error_pattern_capture"
         },
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"PreCompact\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"PreCompact\", project=~\"$project\"}[1h]))",
           "refId": "E",
           "legendFormat": "pre_compact_save"
         },
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"PostToolUse_ErrorDetection\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"PostToolUse_ErrorDetection\", project=~\"$project\"}[1h]))",
           "refId": "F",
           "legendFormat": "error_detection"
         },
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"PreToolUse_NewFile\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"PreToolUse_NewFile\", project=~\"$project\"}[1h]))",
           "refId": "G",
           "legendFormat": "new_file_trigger"
         },
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"PreToolUse_FirstEdit\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"PreToolUse_FirstEdit\", project=~\"$project\"}[1h]))",
           "refId": "H",
           "legendFormat": "first_edit_trigger"
         },
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"UserPromptSubmit_Decision\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"UserPromptSubmit_Decision\", project=~\"$project\"}[1h]))",
           "refId": "I",
           "legendFormat": "decision_keyword_trigger"
         },
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"UserPromptSubmit_BestPractices\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"UserPromptSubmit_BestPractices\", project=~\"$project\"}[1h]))",
           "refId": "J",
           "legendFormat": "best_practices_keyword_trigger"
         },
         {
-          "expr": "sum(rate(aimemory_hook_duration_seconds_count{hook_type=\"SessionStart\", project=~\"$project\"}[5m]))",
+          "expr": "sum(increase(aimemory_hook_duration_seconds_count{hook_type=\"SessionStart\", project=~\"$project\"}[1h]))",
           "refId": "K",
           "legendFormat": "session_start"
         }

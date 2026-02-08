@@ -355,7 +355,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_failure_events_total{project=~\"$project\"}[5m])) by (component)",
+          "expr": "sum(increase(aimemory_failure_events_total{project=~\"$project\"}[1h])) by (component)",
           "refId": "A",
           "legendFormat": "{{component}}"
         }
@@ -583,32 +583,32 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(aimemory_embedding_batch_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(increase(aimemory_embedding_batch_duration_seconds_bucket[1h])) by (le))",
           "refId": "A",
           "legendFormat": "Batch p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_embedding_batch_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_batch_duration_seconds_bucket[1h])) by (le))",
           "refId": "B",
           "legendFormat": "Batch p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(aimemory_embedding_batch_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(increase(aimemory_embedding_batch_duration_seconds_bucket[1h])) by (le))",
           "refId": "C",
           "legendFormat": "Batch p99"
         },
         {
-          "expr": "histogram_quantile(0.50, sum(rate(aimemory_embedding_realtime_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])) by (le))",
           "refId": "D",
           "legendFormat": "Realtime p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(aimemory_embedding_realtime_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])) by (le))",
           "refId": "E",
           "legendFormat": "Realtime p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(aimemory_embedding_realtime_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])) by (le))",
           "refId": "F",
           "legendFormat": "Realtime p99"
         }
@@ -761,7 +761,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(aimemory_failure_events_total{project=~\"$project\"}[5m])) by (error_code)",
+          "expr": "sum(increase(aimemory_failure_events_total{project=~\"$project\"}[1h])) by (error_code)",
           "refId": "A",
           "legendFormat": "{{error_code}}"
         }

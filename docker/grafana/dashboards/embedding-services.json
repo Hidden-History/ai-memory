@@ -7,7 +7,7 @@
       {
         "name": "project",
         "type": "query",
-        "query": "label_values(ai_memory_captures_total, project)",
+        "query": "label_values(aimemory_captures_total, project)",
         "datasource": {
           "type": "prometheus",
           "uid": "prometheus"
@@ -62,7 +62,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ai_memory_collection_size)",
+          "expr": "sum(aimemory_collection_size)",
           "refId": "A",
           "legendFormat": "Total Memories"
         }
@@ -121,7 +121,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ai_memory_embedding_requests_total{embedding_type=\"sparse_bm25\"})",
+          "expr": "sum(aimemory_embedding_requests_total{embedding_type=\"sparse_bm25\"})",
           "refId": "A",
           "legendFormat": "BM25 Total"
         }
@@ -180,7 +180,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ai_memory_embedding_requests_total{embedding_type=\"sparse_splade\"})",
+          "expr": "sum(aimemory_embedding_requests_total{embedding_type=\"sparse_splade\"})",
           "refId": "A",
           "legendFormat": "SPLADE Total"
         }
@@ -254,7 +254,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (embedding_type, status) (ai_memory_embedding_requests_total)",
+          "expr": "sum by (embedding_type, status) (aimemory_embedding_requests_total)",
           "refId": "A",
           "legendFormat": "{{embedding_type}} - {{status}}"
         }
@@ -300,12 +300,12 @@
       },
       "targets": [
         {
-          "expr": "sum by (embedding_type) (ai_memory_embedding_duration_seconds_sum) / sum by (embedding_type) (ai_memory_embedding_duration_seconds_count)",
+          "expr": "sum by (embedding_type) (aimemory_embedding_duration_seconds_sum) / sum by (embedding_type) (aimemory_embedding_duration_seconds_count)",
           "refId": "A",
           "legendFormat": "avg - {{embedding_type}}"
         },
         {
-          "expr": "sum(ai_memory_embedding_duration_seconds_sum) / sum(ai_memory_embedding_duration_seconds_count)",
+          "expr": "sum(aimemory_embedding_duration_seconds_sum) / sum(aimemory_embedding_duration_seconds_count)",
           "refId": "B",
           "legendFormat": "avg - all types"
         }
@@ -368,7 +368,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ai_memory_embedding_duration_seconds_sum) / sum(ai_memory_embedding_duration_seconds_count)",
+          "expr": "sum(aimemory_embedding_duration_seconds_sum) / sum(aimemory_embedding_duration_seconds_count)",
           "refId": "A",
           "legendFormat": "Average Duration"
         }
@@ -429,7 +429,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (embedding_type) (ai_memory_embedding_requests_total{status=\"success\", embedding_type!=\"\"}) / sum by (embedding_type) (ai_memory_embedding_requests_total{embedding_type!=\"\"}) * 100",
+          "expr": "sum by (embedding_type) (aimemory_embedding_requests_total{status=\"success\", embedding_type!=\"\"}) / sum by (embedding_type) (aimemory_embedding_requests_total{embedding_type!=\"\"}) * 100",
           "refId": "A",
           "legendFormat": "{{embedding_type}}"
         }

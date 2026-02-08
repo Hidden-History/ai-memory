@@ -175,6 +175,7 @@ async def update_metrics_periodically():
     while True:
         try:
             from memory.metrics import update_collection_metrics
+            from memory.metrics_push import push_collection_size_metrics_async
             from memory.stats import get_collection_stats
 
             # Reuse sync client for stats (avoids creating new connection per update)
@@ -184,6 +185,33 @@ async def update_metrics_periodically():
                 try:
                     stats = get_collection_stats(sync_client, collection_name)
                     update_collection_metrics(stats)
+
+                    # Push to Pushgateway for Grafana dashboard visibility (TECH-DEBT-072)
+                    try:
+                        # Push total collection size
+                        push_collection_size_metrics_async(
+                            collection=collection_name,
+                            project="all",
+                            point_count=stats.total_points,
+                        )
+
+                        # Push per-project breakdown
+                        for project_name, count in stats.points_by_project.items():
+                            push_collection_size_metrics_async(
+                                collection=collection_name,
+                                project=project_name,
+                                point_count=count,
+                            )
+                    except Exception as push_error:
+                        # Graceful degradation: log but don't fail the update task
+                        logger.warning(
+                            "pushgateway_push_failed",
+                            extra={
+                                "collection": collection_name,
+                                "error": str(push_error),
+                            },
+                        )
+
                     logger.debug(
                         "metrics_updated",
                         extra={

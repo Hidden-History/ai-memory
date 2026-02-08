@@ -334,6 +334,7 @@ def format_result(result: dict, index: int) -> str:
 async def main_async() -> int:
     """Main async entry point."""
     start_time = time.time()
+    project_name = "unknown"  # Initialize for metrics (TECH-DEBT-142)
 
     try:
         # Read hook input
@@ -505,6 +506,20 @@ async def main_async() -> int:
                     },
                 )
 
+        # HIGH-3 FIX: Protect import with try/except for graceful degradation
+        try:
+            from memory.metrics_push import push_hook_metrics_async
+
+            duration_seconds = time.time() - start_time
+            push_hook_metrics_async(
+                hook_name="UserPromptSubmit",
+                duration_seconds=duration_seconds,
+                success=True,
+                project=project_name,
+            )
+        except ImportError:
+            pass  # Graceful degradation if metrics unavailable
+
         return 0
 
     except Exception as e:
@@ -512,6 +527,21 @@ async def main_async() -> int:
             "unified_trigger_failed",
             extra={"error": str(e), "error_type": type(e).__name__},
         )
+
+        # HIGH-3 FIX: Protect import with try/except for graceful degradation
+        try:
+            from memory.metrics_push import push_hook_metrics_async
+
+            duration_seconds = time.time() - start_time
+            push_hook_metrics_async(
+                hook_name="UserPromptSubmit",
+                duration_seconds=duration_seconds,
+                success=False,
+                project=project_name,
+            )
+        except ImportError:
+            pass  # Graceful degradation if metrics unavailable
+
         return 0  # Graceful degradation
 
 

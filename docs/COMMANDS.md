@@ -347,7 +347,7 @@ curl http://localhost:26350/collections/discussions/points/scroll \
 curl http://localhost:26350/health
 
 # If down, restart
-docker compose -f docker/docker-compose.yml restart bmad-qdrant
+docker compose -f docker/docker-compose.yml restart ai-memory-qdrant
 ```
 </details>
 
@@ -788,7 +788,7 @@ ls -la .claude/skills/
 
 1. **"Qdrant unavailable"**
    ```bash
-   docker compose -f docker/docker-compose.yml restart bmad-qdrant
+   docker compose -f docker/docker-compose.yml restart ai-memory-qdrant
    ```
 
 2. **"No memories found"**
@@ -797,7 +797,7 @@ ls -la .claude/skills/
 
 3. **"Embedding service timeout"**
    ```bash
-   docker compose -f docker/docker-compose.yml restart bmad-embedding
+   docker compose -f docker/docker-compose.yml restart ai-memory-embedding
    ```
 </details>
 

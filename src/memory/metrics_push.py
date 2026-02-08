@@ -50,7 +50,10 @@ VALID_HOOK_TYPES = {
     "UserPromptSubmit",
     "PreToolUse",
     "PreToolUse_NewFile",  # CR-3: New file creation trigger variant
+    "PreToolUse_FirstEdit",  # TECH-DEBT-141: First edit trigger
     "PostToolUse",
+    "PostToolUse_Error",  # TECH-DEBT-141: Error pattern capture
+    "PostToolUse_ErrorDetection",  # TECH-DEBT-141: Error detection
     "PreCompact",
     "Stop",
 }

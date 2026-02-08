@@ -47,10 +47,15 @@ from memory.hooks_common import get_metrics, log_to_activity, setup_hook_logging
 
 logger = setup_hook_logging()
 
-# CR-2 FIX: Use consolidated metrics import
-memory_retrievals_total, retrieval_duration_seconds, hook_duration_seconds = (
-    get_metrics()
-)
+# CR-2 FIX: Use consolidated metrics import (TECH-DEBT-142: Remove local hook_duration_seconds)
+memory_retrievals_total, retrieval_duration_seconds, _ = get_metrics()
+
+# TECH-DEBT-142: Import push metrics for Pushgateway
+try:
+    from memory.metrics_push import push_hook_metrics_async, push_retrieval_metrics_async
+except ImportError:
+    push_hook_metrics_async = None
+    push_retrieval_metrics_async = None
 
 # Display formatting constants
 MAX_CONTENT_CHARS = 400  # Maximum characters to show in context output
@@ -255,12 +260,24 @@ def main() -> int:
                 ).inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
-            if hook_duration_seconds:
-                hook_duration_seconds.labels(
-                    hook_type="PreToolUse_FirstEdit",
-                    status="success",
+
+            # TECH-DEBT-075: Push retrieval metrics to Pushgateway
+            if push_retrieval_metrics_async:
+                push_retrieval_metrics_async(
+                    collection="code-patterns",
+                    status="success" if results else "empty",
+                    duration_seconds=duration_ms / 1000.0,
                     project=project_name,
-                ).observe(duration_ms / 1000.0)
+                )
+
+            # TECH-DEBT-142: Push hook duration to Pushgateway
+            if push_hook_metrics_async:
+                push_hook_metrics_async(
+                    hook_name="PreToolUse_FirstEdit",
+                    duration_seconds=duration_ms / 1000.0,
+                    success=True,
+                    project=project_name,
+                )
 
             # Push trigger metrics to Pushgateway
             from memory.metrics_push import push_trigger_metrics_async
@@ -292,13 +309,16 @@ def main() -> int:
                 status="failed",
                 project=proj,
             ).inc()
-        if hook_duration_seconds:
-            duration_seconds = time.perf_counter() - start_time
-            hook_duration_seconds.labels(
-                hook_type="PreToolUse_FirstEdit",
-                status="error",
+
+        # TECH-DEBT-142: Push hook duration to Pushgateway (error case)
+        duration_seconds = time.perf_counter() - start_time
+        if push_hook_metrics_async:
+            push_hook_metrics_async(
+                hook_name="PreToolUse_FirstEdit",
+                duration_seconds=duration_seconds,
+                success=False,
                 project=proj,
-            ).observe(duration_seconds)
+            )
 
         # Push failure metrics
         from memory.metrics_push import push_trigger_metrics_async

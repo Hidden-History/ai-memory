@@ -17,11 +17,17 @@ from .prose_chunker import ProseChunker, ProseChunkerConfig
 
 logger = logging.getLogger("ai_memory.chunking")
 
-# TECH-DEBT-089: Import metrics push for chunking instrumentation
-try:
-    from memory.metrics_push import push_chunking_metrics_async
-except ImportError:
-    push_chunking_metrics_async = None
+
+# TECH-DEBT-089: Lazy import to avoid circular dependency
+# (chunking/__init__.py -> metrics_push -> storage -> chunking/truncation)
+def _get_metrics_push():
+    """Lazy import of push_chunking_metrics_async to avoid circular import."""
+    try:
+        from memory.metrics_push import push_chunking_metrics_async
+
+        return push_chunking_metrics_async
+    except ImportError:
+        return None
 
 
 class IntelligentChunker:
@@ -161,17 +167,22 @@ class IntelligentChunker:
             )
             return ContentType.UNKNOWN
 
-    def chunk(self, content: str, file_path: str) -> list[ChunkResult]:
+    def chunk(
+        self, content: str, file_path: str, content_type: ContentType | None = None
+    ) -> list[ChunkResult]:
         """Chunk content using appropriate strategy.
 
         Routes to specialized chunkers based on content type:
         - CODE: AST-based chunking (if available)
         - PROSE: Semantic prose chunking (512 tokens, 15% overlap)
+        - USER_MESSAGE/AGENT_RESPONSE: Whole if under threshold, ProseChunker if over
+        - GUIDELINE: Always semantic chunking
         - Others: Whole content (CONFIG, CONVERSATION, UNKNOWN)
 
         Args:
             content: Content to chunk
-            file_path: Source file path (for content type detection)
+            file_path: Source file path (for content type detection if content_type not provided)
+            content_type: Optional explicit content type. If provided, skips auto-detection.
 
         Returns:
             List of ChunkResult objects
@@ -185,7 +196,8 @@ class IntelligentChunker:
             logger.debug("chunk_empty_content", extra={"file_path": file_path})
             return []
 
-        content_type = self.detect_content_type(file_path, content)
+        if content_type is None:
+            content_type = self.detect_content_type(file_path, content)
         token_count = self.estimate_tokens(content)
 
         # TECH-DEBT-089: Track chunking duration for metrics
@@ -200,6 +212,61 @@ class IntelligentChunker:
             },
         )
 
+        # Route USER_MESSAGE and AGENT_RESPONSE
+        if content_type in (ContentType.USER_MESSAGE, ContentType.AGENT_RESPONSE):
+            max_tokens = 2000 if content_type == ContentType.USER_MESSAGE else 3000
+            if token_count <= max_tokens:
+                # Under threshold — store whole
+                metadata = ChunkMetadata(
+                    chunk_type="whole",
+                    chunk_index=0,
+                    total_chunks=1,
+                    chunk_size_tokens=token_count,
+                    overlap_tokens=0,
+                    source_file=file_path,
+                )
+                return [ChunkResult(content=content, metadata=metadata)]
+            else:
+                # Over threshold — topical chunking with ProseChunker
+                logger.info(
+                    "routing_to_prose_chunker_for_message",
+                    extra={
+                        "content_type": content_type.value,
+                        "token_count": token_count,
+                        "max_tokens": max_tokens,
+                    },
+                )
+                chunks = self._prose_chunker.chunk(content, source=file_path)
+                if chunks:
+                    push_chunking_metrics_async = _get_metrics_push()
+                    if push_chunking_metrics_async:
+                        duration = time.time() - chunk_start_time
+                        push_chunking_metrics_async(
+                            "topical", content_type.value, len(chunks), duration
+                        )
+                    return chunks
+                # Fallback to whole if ProseChunker returns empty
+                logger.warning(
+                    "prose_chunker_empty_for_message",
+                    extra={"content_type": content_type.value},
+                )
+
+        # Route GUIDELINE content
+        if content_type == ContentType.GUIDELINE:
+            # Guidelines always use semantic chunking regardless of size
+            logger.debug(
+                "routing_to_prose_chunker_for_guideline", extra={"file_path": file_path}
+            )
+            chunks = self._prose_chunker.chunk(content, source=file_path)
+            if chunks:
+                push_chunking_metrics_async = _get_metrics_push()
+                if push_chunking_metrics_async:
+                    duration = time.time() - chunk_start_time
+                    push_chunking_metrics_async(
+                        "semantic", "guideline", len(chunks), duration
+                    )
+                return chunks
+
         # Route to appropriate chunker
         if content_type == ContentType.CODE and self._ast_chunker:
             # Use AST-based chunking for code
@@ -209,6 +276,7 @@ class IntelligentChunker:
             # If AST chunking returned results, use them
             if chunks:
                 # TECH-DEBT-089: Push chunking metrics
+                push_chunking_metrics_async = _get_metrics_push()
                 if push_chunking_metrics_async:
                     duration = time.time() - chunk_start_time
                     push_chunking_metrics_async("ast", "unknown", len(chunks), duration)
@@ -242,6 +310,7 @@ class IntelligentChunker:
 
             if chunks:
                 # TECH-DEBT-089: Push chunking metrics
+                push_chunking_metrics_async = _get_metrics_push()
                 if push_chunking_metrics_async:
                     duration = time.time() - chunk_start_time
                     push_chunking_metrics_async(
@@ -266,6 +335,7 @@ class IntelligentChunker:
         )
 
         # TECH-DEBT-089: Push chunking metrics for whole content fallback
+        push_chunking_metrics_async = _get_metrics_push()
         if push_chunking_metrics_async:
             duration = time.time() - chunk_start_time
             # Use content_type.value for chunk_type when falling back

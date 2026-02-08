@@ -60,11 +60,17 @@ from memory.validation import compute_content_hash
 
 # Import metrics for Prometheus instrumentation
 try:
-    from memory.metrics import hook_duration_seconds, memory_captures_total
+    from memory.metrics import memory_captures_total
 except ImportError:
     logger.warning("metrics_module_unavailable")
-    hook_duration_seconds = None
     memory_captures_total = None
+
+# TECH-DEBT-142: Import push metrics for Pushgateway
+try:
+    from memory.metrics_push import push_hook_metrics_async, push_capture_metrics_async
+except ImportError:
+    push_hook_metrics_async = None
+    push_capture_metrics_async = None
 
 # Import Qdrant-specific exceptions for proper error handling
 try:
@@ -418,7 +424,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
             },
         )
 
-        # Metrics: Increment capture counter on success
+        # Metrics: Increment capture counter on success (local)
         if memory_captures_total:
             memory_captures_total.labels(
                 hook_type="PreCompact",
@@ -426,6 +432,16 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 project=summary_data["group_id"] or "unknown",
                 collection="discussions",
             ).inc()
+
+        # TECH-DEBT-075: Push capture metrics to Pushgateway
+        if push_capture_metrics_async:
+            push_capture_metrics_async(
+                hook_type="PreCompact",
+                status="success",
+                project=summary_data["group_id"] or "unknown",
+                collection="discussions",
+                count=1,
+            )
 
         return True
 
@@ -448,6 +464,16 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 project=summary_data["group_id"] or "unknown",
                 collection="discussions",
             ).inc()
+
+        # TECH-DEBT-075: Push capture metrics to Pushgateway
+        if push_capture_metrics_async:
+            push_capture_metrics_async(
+                hook_type="PreCompact",
+                status="queued",
+                project=summary_data["group_id"] or "unknown",
+                collection="discussions",
+                count=1,
+            )
         return False
 
     except UnexpectedResponse as e:
@@ -469,6 +495,16 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 project=summary_data["group_id"] or "unknown",
                 collection="discussions",
             ).inc()
+
+        # TECH-DEBT-075: Push capture metrics to Pushgateway
+        if push_capture_metrics_async:
+            push_capture_metrics_async(
+                hook_type="PreCompact",
+                status="queued",
+                project=summary_data["group_id"] or "unknown",
+                collection="discussions",
+                count=1,
+            )
         return False
 
     except QdrantUnavailable as e:
@@ -514,6 +550,16 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                     collection="discussions",
                 ).inc()
 
+            # TECH-DEBT-075: Push capture metrics to Pushgateway
+            if push_capture_metrics_async:
+                push_capture_metrics_async(
+                    hook_type="PreCompact",
+                    status="failed",
+                    project=summary_data["group_id"] or "unknown",
+                    collection="discussions",
+                    count=1,
+                )
+
         return False
 
     except ApiException as e:
@@ -535,6 +581,16 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 project=summary_data["group_id"] or "unknown",
                 collection="discussions",
             ).inc()
+
+        # TECH-DEBT-075: Push capture metrics to Pushgateway
+        if push_capture_metrics_async:
+            push_capture_metrics_async(
+                hook_type="PreCompact",
+                status="queued",
+                project=summary_data["group_id"] or "unknown",
+                collection="discussions",
+                count=1,
+            )
         return False
 
     except Exception as e:
@@ -557,6 +613,16 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 project=summary_data["group_id"] or "unknown",
                 collection="discussions",
             ).inc()
+
+        # TECH-DEBT-075: Push capture metrics to Pushgateway
+        if push_capture_metrics_async:
+            push_capture_metrics_async(
+                hook_type="PreCompact",
+                status="queued",
+                project=summary_data["group_id"] or "unknown",
+                collection="discussions",
+                count=1,
+            )
         return False
 
 
@@ -793,12 +859,15 @@ def main() -> int:
         # User notification via stderr (visible to user, not Claude)
         project = summary_data.get("group_id", "unknown")
 
-        # Metrics: Record hook duration
+        # TECH-DEBT-142: Push hook duration to Pushgateway
         duration_ms = (time.perf_counter() - start_time) * 1000
-        if hook_duration_seconds:
-            hook_duration_seconds.labels(
-                hook_type="PreCompact", status="success", project=project
-            ).observe(duration_ms / 1000)
+        if push_hook_metrics_async:
+            push_hook_metrics_async(
+                hook_name="PreCompact",
+                duration_seconds=duration_ms / 1000,
+                success=True,
+                project=project,
+            )
         trigger = hook_input["trigger"]
         print(
             f"📤 AI Memory: Session summary saved for {project} (trigger: {trigger}) [{duration_ms:.0f}ms]",
@@ -838,16 +907,19 @@ def main() -> int:
             "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
-        # Metrics: Record hook duration even on error
-        if hook_duration_seconds:
+        # TECH-DEBT-142: Push hook duration to Pushgateway (error case)
+        if push_hook_metrics_async:
             duration_seconds = time.perf_counter() - start_time
             # Try to get project from summary_data if available
             project = "unknown"
             if "summary_data" in dir() and summary_data:
                 project = summary_data.get("group_id", "unknown")
-            hook_duration_seconds.labels(
-                hook_type="PreCompact", status="error", project=project
-            ).observe(duration_seconds)
+            push_hook_metrics_async(
+                hook_name="PreCompact",
+                duration_seconds=duration_seconds,
+                success=False,
+                project=project,
+            )
 
         # Non-blocking error - allow compaction to proceed
         return 0

@@ -22,7 +22,7 @@ Both store memories to the `discussions` collection with `USER_MESSAGE` and `AGE
 ### SDK Wrapper
 
 ```
-User Code (Python/BMAD Agent)
+User Code (Python/AI Memory Agent)
     ↓
 SDKWrapper.send_message()
     ├── Capture user message → discussions collection
@@ -216,7 +216,7 @@ turn_number = len([m for m in messages if m["role"] == "user"])
 
 ### When to Use SDK Wrapper
 
-✅ **BMAD Agents** - When building custom agents that need conversation capture
+✅ **AI Memory Agents** - When building custom agents that need conversation capture
 ✅ **Custom Tools** - Integration into Python tools/scripts
 ✅ **Testing** - Unit tests requiring controlled message capture
 ✅ **Batch Processing** - Programmatic message processing pipelines
@@ -224,7 +224,7 @@ turn_number = len([m for m in messages if m["role"] == "user"])
 
 **Example:**
 ```python
-# Parzival agent using SDK wrapper
+# Parzival agent using AI Memory SDK wrapper
 class ParzivalAgent:
     def __init__(self):
         self.sdk = SDKWrapper(cwd=os.getcwd())
@@ -313,9 +313,9 @@ Total: ~3000ms (response time + 1000ms hook overhead)
 - Prove concept with tests
 - No production usage yet
 
-**Phase 4 (Next):** BMAD Agent Integration
+**Phase 4 (Next):** AI Memory Agent Integration
 - Parzival agent uses SDK wrapper
-- Other BMAD agents use SDK wrapper
+- Other AI Memory agents use SDK wrapper
 - File-based hooks remain for general sessions
 
 **Phase 5 (Future):** Full Replacement
@@ -350,7 +350,7 @@ Total: ~3000ms (response time + 1000ms hook overhead)
 ### For AI Memory Module
 
 1. **Keep Both Approaches**
-   - SDK wrapper for Parzival and custom agents
+   - SDK wrapper for Parzival and AI Memory agents
    - File-based hooks for general Claude Code sessions
 
 2. **Use SDK for Critical Paths**
