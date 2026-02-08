@@ -141,32 +141,39 @@ def record_classification(
 
     # Increment request counter
     classifier_requests_total.labels(
-        project=project, provider=provider, status=status, classified_type=classified_type
+        project=project,
+        provider=provider,
+        status=status,
+        classified_type=classified_type,
     ).inc()
 
     # Record latency
-    classifier_latency_seconds.labels(project=project, provider=provider).observe(latency_seconds)
+    classifier_latency_seconds.labels(project=project, provider=provider).observe(
+        latency_seconds
+    )
 
     # Record token usage
     if input_tokens > 0:
-        classifier_tokens_total.labels(project=project, provider=provider, direction="input").inc(
-            input_tokens
-        )
+        classifier_tokens_total.labels(
+            project=project, provider=provider, direction="input"
+        ).inc(input_tokens)
 
     if output_tokens > 0:
-        classifier_tokens_total.labels(project=project, provider=provider, direction="output").inc(
-            output_tokens
-        )
+        classifier_tokens_total.labels(
+            project=project, provider=provider, direction="output"
+        ).inc(output_tokens)
 
     # Record cost
     if cost_microdollars > 0:
-        classifier_cost_microdollars.labels(project=project, provider=provider).inc(cost_microdollars)
+        classifier_cost_microdollars.labels(project=project, provider=provider).inc(
+            cost_microdollars
+        )
 
     # Record confidence distribution (only on success)
     if success and confidence > 0:
-        classifier_confidence.labels(project=project, classified_type=classified_type).observe(
-            confidence
-        )
+        classifier_confidence.labels(
+            project=project, classified_type=classified_type
+        ).observe(confidence)
 
     logger.debug(
         "classification_recorded",
@@ -180,7 +187,9 @@ def record_classification(
     )
 
 
-def record_fallback(from_provider: str, to_provider: str, reason: str, project: str = "unknown"):
+def record_fallback(
+    from_provider: str, to_provider: str, reason: str, project: str = "unknown"
+):
     """Record a provider fallback event.
 
     Args:
@@ -193,7 +202,10 @@ def record_fallback(from_provider: str, to_provider: str, reason: str, project: 
         >>> record_fallback("ollama", "openrouter", "timeout", project="my-app")
     """
     classifier_fallbacks_total.labels(
-        project=project, from_provider=from_provider, to_provider=to_provider, reason=reason
+        project=project,
+        from_provider=from_provider,
+        to_provider=to_provider,
+        reason=reason,
     ).inc()
 
     logger.info(

@@ -15,7 +15,6 @@ Key principles:
 """
 
 import re
-from typing import Dict
 
 import tiktoken
 
@@ -81,7 +80,7 @@ def smart_end(content: str, max_tokens: int, encoding_name: str = "cl100k_base")
     truncated = content[:estimated_char_pos]
 
     # Find all sentence boundaries
-    sentence_pattern = r'[.!?](?:\s|$)'
+    sentence_pattern = r"[.!?](?:\s|$)"
     matches = list(re.finditer(sentence_pattern, truncated))
 
     if matches:
@@ -101,7 +100,7 @@ def smart_end(content: str, max_tokens: int, encoding_name: str = "cl100k_base")
     truncated_text = encoding.decode(truncated_tokens)
 
     # Find last space to avoid cutting mid-word
-    last_space = truncated_text.rfind(' ')
+    last_space = truncated_text.rfind(" ")
     if last_space > len(truncated_text) * 0.5:  # At least 50% of content
         return truncated_text[:last_space] + " [...]"
 
@@ -113,7 +112,7 @@ def first_last(
     content: str,
     max_tokens: int,
     first_ratio: float = 0.7,
-    encoding_name: str = "cl100k_base"
+    encoding_name: str = "cl100k_base",
 ) -> str:
     """Keep beginning + end, truncate middle.
 
@@ -166,8 +165,8 @@ def first_last(
 def structured_truncate(
     content: str,
     max_tokens: int,
-    sections: Dict[str, str],
-    encoding_name: str = "cl100k_base"
+    sections: dict[str, str],
+    encoding_name: str = "cl100k_base",
 ) -> str:
     """Truncate preserving structure of command + error + output.
 
@@ -202,7 +201,7 @@ def structured_truncate(
         return content
 
     # Validate required keys
-    required_keys = {'command', 'error', 'output'}
+    required_keys = {"command", "error", "output"}
     missing_keys = required_keys - set(sections.keys())
     if missing_keys:
         raise ValueError(f"Missing required sections: {missing_keys}")
@@ -210,9 +209,9 @@ def structured_truncate(
     encoding = tiktoken.get_encoding(encoding_name)
 
     # Count tokens for each section
-    command = sections['command']
-    error = sections['error']
-    output = sections['output']
+    command = sections["command"]
+    error = sections["error"]
+    output = sections["output"]
 
     # Build header strings
     command_header = "Command: "
@@ -240,7 +239,9 @@ def structured_truncate(
     # Truncate command if needed
     command_tokens = encoding.encode(command)
     if len(command_tokens) > command_budget:
-        truncated_command = encoding.decode(command_tokens[:command_budget]).rstrip() + "..."
+        truncated_command = (
+            encoding.decode(command_tokens[:command_budget]).rstrip() + "..."
+        )
     else:
         truncated_command = command
 
@@ -252,7 +253,7 @@ def structured_truncate(
             output,
             max_tokens=output_budget,
             first_ratio=0.6,  # 60% beginning, 40% end for errors
-            encoding_name=encoding_name
+            encoding_name=encoding_name,
         )
     else:
         truncated_output = output

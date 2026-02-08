@@ -9,7 +9,6 @@ Verifies the complete fix for TECH-DEBT-151:
 These tests require Qdrant running on port 26350.
 """
 
-import os
 import subprocess
 
 import pytest
@@ -124,7 +123,9 @@ class TestStorageTruncation:
         guideline += "## Conclusion\n" + ("Summary points. " * 100)
 
         original_length = len(guideline)
-        assert original_length > 23000, f"Guideline should be >23K, got {original_length}"
+        assert (
+            original_length > 23000
+        ), f"Guideline should be >23K, got {original_length}"
 
         result = storage.store_memory(
             content=guideline,
@@ -162,7 +163,9 @@ class TestStorageTruncation:
 
         original_length = len(summary)
         original_tokens = count_tokens(summary)
-        assert original_tokens < 8192, f"Should be under 8192 tokens, got {original_tokens}"
+        assert (
+            original_tokens < 8192
+        ), f"Should be under 8192 tokens, got {original_tokens}"
 
         result = storage.store_memory(
             content=summary,
@@ -192,7 +195,7 @@ class TestNoHardTruncationPatterns:
         """storage.py should have NO hard truncation patterns [:N]."""
         storage_file = "src/memory/storage.py"
 
-        with open(storage_file, "r") as f:
+        with open(storage_file) as f:
             content = f.read()
 
         # Check for hard truncation patterns
@@ -203,14 +206,16 @@ class TestNoHardTruncationPatterns:
         assert "[: limit" not in content, "Found hard truncation with limit variable"
 
         # Verify the function was removed
-        assert "_enforce_content_limit" not in content, "_enforce_content_limit() still exists!"
+        assert (
+            "_enforce_content_limit" not in content
+        ), "_enforce_content_limit() still exists!"
         assert "[TRUNCATED]" not in content, "Old [TRUNCATED] marker still present"
 
     def test_no_hard_truncation_in_truncation_py(self):
         """truncation.py should have NO hard truncation patterns (only smart truncation)."""
         truncation_file = "src/memory/chunking/truncation.py"
 
-        with open(truncation_file, "r") as f:
+        with open(truncation_file) as f:
             content = f.read()
 
         # Should NOT have arbitrary character slicing
@@ -223,11 +228,18 @@ class TestNoHardTruncationPatterns:
                 continue
 
             # Check for hard truncation patterns in actual code
-            if "content[:" in line and "content[:last" not in line:
-                # Allow specific patterns like content[:last_space]
-                # but flag arbitrary content[:500] patterns
-                if any(f"[:{n}]" in line for n in [100, 200, 500, 600, 1000, 1200, 1600]):
-                    pytest.fail(f"Line {i+1}: Found hard truncation pattern: {line.strip()}")
+            # Allow specific patterns like content[:last_space]
+            # but flag arbitrary content[:500] patterns
+            if (
+                "content[:" in line
+                and "content[:last" not in line
+                and any(
+                    f"[:{n}]" in line for n in [100, 200, 500, 600, 1000, 1200, 1600]
+                )
+            ):
+                pytest.fail(
+                    f"Line {i+1}: Found hard truncation pattern: {line.strip()}"
+                )
 
     def test_grep_for_hard_truncation_patterns(self):
         """Use grep to find any remaining [:N] patterns in storage files."""
@@ -285,9 +297,7 @@ class TestBatchStorageTruncation:
         ]
 
         results = storage.store_memories_batch(
-            memories,
-            cwd="/test",
-            collection="discussions"
+            memories, cwd="/test", collection="discussions"
         )
 
         assert len(results) == 2

@@ -18,8 +18,12 @@ class ContentType(str, Enum):
     PROSE = "prose"  # Markdown, text
     CONVERSATION = "conversation"  # User/agent messages
     CONFIG = "config"  # JSON, YAML, TOML
-    GUIDELINE = "guideline"  # Best practices, guidelines - section-aware semantic chunking
-    SESSION_SUMMARY = "session"  # Session summaries - late chunking or semantic fallback
+    GUIDELINE = (
+        "guideline"  # Best practices, guidelines - section-aware semantic chunking
+    )
+    SESSION_SUMMARY = (
+        "session"  # Session summaries - late chunking or semantic fallback
+    )
     USER_MESSAGE = "user_message"  # User prompts - whole message storage
     AGENT_RESPONSE = "agent_response"  # Agent responses - whole message storage
     UNKNOWN = "unknown"

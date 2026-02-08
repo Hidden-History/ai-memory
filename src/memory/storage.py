@@ -186,16 +186,21 @@ class MemoryStorage:
         additional_chunks = []
         if chunker_content_type is not None:
             chunker = IntelligentChunker(max_chunk_tokens=512, overlap_pct=0.15)
-            chunk_results = chunker.chunk(content, file_path=source_hook or "", content_type=chunker_content_type)
+            chunk_results = chunker.chunk(
+                content, file_path=source_hook or "", content_type=chunker_content_type
+            )
 
             if len(chunk_results) > 1:
                 # Multiple chunks — store each as separate point
                 # This replaces smart_end truncation with zero-truncation chunking
-                logger.info("content_chunked_for_storage", extra={
-                    "memory_type": memory_type.value,
-                    "num_chunks": len(chunk_results),
-                    "original_length": len(content),
-                })
+                logger.info(
+                    "content_chunked_for_storage",
+                    extra={
+                        "memory_type": memory_type.value,
+                        "num_chunks": len(chunk_results),
+                        "original_length": len(content),
+                    },
+                )
                 # Store first chunk normally, additional chunks as separate points
                 content = chunk_results[0].content
                 # Additional chunks will be stored after the main point
@@ -350,7 +355,9 @@ class MemoryStorage:
                     )
 
                     try:
-                        chunk_embedding = self.embedding_client.embed([chunk.content])[0]
+                        chunk_embedding = self.embedding_client.embed([chunk.content])[
+                            0
+                        ]
                     except EmbeddingError:
                         chunk_embedding = [0.0] * 768
 
@@ -358,7 +365,7 @@ class MemoryStorage:
                         PointStruct(
                             id=chunk_id,
                             vector=chunk_embedding,
-                            payload=chunk_payload.to_dict()
+                            payload=chunk_payload.to_dict(),
                         )
                     )
 
@@ -367,10 +374,13 @@ class MemoryStorage:
                     collection_name=collection,
                     points=additional_points,
                 )
-                logger.info("additional_chunks_stored", extra={
-                    "num_additional_chunks": len(additional_chunks),
-                    "memory_type": memory_type.value,
-                })
+                logger.info(
+                    "additional_chunks_stored",
+                    extra={
+                        "num_additional_chunks": len(additional_chunks),
+                        "memory_type": memory_type.value,
+                    },
+                )
 
             return {
                 "memory_id": memory_id,
@@ -557,15 +567,20 @@ class MemoryStorage:
 
             if chunker_content_type is not None:
                 chunker = IntelligentChunker(max_chunk_tokens=512, overlap_pct=0.15)
-                chunk_results = chunker.chunk(content, file_path="", content_type=chunker_content_type)
+                chunk_results = chunker.chunk(
+                    content, file_path="", content_type=chunker_content_type
+                )
 
                 if len(chunk_results) > 1:
                     # Multiple chunks — expand batch with all chunks
-                    logger.info("batch_content_chunked_for_storage", extra={
-                        "memory_type": memory_type.value,
-                        "num_chunks": len(chunk_results),
-                        "original_length": len(content),
-                    })
+                    logger.info(
+                        "batch_content_chunked_for_storage",
+                        extra={
+                            "memory_type": memory_type.value,
+                            "num_chunks": len(chunk_results),
+                            "original_length": len(content),
+                        },
+                    )
                     # Process all chunks from this memory
                     for chunk_idx, chunk_result in enumerate(chunk_results):
                         chunk_memory_id = str(uuid.uuid4())
@@ -585,16 +600,26 @@ class MemoryStorage:
 
                         # Use corresponding embedding for this chunk
                         chunk_embedding_idx = memories.index(memory)
-                        chunk_embedding = embeddings[chunk_embedding_idx] if chunk_idx == 0 else ([0.0] * 768)
+                        chunk_embedding = (
+                            embeddings[chunk_embedding_idx]
+                            if chunk_idx == 0
+                            else ([0.0] * 768)
+                        )
 
                         points.append(
-                            PointStruct(id=chunk_memory_id, vector=chunk_embedding, payload=chunk_payload.to_dict())
+                            PointStruct(
+                                id=chunk_memory_id,
+                                vector=chunk_embedding,
+                                payload=chunk_payload.to_dict(),
+                            )
                         )
-                        results.append({
-                            "memory_id": chunk_memory_id,
-                            "status": "stored",
-                            "embedding_status": embedding_status.value,
-                        })
+                        results.append(
+                            {
+                                "memory_id": chunk_memory_id,
+                                "status": "stored",
+                                "embedding_status": embedding_status.value,
+                            }
+                        )
                     # Skip normal processing for this memory (already handled)
                     continue
                 else:

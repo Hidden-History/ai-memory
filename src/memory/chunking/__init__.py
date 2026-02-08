@@ -17,12 +17,14 @@ from .prose_chunker import ProseChunker, ProseChunkerConfig
 
 logger = logging.getLogger("ai_memory.chunking")
 
+
 # TECH-DEBT-089: Lazy import to avoid circular dependency
 # (chunking/__init__.py -> metrics_push -> storage -> chunking/truncation)
 def _get_metrics_push():
     """Lazy import of push_chunking_metrics_async to avoid circular import."""
     try:
         from memory.metrics_push import push_chunking_metrics_async
+
         return push_chunking_metrics_async
     except ImportError:
         return None
@@ -165,7 +167,9 @@ class IntelligentChunker:
             )
             return ContentType.UNKNOWN
 
-    def chunk(self, content: str, file_path: str, content_type: ContentType | None = None) -> list[ChunkResult]:
+    def chunk(
+        self, content: str, file_path: str, content_type: ContentType | None = None
+    ) -> list[ChunkResult]:
         """Chunk content using appropriate strategy.
 
         Routes to specialized chunkers based on content type:
@@ -224,31 +228,43 @@ class IntelligentChunker:
                 return [ChunkResult(content=content, metadata=metadata)]
             else:
                 # Over threshold — topical chunking with ProseChunker
-                logger.info("routing_to_prose_chunker_for_message", extra={
-                    "content_type": content_type.value,
-                    "token_count": token_count,
-                    "max_tokens": max_tokens,
-                })
+                logger.info(
+                    "routing_to_prose_chunker_for_message",
+                    extra={
+                        "content_type": content_type.value,
+                        "token_count": token_count,
+                        "max_tokens": max_tokens,
+                    },
+                )
                 chunks = self._prose_chunker.chunk(content, source=file_path)
                 if chunks:
                     push_chunking_metrics_async = _get_metrics_push()
                     if push_chunking_metrics_async:
                         duration = time.time() - chunk_start_time
-                        push_chunking_metrics_async("topical", content_type.value, len(chunks), duration)
+                        push_chunking_metrics_async(
+                            "topical", content_type.value, len(chunks), duration
+                        )
                     return chunks
                 # Fallback to whole if ProseChunker returns empty
-                logger.warning("prose_chunker_empty_for_message", extra={"content_type": content_type.value})
+                logger.warning(
+                    "prose_chunker_empty_for_message",
+                    extra={"content_type": content_type.value},
+                )
 
         # Route GUIDELINE content
         if content_type == ContentType.GUIDELINE:
             # Guidelines always use semantic chunking regardless of size
-            logger.debug("routing_to_prose_chunker_for_guideline", extra={"file_path": file_path})
+            logger.debug(
+                "routing_to_prose_chunker_for_guideline", extra={"file_path": file_path}
+            )
             chunks = self._prose_chunker.chunk(content, source=file_path)
             if chunks:
                 push_chunking_metrics_async = _get_metrics_push()
                 if push_chunking_metrics_async:
                     duration = time.time() - chunk_start_time
-                    push_chunking_metrics_async("semantic", "guideline", len(chunks), duration)
+                    push_chunking_metrics_async(
+                        "semantic", "guideline", len(chunks), duration
+                    )
                 return chunks
 
         # Route to appropriate chunker

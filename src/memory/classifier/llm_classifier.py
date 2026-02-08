@@ -309,7 +309,9 @@ def _classify_with_llm(
                 # Record fallback if there's a next provider
                 if idx < len(providers) - 1:
                     record_fallback(
-                        provider_name, providers[idx + 1].name, "circuit_open",
+                        provider_name,
+                        providers[idx + 1].name,
+                        "circuit_open",
                         project=project_name,
                     )
                 continue
@@ -323,7 +325,9 @@ def _classify_with_llm(
                 # Record fallback if there's a next provider
                 if idx < len(providers) - 1:
                     record_fallback(
-                        provider_name, providers[idx + 1].name, "rate_limited",
+                        provider_name,
+                        providers[idx + 1].name,
+                        "rate_limited",
                         project=project_name,
                     )
                 continue
@@ -337,7 +341,9 @@ def _classify_with_llm(
                 circuit_breaker.record_failure(provider_name, "unavailable")
                 if idx < len(providers) - 1:
                     record_fallback(
-                        provider_name, providers[idx + 1].name, "unavailable",
+                        provider_name,
+                        providers[idx + 1].name,
+                        "unavailable",
                         project=project_name,
                     )
                 continue
@@ -453,8 +459,12 @@ def _classify_with_llm(
 
             # Record fallback if there's a next provider
             if idx < len(providers) - 1:
-                record_fallback(provider_name, providers[idx + 1].name, error_type,
-                                project=project_name)
+                record_fallback(
+                    provider_name,
+                    providers[idx + 1].name,
+                    error_type,
+                    project=project_name,
+                )
 
             logger.warning(
                 "provider_failed",

@@ -3,6 +3,7 @@
 Tests verify that IntelligentChunker accepts explicit content_type
 and routes correctly without relying on file extension detection.
 """
+
 import os
 import sys
 
@@ -18,7 +19,9 @@ class TestContentTypeParameter:
         """User message under 2000 tokens stored whole."""
         chunker = IntelligentChunker()
         content = "This is a short user message. " * 50  # ~250 tokens
-        chunks = chunker.chunk(content, file_path="", content_type=ContentType.USER_MESSAGE)
+        chunks = chunker.chunk(
+            content, file_path="", content_type=ContentType.USER_MESSAGE
+        )
         assert len(chunks) == 1
         assert chunks[0].metadata.chunk_type == "whole"
         assert chunks[0].content == content
@@ -27,21 +30,33 @@ class TestContentTypeParameter:
         """User message over 2000 tokens gets topical chunking."""
         chunker = IntelligentChunker()
         # Create content over 2000 tokens (~8000+ chars)
-        content = "This is a sentence about programming concepts. " * 500  # ~2500 tokens
-        chunks = chunker.chunk(content, file_path="", content_type=ContentType.USER_MESSAGE)
+        content = (
+            "This is a sentence about programming concepts. " * 500
+        )  # ~2500 tokens
+        chunks = chunker.chunk(
+            content, file_path="", content_type=ContentType.USER_MESSAGE
+        )
         assert len(chunks) > 1, f"Expected multiple chunks, got {len(chunks)}"
         # Verify all content is preserved (no truncation)
         total_content = "".join(c.content for c in chunks)
         # Due to overlap, total may be longer than original
-        assert len(total_content) >= len(content) * 0.9  # Allow for minor boundary adjustments
+        assert (
+            len(total_content) >= len(content) * 0.9
+        )  # Allow for minor boundary adjustments
 
     def test_agent_response_threshold_3000(self):
         """Agent response uses 3000 token threshold, not 2000."""
         chunker = IntelligentChunker()
         # Create content between 2000-3000 tokens (47 chars * 200 = 9400 chars = ~2350 tokens)
-        content = "This is a sentence about code review findings. " * 200  # ~2350 tokens
-        chunks = chunker.chunk(content, file_path="", content_type=ContentType.AGENT_RESPONSE)
-        assert len(chunks) == 1, f"Agent response under 3000 should be whole, got {len(chunks)} chunks"
+        content = (
+            "This is a sentence about code review findings. " * 200
+        )  # ~2350 tokens
+        chunks = chunker.chunk(
+            content, file_path="", content_type=ContentType.AGENT_RESPONSE
+        )
+        assert (
+            len(chunks) == 1
+        ), f"Agent response under 3000 should be whole, got {len(chunks)} chunks"
         assert chunks[0].metadata.chunk_type == "whole"
 
     def test_content_type_overrides_file_extension(self):
@@ -49,7 +64,9 @@ class TestContentTypeParameter:
         chunker = IntelligentChunker()
         content = "# Markdown heading\nSome content here."
         # .md would normally route to PROSE, but explicit USER_MESSAGE overrides
-        chunks = chunker.chunk(content, file_path="test.md", content_type=ContentType.USER_MESSAGE)
+        chunks = chunker.chunk(
+            content, file_path="test.md", content_type=ContentType.USER_MESSAGE
+        )
         assert len(chunks) == 1
         assert chunks[0].metadata.chunk_type == "whole"
 
@@ -65,7 +82,9 @@ class TestContentTypeParameter:
         """Guidelines always use semantic chunking regardless of size."""
         chunker = IntelligentChunker()
         content = "## Best Practice\nAlways write tests. " * 200  # Large guideline
-        chunks = chunker.chunk(content, file_path="", content_type=ContentType.GUIDELINE)
+        chunks = chunker.chunk(
+            content, file_path="", content_type=ContentType.GUIDELINE
+        )
         assert len(chunks) >= 1
         for chunk in chunks:
             # ProseChunker returns 'prose' as chunk_type, not 'semantic'
