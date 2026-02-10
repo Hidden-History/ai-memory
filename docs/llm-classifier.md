@@ -212,7 +212,7 @@ Access at: http://localhost:23000 (with `--profile monitoring`)
 | `memory_classifier_requests_total` | Total classification requests |
 | `memory_classifier_latency_seconds` | Classification latency |
 | `memory_classifier_fallback_total` | Fallback events |
-| `bmad_tokens_consumed_total{operation="classification"}` | Tokens used |
+| `aimemory_tokens_consumed_total{operation="classification"}` | Tokens used |
 
 ## Troubleshooting
 

@@ -592,14 +592,14 @@ Edit `docker/docker-compose.yml` for service-level configuration:
 
 ```yaml
 services:
-  bmad-qdrant:
+  ai-memory-qdrant:
     environment:
       - QDRANT__SERVICE__MAX_REQUEST_SIZE=10485760  # 10MB
       - QDRANT__STORAGE__OPTIMIZERS__DEFAULT_SEGMENT_NUMBER=0
     mem_limit: 2g
     cpus: 1.0
 
-  bmad-embedding:
+  ai-memory-embedding:
     environment:
       - EMBEDDING_MODEL=jinaai/jina-embeddings-v2-base-en
       - MAX_BATCH_SIZE=32

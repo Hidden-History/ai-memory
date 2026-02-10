@@ -46,17 +46,17 @@ logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False
 
-# Import metrics for Prometheus instrumentation
+# TECH-DEBT-142: Import push metrics for Pushgateway
 try:
-    from memory.metrics import hook_duration_seconds
-    from memory.storage import detect_project
+    from memory.metrics_push import push_hook_metrics_async
+    from memory.project import detect_project
 except ImportError:
-    hook_duration_seconds = None
+    push_hook_metrics_async = None
     detect_project = None
 
 # Maximum content length for user prompts (prevents payload bloat)
 # V2.0 Fix: Truncate extremely long prompts to avoid Qdrant payload issues
-MAX_CONTENT_LENGTH = 10000  # Embeddings handle large text well
+MAX_CONTENT_LENGTH = 100000  # Embeddings handle large text well
 
 
 def validate_hook_input(data: dict[str, Any]) -> str | None:
@@ -221,13 +221,16 @@ def main() -> int:
         # Fork to background immediately for <50ms performance
         fork_to_background(hook_input, turn_number)
 
-        # Metrics: Record hook duration
-        if hook_duration_seconds:
+        # TECH-DEBT-142: Push hook duration to Pushgateway
+        if push_hook_metrics_async:
             duration_seconds = time.perf_counter() - start_time
             project = detect_project(os.getcwd()) if detect_project else "unknown"
-            hook_duration_seconds.labels(
-                hook_type="UserPromptSubmit", status="success", project=project
-            ).observe(duration_seconds)
+            push_hook_metrics_async(
+                hook_name="UserPromptSubmit",
+                duration_seconds=duration_seconds,
+                success=True,
+                project=project,
+            )
 
         # Exit immediately after fork
         return 0
@@ -238,13 +241,16 @@ def main() -> int:
             "hook_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
-        # Metrics: Record hook duration even on error
-        if hook_duration_seconds:
+        # TECH-DEBT-142: Push hook duration to Pushgateway (error case)
+        if push_hook_metrics_async:
             duration_seconds = time.perf_counter() - start_time
             project = detect_project(os.getcwd()) if detect_project else "unknown"
-            hook_duration_seconds.labels(
-                hook_type="UserPromptSubmit", status="error", project=project
-            ).observe(duration_seconds)
+            push_hook_metrics_async(
+                hook_name="UserPromptSubmit",
+                duration_seconds=duration_seconds,
+                success=False,
+                project=project,
+            )
 
         return 1  # Non-blocking error
 

@@ -32,6 +32,16 @@ from memory.hooks_common import log_to_activity, setup_hook_logging
 
 logger = setup_hook_logging()
 
+# TECH-DEBT-151 Phase 3: Topical chunking for oversized user prompts (V2.1 zero-truncation)
+try:
+    import tiktoken
+    from memory.chunking.prose_chunker import ProseChunker, ProseChunkerConfig
+    from memory.validation import compute_content_hash as _compute_chunk_hash
+    CHUNKING_AVAILABLE = True
+except ImportError:
+    CHUNKING_AVAILABLE = False
+    logger.warning("chunking_module_unavailable", extra={"module": "memory.chunking.prose_chunker"})
+
 from memory.config import (
     COLLECTION_DISCUSSIONS,
     EMBEDDING_MODEL,
@@ -163,45 +173,127 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
             logger.info("empty_content_skipped", extra={"session_id": session_id})
             return True
 
-        # BUG-010 Fix: Generate embedding with retry for transient failures.
-        # Per BP-023: retry → fallback → degradation. 2-3 retries before zero vector.
-        # embedding_status="pending" allows backfill worker to retry later (TECH-DEBT-059).
-        try:
-            from memory.embeddings import EmbeddingClient
+        # TECH-DEBT-151 Phase 3: Zero-truncation — chunk if over 2000 tokens
+        # Per Chunking-Strategy-V2.md V2.1 Section 2.4
+        chunks_to_store = []  # List of (content, chunking_metadata) tuples
+        original_token_count = 0
 
-            @retry(
-                stop=stop_after_attempt(3),
-                wait=wait_exponential(multiplier=0.5, min=0.5, max=2),
-                retry=retry_if_exception_type(
-                    (httpx.TimeoutException, httpx.ConnectError, ConnectionError)
-                ),
-                reraise=True,
-            )
-            def _embed_with_retry(content: str) -> list:
-                with EmbeddingClient(config) as embed_client:
-                    return embed_client.embed([content])[0]
+        if CHUNKING_AVAILABLE:
+            try:
+                enc = tiktoken.get_encoding("cl100k_base")
+                original_token_count = len(enc.encode(prompt))
 
-            vector = _embed_with_retry(prompt)
-            payload["embedding_status"] = "complete"
-            logger.info("embedding_generated", extra={"dimensions": len(vector)})
-        except Exception as e:
-            # Graceful degradation: Use zero vector if all retries fail
-            logger.warning(
-                "embedding_failed_using_zero_vector",
-                extra={"error": str(e), "error_type": type(e).__name__},
-            )
-            vector = [0.0] * config.embedding_dimension
-            payload["embedding_status"] = "pending"
+                if original_token_count > 2000:
+                    # Topical chunking: 512 tokens, 15% overlap
+                    chunker_config = ProseChunkerConfig(max_chunk_size=2048, overlap_ratio=0.15)
+                    prose_chunker = ProseChunker(chunker_config)
+                    chunk_results = prose_chunker.chunk(prompt, source="user_prompt")
 
-        # Store to Qdrant
-        client.upsert(
-            collection_name=COLLECTION_DISCUSSIONS,
-            points=[PointStruct(id=memory_id, vector=vector, payload=payload)],
+                    if chunk_results:
+                        for i, cr in enumerate(chunk_results):
+                            chunk_tokens = len(enc.encode(cr.content))
+                            chunks_to_store.append((cr.content, {
+                                "chunk_type": "topical",
+                                "chunk_index": i,
+                                "total_chunks": len(chunk_results),
+                                "chunk_size_tokens": chunk_tokens,
+                                "overlap_tokens": cr.metadata.overlap_tokens,
+                                "original_size_tokens": original_token_count,
+                            }))
+                        logger.info(
+                            "user_prompt_chunked",
+                            extra={
+                                "original_tokens": original_token_count,
+                                "num_chunks": len(chunk_results),
+                                "session_id": session_id,
+                            },
+                        )
+                    else:
+                        # ProseChunker returned empty — store whole as fallback
+                        chunks_to_store.append((prompt, {
+                            "chunk_type": "whole",
+                            "chunk_index": 0,
+                            "total_chunks": 1,
+                            "chunk_size_tokens": original_token_count,
+                            "overlap_tokens": 0,
+                            "original_size_tokens": original_token_count,
+                        }))
+                else:
+                    # Under threshold — store whole
+                    chunks_to_store.append((prompt, {
+                        "chunk_type": "whole",
+                        "chunk_index": 0,
+                        "total_chunks": 1,
+                        "chunk_size_tokens": original_token_count,
+                        "overlap_tokens": 0,
+                        "original_size_tokens": original_token_count,
+                    }))
+            except Exception as e:
+                logger.warning("chunking_failed_storing_whole", extra={"error": str(e)})
+                chunks_to_store.append((prompt, {
+                    "chunk_type": "whole",
+                    "chunk_index": 0,
+                    "total_chunks": 1,
+                    "chunk_size_tokens": len(prompt) // 4,
+                    "overlap_tokens": 0,
+                    "original_size_tokens": len(prompt) // 4,
+                }))
+        else:
+            # Chunking not available — store whole
+            est_tokens = len(prompt) // 4
+            chunks_to_store.append((prompt, {
+                "chunk_type": "whole",
+                "chunk_index": 0,
+                "total_chunks": 1,
+                "chunk_size_tokens": est_tokens,
+                "overlap_tokens": 0,
+                "original_size_tokens": est_tokens,
+            }))
+
+        # Embed and store all chunks
+        from memory.embeddings import EmbeddingClient
+
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2),
+            retry=retry_if_exception_type(
+                (httpx.TimeoutException, httpx.ConnectError, ConnectionError)
+            ),
+            reraise=True,
         )
+        def _embed_batch_with_retry(contents: list[str]) -> list[list]:
+            with EmbeddingClient(config) as embed_client:
+                return embed_client.embed(contents)
+
+        chunk_contents = [c for c, _ in chunks_to_store]
+        try:
+            vectors = _embed_batch_with_retry(chunk_contents)
+            embedding_status = "complete"
+        except Exception as e:
+            logger.warning("embedding_failed_using_zero_vectors", extra={"error": str(e)})
+            vectors = [[0.0] * config.embedding_dimension for _ in chunks_to_store]
+            embedding_status = "pending"
+
+        # Build points for all chunks
+        points = []
+        for i, ((chunk_content, chunk_meta), vector) in enumerate(zip(chunks_to_store, vectors)):
+            chunk_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{content_hash}:chunk:{i}")) if len(chunks_to_store) > 1 else memory_id
+            chunk_payload = {
+                **payload,
+                "content": chunk_content,
+                "content_hash": _compute_chunk_hash(chunk_content) if len(chunks_to_store) > 1 else content_hash,
+                "parent_content_hash": content_hash if len(chunks_to_store) > 1 else None,
+                "embedding_status": embedding_status,
+                "chunking_metadata": chunk_meta,
+            }
+            points.append(PointStruct(id=chunk_id, vector=vector, payload=chunk_payload))
+
+        # Store all chunks to Qdrant
+        client.upsert(collection_name=COLLECTION_DISCUSSIONS, points=points)
 
         # BUG-036: Include project name for multi-project visibility
         log_to_activity(
-            f"✅ UserPrompt stored: Turn {turn_number} [{group_id}]", INSTALL_DIR
+            f"✅ UserPrompt stored: Turn {turn_number} [{group_id}] ({len(points)} chunks)", INSTALL_DIR
         )
         logger.info(
             "user_message_stored",
@@ -214,7 +306,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
             },
         )
 
-        # BUG-024: Enqueue for LLM classification
+        # BUG-024: Enqueue for LLM classification (first chunk only)
         try:
             from memory.classifier.config import CLASSIFIER_ENABLED
             from memory.classifier.queue import (
@@ -224,9 +316,9 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
 
             if CLASSIFIER_ENABLED:
                 task = ClassificationTask(
-                    point_id=memory_id,
+                    point_id=points[0].id if points else memory_id,
                     collection=COLLECTION_DISCUSSIONS,
-                    content=prompt[:2000],  # Truncate for classifier
+                    content=prompt[:2000],  # Classifier input limit
                     current_type="user_message",
                     group_id=group_id,
                     source_hook="UserPromptSubmit",
@@ -236,7 +328,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 logger.debug(
                     "classification_enqueued",
                     extra={
-                        "point_id": memory_id,
+                        "point_id": points[0].id if points else memory_id,
                         "collection": COLLECTION_DISCUSSIONS,
                         "current_type": "user_message",
                     },

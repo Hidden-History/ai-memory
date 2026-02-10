@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
+from .chunking import ContentType, IntelligentChunker
 from .config import MemoryConfig, get_config
 from .embeddings import EmbeddingClient, EmbeddingError
 from .models import EmbeddingStatus, MemoryPayload, MemoryType
@@ -40,30 +41,6 @@ except ImportError:
 __all__ = ["MemoryStorage", "store_best_practice", "update_point_payload"]
 
 logger = logging.getLogger("ai_memory.storage")
-
-
-def _enforce_content_limit(content: str, memory_type: MemoryType) -> str:
-    """Truncate content to respect token limits by memory type.
-
-    Limits (approximate tokens, ~4 chars/token):
-    - session (discussions): 400 tokens = 1600 chars
-    - implementation (code-patterns): 300 tokens = 1200 chars
-    - guideline (conventions): 150 tokens = 600 chars
-
-    Returns truncated content with [TRUNCATED] marker if cut.
-    """
-    LIMITS = {
-        MemoryType.SESSION: 1600,  # 400 tokens
-        MemoryType.IMPLEMENTATION: 1200,  # 300 tokens
-        MemoryType.GUIDELINE: 600,  # 150 tokens
-        MemoryType.ERROR_FIX: 1200,  # 300 tokens
-    }
-    limit = LIMITS.get(memory_type, 1200)  # default 300 tokens
-
-    if len(content) <= limit:
-        return content
-
-    return content[: limit - 12] + " [TRUNCATED]"
 
 
 class MemoryStorage:
@@ -195,19 +172,42 @@ class MemoryStorage:
         if created_at is None:
             created_at = datetime.now(timezone.utc).isoformat()
 
-        # TECH-DEBT-012 Round 3: Enforce content size limits
-        original_length = len(content)
-        content = _enforce_content_limit(content, memory_type)
+        # Route content based on type per Chunking-Strategy-V2.md V2.1
+        # Map MemoryType to ContentType for IntelligentChunker
+        content_type_map = {
+            MemoryType.USER_MESSAGE: ContentType.USER_MESSAGE,
+            MemoryType.AGENT_RESPONSE: ContentType.AGENT_RESPONSE,
+        }
+        chunker_content_type = content_type_map.get(memory_type)
+        # Note: For USER_MESSAGE/AGENT_RESPONSE, IntelligentChunker handles
+        # whole storage (under threshold) or topical chunking (over threshold).
+        # For other types, content passes through unchanged (chunked by hooks).
 
-        if len(content) < original_length:
-            logger.info(
-                "content_truncated",
-                extra={
-                    "original_length": original_length,
-                    "truncated_length": len(content),
-                    "memory_type": memory_type.value,
-                },
+        additional_chunks = []
+        if chunker_content_type is not None:
+            chunker = IntelligentChunker(max_chunk_tokens=512, overlap_pct=0.15)
+            chunk_results = chunker.chunk(
+                content, file_path=source_hook or "", content_type=chunker_content_type
             )
+
+            if len(chunk_results) > 1:
+                # Multiple chunks — store each as separate point
+                # This replaces smart_end truncation with zero-truncation chunking
+                logger.info(
+                    "content_chunked_for_storage",
+                    extra={
+                        "memory_type": memory_type.value,
+                        "num_chunks": len(chunk_results),
+                        "original_length": len(content),
+                    },
+                )
+                # Store first chunk normally, additional chunks as separate points
+                content = chunk_results[0].content
+                # Additional chunks will be stored after the main point
+                additional_chunks = chunk_results[1:]
+            else:
+                # Single chunk (under threshold) - use the content as-is
+                content = chunk_results[0].content
 
         # Build payload with computed hash
         content_hash = compute_content_hash(content)
@@ -333,6 +333,54 @@ class MemoryStorage:
                     project=group_id,
                     collection=collection,
                 ).inc()
+
+            # Store additional chunks if present (TECH-DEBT-151 Phase 4)
+            if additional_chunks:
+                additional_points = []
+                for _i, chunk in enumerate(additional_chunks, start=1):
+                    chunk_id = str(uuid.uuid4())
+                    chunk_hash = compute_content_hash(chunk.content)
+
+                    chunk_payload = MemoryPayload(
+                        content=chunk.content,
+                        content_hash=chunk_hash,
+                        group_id=group_id,
+                        type=memory_type,
+                        source_hook=source_hook,
+                        session_id=session_id,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        created_at=created_at,
+                        embedding_status=payload.embedding_status,
+                        **extra_fields,
+                    )
+
+                    try:
+                        chunk_embedding = self.embedding_client.embed([chunk.content])[
+                            0
+                        ]
+                    except EmbeddingError:
+                        chunk_embedding = [0.0] * 768
+
+                    additional_points.append(
+                        PointStruct(
+                            id=chunk_id,
+                            vector=chunk_embedding,
+                            payload=chunk_payload.to_dict(),
+                        )
+                    )
+
+                # Store additional chunks in batch
+                self.qdrant_client.upsert(
+                    collection_name=collection,
+                    points=additional_points,
+                )
+                logger.info(
+                    "additional_chunks_stored",
+                    extra={
+                        "num_additional_chunks": len(additional_chunks),
+                        "memory_type": memory_type.value,
+                    },
+                )
 
             return {
                 "memory_id": memory_id,
@@ -502,24 +550,81 @@ class MemoryStorage:
             if created_at is None:
                 created_at = datetime.now(timezone.utc).isoformat()
 
-            # TECH-DEBT-012 Round 3: Enforce content size limits
+            # Get content and memory_type
+            content = memory["content"]
             memory_type = (
                 MemoryType(memory["type"])
                 if isinstance(memory["type"], str)
                 else memory["type"]
             )
-            original_length = len(memory["content"])
-            content = _enforce_content_limit(memory["content"], memory_type)
 
-            if len(content) < original_length:
-                logger.info(
-                    "batch_content_truncated",
-                    extra={
-                        "original_length": original_length,
-                        "truncated_length": len(content),
-                        "memory_type": memory_type.value,
-                    },
+            # Route content based on type per Chunking-Strategy-V2.md V2.1
+            content_type_map = {
+                MemoryType.USER_MESSAGE: ContentType.USER_MESSAGE,
+                MemoryType.AGENT_RESPONSE: ContentType.AGENT_RESPONSE,
+            }
+            chunker_content_type = content_type_map.get(memory_type)
+
+            if chunker_content_type is not None:
+                chunker = IntelligentChunker(max_chunk_tokens=512, overlap_pct=0.15)
+                chunk_results = chunker.chunk(
+                    content, file_path="", content_type=chunker_content_type
                 )
+
+                if len(chunk_results) > 1:
+                    # Multiple chunks — expand batch with all chunks
+                    logger.info(
+                        "batch_content_chunked_for_storage",
+                        extra={
+                            "memory_type": memory_type.value,
+                            "num_chunks": len(chunk_results),
+                            "original_length": len(content),
+                        },
+                    )
+                    # Process all chunks from this memory
+                    for chunk_idx, chunk_result in enumerate(chunk_results):
+                        chunk_memory_id = str(uuid.uuid4())
+                        chunk_hash = compute_content_hash(chunk_result.content)
+
+                        chunk_payload = MemoryPayload(
+                            content=chunk_result.content,
+                            content_hash=chunk_hash,
+                            group_id=memory["group_id"],
+                            type=memory["type"],
+                            source_hook=memory["source_hook"],
+                            session_id=memory["session_id"],
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            created_at=created_at,
+                            embedding_status=embedding_status,
+                        )
+
+                        # Use corresponding embedding for this chunk
+                        chunk_embedding_idx = memories.index(memory)
+                        chunk_embedding = (
+                            embeddings[chunk_embedding_idx]
+                            if chunk_idx == 0
+                            else ([0.0] * 768)
+                        )
+
+                        points.append(
+                            PointStruct(
+                                id=chunk_memory_id,
+                                vector=chunk_embedding,
+                                payload=chunk_payload.to_dict(),
+                            )
+                        )
+                        results.append(
+                            {
+                                "memory_id": chunk_memory_id,
+                                "status": "stored",
+                                "embedding_status": embedding_status.value,
+                            }
+                        )
+                    # Skip normal processing for this memory (already handled)
+                    continue
+                else:
+                    # Single chunk - use as-is
+                    content = chunk_results[0].content
 
             content_hash = compute_content_hash(content)
 

@@ -548,7 +548,7 @@ The SessionStart hook `additionalContext` field in JSON output does not actually
 
 **Workaround: PreToolUse with STDERR Output (NOT YET VERIFIED)**
 
-Based on working reference architecture from `bmad-qdrant-knowledge-management`, use **PreToolUse hooks with STDERR output** instead of SessionStart with JSON:
+Based on working reference architecture from `ai-memory-qdrant-knowledge-management`, use **PreToolUse hooks with STDERR output** instead of SessionStart with JSON:
 
 **Key Differences:**
 | Approach | Hook Event | Output Method | Status |

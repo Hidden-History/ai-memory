@@ -28,7 +28,7 @@
       {
         "name": "project",
         "type": "query",
-        "query": "label_values(ai_memory_captures_total, project)",
+        "query": "label_values(aimemory_captures_total, project)",
         "refresh": 2,
         "multi": true,
         "includeAll": true,
@@ -66,7 +66,7 @@
       "id": 1,
       "type": "timeseries",
       "title": "Captures by Project",
-      "description": "**Metric:** `ai_memory_captures_total`\n**Groups by:** `project` (group_id)\n**Shows:** Memory capture activity per project\n**Note:** Pushgateway counter - NO rate() per BP-028",
+      "description": "**Metric:** `aimemory_captures_total`\n**Groups by:** `project` (group_id)\n**Shows:** Memory capture activity per project\n**Note:** Pushgateway counter - NO rate() per BP-028",
       "gridPos": {
         "x": 0,
         "y": 4,
@@ -75,7 +75,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (project) (ai_memory_captures_total{project=~\"$project\"})",
+          "expr": "sum by (project) (aimemory_captures_total{project=~\"$project\"})",
           "refId": "A",
           "legendFormat": "{{project}}"
         }
@@ -121,7 +121,7 @@
       "id": 2,
       "type": "timeseries",
       "title": "Tokens by Project and Direction",
-      "description": "**Metric:** `ai_memory_tokens_consumed_total`\n**Groups by:** `project`, `direction` (input/output)\n**Shows:** Token consumption per project for cost tracking\n**Note:** Pushgateway counter - NO rate() per BP-028",
+      "description": "**Metric:** `aimemory_tokens_consumed_total`\n**Groups by:** `project`, `direction` (input/output)\n**Shows:** Token consumption per project for cost tracking\n**Note:** Pushgateway counter - NO rate() per BP-028",
       "gridPos": {
         "x": 0,
         "y": 14,
@@ -130,7 +130,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (project, direction) (ai_memory_tokens_consumed_total{project=~\"$project\"})",
+          "expr": "sum by (project, direction) (aimemory_tokens_consumed_total{project=~\"$project\"})",
           "refId": "A",
           "legendFormat": "{{project}} - {{direction}}"
         }
@@ -175,7 +175,7 @@
       "id": 3,
       "type": "table",
       "title": "Project Comparison",
-      "description": "**Metric:** `ai_memory_captures_total`\n**Shows:** Total captures per project with breakdown by status\n**Purpose:** Compare project activity at a glance",
+      "description": "**Metric:** `aimemory_captures_total`\n**Shows:** Total captures per project with breakdown by status\n**Purpose:** Compare project activity at a glance",
       "gridPos": {
         "x": 0,
         "y": 24,
@@ -184,7 +184,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (project) (ai_memory_captures_total{project=~\"$project\"})",
+          "expr": "sum by (project) (aimemory_captures_total{project=~\"$project\"})",
           "refId": "A",
           "format": "table",
           "instant": true
@@ -251,7 +251,7 @@
       "id": 4,
       "type": "stat",
       "title": "Active Projects",
-      "description": "**Metric:** `ai_memory_captures_total`\n**Measures:** Count of unique projects with memory captures\n**Purpose:** Track multi-tenant adoption",
+      "description": "**Metric:** `aimemory_captures_total`\n**Measures:** Count of unique projects with memory captures\n**Purpose:** Track multi-tenant adoption",
       "gridPos": {
         "x": 0,
         "y": 34,
@@ -260,7 +260,7 @@
       },
       "targets": [
         {
-          "expr": "count(count by (project) (ai_memory_captures_total))",
+          "expr": "count(count by (project) (aimemory_captures_total))",
           "refId": "A",
           "legendFormat": "Active Projects"
         }
@@ -304,7 +304,7 @@
       "id": 5,
       "type": "stat",
       "title": "Total Captures (All Projects)",
-      "description": "**Metric:** `ai_memory_captures_total`\n**Measures:** Grand total of all memory captures across all projects\n**Note:** Pushgateway counter",
+      "description": "**Metric:** `aimemory_captures_total`\n**Measures:** Grand total of all memory captures across all projects\n**Note:** Pushgateway counter",
       "gridPos": {
         "x": 8,
         "y": 34,
@@ -313,7 +313,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ai_memory_captures_total)",
+          "expr": "sum(aimemory_captures_total)",
           "refId": "A",
           "legendFormat": "Total Captures"
         }
@@ -357,7 +357,7 @@
       "id": 6,
       "type": "stat",
       "title": "Total Tokens (All Projects)",
-      "description": "**Metric:** `ai_memory_tokens_consumed_total`\n**Measures:** Grand total of tokens consumed across all projects\n**Purpose:** Overall cost tracking",
+      "description": "**Metric:** `aimemory_tokens_consumed_total`\n**Measures:** Grand total of tokens consumed across all projects\n**Purpose:** Overall cost tracking",
       "gridPos": {
         "x": 16,
         "y": 34,
@@ -366,7 +366,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ai_memory_tokens_consumed_total)",
+          "expr": "sum(aimemory_tokens_consumed_total)",
           "refId": "A",
           "legendFormat": "Total Tokens"
         }

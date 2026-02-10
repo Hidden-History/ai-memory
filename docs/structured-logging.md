@@ -39,8 +39,8 @@ All logs use JSON structured format by default:
 ```
 
 **Configuration:**
-- `BMAD_LOG_FORMAT=json` (default) - Machine-parseable JSON
-- `BMAD_LOG_FORMAT=text` - Human-readable text for local development
+- `AI_MEMORY_LOG_FORMAT=json` (default) - Machine-parseable JSON
+- `AI_MEMORY_LOG_FORMAT=text` - Human-readable text for local development
 
 ---
 
@@ -253,7 +253,7 @@ logger.debug("embedding_request_payload", extra={
 })
 ```
 
-**Enabled:** `BMAD_LOG_LEVEL=DEBUG`
+**Enabled:** `AI_MEMORY_LOG_LEVEL=DEBUG`
 
 ### INFO
 

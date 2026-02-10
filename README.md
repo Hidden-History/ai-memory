@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0-green?style=flat-square" alt="Version 2.0.0">
+  <img src="https://img.shields.io/badge/version-2.0.4-green?style=flat-square" alt="Version 2.0.4">
   <a href="https://github.com/Hidden-History/ai-memory/stargazers"><img src="https://img.shields.io/github/stars/Hidden-History/ai-memory?color=blue&style=flat-square" alt="Stars"></a>
   <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
   <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
@@ -77,34 +77,7 @@ Traditional knowledge bases require upfront schema design and manual curation. A
 
 ---
 
-## 🚀 Quick Start
-
-### First-Time Installation (Do This ONCE)
-
-```bash
-# 1. Clone the AI-Memory module (one time only!)
-git clone https://github.com/Hidden-History/ai-memory.git
-cd ai-memory
-
-# 2. Install to your first project
-./scripts/install.sh /path/to/your-project
-```
-
-### Adding More Projects (From Same Directory)
-
-> **Important:** AI-Memory is installed ONCE. To add more projects, run the installer again from the **same ai-memory directory**.
-
-```bash
-# Navigate to your AI-Memory installation (where you cloned it)
-cd /path/to/ai-memory
-
-# Add another project to the memory system
-./scripts/install.sh /path/to/another-project
-```
-
-All projects share the same Docker services but have isolated memory spaces via `group_id`.
-
-See [INSTALL.md](INSTALL.md) for detailed installation guide and multi-project setup.
+> **New here?** Jump to [Quick Start](#-quick-start-1) to get running in 5 minutes.
 
 ---
 
@@ -185,10 +158,10 @@ Memory + Oversight = Reliable AI
 
 ```
 Claude Code Session
-    ├── SessionStart Hook → Context injection after compaction
-    ├── UserPromptSubmit Hook → Keyword triggers (decision/best practices)
-    ├── PreToolUse Hooks → Smart triggers (new file/first edit)
-    ├── PostToolUse Hook → Capture code patterns + error detection
+    ├── SessionStart Hooks → Context injection (session summaries + recent memories)
+    ├── UserPromptSubmit Hooks → Unified keyword trigger (decisions/best practices/session history)
+    ├── PreToolUse Hooks → Smart triggers (new file/first edit conventions)
+    ├── PostToolUse Hooks → Capture code patterns + error detection
     ├── PreCompact Hook → Save conversation before compaction
     └── Stop Hook → Capture agent responses
 
@@ -358,7 +331,7 @@ SEED_BEST_PRACTICES=true ./scripts/install.sh /path/to/your-project
 
 ### Prerequisites
 
-- **Python 3.10+** (required for async + match statements)
+- **Python 3.10+** (3.11+ required for AsyncSDKWrapper)
 - **Docker 20.10+** (for Qdrant + embedding service)
 - **Claude Code** (target project where memory will be installed)
 
@@ -463,7 +436,7 @@ async def main():
         # Send message with automatic rate limiting and retry
         result = await wrapper.send_message(
             prompt="What is async/await?",
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-5-20250929",
             max_tokens=500
         )
 
@@ -479,9 +452,9 @@ asyncio.run(main())
 
 ```python
 async with AsyncSDKWrapper(cwd="/path/to/project") as wrapper:
-    async for chunk in wrapper.send_message_streaming(
+    async for chunk in wrapper.send_message_buffered(
         prompt="Explain Python async",
-        model="claude-3-5-sonnet-20241022",
+        model="claude-sonnet-4-5-20250929",
         max_tokens=800
     ):
         print(chunk, end='', flush=True)
@@ -813,7 +786,7 @@ ai-memory/
 - **Hook Exit Codes**: `0` (success), `1` (non-blocking error), `2` (blocking error - rare)
 - **Graceful Degradation**: All components must fail silently - Claude works without memory
 
-See [CLAUDE.md](CLAUDE.md) for complete coding standards and project conventions.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for complete development setup and coding standards.
 
 ## 🤝 Contributing
 

@@ -8,7 +8,7 @@
 
 ## Table of Contents
 
-1. [BMAD Module Integration](#bmad-module-integration)
+1. [AI Memory Module Integration](#ai-memory-module-integration)
 2. [The Vision](#the-vision)
 3. [The "Aha Moment" Explained](#the-aha-moment-explained)
 4. [Three-Collection Architecture](#three-collection-architecture)
@@ -23,20 +23,20 @@
 
 ---
 
-## BMAD Module Integration
+## AI Memory Module Integration
 
 ### What is BMAD?
 
 BMAD (BMad Method) is a structured AI-assisted development methodology that uses specialized agents to guide software projects through phases: Analysis → Product Requirements → Architecture → Sprint Planning → Implementation → Testing.
 
-**This memory module is a BMAD Module** - it integrates with the BMAD system to provide persistent memory across all agents and workflows.
+**This memory module is an AI Memory Module** - it integrates with the BMAD system to provide persistent memory across all agents and workflows.
 
 ### Module Structure
 
 The AI Memory Module follows the cohesive module pattern:
 
 ```
-bmad-memory-module/
+ai-memory/
   module.yaml              # Module configuration
   _bmad/
     agents/                # Agent memory integrations
@@ -64,7 +64,7 @@ bmad-memory-module/
 **New Project:**
 ```bash
 npx bmad-method install
-# When prompted about custom modules, provide path to bmad-memory-module
+# When prompted about custom modules, provide path to ai-memory
 ```
 
 **Existing Project:**
@@ -72,7 +72,7 @@ npx bmad-method install
 npx bmad-method install
 # Select "Modify BMad Installation"
 # Choose "Add or update custom modules"
-# Provide path to bmad-memory-module
+# Provide path to ai-memory
 ```
 
 ### How Agents Use Memory
@@ -113,7 +113,7 @@ Workflow Step 7:    Complete
 ### Module Configuration (module.yaml)
 
 ```yaml
-code: bmm-memory
+code: ai-memory
 name: AI Memory Module
 version: 1.0.0
 description: Persistent semantic memory for Claude Code and BMAD workflows
@@ -281,7 +281,7 @@ Session summaries are **fundamentally different** from implementation patterns:
 
 ---
 
-### Collection 2: `code-patterns` (bmad-knowledge)
+### Collection 2: `code-patterns`
 
 **Purpose:** Store implementation patterns, code snippets, architecture decisions with specific file:line references.
 

@@ -60,9 +60,23 @@ try:
 except ImportError:
     memory_captures_total = None
 
+# TECH-DEBT-075: Import push metrics for Pushgateway
+try:
+    from memory.metrics_push import push_capture_metrics_async
+except ImportError:
+    push_capture_metrics_async = None
+
 # CR-1.2, CR-1.3, CR-1.4: Use consolidated utility functions
 from memory.hooks_common import get_hook_timeout, log_to_activity
 from memory.queue import queue_operation
+
+# TECH-DEBT-151: Structured truncation for error output (max 800 tokens)
+try:
+    import tiktoken
+    from memory.chunking.truncation import structured_truncate
+    TRUNCATION_AVAILABLE = True
+except ImportError:
+    TRUNCATION_AVAILABLE = False
 
 
 def format_error_content(error_context: dict[str, Any]) -> str:
@@ -106,10 +120,31 @@ def format_error_content(error_context: dict[str, Any]) -> str:
         parts.append("\nStack Trace:")
         parts.append(error_context["stack_trace"])
 
-    # Output (truncated)
+    # Output (smart truncation)
+    # TECH-DEBT-151: Use structured truncation instead of hard [:500] truncation
     if error_context.get("output"):
         parts.append("\nCommand Output:")
-        parts.append(error_context["output"][:500])  # Limit to 500 chars
+        if TRUNCATION_AVAILABLE:
+            try:
+                # Structured truncation preserves command + error + output structure
+                sections = {
+                    "command": error_context.get("command", ""),
+                    "error": error_context.get("error_message", ""),
+                    "output": error_context.get("output", "")
+                }
+                truncated_output = structured_truncate(
+                    error_context["output"],
+                    max_tokens=800,
+                    sections=sections
+                )
+                parts.append(truncated_output)
+            except Exception as e:
+                # Fallback to original content if truncation fails
+                parts.append(error_context["output"])
+        else:
+            # Truncation not available - store full output (V2.1 zero-truncation principle)
+            logger.warning("storing_full_output_no_truncation", extra={"output_length": len(error_context["output"])})
+            parts.append(error_context["output"])
 
     return "\n".join(parts)
 
@@ -175,6 +210,16 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
         file_refs = error_context.get("file_references", [])
         primary_file = file_refs[0]["file"] if file_refs else "unknown"
 
+        # Calculate token count for metadata
+        if TRUNCATION_AVAILABLE:
+            try:
+                enc = tiktoken.get_encoding("cl100k_base")
+                content_tokens = len(enc.encode(content))
+            except Exception:
+                content_tokens = len(content) // 4
+        else:
+            content_tokens = len(content) // 4
+
         # Build Qdrant payload
         payload = {
             "content": content,
@@ -191,6 +236,14 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             "file_references": file_refs,
             "has_stack_trace": bool(error_context.get("stack_trace")),
             "tags": ["error", "bash_failure"],
+            # TECH-DEBT-151: Add chunking metadata per Chunking-Strategy-V2.md Section 5
+            "chunking_metadata": {
+                "chunk_type": "structured_smart_truncate",
+                "chunk_index": 0,
+                "total_chunks": 1,
+                "chunk_size_tokens": content_tokens,
+                "overlap_tokens": 0,
+            },
         }
 
         logger.info(
@@ -252,7 +305,7 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             },
         )
 
-        # Metrics: Increment capture counter
+        # Metrics: Increment capture counter (local)
         if memory_captures_total:
             memory_captures_total.labels(
                 hook_type="PostToolUse_Error",
@@ -260,6 +313,16 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 project=group_id or "unknown",
                 collection="code-patterns",
             ).inc()
+
+        # TECH-DEBT-075: Push metrics to Pushgateway
+        if push_capture_metrics_async:
+            push_capture_metrics_async(
+                hook_type="PostToolUse_Error",
+                status="success",
+                project=group_id or "unknown",
+                collection="code-patterns",
+                count=1,
+            )
 
     except ResponseHandlingException as e:
         # CR-1.2, CR-1.3: Use consolidated functions
@@ -296,21 +359,31 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             "storage_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
 
-        # Metrics: Increment capture counter for failures
-        if memory_captures_total:
-            try:
-                project = error_context.get("cwd", "unknown")
-                if project != "unknown":
-                    project = detect_project(project)
-            except Exception:
-                project = "unknown"
+        # Metrics: Increment capture counter for failures (local)
+        try:
+            project = error_context.get("cwd", "unknown")
+            if project != "unknown":
+                project = detect_project(project)
+        except Exception:
+            project = "unknown"
 
+        if memory_captures_total:
             memory_captures_total.labels(
                 hook_type="PostToolUse_Error",
                 status="failed",
                 project=project,
                 collection="code-patterns",
             ).inc()
+
+        # TECH-DEBT-075: Push metrics to Pushgateway
+        if push_capture_metrics_async:
+            push_capture_metrics_async(
+                hook_type="PostToolUse_Error",
+                status="failed",
+                project=project,
+                collection="code-patterns",
+                count=1,
+            )
 
         queue_operation(error_context, "unexpected_error")
 
