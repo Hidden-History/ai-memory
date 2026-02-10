@@ -21,7 +21,7 @@ prometheus-client>=0.21.0,<1.0.0
 anthropic>=0.61.0,<1.0.0
 
 # Retry logic with exponential backoff (DEC-029, TECH-DEBT-041)
-tenacity>=8.0.0,<9.0.0
+tenacity>=8.0.0,<10.0.0
 
 # AST-based code chunking (TECH-DEBT-052)
 tree-sitter>=0.21.0,<1.0.0
