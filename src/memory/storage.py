@@ -541,8 +541,11 @@ class MemoryStorage:
             embeddings = [[0.0] * 768 for _ in contents]  # DEC-010: 768d placeholder
             embedding_status = EmbeddingStatus.PENDING
 
+        # Collect chunk data for batch embedding (avoid N+1 API calls)
+        pending_chunks = []
+
         # Build points for batch upsert
-        for memory, embedding in zip(memories, embeddings, strict=False):
+        for memory, embedding in zip(memories, embeddings, strict=True):
             memory_id = str(uuid.uuid4())
 
             # TECH-DEBT-012 Round 3: Handle created_at timestamp
@@ -559,11 +562,18 @@ class MemoryStorage:
             )
 
             # Route content based on type per Chunking-Strategy-V2.md V2.1
+            # Map MemoryType to ContentType for IntelligentChunker
             content_type_map = {
                 MemoryType.USER_MESSAGE: ContentType.USER_MESSAGE,
                 MemoryType.AGENT_RESPONSE: ContentType.AGENT_RESPONSE,
             }
             chunker_content_type = content_type_map.get(memory_type)
+            # Note: For USER_MESSAGE/AGENT_RESPONSE, IntelligentChunker handles
+            # whole storage (under threshold) or topical chunking (over threshold).
+            # For other types, content passes through unchanged (chunked by hooks).
+
+            # Calculate original size for chunking_metadata
+            original_size_tokens = len(content) // 4  # CHARS_PER_TOKEN = 4
 
             if chunker_content_type is not None:
                 chunker = IntelligentChunker(max_chunk_tokens=512, overlap_pct=0.15)
@@ -598,20 +608,34 @@ class MemoryStorage:
                             embedding_status=embedding_status,
                         )
 
-                        # Use corresponding embedding for this chunk
-                        chunk_embedding_idx = memories.index(memory)
-                        chunk_embedding = (
-                            embeddings[chunk_embedding_idx]
-                            if chunk_idx == 0
-                            else ([0.0] * 768)
-                        )
+                        # Build chunking_metadata from ChunkResult.metadata
+                        chunking_metadata = {
+                            "chunk_type": chunk_result.metadata.chunk_type,
+                            "chunk_index": chunk_result.metadata.chunk_index,
+                            "total_chunks": chunk_result.metadata.total_chunks,
+                            "chunk_size_tokens": chunk_result.metadata.chunk_size_tokens,
+                            "overlap_tokens": chunk_result.metadata.overlap_tokens,
+                            "original_size_tokens": original_size_tokens,
+                            "truncated": False,  # Always False in v2.1 (zero-truncation principle)
+                        }
 
-                        points.append(
-                            PointStruct(
-                                id=chunk_memory_id,
-                                vector=chunk_embedding,
-                                payload=chunk_payload.to_dict(),
-                            )
+                        # Add optional source metadata if available
+                        if chunk_result.metadata.source_file:
+                            chunking_metadata["source_file"] = chunk_result.metadata.source_file
+                        if chunk_result.metadata.start_line is not None:
+                            chunking_metadata["start_line"] = chunk_result.metadata.start_line
+                        if chunk_result.metadata.end_line is not None:
+                            chunking_metadata["end_line"] = chunk_result.metadata.end_line
+                        if chunk_result.metadata.section_header:
+                            chunking_metadata["section_header"] = chunk_result.metadata.section_header
+
+                        # Convert payload to dict and add chunking_metadata
+                        chunk_payload_dict = chunk_payload.to_dict()
+                        chunk_payload_dict["chunking_metadata"] = chunking_metadata
+
+                        # Collect for batch embedding (avoid N+1 API calls)
+                        pending_chunks.append(
+                            (chunk_memory_id, chunk_payload_dict)
                         )
                         results.append(
                             {
@@ -640,8 +664,20 @@ class MemoryStorage:
                 embedding_status=embedding_status,
             )
 
+            # Add whole-content metadata for non-chunked memories
+            payload_dict = payload.to_dict()
+            payload_dict["chunking_metadata"] = {
+                "chunk_type": "whole",
+                "chunk_index": 0,
+                "total_chunks": 1,
+                "chunk_size_tokens": original_size_tokens,
+                "overlap_tokens": 0,
+                "original_size_tokens": original_size_tokens,
+                "truncated": False,
+            }
+
             points.append(
-                PointStruct(id=memory_id, vector=embedding, payload=payload.to_dict())
+                PointStruct(id=memory_id, vector=embedding, payload=payload_dict)
             )
             results.append(
                 {
@@ -650,6 +686,24 @@ class MemoryStorage:
                     "embedding_status": embedding_status.value,
                 }
             )
+
+        # Pass 2: Batch-embed all chunk contents in single API call
+        if pending_chunks:
+            chunk_contents = [pd["content"] for _, pd in pending_chunks]
+            try:
+                chunk_embeddings = self.embedding_client.embed(chunk_contents)
+            except EmbeddingError:
+                chunk_embeddings = [[0.0] * 768 for _ in chunk_contents]
+            for (chunk_id, chunk_payload_dict), chunk_emb in zip(
+                pending_chunks, chunk_embeddings, strict=True
+            ):
+                points.append(
+                    PointStruct(
+                        id=chunk_id,
+                        vector=chunk_emb,
+                        payload=chunk_payload_dict,
+                    )
+                )
 
         # Store all in single upsert
         try:
