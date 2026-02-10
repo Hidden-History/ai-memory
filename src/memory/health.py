@@ -31,6 +31,7 @@ import socket
 
 from .embeddings import EmbeddingClient
 from .qdrant_client import check_qdrant_health, get_qdrant_client
+from .activity_log import log_activity
 
 # Health check timeout per NFR-P1 (2s max for all checks)
 HEALTH_CHECK_TIMEOUT = 2.0
@@ -108,7 +109,7 @@ def check_services() -> dict[str, bool]:
         # Restore original socket timeout
         socket.setdefaulttimeout(old_timeout)
 
-    # Log overall health status
+    # Log overall health status (structured logging)
     logger.info(
         "service_health",
         extra={
@@ -117,6 +118,15 @@ def check_services() -> dict[str, bool]:
             "all_healthy": qdrant_ok and embedding_ok,
         },
     )
+
+    # Log to activity log (user-visible)
+    if qdrant_ok and embedding_ok:
+        log_activity("INFO", "HealthCheck: All services healthy (Qdrant OK, Embedding OK)")
+    else:
+        status_parts = []
+        status_parts.append("Qdrant OK" if qdrant_ok else "Qdrant FAIL")
+        status_parts.append("Embedding OK" if embedding_ok else "Embedding FAIL")
+        log_activity("WARN", f"HealthCheck: Service issues ({', '.join(status_parts)})")
 
     return {
         "qdrant": qdrant_ok,
