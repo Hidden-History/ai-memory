@@ -553,8 +553,8 @@ class TestRunHealthChecks:
         assert mock_monitoring.called
         assert mock_venv.called
 
-        # Should return 7 results (including monitoring and venv)
-        assert len(results) == 7
+        # Should return 8 results (including monitoring and venv)
+        assert len(results) == 8
 
         # Results should be sorted by component name
         components = [r.component for r in results]
@@ -602,8 +602,8 @@ class TestRunHealthChecks:
 
             results = run_health_checks()
 
-            # Should still get results for all checks (7 including monitoring and venv)
-            assert len(results) == 7
+            # Should still get results for all checks (8 including monitoring and venv)
+            assert len(results) == 8
 
             # The failed check should have status unhealthy
             qdrant_result = next(r for r in results if r.component == "check_qdrant")

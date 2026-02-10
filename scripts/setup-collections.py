@@ -33,6 +33,7 @@ from memory.config import (
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
     COLLECTION_DISCUSSIONS,
+    COLLECTION_JIRA_DATA,
     get_config,
 )
 from memory.qdrant_client import get_qdrant_client
@@ -70,6 +71,11 @@ def create_collections(dry_run: bool = False) -> None:
         COLLECTION_CONVENTIONS,  # conventions
         COLLECTION_DISCUSSIONS,  # discussions
     ]
+
+    # Conditionally add jira-data collection (PLAN-004 Phase 2)
+    if config.jira_sync_enabled:
+        collection_names.append(COLLECTION_JIRA_DATA)
+        print(f"Jira sync enabled - adding {COLLECTION_JIRA_DATA} collection")
 
     for collection_name in collection_names:
         # Create collection (delete first if exists)
@@ -170,6 +176,29 @@ def create_collections(dry_run: bool = False) -> None:
                     field_name="file_path",
                     field_schema=PayloadSchemaType.KEYWORD,
                 )
+
+            # PLAN-004 Phase 2: Jira-specific indexes for jira-data collection
+            if collection_name == COLLECTION_JIRA_DATA:
+                jira_indexes = [
+                    ("jira_project", PayloadSchemaType.KEYWORD),
+                    ("jira_issue_key", PayloadSchemaType.KEYWORD),
+                    ("jira_issue_type", PayloadSchemaType.KEYWORD),
+                    ("jira_status", PayloadSchemaType.KEYWORD),
+                    ("jira_priority", PayloadSchemaType.KEYWORD),
+                    ("jira_author", PayloadSchemaType.KEYWORD),
+                    ("jira_reporter", PayloadSchemaType.KEYWORD),
+                    ("jira_labels", PayloadSchemaType.KEYWORD),
+                    ("jira_comment_id", PayloadSchemaType.KEYWORD),
+                ]
+
+                for field_name, schema_type in jira_indexes:
+                    client.create_payload_index(
+                        collection_name=collection_name,
+                        field_name=field_name,
+                        field_schema=schema_type,
+                    )
+
+                print(f"  Created {len(jira_indexes)} Jira-specific indexes")
 
         except Exception as e:
             logger.error(f"Failed to create indexes for {collection_name}: {e}")

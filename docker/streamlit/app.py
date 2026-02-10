@@ -56,12 +56,14 @@ except ImportError:
 COLLECTION_CODE_PATTERNS = "code-patterns"
 COLLECTION_CONVENTIONS = "conventions"
 COLLECTION_DISCUSSIONS = "discussions"
+COLLECTION_JIRA_DATA = "jira-data"
 
 # Collection names list for iteration
 COLLECTION_NAMES = [
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
     COLLECTION_DISCUSSIONS,
+    COLLECTION_JIRA_DATA,
 ]
 
 # V2.0 Type System (C1: Derived from canonical source - src/memory/models.py:34-69)
@@ -89,6 +91,10 @@ if MODELS_IMPORTED:
             MemoryType.USER_MESSAGE.value,
             MemoryType.AGENT_RESPONSE.value,
         ],
+        "jira-data": [
+            MemoryType.JIRA_ISSUE.value,
+            MemoryType.JIRA_COMMENT.value,
+        ],
     }
 else:
     # Fallback: Hardcoded values if import fails (container missing pydantic_settings)
@@ -104,6 +110,10 @@ else:
             "preference",
             "user_message",
             "agent_response",
+        ],
+        "jira-data": [
+            "jira_issue",
+            "jira_comment",
         ],
     }
 

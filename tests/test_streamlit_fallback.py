@@ -9,9 +9,6 @@ match the canonical source in src/memory/models.py (MemoryType enum).
 import os
 import sys
 
-# Add paths for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
 
 def test_streamlit_fallback_matches_models():
     """Verify Streamlit fallback COLLECTION_TYPES matches models.py.
@@ -22,7 +19,7 @@ def test_streamlit_fallback_matches_models():
 
     Failure indicates drift - update docker/streamlit/app.py lines 84-92.
     """
-    from memory.models import MemoryType
+    from src.memory.models import MemoryType
 
     # Fallback values from docker/streamlit/app.py:84-92
     # These are what the dashboard uses when imports fail
@@ -37,6 +34,7 @@ def test_streamlit_fallback_matches_models():
             "user_message",
             "agent_response",
         ],
+        "jira-data": ["jira_issue", "jira_comment"],
     }
 
     # Source of truth from models.py
@@ -61,6 +59,10 @@ def test_streamlit_fallback_matches_models():
         MemoryType.USER_MESSAGE.value,
         MemoryType.AGENT_RESPONSE.value,
     }
+    source_jira_data = {
+        MemoryType.JIRA_ISSUE.value,
+        MemoryType.JIRA_COMMENT.value,
+    }
 
     # Verify each collection matches exactly
     assert set(FALLBACK_TYPES["code-patterns"]) == source_code_patterns, (
@@ -81,6 +83,12 @@ def test_streamlit_fallback_matches_models():
         f"Extra in fallback: {set(FALLBACK_TYPES['discussions']) - source_discussions}"
     )
 
+    assert set(FALLBACK_TYPES["jira-data"]) == source_jira_data, (
+        f"jira-data fallback doesn't match models.py. "
+        f"Missing from fallback: {source_jira_data - set(FALLBACK_TYPES['jira-data'])}, "
+        f"Extra in fallback: {set(FALLBACK_TYPES['jira-data']) - source_jira_data}"
+    )
+
 
 def test_collection_names_match():
     """Verify collection names are consistent across codebase.
@@ -92,7 +100,7 @@ def test_collection_names_match():
     # Expected V2.0 collection names
 
     # Verify against models.py docstring expectations
-    from memory.models import MemoryType
+    from src.memory.models import MemoryType
 
     # All types should map to one of the three collections
     # This is an indirect check - if new types are added, they should fit one of these
@@ -117,8 +125,12 @@ def test_collection_names_match():
         MemoryType.USER_MESSAGE,
         MemoryType.AGENT_RESPONSE,
     }
+    jira_data_types = {
+        MemoryType.JIRA_ISSUE,
+        MemoryType.JIRA_COMMENT,
+    }
 
-    all_types = code_pattern_types | convention_types | discussion_types
+    all_types = code_pattern_types | convention_types | discussion_types | jira_data_types
 
     # Verify all MemoryType enum values are accounted for
     enum_values = set(MemoryType)

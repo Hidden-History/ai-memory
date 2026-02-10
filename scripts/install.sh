@@ -103,6 +103,14 @@ SEED_BEST_PRACTICES="${SEED_BEST_PRACTICES:-}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
 INSTALL_MODE="${INSTALL_MODE:-full}"  # full or add-project (set by check_existing_installation)
 
+# Jira sync configuration (PLAN-004 Phase 2)
+JIRA_SYNC_ENABLED="${JIRA_SYNC_ENABLED:-}"
+JIRA_INSTANCE_URL="${JIRA_INSTANCE_URL:-}"
+JIRA_EMAIL="${JIRA_EMAIL:-}"
+JIRA_API_TOKEN="${JIRA_API_TOKEN:-}"
+JIRA_PROJECTS="${JIRA_PROJECTS:-}"
+JIRA_INITIAL_SYNC="${JIRA_INITIAL_SYNC:-}"
+
 # Prompt for project name (group_id for Qdrant isolation)
 configure_project_name() {
     # Skip if non-interactive or already set via command line arg
@@ -177,6 +185,98 @@ configure_options() {
         echo ""
     fi
 
+    # Jira Cloud Integration (PLAN-004 Phase 2)
+    if [[ -z "$JIRA_SYNC_ENABLED" ]]; then
+        echo "🔗 Jira Cloud Integration (Optional)"
+        echo "   Syncs issues and comments to memory for semantic search"
+        echo "   Enables Claude to retrieve work context from Jira"
+        echo ""
+        read -p "   Enable Jira sync? [y/N]: " jira_choice
+
+        if [[ "$jira_choice" =~ ^[Yy]$ ]]; then
+            JIRA_SYNC_ENABLED="true"
+
+            # Collect credentials
+            echo ""
+            read -p "   Jira instance URL (e.g., https://company.atlassian.net): " jira_url
+            JIRA_INSTANCE_URL="$jira_url"
+
+            read -p "   Jira email: " jira_email
+            JIRA_EMAIL="$jira_email"
+
+            echo "   Generate API token: https://id.atlassian.com/manage-profile/security/api-tokens"
+            read -sp "   Jira API token (hidden): " jira_token
+            JIRA_API_TOKEN="$jira_token"
+            echo ""
+
+            read -p "   Project keys (comma-separated, e.g., PROJ,DEV): " jira_projects
+            JIRA_PROJECTS="$jira_projects"
+
+            # Validate credentials via API test
+            echo ""
+            log_info "Testing Jira connection..."
+
+            # Use venv Python if available, fallback to system Python
+            PYTHON_CMD="python3"
+            if [[ -f "$INSTALL_DIR/.venv/bin/python" ]]; then
+                PYTHON_CMD="$INSTALL_DIR/.venv/bin/python"
+            fi
+
+            JIRA_INSTANCE_URL="$JIRA_INSTANCE_URL" \
+            JIRA_EMAIL="$JIRA_EMAIL" \
+            JIRA_API_TOKEN="$JIRA_API_TOKEN" \
+            INSTALL_DIR="$INSTALL_DIR" \
+            "$PYTHON_CMD" -c "
+import asyncio
+import os
+import sys
+sys.path.insert(0, os.path.join(os.environ['INSTALL_DIR'], 'src'))
+
+async def test():
+    try:
+        from memory.connectors.jira.client import JiraClient
+        client = JiraClient(
+            os.environ['JIRA_INSTANCE_URL'],
+            os.environ['JIRA_EMAIL'],
+            os.environ['JIRA_API_TOKEN'],
+        )
+        try:
+            result = await client.test_connection()
+            if result['success']:
+                print(f\"✓ Connected as: {result['user_email']}\")
+                return 0
+            else:
+                print(f\"✗ Connection failed: {result.get('error', 'Unknown error')}\")
+                return 1
+        finally:
+            await client.close()
+    except Exception as e:
+        print(f\"✗ Error: {e}\")
+        return 1
+
+sys.exit(asyncio.run(test()))
+" 2>&1
+
+            if [[ $? -ne 0 ]]; then
+                log_error "Jira connection test failed - sync will be disabled"
+                JIRA_SYNC_ENABLED="false"
+            else
+                # Prompt for initial sync
+                echo ""
+                echo "   Initial sync can take 5-10 minutes for large projects"
+                read -p "   Run initial sync now? [y/N]: " initial_sync
+                if [[ "$initial_sync" =~ ^[Yy]$ ]]; then
+                    JIRA_INITIAL_SYNC="true"
+                else
+                    JIRA_INITIAL_SYNC="false"
+                fi
+            fi
+        else
+            JIRA_SYNC_ENABLED="false"
+        fi
+        echo ""
+    fi
+
     # Summary
     echo "┌─────────────────────────────────────────────────────────────┐"
     echo "│  Installation Summary                                       │"
@@ -192,6 +292,9 @@ configure_options() {
     fi
     if [[ "$SEED_BEST_PRACTICES" == "true" ]]; then
         echo "│    ✓ Best practices patterns (Python, Docker, Git)          │"
+    fi
+    if [[ "$JIRA_SYNC_ENABLED" == "true" ]]; then
+        echo "│    ✓ Jira Cloud sync (${JIRA_PROJECTS})                     │"
     fi
     echo "└─────────────────────────────────────────────────────────────┘"
     echo ""
@@ -253,6 +356,8 @@ main() {
             copy_env_template
             run_health_check
             seed_best_practices
+            run_initial_jira_sync
+            setup_jira_cron
         fi
     else
         log_info "Skipping shared infrastructure setup (add-project mode)"
@@ -923,6 +1028,19 @@ configure_environment() {
             echo "AI_MEMORY_INSTALL_DIR=$INSTALL_DIR" >> "$docker_env"
         fi
 
+        # Add Jira config if not present and Jira is enabled
+        if [[ "$JIRA_SYNC_ENABLED" == "true" ]] && ! grep -q "^JIRA_SYNC_ENABLED=" "$docker_env"; then
+            echo "" >> "$docker_env"
+            echo "# Jira Cloud Integration (added by installer)" >> "$docker_env"
+            echo "JIRA_SYNC_ENABLED=$JIRA_SYNC_ENABLED" >> "$docker_env"
+            echo "JIRA_INSTANCE_URL=$JIRA_INSTANCE_URL" >> "$docker_env"
+            echo "JIRA_EMAIL=$JIRA_EMAIL" >> "$docker_env"
+            echo "JIRA_API_TOKEN=$JIRA_API_TOKEN" >> "$docker_env"
+            echo "JIRA_PROJECTS=$JIRA_PROJECTS" >> "$docker_env"
+            echo "JIRA_SYNC_DELAY_MS=100" >> "$docker_env"
+            log_info "Added Jira configuration to .env"
+        fi
+
         log_success "Environment configured at $docker_env"
     else
         # No source .env - create minimal template (user needs to add credentials)
@@ -962,6 +1080,16 @@ QDRANT_API_KEY=${QDRANT_API_KEY:-}
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=
 PROMETHEUS_ADMIN_PASSWORD=
+
+# =============================================================================
+# JIRA CLOUD INTEGRATION (Optional - PLAN-004 Phase 2)
+# =============================================================================
+JIRA_SYNC_ENABLED=${JIRA_SYNC_ENABLED:-false}
+JIRA_INSTANCE_URL=${JIRA_INSTANCE_URL:-}
+JIRA_EMAIL=${JIRA_EMAIL:-}
+JIRA_API_TOKEN=${JIRA_API_TOKEN:-}
+JIRA_PROJECTS=${JIRA_PROJECTS:-}
+JIRA_SYNC_DELAY_MS=100
 EOF
         # If QDRANT_API_KEY was provided via environment, note it in the log
         if [[ -n "${QDRANT_API_KEY:-}" ]]; then
@@ -1569,6 +1697,51 @@ seed_best_practices() {
     # No tip shown if user explicitly declined during interactive prompt
 }
 
+# Run initial Jira sync (PLAN-004 Phase 2)
+run_initial_jira_sync() {
+    if [[ "$JIRA_SYNC_ENABLED" == "true" && "$JIRA_INITIAL_SYNC" == "true" ]]; then
+        log_info "Running initial Jira sync (may take 5-10 minutes for large projects)..."
+
+        # Ensure logs directory exists
+        mkdir -p "$INSTALL_DIR/logs"
+
+        # Run sync with full mode
+        cd "$INSTALL_DIR" || return
+        if source .venv/bin/activate && python scripts/jira_sync.py --full 2>&1 | tee "$INSTALL_DIR/logs/jira_initial_sync.log"; then
+            log_success "Initial Jira sync completed"
+        else
+            log_warning "Initial sync had errors - check $INSTALL_DIR/logs/jira_initial_sync.log"
+            log_info "You can re-run sync manually: python $INSTALL_DIR/scripts/jira_sync.py --full"
+        fi
+    fi
+}
+
+# Set up cron job for automated Jira sync (PLAN-004 Phase 2)
+setup_jira_cron() {
+    if [[ "$JIRA_SYNC_ENABLED" == "true" ]]; then
+        log_info "Configuring automated Jira sync (6am/6pm daily)..."
+
+        # Build cron command
+        local cron_cmd="cd $INSTALL_DIR && source .venv/bin/activate && python scripts/jira_sync.py --incremental"
+        local cron_entry="0 6,18 * * * $cron_cmd >> $INSTALL_DIR/logs/jira_sync.log 2>&1"
+
+        # Check if already configured
+        if crontab -l 2>/dev/null | grep -q "jira_sync.py"; then
+            log_info "Jira sync cron job already configured"
+        else
+            # Add to crontab
+            (crontab -l 2>/dev/null; echo "$cron_entry") | crontab - 2>/dev/null
+            if [[ $? -eq 0 ]]; then
+                log_success "Cron job configured (6am/6pm daily incremental sync)"
+                log_info "To view: crontab -l | grep jira_sync"
+            else
+                log_warning "Failed to configure cron job - set up manually if needed"
+                log_info "Add to crontab: $cron_entry"
+            fi
+        fi
+    fi
+}
+
 show_success_message() {
     echo ""
     echo "┌─────────────────────────────────────────────────────────────┐"
@@ -1586,6 +1759,9 @@ show_success_message() {
     fi
     if [[ "$SEED_BEST_PRACTICES" == "true" ]]; then
     echo "│     ✓ Best practices patterns seeded                        │"
+    fi
+    if [[ "$JIRA_SYNC_ENABLED" == "true" ]]; then
+    echo "│     ✓ Jira Cloud sync (${JIRA_PROJECTS})                     │"
     fi
     echo "│                                                             │"
     echo "├─────────────────────────────────────────────────────────────┤"

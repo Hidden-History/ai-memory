@@ -487,6 +487,59 @@ def check_venv_health() -> HealthCheckResult:
     )
 
 
+def check_jira_data_collection() -> HealthCheckResult:
+    """
+    Verify jira-data collection exists if Jira sync is enabled (PLAN-004 Phase 2).
+
+    Only warns if collection is missing when jira_sync_enabled=True.
+    When Jira sync is disabled, returns healthy (zero impact principle).
+    """
+    try:
+        # Import here to avoid circular dependency
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+        from memory.config import COLLECTION_JIRA_DATA, get_config
+        from memory.qdrant_client import get_qdrant_client
+
+        config = get_config()
+
+        # Skip check if Jira sync disabled (zero impact)
+        if not config.jira_sync_enabled:
+            return HealthCheckResult(
+                "jira_data_collection",
+                "healthy",
+                "Jira sync disabled (collection not required)",
+            )
+
+        # Check if collection exists
+        client = get_qdrant_client(config)
+        if client.collection_exists(COLLECTION_JIRA_DATA):
+            info = client.get_collection(COLLECTION_JIRA_DATA)
+            return HealthCheckResult(
+                "jira_data_collection",
+                "healthy",
+                f"Collection exists ({info.points_count} points)",
+            )
+        else:
+            return HealthCheckResult(
+                "jira_data_collection",
+                "warning",
+                "Collection missing - run setup-collections.py",
+                error_details="Collection required when jira_sync_enabled=true",
+            )
+
+    except Exception as e:
+        return HealthCheckResult(
+            "jira_data_collection",
+            "warning",
+            f"Check failed: {str(e)}",
+            error_details="Enable debug logging for details",
+        )
+
+
 def run_health_checks() -> list[HealthCheckResult]:
     """
     Run all health checks in parallel for speed.
@@ -499,6 +552,7 @@ def run_health_checks() -> list[HealthCheckResult]:
         check_hook_scripts,
         check_monitoring_api,
         check_venv_health,
+        check_jira_data_collection,
     ]
 
     # Skip Docker-dependent checks if requested (e.g., macOS CI without Docker)

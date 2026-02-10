@@ -11,6 +11,7 @@ Implements Story 1.5 (Storage Module).
 Architecture Reference: architecture.md:516-690 (Storage & Graceful Degradation)
 """
 
+import dataclasses
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -177,6 +178,8 @@ class MemoryStorage:
         content_type_map = {
             MemoryType.USER_MESSAGE: ContentType.USER_MESSAGE,
             MemoryType.AGENT_RESPONSE: ContentType.AGENT_RESPONSE,
+            MemoryType.JIRA_ISSUE: ContentType.PROSE,
+            MemoryType.JIRA_COMMENT: ContentType.PROSE,
         }
         chunker_content_type = content_type_map.get(memory_type)
         # Note: For USER_MESSAGE/AGENT_RESPONSE, IntelligentChunker handles
@@ -227,6 +230,18 @@ class MemoryStorage:
         for key in reserved_keys:
             extra_fields.pop(key, None)
 
+        # Separate MemoryPayload-known fields from extra payload fields.
+        # Unknown fields (e.g., jira_project, jira_issue_key) are passed
+        # directly to the Qdrant payload, bypassing MemoryPayload.
+        _mp_field_names = {f.name for f in dataclasses.fields(MemoryPayload)}
+        payload_kwargs = {}
+        extra_payload = {}
+        for k, v in extra_fields.items():
+            if k in _mp_field_names:
+                payload_kwargs[k] = v
+            else:
+                extra_payload[k] = v
+
         payload = MemoryPayload(
             content=content,
             content_hash=content_hash,
@@ -236,7 +251,7 @@ class MemoryStorage:
             session_id=session_id,
             timestamp=datetime.now(timezone.utc).isoformat(),
             created_at=created_at,
-            **extra_fields,
+            **payload_kwargs,
         )
 
         # Validate payload
@@ -309,7 +324,9 @@ class MemoryStorage:
                 collection_name=collection,
                 points=[
                     PointStruct(
-                        id=memory_id, vector=embedding, payload=payload.to_dict()
+                        id=memory_id,
+                        vector=embedding,
+                        payload={**payload.to_dict(), **extra_payload},
                     )
                 ],
             )
@@ -351,7 +368,7 @@ class MemoryStorage:
                         timestamp=datetime.now(timezone.utc).isoformat(),
                         created_at=created_at,
                         embedding_status=payload.embedding_status,
-                        **extra_fields,
+                        **payload_kwargs,
                     )
 
                     try:
@@ -365,7 +382,7 @@ class MemoryStorage:
                         PointStruct(
                             id=chunk_id,
                             vector=chunk_embedding,
-                            payload=chunk_payload.to_dict(),
+                            payload={**chunk_payload.to_dict(), **extra_payload},
                         )
                     )
 
@@ -566,6 +583,8 @@ class MemoryStorage:
             content_type_map = {
                 MemoryType.USER_MESSAGE: ContentType.USER_MESSAGE,
                 MemoryType.AGENT_RESPONSE: ContentType.AGENT_RESPONSE,
+                MemoryType.JIRA_ISSUE: ContentType.PROSE,
+                MemoryType.JIRA_COMMENT: ContentType.PROSE,
             }
             chunker_content_type = content_type_map.get(memory_type)
             # Note: For USER_MESSAGE/AGENT_RESPONSE, IntelligentChunker handles
