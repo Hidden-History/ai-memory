@@ -10,13 +10,12 @@ Tests JiraClient with:
 """
 
 import base64
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
+import pytest
 
 from src.memory.connectors.jira.client import JiraClient, JiraClientError
-
 
 # =============================================================================
 # Test Fixtures
@@ -123,7 +122,9 @@ class TestTestConnection:
         mock_response.json.return_value = {"emailAddress": "test@example.com"}
         mock_response.raise_for_status = Mock()
 
-        with patch.object(jira_client.client, "get", new=AsyncMock(return_value=mock_response)):
+        with patch.object(
+            jira_client.client, "get", new=AsyncMock(return_value=mock_response)
+        ):
             result = await jira_client.test_connection()
 
         assert result["success"] is True
@@ -149,7 +150,9 @@ class TestTestConnection:
         """HTTP 401 Unauthorized handled."""
         mock_response = Mock()
         mock_response.status_code = 401
-        error = httpx.HTTPStatusError("Unauthorized", request=Mock(), response=mock_response)
+        error = httpx.HTTPStatusError(
+            "Unauthorized", request=Mock(), response=mock_response
+        )
 
         with patch.object(
             jira_client.client,
@@ -166,7 +169,9 @@ class TestTestConnection:
         """HTTP 404 Not Found handled."""
         mock_response = Mock()
         mock_response.status_code = 404
-        error = httpx.HTTPStatusError("Not Found", request=Mock(), response=mock_response)
+        error = httpx.HTTPStatusError(
+            "Not Found", request=Mock(), response=mock_response
+        )
 
         with patch.object(
             jira_client.client,
@@ -210,7 +215,9 @@ class TestListProjects:
         ]
         mock_response.raise_for_status = Mock()
 
-        with patch.object(jira_client.client, "get", new=AsyncMock(return_value=mock_response)):
+        with patch.object(
+            jira_client.client, "get", new=AsyncMock(return_value=mock_response)
+        ):
             result = await jira_client.list_projects()
 
         assert len(result) == 2
@@ -220,24 +227,28 @@ class TestListProjects:
     @pytest.mark.asyncio
     async def test_list_projects_timeout(self, jira_client):
         """List projects timeout raises JiraClientError."""
-        with patch.object(
-            jira_client.client,
-            "get",
-            new=AsyncMock(side_effect=httpx.TimeoutException("Timeout")),
+        with (
+            patch.object(
+                jira_client.client,
+                "get",
+                new=AsyncMock(side_effect=httpx.TimeoutException("Timeout")),
+            ),
+            pytest.raises(JiraClientError, match="TIMEOUT"),
         ):
-            with pytest.raises(JiraClientError, match="TIMEOUT"):
-                await jira_client.list_projects()
+            await jira_client.list_projects()
 
     @pytest.mark.asyncio
     async def test_list_projects_http_error(self, jira_client):
         """List projects HTTP error raises JiraClientError."""
-        with patch.object(
-            jira_client.client,
-            "get",
-            new=AsyncMock(side_effect=httpx.ConnectError("Connection failed")),
+        with (
+            patch.object(
+                jira_client.client,
+                "get",
+                new=AsyncMock(side_effect=httpx.ConnectError("Connection failed")),
+            ),
+            pytest.raises(JiraClientError),
         ):
-            with pytest.raises(JiraClientError):
-                await jira_client.list_projects()
+            await jira_client.list_projects()
 
 
 # =============================================================================
@@ -258,8 +269,10 @@ class TestIssueSearchPagination:
         }
         mock_response.raise_for_status = Mock()
 
-        with patch.object(jira_client.client, "post", new=AsyncMock(return_value=mock_response)) as mock_post:
-            result = await jira_client.search_issues("PROJ")
+        with patch.object(
+            jira_client.client, "post", new=AsyncMock(return_value=mock_response)
+        ) as mock_post:
+            await jira_client.search_issues("PROJ")
 
         # Verify payload has no nextPageToken on first request
         call_args = mock_post.call_args
@@ -341,7 +354,9 @@ class TestIssueSearchPagination:
         }
         mock_response.raise_for_status = Mock()
 
-        with patch.object(jira_client.client, "post", new=AsyncMock(return_value=mock_response)):
+        with patch.object(
+            jira_client.client, "post", new=AsyncMock(return_value=mock_response)
+        ):
             result = await jira_client.search_issues("PROJ")
 
         assert result == []
@@ -365,8 +380,10 @@ class TestCommentPagination:
         }
         mock_response.raise_for_status = Mock()
 
-        with patch.object(jira_client.client, "get", new=AsyncMock(return_value=mock_response)) as mock_get:
-            result = await jira_client.get_comments("PROJ-123")
+        with patch.object(
+            jira_client.client, "get", new=AsyncMock(return_value=mock_response)
+        ) as mock_get:
+            await jira_client.get_comments("PROJ-123")
 
         # Verify startAt=0 on first request
         call_args = mock_get.call_args
@@ -440,7 +457,9 @@ class TestCommentPagination:
         }
         mock_response.raise_for_status = Mock()
 
-        with patch.object(jira_client.client, "get", new=AsyncMock(return_value=mock_response)):
+        with patch.object(
+            jira_client.client, "get", new=AsyncMock(return_value=mock_response)
+        ):
             result = await jira_client.get_comments("PROJ-123")
 
         assert result == []
@@ -461,7 +480,9 @@ class TestBoundedJQL:
         mock_response.json.return_value = {"issues": [], "isLast": True}
         mock_response.raise_for_status = Mock()
 
-        with patch.object(jira_client.client, "post", new=AsyncMock(return_value=mock_response)) as mock_post:
+        with patch.object(
+            jira_client.client, "post", new=AsyncMock(return_value=mock_response)
+        ) as mock_post:
             await jira_client.search_issues("MYPROJ")
 
         # Verify JQL contains project key
@@ -475,8 +496,12 @@ class TestBoundedJQL:
         mock_response.json.return_value = {"issues": [], "isLast": True}
         mock_response.raise_for_status = Mock()
 
-        with patch.object(jira_client.client, "post", new=AsyncMock(return_value=mock_response)) as mock_post:
-            await jira_client.search_issues("PROJ", updated_since="2026-01-01T00:00:00Z")
+        with patch.object(
+            jira_client.client, "post", new=AsyncMock(return_value=mock_response)
+        ) as mock_post:
+            await jira_client.search_issues(
+                "PROJ", updated_since="2026-01-01T00:00:00Z"
+            )
 
         # Verify JQL has both project and updated filter
         payload = mock_post.call_args.kwargs["json"]
@@ -492,7 +517,9 @@ class TestBoundedJQL:
         mock_response.json.return_value = {"issues": [], "isLast": True}
         mock_response.raise_for_status = Mock()
 
-        with patch.object(jira_client.client, "post", new=AsyncMock(return_value=mock_response)) as mock_post:
+        with patch.object(
+            jira_client.client, "post", new=AsyncMock(return_value=mock_response)
+        ) as mock_post:
             await jira_client.search_issues("PROJ")
 
         # Verify JQL has only project filter
@@ -511,50 +538,60 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_search_issues_timeout(self, jira_client):
         """Search issues timeout raises JiraClientError."""
-        with patch.object(
-            jira_client.client,
-            "post",
-            new=AsyncMock(side_effect=httpx.TimeoutException("Timeout")),
+        with (
+            patch.object(
+                jira_client.client,
+                "post",
+                new=AsyncMock(side_effect=httpx.TimeoutException("Timeout")),
+            ),
+            pytest.raises(JiraClientError, match="TIMEOUT"),
         ):
-            with pytest.raises(JiraClientError, match="TIMEOUT"):
-                await jira_client.search_issues("PROJ")
+            await jira_client.search_issues("PROJ")
 
     @pytest.mark.asyncio
     async def test_search_issues_http_error(self, jira_client):
         """Search issues HTTP error raises JiraClientError."""
-        with patch.object(
-            jira_client.client,
-            "post",
-            new=AsyncMock(side_effect=httpx.ConnectError("Connection failed")),
+        with (
+            patch.object(
+                jira_client.client,
+                "post",
+                new=AsyncMock(side_effect=httpx.ConnectError("Connection failed")),
+            ),
+            pytest.raises(JiraClientError),
         ):
-            with pytest.raises(JiraClientError):
-                await jira_client.search_issues("PROJ")
+            await jira_client.search_issues("PROJ")
 
     @pytest.mark.asyncio
     async def test_get_comments_timeout(self, jira_client):
         """Get comments timeout raises JiraClientError."""
-        with patch.object(
-            jira_client.client,
-            "get",
-            new=AsyncMock(side_effect=httpx.TimeoutException("Timeout")),
+        with (
+            patch.object(
+                jira_client.client,
+                "get",
+                new=AsyncMock(side_effect=httpx.TimeoutException("Timeout")),
+            ),
+            pytest.raises(JiraClientError, match="TIMEOUT"),
         ):
-            with pytest.raises(JiraClientError, match="TIMEOUT"):
-                await jira_client.get_comments("PROJ-123")
+            await jira_client.get_comments("PROJ-123")
 
     @pytest.mark.asyncio
     async def test_get_comments_http_error(self, jira_client):
         """Get comments HTTP error raises JiraClientError."""
         mock_response = Mock()
         mock_response.status_code = 500
-        error = httpx.HTTPStatusError("Server Error", request=Mock(), response=mock_response)
+        error = httpx.HTTPStatusError(
+            "Server Error", request=Mock(), response=mock_response
+        )
 
-        with patch.object(
-            jira_client.client,
-            "get",
-            new=AsyncMock(side_effect=error),
+        with (
+            patch.object(
+                jira_client.client,
+                "get",
+                new=AsyncMock(side_effect=error),
+            ),
+            pytest.raises(JiraClientError),
         ):
-            with pytest.raises(JiraClientError):
-                await jira_client.get_comments("PROJ-123")
+            await jira_client.get_comments("PROJ-123")
 
     @pytest.mark.asyncio
     async def test_malformed_json_response(self, jira_client):
@@ -563,9 +600,13 @@ class TestErrorHandling:
         mock_response.json.side_effect = ValueError("Invalid JSON")
         mock_response.raise_for_status = Mock()
 
-        with patch.object(jira_client.client, "post", new=AsyncMock(return_value=mock_response)):
-            with pytest.raises(Exception):  # Should raise some exception
-                await jira_client.search_issues("PROJ")
+        with (
+            patch.object(
+                jira_client.client, "post", new=AsyncMock(return_value=mock_response)
+            ),
+            pytest.raises(ValueError),
+        ):
+            await jira_client.search_issues("PROJ")
 
 
 # =============================================================================
@@ -641,16 +682,18 @@ class TestRateLimiting:
             mock_resp.raise_for_status = Mock()
             mock_response_objs.append(mock_resp)
 
-        with patch.object(
-            client.client,
-            "post",
-            new=AsyncMock(side_effect=mock_response_objs),
+        with (
+            patch.object(
+                client.client,
+                "post",
+                new=AsyncMock(side_effect=mock_response_objs),
+            ),
+            patch("asyncio.sleep", new=AsyncMock()) as mock_sleep,
         ):
-            with patch("asyncio.sleep", new=AsyncMock()) as mock_sleep:
-                await client.search_issues("PROJ")
+            await client.search_issues("PROJ")
 
-                # Verify sleep called with correct delay (100ms = 0.1s)
-                mock_sleep.assert_called_once_with(0.1)
+            # Verify sleep called with correct delay (100ms = 0.1s)
+            mock_sleep.assert_called_once_with(0.1)
 
     @pytest.mark.asyncio
     async def test_no_delay_on_last_page(self, jira_client):
@@ -659,9 +702,13 @@ class TestRateLimiting:
         mock_response.json.return_value = {"issues": [{"key": "P-1"}], "isLast": True}
         mock_response.raise_for_status = Mock()
 
-        with patch.object(jira_client.client, "post", new=AsyncMock(return_value=mock_response)):
-            with patch("asyncio.sleep", new=AsyncMock()) as mock_sleep:
-                await jira_client.search_issues("PROJ")
+        with (
+            patch.object(
+                jira_client.client, "post", new=AsyncMock(return_value=mock_response)
+            ),
+            patch("asyncio.sleep", new=AsyncMock()) as mock_sleep,
+        ):
+            await jira_client.search_issues("PROJ")
 
-                # No sleep on last page
-                mock_sleep.assert_not_called()
+            # No sleep on last page
+            mock_sleep.assert_not_called()

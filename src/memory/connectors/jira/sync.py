@@ -22,7 +22,6 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -33,8 +32,6 @@ from ...embeddings import EmbeddingClient
 from ...models import MemoryType
 from ...qdrant_client import get_qdrant_client
 from ...storage import MemoryStorage
-from ...validation import compute_content_hash
-from .adf_converter import adf_to_text
 from .client import JiraClient
 from .composer import compose_comment_document, compose_issue_document
 
@@ -104,7 +101,9 @@ class JiraSyncEngine:
         # Per verified contract: group_id = Jira instance URL hostname
         self.group_id = urlparse(self.config.jira_instance_url).hostname
         if not self.group_id:
-            raise ValueError(f"Invalid JIRA_INSTANCE_URL: {self.config.jira_instance_url}")
+            raise ValueError(
+                f"Invalid JIRA_INSTANCE_URL: {self.config.jira_instance_url}"
+            )
 
         # Initialize clients
         self.jira_client = JiraClient(
@@ -142,7 +141,11 @@ class JiraSyncEngine:
             updated_since = self._get_updated_since(project_key, mode)
             logger.info(
                 "sync_project_start",
-                extra={"project": project_key, "mode": mode, "updated_since": updated_since},
+                extra={
+                    "project": project_key,
+                    "mode": mode,
+                    "updated_since": updated_since,
+                },
             )
 
             # Fetch issues with pagination
@@ -164,7 +167,7 @@ class JiraSyncEngine:
                         )
                 except Exception as e:
                     # Fail-open: log error, continue to next issue
-                    error_msg = f"{issue['key']}: {str(e)}"
+                    error_msg = f"{issue['key']}: {e!s}"
                     errors.append(error_msg)
                     logger.warning(
                         "issue_sync_failed",
@@ -203,7 +206,9 @@ class JiraSyncEngine:
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
             return SyncResult(errors=[str(e)], duration_seconds=duration)
 
-    async def sync_all_projects(self, mode: str = "incremental") -> dict[str, SyncResult]:
+    async def sync_all_projects(
+        self, mode: str = "incremental"
+    ) -> dict[str, SyncResult]:
         """Sync all configured Jira projects.
 
         Args:
@@ -223,7 +228,9 @@ class JiraSyncEngine:
 
         return results
 
-    async def _sync_issue(self, issue: dict[str, Any], project_key: str) -> dict[str, Any]:
+    async def _sync_issue(
+        self, issue: dict[str, Any], project_key: str
+    ) -> dict[str, Any]:
         """Sync a single issue with fail-open error handling.
 
         Args:
@@ -245,7 +252,7 @@ class JiraSyncEngine:
             reporter_name = reporter["displayName"] if reporter else "Unassigned"
 
             creator = issue["fields"].get("creator")
-            creator_name = creator["displayName"] if creator else reporter_name
+            creator["displayName"] if creator else reporter_name
 
             # Store issue to jira-data collection
             # MemoryStorage handles: chunking, embedding, content_hash, dedup, upsert
@@ -282,9 +289,7 @@ class JiraSyncEngine:
             )
             return {"success": False, "error": str(e)}
 
-    async def _sync_comments(
-        self, issue: dict[str, Any], project_key: str
-    ) -> int:
+    async def _sync_comments(self, issue: dict[str, Any], project_key: str) -> int:
         """Sync comments for an issue (delete-and-insert pattern).
 
         Args:
@@ -409,7 +414,8 @@ class JiraSyncEngine:
                             key="jira_issue_key", match=MatchValue(value=issue_key)
                         ),
                         FieldCondition(
-                            key="type", match=MatchValue(value=MemoryType.JIRA_COMMENT.value)
+                            key="type",
+                            match=MatchValue(value=MemoryType.JIRA_COMMENT.value),
                         ),
                     ]
                 ),
@@ -455,7 +461,9 @@ class JiraSyncEngine:
 
         elif mode == "incremental":
             state = self._load_state()
-            last_synced = state.get("projects", {}).get(project_key, {}).get("last_synced")
+            last_synced = (
+                state.get("projects", {}).get(project_key, {}).get("last_synced")
+            )
 
             if last_synced:
                 return last_synced
@@ -477,14 +485,15 @@ class JiraSyncEngine:
         """
         try:
             if self.state_path.exists():
-                with open(self.state_path, "r") as f:
+                with open(self.state_path) as f:
                     return json.load(f)
             else:
                 # No state file yet - return empty state
                 return {"version": "1.0", "projects": {}}
         except Exception as e:
             logger.warning(
-                "state_load_failed", extra={"path": str(self.state_path), "error": str(e)}
+                "state_load_failed",
+                extra={"path": str(self.state_path), "error": str(e)},
             )
             return {"version": "1.0", "projects": {}}
 

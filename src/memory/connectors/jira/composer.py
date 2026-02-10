@@ -73,12 +73,16 @@ def compose_issue_document(issue: dict[str, Any]) -> str:
     labels_str = ", ".join(labels) if labels else "None"
 
     # Extract and format dates (ISO 8601 -> YYYY-MM-DD)
-    created = fields.get("created", "")[:10]  # "2026-02-01T10:00:00.000+0000" -> "2026-02-01"
+    created = fields.get("created", "")[
+        :10
+    ]  # "2026-02-01T10:00:00.000+0000" -> "2026-02-01"
     updated = fields.get("updated", "")[:10]
 
     # Convert description from ADF to text
     description_adf = fields.get("description")
-    description_text = adf_to_text(description_adf) if description_adf else "(No description)"
+    description_text = (
+        adf_to_text(description_adf) if description_adf else "(No description)"
+    )
 
     # Build document
     lines = [
@@ -147,7 +151,9 @@ def compose_comment_document(
     author_obj = comment.get("author", {})
     author = author_obj.get("displayName", "Unknown")
 
-    created = comment.get("created", "")[:10]  # "2026-02-07T14:00:00.000+0000" -> "2026-02-07"
+    created = comment.get("created", "")[
+        :10
+    ]  # "2026-02-07T14:00:00.000+0000" -> "2026-02-07"
 
     # Convert comment body from ADF to text
     body_adf = comment.get("body")

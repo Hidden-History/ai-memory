@@ -611,7 +611,7 @@ class MemoryStorage:
                         },
                     )
                     # Process all chunks from this memory
-                    for chunk_idx, chunk_result in enumerate(chunk_results):
+                    for _chunk_idx, chunk_result in enumerate(chunk_results):
                         chunk_memory_id = str(uuid.uuid4())
                         chunk_hash = compute_content_hash(chunk_result.content)
 
@@ -640,22 +640,28 @@ class MemoryStorage:
 
                         # Add optional source metadata if available
                         if chunk_result.metadata.source_file:
-                            chunking_metadata["source_file"] = chunk_result.metadata.source_file
+                            chunking_metadata["source_file"] = (
+                                chunk_result.metadata.source_file
+                            )
                         if chunk_result.metadata.start_line is not None:
-                            chunking_metadata["start_line"] = chunk_result.metadata.start_line
+                            chunking_metadata["start_line"] = (
+                                chunk_result.metadata.start_line
+                            )
                         if chunk_result.metadata.end_line is not None:
-                            chunking_metadata["end_line"] = chunk_result.metadata.end_line
+                            chunking_metadata["end_line"] = (
+                                chunk_result.metadata.end_line
+                            )
                         if chunk_result.metadata.section_header:
-                            chunking_metadata["section_header"] = chunk_result.metadata.section_header
+                            chunking_metadata["section_header"] = (
+                                chunk_result.metadata.section_header
+                            )
 
                         # Convert payload to dict and add chunking_metadata
                         chunk_payload_dict = chunk_payload.to_dict()
                         chunk_payload_dict["chunking_metadata"] = chunking_metadata
 
                         # Collect for batch embedding (avoid N+1 API calls)
-                        pending_chunks.append(
-                            (chunk_memory_id, chunk_payload_dict)
-                        )
+                        pending_chunks.append((chunk_memory_id, chunk_payload_dict))
                         results.append(
                             {
                                 "memory_id": chunk_memory_id,

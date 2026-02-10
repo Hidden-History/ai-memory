@@ -17,12 +17,12 @@ from qdrant_client.models import (
     SearchParams,
 )
 
+from ...activity_log import log_activity
 from ...config import COLLECTION_JIRA_DATA, MemoryConfig, get_config
 from ...embeddings import EmbeddingClient, EmbeddingError
-from ...qdrant_client import QdrantUnavailable, get_qdrant_client
-from ...activity_log import log_activity
+from ...qdrant_client import get_qdrant_client
 
-__all__ = ["search_jira", "lookup_issue", "JiraSearchError"]
+__all__ = ["JiraSearchError", "lookup_issue", "search_jira"]
 
 logger = logging.getLogger("ai_memory.jira.search")
 

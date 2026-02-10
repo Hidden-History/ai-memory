@@ -6,9 +6,6 @@ TECH-DEBT-068: Ensures docker/streamlit/app.py hardcoded COLLECTION_TYPES
 match the canonical source in src/memory/models.py (MemoryType enum).
 """
 
-import os
-import sys
-
 
 def test_streamlit_fallback_matches_models():
     """Verify Streamlit fallback COLLECTION_TYPES matches models.py.
@@ -130,7 +127,9 @@ def test_collection_names_match():
         MemoryType.JIRA_COMMENT,
     }
 
-    all_types = code_pattern_types | convention_types | discussion_types | jira_data_types
+    all_types = (
+        code_pattern_types | convention_types | discussion_types | jira_data_types
+    )
 
     # Verify all MemoryType enum values are accounted for
     enum_values = set(MemoryType)

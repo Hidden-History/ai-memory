@@ -7,10 +7,7 @@ Tests Atlassian Document Format (ADF) to plain text conversion with:
 - Edge cases (empty input, nested structures, malformed JSON)
 """
 
-import pytest
-
-from src.memory.connectors.jira.adf_converter import adf_to_text, _walk_node
-
+from src.memory.connectors.jira.adf_converter import _walk_node, adf_to_text
 
 # =============================================================================
 # Must-Have Node Types
@@ -34,7 +31,10 @@ class TestParagraphNode:
         adf = {
             "type": "doc",
             "content": [
-                {"type": "paragraph", "content": [{"type": "text", "text": "Hello world"}]}
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "Hello world"}],
+                }
             ],
         }
         result = adf_to_text(adf)
@@ -79,7 +79,10 @@ class TestTextNode:
         adf = {
             "type": "doc",
             "content": [
-                {"type": "paragraph", "content": [{"type": "text", "text": "Plain text"}]}
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "Plain text"}],
+                }
             ],
         }
         result = adf_to_text(adf)
@@ -305,7 +308,10 @@ class TestBulletList:
                                                 {
                                                     "type": "paragraph",
                                                     "content": [
-                                                        {"type": "text", "text": "Child"}
+                                                        {
+                                                            "type": "text",
+                                                            "text": "Child",
+                                                        }
                                                     ],
                                                 }
                                             ],
@@ -394,7 +400,10 @@ class TestOrderedList:
                                                 {
                                                     "type": "paragraph",
                                                     "content": [
-                                                        {"type": "text", "text": "Child"}
+                                                        {
+                                                            "type": "text",
+                                                            "text": "Child",
+                                                        }
                                                     ],
                                                 }
                                             ],
@@ -498,7 +507,10 @@ class TestListItem:
                                                 {
                                                     "type": "paragraph",
                                                     "content": [
-                                                        {"type": "text", "text": "Nested"}
+                                                        {
+                                                            "type": "text",
+                                                            "text": "Nested",
+                                                        }
                                                     ],
                                                 }
                                             ],
@@ -557,7 +569,9 @@ class TestCodeBlock:
                 {
                     "type": "codeBlock",
                     "attrs": {"language": "javascript"},
-                    "content": [{"type": "text", "text": "function test() {\n  return true;\n}"}],
+                    "content": [
+                        {"type": "text", "text": "function test() {\n  return true;\n}"}
+                    ],
                 }
             ],
         }

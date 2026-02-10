@@ -8,19 +8,18 @@ Tests search_jira and lookup_issue with:
 - Error handling
 """
 
-import pytest
 from unittest.mock import Mock, patch
 
-from src.memory.connectors.jira.search import (
-    search_jira,
-    lookup_issue,
-    JiraSearchError,
-    _format_jira_url,
-    _format_badges,
-    _truncate_content,
-)
-from src.memory.models import MemoryType
+import pytest
 
+from src.memory.connectors.jira.search import (
+    JiraSearchError,
+    _format_badges,
+    _format_jira_url,
+    _truncate_content,
+    lookup_issue,
+    search_jira,
+)
 
 # =============================================================================
 # Helper Function Tests
@@ -38,7 +37,10 @@ class TestFormatJiraUrl:
     def test_comment_url(self):
         """Format comment URL with focusedCommentId."""
         url = _format_jira_url("company.atlassian.net", "PROJ-123", "10001")
-        assert url == "https://company.atlassian.net/browse/PROJ-123?focusedCommentId=10001"
+        assert (
+            url
+            == "https://company.atlassian.net/browse/PROJ-123?focusedCommentId=10001"
+        )
 
     def test_url_without_comment_id(self):
         """URL without comment ID."""
@@ -143,12 +145,16 @@ class TestGroupIdValidation:
         mock_config.similarity_threshold = 0.7
         mock_config.hnsw_ef_accurate = 128
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client") as mock_qdrant_fn:
+        with patch(
+            "src.memory.connectors.jira.search.get_qdrant_client"
+        ) as mock_qdrant_fn:
             mock_qdrant = Mock()
             mock_qdrant.query_points = Mock(return_value=Mock(points=[]))
             mock_qdrant_fn.return_value = mock_qdrant
 
-            with patch("src.memory.connectors.jira.search.EmbeddingClient") as mock_embed_cls:
+            with patch(
+                "src.memory.connectors.jira.search.EmbeddingClient"
+            ) as mock_embed_cls:
                 mock_embed = Mock()
                 mock_embed.embed = Mock(return_value=[[0.1] * 768])
                 mock_embed_cls.return_value = mock_embed
@@ -165,7 +171,9 @@ class TestGroupIdValidation:
         filter_conditions = query_filter.must
 
         # Find group_id condition
-        group_id_conditions = [c for c in filter_conditions if hasattr(c, "key") and c.key == "group_id"]
+        group_id_conditions = [
+            c for c in filter_conditions if hasattr(c, "key") and c.key == "group_id"
+        ]
         assert len(group_id_conditions) == 1
         assert group_id_conditions[0].match.value == "company.atlassian.net"
 
@@ -184,12 +192,16 @@ class TestFilterCombinations:
         mock_config.similarity_threshold = 0.7
         mock_config.hnsw_ef_accurate = 128
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client") as mock_qdrant_fn:
+        with patch(
+            "src.memory.connectors.jira.search.get_qdrant_client"
+        ) as mock_qdrant_fn:
             mock_qdrant = Mock()
             mock_qdrant.query_points = Mock(return_value=Mock(points=[]))
             mock_qdrant_fn.return_value = mock_qdrant
 
-            with patch("src.memory.connectors.jira.search.EmbeddingClient") as mock_embed_cls:
+            with patch(
+                "src.memory.connectors.jira.search.EmbeddingClient"
+            ) as mock_embed_cls:
                 mock_embed = Mock()
                 mock_embed.embed = Mock(return_value=[[0.1] * 768])
                 mock_embed_cls.return_value = mock_embed
@@ -211,12 +223,16 @@ class TestFilterCombinations:
         mock_config.similarity_threshold = 0.7
         mock_config.hnsw_ef_accurate = 128
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client") as mock_qdrant_fn:
+        with patch(
+            "src.memory.connectors.jira.search.get_qdrant_client"
+        ) as mock_qdrant_fn:
             mock_qdrant = Mock()
             mock_qdrant.query_points = Mock(return_value=Mock(points=[]))
             mock_qdrant_fn.return_value = mock_qdrant
 
-            with patch("src.memory.connectors.jira.search.EmbeddingClient") as mock_embed_cls:
+            with patch(
+                "src.memory.connectors.jira.search.EmbeddingClient"
+            ) as mock_embed_cls:
                 mock_embed = Mock()
                 mock_embed.embed = Mock(return_value=[[0.1] * 768])
                 mock_embed_cls.return_value = mock_embed
@@ -239,12 +255,16 @@ class TestFilterCombinations:
         mock_config.similarity_threshold = 0.7
         mock_config.hnsw_ef_accurate = 128
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client") as mock_qdrant_fn:
+        with patch(
+            "src.memory.connectors.jira.search.get_qdrant_client"
+        ) as mock_qdrant_fn:
             mock_qdrant = Mock()
             mock_qdrant.query_points = Mock(return_value=Mock(points=[]))
             mock_qdrant_fn.return_value = mock_qdrant
 
-            with patch("src.memory.connectors.jira.search.EmbeddingClient") as mock_embed_cls:
+            with patch(
+                "src.memory.connectors.jira.search.EmbeddingClient"
+            ) as mock_embed_cls:
                 mock_embed = Mock()
                 mock_embed.embed = Mock(return_value=[[0.1] * 768])
                 mock_embed_cls.return_value = mock_embed
@@ -272,12 +292,16 @@ class TestFilterCombinations:
         mock_config.similarity_threshold = 0.7
         mock_config.hnsw_ef_accurate = 128
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client") as mock_qdrant_fn:
+        with patch(
+            "src.memory.connectors.jira.search.get_qdrant_client"
+        ) as mock_qdrant_fn:
             mock_qdrant = Mock()
             mock_qdrant.query_points = Mock(return_value=Mock(points=[]))
             mock_qdrant_fn.return_value = mock_qdrant
 
-            with patch("src.memory.connectors.jira.search.EmbeddingClient") as mock_embed_cls:
+            with patch(
+                "src.memory.connectors.jira.search.EmbeddingClient"
+            ) as mock_embed_cls:
                 mock_embed = Mock()
                 mock_embed.embed = Mock(return_value=[[0.1] * 768])
                 mock_embed_cls.return_value = mock_embed
@@ -327,12 +351,18 @@ class TestIssueLookup:
             "jira_updated": "2026-02-07T00:00:00Z",
         }
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client") as mock_qdrant_fn:
+        with patch(
+            "src.memory.connectors.jira.search.get_qdrant_client"
+        ) as mock_qdrant_fn:
             mock_qdrant = Mock()
-            mock_qdrant.scroll = Mock(return_value=([mock_issue_point, mock_comment_point], None))
+            mock_qdrant.scroll = Mock(
+                return_value=([mock_issue_point, mock_comment_point], None)
+            )
             mock_qdrant_fn.return_value = mock_qdrant
 
-            result = lookup_issue("PROJ-123", "company.atlassian.net", config=mock_config)
+            result = lookup_issue(
+                "PROJ-123", "company.atlassian.net", config=mock_config
+            )
 
         # Verify result structure
         assert result["issue"] is not None
@@ -343,12 +373,16 @@ class TestIssueLookup:
         """Issue not found returns None."""
         mock_config = Mock()
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client") as mock_qdrant_fn:
+        with patch(
+            "src.memory.connectors.jira.search.get_qdrant_client"
+        ) as mock_qdrant_fn:
             mock_qdrant = Mock()
             mock_qdrant.scroll = Mock(return_value=([], None))
             mock_qdrant_fn.return_value = mock_qdrant
 
-            result = lookup_issue("PROJ-999", "company.atlassian.net", config=mock_config)
+            result = lookup_issue(
+                "PROJ-999", "company.atlassian.net", config=mock_config
+            )
 
         # No issue found
         assert result["issue"] is None
@@ -384,12 +418,18 @@ class TestIssueLookup:
             "jira_updated": "2026-02-01T00:00:00Z",
         }
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client") as mock_qdrant_fn:
+        with patch(
+            "src.memory.connectors.jira.search.get_qdrant_client"
+        ) as mock_qdrant_fn:
             mock_qdrant = Mock()
-            mock_qdrant.scroll = Mock(return_value=([mock_issue, mock_comment1, mock_comment2], None))
+            mock_qdrant.scroll = Mock(
+                return_value=([mock_issue, mock_comment1, mock_comment2], None)
+            )
             mock_qdrant_fn.return_value = mock_qdrant
 
-            result = lookup_issue("PROJ-123", "company.atlassian.net", config=mock_config)
+            result = lookup_issue(
+                "PROJ-123", "company.atlassian.net", config=mock_config
+            )
 
         # Comments sorted chronologically
         assert len(result["comments"]) == 2
@@ -437,12 +477,16 @@ class TestResultFormatting:
             "jira_priority": "High",
         }
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client") as mock_qdrant_fn:
+        with patch(
+            "src.memory.connectors.jira.search.get_qdrant_client"
+        ) as mock_qdrant_fn:
             mock_qdrant = Mock()
             mock_qdrant.query_points = Mock(return_value=Mock(points=[mock_point]))
             mock_qdrant_fn.return_value = mock_qdrant
 
-            with patch("src.memory.connectors.jira.search.EmbeddingClient") as mock_embed_cls:
+            with patch(
+                "src.memory.connectors.jira.search.EmbeddingClient"
+            ) as mock_embed_cls:
                 mock_embed = Mock()
                 mock_embed.embed = Mock(return_value=[[0.1] * 768])
                 mock_embed_cls.return_value = mock_embed
@@ -478,12 +522,16 @@ class TestResultFormatting:
             "jira_comment_id": "10001",
         }
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client") as mock_qdrant_fn:
+        with patch(
+            "src.memory.connectors.jira.search.get_qdrant_client"
+        ) as mock_qdrant_fn:
             mock_qdrant = Mock()
             mock_qdrant.query_points = Mock(return_value=Mock(points=[mock_point]))
             mock_qdrant_fn.return_value = mock_qdrant
 
-            with patch("src.memory.connectors.jira.search.EmbeddingClient") as mock_embed_cls:
+            with patch(
+                "src.memory.connectors.jira.search.EmbeddingClient"
+            ) as mock_embed_cls:
                 mock_embed = Mock()
                 mock_embed.embed = Mock(return_value=[[0.1] * 768])
                 mock_embed_cls.return_value = mock_embed
@@ -515,12 +563,16 @@ class TestResultFormatting:
             "jira_issue_key": "PROJ-123",
         }
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client") as mock_qdrant_fn:
+        with patch(
+            "src.memory.connectors.jira.search.get_qdrant_client"
+        ) as mock_qdrant_fn:
             mock_qdrant = Mock()
             mock_qdrant.query_points = Mock(return_value=Mock(points=[mock_point]))
             mock_qdrant_fn.return_value = mock_qdrant
 
-            with patch("src.memory.connectors.jira.search.EmbeddingClient") as mock_embed_cls:
+            with patch(
+                "src.memory.connectors.jira.search.EmbeddingClient"
+            ) as mock_embed_cls:
                 mock_embed = Mock()
                 mock_embed.embed = Mock(return_value=[[0.1] * 768])
                 mock_embed_cls.return_value = mock_embed
@@ -551,20 +603,24 @@ class TestErrorHandling:
         """Embedding generation error raises JiraSearchError."""
         mock_config = Mock()
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client"):
-            with patch("src.memory.connectors.jira.search.EmbeddingClient") as mock_embed_cls:
-                from src.memory.embeddings import EmbeddingError
+        with (
+            patch("src.memory.connectors.jira.search.get_qdrant_client"),
+            patch(
+                "src.memory.connectors.jira.search.EmbeddingClient"
+            ) as mock_embed_cls,
+        ):
+            from src.memory.embeddings import EmbeddingError
 
-                mock_embed = Mock()
-                mock_embed.embed = Mock(side_effect=EmbeddingError("Embedding failed"))
-                mock_embed_cls.return_value = mock_embed
+            mock_embed = Mock()
+            mock_embed.embed = Mock(side_effect=EmbeddingError("Embedding failed"))
+            mock_embed_cls.return_value = mock_embed
 
-                with pytest.raises(JiraSearchError, match="Embedding generation failed"):
-                    search_jira(
-                        query="test",
-                        group_id="company.atlassian.net",
-                        config=mock_config,
-                    )
+            with pytest.raises(JiraSearchError, match="Embedding generation failed"):
+                search_jira(
+                    query="test",
+                    group_id="company.atlassian.net",
+                    config=mock_config,
+                )
 
     def test_qdrant_error_raises(self):
         """Qdrant query error raises JiraSearchError."""
@@ -572,12 +628,16 @@ class TestErrorHandling:
         mock_config.similarity_threshold = 0.7
         mock_config.hnsw_ef_accurate = 128
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client") as mock_qdrant_fn:
+        with patch(
+            "src.memory.connectors.jira.search.get_qdrant_client"
+        ) as mock_qdrant_fn:
             mock_qdrant = Mock()
             mock_qdrant.query_points = Mock(side_effect=Exception("Qdrant error"))
             mock_qdrant_fn.return_value = mock_qdrant
 
-            with patch("src.memory.connectors.jira.search.EmbeddingClient") as mock_embed_cls:
+            with patch(
+                "src.memory.connectors.jira.search.EmbeddingClient"
+            ) as mock_embed_cls:
                 mock_embed = Mock()
                 mock_embed.embed = Mock(return_value=[[0.1] * 768])
                 mock_embed_cls.return_value = mock_embed
@@ -593,7 +653,9 @@ class TestErrorHandling:
         """lookup_issue Qdrant error raises JiraSearchError."""
         mock_config = Mock()
 
-        with patch("src.memory.connectors.jira.search.get_qdrant_client") as mock_qdrant_fn:
+        with patch(
+            "src.memory.connectors.jira.search.get_qdrant_client"
+        ) as mock_qdrant_fn:
             mock_qdrant = Mock()
             mock_qdrant.scroll = Mock(side_effect=Exception("Scroll error"))
             mock_qdrant_fn.return_value = mock_qdrant

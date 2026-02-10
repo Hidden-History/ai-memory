@@ -8,14 +8,14 @@ Tests compose_issue_document and compose_comment_document with:
 - ADF integration
 """
 
-import pytest
 from unittest.mock import patch
 
-from src.memory.connectors.jira.composer import (
-    compose_issue_document,
-    compose_comment_document,
-)
+import pytest
 
+from src.memory.connectors.jira.composer import (
+    compose_comment_document,
+    compose_issue_document,
+)
 
 # =============================================================================
 # Test Data Fixtures
@@ -474,7 +474,7 @@ class TestEmptyCommentBody:
         """Comment body is empty ADF."""
         mock_adf.return_value = ""
         complete_comment["body"] = {"type": "doc", "content": []}
-        result = compose_comment_document(complete_issue, complete_comment)
+        compose_comment_document(complete_issue, complete_comment)
 
         # Should call adf_to_text
         mock_adf.assert_called_once()

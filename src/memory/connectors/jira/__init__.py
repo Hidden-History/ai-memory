@@ -11,6 +11,6 @@ __all__ = [
     "JiraClient",
     "JiraClientError",
     "adf_to_text",
-    "compose_issue_document",
     "compose_comment_document",
+    "compose_issue_document",
 ]

@@ -43,8 +43,8 @@ except ImportError:
     memory_retrievals_total = None
     failure_events_total = None
 
-from .metrics_push import push_failure_metrics_async, push_retrieval_metrics_async
 from .activity_log import log_memory_search
+from .metrics_push import push_failure_metrics_async, push_retrieval_metrics_async
 
 __all__ = [
     "MemorySearch",
