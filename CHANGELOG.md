@@ -5,6 +5,52 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.5] - 2026-02-10
+
+Jira Cloud Integration: Sync and semantically search Jira issues and comments alongside your code memory.
+
+### Added
+
+#### Jira Cloud Integration
+- **Jira API client** (`src/memory/connectors/jira/client.py`) — Async httpx client with Basic Auth, token-based pagination for issues, offset-based pagination for comments, configurable rate limiting
+- **ADF converter** (`src/memory/connectors/jira/adf_converter.py`) — Converts Atlassian Document Format JSON to plain text for embedding. Handles paragraphs, headings, lists, code blocks, blockquotes, mentions, inline cards, and unknown node types gracefully
+- **Document composer** (`src/memory/connectors/jira/composer.py`) — Transforms raw Jira API responses into structured, embeddable document text with metadata headers
+- **Sync engine** (`src/memory/connectors/jira/sync.py`) — Full and incremental sync with JQL-based querying, SHA256 content deduplication, per-issue fail-open error handling, and persistent sync state
+- **Semantic search** (`src/memory/connectors/jira/search.py`) — Vector similarity search against `jira-data` collection with filters for project, type, status, priority, author. Includes issue lookup mode (issue + all comments, chronologically sorted)
+- **`/jira-sync` skill** — Incremental sync (default), full sync, per-project sync, and sync status check
+- **`/search-jira` skill** — Semantic search with project, type, issue-type, status, priority, and author filters. Issue lookup mode via `--issue PROJ-123`
+- **`jira-data` collection** — Conditional fourth collection (created only when Jira sync is enabled) for JIRA_ISSUE and JIRA_COMMENT memory types
+- **2 new memory types**: `JIRA_ISSUE`, `JIRA_COMMENT` (total: 17 memory types)
+- **Installer support** — `install.sh` prompts for optional Jira configuration, validates credentials via API, runs initial sync, configures cron jobs (6am/6pm daily incremental)
+- **Health check integration** — `jira-data` collection included in `/memory-status` and `health-check.py`
+- **177 unit tests** for all Jira components (client, ADF converter, composer, sync, search)
+
+#### Documentation
+- `docs/JIRA-INTEGRATION.md` — Comprehensive guide covering prerequisites, configuration, architecture, sync operations, search operations, automated scheduling, health checks, ADF converter reference, and troubleshooting
+- README.md updated with Jira Cloud Integration section, 17 memory types, four-collection architecture
+- INSTALL.md updated with optional Jira configuration step, environment variables, and post-install verification
+
+#### CI & Observability
+- Docker services (Qdrant, Embedding, Grafana) added to CI test job for E2E tests
+- 9 memory system E2E tests enabled with service containers
+- Activity logging added to `/search-memory` and `/memory-status` skill functions
+
+### Fixed
+
+- **`store_memories_batch()` chunking compliance** — All memory types now route through `IntelligentChunker` (was only USER_MESSAGE and AGENT_RESPONSE). Chunks are batch-embedded individually (previously chunks after index 0 received zero vectors, making them unsearchable). All stored points now include `chunking_metadata`
+- **Workflow security** (`claude-assistant.yml`) — Added secret validation, HTTP error handling, JSON escaping, and secret redaction (7 hardening fixes)
+- **Streamlit dashboard** — Added `jira-data` collection and JIRA memory types to both imported and fallback code paths
+
+### Changed
+- Memory type count: 15 → 17 (added JIRA_ISSUE, JIRA_COMMENT)
+- Collection architecture: 3 core collections + 1 conditional (`jira-data`)
+- `store_memory()` accepts additional metadata fields and passes unknown fields directly to Qdrant payload (enables Jira-specific fields like `jira_issue_key`, `jira_author`, `jira_project`)
+- JIRA_ISSUE and JIRA_COMMENT mapped to `ContentType.PROSE` in both `store_memory()` and `store_memories_batch()` content type maps
+
+### Known Issues
+- **BUG-064**: `hattan/verify-linked-issue-action@v1.2.0` tag missing upstream (pre-existing, cosmetic CI failure)
+- **BUG-065**: `actions/first-interaction@v3` input name breaking change (pre-existing, cosmetic CI failure)
+
 ## [2.0.4] - 2026-02-06
 
 v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003).
@@ -106,7 +152,7 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 
 ### Known Gaps
 - **TECH-DEBT-077** (partial): `/save-memory` has activity logging; `/search-memory` and `/memory-status` skills are markdown-only with no hook scripts to add logging to. Deferred to future sprint.
-- **TECH-DEBT-151** (partial): Session summary late chunking and chunk deduplication (0.92 cosine similarity check) deferred to v2.0.5
+- **TECH-DEBT-151** (partial): Session summary late chunking and chunk deduplication (0.92 cosine similarity check) deferred to v2.0.6
 
 ## 2.0.3 - 2026-02-05
 
@@ -252,7 +298,8 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.4...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.5...HEAD
+[2.0.5]: https://github.com/Hidden-History/ai-memory/compare/v2.0.4...v2.0.5
 [2.0.4]: https://github.com/Hidden-History/ai-memory/compare/v2.0.3...v2.0.4
 [2.0.2]: https://github.com/Hidden-History/ai-memory/compare/v2.0.0...v2.0.2
 [1.0.1]: https://github.com/Hidden-History/ai-memory/compare/v1.0.0...v1.0.1

@@ -145,7 +145,22 @@ cd ai-memory
 4. ✅ Creates `~/.ai-memory/` installation directory
 5. ✅ Installs Python dependencies (qdrant-client, httpx, pydantic)
 6. ✅ Starts Docker services (Qdrant, embedding, monitoring)
-7. ✅ Runs health check to verify all services
+7. ✅ Optionally configures Jira Cloud integration (see below)
+8. ✅ Runs health check to verify all services
+
+**Optional: Jira Cloud Integration**
+
+The installer offers optional Jira Cloud integration. When enabled, it prompts for:
+
+1. **Enable Jira sync?** `[y/N]`
+2. **Jira instance URL** (e.g., `https://company.atlassian.net`)
+3. **Jira email**
+4. **Jira API token** (hidden input)
+5. **Project keys** (comma-separated, e.g., `PROJ,DEV`)
+
+The installer validates credentials via the Jira API before proceeding. On success, it offers an initial full sync and configures automated cron-based sync (6am/6pm daily).
+
+See [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for complete Jira setup and usage guide.
 
 > **Note:** The installer generates `~/.ai-memory/docker/.env` with random secrets for Qdrant, Grafana, and Prometheus automatically. To customize these values (e.g., change the Grafana admin password or configure the LLM classifier provider), edit `~/.ai-memory/docker/.env` after installation. See `docker/.env.example` for all available options.
 
@@ -405,7 +420,7 @@ git pull origin main
 **V2.0 Migration Notes:**
 - Old collection names (`implementations`, `best_practices`, `agent-memory`) automatically renamed
 - New collections: `code-patterns`, `conventions`, `discussions`
-- Memory types updated to V2.0 schema (15 types)
+- Memory types updated to V2.0 schema (17 types)
 - Automatic triggers enabled (error detection, new file, first edit, decision keywords, best practices)
 - No data loss - all existing memories preserved
 
@@ -486,14 +501,26 @@ Verify memory was stored:
 curl http://localhost:26350/collections/code-patterns/points/scroll | jq
 ```
 
-### 4. 📊 Access Dashboards
+### 4. 🔗 Verify Jira Sync (if enabled)
+
+If you enabled Jira Cloud integration during installation:
+
+```bash
+# Check Jira sync status
+python scripts/jira_sync.py --status
+
+# Run incremental sync
+python scripts/jira_sync.py --incremental
+```
+
+### 5. 📊 Access Dashboards
 
 - **Streamlit Dashboard:** http://localhost:28501 - Memory browser and statistics
 - **Grafana:** http://localhost:23000 (user: `admin`, pass: `admin`) - Performance dashboards
 - **Prometheus:** http://localhost:29090 - Raw metrics explorer
 - **Pushgateway:** http://localhost:29091 - Hook metrics collection (requires `--profile monitoring`)
 
-### 5. 📈 Monitoring Profile Services
+### 6. 📈 Monitoring Profile Services
 
 The module includes comprehensive monitoring via the `--profile monitoring` flag:
 
@@ -671,7 +698,17 @@ MEMORY_LOG_LEVEL=INFO  # DEBUG for verbose
 # Performance tuning
 MEMORY_BATCH_SIZE=100
 MEMORY_CACHE_TTL=3600
+
+# Jira Cloud Integration (Optional)
+JIRA_INSTANCE_URL=https://company.atlassian.net
+JIRA_EMAIL=user@company.com
+JIRA_API_TOKEN=your_api_token_here
+JIRA_PROJECTS=PROJ,DEV,OPS
+JIRA_SYNC_ENABLED=true
+JIRA_SYNC_DELAY_MS=100
 ```
+
+> **Note:** Jira environment variables are automatically set by the installer when Jira sync is enabled. See [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for details.
 
 ### 🔧 Hook Configuration
 
