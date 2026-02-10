@@ -147,6 +147,8 @@ cd ai-memory
 6. ✅ Starts Docker services (Qdrant, embedding, monitoring)
 7. ✅ Runs health check to verify all services
 
+> **Note:** The installer generates `~/.ai-memory/docker/.env` with random secrets for Qdrant, Grafana, and Prometheus automatically. To customize these values (e.g., change the Grafana admin password or configure the LLM classifier provider), edit `~/.ai-memory/docker/.env` after installation. See `docker/.env.example` for all available options.
+
 **Installation output:**
 
 ```
@@ -331,13 +333,47 @@ mkdir -p ~/.ai-memory/{logs,cache,templates/conventions}
 pip install qdrant-client httpx pydantic prometheus-client
 ```
 
-**Step 6: Start Docker services**
+**Step 6: Configure Docker environment**
+
+The Docker services require credentials and configuration. Create a `.env` file from the example:
+
+```bash
+cd docker
+cp .env.example .env
+```
+
+Edit `docker/.env` and set these required values:
+
+| Variable | How to Generate | Required? |
+|----------|----------------|-----------|
+| `QDRANT_API_KEY` | `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` | Yes |
+| `GRAFANA_ADMIN_PASSWORD` | `python3 -c "import secrets; print(secrets.token_urlsafe(16))"` | Yes |
+| `GRAFANA_SECRET_KEY` | `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` | Yes |
+| `PROMETHEUS_ADMIN_PASSWORD` | `python3 -c "import secrets; print(secrets.token_urlsafe(16))"` | Yes (if using monitoring) |
+| `AI_MEMORY_INSTALL_DIR` | Set to your ai-memory clone path (e.g., `/home/user/ai-memory`) | Yes |
+
+After setting `PROMETHEUS_ADMIN_PASSWORD`, you also need to configure Prometheus basic auth:
+
+1. Generate the bcrypt hash:
+   ```bash
+   python3 -c "import bcrypt; print(bcrypt.hashpw(b'YOUR_PASSWORD_HERE', bcrypt.gensalt(rounds=12)).decode())"
+   ```
+2. Paste the hash into `docker/prometheus/web.yml` under `basic_auth_users.admin`
+3. Generate the base64 auth header:
+   ```bash
+   echo -n "admin:YOUR_PASSWORD_HERE" | base64
+   ```
+4. Set `PROMETHEUS_BASIC_AUTH_HEADER` to `Basic <base64-output>`
+
+The classifier configuration (Ollama, OpenRouter, etc.) at the bottom of `.env` can use defaults for local development. See the comments in `.env.example` for provider-specific setup.
+
+**Step 7: Start Docker services**
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d
 ```
 
-**Step 7: Verify health**
+**Step 8: Verify health**
 
 ```bash
 python scripts/health-check.py
@@ -502,10 +538,10 @@ This starts:
 
 ```bash
 # Check Pushgateway has metrics
-curl http://localhost:29091/metrics | grep bmad_
+curl http://localhost:29091/metrics | grep aimemory_
 
-# Check Prometheus targets
-open http://localhost:29090/targets
+# Check Prometheus is healthy
+curl -s http://localhost:29090/-/healthy
 ```
 
 ## Seed Best Practices (Recommended)

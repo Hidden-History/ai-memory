@@ -71,13 +71,42 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
   - Fixed: all 4 files now import from `memory.project`
 - **BUG-047**: Verified fixed - installer properly quotes all path variables, handles spaces
 
+#### TECH-DEBT-151: Zero-Truncation Chunking Compliance (All 5 Phases)
+- **Phase 1**: Removed `_enforce_content_limit()` from `storage.py` — was causing up to 97% data loss on guidelines
+- **Phase 2**: Created `src/memory/chunking/truncation.py` with `smart_end` (sentence boundary finder) and `first_last` (head+tail extraction) utilities
+- **Phase 3**: Hook store_async scripts now use ProseChunker topical chunking for oversized content:
+  - `user_prompt_store_async.py`: >2000 tokens → multiple chunks (512 tokens, 15% overlap)
+  - `agent_response_store_async.py`: >3000 tokens → multiple chunks (512 tokens, 15% overlap)
+  - `error_store_async.py`: Removed `[:2000]` hard truncation fallback
+- **Phase 4**: `IntelligentChunker.chunk()` now accepts `content_type: ContentType | None` parameter
+  - Routes USER_MESSAGE (2000 token threshold), AGENT_RESPONSE (3000), GUIDELINE (always chunk)
+- **Phase 5**: All stored Qdrant points now include `chunking_metadata` dict (chunk_type, chunk_index, total_chunks, original_size_tokens)
+- **storage.py integration**: `store_memory()` maps MemoryType → ContentType and routes through IntelligentChunker for multi-chunk storage
+
+#### Trigger Script NameError Fixes (12 fixes across 5 scripts)
+- **first_edit_trigger.py**: `patterns` → `results`, `duration_seconds` moved before use
+- **error_detection.py**: `solutions` → `results`, `duration_seconds` moved before use
+- **best_practices_retrieval.py**: `matches` → `results`, `hook_name` fixed to `PreToolUse_BestPractices`, env prefix `BMAD_` → `AI_MEMORY_`
+- **new_file_trigger.py**: `conventions` → `results`, added `duration_seconds` in except block
+- **user_prompt_capture.py**: `MAX_CONTENT_LENGTH` increased from 10,000 to 100,000
+
+### Added
+- `src/memory/chunking/truncation.py` — Processing utilities for chunk boundary detection and error extraction
+- `tests/unit/test_chunker_content_type.py` — 6 new unit tests for content_type routing
+- `ContentType` enum (USER_MESSAGE, AGENT_RESPONSE, GUIDELINE) for content-aware chunking
+- `chunking_metadata` on all stored Qdrant points for chunk provenance tracking
+
 ### Changed
 - Dashboard hook_type labels standardized to PascalCase across all Grafana panels
 - Classifier `record_classification()` and `record_fallback()` now require `project` parameter
 - Monitoring API `update_metrics_periodically()` now pushes to Pushgateway alongside in-process gauges
+- `IntelligentChunker` now accepts explicit `content_type` parameter for content-aware routing
+- `MemoryStorage.store_memory()` routes all types through IntelligentChunker (maps MemoryType → ContentType)
+- Grafana memory-overview dashboard hook dropdown updated with current hook script names
 
 ### Known Gaps
 - **TECH-DEBT-077** (partial): `/save-memory` has activity logging; `/search-memory` and `/memory-status` skills are markdown-only with no hook scripts to add logging to. Deferred to future sprint.
+- **TECH-DEBT-151** (partial): Session summary late chunking and chunk deduplication (0.92 cosine similarity check) deferred to v2.0.5
 
 ## 2.0.3 - 2026-02-05
 
