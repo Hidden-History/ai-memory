@@ -209,9 +209,6 @@ configure_options() {
             JIRA_API_TOKEN="$jira_token"
             echo ""
 
-            read -p "   Project keys (comma-separated, e.g., PROJ,DEV): " jira_projects
-            JIRA_PROJECTS="$jira_projects"
-
             # Strip trailing slash for consistent URL handling (matches JiraClient behavior)
             JIRA_INSTANCE_URL="${JIRA_INSTANCE_URL%/}"
 
@@ -233,6 +230,85 @@ configure_options() {
 
             if [[ "$http_code" == "200" ]]; then
                 log_success "Jira connection verified (HTTP 200)"
+
+                # Auto-discover Jira projects (BUG-068: replaces manual key entry)
+                log_info "Fetching available Jira projects..."
+                local projects_json
+                projects_json=$(curl -s \
+                    -H "Authorization: Basic $jira_auth" \
+                    -H "Content-Type: application/json" \
+                    "${JIRA_INSTANCE_URL}/rest/api/3/project/search?maxResults=100" \
+                    --connect-timeout 10 --max-time 15 2>/dev/null) || projects_json=""
+
+                if [[ -n "$projects_json" ]]; then
+                    # Parse project keys and names using system python3
+                    local project_list
+                    project_list=$(python3 -c "
+import json, sys
+try:
+    data = json.loads(sys.stdin.read())
+    projects = data.get('values', data) if isinstance(data, dict) else data
+    if not isinstance(projects, list) or len(projects) == 0:
+        print('EMPTY')
+        sys.exit(0)
+    for i, p in enumerate(projects, 1):
+        print(f\"{i}. {p['key']}: {p.get('name', p['key'])}\")
+except Exception:
+    print('ERROR')
+" <<< "$projects_json" 2>/dev/null) || project_list="ERROR"
+
+                    if [[ "$project_list" != "EMPTY" && "$project_list" != "ERROR" && -n "$project_list" ]]; then
+                        echo ""
+                        echo "   Available projects on ${JIRA_INSTANCE_URL#https://}:"
+                        echo "$project_list" | while IFS= read -r line; do
+                            echo "     $line"
+                        done
+                        echo ""
+                        read -p "   Which projects to sync? (comma-separated numbers, or 'all'): " project_selection
+
+                        if [[ "$project_selection" == "all" ]]; then
+                            JIRA_PROJECTS=$(python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+projects = data.get('values', data) if isinstance(data, dict) else data
+print(','.join(p['key'] for p in projects))
+" <<< "$projects_json" 2>/dev/null) || JIRA_PROJECTS=""
+                        else
+                            JIRA_PROJECTS=$(_PROJ_SEL="$project_selection" python3 -c "
+import json, sys, os
+data = json.loads(sys.stdin.read())
+projects = data.get('values', data) if isinstance(data, dict) else data
+sel_input = os.environ.get('_PROJ_SEL', '')
+selections = [int(s.strip()) for s in sel_input.split(',') if s.strip().isdigit()]
+keys = [projects[i-1]['key'] for i in selections if 0 < i <= len(projects)]
+print(','.join(keys))
+" <<< "$projects_json" 2>/dev/null) || JIRA_PROJECTS=""
+                        fi
+
+                        if [[ -n "$JIRA_PROJECTS" ]]; then
+                            log_success "Selected projects: $JIRA_PROJECTS"
+                        else
+                            log_error "No valid projects selected — Jira sync disabled"
+                            JIRA_SYNC_ENABLED="false"
+                        fi
+                    else
+                        log_warning "Could not fetch project list — enter keys manually"
+                        read -p "   Project keys (comma-separated): " jira_projects
+                        JIRA_PROJECTS="$jira_projects"
+                        if [[ -z "$JIRA_PROJECTS" ]]; then
+                            log_error "No projects entered — Jira sync disabled"
+                            JIRA_SYNC_ENABLED="false"
+                        fi
+                    fi
+                else
+                    log_warning "Could not fetch project list — enter keys manually"
+                    read -p "   Project keys (comma-separated): " jira_projects
+                    JIRA_PROJECTS="$jira_projects"
+                    if [[ -z "$JIRA_PROJECTS" ]]; then
+                        log_error "No projects entered — Jira sync disabled"
+                        JIRA_SYNC_ENABLED="false"
+                    fi
+                fi
 
                 # Prompt for initial sync
                 echo ""
@@ -1104,7 +1180,8 @@ validate_external_services() {
     log_info "Validating Jira integration (full Python test)..."
 
     # Run from docker/ dir so get_config() finds .env via pydantic env_file=".env"
-    local validation_result
+    local validation_result=""
+    local validation_exit=0
     validation_result=$(cd "$INSTALL_DIR/docker" && "$INSTALL_DIR/.venv/bin/python" -c "
 import asyncio
 import sys
@@ -1138,10 +1215,9 @@ async def validate():
         return 1
 
 sys.exit(asyncio.run(validate()))
-" 2>&1)
+" 2>&1) || validation_exit=$?
 
-    local exit_code=$?
-    if [[ $exit_code -eq 0 ]]; then
+    if [[ $validation_exit -eq 0 ]]; then
         log_success "Jira validation passed: $validation_result"
     else
         log_warning "Jira validation failed: $validation_result"
