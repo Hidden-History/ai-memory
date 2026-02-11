@@ -251,9 +251,6 @@ class JiraSyncEngine:
             reporter = issue["fields"].get("reporter")
             reporter_name = reporter["displayName"] if reporter else "Unassigned"
 
-            creator = issue["fields"].get("creator")
-            creator["displayName"] if creator else reporter_name
-
             # Store issue to jira-data collection
             # MemoryStorage handles: chunking, embedding, content_hash, dedup, upsert
             await asyncio.to_thread(

@@ -252,13 +252,17 @@ The installer configures cron jobs for automated incremental sync:
 - **Log output**: `~/.ai-memory/logs/jira_sync.log`
 
 ```cron
-0 6,18 * * * cd ~/.ai-memory && source .venv/bin/activate && python scripts/jira_sync.py --incremental >> ~/.ai-memory/logs/jira_sync.log 2>&1
+# Linux/WSL (with flock overlap prevention):
+0 6,18 * * * cd ~/.ai-memory/docker && flock -n ~/.ai-memory/.locks/jira_sync.lock ~/.ai-memory/.venv/bin/python ~/.ai-memory/scripts/jira_sync.py --incremental >> ~/.ai-memory/logs/jira_sync.log 2>&1 # ai-memory-jira-sync
+
+# macOS (no flock):
+0 6,18 * * * cd ~/.ai-memory/docker && ~/.ai-memory/.venv/bin/python ~/.ai-memory/scripts/jira_sync.py --incremental >> ~/.ai-memory/logs/jira_sync.log 2>&1 # ai-memory-jira-sync
 ```
 
 To manually re-run:
 
 ```bash
-python scripts/jira_sync.py --incremental
+cd ~/.ai-memory/docker && ~/.ai-memory/.venv/bin/python ~/.ai-memory/scripts/jira_sync.py --incremental
 ```
 
 ---

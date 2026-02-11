@@ -59,7 +59,6 @@ Configuration:
     mode_group.add_argument(
         "--incremental",
         action="store_true",
-        default=True,
         help="Incremental sync since last sync (default)",
     )
 

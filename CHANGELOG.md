@@ -23,7 +23,7 @@ Jira Cloud Integration: Sync and semantically search Jira issues and comments al
 - **2 new memory types**: `JIRA_ISSUE`, `JIRA_COMMENT` (total: 17 memory types)
 - **Installer support** — `install.sh` prompts for optional Jira configuration, validates credentials via API, runs initial sync, configures cron jobs (6am/6pm daily incremental)
 - **Health check integration** — `jira-data` collection included in `/memory-status` and `health-check.py`
-- **177 unit tests** for all Jira components (client, ADF converter, composer, sync, search)
+- **182 unit tests** for all Jira components (client, ADF converter, composer, sync, search)
 
 #### Documentation
 - `docs/JIRA-INTEGRATION.md` — Comprehensive guide covering prerequisites, configuration, architecture, sync operations, search operations, automated scheduling, health checks, ADF converter reference, and troubleshooting
@@ -154,7 +154,7 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - **TECH-DEBT-077** (partial): `/save-memory` has activity logging; `/search-memory` and `/memory-status` skills are markdown-only with no hook scripts to add logging to. Deferred to future sprint.
 - **TECH-DEBT-151** (partial): Session summary late chunking and chunk deduplication (0.92 cosine similarity check) deferred to v2.0.6
 
-## 2.0.3 - 2026-02-05
+## [2.0.3] - 2026-02-05
 
 ### Changed
 - Hook commands now use venv Python: `$AI_MEMORY_INSTALL_DIR/.venv/bin/python`
@@ -301,6 +301,8 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 [Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.5...HEAD
 [2.0.5]: https://github.com/Hidden-History/ai-memory/compare/v2.0.4...v2.0.5
 [2.0.4]: https://github.com/Hidden-History/ai-memory/compare/v2.0.3...v2.0.4
+[2.0.3]: https://github.com/Hidden-History/ai-memory/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/Hidden-History/ai-memory/compare/v2.0.0...v2.0.2
+[2.0.0]: https://github.com/Hidden-History/ai-memory/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/Hidden-History/ai-memory/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Hidden-History/ai-memory/releases/tag/v1.0.0

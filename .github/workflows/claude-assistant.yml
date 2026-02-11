@@ -87,8 +87,10 @@ jobs:
 
       # TECH-DEBT-090 Task 2: Validate API credentials before making any API calls
       - name: Validate API credentials
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
         run: |
-          if [ -z "${{ secrets.OLLAMA_API_KEY }}" ]; then
+          if [ -z "$OLLAMA_API_KEY" ]; then
             echo "::error::OLLAMA_API_KEY secret is not configured"
             exit 1
           fi
@@ -281,8 +283,10 @@ jobs:
     steps:
       - name: Validate API credentials
         id: validate-key
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
         run: |
-          if [ -z "${{ secrets.OLLAMA_API_KEY }}" ]; then
+          if [ -z "$OLLAMA_API_KEY" ]; then
             echo "::warning::OLLAMA_API_KEY not configured — skipping auto-label"
             echo "has_key=false" >> $GITHUB_OUTPUT
           else

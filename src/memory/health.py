@@ -122,13 +122,13 @@ def check_services() -> dict[str, bool]:
     # Log to activity log (user-visible)
     if qdrant_ok and embedding_ok:
         log_activity(
-            "INFO", "HealthCheck: All services healthy (Qdrant OK, Embedding OK)"
+            "✅", "HealthCheck: All services healthy (Qdrant OK, Embedding OK)"
         )
     else:
         status_parts = []
         status_parts.append("Qdrant OK" if qdrant_ok else "Qdrant FAIL")
         status_parts.append("Embedding OK" if embedding_ok else "Embedding FAIL")
-        log_activity("WARN", f"HealthCheck: Service issues ({', '.join(status_parts)})")
+        log_activity("⚠️", f"HealthCheck: Service issues ({', '.join(status_parts)})")
 
     return {
         "qdrant": qdrant_ok,

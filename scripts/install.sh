@@ -58,7 +58,7 @@ cleanup() {
         else
             echo "Partial installation exists at: $INSTALL_DIR"
             echo "To clean up and retry:"
-            echo "  rm -rf $INSTALL_DIR"
+            echo "  rm -rf \"$INSTALL_DIR\""
             echo "  ./install.sh"
         fi
     fi
@@ -212,55 +212,28 @@ configure_options() {
             read -p "   Project keys (comma-separated, e.g., PROJ,DEV): " jira_projects
             JIRA_PROJECTS="$jira_projects"
 
-            # Validate credentials via API test
+            # Strip trailing slash for consistent URL handling (matches JiraClient behavior)
+            JIRA_INSTANCE_URL="${JIRA_INSTANCE_URL%/}"
+
+            # Validate credentials via curl smoke test (BP-053: Two-Phase Validation)
+            # Full Python validation runs later in validate_external_services()
             echo ""
             log_info "Testing Jira connection..."
 
-            # Use venv Python if available, fallback to system Python
-            PYTHON_CMD="python3"
-            if [[ -f "$INSTALL_DIR/.venv/bin/python" ]]; then
-                PYTHON_CMD="$INSTALL_DIR/.venv/bin/python"
-            fi
+            # Jira Cloud REST API v3 Basic Auth: base64(email:api_token)
+            local jira_auth
+            jira_auth=$(printf '%s:%s' "$JIRA_EMAIL" "$JIRA_API_TOKEN" | base64 | tr -d '\n')
 
-            JIRA_INSTANCE_URL="$JIRA_INSTANCE_URL" \
-            JIRA_EMAIL="$JIRA_EMAIL" \
-            JIRA_API_TOKEN="$JIRA_API_TOKEN" \
-            INSTALL_DIR="$INSTALL_DIR" \
-            "$PYTHON_CMD" -c "
-import asyncio
-import os
-import sys
-sys.path.insert(0, os.path.join(os.environ['INSTALL_DIR'], 'src'))
+            local http_code
+            http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+                -H "Authorization: Basic $jira_auth" \
+                -H "Content-Type: application/json" \
+                "${JIRA_INSTANCE_URL}/rest/api/3/myself" \
+                --connect-timeout 10 --max-time 15 2>/dev/null)
 
-async def test():
-    try:
-        from memory.connectors.jira.client import JiraClient
-        client = JiraClient(
-            os.environ['JIRA_INSTANCE_URL'],
-            os.environ['JIRA_EMAIL'],
-            os.environ['JIRA_API_TOKEN'],
-        )
-        try:
-            result = await client.test_connection()
-            if result['success']:
-                print(f\"✓ Connected as: {result['user_email']}\")
-                return 0
-            else:
-                print(f\"✗ Connection failed: {result.get('error', 'Unknown error')}\")
-                return 1
-        finally:
-            await client.close()
-    except Exception as e:
-        print(f\"✗ Error: {e}\")
-        return 1
+            if [[ "$http_code" == "200" ]]; then
+                log_success "Jira connection verified (HTTP 200)"
 
-sys.exit(asyncio.run(test()))
-" 2>&1
-
-            if [[ $? -ne 0 ]]; then
-                log_error "Jira connection test failed - sync will be disabled"
-                JIRA_SYNC_ENABLED="false"
-            else
                 # Prompt for initial sync
                 echo ""
                 echo "   Initial sync can take 5-10 minutes for large projects"
@@ -270,6 +243,10 @@ sys.exit(asyncio.run(test()))
                 else
                     JIRA_INITIAL_SYNC="false"
                 fi
+            else
+                log_error "Jira connection test failed (HTTP $http_code) - sync will be disabled"
+                log_info "Verify: URL, email, and API token at https://id.atlassian.com/manage-profile/security/api-tokens"
+                JIRA_SYNC_ENABLED="false"
             fi
         else
             JIRA_SYNC_ENABLED="false"
@@ -344,6 +321,7 @@ main() {
         copy_files
         install_python_dependencies
         configure_environment
+        validate_external_services
 
         # Skip Docker-related steps if SKIP_DOCKER_CHECKS is set (for CI without Docker)
         if [[ "${SKIP_DOCKER_CHECKS:-}" == "true" ]]; then
@@ -575,6 +553,17 @@ check_prerequisites() {
         fi
     fi
 
+    # Check curl (REQUIRED for health checks and API validation)
+    if ! command -v curl &> /dev/null; then
+        log_error "curl is not installed (required for health checks and API validation)"
+        echo ""
+        echo "Please install curl:"
+        echo "  Ubuntu/Debian: sudo apt install curl"
+        echo "  macOS: brew install curl"
+        echo ""
+        failed=true
+    fi
+
     # Check Python 3.10+ (REQUIRED for async support and improved type hints)
     if ! command -v python3 &> /dev/null; then
         log_error "Python 3 is not installed."
@@ -746,6 +735,7 @@ create_directories() {
         echo "     ├── src/memory/          (Python memory modules)"
         echo "     ├── scripts/             (Management scripts)"
         echo "     ├── .claude/hooks/scripts/ (Hook implementations)"
+        echo "     ├── .locks/              (Process lock files)"
         echo "     └── logs/                (Application logs)"
         echo ""
         echo "  📁 \$INSTALL_DIR/queue/    (Private queue, chmod 700)"
@@ -760,7 +750,7 @@ create_directories() {
     fi
 
     # Create main installation directory and subdirectories
-    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,logs,queue}
+    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,logs,queue,.locks}
 
     # Create queue directory with restricted permissions (security best practice 2026)
     # Queue is shared across all projects - single classifier worker processes all
@@ -1020,7 +1010,7 @@ configure_environment() {
         # Update AI_MEMORY_INSTALL_DIR to actual installation path
         # This handles the case where source .env has dev repo path
         if grep -q "^AI_MEMORY_INSTALL_DIR=" "$docker_env"; then
-            sed -i "s|^AI_MEMORY_INSTALL_DIR=.*|AI_MEMORY_INSTALL_DIR=$INSTALL_DIR|" "$docker_env"
+            sed -i.bak "s|^AI_MEMORY_INSTALL_DIR=.*|AI_MEMORY_INSTALL_DIR=$INSTALL_DIR|" "$docker_env" && rm -f "$docker_env.bak"
             log_info "Updated AI_MEMORY_INSTALL_DIR to $INSTALL_DIR"
         else
             echo "" >> "$docker_env"
@@ -1104,6 +1094,62 @@ EOF
     generate_prometheus_auth
 }
 
+# Post-dependency validation for external services (BP-053: Two-Phase Validation)
+# Runs after copy_files + install_python_dependencies + configure_environment
+validate_external_services() {
+    if [[ "$JIRA_SYNC_ENABLED" != "true" ]]; then
+        return 0
+    fi
+
+    log_info "Validating Jira integration (full Python test)..."
+
+    # Run from docker/ dir so get_config() finds .env via pydantic env_file=".env"
+    local validation_result
+    validation_result=$(cd "$INSTALL_DIR/docker" && "$INSTALL_DIR/.venv/bin/python" -c "
+import asyncio
+import sys
+sys.path.insert(0, '$INSTALL_DIR/src')
+
+async def validate():
+    try:
+        from memory.connectors.jira.client import JiraClient
+        from memory.config import get_config
+        config = get_config()
+        if not config.jira_sync_enabled:
+            print('SKIP: Jira sync not enabled in config')
+            return 0
+        client = JiraClient(
+            str(config.jira_instance_url),
+            config.jira_email,
+            config.jira_api_token.get_secret_value(),
+        )
+        try:
+            result = await client.test_connection()
+            if result['success']:
+                print(f\"✓ Connected as {result['user_email']}\")
+                return 0
+            else:
+                print(f\"✗ FAIL: {result.get('error', 'Unknown error')}\")
+                return 1
+        finally:
+            await client.close()
+    except Exception as e:
+        print(f\"✗ FAIL: {e}\")
+        return 1
+
+sys.exit(asyncio.run(validate()))
+" 2>&1)
+
+    local exit_code=$?
+    if [[ $exit_code -eq 0 ]]; then
+        log_success "Jira validation passed: $validation_result"
+    else
+        log_warning "Jira validation failed: $validation_result"
+        log_warning "Disabling Jira sync — fix credentials in $INSTALL_DIR/docker/.env and re-run installer"
+        JIRA_SYNC_ENABLED="false"
+    fi
+}
+
 # Generate Prometheus basic auth configuration from PROMETHEUS_ADMIN_PASSWORD
 generate_prometheus_auth() {
     local docker_env="$INSTALL_DIR/docker/.env"
@@ -1120,9 +1166,9 @@ generate_prometheus_auth() {
 
     # Generate bcrypt hash using Python
     local bcrypt_hash
-    bcrypt_hash=$("$INSTALL_DIR/.venv/bin/python" -c "
-import bcrypt
-password = '''$prometheus_password'''.encode('utf-8')
+    bcrypt_hash=$(PROM_PASS="$prometheus_password" "$INSTALL_DIR/.venv/bin/python" -c "
+import bcrypt, os
+password = os.environ['PROM_PASS'].encode('utf-8')
 hash = bcrypt.hashpw(password, bcrypt.gensalt(rounds=12))
 print(hash.decode('utf-8'))
 " 2>/dev/null)
@@ -1330,7 +1376,7 @@ setup_collections() {
     log_info "Setting up Qdrant collections..."
 
     # Run the setup script
-    if python3 "$INSTALL_DIR/scripts/setup-collections.py" 2>/dev/null; then
+    if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/setup-collections.py" 2>/dev/null; then
         log_success "Qdrant collections created (code-patterns, conventions, discussions)"
     else
         log_warning "Collection setup had issues - will be created on first use"
@@ -1681,17 +1727,17 @@ seed_best_practices() {
         if [[ ! -d "$INSTALL_DIR/templates/conventions" ]]; then
             log_warning "Templates directory not found - skipping seeding"
             log_info "To seed manually later:"
-            log_info "  python3 $INSTALL_DIR/scripts/memory/seed_best_practices.py"
+            log_info "  $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/memory/seed_best_practices.py"
             return 0
         fi
 
         # Run seeding script
-        if python3 "$INSTALL_DIR/scripts/memory/seed_best_practices.py" --templates-dir "$INSTALL_DIR/templates/conventions"; then
+        if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/memory/seed_best_practices.py" --templates-dir "$INSTALL_DIR/templates/conventions"; then
             log_success "Best practices seeded successfully"
         else
             log_warning "Failed to seed best practices (non-critical)"
             log_info "You can seed manually later with:"
-            log_info "  python3 $INSTALL_DIR/scripts/memory/seed_best_practices.py --templates-dir $INSTALL_DIR/templates/conventions"
+            log_info "  $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/memory/seed_best_practices.py --templates-dir $INSTALL_DIR/templates/conventions"
         fi
     fi
     # No tip shown if user explicitly declined during interactive prompt
@@ -1705,13 +1751,14 @@ run_initial_jira_sync() {
         # Ensure logs directory exists
         mkdir -p "$INSTALL_DIR/logs"
 
-        # Run sync with full mode
-        cd "$INSTALL_DIR" || return
-        if source .venv/bin/activate && python scripts/jira_sync.py --full 2>&1 | tee "$INSTALL_DIR/logs/jira_initial_sync.log"; then
+        # Run from docker/ dir so get_config() finds .env (pydantic env_file=".env")
+        # Use direct venv Python path — no source activate (BP-053)
+        # Subshell (parentheses) prevents cd from changing installer's CWD
+        if (cd "$INSTALL_DIR/docker" && "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/jira_sync.py" --full) 2>&1 | tee "$INSTALL_DIR/logs/jira_initial_sync.log"; then
             log_success "Initial Jira sync completed"
         else
             log_warning "Initial sync had errors - check $INSTALL_DIR/logs/jira_initial_sync.log"
-            log_info "You can re-run sync manually: python $INSTALL_DIR/scripts/jira_sync.py --full"
+            log_info "Re-run manually: cd $INSTALL_DIR/docker && $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/jira_sync.py --full"
         fi
     fi
 }
@@ -1721,23 +1768,37 @@ setup_jira_cron() {
     if [[ "$JIRA_SYNC_ENABLED" == "true" ]]; then
         log_info "Configuring automated Jira sync (6am/6pm daily)..."
 
-        # Build cron command
-        local cron_cmd="cd $INSTALL_DIR && source .venv/bin/activate && python scripts/jira_sync.py --incremental"
-        local cron_entry="0 6,18 * * * $cron_cmd >> $INSTALL_DIR/logs/jira_sync.log 2>&1"
+        # Ensure locks directory exists for flock
+        mkdir -p "$INSTALL_DIR/.locks"
 
-        # Check if already configured
-        if crontab -l 2>/dev/null | grep -q "jira_sync.py"; then
-            log_info "Jira sync cron job already configured"
+        # Build cron command (BP-053: direct interpreter + flock + tagged entry)
+        # cd to docker/ so get_config() finds .env (pydantic env_file=".env")
+        local cron_tag="# ai-memory-jira-sync"
+        local cron_cmd
+        if [[ "$PLATFORM" == "macos" ]]; then
+            # macOS: no flock available by default
+            cron_cmd="cd $INSTALL_DIR/docker && $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/jira_sync.py --incremental"
         else
-            # Add to crontab
-            (crontab -l 2>/dev/null; echo "$cron_entry") | crontab - 2>/dev/null
-            if [[ $? -eq 0 ]]; then
-                log_success "Cron job configured (6am/6pm daily incremental sync)"
-                log_info "To view: crontab -l | grep jira_sync"
-            else
-                log_warning "Failed to configure cron job - set up manually if needed"
-                log_info "Add to crontab: $cron_entry"
-            fi
+            # Linux/WSL: use flock for overlap prevention
+            cron_cmd="cd $INSTALL_DIR/docker && flock -n $INSTALL_DIR/.locks/jira_sync.lock $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/jira_sync.py --incremental"
+        fi
+        local cron_entry="0 6,18 * * * $cron_cmd >> $INSTALL_DIR/logs/jira_sync.log 2>&1 $cron_tag"
+
+        # Idempotent: remove any existing ai-memory-jira-sync entry, then add fresh
+        local existing_crontab
+        existing_crontab=$(crontab -l 2>/dev/null || true)
+
+        # Filter out old entries (by tag OR by legacy jira_sync.py match)
+        local filtered_crontab
+        filtered_crontab=$(echo "$existing_crontab" | grep -v "ai-memory-jira-sync" | grep -v "jira_sync.py" || true)
+
+        # Add new entry
+        if printf '%s\n%s\n' "$filtered_crontab" "$cron_entry" | crontab - 2>/dev/null; then
+            log_success "Cron job configured (6am/6pm daily incremental sync)"
+            log_info "To view: crontab -l | grep ai-memory-jira-sync"
+        else
+            log_warning "Failed to configure cron job - set up manually if needed"
+            log_info "Add to crontab: $cron_entry"
         fi
     fi
 }

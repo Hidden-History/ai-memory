@@ -182,27 +182,21 @@ jobs:
           PROM_AUTH=$(echo -n "admin:ci-test-prometheus-password" | base64)
 
           cat > .env << EOF
-          # Dummy credentials for CI - security not required for ephemeral test environment
-          QDRANT_API_KEY=ci-test-key-${TIMESTAMP}
-          GRAFANA_ADMIN_USER=admin
-          GRAFANA_ADMIN_PASSWORD=ci-test-password
-          GRAFANA_SECRET_KEY=ci-test-secret-key-32-characters-long
-          PROMETHEUS_ADMIN_PASSWORD=ci-test-prometheus-password
-          PROMETHEUS_BASIC_AUTH_HEADER=Basic ${PROM_AUTH}
-
-          # Port configuration (use defaults)
-          QDRANT_PORT=26350
-          QDRANT_GRPC_PORT=26351
-          EMBEDDING_PORT=28080
-
-          # Container prefix
-          AI_MEMORY_CONTAINER_PREFIX=ci-ai-memory
-
-          # Log levels
-          QDRANT_LOG_LEVEL=INFO
-          AI_MEMORY_LOG_LEVEL=INFO
-          BMAD_LOG_LEVEL=INFO
-          EOF
+# Dummy credentials for CI - security not required for ephemeral test environment
+QDRANT_API_KEY=ci-test-key-${TIMESTAMP}
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=ci-test-password
+GRAFANA_SECRET_KEY=ci-test-secret-key-32-characters-long
+PROMETHEUS_ADMIN_PASSWORD=ci-test-prometheus-password
+PROMETHEUS_BASIC_AUTH_HEADER=Basic ${PROM_AUTH}
+QDRANT_PORT=26350
+QDRANT_GRPC_PORT=26351
+EMBEDDING_PORT=28080
+AI_MEMORY_CONTAINER_PREFIX=ci-ai-memory
+QDRANT_LOG_LEVEL=INFO
+AI_MEMORY_LOG_LEVEL=INFO
+BMAD_LOG_LEVEL=INFO
+EOF
 
       # Generate Prometheus web.yml with matching bcrypt hash for CI
       - name: Generate Prometheus auth for CI
