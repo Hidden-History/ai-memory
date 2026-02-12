@@ -44,7 +44,7 @@ def test_generate_hook_config_session_start():
     # Correct structure: wrapper with 'matcher' + 'hooks' array
     wrapper = session_start[0]
     assert "matcher" in wrapper, "SessionStart must have 'matcher' field"
-    assert wrapper["matcher"] == "startup|resume|compact|clear"
+    assert wrapper["matcher"] == "resume|compact"
     assert "hooks" in wrapper, "SessionStart must have 'hooks' array"
     assert isinstance(wrapper["hooks"], list)
     assert len(wrapper["hooks"]) == 1
@@ -87,6 +87,16 @@ def test_generate_hook_config_post_tool_use():
     hook = edit_wrapper["hooks"][0]
     assert hook["type"] == "command"
     assert "post_tool_capture.py" in hook["command"]
+
+
+def test_session_start_excludes_startup_and_clear():
+    """BUG-078: startup and clear MUST NOT trigger session_start.py per Section 7.2."""
+    from generate_settings import generate_hook_config
+
+    config = generate_hook_config("/test/hooks", "test")
+    matcher = config["hooks"]["SessionStart"][0]["matcher"]
+    assert "startup" not in matcher, "startup must NOT trigger session_start"
+    assert "clear" not in matcher, "clear must NOT trigger session_start"
 
 
 def test_generate_hook_config_stop():

@@ -56,7 +56,13 @@ Jira Cloud Integration: Sync and semantically search Jira issues and comments al
 - **BUG-075**: AST chunker truncates beginning of JS files — Fixed byte-offset drift (tree-sitter returns bytes, Python indexes chars) and comment header loss (`_find_import_nodes()` skipping comment nodes)
 - **BUG-076**: Metrics label warning for `jira-data` collection — Added `jira-data` to `VALID_COLLECTIONS` set and created dynamic `_get_monitorable_collections()` helper
 - **BUG-077**: Streamlit statistics page IndexError with 4 collections — `st.columns(3)` → `st.columns(len(COLLECTION_NAMES))`, updated Getting Started text
+- **BUG-078**: SessionStart matcher too broad — Narrowed from `startup|resume|compact|clear` to `resume|compact` per Core-Architecture-V2 Section 7.2
+- **BUG-079**: Source-built containers stale after install — Added `--build` flag to `docker compose up` commands in installer
+- **BUG-080**: Pushgateway persistence permission denied — Mounted volume at `/pushgateway` (owned by nobody:nobody) instead of `/data` (root:root), set explicit `user: "65534:65534"`
 - **22 code review fixes** across 9 files (silent env fallbacks, error messages, import guarding, migration path for JIRA_PROJECTS format)
+
+### Added
+- **`/save-memory` skill** — Manual memory save wrapping `scripts/manual_save_memory.py`, stores to `discussions` collection with `type=session`
 
 ### Changed
 - Memory type count: 15 → 17 (added JIRA_ISSUE, JIRA_COMMENT)

@@ -1331,9 +1331,12 @@ start_services() {
     log_info "Starting services with security hardening..."
     if [[ "$INSTALL_MONITORING" == "true" ]]; then
         log_info "Including monitoring dashboard (Streamlit, Grafana, Prometheus)..."
-        docker compose --profile monitoring up -d
+        # BUG-079: --build forces rebuild of source-built containers
+        # (monitoring-api, embedding, streamlit, classifier-worker)
+        # Without this, stale containers may serve wrong metrics/endpoints
+        docker compose --profile monitoring up -d --build
     else
-        docker compose up -d
+        docker compose up -d --build  # BUG-079: rebuild source-built containers
     fi
 
     log_success "Docker services started"

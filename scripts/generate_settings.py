@@ -42,7 +42,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         - 'hooks' section with all 6 hook types
 
     2026 Best Practice: Complete Claude Code V2.0 hook structure
-    - SessionStart: Requires 'matcher' (startup|resume|compact|clear) per docs
+    - SessionStart: Requires 'matcher' (resume|compact) per Core-Architecture-V2 Section 7.2
     - UserPromptSubmit: Captures user prompts and triggers keyword detection
     - PreToolUse: Triggers for new file creation and first edit detection
     - PostToolUse: Wrapper with 'matcher' + nested 'hooks' array (Bash errors, Edit/Write capture)
@@ -96,7 +96,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         "hooks": {
             "SessionStart": [
                 {
-                    "matcher": "startup|resume|compact|clear",
+                    "matcher": "resume|compact",
                     "hooks": [session_start_hook],
                 }
             ],
