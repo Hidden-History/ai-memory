@@ -59,10 +59,14 @@ Jira Cloud Integration: Sync and semantically search Jira issues and comments al
 - **BUG-078**: SessionStart matcher too broad — Narrowed from `startup|resume|compact|clear` to `resume|compact` per Core-Architecture-V2 Section 7.2
 - **BUG-079**: Source-built containers stale after install — Added `--build` flag to `docker compose up` commands in installer
 - **BUG-080**: Pushgateway persistence permission denied — Mounted volume at `/pushgateway` (owned by nobody:nobody) instead of `/data` (root:root), set explicit `user: "65534:65534"`
+- **BUG-081**: `merge_settings.py` does not upgrade SessionStart matcher on reinstall — Added BUG-078 matcher upgrade to `_upgrade_hook_commands()` so existing projects get the narrowed matcher on next install
+- **BUG-082**: All Grafana hook dashboard panels show zero — Added `grouping_key={"instance": "<prefix>_<value>"}` to all 16 `pushadd_to_gateway()` calls in `metrics_push.py`. Without grouping keys, each hook push overwrote the previous hook's metrics in the shared Pushgateway group
 - **22 code review fixes** across 9 files (silent env fallbacks, error messages, import guarding, migration path for JIRA_PROJECTS format)
 
 ### Added
 - **`/save-memory` skill** — Manual memory save wrapping `scripts/manual_save_memory.py`, stores to `discussions` collection with `type=session`
+- **`scripts/recover_hook_guards.py`** — Standalone CLI recovery tool for existing installs affected by BUG-066 (unguarded hooks) and BUG-078 (broad SessionStart matcher). Dry-run by default, `--apply` to fix, `--scan` for multi-project discovery. Atomic writes with `fsync`+`os.replace`, file permission preservation, bidirectional safety checks
+- **BP-007**: Pushgateway grouping key convention — documents that every `pushadd_to_gateway()` call must include a unique `grouping_key` to prevent silent metric overwrites
 
 ### Changed
 - Memory type count: 15 → 17 (added JIRA_ISSUE, JIRA_COMMENT)
