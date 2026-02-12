@@ -175,7 +175,7 @@ Memory + Oversight = Reliable AI
 
 ```
 Claude Code Session
-    ├── SessionStart Hooks → Context injection (session summaries + recent memories)
+    ├── SessionStart Hooks (resume|compact) → Context injection on session resume and post-compaction
     ├── UserPromptSubmit Hooks → Unified keyword trigger (decisions/best practices/session history)
     ├── PreToolUse Hooks → Smart triggers (new file/first edit conventions)
     ├── PostToolUse Hooks → Capture code patterns + error detection
@@ -419,7 +419,7 @@ export MEMORY_LOG_LEVEL=DEBUG  # Enable verbose logging
 
 Memory capture happens automatically via Claude Code hooks:
 
-1. **SessionStart**: Loads relevant memories from previous sessions and injects as context
+1. **SessionStart** (resume/compact only): Injects relevant memories when resuming a session or after context compaction
 2. **PostToolUse**: Captures code patterns (Write/Edit/NotebookEdit tools) in background (<500ms)
 3. **PreCompact**: Saves session summary before context compaction (auto or manual `/compact`)
 4. **Stop**: Optional per-response cleanup
@@ -588,6 +588,28 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for comprehensive troubleshooting, 
 - Search not working
 - Performance problems
 - Data persistence issues
+
+### Recovery Script
+
+If hooks are misbehaving (e.g., after a failed install or upgrade), use the recovery script to scan and repair all project configurations:
+
+```bash
+# Dry-run: shows what would change (safe, no modifications)
+python scripts/recover_hook_guards.py
+
+# Apply fixes across all discovered projects
+python scripts/recover_hook_guards.py --apply
+
+# Scan only: list all discovered project settings.json files
+python scripts/recover_hook_guards.py --scan
+```
+
+The recovery script automatically discovers projects via:
+1. `~/.ai-memory/installed_projects.json` manifest (primary)
+2. Sibling directories of `AI_MEMORY_INSTALL_DIR` (fallback)
+3. Common project paths (additional fallback)
+
+It fixes: unguarded hook commands (BUG-066), broad SessionStart matchers (BUG-078), and other known configuration issues. Always run with dry-run first to review changes.
 
 ### Quick Diagnostic Commands
 
@@ -761,6 +783,8 @@ python scripts/restore_qdrant.py backups/2026-02-03_143052
 ```
 
 See [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) for complete instructions including troubleshooting.
+
+> **Coming soon:** Backup and restore scripts will be updated in the next version to support the `jira-data` collection, including Jira database backup and reinstall.
 
 ## 📈 Performance
 

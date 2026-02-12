@@ -76,7 +76,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_captures_total{project=~\"$project\", collection=~\"$collection\"}[1h])) by (collection)",
+          "expr": "sum(changes(aimemory_captures_created{project=~\"$project\", collection=~\"$collection\"}[$__rate_interval])) by (collection)",
           "refId": "A",
           "legendFormat": "{{collection}}"
         }
@@ -180,7 +180,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_retrievals_total{project=~\"$project\", collection=~\"$collection\"}[1h])) by (collection)",
+          "expr": "sum(changes(aimemory_retrievals_created{project=~\"$project\", collection=~\"$collection\"}[$__rate_interval])) by (collection)",
           "refId": "A",
           "legendFormat": "{{collection}}"
         }
@@ -311,7 +311,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_dedup_events_total{action=\"skipped_duplicate\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_dedup_events_created{action=\"skipped_duplicate\", project=~\"$project\"}[$__range]))",
           "refId": "A",
           "legendFormat": "Duplicates"
         }
@@ -356,7 +356,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(increase(aimemory_dedup_check_duration_seconds_bucket{project=~\"$project\"}[1h])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(aimemory_dedup_check_duration_seconds_bucket{project=~\"$project\"}) by (le))",
           "refId": "A",
           "legendFormat": "p95"
         }
@@ -417,7 +417,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_dedup_events_total{action=\"skipped_duplicate\", project=~\"$project\"}[1h])) / (sum(increase(aimemory_dedup_events_total{project=~\"$project\"}[1h])) > 0) * 100 or vector(0)",
+          "expr": "sum(changes(aimemory_dedup_events_created{action=\"skipped_duplicate\", project=~\"$project\"}[$__range])) / (sum(changes(aimemory_dedup_events_created{project=~\"$project\"}[$__range])) > 0) * 100 or vector(0)",
           "refId": "A",
           "legendFormat": "Dedup %"
         }
@@ -478,7 +478,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_context_injection_tokens_sum{project=~\"$project\"}[1h])) by (hook_type)",
+          "expr": "sum(aimemory_context_injection_tokens_sum{project=~\"$project\"}) by (hook_type)",
           "refId": "A",
           "legendFormat": "{{hook_type}}"
         }
@@ -592,17 +592,17 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_captures_total{status=\"success\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_captures_created{status=\"success\", project=~\"$project\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "Success"
         },
         {
-          "expr": "sum(increase(aimemory_captures_total{status=\"queued\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_captures_created{status=\"queued\", project=~\"$project\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "Queued"
         },
         {
-          "expr": "sum(increase(aimemory_captures_total{status=\"failed\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_captures_created{status=\"failed\", project=~\"$project\"}[$__rate_interval]))",
           "refId": "C",
           "legendFormat": "Failed"
         }
@@ -699,17 +699,17 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_retrievals_total{status=\"success\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_retrievals_created{status=\"success\", project=~\"$project\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "Success"
         },
         {
-          "expr": "sum(increase(aimemory_retrievals_total{status=\"empty\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_retrievals_created{status=\"empty\", project=~\"$project\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "Empty"
         },
         {
-          "expr": "sum(increase(aimemory_retrievals_total{status=\"failed\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_retrievals_created{status=\"failed\", project=~\"$project\"}[$__rate_interval]))",
           "refId": "C",
           "legendFormat": "Failed"
         }
@@ -1043,7 +1043,7 @@
       },
       "targets": [
         {
-          "expr": "collection_points{collection=\"jira-data\"} or vector(0)",
+          "expr": "collection_points{collection=\"jira-data\"} or on() vector(0)",
           "refId": "A",
           "legendFormat": "Qdrant native"
         }
@@ -1144,7 +1144,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_chunking_operations_total{project=~\"$project\"}[1h])) by (chunk_type)",
+          "expr": "sum(changes(aimemory_chunking_operations_created{project=~\"$project\"}[$__rate_interval])) by (chunk_type)",
           "refId": "A",
           "legendFormat": "{{chunk_type}}"
         }
@@ -1248,7 +1248,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(increase(aimemory_chunking_duration_seconds_bucket{project=~\"$project\"}[1h])) by (le, chunk_type))",
+          "expr": "histogram_quantile(0.95, sum(aimemory_chunking_duration_seconds_bucket{project=~\"$project\"}) by (le, chunk_type))",
           "refId": "A",
           "legendFormat": "{{chunk_type}} p95"
         }
@@ -1301,7 +1301,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_chunking_operations_total{chunk_type=\"ast\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_chunking_operations_created{chunk_type=\"ast\", project=~\"$project\"}[$__range]))",
           "refId": "A",
           "legendFormat": "AST"
         }
@@ -1346,7 +1346,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_chunking_operations_total{chunk_type=\"markdown\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_chunking_operations_created{chunk_type=\"markdown\", project=~\"$project\"}[$__range]))",
           "refId": "A",
           "legendFormat": "Markdown"
         }
@@ -1391,7 +1391,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_chunking_operations_total{chunk_type=\"prose\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_chunking_operations_created{chunk_type=\"prose\", project=~\"$project\"}[$__range]))",
           "refId": "A",
           "legendFormat": "Prose"
         }
@@ -1448,12 +1448,12 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_embedding_batch_duration_seconds_count{project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_embedding_batch_duration_seconds_created{project=~\"$project\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "Batch"
         },
         {
-          "expr": "sum(increase(aimemory_embedding_realtime_duration_seconds_count{project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_embedding_realtime_duration_seconds_created{project=~\"$project\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "Realtime"
         }
@@ -1535,12 +1535,12 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_batch_duration_seconds_bucket[1h])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(aimemory_embedding_batch_duration_seconds_bucket) by (le))",
           "refId": "A",
           "legendFormat": "Batch p95"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(aimemory_embedding_realtime_duration_seconds_bucket) by (le))",
           "refId": "B",
           "legendFormat": "Realtime p95"
         },
@@ -1654,7 +1654,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_embedding_batch_duration_seconds_count[1h]))",
+          "expr": "sum(changes(aimemory_embedding_batch_duration_seconds_created[$__range]))",
           "refId": "A",
           "legendFormat": "Batch"
         }
@@ -1699,7 +1699,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_embedding_realtime_duration_seconds_count[1h]))",
+          "expr": "sum(changes(aimemory_embedding_realtime_duration_seconds_created[$__range]))",
           "refId": "A",
           "legendFormat": "Realtime"
         }
@@ -1744,7 +1744,7 @@
       },
       "targets": [
         {
-          "expr": "(sum(increase(aimemory_embedding_batch_duration_seconds_sum[1h])) + sum(increase(aimemory_embedding_realtime_duration_seconds_sum[1h]))) / (sum(increase(aimemory_embedding_batch_duration_seconds_count[1h])) + sum(increase(aimemory_embedding_realtime_duration_seconds_count[1h])))",
+          "expr": "(sum(aimemory_embedding_batch_duration_seconds_sum) + sum(aimemory_embedding_realtime_duration_seconds_sum)) / (sum(aimemory_embedding_batch_duration_seconds_count) + sum(aimemory_embedding_realtime_duration_seconds_count))",
           "refId": "A",
           "legendFormat": "Avg Latency"
         }

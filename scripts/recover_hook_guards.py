@@ -219,18 +219,15 @@ def _run_safety_checks(
 # --- Scan mode --------------------------------------------------------------
 
 
-def _find_settings_files() -> list:
+def _find_settings_files(extra_search_paths: list | None = None) -> list:
     """
-    Find settings.json files in sibling project directories.
+    Find settings.json files across all known AI Memory project installations.
 
-    Search strategy:
-    - Read ~/.ai-memory/docker/.env for AI_MEMORY_INSTALL_DIR
-    - List $AI_MEMORY_INSTALL_DIR/../*/.claude/settings.json
-    - Also check $AI_MEMORY_INSTALL_DIR/.claude/settings.json itself
-    - Filter to files containing AI_MEMORY_INSTALL_DIR in env section
-
-    Fallback: If ~/.ai-memory/docker/.env does not exist or does not contain
-    AI_MEMORY_INSTALL_DIR, defaults to ~/.ai-memory as the install directory.
+    Search strategy (in order):
+    1. Read ~/.ai-memory/installed_projects.json manifest (primary)
+    2. Scan sibling directories of AI_MEMORY_INSTALL_DIR (fallback)
+    3. Search any paths provided via --search-path argument
+    4. Filter to files containing AI_MEMORY_INSTALL_DIR in env section
     """
     install_dir = os.path.expanduser("~/.ai-memory")
 
@@ -245,27 +242,51 @@ def _find_settings_files() -> list:
                         install_dir = os.path.expanduser(val)
                     break
 
-    candidates = []
+    candidates = set()
 
-    # Sibling project directories
+    # --- Source 1: Manifest file (primary) ---
+    manifest_path = os.path.join(install_dir, "installed_projects.json")
+    if os.path.isfile(manifest_path):
+        try:
+            with open(manifest_path) as f:
+                manifest = json.load(f)
+            for entry in manifest:
+                if isinstance(entry, dict) and "path" in entry:
+                    settings = os.path.join(entry["path"], ".claude", "settings.json")
+                    if os.path.isfile(settings):
+                        candidates.add(settings)
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"Warning: Could not read manifest {manifest_path}: {e}", file=sys.stderr)
+
+    # --- Source 2: Sibling directories of install dir (fallback) ---
     parent_dir = os.path.dirname(install_dir)
     if os.path.isdir(parent_dir):
         try:
             for entry in os.listdir(parent_dir):
-                candidate = os.path.join(
-                    parent_dir, entry, ".claude", "settings.json"
-                )
+                candidate = os.path.join(parent_dir, entry, ".claude", "settings.json")
                 if os.path.isfile(candidate):
-                    candidates.append(candidate)
+                    candidates.add(candidate)
         except OSError:
             pass
 
-    # Install dir itself
-    own = os.path.join(install_dir, ".claude", "settings.json")
-    if os.path.isfile(own) and own not in candidates:
-        candidates.append(own)
+    # --- Source 3: Extra search paths from --search-path ---
+    for search_path in (extra_search_paths or []):
+        search_path = os.path.expanduser(search_path)
+        if os.path.isdir(search_path):
+            try:
+                for entry in os.listdir(search_path):
+                    candidate = os.path.join(search_path, entry, ".claude", "settings.json")
+                    if os.path.isfile(candidate):
+                        candidates.add(candidate)
+            except OSError:
+                pass
 
-    # Filter: only files that have AI_MEMORY_INSTALL_DIR in env section
+    # --- Source 4: Install dir itself ---
+    own = os.path.join(install_dir, ".claude", "settings.json")
+    if os.path.isfile(own):
+        candidates.add(own)
+
+    # --- Filter: only files with AI_MEMORY_INSTALL_DIR in env section ---
     result = []
     for path in candidates:
         try:
@@ -406,6 +427,13 @@ def main() -> int:
         action="store_true",
         help="Write changes back to file(s). Default: dry-run, report only.",
     )
+    parser.add_argument(
+        "--search-path",
+        action="append",
+        default=None,
+        dest="search_paths",
+        help="Additional directory to search for projects (can be specified multiple times)",
+    )
     args = parser.parse_args()
 
     if args.scan and args.path:
@@ -414,7 +442,7 @@ def main() -> int:
         parser.error("provide a path or use --scan")
 
     if args.scan:
-        files = _find_settings_files()
+        files = _find_settings_files(extra_search_paths=args.search_paths)
         if not files:
             print("No ai-memory settings.json files found.")
             return 0

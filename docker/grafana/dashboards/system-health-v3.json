@@ -71,7 +71,7 @@
       },
       "targets": [
         {
-          "expr": "up{job=\"qdrant\"} or vector(0)",
+          "expr": "up{job=\"qdrant\"} or on() vector(0)",
           "refId": "A",
           "legendFormat": "Qdrant"
         }
@@ -142,7 +142,7 @@
       },
       "targets": [
         {
-          "expr": "up{job=\"embedding-service\"} or vector(0)",
+          "expr": "up{job=\"embedding-service\"} or on() vector(0)",
           "refId": "A",
           "legendFormat": "Embedding"
         }
@@ -213,7 +213,7 @@
       },
       "targets": [
         {
-          "expr": "up{job=\"prometheus\"} or vector(1)",
+          "expr": "up{job=\"prometheus\"} or on() vector(1)",
           "refId": "A",
           "legendFormat": "Prometheus"
         }
@@ -284,7 +284,7 @@
       },
       "targets": [
         {
-          "expr": "up{job=\"pushgateway\"} or vector(0)",
+          "expr": "up{job=\"pushgateway\"} or on() vector(0)",
           "refId": "A",
           "legendFormat": "Pushgateway"
         }
@@ -355,7 +355,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_failure_events_total{project=~\"$project\"}[1h])) by (component)",
+          "expr": "sum(changes(aimemory_failure_events_created{project=~\"$project\"}[$__rate_interval])) by (component)",
           "refId": "A",
           "legendFormat": "{{component}}"
         }
@@ -583,32 +583,32 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(increase(aimemory_embedding_batch_duration_seconds_bucket[1h])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(aimemory_embedding_batch_duration_seconds_bucket) by (le))",
           "refId": "A",
           "legendFormat": "Batch p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_batch_duration_seconds_bucket[1h])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(aimemory_embedding_batch_duration_seconds_bucket) by (le))",
           "refId": "B",
           "legendFormat": "Batch p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(increase(aimemory_embedding_batch_duration_seconds_bucket[1h])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(aimemory_embedding_batch_duration_seconds_bucket) by (le))",
           "refId": "C",
           "legendFormat": "Batch p99"
         },
         {
-          "expr": "histogram_quantile(0.50, sum(increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(aimemory_embedding_realtime_duration_seconds_bucket) by (le))",
           "refId": "D",
           "legendFormat": "Realtime p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(aimemory_embedding_realtime_duration_seconds_bucket) by (le))",
           "refId": "E",
           "legendFormat": "Realtime p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(aimemory_embedding_realtime_duration_seconds_bucket) by (le))",
           "refId": "F",
           "legendFormat": "Realtime p99"
         }
@@ -761,7 +761,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_failure_events_total{project=~\"$project\"}[1h])) by (error_code)",
+          "expr": "sum(changes(aimemory_failure_events_created{project=~\"$project\"}[$__rate_interval])) by (error_code)",
           "refId": "A",
           "legendFormat": "{{error_code}}"
         }
@@ -814,7 +814,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_failure_events_total{project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_failure_events_created{project=~\"$project\"}[$__range]))",
           "refId": "A",
           "legendFormat": "Failures"
         }
@@ -875,7 +875,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_failure_events_total{component=\"qdrant\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_failure_events_created{component=\"qdrant\", project=~\"$project\"}[$__range]))",
           "refId": "A",
           "legendFormat": "Qdrant"
         }
@@ -936,7 +936,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_failure_events_total{component=\"embedding\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_failure_events_created{component=\"embedding\", project=~\"$project\"}[$__range]))",
           "refId": "A",
           "legendFormat": "Embedding"
         }
@@ -997,7 +997,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_failure_events_total{component=\"hook\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_failure_events_created{component=\"hook\", project=~\"$project\"}[$__range]))",
           "refId": "A",
           "legendFormat": "Hook"
         }

@@ -184,7 +184,7 @@
       "id": 1,
       "type": "timeseries",
       "title": "Hook Latency (p95)",
-      "description": "**Metric:** `aimemory_hook_duration_seconds_bucket`\n**Measures:** 95th percentile hook execution time by hook\n**Formula:** `histogram_quantile(0.95, sum by (le, hook_type) (increase(aimemory_hook_duration_seconds_bucket{hook_type=~\"$hook\"}[1h])))`\n**NFR:** <500ms per BP-022 (NFR-P2)\n**Thresholds:** Green <500ms | Yellow 500-750ms | Red >750ms\n**Note:** Uses histogram_quantile with sum by (le) per BP-041\n**See:** BP-022 (NFR-P2), BP-041 (Histogram Quantiles), docs/prometheus-queries.md",
+      "description": "**Metric:** `aimemory_hook_duration_seconds_bucket`\n**Measures:** 95th percentile hook execution time by hook\n**Formula:** `histogram_quantile(0.95, sum by (le, hook_type) (aimemory_hook_duration_seconds_bucket{hook_type=~\"$hook\"}))`\n**NFR:** <500ms per BP-022 (NFR-P2)\n**Thresholds:** Green <500ms | Yellow 500-750ms | Red >750ms\n**Note:** Uses histogram_quantile with sum by (le) per BP-041\n**See:** BP-022 (NFR-P2), BP-041 (Histogram Quantiles), docs/prometheus-queries.md",
       "gridPos": {
         "x": 0,
         "y": 6,
@@ -193,7 +193,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, hook_type) (increase(aimemory_hook_duration_seconds_bucket{hook_type=~\"$hook\"}[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (le, hook_type) (aimemory_hook_duration_seconds_bucket{hook_type=~\"$hook\"}))",
           "refId": "A",
           "legendFormat": "{{hook_type}}"
         },
@@ -291,7 +291,7 @@
       "id": 2,
       "type": "timeseries",
       "title": "Embedding Duration (p95)",
-      "description": "**Metric:** `aimemory_embedding_batch_duration_seconds_bucket` + `aimemory_embedding_realtime_duration_seconds_bucket`\n**Measures:** 95th percentile embedding generation time by mode (batch vs realtime)\n**Formula:** `histogram_quantile(0.95, sum by (le) (increase(..._bucket[1h])))`\n**NFR:** Batch <2s, Realtime <500ms per BP-022 (NFR-P2, NFR-P6)\n**Thresholds:** Green <2s | Yellow 2-3s | Red >3s\n**See:** BP-022 (NFR-P2, NFR-P6), BP-041 (Histogram Quantiles), BP-017 (Multi-Embedding)",
+      "description": "**Metric:** `aimemory_embedding_batch_duration_seconds_bucket` + `aimemory_embedding_realtime_duration_seconds_bucket`\n**Measures:** 95th percentile embedding generation time by mode (batch vs realtime)\n**Formula:** `histogram_quantile(0.95, sum by (le) (..._bucket))`\n**NFR:** Batch <2s, Realtime <500ms per BP-022 (NFR-P2, NFR-P6)\n**Thresholds:** Green <2s | Yellow 2-3s | Red >3s\n**See:** BP-022 (NFR-P2, NFR-P6), BP-041 (Histogram Quantiles), BP-017 (Multi-Embedding)",
       "gridPos": {
         "x": 0,
         "y": 16,
@@ -300,12 +300,12 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (increase(aimemory_embedding_batch_duration_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (aimemory_embedding_batch_duration_seconds_bucket))",
           "refId": "A",
           "legendFormat": "batch"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (aimemory_embedding_realtime_duration_seconds_bucket))",
           "refId": "B",
           "legendFormat": "realtime"
         },
@@ -403,7 +403,7 @@
       "id": 3,
       "type": "stat",
       "title": "Slowest Hook (p95)",
-      "description": "**Metric:** `aimemory_hook_duration_seconds_bucket`\n**Measures:** Hook with highest p95 latency\n**Formula:** `topk(1, histogram_quantile(0.95, sum by (le, hook_type) (increase(aimemory_hook_duration_seconds_bucket[1h]))))`\n**NFR:** <500ms per BP-022\n**Thresholds:** Green <500ms | Yellow 500-750ms | Red >750ms\n**Action:** If red, investigate hook bottlenecks\n**See:** BP-022 (NFR-P2)",
+      "description": "**Metric:** `aimemory_hook_duration_seconds_bucket`\n**Measures:** Hook with highest p95 latency\n**Formula:** `topk(1, histogram_quantile(0.95, sum by (le, hook_type) (aimemory_hook_duration_seconds_bucket)))`\n**NFR:** <500ms per BP-022\n**Thresholds:** Green <500ms | Yellow 500-750ms | Red >750ms\n**Action:** If red, investigate hook bottlenecks\n**See:** BP-022 (NFR-P2)",
       "gridPos": {
         "x": 0,
         "y": 26,
@@ -412,7 +412,7 @@
       },
       "targets": [
         {
-          "expr": "topk(1, histogram_quantile(0.95, sum by (le, hook_type) (increase(aimemory_hook_duration_seconds_bucket[1h]))))",
+          "expr": "topk(1, histogram_quantile(0.95, sum by (le, hook_type) (aimemory_hook_duration_seconds_bucket)))",
           "refId": "A",
           "legendFormat": "{{hook_type}}"
         }
@@ -473,7 +473,7 @@
       },
       "targets": [
         {
-          "expr": "max(histogram_quantile(0.95, sum by (le) (increase(aimemory_embedding_batch_duration_seconds_bucket[1h]))) or histogram_quantile(0.95, sum by (le) (increase(aimemory_embedding_realtime_duration_seconds_bucket[1h]))))",
+          "expr": "max(histogram_quantile(0.95, sum by (le) (aimemory_embedding_batch_duration_seconds_bucket)) or histogram_quantile(0.95, sum by (le) (aimemory_embedding_realtime_duration_seconds_bucket)))",
           "refId": "A",
           "legendFormat": "slowest"
         }
@@ -525,7 +525,7 @@
       "id": 5,
       "type": "timeseries",
       "title": "Trigger Latency (Retrieval Operations)",
-      "description": "**Metric:** `aimemory_hook_duration_seconds_bucket` (for retrieval hooks)\n**Measures:** 95th percentile latency for retrieval triggers\n**Formula:** `histogram_quantile($quantile, sum by (le, hook_type) (increase(aimemory_hook_duration_seconds_bucket{hook_type=~\"PostToolUse_ErrorDetection|PreToolUse_NewFile|PreToolUse_FirstEdit|UserPromptSubmit_Decision|UserPromptSubmit_BestPractices|SessionStart\"}[1h])))`\n**NFR:** <3s for full retrieval operation per BP-022 (NFR-P2)\n**Thresholds:** Green <3s | Yellow 3-4.5s | Red >4.5s\n**Note:** Retrieval triggers include search + context injection\n**See:** BP-022 (NFR-P2), Core-Architecture-Principle-V2.md",
+      "description": "**Metric:** `aimemory_hook_duration_seconds_bucket` (for retrieval hooks)\n**Measures:** 95th percentile latency for retrieval triggers\n**Formula:** `histogram_quantile($quantile, sum by (le, hook_type) (aimemory_hook_duration_seconds_bucket{hook_type=~\"PostToolUse_ErrorDetection|PreToolUse_NewFile|PreToolUse_FirstEdit|UserPromptSubmit_Decision|UserPromptSubmit_BestPractices|SessionStart\"}))`\n**NFR:** <3s for full retrieval operation per BP-022 (NFR-P2)\n**Thresholds:** Green <3s | Yellow 3-4.5s | Red >4.5s\n**Note:** Retrieval triggers include search + context injection\n**See:** BP-022 (NFR-P2), Core-Architecture-Principle-V2.md",
       "gridPos": {
         "x": 0,
         "y": 32,
@@ -534,7 +534,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile($quantile, sum by (le, hook_type) (increase(aimemory_hook_duration_seconds_bucket{hook_type=~\"PostToolUse_ErrorDetection|PreToolUse_NewFile|PreToolUse_FirstEdit|UserPromptSubmit_Decision|UserPromptSubmit_BestPractices|SessionStart\"}[1h])))",
+          "expr": "histogram_quantile($quantile, sum by (le, hook_type) (aimemory_hook_duration_seconds_bucket{hook_type=~\"PostToolUse_ErrorDetection|PreToolUse_NewFile|PreToolUse_FirstEdit|UserPromptSubmit_Decision|UserPromptSubmit_BestPractices|SessionStart\"}))",
           "refId": "A",
           "legendFormat": "{{hook_type}}"
         },
@@ -632,7 +632,7 @@
       "id": 6,
       "type": "timeseries",
       "title": "Classifier Latency by Provider",
-      "description": "**Metric:** `aimemory_classifier_latency_seconds_bucket`\n**Measures:** 95th percentile classification latency by provider\n**Formula:** `histogram_quantile($quantile, sum by (le, provider) (increase(aimemory_classifier_latency_seconds_bucket[1h])))`\n**Providers:** ollama (local), openrouter (API), openai (API), claude (API)\n**Expected:** Ollama fastest (local), API providers slower (network latency)\n**Note:** Classification latency impacts hook performance if classification is synchronous\n**See:** src/memory/classifier.py, BP-041 (Histogram Quantiles)",
+      "description": "**Metric:** `aimemory_classifier_latency_seconds_bucket`\n**Measures:** 95th percentile classification latency by provider\n**Formula:** `histogram_quantile($quantile, sum by (le, provider) (aimemory_classifier_latency_seconds_bucket))`\n**Providers:** ollama (local), openrouter (API), openai (API), claude (API)\n**Expected:** Ollama fastest (local), API providers slower (network latency)\n**Note:** Classification latency impacts hook performance if classification is synchronous\n**See:** src/memory/classifier.py, BP-041 (Histogram Quantiles)",
       "gridPos": {
         "x": 0,
         "y": 42,
@@ -641,7 +641,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile($quantile, sum by (le, provider) (increase(aimemory_classifier_latency_seconds_bucket[1h])))",
+          "expr": "histogram_quantile($quantile, sum by (le, provider) (aimemory_classifier_latency_seconds_bucket))",
           "refId": "A",
           "legendFormat": "{{provider}}"
         }

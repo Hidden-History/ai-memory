@@ -42,6 +42,23 @@ Jira Cloud Integration: Sync and semantically search Jira issues and comments al
 
 ### Fixed
 
+#### Grafana Dashboard — Pushgateway `increase()` Fix (79 queries across 7 dashboards)
+
+All Grafana dashboards used `increase(metric[1h])` which always returns 0 with Pushgateway push-once semantics. Each hook creates a fresh Python registry and pushes `count=1`, overwriting the previous value — counters never increment between Prometheus scrapes.
+
+- **BUG-083**: `or vector()` fallback pattern caused duplicate series in Grafana — Removed unnecessary `or vector(0)` from 5 queries in `hook-activity-v3.json`
+- **BUG-084**: Hook Activity dashboard all panels showing zero — Replaced `increase(..._count[1h])` with `changes(..._created[$__rate_interval])` across 33 queries (stat, timeseries, table panels). The `_created` timestamp changes on every push, making `changes()` an accurate execution counter
+- **BUG-085**: NFR Performance dashboard stat panels showing wrong data, SLO gauges showing infinity — Removed `increase()` from `histogram_quantile()` (raw bucket values ARE the distribution with push-once), and from SLO ratio queries (`bucket/count` directly instead of `increase(bucket)/increase(count)` = 0/0 = NaN). 18 queries across stat, timeseries, and gauge panels
+- **Systemic `increase()` fix** across 5 remaining dashboards:
+  - `memory-overview.json` — 12 histogram_quantile changes (p50/p95/p99 for hook, embedding, search, classifier latencies)
+  - `memory-performance.json` — 8 expression + 5 description changes (topk/max wrappers around histogram_quantile)
+  - `classifier-health.json` — 4 histogram_quantile changes (classifier + batch duration latency)
+  - `system-health-v3.json` — 6 histogram_quantile + 6 failure counter changes (`_total` → `changes(_created)`)
+  - `memory-operations-v3.json` — 24 changes (14 `_total` → `changes(_created)`, 4 histogram_quantile, 4 `_count` → `changes(_created)`, 2 `_sum` raw values)
+- **Heatmap panels preserved** — 2 heatmap panels retain `increase(_bucket)` (correct semantics for latency distribution visualization)
+
+#### Other Fixes
+
 - **`store_memories_batch()` chunking compliance** — All memory types now route through `IntelligentChunker` (was only USER_MESSAGE and AGENT_RESPONSE). Chunks are batch-embedded individually (previously chunks after index 0 received zero vectors, making them unsearchable). All stored points now include `chunking_metadata`
 - **Workflow security** (`claude-assistant.yml`) — Added secret validation, HTTP error handling, JSON escaping, and secret redaction (7 hardening fixes)
 - **Streamlit dashboard** — Added `jira-data` collection and JIRA memory types to both imported and fallback code paths
@@ -65,7 +82,8 @@ Jira Cloud Integration: Sync and semantically search Jira issues and comments al
 
 ### Added
 - **`/save-memory` skill** — Manual memory save wrapping `scripts/manual_save_memory.py`, stores to `discussions` collection with `type=session`
-- **`scripts/recover_hook_guards.py`** — Standalone CLI recovery tool for existing installs affected by BUG-066 (unguarded hooks) and BUG-078 (broad SessionStart matcher). Dry-run by default, `--apply` to fix, `--scan` for multi-project discovery. Atomic writes with `fsync`+`os.replace`, file permission preservation, bidirectional safety checks
+- **`scripts/recover_hook_guards.py`** — Standalone CLI recovery tool for existing installs affected by BUG-066 (unguarded hooks) and BUG-078 (broad SessionStart matcher). Dry-run by default, `--apply` to fix, `--scan` for multi-project discovery. Atomic writes with `fsync`+`os.replace`, file permission preservation, bidirectional safety checks. Enhanced with `installed_projects.json` manifest support and multi-path search (manifest → sibling directories → common project paths)
+- **`install.sh` project manifest** — Installer now records each installed project to `~/.ai-memory/installed_projects.json` via `record_installed_project()`, enabling reliable multi-project discovery by recovery and maintenance scripts
 - **BP-007**: Pushgateway grouping key convention — documents that every `pushadd_to_gateway()` call must include a unique `grouping_key` to prevent silent metric overwrites
 
 ### Changed
@@ -78,6 +96,7 @@ Jira Cloud Integration: Sync and semantically search Jira issues and comments al
 ### Known Issues
 - **BUG-064**: `hattan/verify-linked-issue-action@v1.2.0` tag missing upstream (pre-existing, cosmetic CI failure)
 - **BUG-065**: `actions/first-interaction@v3` input name breaking change (pre-existing, cosmetic CI failure)
+- **Backup/Restore scripts** do not yet support the `jira-data` collection — Jira database backup and reinstall will be added in the next version
 
 ## [2.0.4] - 2026-02-06
 

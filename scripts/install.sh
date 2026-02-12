@@ -447,6 +447,9 @@ main() {
     configure_project_hooks
     verify_project_hooks
 
+    # Record project in manifest for cross-filesystem recovery discovery
+    record_installed_project
+
     show_success_message
 }
 
@@ -2061,6 +2064,44 @@ show_python_version_error() {
     echo "│  functionality. You must upgrade Python.                   │"
     echo "└─────────────────────────────────────────────────────────────┘"
     exit 1
+}
+
+# Record installed project path in manifest for recovery script discovery
+record_installed_project() {
+    local manifest="$INSTALL_DIR/installed_projects.json"
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local entry="{\"path\": \"$PROJECT_PATH\", \"name\": \"$PROJECT_NAME\", \"installed\": \"$timestamp\"}"
+
+    if [[ -f "$manifest" ]]; then
+        # Read existing, deduplicate by path, append new entry
+        # Use python for safe JSON manipulation
+        "$INSTALL_DIR/.venv/bin/python" -c "
+import json, sys
+manifest_path = sys.argv[1]
+new_entry = json.loads(sys.argv[2])
+try:
+    with open(manifest_path) as f:
+        data = json.load(f)
+except (json.JSONDecodeError, FileNotFoundError):
+    data = []
+# Deduplicate by path - update existing entry or append
+data = [e for e in data if e.get('path') != new_entry['path']]
+data.append(new_entry)
+with open(manifest_path, 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+" "$manifest" "$entry"
+    else
+        echo "[$entry]" | "$INSTALL_DIR/.venv/bin/python" -c "
+import json, sys
+data = json.load(sys.stdin)
+with open(sys.argv[1], 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+" "$manifest"
+    fi
+    log_info "Recorded project in manifest: $PROJECT_PATH"
 }
 
 # Execute main function with all arguments
