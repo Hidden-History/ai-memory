@@ -201,6 +201,12 @@ def _upgrade_hook_commands(settings: dict) -> dict:
                     match = re.search(r"\.claude/hooks/scripts/([^\"]+?)(?:\"|$)", cmd)
                     if match:
                         hook["command"] = _hook_cmd(match.group(1))
+
+    # BUG-078: Upgrade SessionStart matcher
+    for wrapper in hooks.get("SessionStart", []):
+        if isinstance(wrapper, dict) and wrapper.get("matcher") == "startup|resume|compact|clear":
+            wrapper["matcher"] = "resume|compact"
+
     return settings
 
 
