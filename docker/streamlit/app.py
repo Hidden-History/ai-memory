@@ -720,7 +720,7 @@ def display_statistics_page():
     st.markdown("### Collection Overview")
 
     # Collection stats in cards
-    cols = st.columns(3)
+    cols = st.columns(len(COLLECTION_NAMES))
     for idx, collection_name in enumerate(COLLECTION_NAMES):
         with cols[idx]:
             try:
@@ -1043,7 +1043,7 @@ else:  # Default: 🔍 Memory Browser
         st.markdown("""
         ### Getting Started
 
-        1. Select a **Collection** (code-patterns, conventions, or discussions)
+        1. Select a **Collection** (code-patterns, conventions, discussions, or jira-data)
         2. Optionally filter by **Project** or **Type**
         3. Enter a **Search Query** (semantic search)
         4. Click **🔍 Search**

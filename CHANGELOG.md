@@ -35,17 +35,35 @@ Jira Cloud Integration: Sync and semantically search Jira issues and comments al
 - 9 memory system E2E tests enabled with service containers
 - Activity logging added to `/search-memory` and `/memory-status` skill functions
 
+#### Monitoring
+- **Grafana Jira Data panel** — "Jira Data (Conditional)" row in Memory Operations V3 dashboard with 3 panels: `jira-data` collection size (Pushgateway), Qdrant Native cross-check (`collection_points`), and per-tenant breakdown (bar gauge by `project` label)
+- 4 new BUG-075 regression tests (AST chunker byte-offset, header capture, multibyte UTF-8)
+- 1 new BUG-076 test (jira-data valid collection)
+
 ### Fixed
 
 - **`store_memories_batch()` chunking compliance** — All memory types now route through `IntelligentChunker` (was only USER_MESSAGE and AGENT_RESPONSE). Chunks are batch-embedded individually (previously chunks after index 0 received zero vectors, making them unsearchable). All stored points now include `chunking_metadata`
 - **Workflow security** (`claude-assistant.yml`) — Added secret validation, HTTP error handling, JSON escaping, and secret redaction (7 hardening fixes)
 - **Streamlit dashboard** — Added `jira-data` collection and JIRA memory types to both imported and fallback code paths
+- **BUG-066**: `rm -rf ~/.ai-memory` broke Claude Code in ALL projects — Hook commands now guarded with existence check, installer protects against cascading failure
+- **BUG-067**: `validate_external_services()` crashes installer — Exception handling for urllib calls before Docker services are ready
+- **BUG-068**: Jira project keys UX — Added auto-discovery of Jira projects via API during install
+- **BUG-069**: JIRA_PROJECTS .env format incompatible with Pydantic v2 — Changed from comma-separated to JSON array format
+- **BUG-070**: Classifier worker crash on read-only filesystem — Graceful skip when mkdir fails on read-only Docker volume
+- **BUG-071**: Jira sync 400 error — Corrected POST to GET for read-only API endpoint
+- **BUG-072**: JQL date format silently breaks incremental sync — Fixed to ISO 8601 format
+- **BUG-073**: `source_hook` validation rejects `jira_sync` — Added `jira_sync` to source_hook whitelist
+- **BUG-075**: AST chunker truncates beginning of JS files — Fixed byte-offset drift (tree-sitter returns bytes, Python indexes chars) and comment header loss (`_find_import_nodes()` skipping comment nodes)
+- **BUG-076**: Metrics label warning for `jira-data` collection — Added `jira-data` to `VALID_COLLECTIONS` set and created dynamic `_get_monitorable_collections()` helper
+- **BUG-077**: Streamlit statistics page IndexError with 4 collections — `st.columns(3)` → `st.columns(len(COLLECTION_NAMES))`, updated Getting Started text
+- **22 code review fixes** across 9 files (silent env fallbacks, error messages, import guarding, migration path for JIRA_PROJECTS format)
 
 ### Changed
 - Memory type count: 15 → 17 (added JIRA_ISSUE, JIRA_COMMENT)
 - Collection architecture: 3 core collections + 1 conditional (`jira-data`)
 - `store_memory()` accepts additional metadata fields and passes unknown fields directly to Qdrant payload (enables Jira-specific fields like `jira_issue_key`, `jira_author`, `jira_project`)
 - JIRA_ISSUE and JIRA_COMMENT mapped to `ContentType.PROSE` in both `store_memory()` and `store_memories_batch()` content type maps
+- `/search-jira` skill enhanced with complete Qdrant payload schema, connection details, and direct curl-to-file-to-python query examples
 
 ### Known Issues
 - **BUG-064**: `hattan/verify-linked-issue-action@v1.2.0` tag missing upstream (pre-existing, cosmetic CI failure)
