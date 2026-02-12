@@ -829,3 +829,59 @@ class TestLargeNodeSplitting:
         assert len(chunks) == 1
         # Should NOT be marked as split
         assert chunks[0].metadata.chunk_type == "ast_code"
+
+
+@pytest.mark.skipif(not AST_CHUNKER_AVAILABLE, reason="tree-sitter not available")
+class TestASTChunkerBUG075:
+    """BUG-075: AST chunker comment header and UTF-8 byte offset fixes."""
+
+    def test_preserves_comment_headers(self):
+        """BUG-075: Comment headers before functions should be preserved."""
+        chunker = ASTChunker()
+        code = '''// This is a test file
+// Author: Test Author
+
+function hello() {
+    return "hello";
+}
+
+function world() {
+    return "world";
+}
+'''
+        chunks = chunker.chunk(code, "test.js")
+        # Comment header should be preserved in chunks
+        assert "// This is a test file" in chunks[0].content
+        assert "// Author: Test Author" in chunks[0].content
+
+    def test_multibyte_utf8_characters(self):
+        """BUG-075: Multi-byte UTF-8 chars should not cause offset drift."""
+        chunker = ASTChunker()
+        code = '''# Description \u2014 with em dash
+# More info \u2013 en dash too
+
+def foo():
+    return "hello \u2014 world"
+
+def bar():
+    return "goodbye"
+'''
+        chunks = chunker.chunk(code, "test.py")
+        # Both functions should be extracted correctly
+        assert "def foo():" in chunks[0].content
+        assert "def bar():" in chunks[1].content
+        # Content should not be corrupted
+        assert 'return "hello \u2014 world"' in chunks[0].content
+
+    def test_comment_only_header_no_imports(self):
+        """BUG-075: Files with comments but no imports should preserve comments."""
+        chunker = ASTChunker()
+        code = '''# No imports in this file
+# Just comments
+
+def standalone():
+    x = 1
+    return x
+'''
+        chunks = chunker.chunk(code, "test.py")
+        assert "# No imports in this file" in chunks[0].content

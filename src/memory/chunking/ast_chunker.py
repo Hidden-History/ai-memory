@@ -252,6 +252,9 @@ class ASTChunker:
         Returns:
             List of ChunkResult objects
         """
+        # BUG-075: Cache encoded bytes for correct byte-offset slicing
+        content_bytes = content.encode("utf-8")
+
         # Get chunk boundaries (functions, classes, methods)
         chunk_nodes = self._find_chunk_nodes(root_node, language)
 
@@ -261,7 +264,21 @@ class ASTChunker:
 
         # Extract imports for context
         import_nodes = self._find_import_nodes(root_node, language)
-        import_text = self._extract_node_text(content, import_nodes)
+        import_text = self._extract_node_text(content, import_nodes, content_bytes)
+
+        # BUG-075: Capture file header (comments, docstrings before first chunk node)
+        file_header = ""
+        if chunk_nodes:
+            first_node_start = chunk_nodes[0].start_byte
+            header_bytes = content_bytes[:first_node_start]
+            header_text = header_bytes.decode("utf-8").strip()
+            # Remove import lines (already captured separately) to avoid duplication
+            if import_text and header_text:
+                import_lines = set(import_text.strip().split("\n"))
+                header_lines = [line for line in header_text.split("\n") if line.strip() not in import_lines]
+                file_header = "\n".join(header_lines).strip()
+            elif header_text:
+                file_header = header_text
 
         # Build chunks with context and overlap
         chunks = []
@@ -269,7 +286,7 @@ class ASTChunker:
 
         for idx, node in enumerate(chunk_nodes):
             # Extract node content
-            node_text = self._get_node_text(content, node)
+            node_text = self._get_node_text(content, node, content_bytes)
 
             # Calculate non-whitespace character count (all whitespace types)
             non_ws_chars = sum(1 for c in node_text if not c.isspace())
@@ -286,7 +303,7 @@ class ASTChunker:
                     },
                 )
                 # Split large node into multiple chunks
-                sub_chunk_texts = self._split_large_node(node, content, language)
+                sub_chunk_texts = self._split_large_node(node, content, language, content_bytes)
 
                 # Process each sub-chunk
                 for sub_idx, sub_chunk_text in enumerate(sub_chunk_texts):
@@ -306,9 +323,16 @@ class ASTChunker:
                     # Add marker showing this is a split chunk
                     marker = f"# ... split {sub_idx + 1}/{len(sub_chunk_texts)} of large {node.type} ...\n\n"
 
-                    # Add imports to ALL sub-chunks
+                    # BUG-075: Add file header + imports to ALL sub-chunks
+                    context_parts = []
+                    if file_header:
+                        context_parts.append(file_header)
                     if import_text:
-                        sub_chunk_content = f"{import_text}\n\n{marker}{sub_chunk_text}"
+                        context_parts.append(import_text)
+                    context = "\n\n".join(context_parts)
+
+                    if context:
+                        sub_chunk_content = f"{context}\n\n{marker}{sub_chunk_text}"
                     else:
                         sub_chunk_content = f"{marker}{sub_chunk_text}"
 
@@ -359,14 +383,21 @@ class ASTChunker:
             if idx > 0 and previous_chunk_tail:
                 node_text = previous_chunk_tail + "\n" + node_text
 
-            # FIX-2: Add imports to ALL chunks for context (not just first)
+            # BUG-075: Add file header + imports to ALL chunks for context
+            context_parts = []
+            if file_header:
+                context_parts.append(file_header)
             if import_text:
-                chunk_content = f"{import_text}\n\n{node_text}"
+                context_parts.append(import_text)
+            context = "\n\n".join(context_parts)
+
+            if context:
+                chunk_content = f"{context}\n\n{node_text}"
             else:
                 chunk_content = node_text
 
             # Store tail for next chunk's overlap (extract from original node_text before imports)
-            clean_node_text = self._get_node_text(content, node)
+            clean_node_text = self._get_node_text(content, node, content_bytes)
             if len(clean_node_text) > overlap_chars:
                 previous_chunk_tail = clean_node_text[-overlap_chars:]
             else:
@@ -474,12 +505,13 @@ class ASTChunker:
 
         return import_nodes
 
-    def _extract_node_text(self, content: str, nodes: list[Node]) -> str:
+    def _extract_node_text(self, content: str, nodes: list[Node], content_bytes: bytes | None = None) -> str:
         """Extract text from multiple nodes.
 
         Args:
             content: Source code
             nodes: List of AST nodes
+            content_bytes: Pre-encoded UTF-8 bytes (optional, for performance)
 
         Returns:
             Combined text from all nodes
@@ -487,21 +519,22 @@ class ASTChunker:
         if not nodes:
             return ""
 
-        return "\n".join(self._get_node_text(content, node) for node in nodes)
+        return "\n".join(self._get_node_text(content, node, content_bytes) for node in nodes)
 
-    def _get_node_text(self, content: str, node: Node) -> str:
-        """Get text content of a node.
+    def _get_node_text(self, content: str, node: Node, content_bytes: bytes | None = None) -> str:
+        """Get text content of a node using byte offsets.
 
         Args:
             content: Source code
             node: AST node
+            content_bytes: Pre-encoded UTF-8 bytes (optional, for performance)
 
         Returns:
             Text content of node
         """
-        start_byte = node.start_byte
-        end_byte = node.end_byte
-        return content[start_byte:end_byte]
+        if content_bytes is None:
+            content_bytes = content.encode("utf-8")
+        return content_bytes[node.start_byte:node.end_byte].decode("utf-8")
 
     def _get_node_name(self, node: Node) -> str | None:
         """Extract function/class name from node.
@@ -520,7 +553,7 @@ class ASTChunker:
 
         return None
 
-    def _split_large_node(self, node: Node, content: str, language: str) -> list[str]:
+    def _split_large_node(self, node: Node, content: str, language: str, content_bytes: bytes | None = None) -> list[str]:
         """Split a large AST node into smaller chunks at statement boundaries.
 
         FIX-5: Implements recursive splitting per Chunking-Strategy-V1.md.
@@ -529,11 +562,14 @@ class ASTChunker:
             node: AST node that exceeds MAX_CHARS
             content: Source code content
             language: Language name
+            content_bytes: Pre-encoded UTF-8 bytes (optional, for performance)
 
         Returns:
             List of chunk strings split at natural boundaries
         """
-        node_text = self._get_node_text(content, node)
+        if content_bytes is None:
+            content_bytes = content.encode("utf-8")
+        node_text = self._get_node_text(content, node, content_bytes)
         non_ws_chars = sum(1 for c in node_text if not c.isspace())
 
         # If within limit, return as-is
@@ -554,7 +590,7 @@ class ASTChunker:
         current_chunk = ""
 
         for child in node.children:
-            child_text = self._get_node_text(content, child)
+            child_text = self._get_node_text(content, child, content_bytes)
             sum(1 for c in child_text if not c.isspace())
 
             # Check if adding this child would exceed limit

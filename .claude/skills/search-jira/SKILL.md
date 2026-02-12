@@ -58,24 +58,161 @@ Each result includes:
 - **Content snippet** - First ~300 characters
 - **Relevance score** - Semantic similarity (0-100%)
 
-## Examples
+---
+
+## Qdrant Connection Details
+
+The jira-data collection is stored in the local Qdrant instance:
+
+| Parameter | Value |
+|-----------|-------|
+| **Host** | `localhost` |
+| **Port** | `26350` (NOT the default 6333) |
+| **API Key** | Required. Read from env: `QDRANT_API_KEY` |
+| **Collection** | `jira-data` |
+| **URL** | `http://localhost:26350` |
+
+To get the API key:
+```bash
+export QDRANT_API_KEY="$(grep QDRANT_API_KEY ~/.ai-memory/docker/.env | cut -d= -f2)"
+```
+
+---
+
+## Qdrant Payload Schema
+
+Every point in `jira-data` has the following payload fields. Use these **exact names** for filtering — do NOT guess field names like `project_key` or `issue_key`.
+
+### Common Fields (all points)
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `content` | string | Full text content of issue/comment | `"[PROJ-123] Fix login bug..."` |
+| `type` | string | Document type | `"jira_issue"` or `"jira_comment"` |
+| `group_id` | string | Jira instance hostname (tenant isolation) | `"hidden-history.atlassian.net"` |
+| `session_id` | string | Always `"jira_sync"` | `"jira_sync"` |
+| `jira_project` | string | Project key | `"BMAD"` |
+| `jira_issue_key` | string | Full issue key | `"BMAD-42"` |
+| `jira_issue_type` | string | Issue type name | `"Bug"`, `"Story"`, `"Task"`, `"Epic"` |
+| `jira_status` | string | Issue status | `"To Do"`, `"In Progress"`, `"Done"` |
+| `jira_priority` | string or null | Priority level | `"High"`, `"Medium"`, `"Low"`, `null` |
+| `jira_updated` | string | ISO 8601 timestamp | `"2026-02-10T14:30:00.000+0000"` |
+| `jira_url` | string | Full Jira URL | `"https://company.atlassian.net/browse/BMAD-42"` |
+
+### Issue-Only Fields (`type: "jira_issue"`)
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `jira_reporter` | string | Issue reporter display name | `"Alice Smith"` |
+| `jira_labels` | list[string] | Issue labels | `["backend", "auth"]` |
+
+### Comment-Only Fields (`type: "jira_comment"`)
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `jira_comment_id` | string | Jira comment ID | `"10042"` |
+| `jira_author` | string | Comment author display name | `"Bob Jones"` |
+
+### Chunking Metadata (if content was chunked)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `chunk_index` | int | Chunk sequence number (0-based) |
+| `total_chunks` | int | Total chunks for this document |
+| `chunking_strategy` | string | Strategy used (e.g., `"topical"`) |
+
+---
+
+## Direct Query Examples
+
+The Python search module (`src/memory/connectors/jira/search.py`) is NOT importable from other project directories. Use these direct Qdrant API patterns instead.
+
+### Curl-to-File-to-Python Pattern
+
+**Important**: Save curl output to a temp file first, then process with Python. Do NOT pipe directly to `python3` — it can cause encoding issues.
+
+#### Search by project key
 
 ```bash
-# Find authentication bugs in BMAD project
-/search-jira "authentication failing" --project BMAD --issue-type Bug
+# Step 1: Get API key
+export QDRANT_API_KEY="$(grep QDRANT_API_KEY ~/.ai-memory/docker/.env | cut -d= -f2)"
 
-# Find high priority work
-/search-jira "urgent" --priority High --limit 10
+# Step 2: Query Qdrant and save to temp file
+curl -s -H "Api-Key: $QDRANT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filter": {
+      "must": [
+        {"key": "jira_project", "match": {"value": "BMAD"}}
+      ]
+    },
+    "limit": 10,
+    "with_payload": true
+  }' \
+  http://localhost:26350/collections/jira-data/points/scroll > /tmp/jira_results.json
 
-# Find comments by specific person
-/search-jira "design decisions" --type jira_comment --author alice@company.com
-
-# Lookup complete issue context (issue + all comments)
-/search-jira --issue BMAD-42
-
-# Find in-progress stories
-/search-jira "features" --issue-type Story --status "In Progress"
+# Step 3: Process with Python
+python3 -c "
+import json
+data = json.load(open('/tmp/jira_results.json'))
+points = data.get('result', {}).get('points', [])
+print(f'Found {len(points)} points')
+for p in points:
+    pl = p.get('payload', {})
+    print(f\"  {pl.get('jira_issue_key', '?')} [{pl.get('type', '?')}] - {pl.get('jira_status', '?')} - {pl.get('content', '')[:80]}...\")
+"
 ```
+
+#### Filter by issue type and status
+
+```bash
+curl -s -H "Api-Key: $QDRANT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filter": {
+      "must": [
+        {"key": "jira_project", "match": {"value": "BMAD"}},
+        {"key": "jira_issue_type", "match": {"value": "Bug"}},
+        {"key": "jira_status", "match": {"value": "Done"}}
+      ]
+    },
+    "limit": 20,
+    "with_payload": true
+  }' \
+  http://localhost:26350/collections/jira-data/points/scroll > /tmp/jira_results.json
+```
+
+#### Count points in collection
+
+```bash
+curl -s -H "Api-Key: $QDRANT_API_KEY" \
+  http://localhost:26350/collections/jira-data | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+info = data.get('result', {})
+print(f\"Points: {info.get('points_count', 0)}, Vectors: {info.get('vectors_count', 0)}\")
+"
+```
+
+#### Get all comments for a specific issue
+
+```bash
+curl -s -H "Api-Key: $QDRANT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filter": {
+      "must": [
+        {"key": "jira_issue_key", "match": {"value": "BMAD-42"}},
+        {"key": "type", "match": {"value": "jira_comment"}}
+      ]
+    },
+    "limit": 50,
+    "with_payload": true
+  }' \
+  http://localhost:26350/collections/jira-data/points/scroll > /tmp/jira_results.json
+```
+
+---
 
 ## Python Implementation Reference
 
@@ -107,6 +244,8 @@ context = lookup_issue(
 - **Performance**: < 2s for typical searches
 - **Collection**: jira-data (issues and comments)
 - **Score Threshold**: Configurable via SIMILARITY_THRESHOLD (default 0.7)
+- **Port**: 26350 (NOT the Qdrant default of 6333)
+- **API Key**: Required — stored in `~/.ai-memory/docker/.env` as `QDRANT_API_KEY`
 
 ## Notes
 
@@ -114,3 +253,4 @@ context = lookup_issue(
 - Results sorted by relevance score (highest first)
 - Issue lookup mode returns chronologically sorted comments
 - All filters are optional except query (or --issue for lookup mode)
+- Use **exact field names** from the schema above — `jira_project` NOT `project_key`, `jira_issue_key` NOT `issue_key`

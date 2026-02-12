@@ -58,7 +58,7 @@ VALID_HOOK_TYPES = {
     "Stop",
 }
 VALID_EMBEDDING_TYPES = {"dense", "sparse_bm25", "sparse_splade"}
-VALID_COLLECTIONS = {"code-patterns", "conventions", "discussions"}
+VALID_COLLECTIONS = {"code-patterns", "conventions", "discussions", "jira-data"}
 VALID_COMPONENTS = {"qdrant", "embedding", "queue", "hook"}
 VALID_ERROR_CODES = {
     "QDRANT_UNAVAILABLE",
