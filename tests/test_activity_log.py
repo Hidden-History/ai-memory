@@ -6,7 +6,7 @@ Implements BUG-006 fix verification.
 
 import pytest
 
-from src.memory.activity_log import _write_full_content, log_user_prompt
+from src.memory.activity_log import _write_full_content, log_activity, log_user_prompt
 
 
 @pytest.fixture
@@ -141,3 +141,46 @@ def test_log_user_prompt_preserves_existing_behavior(temp_log_file):
 
     # Verify full content has all 100 chars
     assert "A" * 100 in content
+
+
+def test_log_activity_noop_when_logging_unavailable(monkeypatch, tmp_path):
+    """log_activity is a no-op when _LOGGING_AVAILABLE is False (BUG-070)."""
+    monkeypatch.setattr("src.memory.activity_log._LOGGING_AVAILABLE", False)
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    log_file = log_dir / "activity.log"
+    monkeypatch.setattr("src.memory.activity_log.ACTIVITY_LOG", str(log_file))
+
+    log_activity("🧠", "This should not be written")
+
+    assert not log_file.exists()
+
+
+def test_write_full_content_noop_when_logging_unavailable(monkeypatch, tmp_path):
+    """_write_full_content is a no-op when _LOGGING_AVAILABLE is False (BUG-070)."""
+    monkeypatch.setattr("src.memory.activity_log._LOGGING_AVAILABLE", False)
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    log_file = log_dir / "activity.log"
+    monkeypatch.setattr("src.memory.activity_log.ACTIVITY_LOG", str(log_file))
+
+    _write_full_content(["Test content that should not be written"])
+
+    assert not log_file.exists()
+
+
+def test_rotate_log_noop_when_logging_unavailable(monkeypatch, tmp_path):
+    """rotate_log is a no-op when _LOGGING_AVAILABLE is False (BUG-070)."""
+    from src.memory.activity_log import rotate_log
+
+    monkeypatch.setattr("src.memory.activity_log._LOGGING_AVAILABLE", False)
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    log_file = log_dir / "activity.log"
+    log_file.write_text("existing content\n" * 600)  # Over MAX_LOG_ENTRIES
+    monkeypatch.setattr("src.memory.activity_log.ACTIVITY_LOG", str(log_file))
+
+    rotate_log()
+
+    # File should be unchanged (rotation skipped)
+    assert log_file.read_text().count("\n") == 600

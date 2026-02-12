@@ -70,10 +70,10 @@ class TestAuthentication:
         headers = jira_client.client.headers
         assert headers["Accept"] == "application/json"
 
-    def test_content_type_header(self, jira_client):
-        """Content-Type header set to application/json."""
+    def test_no_content_type_header(self, jira_client):
+        """Content-Type header not set (GET-only client, no request body)."""
         headers = jira_client.client.headers
-        assert headers["Content-Type"] == "application/json"
+        assert "Content-Type" not in headers
 
 
 class TestClientConfiguration:
@@ -270,16 +270,19 @@ class TestIssueSearchPagination:
         mock_response.raise_for_status = Mock()
 
         with patch.object(
-            jira_client.client, "post", new=AsyncMock(return_value=mock_response)
-        ) as mock_post:
+            jira_client.client, "get", new=AsyncMock(return_value=mock_response)
+        ) as mock_get:
             await jira_client.search_issues("PROJ")
 
-        # Verify payload has no nextPageToken on first request
-        call_args = mock_post.call_args
-        payload = call_args.kwargs["json"]
-        assert "nextPageToken" not in payload
-        assert payload["jql"] == "project = PROJ"
-        assert payload["maxResults"] == 50
+        # Verify params has no nextPageToken on first request
+        call_args = mock_get.call_args
+        # Verify correct endpoint URL (BUG-071 regression guard)
+        url = call_args.args[0]
+        assert url.endswith("/rest/api/3/search/jql")
+        params = call_args.kwargs["params"]
+        assert "nextPageToken" not in params
+        assert params["jql"] == "project = PROJ"
+        assert params["maxResults"] == 50
 
     @pytest.mark.asyncio
     async def test_middle_page_with_token(self, jira_client):
@@ -307,18 +310,18 @@ class TestIssueSearchPagination:
 
         with patch.object(
             jira_client.client,
-            "post",
+            "get",
             new=AsyncMock(side_effect=mock_response_objs),
-        ) as mock_post:
+        ) as mock_get:
             result = await jira_client.search_issues("PROJ")
 
         # Verify two calls made
-        assert mock_post.call_count == 2
+        assert mock_get.call_count == 2
 
         # Second call should include nextPageToken
-        second_call = mock_post.call_args_list[1]
-        payload = second_call.kwargs["json"]
-        assert payload["nextPageToken"] == "token-abc-123"
+        second_call = mock_get.call_args_list[1]
+        params = second_call.kwargs["params"]
+        assert params["nextPageToken"] == "token-abc-123"
 
         # All issues returned
         assert len(result) == 2
@@ -335,13 +338,13 @@ class TestIssueSearchPagination:
 
         with patch.object(
             jira_client.client,
-            "post",
+            "get",
             new=AsyncMock(return_value=mock_response),
-        ) as mock_post:
+        ) as mock_get:
             result = await jira_client.search_issues("PROJ")
 
         # Only one call (isLast=true stops pagination)
-        assert mock_post.call_count == 1
+        assert mock_get.call_count == 1
         assert len(result) == 1
 
     @pytest.mark.asyncio
@@ -355,7 +358,7 @@ class TestIssueSearchPagination:
         mock_response.raise_for_status = Mock()
 
         with patch.object(
-            jira_client.client, "post", new=AsyncMock(return_value=mock_response)
+            jira_client.client, "get", new=AsyncMock(return_value=mock_response)
         ):
             result = await jira_client.search_issues("PROJ")
 
@@ -481,13 +484,13 @@ class TestBoundedJQL:
         mock_response.raise_for_status = Mock()
 
         with patch.object(
-            jira_client.client, "post", new=AsyncMock(return_value=mock_response)
-        ) as mock_post:
+            jira_client.client, "get", new=AsyncMock(return_value=mock_response)
+        ) as mock_get:
             await jira_client.search_issues("MYPROJ")
 
         # Verify JQL contains project key
-        payload = mock_post.call_args.kwargs["json"]
-        assert "project = MYPROJ" in payload["jql"]
+        params = mock_get.call_args.kwargs["params"]
+        assert "project = MYPROJ" in params["jql"]
 
     @pytest.mark.asyncio
     async def test_updated_since_filter_added(self, jira_client):
@@ -497,18 +500,39 @@ class TestBoundedJQL:
         mock_response.raise_for_status = Mock()
 
         with patch.object(
-            jira_client.client, "post", new=AsyncMock(return_value=mock_response)
-        ) as mock_post:
+            jira_client.client, "get", new=AsyncMock(return_value=mock_response)
+        ) as mock_get:
             await jira_client.search_issues(
                 "PROJ", updated_since="2026-01-01T00:00:00Z"
             )
 
         # Verify JQL has both project and updated filter
-        payload = mock_post.call_args.kwargs["json"]
-        jql = payload["jql"]
+        params = mock_get.call_args.kwargs["params"]
+        jql = params["jql"]
         assert "project = PROJ" in jql
-        assert "updated >= '2026-01-01T00:00:00Z'" in jql
+        assert "updated >= '2026-01-01 00:00'" in jql
         assert " AND " in jql
+
+    @pytest.mark.asyncio
+    async def test_updated_since_iso8601_converted_to_jira_format(self, jira_client):
+        """ISO 8601 timestamps converted to Jira JQL format (YYYY-MM-DD HH:mm)."""
+        mock_response = Mock()
+        mock_response.json.return_value = {"issues": [], "isLast": True}
+        mock_response.raise_for_status = Mock()
+
+        with patch.object(
+            jira_client.client, "get", new=AsyncMock(return_value=mock_response)
+        ) as mock_get:
+            await jira_client.search_issues(
+                "PROJ", updated_since="2026-02-12T01:25:01.844972+00:00"
+            )
+
+        params = mock_get.call_args.kwargs["params"]
+        jql = params["jql"]
+        # ISO 8601 should be converted to Jira format
+        assert "updated >= '2026-02-12 01:25'" in jql
+        # Must NOT contain T separator (Jira silently returns 0 results)
+        assert "T" not in jql
 
     @pytest.mark.asyncio
     async def test_jql_without_updated_filter(self, jira_client):
@@ -518,13 +542,13 @@ class TestBoundedJQL:
         mock_response.raise_for_status = Mock()
 
         with patch.object(
-            jira_client.client, "post", new=AsyncMock(return_value=mock_response)
-        ) as mock_post:
+            jira_client.client, "get", new=AsyncMock(return_value=mock_response)
+        ) as mock_get:
             await jira_client.search_issues("PROJ")
 
         # Verify JQL has only project filter
-        payload = mock_post.call_args.kwargs["json"]
-        assert payload["jql"] == "project = PROJ"
+        params = mock_get.call_args.kwargs["params"]
+        assert params["jql"] == "project = PROJ"
 
 
 # =============================================================================
@@ -541,7 +565,7 @@ class TestErrorHandling:
         with (
             patch.object(
                 jira_client.client,
-                "post",
+                "get",
                 new=AsyncMock(side_effect=httpx.TimeoutException("Timeout")),
             ),
             pytest.raises(JiraClientError, match="TIMEOUT"),
@@ -554,7 +578,7 @@ class TestErrorHandling:
         with (
             patch.object(
                 jira_client.client,
-                "post",
+                "get",
                 new=AsyncMock(side_effect=httpx.ConnectError("Connection failed")),
             ),
             pytest.raises(JiraClientError),
@@ -602,7 +626,7 @@ class TestErrorHandling:
 
         with (
             patch.object(
-                jira_client.client, "post", new=AsyncMock(return_value=mock_response)
+                jira_client.client, "get", new=AsyncMock(return_value=mock_response)
             ),
             pytest.raises(ValueError),
         ):
@@ -685,7 +709,7 @@ class TestRateLimiting:
         with (
             patch.object(
                 client.client,
-                "post",
+                "get",
                 new=AsyncMock(side_effect=mock_response_objs),
             ),
             patch("asyncio.sleep", new=AsyncMock()) as mock_sleep,
@@ -704,7 +728,7 @@ class TestRateLimiting:
 
         with (
             patch.object(
-                jira_client.client, "post", new=AsyncMock(return_value=mock_response)
+                jira_client.client, "get", new=AsyncMock(return_value=mock_response)
             ),
             patch("asyncio.sleep", new=AsyncMock()) as mock_sleep,
         ):

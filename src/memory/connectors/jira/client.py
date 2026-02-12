@@ -9,6 +9,7 @@ Reference: https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/
 import asyncio
 import base64
 import logging
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -91,7 +92,6 @@ class JiraClient:
             headers={
                 "Authorization": self.auth_header,
                 "Accept": "application/json",
-                "Content-Type": "application/json",
             },
         )
 
@@ -202,7 +202,15 @@ class JiraClient:
         # Build JQL query (bounded by project)
         jql = f"project = {project_key}"
         if updated_since:
-            jql += f" AND updated >= '{updated_since}'"
+            # Convert ISO 8601 to Jira JQL format (YYYY-MM-DD HH:mm)
+            # Jira rejects ISO 8601 T-separator format silently (returns 0 results)
+            try:
+                dt = datetime.fromisoformat(updated_since)
+                jql_date = dt.strftime("%Y-%m-%d %H:%M")
+            except (ValueError, TypeError):
+                # Fallback: use as-is if already in Jira format
+                jql_date = updated_since
+            jql += f" AND updated >= '{jql_date}'"
 
         all_issues: list[dict[str, Any]] = []
         next_token: str | None = None
@@ -210,19 +218,20 @@ class JiraClient:
 
         try:
             while not is_last:
-                # Build request payload
-                payload: dict[str, Any] = {
+                # Build request parameters (GET query params)
+                params: dict[str, Any] = {
                     "jql": jql,
-                    "maxResults": 50,  # Page size
-                    "fields": "*all",  # Get all fields
+                    "maxResults": 50,
+                    "fields": "*all",
                 }
                 if next_token:
-                    payload["nextPageToken"] = next_token
+                    params["nextPageToken"] = next_token
 
-                # Send request
-                response = await self.client.post(
+                # Send request — /search/jql (replaces deprecated /search which returns 410)
+                # Both GET and POST work; GET is canonical per Atlassian API docs
+                response = await self.client.get(
                     f"{self.base_url}/rest/api/3/search/jql",
-                    json=payload,
+                    params=params,
                 )
                 response.raise_for_status()
                 data = response.json()
