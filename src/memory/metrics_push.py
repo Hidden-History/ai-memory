@@ -142,7 +142,9 @@ def push_hook_metrics(
 
     try:
         pushadd_to_gateway(
-            PUSHGATEWAY_URL, job=JOB_NAME, registry=registry, timeout=0.5
+            PUSHGATEWAY_URL, job=JOB_NAME,
+            grouping_key={"instance": f"hook_{hook_name}"},
+            registry=registry, timeout=0.5
         )
     except Exception as e:
         logger.warning(
@@ -218,6 +220,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": f"hook_{{data['hook_name']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -337,6 +340,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": f"trigger_{{data['trigger_type']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -416,6 +420,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": f"token_{{data['operation']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -500,6 +505,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": f"ctx_injection_{{data['hook_type']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -584,6 +590,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": f"capture_{{data['hook_type']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -697,6 +704,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": f"embedding_{{data['context']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -789,6 +797,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": f"retrieval_{{data['collection']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -867,6 +876,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": f"failure_{{data['component']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -952,6 +962,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": f"skill_{{data['skill_name']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -1026,6 +1037,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": f"dedup_{{data['collection']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -1096,6 +1108,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": "queue"}},
         registry=registry,
         timeout=0.5
     )
@@ -1176,6 +1189,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": f"dedup_dur_{{data['collection']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -1250,6 +1264,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": f"col_size_{{data['collection']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -1339,6 +1354,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": f"chunking_{{data['chunk_type']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -1412,6 +1428,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
+        grouping_key={{"instance": "session_injection"}},
         registry=registry,
         timeout=0.5
     )
