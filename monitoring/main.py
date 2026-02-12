@@ -145,6 +145,18 @@ client = AsyncQdrantClient(
 )
 
 
+def _get_monitorable_collections(sync_client) -> list[str]:
+    """Get list of collections to monitor, including conditional ones."""
+    collections = ["code-patterns", "conventions", "discussions"]
+    # Add jira-data if it exists (conditional collection, only when Jira enabled)
+    try:
+        sync_client.get_collection("jira-data")
+        collections.append("jira-data")
+    except Exception:
+        pass  # Collection doesn't exist, skip
+    return collections
+
+
 # Lazy-loaded sync client for stats operations (reused across requests)
 _sync_client: "QdrantClient | None" = None
 
@@ -181,7 +193,7 @@ async def update_metrics_periodically():
             # Reuse sync client for stats (avoids creating new connection per update)
             sync_client = get_sync_client()
 
-            for collection_name in ["code-patterns", "conventions", "discussions"]:
+            for collection_name in _get_monitorable_collections(sync_client):
                 try:
                     stats = get_collection_stats(sync_client, collection_name)
                     update_collection_metrics(stats)
@@ -334,7 +346,7 @@ async def health():
         sync_client = get_sync_client()
 
         all_warnings = []
-        for collection_name in ["code-patterns", "conventions", "discussions"]:
+        for collection_name in _get_monitorable_collections(sync_client):
             try:
                 stats = get_collection_stats(sync_client, collection_name)
                 warnings = check_collection_thresholds(stats)

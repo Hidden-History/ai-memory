@@ -43,6 +43,7 @@ except ImportError:
     memory_retrievals_total = None
     failure_events_total = None
 
+from .activity_log import log_memory_search
 from .metrics_push import push_failure_metrics_async, push_retrieval_metrics_async
 
 __all__ = [
@@ -933,6 +934,17 @@ def search_memories(
         - Efficient: Only expands to secondary collections if primary insufficient
     """
     search = MemorySearch(config=config)
+    start_time = time.perf_counter()
+
+    def _log_search(results):
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        log_memory_search(
+            project=group_id or "unknown",
+            query=query,
+            results_count=len(results),
+            duration_ms=duration_ms,
+            results=results,
+        )
 
     # Backward compatible: If collection explicitly provided, use direct search
     if collection is not None:
@@ -940,14 +952,20 @@ def search_memories(
             "search_memories_direct",
             extra={"collection": collection, "group_id": group_id},
         )
-        return search.search(
-            query=query,
-            collection=collection,
-            group_id=group_id,
-            limit=limit,
-            memory_type=memory_type,
-            fast_mode=fast_mode,
-        )
+        try:
+            results = search.search(
+                query=query,
+                collection=collection,
+                group_id=group_id,
+                limit=limit,
+                memory_type=memory_type,
+                fast_mode=fast_mode,
+            )
+            _log_search(results)
+            return results
+        except Exception:
+            _log_search([])
+            raise
 
     # If not using cascading and no collection, default to code-patterns
     if not use_cascading:
@@ -955,14 +973,20 @@ def search_memories(
             "search_memories_default_collection",
             extra={"collection": COLLECTION_CODE_PATTERNS, "group_id": group_id},
         )
-        return search.search(
-            query=query,
-            collection=COLLECTION_CODE_PATTERNS,
-            group_id=group_id,
-            limit=limit,
-            memory_type=memory_type,
-            fast_mode=fast_mode,
-        )
+        try:
+            results = search.search(
+                query=query,
+                collection=COLLECTION_CODE_PATTERNS,
+                group_id=group_id,
+                limit=limit,
+                memory_type=memory_type,
+                fast_mode=fast_mode,
+            )
+            _log_search(results)
+            return results
+        except Exception:
+            _log_search([])
+            raise
 
     # Cascading search: Detect intent and route appropriately
     from .intent import (
@@ -1004,12 +1028,18 @@ def search_memories(
         },
     )
 
-    return search.cascading_search(
-        query=query,
-        group_id=group_id,  # Pass None to use no filter
-        primary_collection=primary_collection,
-        secondary_collections=secondary_collections,
-        limit=limit,
-        memory_type=effective_types,
-        fast_mode=fast_mode,
-    )
+    try:
+        results = search.cascading_search(
+            query=query,
+            group_id=group_id,  # Pass None to use no filter
+            primary_collection=primary_collection,
+            secondary_collections=secondary_collections,
+            limit=limit,
+            memory_type=effective_types,
+            fast_mode=fast_mode,
+        )
+        _log_search(results)
+        return results
+    except Exception:
+        _log_search([])
+        raise

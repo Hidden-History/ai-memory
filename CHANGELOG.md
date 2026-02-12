@@ -5,6 +5,99 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.5] - 2026-02-10
+
+Jira Cloud Integration: Sync and semantically search Jira issues and comments alongside your code memory.
+
+### Added
+
+#### Jira Cloud Integration
+- **Jira API client** (`src/memory/connectors/jira/client.py`) — Async httpx client with Basic Auth, token-based pagination for issues, offset-based pagination for comments, configurable rate limiting
+- **ADF converter** (`src/memory/connectors/jira/adf_converter.py`) — Converts Atlassian Document Format JSON to plain text for embedding. Handles paragraphs, headings, lists, code blocks, blockquotes, mentions, inline cards, and unknown node types gracefully
+- **Document composer** (`src/memory/connectors/jira/composer.py`) — Transforms raw Jira API responses into structured, embeddable document text with metadata headers
+- **Sync engine** (`src/memory/connectors/jira/sync.py`) — Full and incremental sync with JQL-based querying, SHA256 content deduplication, per-issue fail-open error handling, and persistent sync state
+- **Semantic search** (`src/memory/connectors/jira/search.py`) — Vector similarity search against `jira-data` collection with filters for project, type, status, priority, author. Includes issue lookup mode (issue + all comments, chronologically sorted)
+- **`/jira-sync` skill** — Incremental sync (default), full sync, per-project sync, and sync status check
+- **`/search-jira` skill** — Semantic search with project, type, issue-type, status, priority, and author filters. Issue lookup mode via `--issue PROJ-123`
+- **`jira-data` collection** — Conditional fourth collection (created only when Jira sync is enabled) for JIRA_ISSUE and JIRA_COMMENT memory types
+- **2 new memory types**: `JIRA_ISSUE`, `JIRA_COMMENT` (total: 17 memory types)
+- **Installer support** — `install.sh` prompts for optional Jira configuration, validates credentials via API, runs initial sync, configures cron jobs (6am/6pm daily incremental)
+- **Health check integration** — `jira-data` collection included in `/memory-status` and `health-check.py`
+- **182 unit tests** for all Jira components (client, ADF converter, composer, sync, search)
+
+#### Documentation
+- `docs/JIRA-INTEGRATION.md` — Comprehensive guide covering prerequisites, configuration, architecture, sync operations, search operations, automated scheduling, health checks, ADF converter reference, and troubleshooting
+- README.md updated with Jira Cloud Integration section, 17 memory types, four-collection architecture
+- INSTALL.md updated with optional Jira configuration step, environment variables, and post-install verification
+
+#### CI & Observability
+- Docker services (Qdrant, Embedding, Grafana) added to CI test job for E2E tests
+- 9 memory system E2E tests enabled with service containers
+- Activity logging added to `/search-memory` and `/memory-status` skill functions
+
+#### Monitoring
+- **Grafana Jira Data panel** — "Jira Data (Conditional)" row in Memory Operations V3 dashboard with 3 panels: `jira-data` collection size (Pushgateway), Qdrant Native cross-check (`collection_points`), and per-tenant breakdown (bar gauge by `project` label)
+- 4 new BUG-075 regression tests (AST chunker byte-offset, header capture, multibyte UTF-8)
+- 1 new BUG-076 test (jira-data valid collection)
+
+### Fixed
+
+#### Grafana Dashboard — Pushgateway `increase()` Fix (79 queries across 7 dashboards)
+
+All Grafana dashboards used `increase(metric[1h])` which always returns 0 with Pushgateway push-once semantics. Each hook creates a fresh Python registry and pushes `count=1`, overwriting the previous value — counters never increment between Prometheus scrapes.
+
+- **BUG-083**: `or vector()` fallback pattern caused duplicate series in Grafana — Removed unnecessary `or vector(0)` from 5 queries in `hook-activity-v3.json`
+- **BUG-084**: Hook Activity dashboard all panels showing zero — Replaced `increase(..._count[1h])` with `changes(..._created[$__rate_interval])` across 33 queries (stat, timeseries, table panels). The `_created` timestamp changes on every push, making `changes()` an accurate execution counter
+- **BUG-085**: NFR Performance dashboard stat panels showing wrong data, SLO gauges showing infinity — Removed `increase()` from `histogram_quantile()` (raw bucket values ARE the distribution with push-once), and from SLO ratio queries (`bucket/count` directly instead of `increase(bucket)/increase(count)` = 0/0 = NaN). 18 queries across stat, timeseries, and gauge panels
+- **Systemic `increase()` fix** across 5 remaining dashboards:
+  - `memory-overview.json` — 12 histogram_quantile changes (p50/p95/p99 for hook, embedding, search, classifier latencies)
+  - `memory-performance.json` — 8 expression + 5 description changes (topk/max wrappers around histogram_quantile)
+  - `classifier-health.json` — 4 histogram_quantile changes (classifier + batch duration latency)
+  - `system-health-v3.json` — 6 histogram_quantile + 6 failure counter changes (`_total` → `changes(_created)`)
+  - `memory-operations-v3.json` — 24 changes (14 `_total` → `changes(_created)`, 4 histogram_quantile, 4 `_count` → `changes(_created)`, 2 `_sum` raw values)
+- **Heatmap panels preserved** — 2 heatmap panels retain `increase(_bucket)` (correct semantics for latency distribution visualization)
+
+#### Other Fixes
+
+- **`store_memories_batch()` chunking compliance** — All memory types now route through `IntelligentChunker` (was only USER_MESSAGE and AGENT_RESPONSE). Chunks are batch-embedded individually (previously chunks after index 0 received zero vectors, making them unsearchable). All stored points now include `chunking_metadata`
+- **Workflow security** (`claude-assistant.yml`) — Added secret validation, HTTP error handling, JSON escaping, and secret redaction (7 hardening fixes)
+- **Streamlit dashboard** — Added `jira-data` collection and JIRA memory types to both imported and fallback code paths
+- **BUG-066**: `rm -rf ~/.ai-memory` broke Claude Code in ALL projects — Hook commands now guarded with existence check, installer protects against cascading failure
+- **BUG-067**: `validate_external_services()` crashes installer — Exception handling for urllib calls before Docker services are ready
+- **BUG-068**: Jira project keys UX — Added auto-discovery of Jira projects via API during install
+- **BUG-069**: JIRA_PROJECTS .env format incompatible with Pydantic v2 — Changed from comma-separated to JSON array format
+- **BUG-070**: Classifier worker crash on read-only filesystem — Graceful skip when mkdir fails on read-only Docker volume
+- **BUG-071**: Jira sync 400 error — Corrected POST to GET for read-only API endpoint
+- **BUG-072**: JQL date format silently breaks incremental sync — Fixed to ISO 8601 format
+- **BUG-073**: `source_hook` validation rejects `jira_sync` — Added `jira_sync` to source_hook whitelist
+- **BUG-075**: AST chunker truncates beginning of JS files — Fixed byte-offset drift (tree-sitter returns bytes, Python indexes chars) and comment header loss (`_find_import_nodes()` skipping comment nodes)
+- **BUG-076**: Metrics label warning for `jira-data` collection — Added `jira-data` to `VALID_COLLECTIONS` set and created dynamic `_get_monitorable_collections()` helper
+- **BUG-077**: Streamlit statistics page IndexError with 4 collections — `st.columns(3)` → `st.columns(len(COLLECTION_NAMES))`, updated Getting Started text
+- **BUG-078**: SessionStart matcher too broad — Narrowed from `startup|resume|compact|clear` to `resume|compact` per Core-Architecture-V2 Section 7.2
+- **BUG-079**: Source-built containers stale after install — Added `--build` flag to `docker compose up` commands in installer
+- **BUG-080**: Pushgateway persistence permission denied — Mounted volume at `/pushgateway` (owned by nobody:nobody) instead of `/data` (root:root), set explicit `user: "65534:65534"`
+- **BUG-081**: `merge_settings.py` does not upgrade SessionStart matcher on reinstall — Added BUG-078 matcher upgrade to `_upgrade_hook_commands()` so existing projects get the narrowed matcher on next install
+- **BUG-082**: All Grafana hook dashboard panels show zero — Added `grouping_key={"instance": "<prefix>_<value>"}` to all 16 `pushadd_to_gateway()` calls in `metrics_push.py`. Without grouping keys, each hook push overwrote the previous hook's metrics in the shared Pushgateway group
+- **22 code review fixes** across 9 files (silent env fallbacks, error messages, import guarding, migration path for JIRA_PROJECTS format)
+
+### Added
+- **`/save-memory` skill** — Manual memory save wrapping `scripts/manual_save_memory.py`, stores to `discussions` collection with `type=session`
+- **`scripts/recover_hook_guards.py`** — Standalone CLI recovery tool for existing installs affected by BUG-066 (unguarded hooks) and BUG-078 (broad SessionStart matcher). Dry-run by default, `--apply` to fix, `--scan` for multi-project discovery. Atomic writes with `fsync`+`os.replace`, file permission preservation, bidirectional safety checks. Enhanced with `installed_projects.json` manifest support and multi-path search (manifest → sibling directories → common project paths)
+- **`install.sh` project manifest** — Installer now records each installed project to `~/.ai-memory/installed_projects.json` via `record_installed_project()`, enabling reliable multi-project discovery by recovery and maintenance scripts
+- **BP-007**: Pushgateway grouping key convention — documents that every `pushadd_to_gateway()` call must include a unique `grouping_key` to prevent silent metric overwrites
+
+### Changed
+- Memory type count: 15 → 17 (added JIRA_ISSUE, JIRA_COMMENT)
+- Collection architecture: 3 core collections + 1 conditional (`jira-data`)
+- `store_memory()` accepts additional metadata fields and passes unknown fields directly to Qdrant payload (enables Jira-specific fields like `jira_issue_key`, `jira_author`, `jira_project`)
+- JIRA_ISSUE and JIRA_COMMENT mapped to `ContentType.PROSE` in both `store_memory()` and `store_memories_batch()` content type maps
+- `/search-jira` skill enhanced with complete Qdrant payload schema, connection details, and direct curl-to-file-to-python query examples
+
+### Known Issues
+- **BUG-064**: `hattan/verify-linked-issue-action@v1.2.0` tag missing upstream (pre-existing, cosmetic CI failure)
+- **BUG-065**: `actions/first-interaction@v3` input name breaking change (pre-existing, cosmetic CI failure)
+- **Backup/Restore scripts** do not yet support the `jira-data` collection — Jira database backup and reinstall will be added in the next version
+
 ## [2.0.4] - 2026-02-06
 
 v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003).
@@ -106,9 +199,9 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 
 ### Known Gaps
 - **TECH-DEBT-077** (partial): `/save-memory` has activity logging; `/search-memory` and `/memory-status` skills are markdown-only with no hook scripts to add logging to. Deferred to future sprint.
-- **TECH-DEBT-151** (partial): Session summary late chunking and chunk deduplication (0.92 cosine similarity check) deferred to v2.0.5
+- **TECH-DEBT-151** (partial): Session summary late chunking and chunk deduplication (0.92 cosine similarity check) deferred to v2.0.6
 
-## 2.0.3 - 2026-02-05
+## [2.0.3] - 2026-02-05
 
 ### Changed
 - Hook commands now use venv Python: `$AI_MEMORY_INSTALL_DIR/.venv/bin/python`
@@ -252,8 +345,11 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.4...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.5...HEAD
+[2.0.5]: https://github.com/Hidden-History/ai-memory/compare/v2.0.4...v2.0.5
 [2.0.4]: https://github.com/Hidden-History/ai-memory/compare/v2.0.3...v2.0.4
+[2.0.3]: https://github.com/Hidden-History/ai-memory/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/Hidden-History/ai-memory/compare/v2.0.0...v2.0.2
+[2.0.0]: https://github.com/Hidden-History/ai-memory/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/Hidden-History/ai-memory/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Hidden-History/ai-memory/releases/tag/v1.0.0

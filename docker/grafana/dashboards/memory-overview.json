@@ -399,17 +399,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (increase(aimemory_hook_duration_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (aimemory_hook_duration_seconds_bucket))",
           "refId": "A",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (increase(aimemory_hook_duration_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (aimemory_hook_duration_seconds_bucket))",
           "refId": "B",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (increase(aimemory_hook_duration_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (aimemory_hook_duration_seconds_bucket))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -478,17 +478,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (increase(aimemory_embedding_batch_duration_seconds_bucket[1h]) or increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (aimemory_embedding_batch_duration_seconds_bucket or aimemory_embedding_realtime_duration_seconds_bucket))",
           "refId": "A",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (increase(aimemory_embedding_batch_duration_seconds_bucket[1h]) or increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (aimemory_embedding_batch_duration_seconds_bucket or aimemory_embedding_realtime_duration_seconds_bucket))",
           "refId": "B",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (increase(aimemory_embedding_batch_duration_seconds_bucket[1h]) or increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (aimemory_embedding_batch_duration_seconds_bucket or aimemory_embedding_realtime_duration_seconds_bucket))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -557,17 +557,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (increase(aimemory_search_latency_bucket[1h])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (aimemory_search_latency_bucket))",
           "refId": "A",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (increase(aimemory_search_latency_bucket[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (aimemory_search_latency_bucket))",
           "refId": "B",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (increase(aimemory_search_latency_bucket[1h])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (aimemory_search_latency_bucket))",
           "refId": "C",
           "legendFormat": "p99"
         }
@@ -938,17 +938,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (increase(aimemory_classifier_latency_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (aimemory_classifier_latency_seconds_bucket))",
           "refId": "A",
           "legendFormat": "p50"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (increase(aimemory_classifier_latency_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (aimemory_classifier_latency_seconds_bucket))",
           "refId": "B",
           "legendFormat": "p95"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (increase(aimemory_classifier_latency_seconds_bucket[1h])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (aimemory_classifier_latency_seconds_bucket))",
           "refId": "C",
           "legendFormat": "p99"
         }

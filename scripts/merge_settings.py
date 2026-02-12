@@ -93,9 +93,7 @@ def normalize_hook_command(command: str) -> str:
     #   python3 "path/.claude/hooks/scripts/scriptname.py"
     #   "$.../.venv/bin/python" "path/.claude/hooks/scripts/scriptname.py"
     # Captures the script filename
-    pattern = (
-        r'(?:python3|"[^"]*\.venv/bin/python")\s+"[^"]*?\.claude/hooks/scripts/([^"]+)"'
-    )
+    pattern = r"\.claude/hooks/scripts/([^\"]+?)(?:\"|$)"
     match = re.search(pattern, command)
     if match:
         # Return just the script name as the normalized identifier
@@ -104,6 +102,16 @@ def normalize_hook_command(command: str) -> str:
 
     # For non-BMAD hooks, return the original command
     return command
+
+
+def _hook_cmd(script_name: str) -> str:
+    """Generate gracefully-degrading hook command. Exits 0 if installation missing.
+
+    NOTE: Duplicated in generate_settings.py — keep in sync.
+    """
+    script = f"$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/{script_name}"
+    python = "$AI_MEMORY_INSTALL_DIR/.venv/bin/python"
+    return f'[ -f "{script}" ] && "{python}" "{script}" || true'
 
 
 def merge_lists(existing: list, new: list) -> list:
@@ -158,6 +166,48 @@ def merge_lists(existing: list, new: list) -> list:
             result.append(item)
 
     return result
+
+
+def _upgrade_hook_commands(settings: dict) -> dict:
+    """Upgrade old unguarded hook commands to guarded format.
+
+    Scans all hooks in settings. If a command references .claude/hooks/scripts/
+    but does NOT contain '|| true', replaces it with the guarded format.
+    This ensures existing users get upgraded commands when re-running the installer.
+    """
+    import re
+
+    hooks = settings.get("hooks", {})
+    for _hook_type, wrappers in hooks.items():
+        if not isinstance(wrappers, list):
+            continue
+        for wrapper in wrappers:
+            if not isinstance(wrapper, dict):
+                continue
+            # Check direct command format (no nested hooks array)
+            if "command" in wrapper:
+                cmd = wrapper["command"]
+                if ".claude/hooks/scripts/" in cmd and "|| true" not in cmd:
+                    match = re.search(r"\.claude/hooks/scripts/([^\"]+?)(?:\"|$)", cmd)
+                    if match:
+                        wrapper["command"] = _hook_cmd(match.group(1))
+            # Check nested hooks array format
+            hook_list = wrapper.get("hooks", [])
+            for hook in hook_list:
+                if not isinstance(hook, dict) or "command" not in hook:
+                    continue
+                cmd = hook["command"]
+                if ".claude/hooks/scripts/" in cmd and "|| true" not in cmd:
+                    match = re.search(r"\.claude/hooks/scripts/([^\"]+?)(?:\"|$)", cmd)
+                    if match:
+                        hook["command"] = _hook_cmd(match.group(1))
+
+    # BUG-078: Upgrade SessionStart matcher
+    for wrapper in hooks.get("SessionStart", []):
+        if isinstance(wrapper, dict) and wrapper.get("matcher") == "startup|resume|compact|clear":
+            wrapper["matcher"] = "resume|compact"
+
+    return settings
 
 
 def backup_file(path: Path) -> Path:
@@ -223,6 +273,10 @@ def merge_settings(
 
     # Deep merge
     merged = deep_merge(existing, new_config)
+    # BUG-066: upgrade old unguarded hooks to guarded format.
+    # Note: _upgrade_hook_commands mutates in-place. Safe because
+    # merged is the only reference used after this point.
+    merged = _upgrade_hook_commands(merged)
 
     # Backup existing settings (copy, not rename - safer)
     if path.exists():

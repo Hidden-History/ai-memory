@@ -18,6 +18,16 @@ import sys
 from pathlib import Path
 
 
+def _hook_cmd(script_name: str) -> str:
+    """Generate gracefully-degrading hook command. Exits 0 if installation missing.
+
+    NOTE: Duplicated in merge_settings.py — keep in sync.
+    """
+    script = f"$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/{script_name}"
+    python = "$AI_MEMORY_INSTALL_DIR/.venv/bin/python"
+    return f'[ -f "{script}" ] && "{python}" "{script}" || true'
+
+
 def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
     """Generate hook configuration with dynamic AI_MEMORY_INSTALL_DIR paths.
 
@@ -32,7 +42,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         - 'hooks' section with all 6 hook types
 
     2026 Best Practice: Complete Claude Code V2.0 hook structure
-    - SessionStart: Requires 'matcher' (startup|resume|compact|clear) per docs
+    - SessionStart: Requires 'matcher' (resume|compact) per Core-Architecture-V2 Section 7.2
     - UserPromptSubmit: Captures user prompts and triggers keyword detection
     - PreToolUse: Triggers for new file creation and first edit detection
     - PostToolUse: Wrapper with 'matcher' + nested 'hooks' array (Bash errors, Edit/Write capture)
@@ -48,15 +58,9 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
     hooks_path = Path(hooks_dir)
     install_dir = str(hooks_path.parent.parent.parent)
 
-    # Use environment variable reference for portability
-    # Quotes go around the full path including script name
-    hooks_base = "$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts"
-    # TECH-DEBT-135: Use venv Python to access all dependencies (qdrant-client, etc.)
-    venv_python = '"$AI_MEMORY_INSTALL_DIR/.venv/bin/python"'
-
     session_start_hook = {
         "type": "command",
-        "command": f'{venv_python} "{hooks_base}/session_start.py"',
+        "command": _hook_cmd("session_start.py"),
         "timeout": 30000,
     }
 
@@ -92,7 +96,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         "hooks": {
             "SessionStart": [
                 {
-                    "matcher": "startup|resume|compact|clear",
+                    "matcher": "resume|compact",
                     "hooks": [session_start_hook],
                 }
             ],
@@ -101,7 +105,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'{venv_python} "{hooks_base}/user_prompt_capture.py"',
+                            "command": _hook_cmd("user_prompt_capture.py"),
                         }
                     ]
                 },
@@ -109,7 +113,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'{venv_python} "{hooks_base}/unified_keyword_trigger.py"',
+                            "command": _hook_cmd("unified_keyword_trigger.py"),
                             "timeout": 5000,
                         }
                     ]
@@ -121,7 +125,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'{venv_python} "{hooks_base}/new_file_trigger.py"',
+                            "command": _hook_cmd("new_file_trigger.py"),
                             "timeout": 2000,
                         }
                     ],
@@ -131,7 +135,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'{venv_python} "{hooks_base}/first_edit_trigger.py"',
+                            "command": _hook_cmd("first_edit_trigger.py"),
                             "timeout": 2000,
                         }
                     ],
@@ -143,12 +147,12 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'{venv_python} "{hooks_base}/error_detection.py"',
+                            "command": _hook_cmd("error_detection.py"),
                             "timeout": 2000,
                         },
                         {
                             "type": "command",
-                            "command": f'{venv_python} "{hooks_base}/error_pattern_capture.py"',
+                            "command": _hook_cmd("error_pattern_capture.py"),
                         },
                     ],
                 },
@@ -157,7 +161,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'{venv_python} "{hooks_base}/post_tool_capture.py"',
+                            "command": _hook_cmd("post_tool_capture.py"),
                         }
                     ],
                 },
@@ -168,7 +172,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'{venv_python} "{hooks_base}/pre_compact_save.py"',
+                            "command": _hook_cmd("pre_compact_save.py"),
                             "timeout": 10000,
                         }
                     ],
@@ -179,7 +183,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'{venv_python} "{hooks_base}/agent_response_capture.py"',
+                            "command": _hook_cmd("agent_response_capture.py"),
                         }
                     ]
                 }

@@ -120,14 +120,17 @@ services:
     container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-pushgateway
     profiles: ["monitoring"]
     # Enable persistence to retain metrics across restarts (BP-028)
+    # BUG-080: Mount volume at /pushgateway (owned by nobody:nobody in image)
+    # instead of /data (created as root:root by Docker, unwritable by UID 65534)
     command:
-      - "--persistence.file=/data/pushgateway.pf"
+      - "--persistence.file=/pushgateway/pushgateway.pf"
       - "--persistence.interval=5m"
     ports:
       - "127.0.0.1:29091:9091"
     restart: unless-stopped
     volumes:
-      - pushgateway_data:/data
+      - pushgateway_data:/pushgateway
+    user: "65534:65534"
     # Security hardening (2026 best practices)
     security_opt:
       - no-new-privileges:true

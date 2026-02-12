@@ -22,7 +22,7 @@ __all__ = [
 class MemoryType(str, Enum):
     """Types of memories that can be stored (Memory System v2.0).
 
-    Total: 15 types (4 code-patterns + 5 conventions + 6 discussions)
+    Total: 17 types (4 code-patterns + 5 conventions + 6 discussions + 2 jira-data)
     Spec: oversight/specs/MEMORY-SYSTEM-REDESIGN-v2.md Section 5
 
     Note: Uses (str, Enum) pattern for Python 3.10 compatibility (AMD ROCm images).
@@ -33,6 +33,7 @@ class MemoryType(str, Enum):
         code-patterns: IMPLEMENTATION, ERROR_FIX, REFACTOR, FILE_PATTERN
         conventions: RULE, GUIDELINE, PORT, NAMING, STRUCTURE
         discussions: DECISION, SESSION, BLOCKER, PREFERENCE, USER_MESSAGE, AGENT_RESPONSE
+        jira-data: JIRA_ISSUE, JIRA_COMMENT
     """
 
     # === code-patterns collection (HOW things are built) ===
@@ -55,6 +56,10 @@ class MemoryType(str, Enum):
     PREFERENCE = "preference"  # User preferences and working style
     USER_MESSAGE = "user_message"  # User messages from conversation
     AGENT_RESPONSE = "agent_response"  # Agent responses from conversation
+
+    # === jira-data collection (External work items from Jira Cloud) ===
+    JIRA_ISSUE = "jira_issue"  # Jira issue with metadata
+    JIRA_COMMENT = "jira_comment"  # Jira issue comment
 
 
 class ImportanceLevel(str, Enum):

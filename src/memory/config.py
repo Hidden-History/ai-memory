@@ -17,7 +17,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
@@ -26,6 +26,7 @@ __all__ = [
     "COLLECTION_CODE_PATTERNS",
     "COLLECTION_CONVENTIONS",
     "COLLECTION_DISCUSSIONS",
+    "COLLECTION_JIRA_DATA",
     "COLLECTION_NAMES",
     "EMBEDDING_DIMENSIONS",
     "EMBEDDING_MODEL",
@@ -43,6 +44,11 @@ __all__ = [
 COLLECTION_CODE_PATTERNS = "code-patterns"  # HOW things are built
 COLLECTION_CONVENTIONS = "conventions"  # WHAT rules to follow
 COLLECTION_DISCUSSIONS = "discussions"  # WHY things were decided
+
+# Jira integration collection (PLAN-004 Phase 1)
+# NOTE: This is a CONDITIONAL collection (only created when jira_sync_enabled=True)
+# Therefore it is NOT included in COLLECTION_NAMES to avoid breaking existing iteration logic
+COLLECTION_JIRA_DATA = "jira-data"  # External work items from Jira Cloud
 
 # All collection names for iteration/validation
 COLLECTION_NAMES = [
@@ -90,6 +96,12 @@ class MemoryConfig(BaseSettings):
         install_dir: Installation directory for config/data files
         queue_path: Path to file-based retry queue for failed operations
         session_log_path: Path to session logs
+        jira_instance_url: Jira Cloud instance URL (e.g., https://company.atlassian.net)
+        jira_email: Jira account email for Basic Auth
+        jira_api_token: Jira API token (stored as SecretStr for security)
+        jira_projects: List of Jira project keys to sync
+        jira_sync_enabled: Enable automatic Jira synchronization
+        jira_sync_delay_ms: Delay between Jira API requests for rate limiting
     """
 
     model_config = SettingsConfigDict(
@@ -231,12 +243,55 @@ class MemoryConfig(BaseSettings):
         description="Session logs",
     )
 
+    # Jira Cloud Integration (PLAN-004 Phase 1)
+    jira_instance_url: str = Field(
+        default="",
+        description="Jira Cloud instance URL (e.g., https://company.atlassian.net)",
+    )
+
+    jira_email: str = Field(
+        default="",
+        description="Jira account email for Basic Auth",
+    )
+
+    jira_api_token: SecretStr = Field(
+        default=SecretStr(""),
+        description="Jira API token for authentication (stored securely)",
+    )
+
+    jira_projects: list[str] = Field(
+        default_factory=list,
+        description="List of Jira project keys to sync (e.g., ['PROJ', 'DEV'])",
+    )
+
+    jira_sync_enabled: bool = Field(
+        default=False,
+        description="Enable automatic Jira synchronization",
+    )
+
+    jira_sync_delay_ms: int = Field(
+        default=100,
+        ge=0,
+        le=5000,
+        description="Delay between Jira API requests in milliseconds (rate limiting)",
+    )
+
     @field_validator("install_dir", "queue_path", "session_log_path", mode="before")
     @classmethod
     def expand_user_paths(cls, v):
         """Expand ~ and environment variables in paths."""
         if isinstance(v, str):
             return Path(os.path.expanduser(os.path.expandvars(v)))
+        return v
+
+    @field_validator("jira_projects", mode="before")
+    @classmethod
+    def parse_jira_projects(cls, v):
+        """Parse comma-separated string into list for JIRA_PROJECTS env var."""
+        if isinstance(v, str):
+            if v.startswith("["):
+                return v  # Already JSON format, let pydantic handle it
+            return [p.strip() for p in v.split(",") if p.strip()]
         return v
 
     def get_qdrant_url(self) -> str:

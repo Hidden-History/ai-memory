@@ -76,7 +76,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_captures_total{project=~\"$project\", collection=~\"$collection\"}[1h])) by (collection)",
+          "expr": "sum(changes(aimemory_captures_created{project=~\"$project\", collection=~\"$collection\"}[$__rate_interval])) by (collection)",
           "refId": "A",
           "legendFormat": "{{collection}}"
         }
@@ -180,7 +180,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_retrievals_total{project=~\"$project\", collection=~\"$collection\"}[1h])) by (collection)",
+          "expr": "sum(changes(aimemory_retrievals_created{project=~\"$project\", collection=~\"$collection\"}[$__rate_interval])) by (collection)",
           "refId": "A",
           "legendFormat": "{{collection}}"
         }
@@ -311,7 +311,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_dedup_events_total{action=\"skipped_duplicate\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_dedup_events_created{action=\"skipped_duplicate\", project=~\"$project\"}[$__range]))",
           "refId": "A",
           "legendFormat": "Duplicates"
         }
@@ -356,7 +356,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(increase(aimemory_dedup_check_duration_seconds_bucket{project=~\"$project\"}[1h])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(aimemory_dedup_check_duration_seconds_bucket{project=~\"$project\"}) by (le))",
           "refId": "A",
           "legendFormat": "p95"
         }
@@ -417,7 +417,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_dedup_events_total{action=\"skipped_duplicate\", project=~\"$project\"}[1h])) / (sum(increase(aimemory_dedup_events_total{project=~\"$project\"}[1h])) > 0) * 100 or vector(0)",
+          "expr": "sum(changes(aimemory_dedup_events_created{action=\"skipped_duplicate\", project=~\"$project\"}[$__range])) / (sum(changes(aimemory_dedup_events_created{project=~\"$project\"}[$__range])) > 0) * 100 or vector(0)",
           "refId": "A",
           "legendFormat": "Dedup %"
         }
@@ -478,7 +478,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_context_injection_tokens_sum{project=~\"$project\"}[1h])) by (hook_type)",
+          "expr": "sum(aimemory_context_injection_tokens_sum{project=~\"$project\"}) by (hook_type)",
           "refId": "A",
           "legendFormat": "{{hook_type}}"
         }
@@ -592,17 +592,17 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_captures_total{status=\"success\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_captures_created{status=\"success\", project=~\"$project\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "Success"
         },
         {
-          "expr": "sum(increase(aimemory_captures_total{status=\"queued\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_captures_created{status=\"queued\", project=~\"$project\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "Queued"
         },
         {
-          "expr": "sum(increase(aimemory_captures_total{status=\"failed\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_captures_created{status=\"failed\", project=~\"$project\"}[$__rate_interval]))",
           "refId": "C",
           "legendFormat": "Failed"
         }
@@ -699,17 +699,17 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_retrievals_total{status=\"success\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_retrievals_created{status=\"success\", project=~\"$project\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "Success"
         },
         {
-          "expr": "sum(increase(aimemory_retrievals_total{status=\"empty\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_retrievals_created{status=\"empty\", project=~\"$project\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "Empty"
         },
         {
-          "expr": "sum(increase(aimemory_retrievals_total{status=\"failed\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_retrievals_created{status=\"failed\", project=~\"$project\"}[$__rate_interval]))",
           "refId": "C",
           "legendFormat": "Failed"
         }
@@ -974,12 +974,158 @@
       }
     },
     {
+      "id": 500,
+      "type": "row",
+      "title": "Jira Data (Conditional)",
+      "gridPos": {
+        "x": 0,
+        "y": 41,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "jira-data",
+      "description": "Vectors in jira-data collection (conditional — only when Jira sync enabled)",
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(aimemory_collection_size{collection=\"jira-data\", project=\"all\"}) or vector(0)",
+          "refId": "A",
+          "legendFormat": "jira-data"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "N/A",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#B877D9"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Qdrant Native (jira-data)",
+      "description": "Cross-check: Qdrant native collection_points metric from /metrics endpoint (job=qdrant)",
+      "gridPos": {
+        "x": 6,
+        "y": 42,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "collection_points{collection=\"jira-data\"} or on() vector(0)",
+          "refId": "A",
+          "legendFormat": "Qdrant native"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "N/A",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#FF9830"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 26,
+      "type": "bargauge",
+      "title": "Jira Data by Tenant",
+      "description": "**Metric:** aimemory_collection_size{collection=\"jira-data\"}\n**Shows:** Vector count per group_id/project in jira-data collection\n**Tenancy:** Each Jira instance (group_id) tracked separately",
+      "gridPos": {
+        "x": 12,
+        "y": 42,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "aimemory_collection_size{collection=\"jira-data\", project!=\"all\"}",
+          "refId": "A",
+          "legendFormat": "{{project}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "No tenants",
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
       "id": 300,
       "type": "row",
       "title": "Chunking Operations",
       "gridPos": {
         "x": 0,
-        "y": 41,
+        "y": 46,
         "w": 24,
         "h": 1
       },
@@ -992,13 +1138,13 @@
       "description": "**Metric:** aimemory_chunking_operations_total\n**Types:** AST (tree-sitter), Markdown (header-based), Prose (semantic)",
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 47,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_chunking_operations_total{project=~\"$project\"}[1h])) by (chunk_type)",
+          "expr": "sum(changes(aimemory_chunking_operations_created{project=~\"$project\"}[$__rate_interval])) by (chunk_type)",
           "refId": "A",
           "legendFormat": "{{chunk_type}}"
         }
@@ -1096,13 +1242,13 @@
       "description": "**Metric:** aimemory_chunking_duration_seconds\n**Target:** AST chunking typically slowest due to tree-sitter parsing",
       "gridPos": {
         "x": 12,
-        "y": 42,
+        "y": 47,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(increase(aimemory_chunking_duration_seconds_bucket{project=~\"$project\"}[1h])) by (le, chunk_type))",
+          "expr": "histogram_quantile(0.95, sum(aimemory_chunking_duration_seconds_bucket{project=~\"$project\"}) by (le, chunk_type))",
           "refId": "A",
           "legendFormat": "{{chunk_type}} p95"
         }
@@ -1149,13 +1295,13 @@
       "description": "Tree-sitter based chunking for code files",
       "gridPos": {
         "x": 0,
-        "y": 50,
+        "y": 55,
         "w": 8,
         "h": 4
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_chunking_operations_total{chunk_type=\"ast\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_chunking_operations_created{chunk_type=\"ast\", project=~\"$project\"}[$__range]))",
           "refId": "A",
           "legendFormat": "AST"
         }
@@ -1194,13 +1340,13 @@
       "description": "Header-based chunking for markdown files",
       "gridPos": {
         "x": 8,
-        "y": 50,
+        "y": 55,
         "w": 8,
         "h": 4
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_chunking_operations_total{chunk_type=\"markdown\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_chunking_operations_created{chunk_type=\"markdown\", project=~\"$project\"}[$__range]))",
           "refId": "A",
           "legendFormat": "Markdown"
         }
@@ -1239,13 +1385,13 @@
       "description": "Semantic chunking for prose content",
       "gridPos": {
         "x": 16,
-        "y": 50,
+        "y": 55,
         "w": 8,
         "h": 4
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_chunking_operations_total{chunk_type=\"prose\", project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_chunking_operations_created{chunk_type=\"prose\", project=~\"$project\"}[$__range]))",
           "refId": "A",
           "legendFormat": "Prose"
         }
@@ -1283,7 +1429,7 @@
       "title": "Embedding Generation",
       "gridPos": {
         "x": 0,
-        "y": 54,
+        "y": 59,
         "w": 24,
         "h": 1
       },
@@ -1296,18 +1442,18 @@
       "description": "**Metric:** aimemory_embedding_generation_total\n**NFR-P2:** Batch <2s | **NFR-P6:** Realtime <500ms",
       "gridPos": {
         "x": 0,
-        "y": 55,
+        "y": 60,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_embedding_batch_duration_seconds_count{project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_embedding_batch_duration_seconds_created{project=~\"$project\"}[$__rate_interval]))",
           "refId": "A",
           "legendFormat": "Batch"
         },
         {
-          "expr": "sum(increase(aimemory_embedding_realtime_duration_seconds_count{project=~\"$project\"}[1h]))",
+          "expr": "sum(changes(aimemory_embedding_realtime_duration_seconds_created{project=~\"$project\"}[$__rate_interval]))",
           "refId": "B",
           "legendFormat": "Realtime"
         }
@@ -1383,18 +1529,18 @@
       "description": "**Metric:** aimemory_embedding_*_duration_seconds\n**Targets:** Batch <2s (NFR-P2), Realtime <500ms (NFR-P6)",
       "gridPos": {
         "x": 12,
-        "y": 55,
+        "y": 60,
         "w": 12,
         "h": 8
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_batch_duration_seconds_bucket[1h])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(aimemory_embedding_batch_duration_seconds_bucket) by (le))",
           "refId": "A",
           "legendFormat": "Batch p95"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(increase(aimemory_embedding_realtime_duration_seconds_bucket[1h])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(aimemory_embedding_realtime_duration_seconds_bucket) by (le))",
           "refId": "B",
           "legendFormat": "Realtime p95"
         },
@@ -1502,13 +1648,13 @@
       "description": "Background/batch embedding operations (NFR-P2 target: <2s)",
       "gridPos": {
         "x": 0,
-        "y": 63,
+        "y": 68,
         "w": 8,
         "h": 4
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_embedding_batch_duration_seconds_count[1h]))",
+          "expr": "sum(changes(aimemory_embedding_batch_duration_seconds_created[$__range]))",
           "refId": "A",
           "legendFormat": "Batch"
         }
@@ -1547,13 +1693,13 @@
       "description": "Real-time embedding operations for retrieval (NFR-P6 target: <500ms)",
       "gridPos": {
         "x": 8,
-        "y": 63,
+        "y": 68,
         "w": 8,
         "h": 4
       },
       "targets": [
         {
-          "expr": "sum(increase(aimemory_embedding_realtime_duration_seconds_count[1h]))",
+          "expr": "sum(changes(aimemory_embedding_realtime_duration_seconds_created[$__range]))",
           "refId": "A",
           "legendFormat": "Realtime"
         }
@@ -1592,13 +1738,13 @@
       "description": "Average latency across all embedding operations",
       "gridPos": {
         "x": 16,
-        "y": 63,
+        "y": 68,
         "w": 8,
         "h": 4
       },
       "targets": [
         {
-          "expr": "(sum(increase(aimemory_embedding_batch_duration_seconds_sum[1h])) + sum(increase(aimemory_embedding_realtime_duration_seconds_sum[1h]))) / (sum(increase(aimemory_embedding_batch_duration_seconds_count[1h])) + sum(increase(aimemory_embedding_realtime_duration_seconds_count[1h])))",
+          "expr": "(sum(aimemory_embedding_batch_duration_seconds_sum) + sum(aimemory_embedding_realtime_duration_seconds_sum)) / (sum(aimemory_embedding_batch_duration_seconds_count) + sum(aimemory_embedding_realtime_duration_seconds_count))",
           "refId": "A",
           "legendFormat": "Avg Latency"
         }

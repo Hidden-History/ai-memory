@@ -56,12 +56,14 @@ except ImportError:
 COLLECTION_CODE_PATTERNS = "code-patterns"
 COLLECTION_CONVENTIONS = "conventions"
 COLLECTION_DISCUSSIONS = "discussions"
+COLLECTION_JIRA_DATA = "jira-data"
 
 # Collection names list for iteration
 COLLECTION_NAMES = [
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
     COLLECTION_DISCUSSIONS,
+    COLLECTION_JIRA_DATA,
 ]
 
 # V2.0 Type System (C1: Derived from canonical source - src/memory/models.py:34-69)
@@ -89,6 +91,10 @@ if MODELS_IMPORTED:
             MemoryType.USER_MESSAGE.value,
             MemoryType.AGENT_RESPONSE.value,
         ],
+        "jira-data": [
+            MemoryType.JIRA_ISSUE.value,
+            MemoryType.JIRA_COMMENT.value,
+        ],
     }
 else:
     # Fallback: Hardcoded values if import fails (container missing pydantic_settings)
@@ -104,6 +110,10 @@ else:
             "preference",
             "user_message",
             "agent_response",
+        ],
+        "jira-data": [
+            "jira_issue",
+            "jira_comment",
         ],
     }
 
@@ -136,29 +146,17 @@ ACTIVITY_LOG_PATH = os.path.join(INSTALL_DIR, "logs", "activity.log")
 # VALIDATION FUNCTIONS
 # ============================================================================
 def validate_log_mount() -> tuple[bool, str]:
-    """Validate that activity log is accessible and current.
+    """Validate that activity log is accessible.
 
     Returns:
         (is_valid, message): Tuple of validation status and message
     """
+    log_dir = os.path.dirname(ACTIVITY_LOG_PATH)
+    if not os.path.isdir(log_dir):
+        return False, f"Log directory not mounted: {log_dir}"
     if not os.path.exists(ACTIVITY_LOG_PATH):
-        return False, f"Activity log not found: {ACTIVITY_LOG_PATH}"
-
-    # Check if log is stale (older than 24 hours with minimal content)
-    try:
-        stat = os.stat(ACTIVITY_LOG_PATH)
-        file_age_hours = (time.time() - stat.st_mtime) / 3600
-        file_size = stat.st_size
-
-        if file_size < 100 and file_age_hours > 24:
-            return (
-                False,
-                f"Activity log appears stale: {file_size} bytes, {file_age_hours:.1f}h old",
-            )
-    except OSError as e:
-        return False, f"Cannot stat activity log: {e}"
-
-    return True, "OK"
+        return True, "No activity yet — log will appear after first Claude Code session"
+    return True, ""
 
 
 # ============================================================================
@@ -492,6 +490,8 @@ def display_logs_page():
             "🔧 **Fix**: Restart Docker Compose with `AI_MEMORY_INSTALL_DIR` environment variable set, or check `docker/.env` file."
         )
         # Continue anyway to show whatever logs exist
+    elif log_message:
+        st.info(f"ℹ️ {log_message}")
 
     # BUG-022: Log stats and manual refresh button
     stats = get_log_stats()
@@ -720,7 +720,7 @@ def display_statistics_page():
     st.markdown("### Collection Overview")
 
     # Collection stats in cards
-    cols = st.columns(3)
+    cols = st.columns(len(COLLECTION_NAMES))
     for idx, collection_name in enumerate(COLLECTION_NAMES):
         with cols[idx]:
             try:
@@ -1043,7 +1043,7 @@ else:  # Default: 🔍 Memory Browser
         st.markdown("""
         ### Getting Started
 
-        1. Select a **Collection** (code-patterns, conventions, or discussions)
+        1. Select a **Collection** (code-patterns, conventions, discussions, or jira-data)
         2. Optionally filter by **Project** or **Type**
         3. Enter a **Search Query** (semantic search)
         4. Click **🔍 Search**

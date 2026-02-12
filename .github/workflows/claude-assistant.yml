@@ -85,6 +85,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      # TECH-DEBT-090 Task 2: Validate API credentials before making any API calls
+      - name: Validate API credentials
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        run: |
+          if [ -z "$OLLAMA_API_KEY" ]; then
+            echo "::error::OLLAMA_API_KEY secret is not configured"
+            exit 1
+          fi
+          echo "✓ API key validation passed"
+
+      # TECH-DEBT-090 Tasks 4 & 8: Diff is read only once to avoid redundant GitHub API calls.
+      # If future jobs need diff access, use GitHub Actions outputs with secure delimiters
+      # (e.g., EOF_$(date +%s%N)_${RANDOM}) instead of multiple gh pr diff calls.
       - name: Get context for review
         id: context
         env:
@@ -108,6 +122,7 @@ jobs:
 
           echo "Context gathered for issue #$ISSUE_NUMBER"
 
+      # TECH-DEBT-090: Hardened AI analysis with secret redaction, JSON escaping, and retry logic
       - name: AI Analysis via Ollama Cloud
         id: ollama
         env:
@@ -116,66 +131,119 @@ jobs:
           ISSUE_TITLE=$(cat /tmp/issue_title.txt)
           ISSUE_BODY=$(cat /tmp/issue_body.txt | head -50)
           USER_REQUEST=$(cat /tmp/comment.txt)
-          DIFF_CONTENT=$(cat /tmp/diff.txt | head -300)
           IS_PR="${{ needs.access-control.outputs.is_pr }}"
 
-          # Build prompt based on context
-          if [ "$IS_PR" = "true" ] && [ -s /tmp/diff.txt ]; then
-            PROMPT="You are an AI code reviewer. Analyze this PR and respond to the request.
+          # TECH-DEBT-090 Task 5: Read and redact potential secrets from diff
+          DIFF_RAW=$(cat /tmp/diff.txt | head -300)
 
-          PR Title: $ISSUE_TITLE
-
-          PR Description: $ISSUE_BODY
-
-          Code Changes:
-          $DIFF_CONTENT
-
-          User Request: $USER_REQUEST
-
-          Focus on: bugs, security, edge cases, improvements. Format in markdown."
-          else
-            PROMPT="You are an AI assistant for GitHub issues. Analyze and respond.
-
-          Issue Title: $ISSUE_TITLE
-
-          Issue Description: $ISSUE_BODY
-
-          User Request: $USER_REQUEST
-
-          If bug report: analyze root cause, suggest fix, identify affected files. Format in markdown."
-          fi
-
-          echo "Calling Ollama Cloud API..."
-
-          RESPONSE=$(curl -s -w "\n%{http_code}" https://ollama.com/api/chat \
-            -H "Authorization: Bearer $OLLAMA_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -n --arg prompt "$PROMPT" '{
-              "model": "kimi-k2.5:cloud",
-              "messages": [{"role": "user", "content": $prompt}],
-              "stream": false
-            }')")
-
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | sed '$d')
-
-          echo "HTTP Status: $HTTP_CODE"
-
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "API Error: $BODY"
+          # TECH-DEBT-090 Task 5b: Skip AI review if diff touches sensitive files
+          if echo "$DIFF_RAW" | grep -qE '^\+\+\+ b/.*(\.env|\.env\.|credentials|\.pem|\.key|id_rsa|\.p12|\.pfx)'; then
+            echo "::warning::Diff contains changes to sensitive files — skipping AI review for safety"
             echo "review_ready=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          REVIEW=$(echo "$BODY" | jq -r '.message.content // empty')
+          DIFF_FILTERED=$(echo "$DIFF_RAW" | \
+            sed -E 's/(api[_-]?key|password|secret|token|bearer|private[_-]?key|client[_-]?secret)[[:space:]]*[:=][[:space:]]*["\047]?[^"\047[:space:]]+["\047]?/\1=***REDACTED***/gI' | \
+            sed -E 's/(AWS|GITHUB|ANTHROPIC|OPENAI|OLLAMA|OAUTH)[_-]?(SECRET|TOKEN|KEY|PASSWORD)[_A-Z]*[[:space:]]*[:=][[:space:]]*[^[:space:]]+/\1_\2=***REDACTED***/g' | \
+            sed -E 's/"[a-zA-Z_]*([Ss]ecret|[Tt]oken|[Kk]ey|[Pp]assword)"[[:space:]]*:[[:space:]]*"[^"]+"/"\1":"***REDACTED***"/g')
 
-          if [ -n "$REVIEW" ]; then
-            echo "$REVIEW" > /tmp/review.txt
-            echo "review_ready=true" >> $GITHUB_OUTPUT
-            echo "Review received: $(wc -c < /tmp/review.txt) chars"
+          # TECH-DEBT-090 Task 1: Build JSON payload with proper escaping using jq
+          if [ "$IS_PR" = "true" ] && [ -s /tmp/diff.txt ]; then
+            PAYLOAD=$(jq -n \
+              --arg title "$ISSUE_TITLE" \
+              --arg body "$ISSUE_BODY" \
+              --arg diff "$DIFF_FILTERED" \
+              --arg request "$USER_REQUEST" \
+              '{
+                "model": "kimi-k2.5:cloud",
+                "messages": [{
+                  "role": "user",
+                  "content": ("You are an AI code reviewer. Analyze this PR and respond to the request.\n\n" +
+                    "PR Title: " + $title + "\n\n" +
+                    "PR Description: " + $body + "\n\n" +
+                    "Code Changes:\n" + $diff + "\n\n" +
+                    "User Request: " + $request + "\n\n" +
+                    "Focus on: bugs, security, edge cases, improvements. Format in markdown.")
+                }],
+                "stream": false
+              }')
           else
-            echo "No review content received"
-            echo "Raw response: $BODY"
+            PAYLOAD=$(jq -n \
+              --arg title "$ISSUE_TITLE" \
+              --arg body "$ISSUE_BODY" \
+              --arg request "$USER_REQUEST" \
+              '{
+                "model": "kimi-k2.5:cloud",
+                "messages": [{
+                  "role": "user",
+                  "content": ("You are an AI assistant for GitHub issues. Analyze and respond.\n\n" +
+                    "Issue Title: " + $title + "\n\n" +
+                    "Issue Description: " + $body + "\n\n" +
+                    "User Request: " + $request + "\n\n" +
+                    "If bug report: analyze root cause, suggest fix, identify affected files. Format in markdown.")
+                }],
+                "stream": false
+              }')
+          fi
+
+          # TECH-DEBT-090 Task 3: Retry logic with exponential backoff and error handling
+          echo "Calling Ollama Cloud API..."
+          REVIEW_READY=false
+
+          for attempt in 1 2 3; do
+            echo "API call attempt $attempt/3..."
+
+            RESPONSE=$(curl -sf --max-time 30 \
+              -w "\n%{http_code}" \
+              https://ollama.com/api/chat \
+              -H "Authorization: Bearer $OLLAMA_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD" 2>&1)
+
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+
+            echo "HTTP Status: $HTTP_CODE"
+
+            # Success: HTTP 2xx
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ] 2>/dev/null; then
+              echo "✓ API call succeeded (HTTP $HTTP_CODE)"
+
+              REVIEW=$(echo "$BODY" | jq -r '.message.content // empty')
+
+              if [ -n "$REVIEW" ]; then
+                echo "$REVIEW" > /tmp/review.txt
+                echo "review_ready=true" >> $GITHUB_OUTPUT
+                echo "Review received: $(wc -c < /tmp/review.txt) chars"
+                REVIEW_READY=true
+                break
+              else
+                echo "::warning::No review content in response"
+                echo "Raw response: $BODY"
+              fi
+            else
+              echo "::warning::API call failed (HTTP $HTTP_CODE)"
+              echo "Response: $BODY"
+
+              # Don't retry client errors (4xx) — only retry server errors (5xx) and timeouts
+              if [ "$HTTP_CODE" -ge 400 ] && [ "$HTTP_CODE" -lt 500 ] 2>/dev/null; then
+                echo "::error::Client error (HTTP $HTTP_CODE) — not retrying"
+                break
+              fi
+            fi
+
+            # Retry with exponential backoff (except on last attempt)
+            if [ $attempt -lt 3 ]; then
+              BACKOFF=$((5 * (2 ** (attempt - 1))))
+              echo "Retrying in ${BACKOFF}s..."
+              sleep $BACKOFF
+            fi
+          done
+
+          # Final status
+          if [ "$REVIEW_READY" = false ]; then
+            echo "::error::API call failed after 3 attempts"
             echo "review_ready=false" >> $GITHUB_OUTPUT
           fi
 
@@ -213,32 +281,75 @@ jobs:
     if: needs.access-control.outputs.authorized == 'true' && needs.access-control.outputs.is_pr == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Validate API credentials
+        id: validate-key
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        run: |
+          if [ -z "$OLLAMA_API_KEY" ]; then
+            echo "::warning::OLLAMA_API_KEY not configured — skipping auto-label"
+            echo "has_key=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_key=true" >> $GITHUB_OUTPUT
+          fi
+
+      # TECH-DEBT-090 Task 3: Hardened PR classification with retry logic
       - name: Classify PR type
+        if: steps.validate-key.outputs.has_key == 'true'
         id: classify
         env:
           OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
         run: |
           PR_TITLE="${{ github.event.issue.title }}"
 
-          PROMPT="Classify this PR title as ONE of: bug, feature, docs, refactor, test, chore. Title: $PR_TITLE. Return ONLY the single word."
-
-          RESPONSE=$(curl -s https://ollama.com/api/chat \
-            -H "Authorization: Bearer $OLLAMA_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -n --arg prompt "$PROMPT" '{
+          # Build JSON payload with proper escaping
+          PAYLOAD=$(jq -n \
+            --arg title "$PR_TITLE" \
+            '{
               "model": "llama3.3:70b",
-              "messages": [{"role": "user", "content": $prompt}],
+              "messages": [{
+                "role": "user",
+                "content": ("Classify this PR title as ONE of: bug, feature, docs, refactor, test, chore. Title: " + $title + ". Return ONLY the single word.")
+              }],
               "stream": false
-            }')")
+            }')
 
-          LABEL=$(echo "$RESPONSE" | jq -r '.message.content // empty' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+          # Retry logic with exponential backoff
+          LABEL=""
+          for attempt in 1 2 3; do
+            echo "Classification attempt $attempt/3..."
 
-          echo "Classified as: $LABEL"
-          echo "label=$LABEL" >> $GITHUB_OUTPUT
+            RESPONSE=$(curl -sf --max-time 30 \
+              https://ollama.com/api/chat \
+              -H "Authorization: Bearer $OLLAMA_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD" 2>&1)
+
+            # Extract label if successful
+            LABEL=$(echo "$RESPONSE" | jq -r '.message.content // empty' 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+
+            if [ -n "$LABEL" ]; then
+              echo "✓ Classified as: $LABEL"
+              echo "label=$LABEL" >> $GITHUB_OUTPUT
+              break
+            fi
+
+            # Retry with backoff (except on last attempt)
+            if [ $attempt -lt 3 ]; then
+              BACKOFF=$((5 * (2 ** (attempt - 1))))
+              echo "::warning::Classification failed, retrying in ${BACKOFF}s..."
+              sleep $BACKOFF
+            fi
+          done
+
+          if [ -z "$LABEL" ]; then
+            echo "::warning::Failed to classify PR after 3 attempts"
+            echo "label=" >> $GITHUB_OUTPUT
+          fi
         continue-on-error: true
 
       - name: Apply label
-        if: steps.classify.outputs.label != ''
+        if: steps.validate-key.outputs.has_key == 'true' && steps.classify.outputs.label != ''
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

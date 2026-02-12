@@ -58,7 +58,7 @@ cleanup() {
         else
             echo "Partial installation exists at: $INSTALL_DIR"
             echo "To clean up and retry:"
-            echo "  rm -rf $INSTALL_DIR"
+            echo "  rm -rf \"$INSTALL_DIR\""
             echo "  ./install.sh"
         fi
     fi
@@ -97,11 +97,40 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Convert comma-separated Jira project keys to JSON array for .env file
+# Required because Pydantic Settings v2.12 calls json.loads() on list[str]
+# fields from DotEnvSettingsSource BEFORE @field_validator runs (BUG-069)
+format_jira_projects_json() {
+    local input="${1:-}"
+    if [[ -z "$input" ]]; then
+        echo "[]"
+        return
+    fi
+    local result
+    result=$(echo "$input" | python3 -c "
+import json, sys
+keys = [k.strip() for k in sys.stdin.read().strip().split(',') if k.strip()]
+print(json.dumps(keys))
+" 2>/dev/null) || {
+        log_warning "Failed to convert JIRA_PROJECTS '$input' to JSON (python3 error), using empty list"
+        result="[]"
+    }
+    echo "$result"
+}
+
 # Configuration flags (set by interactive prompts or environment)
 INSTALL_MONITORING="${INSTALL_MONITORING:-}"
 SEED_BEST_PRACTICES="${SEED_BEST_PRACTICES:-}"
 NON_INTERACTIVE="${NON_INTERACTIVE:-false}"
 INSTALL_MODE="${INSTALL_MODE:-full}"  # full or add-project (set by check_existing_installation)
+
+# Jira sync configuration (PLAN-004 Phase 2)
+JIRA_SYNC_ENABLED="${JIRA_SYNC_ENABLED:-}"
+JIRA_INSTANCE_URL="${JIRA_INSTANCE_URL:-}"
+JIRA_EMAIL="${JIRA_EMAIL:-}"
+JIRA_API_TOKEN="${JIRA_API_TOKEN:-}"
+JIRA_PROJECTS="${JIRA_PROJECTS:-}"
+JIRA_INITIAL_SYNC="${JIRA_INITIAL_SYNC:-}"
 
 # Prompt for project name (group_id for Qdrant isolation)
 configure_project_name() {
@@ -177,6 +206,151 @@ configure_options() {
         echo ""
     fi
 
+    # Jira Cloud Integration (PLAN-004 Phase 2)
+    if [[ -z "$JIRA_SYNC_ENABLED" ]]; then
+        echo "🔗 Jira Cloud Integration (Optional)"
+        echo "   Syncs issues and comments to memory for semantic search"
+        echo "   Enables Claude to retrieve work context from Jira"
+        echo ""
+        read -p "   Enable Jira sync? [y/N]: " jira_choice
+
+        if [[ "$jira_choice" =~ ^[Yy]$ ]]; then
+            JIRA_SYNC_ENABLED="true"
+
+            # Collect credentials
+            echo ""
+            read -p "   Jira instance URL (e.g., https://company.atlassian.net): " jira_url
+            JIRA_INSTANCE_URL="$jira_url"
+
+            read -p "   Jira email: " jira_email
+            JIRA_EMAIL="$jira_email"
+
+            echo "   Generate API token: https://id.atlassian.com/manage-profile/security/api-tokens"
+            read -sp "   Jira API token (hidden): " jira_token
+            JIRA_API_TOKEN="$jira_token"
+            echo ""
+
+            # Strip trailing slash for consistent URL handling (matches JiraClient behavior)
+            JIRA_INSTANCE_URL="${JIRA_INSTANCE_URL%/}"
+
+            # Validate credentials via curl smoke test (BP-053: Two-Phase Validation)
+            # Full Python validation runs later in validate_external_services()
+            echo ""
+            log_info "Testing Jira connection..."
+
+            # Jira Cloud REST API v3 Basic Auth: base64(email:api_token)
+            local jira_auth
+            jira_auth=$(printf '%s:%s' "$JIRA_EMAIL" "$JIRA_API_TOKEN" | base64 | tr -d '\n')
+
+            local http_code
+            http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+                -H "Authorization: Basic $jira_auth" \
+                -H "Content-Type: application/json" \
+                "${JIRA_INSTANCE_URL}/rest/api/3/myself" \
+                --connect-timeout 10 --max-time 15 2>/dev/null)
+
+            if [[ "$http_code" == "200" ]]; then
+                log_success "Jira connection verified (HTTP 200)"
+
+                # Auto-discover Jira projects (BUG-068: replaces manual key entry)
+                log_info "Fetching available Jira projects..."
+                local projects_json
+                projects_json=$(curl -s \
+                    -H "Authorization: Basic $jira_auth" \
+                    -H "Content-Type: application/json" \
+                    "${JIRA_INSTANCE_URL}/rest/api/3/project/search?maxResults=100" \
+                    --connect-timeout 10 --max-time 15 2>/dev/null) || projects_json=""
+
+                if [[ -n "$projects_json" ]]; then
+                    # Parse project keys and names using system python3
+                    local project_list
+                    project_list=$(python3 -c "
+import json, sys
+try:
+    data = json.loads(sys.stdin.read())
+    projects = data.get('values', data) if isinstance(data, dict) else data
+    if not isinstance(projects, list) or len(projects) == 0:
+        print('EMPTY')
+        sys.exit(0)
+    for i, p in enumerate(projects, 1):
+        print(f\"{i}. {p['key']}: {p.get('name', p['key'])}\")
+except Exception:
+    print('ERROR')
+" <<< "$projects_json" 2>/dev/null) || project_list="ERROR"
+
+                    if [[ "$project_list" != "EMPTY" && "$project_list" != "ERROR" && -n "$project_list" ]]; then
+                        echo ""
+                        echo "   Available projects on ${JIRA_INSTANCE_URL#https://}:"
+                        echo "$project_list" | while IFS= read -r line; do
+                            echo "     $line"
+                        done
+                        echo ""
+                        read -p "   Which projects to sync? (comma-separated numbers, or 'all'): " project_selection
+
+                        if [[ "$project_selection" == "all" ]]; then
+                            JIRA_PROJECTS=$(python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+projects = data.get('values', data) if isinstance(data, dict) else data
+print(','.join(p['key'] for p in projects))
+" <<< "$projects_json" 2>/dev/null) || JIRA_PROJECTS=""
+                        else
+                            JIRA_PROJECTS=$(_PROJ_SEL="$project_selection" python3 -c "
+import json, sys, os
+data = json.loads(sys.stdin.read())
+projects = data.get('values', data) if isinstance(data, dict) else data
+sel_input = os.environ.get('_PROJ_SEL', '')
+selections = [int(s.strip()) for s in sel_input.split(',') if s.strip().isdigit()]
+keys = [projects[i-1]['key'] for i in selections if 0 < i <= len(projects)]
+print(','.join(keys))
+" <<< "$projects_json" 2>/dev/null) || JIRA_PROJECTS=""
+                        fi
+
+                        if [[ -n "$JIRA_PROJECTS" ]]; then
+                            log_success "Selected projects: $JIRA_PROJECTS"
+                        else
+                            log_error "No valid projects selected — Jira sync disabled"
+                            JIRA_SYNC_ENABLED="false"
+                        fi
+                    else
+                        log_warning "Could not fetch project list — enter keys manually"
+                        read -p "   Project keys (comma-separated): " jira_projects
+                        JIRA_PROJECTS="$jira_projects"
+                        if [[ -z "$JIRA_PROJECTS" ]]; then
+                            log_error "No projects entered — Jira sync disabled"
+                            JIRA_SYNC_ENABLED="false"
+                        fi
+                    fi
+                else
+                    log_warning "Could not fetch project list — enter keys manually"
+                    read -p "   Project keys (comma-separated): " jira_projects
+                    JIRA_PROJECTS="$jira_projects"
+                    if [[ -z "$JIRA_PROJECTS" ]]; then
+                        log_error "No projects entered — Jira sync disabled"
+                        JIRA_SYNC_ENABLED="false"
+                    fi
+                fi
+
+                # Prompt for initial sync
+                echo ""
+                echo "   Initial sync can take 5-10 minutes for large projects"
+                read -p "   Run initial sync now? [y/N]: " initial_sync
+                if [[ "$initial_sync" =~ ^[Yy]$ ]]; then
+                    JIRA_INITIAL_SYNC="true"
+                else
+                    JIRA_INITIAL_SYNC="false"
+                fi
+            else
+                log_error "Jira connection test failed (HTTP $http_code) - sync will be disabled"
+                log_info "Verify: URL, email, and API token at https://id.atlassian.com/manage-profile/security/api-tokens"
+                JIRA_SYNC_ENABLED="false"
+            fi
+        else
+            JIRA_SYNC_ENABLED="false"
+        fi
+        echo ""
+    fi
+
     # Summary
     echo "┌─────────────────────────────────────────────────────────────┐"
     echo "│  Installation Summary                                       │"
@@ -192,6 +366,9 @@ configure_options() {
     fi
     if [[ "$SEED_BEST_PRACTICES" == "true" ]]; then
         echo "│    ✓ Best practices patterns (Python, Docker, Git)          │"
+    fi
+    if [[ "$JIRA_SYNC_ENABLED" == "true" ]]; then
+        echo "│    ✓ Jira Cloud sync (${JIRA_PROJECTS})                     │"
     fi
     echo "└─────────────────────────────────────────────────────────────┘"
     echo ""
@@ -241,6 +418,7 @@ main() {
         copy_files
         install_python_dependencies
         configure_environment
+        validate_external_services
 
         # Skip Docker-related steps if SKIP_DOCKER_CHECKS is set (for CI without Docker)
         if [[ "${SKIP_DOCKER_CHECKS:-}" == "true" ]]; then
@@ -253,6 +431,8 @@ main() {
             copy_env_template
             run_health_check
             seed_best_practices
+            run_initial_jira_sync
+            setup_jira_cron
         fi
     else
         log_info "Skipping shared infrastructure setup (add-project mode)"
@@ -266,6 +446,9 @@ main() {
     create_project_symlinks
     configure_project_hooks
     verify_project_hooks
+
+    # Record project in manifest for cross-filesystem recovery discovery
+    record_installed_project
 
     show_success_message
 }
@@ -470,6 +653,17 @@ check_prerequisites() {
         fi
     fi
 
+    # Check curl (REQUIRED for health checks and API validation)
+    if ! command -v curl &> /dev/null; then
+        log_error "curl is not installed (required for health checks and API validation)"
+        echo ""
+        echo "Please install curl:"
+        echo "  Ubuntu/Debian: sudo apt install curl"
+        echo "  macOS: brew install curl"
+        echo ""
+        failed=true
+    fi
+
     # Check Python 3.10+ (REQUIRED for async support and improved type hints)
     if ! command -v python3 &> /dev/null; then
         log_error "Python 3 is not installed."
@@ -641,6 +835,7 @@ create_directories() {
         echo "     ├── src/memory/          (Python memory modules)"
         echo "     ├── scripts/             (Management scripts)"
         echo "     ├── .claude/hooks/scripts/ (Hook implementations)"
+        echo "     ├── .locks/              (Process lock files)"
         echo "     └── logs/                (Application logs)"
         echo ""
         echo "  📁 \$INSTALL_DIR/queue/    (Private queue, chmod 700)"
@@ -655,7 +850,7 @@ create_directories() {
     fi
 
     # Create main installation directory and subdirectories
-    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,logs,queue}
+    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,logs,queue,.locks}
 
     # Create queue directory with restricted permissions (security best practice 2026)
     # Queue is shared across all projects - single classifier worker processes all
@@ -912,10 +1107,24 @@ configure_environment() {
     if [[ -f "$docker_env" ]]; then
         log_info "Found existing docker/.env with credentials - updating paths..."
 
+        # BUG-069: Migrate existing JIRA_PROJECTS from comma-separated to JSON array
+        # On reinstall, the Jira config block is skipped (already present), so the
+        # old format persists. This in-place migration fixes it.
+        if grep -q "^JIRA_PROJECTS=" "$docker_env"; then
+            local existing_jp
+            existing_jp=$(grep "^JIRA_PROJECTS=" "$docker_env" | cut -d= -f2-)
+            if [[ -n "$existing_jp" && ! "$existing_jp" =~ ^\[ ]]; then
+                local migrated_jp
+                migrated_jp=$(format_jira_projects_json "$existing_jp")
+                sed -i.bak "s|^JIRA_PROJECTS=.*|JIRA_PROJECTS=$migrated_jp|" "$docker_env" && rm -f "$docker_env.bak"
+                log_info "Migrated JIRA_PROJECTS to JSON format (BUG-069)"
+            fi
+        fi
+
         # Update AI_MEMORY_INSTALL_DIR to actual installation path
         # This handles the case where source .env has dev repo path
         if grep -q "^AI_MEMORY_INSTALL_DIR=" "$docker_env"; then
-            sed -i "s|^AI_MEMORY_INSTALL_DIR=.*|AI_MEMORY_INSTALL_DIR=$INSTALL_DIR|" "$docker_env"
+            sed -i.bak "s|^AI_MEMORY_INSTALL_DIR=.*|AI_MEMORY_INSTALL_DIR=$INSTALL_DIR|" "$docker_env" && rm -f "$docker_env.bak"
             log_info "Updated AI_MEMORY_INSTALL_DIR to $INSTALL_DIR"
         else
             echo "" >> "$docker_env"
@@ -923,10 +1132,25 @@ configure_environment() {
             echo "AI_MEMORY_INSTALL_DIR=$INSTALL_DIR" >> "$docker_env"
         fi
 
+        # Add Jira config if not present and Jira is enabled
+        if [[ "$JIRA_SYNC_ENABLED" == "true" ]] && ! grep -q "^JIRA_SYNC_ENABLED=" "$docker_env"; then
+            echo "" >> "$docker_env"
+            echo "# Jira Cloud Integration (added by installer)" >> "$docker_env"
+            echo "JIRA_SYNC_ENABLED=$JIRA_SYNC_ENABLED" >> "$docker_env"
+            echo "JIRA_INSTANCE_URL=$JIRA_INSTANCE_URL" >> "$docker_env"
+            echo "JIRA_EMAIL=$JIRA_EMAIL" >> "$docker_env"
+            echo "JIRA_API_TOKEN=$JIRA_API_TOKEN" >> "$docker_env"
+            echo "JIRA_PROJECTS=$(format_jira_projects_json "${JIRA_PROJECTS:-}")" >> "$docker_env"
+            echo "JIRA_SYNC_DELAY_MS=100" >> "$docker_env"
+            log_info "Added Jira configuration to .env"
+        fi
+
         log_success "Environment configured at $docker_env"
     else
         # No source .env - create minimal template (user needs to add credentials)
         log_warning "No source .env found - creating template without credentials"
+        local jira_projects_json
+        jira_projects_json=$(format_jira_projects_json "${JIRA_PROJECTS:-}")
         cat > "$docker_env" <<EOF
 # AI Memory Module Configuration
 # Generated by install.sh on $(date)
@@ -962,6 +1186,16 @@ QDRANT_API_KEY=${QDRANT_API_KEY:-}
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=
 PROMETHEUS_ADMIN_PASSWORD=
+
+# =============================================================================
+# JIRA CLOUD INTEGRATION (Optional - PLAN-004 Phase 2)
+# =============================================================================
+JIRA_SYNC_ENABLED=${JIRA_SYNC_ENABLED:-false}
+JIRA_INSTANCE_URL=${JIRA_INSTANCE_URL:-}
+JIRA_EMAIL=${JIRA_EMAIL:-}
+JIRA_API_TOKEN=${JIRA_API_TOKEN:-}
+JIRA_PROJECTS=$jira_projects_json
+JIRA_SYNC_DELAY_MS=100
 EOF
         # If QDRANT_API_KEY was provided via environment, note it in the log
         if [[ -n "${QDRANT_API_KEY:-}" ]]; then
@@ -974,6 +1208,62 @@ EOF
 
     # Generate Prometheus web.yml with bcrypt hash from password
     generate_prometheus_auth
+}
+
+# Post-dependency validation for external services (BP-053: Two-Phase Validation)
+# Runs after copy_files + install_python_dependencies + configure_environment
+validate_external_services() {
+    if [[ "$JIRA_SYNC_ENABLED" != "true" ]]; then
+        return 0
+    fi
+
+    log_info "Validating Jira integration (full Python test)..."
+
+    # Run from docker/ dir so get_config() finds .env via pydantic env_file=".env"
+    local validation_result=""
+    local validation_exit=0
+    validation_result=$(cd "$INSTALL_DIR/docker" && "$INSTALL_DIR/.venv/bin/python" -c "
+import asyncio
+import sys
+sys.path.insert(0, '$INSTALL_DIR/src')
+
+async def validate():
+    try:
+        from memory.connectors.jira.client import JiraClient
+        from memory.config import get_config
+        config = get_config()
+        if not config.jira_sync_enabled:
+            print('SKIP: Jira sync not enabled in config')
+            return 0
+        client = JiraClient(
+            str(config.jira_instance_url),
+            config.jira_email,
+            config.jira_api_token.get_secret_value(),
+        )
+        try:
+            result = await client.test_connection()
+            if result['success']:
+                print(f\"✓ Connected as {result['user_email']}\")
+                return 0
+            else:
+                print(f\"✗ FAIL: {result.get('error', 'Unknown error')}\")
+                return 1
+        finally:
+            await client.close()
+    except Exception as e:
+        print(f\"✗ FAIL: {e}\")
+        return 1
+
+sys.exit(asyncio.run(validate()))
+" 2>&1) || validation_exit=$?
+
+    if [[ $validation_exit -eq 0 ]]; then
+        log_success "Jira validation passed: $validation_result"
+    else
+        log_warning "Jira validation failed: $validation_result"
+        log_warning "Disabling Jira sync — check JIRA_PROJECTS format and credentials in $INSTALL_DIR/docker/.env and re-run installer"
+        JIRA_SYNC_ENABLED="false"
+    fi
 }
 
 # Generate Prometheus basic auth configuration from PROMETHEUS_ADMIN_PASSWORD
@@ -992,9 +1282,9 @@ generate_prometheus_auth() {
 
     # Generate bcrypt hash using Python
     local bcrypt_hash
-    bcrypt_hash=$("$INSTALL_DIR/.venv/bin/python" -c "
-import bcrypt
-password = '''$prometheus_password'''.encode('utf-8')
+    bcrypt_hash=$(PROM_PASS="$prometheus_password" "$INSTALL_DIR/.venv/bin/python" -c "
+import bcrypt, os
+password = os.environ['PROM_PASS'].encode('utf-8')
 hash = bcrypt.hashpw(password, bcrypt.gensalt(rounds=12))
 print(hash.decode('utf-8'))
 " 2>/dev/null)
@@ -1044,9 +1334,12 @@ start_services() {
     log_info "Starting services with security hardening..."
     if [[ "$INSTALL_MONITORING" == "true" ]]; then
         log_info "Including monitoring dashboard (Streamlit, Grafana, Prometheus)..."
-        docker compose --profile monitoring up -d
+        # BUG-079: --build forces rebuild of source-built containers
+        # (monitoring-api, embedding, streamlit, classifier-worker)
+        # Without this, stale containers may serve wrong metrics/endpoints
+        docker compose --profile monitoring up -d --build
     else
-        docker compose up -d
+        docker compose up -d --build  # BUG-079: rebuild source-built containers
     fi
 
     log_success "Docker services started"
@@ -1202,7 +1495,7 @@ setup_collections() {
     log_info "Setting up Qdrant collections..."
 
     # Run the setup script
-    if python3 "$INSTALL_DIR/scripts/setup-collections.py" 2>/dev/null; then
+    if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/setup-collections.py" 2>/dev/null; then
         log_success "Qdrant collections created (code-patterns, conventions, discussions)"
     else
         log_warning "Collection setup had issues - will be created on first use"
@@ -1553,20 +1846,80 @@ seed_best_practices() {
         if [[ ! -d "$INSTALL_DIR/templates/conventions" ]]; then
             log_warning "Templates directory not found - skipping seeding"
             log_info "To seed manually later:"
-            log_info "  python3 $INSTALL_DIR/scripts/memory/seed_best_practices.py"
+            log_info "  $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/memory/seed_best_practices.py"
             return 0
         fi
 
         # Run seeding script
-        if python3 "$INSTALL_DIR/scripts/memory/seed_best_practices.py" --templates-dir "$INSTALL_DIR/templates/conventions"; then
+        if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/memory/seed_best_practices.py" --templates-dir "$INSTALL_DIR/templates/conventions"; then
             log_success "Best practices seeded successfully"
         else
             log_warning "Failed to seed best practices (non-critical)"
             log_info "You can seed manually later with:"
-            log_info "  python3 $INSTALL_DIR/scripts/memory/seed_best_practices.py --templates-dir $INSTALL_DIR/templates/conventions"
+            log_info "  $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/memory/seed_best_practices.py --templates-dir $INSTALL_DIR/templates/conventions"
         fi
     fi
     # No tip shown if user explicitly declined during interactive prompt
+}
+
+# Run initial Jira sync (PLAN-004 Phase 2)
+run_initial_jira_sync() {
+    if [[ "$JIRA_SYNC_ENABLED" == "true" && "$JIRA_INITIAL_SYNC" == "true" ]]; then
+        log_info "Running initial Jira sync (may take 5-10 minutes for large projects)..."
+
+        # Ensure logs directory exists
+        mkdir -p "$INSTALL_DIR/logs"
+
+        # Run from docker/ dir so get_config() finds .env (pydantic env_file=".env")
+        # Use direct venv Python path — no source activate (BP-053)
+        # Subshell (parentheses) prevents cd from changing installer's CWD
+        if (cd "$INSTALL_DIR/docker" && "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/jira_sync.py" --full) 2>&1 | tee "$INSTALL_DIR/logs/jira_initial_sync.log"; then
+            log_success "Initial Jira sync completed"
+        else
+            log_warning "Initial sync had errors - check $INSTALL_DIR/logs/jira_initial_sync.log"
+            log_info "Re-run manually: cd $INSTALL_DIR/docker && $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/jira_sync.py --full"
+        fi
+    fi
+}
+
+# Set up cron job for automated Jira sync (PLAN-004 Phase 2)
+setup_jira_cron() {
+    if [[ "$JIRA_SYNC_ENABLED" == "true" ]]; then
+        log_info "Configuring automated Jira sync (6am/6pm daily)..."
+
+        # Ensure locks directory exists for flock
+        mkdir -p "$INSTALL_DIR/.locks"
+
+        # Build cron command (BP-053: direct interpreter + flock + tagged entry)
+        # cd to docker/ so get_config() finds .env (pydantic env_file=".env")
+        local cron_tag="# ai-memory-jira-sync"
+        local cron_cmd
+        if [[ "$PLATFORM" == "macos" ]]; then
+            # macOS: no flock available by default
+            cron_cmd="cd $INSTALL_DIR/docker && $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/jira_sync.py --incremental"
+        else
+            # Linux/WSL: use flock for overlap prevention
+            cron_cmd="cd $INSTALL_DIR/docker && flock -n $INSTALL_DIR/.locks/jira_sync.lock $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/jira_sync.py --incremental"
+        fi
+        local cron_entry="0 6,18 * * * $cron_cmd >> $INSTALL_DIR/logs/jira_sync.log 2>&1 $cron_tag"
+
+        # Idempotent: remove any existing ai-memory-jira-sync entry, then add fresh
+        local existing_crontab
+        existing_crontab=$(crontab -l 2>/dev/null || true)
+
+        # Filter out old entries (by tag OR by legacy jira_sync.py match)
+        local filtered_crontab
+        filtered_crontab=$(echo "$existing_crontab" | grep -v "ai-memory-jira-sync" | grep -v "jira_sync.py" || true)
+
+        # Add new entry
+        if printf '%s\n%s\n' "$filtered_crontab" "$cron_entry" | crontab - 2>/dev/null; then
+            log_success "Cron job configured (6am/6pm daily incremental sync)"
+            log_info "To view: crontab -l | grep ai-memory-jira-sync"
+        else
+            log_warning "Failed to configure cron job - set up manually if needed"
+            log_info "Add to crontab: $cron_entry"
+        fi
+    fi
 }
 
 show_success_message() {
@@ -1586,6 +1939,9 @@ show_success_message() {
     fi
     if [[ "$SEED_BEST_PRACTICES" == "true" ]]; then
     echo "│     ✓ Best practices patterns seeded                        │"
+    fi
+    if [[ "$JIRA_SYNC_ENABLED" == "true" ]]; then
+    echo "│     ✓ Jira Cloud sync (${JIRA_PROJECTS})                     │"
     fi
     echo "│                                                             │"
     echo "├─────────────────────────────────────────────────────────────┤"
@@ -1708,6 +2064,44 @@ show_python_version_error() {
     echo "│  functionality. You must upgrade Python.                   │"
     echo "└─────────────────────────────────────────────────────────────┘"
     exit 1
+}
+
+# Record installed project path in manifest for recovery script discovery
+record_installed_project() {
+    local manifest="$INSTALL_DIR/installed_projects.json"
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local entry="{\"path\": \"$PROJECT_PATH\", \"name\": \"$PROJECT_NAME\", \"installed\": \"$timestamp\"}"
+
+    if [[ -f "$manifest" ]]; then
+        # Read existing, deduplicate by path, append new entry
+        # Use python for safe JSON manipulation
+        "$INSTALL_DIR/.venv/bin/python" -c "
+import json, sys
+manifest_path = sys.argv[1]
+new_entry = json.loads(sys.argv[2])
+try:
+    with open(manifest_path) as f:
+        data = json.load(f)
+except (json.JSONDecodeError, FileNotFoundError):
+    data = []
+# Deduplicate by path - update existing entry or append
+data = [e for e in data if e.get('path') != new_entry['path']]
+data.append(new_entry)
+with open(manifest_path, 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+" "$manifest" "$entry"
+    else
+        echo "[$entry]" | "$INSTALL_DIR/.venv/bin/python" -c "
+import json, sys
+data = json.load(sys.stdin)
+with open(sys.argv[1], 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+" "$manifest"
+    fi
+    log_info "Recorded project in manifest: $PROJECT_PATH"
 }
 
 # Execute main function with all arguments

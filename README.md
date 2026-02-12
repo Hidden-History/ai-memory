@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.4-green?style=flat-square" alt="Version 2.0.4">
+  <img src="https://img.shields.io/badge/version-2.0.5-green?style=flat-square" alt="Version 2.0.5">
   <a href="https://github.com/Hidden-History/ai-memory/stargazers"><img src="https://img.shields.io/github/stars/Hidden-History/ai-memory?color=blue&style=flat-square" alt="Stars"></a>
   <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
   <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
@@ -66,7 +66,7 @@ Traditional knowledge bases require upfront schema design and manual curation. A
 ## ✨ V2.0 Memory System
 
 - 🗂️ **Three Specialized Collections**: code-patterns (HOW), conventions (WHAT), discussions (WHY)
-- 🎯 **15 Memory Types**: Precise categorization for implementation, errors, decisions, and more
+- 🎯 **17 Memory Types**: Precise categorization for implementation, errors, decisions, Jira issues, and more
 - ⚡ **6 Automatic Triggers**: Smart context injection when you need it most
 - 🔍 **Intent Detection**: Automatically routes queries to the right collection
 - 💬 **Conversation Memory**: Turn-by-turn capture with post-compaction context continuity
@@ -78,6 +78,23 @@ Traditional knowledge bases require upfront schema design and manual curation. A
 ---
 
 > **New here?** Jump to [Quick Start](#-quick-start-1) to get running in 5 minutes.
+
+---
+
+## 🔗 Jira Cloud Integration
+
+Bring your work context into semantic memory with built-in Jira Cloud support:
+
+- **Semantic Search**: Search Jira issues and comments by meaning, not just keywords
+- **Full & Incremental Sync**: Initial backfill or fast daily updates via JQL
+- **ADF Conversion**: Atlassian Document Format → plain text for accurate embeddings
+- **Rich Filtering**: Search by project, issue type, status, priority, or author
+- **Issue Lookup**: Retrieve complete issue context (issue + all comments, chronologically)
+- **Dedicated Collection**: `jira-data` collection keeps Jira content separate from code memory
+- **Tenant Isolation**: `group_id` based on Jira instance hostname prevents cross-instance leakage
+- **Two Skills**: `/jira-sync` for synchronization, `/search-jira` for semantic search
+
+See [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for setup and usage guide.
 
 ---
 
@@ -158,7 +175,7 @@ Memory + Oversight = Reliable AI
 
 ```
 Claude Code Session
-    ├── SessionStart Hooks → Context injection (session summaries + recent memories)
+    ├── SessionStart Hooks (resume|compact) → Context injection on session resume and post-compaction
     ├── UserPromptSubmit Hooks → Unified keyword trigger (decisions/best practices/session history)
     ├── PreToolUse Hooks → Smart triggers (new file/first edit conventions)
     ├── PostToolUse Hooks → Capture code patterns + error detection
@@ -185,13 +202,16 @@ Docker Services
         └── Grafana (port 23000)
 ```
 
-### Three-Collection Structure
+### Collection Structure
 
 | Collection | Purpose | Example Types |
 |------------|---------|---------------|
 | **code-patterns** | HOW things are built | implementation, error_fix, refactor |
 | **conventions** | WHAT rules to follow | rule, guideline, naming, structure |
 | **discussions** | WHY things were decided | decision, session, preference |
+| **jira-data** | External work items from Jira Cloud | jira_issue, jira_comment |
+
+> **Note:** The `jira-data` collection is conditional — it is only created when Jira sync is enabled (`JIRA_SYNC_ENABLED=true`).
 
 ### Automatic Triggers
 
@@ -373,6 +393,19 @@ All services use `2XXXX` prefix to avoid conflicts:
 | `AI_MEMORY_INSTALL_DIR`   | `~/.ai-memory`     | Installation directory            |
 | `MEMORY_LOG_LEVEL`     | `INFO`               | Logging level (DEBUG/INFO/WARNING)|
 
+**Jira Cloud Integration (Optional):**
+
+| Variable               | Default               | Description                       |
+|------------------------|----------------------|-----------------------------------|
+| `JIRA_INSTANCE_URL`    | *(empty)*            | Jira Cloud URL (e.g., `https://company.atlassian.net`) |
+| `JIRA_EMAIL`           | *(empty)*            | Jira account email for Basic Auth |
+| `JIRA_API_TOKEN`       | *(empty)*            | API token from [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens) |
+| `JIRA_PROJECTS`        | *(empty)*            | Comma-separated project keys (e.g., `PROJ,DEV,OPS`) |
+| `JIRA_SYNC_ENABLED`    | `false`              | Enable Jira synchronization       |
+| `JIRA_SYNC_DELAY_MS`   | `100`                | Delay between API requests (ms)   |
+
+See [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for complete Jira setup guide.
+
 **Override Example:**
 
 ```bash
@@ -386,7 +419,7 @@ export MEMORY_LOG_LEVEL=DEBUG  # Enable verbose logging
 
 Memory capture happens automatically via Claude Code hooks:
 
-1. **SessionStart**: Loads relevant memories from previous sessions and injects as context
+1. **SessionStart** (resume/compact only): Injects relevant memories when resuming a session or after context compaction
 2. **PostToolUse**: Captures code patterns (Write/Edit/NotebookEdit tools) in background (<500ms)
 3. **PreCompact**: Saves session summary before context compaction (auto or manual `/compact`)
 4. **Stop**: Optional per-response cleanup
@@ -408,9 +441,15 @@ Use slash commands for manual control:
 
 # Search across all memories
 /search-memory <query>
+
+# Jira Cloud Integration (requires JIRA_SYNC_ENABLED=true)
+/jira-sync              # Incremental sync from Jira
+/jira-sync --full       # Full sync (all issues and comments)
+/search-jira "query"    # Semantic search across Jira content
+/search-jira --issue PROJ-42  # Lookup issue + all comments
 ```
 
-See [docs/HOOKS.md](docs/HOOKS.md) for hook documentation, [docs/COMMANDS.md](docs/COMMANDS.md) for commands, and [docs/llm-classifier.md](docs/llm-classifier.md) for LLM classifier setup.
+See [docs/HOOKS.md](docs/HOOKS.md) for hook documentation, [docs/COMMANDS.md](docs/COMMANDS.md) for commands, [docs/llm-classifier.md](docs/llm-classifier.md) for LLM classifier setup, and [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for Jira integration guide.
 
 ### 🤖 AsyncSDKWrapper (Agent SDK Integration)
 
@@ -549,6 +588,28 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for comprehensive troubleshooting, 
 - Search not working
 - Performance problems
 - Data persistence issues
+
+### Recovery Script
+
+If hooks are misbehaving (e.g., after a failed install or upgrade), use the recovery script to scan and repair all project configurations:
+
+```bash
+# Dry-run: shows what would change (safe, no modifications)
+python scripts/recover_hook_guards.py
+
+# Apply fixes across all discovered projects
+python scripts/recover_hook_guards.py --apply
+
+# Scan only: list all discovered project settings.json files
+python scripts/recover_hook_guards.py --scan
+```
+
+The recovery script automatically discovers projects via:
+1. `~/.ai-memory/installed_projects.json` manifest (primary)
+2. Sibling directories of `AI_MEMORY_INSTALL_DIR` (fallback)
+3. Common project paths (additional fallback)
+
+It fixes: unguarded hook commands (BUG-066), broad SessionStart matchers (BUG-078), and other known configuration issues. Always run with dry-run first to review changes.
 
 ### Quick Diagnostic Commands
 
@@ -722,6 +783,8 @@ python scripts/restore_qdrant.py backups/2026-02-03_143052
 ```
 
 See [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) for complete instructions including troubleshooting.
+
+> **Coming soon:** Backup and restore scripts will be updated in the next version to support the `jira-data` collection, including Jira database backup and reinstall.
 
 ## 📈 Performance
 

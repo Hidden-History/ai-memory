@@ -41,7 +41,12 @@ ACTIVITY_LOG = LOG_DIR / "activity.log"
 MAX_LOG_ENTRIES = 500
 
 # Ensure log directory exists
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+_LOGGING_AVAILABLE = True
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    # Graceful fallback for read-only filesystems (e.g., Docker containers)
+    _LOGGING_AVAILABLE = False
 
 
 def rotate_log() -> None:
@@ -50,6 +55,8 @@ def rotate_log() -> None:
     This prevents the log file from growing unbounded. Called automatically
     after each write operation.
     """
+    if not _LOGGING_AVAILABLE:
+        return
     try:
         if not ACTIVITY_LOG.exists():
             return
@@ -74,6 +81,8 @@ def log_activity(icon: str, message: str) -> None:
         icon: Emoji icon (🧠, 📥, 📤, etc.)
         message: Activity message to log
     """
+    if not _LOGGING_AVAILABLE:
+        return
     try:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         line = f"[{timestamp}] {icon} {message}\n"
@@ -90,6 +99,8 @@ def log_activity(icon: str, message: str) -> None:
 
 def _write_full_content(content_lines: list[str]) -> None:
     """Write full content block with FULL_CONTENT marker."""
+    if not _LOGGING_AVAILABLE:
+        return
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     full_content = "\\n".join(content_lines)
     try:
