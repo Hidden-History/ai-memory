@@ -78,6 +78,9 @@ def validate_payload(payload: dict) -> list[str]:
         "PreToolUse",
         "seed_script",
         "manual",
+        "jira_sync",       # Jira connector sync (v2.0.5)
+        "SDKWrapper",      # SDK-based conversation capture
+        "agent:subagent",  # Agent-triggered storage
     ]
     if (
         "source_hook" in payload

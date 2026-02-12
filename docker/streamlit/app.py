@@ -146,29 +146,17 @@ ACTIVITY_LOG_PATH = os.path.join(INSTALL_DIR, "logs", "activity.log")
 # VALIDATION FUNCTIONS
 # ============================================================================
 def validate_log_mount() -> tuple[bool, str]:
-    """Validate that activity log is accessible and current.
+    """Validate that activity log is accessible.
 
     Returns:
         (is_valid, message): Tuple of validation status and message
     """
+    log_dir = os.path.dirname(ACTIVITY_LOG_PATH)
+    if not os.path.isdir(log_dir):
+        return False, f"Log directory not mounted: {log_dir}"
     if not os.path.exists(ACTIVITY_LOG_PATH):
-        return False, f"Activity log not found: {ACTIVITY_LOG_PATH}"
-
-    # Check if log is stale (older than 24 hours with minimal content)
-    try:
-        stat = os.stat(ACTIVITY_LOG_PATH)
-        file_age_hours = (time.time() - stat.st_mtime) / 3600
-        file_size = stat.st_size
-
-        if file_size < 100 and file_age_hours > 24:
-            return (
-                False,
-                f"Activity log appears stale: {file_size} bytes, {file_age_hours:.1f}h old",
-            )
-    except OSError as e:
-        return False, f"Cannot stat activity log: {e}"
-
-    return True, "OK"
+        return True, "No activity yet — log will appear after first Claude Code session"
+    return True, ""
 
 
 # ============================================================================
@@ -502,6 +490,8 @@ def display_logs_page():
             "🔧 **Fix**: Restart Docker Compose with `AI_MEMORY_INSTALL_DIR` environment variable set, or check `docker/.env` file."
         )
         # Continue anyway to show whatever logs exist
+    elif log_message:
+        st.info(f"ℹ️ {log_message}")
 
     # BUG-022: Log stats and manual refresh button
     stats = get_log_stats()
