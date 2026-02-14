@@ -57,6 +57,9 @@ migration-backup*/
 # Mypy cache
 .mypy_cache/
 
+# Hypothesis test cache
+.hypothesis/
+
 # SQLite databases
 *.db
 

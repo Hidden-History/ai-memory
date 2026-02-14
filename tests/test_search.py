@@ -24,6 +24,7 @@ def mock_config(monkeypatch):
     mock_cfg.similarity_threshold = 0.7
     mock_cfg.hnsw_ef_fast = 64  # TECH-DEBT-066
     mock_cfg.hnsw_ef_accurate = 128  # TECH-DEBT-066
+    mock_cfg.decay_enabled = False  # SPEC-001: disable decay for mock-based tests
     monkeypatch.setattr("src.memory.search.get_config", lambda: mock_cfg)
     return mock_cfg
 

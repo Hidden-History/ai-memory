@@ -27,7 +27,7 @@ classifiers = [
 
 dependencies = [
     # Vector Database
-    "qdrant-client>=1.12.0,<2.0.0",
+    "qdrant-client>=1.14.0,<2.0.0",
     # HTTP Client
     "httpx>=0.27.0,<1.0.0",
     # Environment Configuration
@@ -62,6 +62,7 @@ dev = [
     "pytest-cov>=7.0.0,<8.0.0",
     "pytest-mock>=3.15.0,<4.0.0",
     "pytest-timeout>=2.4.0,<3.0.0",
+    "hypothesis>=6.0.0,<7.0.0",
     "requests>=2.32.0,<3.0.0",
     "psutil>=7.0.0,<8.0.0",
     # E2E Testing

@@ -28,6 +28,7 @@ from .config import (
     MemoryConfig,
     get_config,
 )
+from .decay import build_decay_formula
 from .embeddings import EmbeddingClient, EmbeddingError
 from .qdrant_client import QdrantUnavailable, get_qdrant_client
 
@@ -286,15 +287,36 @@ class MemorySearch:
 
         start_time = time.perf_counter()
         try:
-            response = self.client.query_points(
-                collection_name=collection,
-                query=query_embedding,
-                query_filter=query_filter,
-                limit=limit,
-                score_threshold=score_threshold,
-                with_payload=True,
-                search_params=search_params,
-            )
+            # SPEC-001: Decay scoring integration
+            if self.config.decay_enabled:
+                prefetch_limit = max(50, limit * 5)
+                formula, prefetch = build_decay_formula(
+                    query_embedding=query_embedding,
+                    collection=collection,
+                    config=self.config,
+                    extra_filter=query_filter,
+                    prefetch_limit=prefetch_limit,
+                    score_threshold=score_threshold,
+                    search_params=search_params,
+                )
+                # formula is guaranteed non-None when decay_enabled=True
+                response = self.client.query_points(
+                    collection_name=collection,
+                    prefetch=prefetch,
+                    query=formula,
+                    limit=limit,
+                    with_payload=True,
+                )
+            else:
+                response = self.client.query_points(
+                    collection_name=collection,
+                    query=query_embedding,
+                    query_filter=query_filter,
+                    limit=limit,
+                    score_threshold=score_threshold,
+                    with_payload=True,
+                    search_params=search_params,
+                )
             results = response.points
 
             # Metrics: Record retrieval duration (Story 6.1, AC 6.1.3)

@@ -20,9 +20,18 @@ def test_search_adds_collection_attribution():
     with (
         patch("memory.search.get_qdrant_client") as mock_qdrant,
         patch("memory.search.EmbeddingClient") as mock_embedding,
+        patch("memory.search.get_config") as mock_get_config,
     ):
 
         # Setup mocks
+        mock_cfg = Mock()
+        mock_cfg.max_retrievals = 5
+        mock_cfg.similarity_threshold = 0.7
+        mock_cfg.hnsw_ef_fast = 64
+        mock_cfg.hnsw_ef_accurate = 128
+        mock_cfg.decay_enabled = False
+        mock_get_config.return_value = mock_cfg
+
         mock_client = Mock()
         mock_qdrant.return_value = mock_client
 
@@ -63,7 +72,15 @@ def test_implementations_filtered_by_group_id():
     with (
         patch("memory.search.get_qdrant_client") as mock_qdrant,
         patch("memory.search.EmbeddingClient") as mock_embedding,
+        patch("memory.search.get_config") as mock_get_config,
     ):
+        mock_cfg = Mock()
+        mock_cfg.max_retrievals = 5
+        mock_cfg.similarity_threshold = 0.7
+        mock_cfg.hnsw_ef_fast = 64
+        mock_cfg.hnsw_ef_accurate = 128
+        mock_cfg.decay_enabled = False
+        mock_get_config.return_value = mock_cfg
 
         mock_client = Mock()
         mock_qdrant.return_value = mock_client
@@ -97,7 +114,15 @@ def test_best_practices_no_group_id_filter():
     with (
         patch("memory.search.get_qdrant_client") as mock_qdrant,
         patch("memory.search.EmbeddingClient") as mock_embedding,
+        patch("memory.search.get_config") as mock_get_config,
     ):
+        mock_cfg = Mock()
+        mock_cfg.max_retrievals = 5
+        mock_cfg.similarity_threshold = 0.7
+        mock_cfg.hnsw_ef_fast = 64
+        mock_cfg.hnsw_ef_accurate = 128
+        mock_cfg.decay_enabled = False
+        mock_get_config.return_value = mock_cfg
 
         mock_client = Mock()
         mock_qdrant.return_value = mock_client

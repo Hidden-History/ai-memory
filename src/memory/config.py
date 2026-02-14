@@ -276,7 +276,100 @@ class MemoryConfig(BaseSettings):
         description="Delay between Jira API requests in milliseconds (rate limiting)",
     )
 
-    @field_validator("install_dir", "queue_path", "session_log_path", mode="before")
+    # =========================================================================
+    # v2.0.6 — Decay Scoring (SPEC-001 Section 4.3)
+    # =========================================================================
+
+    # Tier 2 — defaults, user CAN override
+    decay_enabled: bool = Field(
+        default=True,
+        description="Enable decay scoring",
+    )
+
+    decay_semantic_weight: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Weight for semantic similarity in fused score (0.0-1.0). Temporal weight = 1 - this.",
+    )
+
+    decay_half_life_code_patterns: int = Field(
+        default=14,
+        ge=1,
+        description="Half-life in days for code-patterns collection decay",
+    )
+
+    decay_half_life_discussions: int = Field(
+        default=21,
+        ge=1,
+        description="Half-life in days for discussions collection decay",
+    )
+
+    decay_half_life_conventions: int = Field(
+        default=60,
+        ge=1,
+        description="Half-life in days for conventions collection decay",
+    )
+
+    decay_half_life_jira_data: int = Field(
+        default=30,
+        ge=1,
+        description="Half-life in days for jira-data collection decay",
+    )
+
+    decay_min_score: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Minimum decay score floor. Reserved for Phase 3 — not enforced yet.",
+    )
+
+    # Tier 3 — hidden/advanced (not in .env.example uncommented)
+    decay_type_overrides: str = Field(
+        default="github_ci_result:7,github_code_blob:14,github_commit:14,conversation:21,session_summary:21,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,agent_handoff:30,guideline:60,rule:60,architecture_decision:90",
+        description="Per-type half-life overrides. Format: type:days,type:days,...",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Audit Trail (SPEC-002 Section 5.2)
+    # =========================================================================
+
+    audit_dir: Path = Field(
+        default_factory=lambda: Path(".audit"),
+        description="Project-local audit directory (gitignored). Created by install script.",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Automated Updates (SPEC-002 Section 5.3)
+    # =========================================================================
+
+    auto_update_enabled: bool = Field(
+        default=True,
+        description="Global kill switch for automated memory updates. When false: sync runs, no auto-corrections applied.",
+    )
+
+    @field_validator("decay_type_overrides", mode="before")
+    @classmethod
+    def parse_type_overrides(cls, v: str) -> str:
+        """Validate format: type:days,type:days,..."""
+        if not v:
+            return v
+        for pair in v.split(","):
+            if not pair.strip():
+                continue
+            parts = pair.strip().split(":")
+            if len(parts) != 2 or not parts[0].strip() or not parts[1].strip().isdigit():
+                raise ValueError(
+                    f"Invalid decay override format: '{pair}'. Expected 'type:days'."
+                )
+            days = int(parts[1].strip())
+            if days < 1:
+                raise ValueError(
+                    f"Invalid decay override days: '{pair}'. Days must be >= 1."
+                )
+        return v
+
+    @field_validator("install_dir", "queue_path", "session_log_path", "audit_dir", mode="before")
     @classmethod
     def expand_user_paths(cls, v):
         """Expand ~ and environment variables in paths."""
@@ -305,6 +398,22 @@ class MemoryConfig(BaseSettings):
     def get_monitoring_url(self) -> str:
         """Get full monitoring API URL."""
         return f"http://{self.monitoring_host}:{self.monitoring_port}"
+
+    def get_decay_type_overrides(self) -> dict[str, int]:
+        """Parse decay_type_overrides string into dict.
+
+        Returns:
+            Mapping of content type name to half-life in days.
+        """
+        if not self.decay_type_overrides:
+            return {}
+        result = {}
+        for pair in self.decay_type_overrides.split(","):
+            if not pair.strip():
+                continue
+            type_name, days = pair.strip().split(":")
+            result[type_name.strip()] = int(days.strip())
+        return result
 
 
 # Agent configuration - SINGLE SOURCE OF TRUTH (CR-4.27)
