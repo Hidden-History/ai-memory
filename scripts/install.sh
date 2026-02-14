@@ -132,6 +132,12 @@ JIRA_API_TOKEN="${JIRA_API_TOKEN:-}"
 JIRA_PROJECTS="${JIRA_PROJECTS:-}"
 JIRA_INITIAL_SYNC="${JIRA_INITIAL_SYNC:-}"
 
+# GitHub sync configuration (PLAN-006 Phase 1a)
+GITHUB_SYNC_ENABLED="${GITHUB_SYNC_ENABLED:-}"
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+GITHUB_REPO="${GITHUB_REPO:-}"
+GITHUB_INITIAL_SYNC="${GITHUB_INITIAL_SYNC:-}"
+
 # Prompt for project name (group_id for Qdrant isolation)
 configure_project_name() {
     # Skip if non-interactive or already set via command line arg
@@ -351,6 +357,83 @@ print(','.join(keys))
         echo ""
     fi
 
+    # GitHub Integration (PLAN-006 Phase 1a)
+    if [[ -z "$GITHUB_SYNC_ENABLED" ]]; then
+        echo "GitHub Integration (Optional)"
+        echo "   Syncs issues, PRs, commits, and code to memory for semantic search"
+        echo "   Enables Claude to retrieve development context from GitHub"
+        echo ""
+        read -p "   Enable GitHub sync? [y/N]: " github_choice
+
+        if [[ "$github_choice" =~ ^[Yy]$ ]]; then
+            GITHUB_SYNC_ENABLED="true"
+
+            # PAT guidance
+            echo ""
+            echo "   GitHub Personal Access Token (PAT) Setup:"
+            echo "   - Use FINE-GRAINED tokens (not classic): https://github.com/settings/tokens?type=beta"
+            echo "   - Minimum scopes: Contents (read), Issues (read), Pull Requests (read), Actions (read)"
+            echo "   - Set expiration (90 days recommended)"
+            echo ""
+
+            read -sp "   GitHub PAT (hidden): " github_token
+            GITHUB_TOKEN="$github_token"
+            echo ""
+
+            # Auto-detect repo from .git remote
+            local detected_repo=""
+            if [[ -d "$PROJECT_PATH/.git" ]]; then
+                detected_repo=$(cd "$PROJECT_PATH" && git remote get-url origin 2>/dev/null | sed -E 's|.*github\.com[:/](.+/[^.]+)(\.git)?$|\1|' || true)
+            fi
+
+            if [[ -n "$detected_repo" ]]; then
+                echo "   Detected repository: $detected_repo"
+                read -p "   Use this repo? [Y/n]: " use_detected
+                if [[ ! "$use_detected" =~ ^[Nn]$ ]]; then
+                    GITHUB_REPO="$detected_repo"
+                else
+                    read -p "   Repository (owner/repo): " github_repo
+                    GITHUB_REPO="$github_repo"
+                fi
+            else
+                read -p "   Repository (owner/repo): " github_repo
+                GITHUB_REPO="$github_repo"
+            fi
+
+            # Validate PAT via GitHub API
+            echo ""
+            log_info "Testing GitHub connection..."
+
+            local http_code
+            http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+                -H "Authorization: Bearer $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${GITHUB_REPO}" \
+                --connect-timeout 10 --max-time 15 2>/dev/null)
+
+            if [[ "$http_code" == "200" ]]; then
+                log_success "GitHub connection verified (HTTP 200) — repo: $GITHUB_REPO"
+
+                # Prompt for initial sync
+                echo ""
+                echo "   Initial sync can take 5-30 minutes depending on repo size"
+                read -p "   Run initial sync after install? [y/N]: " initial_sync
+                if [[ "$initial_sync" =~ ^[Yy]$ ]]; then
+                    GITHUB_INITIAL_SYNC="true"
+                else
+                    GITHUB_INITIAL_SYNC="false"
+                fi
+            else
+                log_error "GitHub connection test failed (HTTP $http_code)"
+                log_info "Verify: PAT scopes and repository access"
+                GITHUB_SYNC_ENABLED="false"
+            fi
+        else
+            GITHUB_SYNC_ENABLED="false"
+        fi
+        echo ""
+    fi
+
     # Summary
     echo "┌─────────────────────────────────────────────────────────────┐"
     echo "│  Installation Summary                                       │"
@@ -369,6 +452,9 @@ print(','.join(keys))
     fi
     if [[ "$JIRA_SYNC_ENABLED" == "true" ]]; then
         echo "│    ✓ Jira Cloud sync (${JIRA_PROJECTS})                     │"
+    fi
+    if [[ "$GITHUB_SYNC_ENABLED" == "true" ]]; then
+        echo "│    ✓ GitHub sync (${GITHUB_REPO})                     │"
     fi
     echo "└─────────────────────────────────────────────────────────────┘"
     echo ""
@@ -433,6 +519,8 @@ main() {
             seed_best_practices
             run_initial_jira_sync
             setup_jira_cron
+            setup_github_indexes
+            run_initial_github_sync
         fi
     else
         log_info "Skipping shared infrastructure setup (add-project mode)"
@@ -1146,6 +1234,22 @@ configure_environment() {
             log_info "Added Jira configuration to .env"
         fi
 
+        # Add GitHub config if not present and GitHub is enabled
+        if [[ "$GITHUB_SYNC_ENABLED" == "true" ]] && ! grep -q "^GITHUB_SYNC_ENABLED=" "$docker_env"; then
+            echo "" >> "$docker_env"
+            echo "# GitHub Integration (added by installer)" >> "$docker_env"
+            echo "GITHUB_SYNC_ENABLED=$GITHUB_SYNC_ENABLED" >> "$docker_env"
+            echo "GITHUB_TOKEN=$GITHUB_TOKEN" >> "$docker_env"
+            echo "GITHUB_REPO=$GITHUB_REPO" >> "$docker_env"
+            echo "GITHUB_SYNC_INTERVAL=${GITHUB_SYNC_INTERVAL:-1800}" >> "$docker_env"
+            echo "GITHUB_BRANCH=${GITHUB_BRANCH:-main}" >> "$docker_env"
+            echo "GITHUB_CODE_BLOB_ENABLED=${GITHUB_CODE_BLOB_ENABLED:-true}" >> "$docker_env"
+            echo "GITHUB_CODE_BLOB_MAX_SIZE=${GITHUB_CODE_BLOB_MAX_SIZE:-102400}" >> "$docker_env"
+            echo "GITHUB_CODE_BLOB_EXCLUDE=${GITHUB_CODE_BLOB_EXCLUDE:-node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info}" >> "$docker_env"
+            echo "GITHUB_SYNC_ON_START=${GITHUB_SYNC_ON_START:-true}" >> "$docker_env"
+            log_info "Added GitHub configuration to .env"
+        fi
+
         log_success "Environment configured at $docker_env"
     else
         # No source .env - create minimal template (user needs to add credentials)
@@ -1197,6 +1301,19 @@ JIRA_EMAIL=${JIRA_EMAIL:-}
 JIRA_API_TOKEN=${JIRA_API_TOKEN:-}
 JIRA_PROJECTS=$jira_projects_json
 JIRA_SYNC_DELAY_MS=100
+
+# =============================================================================
+# GITHUB INTEGRATION (Optional — PLAN-006 Phase 1a)
+# =============================================================================
+GITHUB_SYNC_ENABLED=${GITHUB_SYNC_ENABLED:-false}
+GITHUB_TOKEN=${GITHUB_TOKEN:-}
+GITHUB_REPO=${GITHUB_REPO:-}
+GITHUB_SYNC_INTERVAL=${GITHUB_SYNC_INTERVAL:-1800}
+GITHUB_BRANCH=${GITHUB_BRANCH:-main}
+GITHUB_CODE_BLOB_ENABLED=${GITHUB_CODE_BLOB_ENABLED:-true}
+GITHUB_CODE_BLOB_MAX_SIZE=${GITHUB_CODE_BLOB_MAX_SIZE:-102400}
+GITHUB_CODE_BLOB_EXCLUDE=${GITHUB_CODE_BLOB_EXCLUDE:-node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info}
+GITHUB_SYNC_ON_START=${GITHUB_SYNC_ON_START:-true}
 EOF
         # If QDRANT_API_KEY was provided via environment, note it in the log
         if [[ -n "${QDRANT_API_KEY:-}" ]]; then
@@ -1341,6 +1458,15 @@ start_services() {
         docker compose --profile monitoring up -d --build
     else
         docker compose up -d --build  # BUG-079: rebuild source-built containers
+    fi
+
+    # Start GitHub sync container if enabled
+    if [[ "$GITHUB_SYNC_ENABLED" == "true" ]]; then
+        # Create state directory for bind mount (host user owns it → matches docker-compose user: UID:GID)
+        mkdir -p "${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/github-state"
+        log_info "Starting GitHub sync container..."
+        (cd "$INSTALL_DIR/docker" && docker compose --profile github up -d --build github-sync) 2>&1 || \
+            log_warning "Failed to start github-sync container — start manually with: docker compose --profile github up -d"
     fi
 
     log_success "Docker services started"
@@ -1923,6 +2049,52 @@ setup_jira_cron() {
     fi
 }
 
+# Set up GitHub payload indexes (PLAN-006 Phase 1a)
+setup_github_indexes() {
+    if [[ "$GITHUB_SYNC_ENABLED" != "true" ]]; then
+        return
+    fi
+
+    log_info "Creating GitHub payload indexes on discussions collection..."
+
+    local result
+    result=$(cd "$INSTALL_DIR/docker" && "$INSTALL_DIR/.venv/bin/python" -c "
+import sys
+sys.path.insert(0, '$INSTALL_DIR/src')
+from memory.qdrant_client import get_qdrant_client
+from memory.connectors.github.schema import create_github_indexes
+client = get_qdrant_client()
+counts = create_github_indexes(client)
+created = counts.get('created', 0)
+existing = counts.get('existing', 0)
+print(f'OK: {created} created, {existing} already existed')
+" 2>&1) || result="FAILED"
+
+    if [[ "$result" == FAILED* ]]; then
+        log_warning "GitHub index creation failed: $result"
+        log_info "Indexes will be created automatically on first sync"
+    else
+        log_success "GitHub indexes: $result"
+    fi
+}
+
+# Run initial GitHub sync (PLAN-006 Phase 1a)
+run_initial_github_sync() {
+    if [[ "$GITHUB_SYNC_ENABLED" == "true" && "$GITHUB_INITIAL_SYNC" == "true" ]]; then
+        log_info "Running initial GitHub sync (may take 5-30 minutes)..."
+        log_info "Repo: $GITHUB_REPO"
+
+        # CWD must be $INSTALL_DIR (not docker/) so engine's Path.cwd()/.audit/state/
+        # writes to the correct location that the container volume also maps to
+        if (cd "$INSTALL_DIR" && ".venv/bin/python" "scripts/github_sync.py" --full) 2>&1 | tee "$INSTALL_DIR/logs/github_initial_sync.log"; then
+            log_success "Initial GitHub sync completed"
+        else
+            log_warning "Initial sync had errors — check $INSTALL_DIR/logs/github_initial_sync.log"
+            log_info "Re-run manually: cd $INSTALL_DIR && .venv/bin/python scripts/github_sync.py --full"
+        fi
+    fi
+}
+
 # === .audit/ Directory Setup (v2.0.6 — AD-2 two-tier audit trail) ===
 # Creates project-local .audit/ directory for ephemeral/sensitive audit data.
 # This is Tier 1 of the two-tier hybrid audit trail (AD-2):
@@ -2030,6 +2202,9 @@ show_success_message() {
     fi
     if [[ "$JIRA_SYNC_ENABLED" == "true" ]]; then
     echo "│     ✓ Jira Cloud sync (${JIRA_PROJECTS})                     │"
+    fi
+    if [[ "$GITHUB_SYNC_ENABLED" == "true" ]]; then
+    echo "│     ✓ GitHub sync (${GITHUB_REPO})                     │"
     fi
     echo "│                                                             │"
     echo "├─────────────────────────────────────────────────────────────┤"

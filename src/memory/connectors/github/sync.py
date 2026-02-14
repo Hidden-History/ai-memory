@@ -10,6 +10,7 @@ Reference: PLAN-006 Section 3.1 (GitHub Sync Service)
 import asyncio
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -776,7 +777,7 @@ class GitHubSyncEngine:
             sync_duration.set(result.duration_seconds)
 
             pushadd_to_gateway(
-                "localhost:29091",
+                os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
                 job="github_sync",
                 registry=registry,
                 grouping_key={"instance": self._group_id},

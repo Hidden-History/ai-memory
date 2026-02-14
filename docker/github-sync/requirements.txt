@@ -1,0 +1,18 @@
+# GitHub Sync Service Dependencies
+# Subset of main requirements.txt — only what the sync engine needs
+
+# Vector Database
+qdrant-client>=1.12.0,<2.0.0
+
+# HTTP Client (for GitHubClient + EmbeddingClient)
+httpx>=0.27.0,<1.0.0
+
+# Environment Configuration
+pydantic>=2.0.0,<3.0.0
+pydantic-settings>=2.0.0,<3.0.0
+
+# Monitoring
+prometheus-client>=0.21.0,<1.0.0
+
+# Retry logic
+tenacity>=8.0.0,<9.0.0

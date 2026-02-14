@@ -10,6 +10,7 @@ Reference: PLAN-006 Section 3.3 (Code Blob Embedding Strategy)
 import ast
 import base64
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -1119,7 +1120,7 @@ class CodeBlobSync:
             duration.set(result.duration_seconds)
 
             pushadd_to_gateway(
-                "localhost:29091",
+                os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
                 job="github_code_sync",
                 registry=registry,
                 grouping_key={"instance": self.config.github_repo},
