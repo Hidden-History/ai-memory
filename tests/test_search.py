@@ -561,6 +561,25 @@ class TestSearchMemories:
         )
         assert isinstance(results, list)
 
+    def test_search_memories_with_source(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_memories() passes source parameter through to search()."""
+        from unittest import mock
+
+        from src.memory.search import MemorySearch, search_memories
+
+        with mock.patch.object(MemorySearch, "search", return_value=[]) as mock_search:
+            search_memories(
+                query="test", collection="discussions", source="github"
+            )
+            mock_search.assert_called_once()
+            call_kwargs = mock_search.call_args
+            assert (
+                call_kwargs.kwargs.get("source") == "github"
+                or call_kwargs[1].get("source") == "github"
+            )
+
 
 class TestSearchParams:
     """Tests for hnsw_ef parameter tuning (TECH-DEBT-066)."""

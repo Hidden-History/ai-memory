@@ -144,6 +144,7 @@ class MemorySearch:
         score_threshold: float | None = None,
         memory_type: str | list[str] | None = None,
         fast_mode: bool = False,  # NEW: Use hnsw_ef=64 for triggers
+        source: str | None = None,  # SPEC-005: Namespace filter (e.g., "github")
     ) -> list[dict]:
         """Search for relevant memories using semantic similarity with project scoping.
 
@@ -166,6 +167,8 @@ class MemorySearch:
                         (e.g., "implementation" or ["implementation", "error_fix"])
             fast_mode: If True, use hnsw_ef=64 for faster search (triggers).
                       If False (default), use hnsw_ef=128 for accuracy (user searches).
+            source: Optional namespace filter (e.g., "github"). When set to "github",
+                   also applies is_current=True filter to exclude superseded points (BP-074).
 
         Returns:
             List of memory dicts with score, id, and all payload fields.
@@ -255,6 +258,21 @@ class MemorySearch:
             filter_conditions.append(
                 FieldCondition(key="type", match=MatchAny(any=memory_types))
             )
+
+        # SPEC-005: Namespace filter (e.g., source="github")
+        if source is not None:
+            filter_conditions.append(
+                FieldCondition(key="source", match=MatchValue(value=source))
+            )
+            # BP-074: When searching GitHub namespace, exclude superseded points.
+            # Only applied when source="github" to avoid breaking existing
+            # non-GitHub discussions searches (Option A — backward compatible).
+            if source == "github":
+                filter_conditions.append(
+                    FieldCondition(
+                        key="is_current", match=MatchValue(value=True)
+                    )
+                )
 
         query_filter = Filter(must=filter_conditions) if filter_conditions else None
 
@@ -522,6 +540,7 @@ class MemorySearch:
         min_relevance: float = 0.5,
         memory_type: str | list[str] | None = None,
         fast_mode: bool = False,  # NEW: Pass through to search() for hnsw_ef tuning
+        source: str | None = None,  # SPEC-005: Namespace filter (e.g., "github")
     ) -> list[dict]:
         """Search primary collection first, expand to secondary if results insufficient.
 
@@ -543,6 +562,8 @@ class MemorySearch:
                         or list of strings. If None, no type filtering is applied.
             fast_mode: If True, use hnsw_ef=64 for faster search (triggers).
                       If False (default), use hnsw_ef=128 for accuracy (user searches).
+            source: Optional source namespace filter (e.g., "github"). When set,
+                   adds source and is_current filters per SPEC-005.
 
         Returns:
             List of search results with collection attribution. Each result dict
@@ -568,6 +589,7 @@ class MemorySearch:
             limit=limit,
             memory_type=memory_type,
             fast_mode=fast_mode,
+            source=source,
         )
 
         # Step 2: Check if results are sufficient
@@ -618,6 +640,7 @@ class MemorySearch:
                 limit=limit,
                 memory_type=memory_type,
                 fast_mode=fast_mode,
+                source=source,
             )
             all_results.extend(secondary_results)
 
@@ -897,6 +920,7 @@ def search_memories(
     use_cascading: bool = False,
     intent: str | None = None,
     fast_mode: bool = False,
+    source: str | None = None,
     config: MemoryConfig | None = None,
 ) -> list[dict]:
     """Search memories with optional intent-based cascading.
@@ -922,6 +946,7 @@ def search_memories(
                If not provided, will be auto-detected from query.
         fast_mode: If True, use hnsw_ef_fast for faster search (triggers).
                   If False (default), use hnsw_ef_accurate for accuracy.
+        source: Optional source filter (e.g., "github" for GitHub namespace isolation)
         config: Optional MemoryConfig instance
 
     Returns:
@@ -982,6 +1007,7 @@ def search_memories(
                 limit=limit,
                 memory_type=memory_type,
                 fast_mode=fast_mode,
+                source=source,
             )
             _log_search(results)
             return results
@@ -1003,6 +1029,7 @@ def search_memories(
                 limit=limit,
                 memory_type=memory_type,
                 fast_mode=fast_mode,
+                source=source,
             )
             _log_search(results)
             return results
@@ -1059,6 +1086,7 @@ def search_memories(
             limit=limit,
             memory_type=effective_types,
             fast_mode=fast_mode,
+            source=source,
         )
         _log_search(results)
         return results

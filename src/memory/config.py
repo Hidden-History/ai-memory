@@ -17,7 +17,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
@@ -277,6 +277,49 @@ class MemoryConfig(BaseSettings):
     )
 
     # =========================================================================
+    # v2.0.6 — GitHub Integration (SPEC-004, Tier 1: conditional required)
+    # =========================================================================
+
+    github_sync_enabled: bool = Field(
+        default=False,
+        description="Enable GitHub sync integration",
+    )
+    github_token: SecretStr = Field(
+        default=SecretStr(""),
+        description="GitHub PAT for API access (fine-grained, minimum scopes: repo:read, issues:read, pull_requests:read)",
+    )
+    github_repo: str = Field(
+        default="",
+        description="Target repository (owner/repo). Auto-detected from .git/config.",
+    )
+
+    # --- GitHub Integration (Tier 2: defaults) ---
+    github_sync_interval: int = Field(
+        default=1800,
+        ge=60,
+        le=86400,
+        description="Polling interval in seconds (default: 1800 = 30 min)",
+    )
+    github_branch: str = Field(
+        default="main",
+        description="Branch to sync code blobs from",
+    )
+    github_code_blob_enabled: bool = Field(
+        default=True,
+        description="Sync source code files from repository",
+    )
+    github_code_blob_max_size: int = Field(
+        default=102400,
+        ge=1024,
+        le=1048576,
+        description="Skip files larger than this (bytes, default: 102400 = 100KB)",
+    )
+    github_code_blob_exclude: str = Field(
+        default="node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info",
+        description="Comma-separated glob patterns to exclude from code blob sync",
+    )
+
+    # =========================================================================
     # v2.0.6 — Decay Scoring (SPEC-001 Section 4.3)
     # =========================================================================
 
@@ -386,6 +429,18 @@ class MemoryConfig(BaseSettings):
                 return v  # Already JSON format, let pydantic handle it
             return [p.strip() for p in v.split(",") if p.strip()]
         return v
+
+    @model_validator(mode="after")
+    def validate_github_config(self) -> "MemoryConfig":
+        """Validate GitHub config is complete when enabled."""
+        if self.github_sync_enabled:
+            if not self.github_token.get_secret_value():
+                raise ValueError("GITHUB_TOKEN required when GITHUB_SYNC_ENABLED=true")
+            if not self.github_repo:
+                raise ValueError("GITHUB_REPO required when GITHUB_SYNC_ENABLED=true")
+            if "/" not in self.github_repo:
+                raise ValueError("GITHUB_REPO must be in owner/repo format")
+        return self
 
     def get_qdrant_url(self) -> str:
         """Get full Qdrant URL for connections."""

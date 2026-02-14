@@ -22,7 +22,7 @@ __all__ = [
 class MemoryType(str, Enum):
     """Types of memories that can be stored (Memory System v2.0).
 
-    Total: 17 types (4 code-patterns + 5 conventions + 6 discussions + 2 jira-data)
+    Total: 26 types (4 code-patterns + 5 conventions + 6 discussions + 2 jira-data + 9 github)
     Spec: oversight/specs/MEMORY-SYSTEM-REDESIGN-v2.md Section 5
 
     Note: Uses (str, Enum) pattern for Python 3.10 compatibility (AMD ROCm images).
@@ -34,6 +34,9 @@ class MemoryType(str, Enum):
         conventions: RULE, GUIDELINE, PORT, NAMING, STRUCTURE
         discussions: DECISION, SESSION, BLOCKER, PREFERENCE, USER_MESSAGE, AGENT_RESPONSE
         jira-data: JIRA_ISSUE, JIRA_COMMENT
+        discussions (github namespace): GITHUB_ISSUE, GITHUB_ISSUE_COMMENT, GITHUB_PR,
+            GITHUB_PR_DIFF, GITHUB_PR_REVIEW, GITHUB_COMMIT, GITHUB_CODE_BLOB,
+            GITHUB_CI_RESULT, GITHUB_RELEASE
     """
 
     # === code-patterns collection (HOW things are built) ===
@@ -60,6 +63,18 @@ class MemoryType(str, Enum):
     # === jira-data collection (External work items from Jira Cloud) ===
     JIRA_ISSUE = "jira_issue"  # Jira issue with metadata
     JIRA_COMMENT = "jira_comment"  # Jira issue comment
+
+    # === discussions collection — GitHub namespace (WHAT code DID do) ===
+    # Stored with source="github" for namespace isolation (AD-1, BP-075)
+    GITHUB_ISSUE = "github_issue"  # Issue title + body
+    GITHUB_ISSUE_COMMENT = "github_issue_comment"  # Issue comment body
+    GITHUB_PR = "github_pr"  # PR title + description
+    GITHUB_PR_DIFF = "github_pr_diff"  # PR diff summary (chunked)
+    GITHUB_PR_REVIEW = "github_pr_review"  # PR review comment
+    GITHUB_COMMIT = "github_commit"  # Commit message + stats
+    GITHUB_CODE_BLOB = "github_code_blob"  # File content (AST-chunked)
+    GITHUB_CI_RESULT = "github_ci_result"  # CI workflow result
+    GITHUB_RELEASE = "github_release"  # Release notes
 
 
 class ImportanceLevel(str, Enum):
