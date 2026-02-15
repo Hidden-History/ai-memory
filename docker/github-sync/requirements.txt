@@ -1,5 +1,6 @@
 # GitHub Sync Service Dependencies
 # Subset of main requirements.txt — only what the sync engine needs
+# Last audited: 2026-02-15
 
 # Vector Database
 qdrant-client>=1.12.0,<2.0.0
@@ -16,3 +17,9 @@ prometheus-client>=0.21.0,<1.0.0
 
 # Retry logic
 tenacity>=8.0.0,<9.0.0
+
+# Required by memory module import chain (memory/__init__.py)
+# BUG-086: memory/__init__.py unconditionally imports async_sdk_wrapper (anthropic)
+# and logging_config (structlog). Any container importing memory.* needs these.
+anthropic>=0.61.0,<1.0.0
+structlog>=24.0.0,<26.0.0

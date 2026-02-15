@@ -1250,6 +1250,14 @@ configure_environment() {
             log_info "Added GitHub configuration to .env"
         fi
 
+        # BUG-092: Ensure AI_MEMORY_PROJECT_ID is set
+        if ! grep -q "^AI_MEMORY_PROJECT_ID=" "$docker_env" 2>/dev/null; then
+            echo "" >> "$docker_env"
+            echo "# Project Identification (used by github-sync for multi-tenancy)" >> "$docker_env"
+            echo "AI_MEMORY_PROJECT_ID=$PROJECT_NAME" >> "$docker_env"
+            log_info "Added AI_MEMORY_PROJECT_ID=$PROJECT_NAME to .env"
+        fi
+
         log_success "Environment configured at $docker_env"
     else
         # No source .env - create minimal template (user needs to add credentials)
@@ -1282,6 +1290,9 @@ ARCH=$ARCH
 
 # Search Configuration
 SIMILARITY_THRESHOLD=0.4
+
+# Project Identification (used by github-sync for multi-tenancy)
+AI_MEMORY_PROJECT_ID=$PROJECT_NAME
 
 # =============================================================================
 # CREDENTIALS (Required - add your values below)
@@ -1322,6 +1333,62 @@ EOF
             log_warning "Please configure credentials in $docker_env"
         fi
         log_success "Environment template created at $docker_env"
+    fi
+
+    # BUG-087: Auto-generate missing credentials so fresh installs work out-of-the-box
+    # Uses Python secrets module for cryptographically secure random values
+    local _gen_secret="import secrets; print(secrets.token_urlsafe(18))"
+
+    if ! grep -q "^QDRANT_API_KEY=.\+" "$docker_env" 2>/dev/null; then
+        local gen_key
+        gen_key=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
+        if [[ -n "$gen_key" ]]; then
+            if grep -q "^QDRANT_API_KEY=" "$docker_env" 2>/dev/null; then
+                sed -i "s|^QDRANT_API_KEY=.*|QDRANT_API_KEY=$gen_key|" "$docker_env"
+            else
+                echo "QDRANT_API_KEY=$gen_key" >> "$docker_env"
+            fi
+            log_success "Auto-generated QDRANT_API_KEY"
+        fi
+    fi
+
+    if ! grep -q "^GRAFANA_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null; then
+        local gen_gf
+        gen_gf=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
+        if [[ -n "$gen_gf" ]]; then
+            if grep -q "^GRAFANA_ADMIN_PASSWORD=" "$docker_env" 2>/dev/null; then
+                sed -i "s|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=$gen_gf|" "$docker_env"
+            else
+                echo "GRAFANA_ADMIN_PASSWORD=$gen_gf" >> "$docker_env"
+            fi
+            log_success "Auto-generated GRAFANA_ADMIN_PASSWORD"
+        fi
+    fi
+
+    if ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null; then
+        local gen_prom
+        gen_prom=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
+        if [[ -n "$gen_prom" ]]; then
+            if grep -q "^PROMETHEUS_ADMIN_PASSWORD=" "$docker_env" 2>/dev/null; then
+                sed -i "s|^PROMETHEUS_ADMIN_PASSWORD=.*|PROMETHEUS_ADMIN_PASSWORD=$gen_prom|" "$docker_env"
+            else
+                echo "PROMETHEUS_ADMIN_PASSWORD=$gen_prom" >> "$docker_env"
+            fi
+            log_success "Auto-generated PROMETHEUS_ADMIN_PASSWORD"
+        fi
+    fi
+
+    if ! grep -q "^GRAFANA_SECRET_KEY=.\+" "$docker_env" 2>/dev/null; then
+        local gen_gsk
+        gen_gsk=$("$INSTALL_DIR/.venv/bin/python" -c "import secrets; print(secrets.token_hex(32))")
+        if [[ -n "$gen_gsk" ]]; then
+            if grep -q "^GRAFANA_SECRET_KEY=" "$docker_env" 2>/dev/null; then
+                sed -i "s|^GRAFANA_SECRET_KEY=.*|GRAFANA_SECRET_KEY=$gen_gsk|" "$docker_env"
+            else
+                echo "GRAFANA_SECRET_KEY=$gen_gsk" >> "$docker_env"
+            fi
+            log_success "Auto-generated GRAFANA_SECRET_KEY"
+        fi
     fi
 
     # Generate Prometheus web.yml with bcrypt hash from password
@@ -1399,13 +1466,20 @@ generate_prometheus_auth() {
     fi
 
     # Generate bcrypt hash using Python
-    local bcrypt_hash
+    local bcrypt_hash bcrypt_stderr=""
     bcrypt_hash=$(PROM_PASS="$prometheus_password" "$INSTALL_DIR/.venv/bin/python" -c "
 import bcrypt, os
 password = os.environ['PROM_PASS'].encode('utf-8')
-hash = bcrypt.hashpw(password, bcrypt.gensalt(rounds=12))
-print(hash.decode('utf-8'))
-" 2>/dev/null)
+hash_val = bcrypt.hashpw(password, bcrypt.gensalt(rounds=12))
+print(hash_val.decode('utf-8'))
+" 2>/tmp/bcrypt_err.log) || true
+    bcrypt_stderr=$(cat /tmp/bcrypt_err.log 2>/dev/null || echo "")
+    rm -f /tmp/bcrypt_err.log
+
+    if [[ -n "$bcrypt_stderr" && -z "$bcrypt_hash" ]]; then
+        log_warning "bcrypt generation failed: $bcrypt_stderr"
+        log_warning "Ensure bcrypt is installed: $INSTALL_DIR/.venv/bin/pip install bcrypt"
+    fi
 
     if [[ -z "$bcrypt_hash" ]]; then
         log_warning "Failed to generate bcrypt hash - check Python/bcrypt installation"
@@ -1424,6 +1498,19 @@ print(hash.decode('utf-8'))
     } > "$web_yml"
 
     log_success "Generated Prometheus auth config (bcrypt hash from password)"
+
+    # BUG-089: Generate Base64 auth header for Prometheus healthcheck
+    local auth_header
+    auth_header="Basic $(echo -n "admin:$prometheus_password" | base64)"
+    # Append or update in .env
+    if grep -q "^PROMETHEUS_BASIC_AUTH_HEADER=" "$docker_env" 2>/dev/null; then
+        sed -i "s|^PROMETHEUS_BASIC_AUTH_HEADER=.*|PROMETHEUS_BASIC_AUTH_HEADER=$auth_header|" "$docker_env"
+    else
+        echo "" >> "$docker_env"
+        echo "# Prometheus healthcheck auth (auto-generated by install.sh)" >> "$docker_env"
+        echo "PROMETHEUS_BASIC_AUTH_HEADER=$auth_header" >> "$docker_env"
+    fi
+    log_info "Generated Prometheus healthcheck auth header"
 }
 
 # Service startup with 2026 security best practices (AC 7.1.7)
@@ -1436,38 +1523,31 @@ start_services() {
         exit 1
     }
 
-    # Pull images first (show progress)
-    log_info "Pulling Docker images (this may take a few minutes)..."
+    # Build profile flags — CRITICAL: must be a SINGLE compose command
+    # Docker Compose V2 reconciles full project state on each `up -d`.
+    # Sequential invocations with different profiles causes earlier services
+    # to be removed. (BUG-088)
+    local profile_flags=""
     if [[ "$INSTALL_MONITORING" == "true" ]]; then
-        docker compose --profile monitoring pull
-    else
-        docker compose pull
+        profile_flags="$profile_flags --profile monitoring"
     fi
-
-    # Start core services with 2026 security best practices:
-    # - Localhost-only bindings (127.0.0.1)
-    # - Health checks enabled (condition: service_healthy)
-    # - Security opts: no-new-privileges:true
-    # - Non-root user execution where possible
-    log_info "Starting services with security hardening..."
-    if [[ "$INSTALL_MONITORING" == "true" ]]; then
-        log_info "Including monitoring dashboard (Streamlit, Grafana, Prometheus)..."
-        # BUG-079: --build forces rebuild of source-built containers
-        # (monitoring-api, embedding, streamlit, classifier-worker)
-        # Without this, stale containers may serve wrong metrics/endpoints
-        docker compose --profile monitoring up -d --build
-    else
-        docker compose up -d --build  # BUG-079: rebuild source-built containers
-    fi
-
-    # Start GitHub sync container if enabled
     if [[ "$GITHUB_SYNC_ENABLED" == "true" ]]; then
-        # Create state directory for bind mount (host user owns it → matches docker-compose user: UID:GID)
+        profile_flags="$profile_flags --profile github"
+        # Create state directory for github-sync bind mount
         mkdir -p "${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/github-state"
-        log_info "Starting GitHub sync container..."
-        (cd "$INSTALL_DIR/docker" && docker compose --profile github up -d --build github-sync) 2>&1 || \
-            log_warning "Failed to start github-sync container — start manually with: docker compose --profile github up -d"
     fi
+
+    # Pull images (with all profiles active)
+    log_info "Pulling Docker images (this may take a few minutes)..."
+    docker compose $profile_flags pull
+
+    # Start ALL services in a single command (BUG-088 fix)
+    # BUG-079: --build forces rebuild of source-built containers
+    log_info "Starting services with security hardening..."
+    if [[ -n "$profile_flags" ]]; then
+        log_info "Active profiles: $profile_flags"
+    fi
+    docker compose $profile_flags up -d --build
 
     log_success "Docker services started"
 }

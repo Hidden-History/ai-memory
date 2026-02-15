@@ -23,6 +23,9 @@ anthropic>=0.61.0,<1.0.0
 # Retry logic with exponential backoff (DEC-029, TECH-DEBT-041)
 tenacity>=8.0.0,<9.0.0
 
+# Password hashing for Prometheus auth (install.sh generate_prometheus_auth)
+bcrypt>=4.0.0,<5.0.0
+
 # AST-based code chunking (TECH-DEBT-052)
 tree-sitter>=0.21.0,<1.0.0
 tree-sitter-python>=0.21.0,<1.0.0

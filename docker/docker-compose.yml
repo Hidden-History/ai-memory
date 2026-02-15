@@ -184,7 +184,7 @@ services:
       - ALL
     depends_on:
       prometheus:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - default

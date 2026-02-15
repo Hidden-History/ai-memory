@@ -1,7 +1,15 @@
 # AI Memory Module - Streamlit Dashboard
-# Last audited: 2026-01-14
+# Last audited: 2026-02-15
 # All versions pinned per ACT-003
 
 streamlit==1.52.2
 qdrant-client==1.16.2
 httpx==0.28.1
+
+# Required by memory module import chain (memory/__init__.py)
+# BUG-091: Same class of bug as github-sync missing deps
+anthropic>=0.61.0,<1.0.0
+structlog>=24.0.0,<26.0.0
+pydantic>=2.0.0,<3.0.0
+pydantic-settings>=2.0.0,<3.0.0
+tenacity>=8.0.0,<9.0.0
