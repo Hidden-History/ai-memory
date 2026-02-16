@@ -8,6 +8,7 @@ Best Practices: https://softlandia.com/articles/deploying-qdrant-with-grpc-auth-
 """
 
 import logging
+import warnings
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import KeywordIndexParams
@@ -63,6 +64,12 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
     # Create client with timeout configuration
     # Timeout prevents indefinite hangs if Qdrant is unresponsive
     # BP-040: API key + HTTPS configurable via environment variables
+    # BUG-099: Suppress insecure connection warning for localhost — API key over
+    # localhost HTTP is safe (traffic never leaves the machine)
+    if config.qdrant_host in ("localhost", "127.0.0.1") and not config.qdrant_use_https:
+        warnings.filterwarnings(
+            "ignore", message="Api key is used with an insecure connection"
+        )
     client = QdrantClient(
         host=config.qdrant_host,
         port=config.qdrant_port,

@@ -2268,7 +2268,9 @@ setup_github_indexes() {
     log_info "Creating GitHub payload indexes on discussions collection..."
 
     local result
-    result=$(cd "$INSTALL_DIR/docker" && "$INSTALL_DIR/.venv/bin/python" -c "
+    # BUG-098: Source .env so pydantic MemoryConfig reads env vars even when
+    # env_file=".env" doesn't resolve (CWD is docker/ but pydantic may not find it)
+    result=$(cd "$INSTALL_DIR/docker" && [[ -f .env ]] || { echo "FAILED: docker/.env not found"; exit 1; } && set -a && source .env && set +a && "$INSTALL_DIR/.venv/bin/python" -c "
 import sys
 sys.path.insert(0, '$INSTALL_DIR/src')
 from memory.qdrant_client import get_qdrant_client
@@ -2296,11 +2298,13 @@ run_initial_github_sync() {
 
         # CWD must be $INSTALL_DIR (not docker/) so engine's Path.cwd()/.audit/state/
         # writes to the correct location that the container volume also maps to
-        if (cd "$INSTALL_DIR" && ".venv/bin/python" "scripts/github_sync.py" --full) 2>&1 | tee "$INSTALL_DIR/logs/github_initial_sync.log"; then
+        # BUG-098: Source docker/.env so pydantic MemoryConfig reads GITHUB_SYNC_ENABLED
+        # and other env vars — .env is at docker/.env but CWD is $INSTALL_DIR
+        if (cd "$INSTALL_DIR" && [[ -f docker/.env ]] || { echo "[ERROR] docker/.env not found"; exit 1; } && set -a && source docker/.env && set +a && ".venv/bin/python" "scripts/github_sync.py" --full) 2>&1 | tee "$INSTALL_DIR/logs/github_initial_sync.log"; then
             log_success "Initial GitHub sync completed"
         else
             log_warning "Initial sync had errors — check $INSTALL_DIR/logs/github_initial_sync.log"
-            log_info "Re-run manually: cd $INSTALL_DIR && .venv/bin/python scripts/github_sync.py --full"
+            log_info "Re-run manually: cd $INSTALL_DIR && set -a && source docker/.env && set +a && .venv/bin/python scripts/github_sync.py --full"
         fi
     fi
 }
