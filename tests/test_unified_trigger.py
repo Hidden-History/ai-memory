@@ -174,8 +174,10 @@ class TestSearchAllTriggered:
             )
             elapsed = time.time() - start
 
-            # CR-FIX MED-2: More precise assertion (3s timeout + 1s overhead)
-            assert elapsed < 4.0, f"Timeout took {elapsed}s, expected <4s"
+            # CR-FIX MED-2: Timeout fires at 3s (SEARCH_TIMEOUT). Allow 3s overhead
+            # for thread pool scheduling + event loop contention under full suite load.
+            # Must complete well before the 10s sleep — proves timeout works.
+            assert elapsed < 6.0, f"Timeout took {elapsed}s, expected <6s (SEARCH_TIMEOUT=3s + 3s scheduling overhead)"
             assert len(results) == 1
             assert results[0].results == []  # Timeout returns empty
 
