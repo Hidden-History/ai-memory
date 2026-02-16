@@ -173,6 +173,63 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
             logger.info("empty_content_skipped", extra={"session_id": session_id})
             return True
 
+        # SPEC-009: Security scanning (Layers 1+2 only for hooks, ~10ms overhead)
+        if config.security_scanning_enabled:
+            try:
+                from memory.security_scanner import SecurityScanner, ScanAction
+
+                scanner = SecurityScanner(enable_ner=False)
+                scan_result = scanner.scan(prompt)
+
+                if scan_result.action == ScanAction.BLOCKED:
+                    # Secrets detected - block storage entirely
+                    log_to_activity(
+                        f"🚫 UserPrompt blocked: Secrets detected [{group_id}]", INSTALL_DIR
+                    )
+                    logger.warning(
+                        "user_prompt_blocked_secrets",
+                        extra={
+                            "session_id": session_id,
+                            "findings": len(scan_result.findings),
+                            "scan_duration_ms": scan_result.scan_duration_ms,
+                        },
+                    )
+                    if memory_captures_total:
+                        memory_captures_total.labels(
+                            hook_type="UserPromptSubmit",
+                            status="blocked",
+                            project=group_id or "unknown",
+                            collection="discussions",
+                        ).inc()
+                    return True  # Exit early, do not store
+
+                elif scan_result.action == ScanAction.MASKED:
+                    # PII detected and masked
+                    prompt = scan_result.content
+                    logger.info(
+                        "user_prompt_pii_masked",
+                        extra={
+                            "session_id": session_id,
+                            "findings": len(scan_result.findings),
+                            "scan_duration_ms": scan_result.scan_duration_ms,
+                        },
+                    )
+
+                # PASSED: No sensitive data, continue with original content
+
+            except ImportError:
+                logger.warning("security_scanner_unavailable", extra={"hook": "UserPromptSubmit"})
+            except Exception as e:
+                logger.error(
+                    "security_scan_failed",
+                    extra={
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "hook": "UserPromptSubmit",
+                    },
+                )
+                # Continue with original content if scanner fails
+
         # TECH-DEBT-151 Phase 3: Zero-truncation — chunk if over 2000 tokens
         # Per Chunking-Strategy-V2.md V2.1 Section 2.4
         chunks_to_store = []  # List of (content, chunking_metadata) tuples

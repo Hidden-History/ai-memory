@@ -190,10 +190,57 @@ def test_store_memories_batch(mock_config, mock_qdrant_client, mock_embedding_cl
 
     assert len(results) == 2
     assert all(r["status"] == "stored" for r in results)
+    # SPEC-010: embed() now includes model parameter
     mock_embedding_client.embed.assert_called_once_with(
-        ["Memory 1 implementation", "Memory 2 implementation"]
+        ["Memory 1 implementation", "Memory 2 implementation"],
+        model="code",  # code-patterns collection uses code model
     )
     mock_qdrant_client.upsert.assert_called_once()
+
+
+def test_store_memories_batch_mixed_content_types(
+    mock_config, mock_qdrant_client, mock_embedding_client
+):
+    """Test batch storage groups memories by embedding model (H-1 fix).
+
+    Mixed batches with different content_type values should route to
+    the correct embedding model per SPEC-010.
+    """
+    # Track calls with their model arg
+    call_log = []
+
+    def mock_embed(texts, model="en"):
+        call_log.append({"texts": texts, "model": model})
+        return [[0.1] * 768 for _ in texts]
+
+    mock_embedding_client.embed.side_effect = mock_embed
+
+    memories = [
+        {
+            "content": "Normal prose memory content here",
+            "group_id": "proj",
+            "type": MemoryType.IMPLEMENTATION.value,
+            "source_hook": "PostToolUse",
+            "session_id": "sess",
+            # No content_type → code-patterns defaults to "code"
+        },
+        {
+            "content": "Code blob from GitHub sync",
+            "group_id": "proj",
+            "type": MemoryType.IMPLEMENTATION.value,
+            "source_hook": "PostToolUse",
+            "session_id": "sess",
+            "content_type": "github_code_blob",  # Should route to "code"
+        },
+    ]
+
+    storage = MemoryStorage()
+    results = storage.store_memories_batch(memories, collection="code-patterns")
+
+    assert len(results) == 2
+    assert all(r["status"] == "stored" for r in results)
+    # Both should use "code" model for code-patterns collection
+    assert all(c["model"] == "code" for c in call_log)
 
 
 def test_store_memories_batch_embedding_failure(

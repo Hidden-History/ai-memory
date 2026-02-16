@@ -11,6 +11,10 @@ RUN apt-get update && \
 COPY docker/github-sync/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# SPEC-009: Download SpaCy NER model for security scanning Layer 3
+# en_core_web_sm: Small English model (~12MB) optimized for NER
+RUN python3 -m spacy download en_core_web_sm
+
 # Copy application code
 COPY src/ /app/src/
 COPY scripts/ /app/scripts/

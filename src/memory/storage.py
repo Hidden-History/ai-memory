@@ -83,6 +83,47 @@ class MemoryStorage:
         self.embedding_client = EmbeddingClient(self.config)
         self.qdrant_client = get_qdrant_client(self.config)
 
+        # SPEC-009: Initialize security scanner (M3 - class-level attribute)
+        if self.config.security_scanning_enabled:
+            try:
+                from .security_scanner import SecurityScanner
+
+                self._scanner = SecurityScanner(
+                    enable_ner=self.config.security_scanning_ner_enabled
+                )
+            except ImportError as e:
+                logger.warning(
+                    f"SecurityScanner import failed: {e}. Falling back to NER-disabled mode."
+                )
+                from .security_scanner import SecurityScanner
+
+                self._scanner = SecurityScanner(enable_ner=False)
+        else:
+            self._scanner = None
+
+    def _get_embedding_model(self, collection: str, content_type: str | None = None) -> str:
+        """Determine embedding model based on collection and content type.
+
+        SPEC-010 Section 4.2: Routing Rules
+        - code-patterns collection -> code model
+        - github_code_blob type -> code model
+        - Everything else -> prose (en) model
+
+        Args:
+            collection: Target collection name
+            content_type: Optional content type (e.g., "github_code_blob")
+
+        Returns:
+            Model key: "code" or "en"
+        """
+        # Code content -> code model
+        if collection == "code-patterns":
+            return "code"
+        if content_type and content_type in ("github_code_blob",):
+            return "code"
+        # Everything else -> prose model
+        return "en"
+
     def store_memory(
         self,
         content: str,
@@ -172,6 +213,29 @@ class MemoryStorage:
         created_at = extra_fields.pop("created_at", None)
         if created_at is None:
             created_at = datetime.now(timezone.utc).isoformat()
+
+        # SPEC-009: Security scanning BEFORE chunking
+        if self._scanner is not None:
+            from .security_scanner import ScanAction
+
+            scan_result = self._scanner.scan(content)
+            if scan_result.action == ScanAction.BLOCKED:
+                logger.warning(
+                    "content_blocked_secrets_detected",
+                    extra={
+                        "group_id": group_id,
+                        "source_hook": source_hook,
+                        "findings_count": len(scan_result.findings),
+                    },
+                )
+                return {
+                    "memory_id": None,
+                    "status": "blocked",
+                    "reason": "secrets_detected",
+                    "embedding_status": "n/a",
+                }
+            # Use masked content for chunking/embedding
+            content = scan_result.content
 
         # Route content based on type per Chunking-Strategy-V2.md V2.1
         # Map MemoryType to ContentType for IntelligentChunker
@@ -290,13 +354,15 @@ class MemoryStorage:
             }
 
         # Generate embedding with graceful degradation (AC 1.5.4)
+        # SPEC-010: Route to appropriate model based on collection and content type
+        embedding_model = self._get_embedding_model(collection, extra_fields.get("content_type"))
         try:
-            embeddings = self.embedding_client.embed([content])
+            embeddings = self.embedding_client.embed([content], model=embedding_model)
             embedding = embeddings[0]
             payload.embedding_status = EmbeddingStatus.COMPLETE
             logger.debug(
                 "embedding_generated",
-                extra={"content_hash": content_hash, "dimensions": len(embedding)},
+                extra={"content_hash": content_hash, "dimensions": len(embedding), "model": embedding_model},
             )
 
         except EmbeddingError as e:
@@ -407,7 +473,7 @@ class MemoryStorage:
                     )
 
                     try:
-                        chunk_embedding = self.embedding_client.embed([chunk.content])[
+                        chunk_embedding = self.embedding_client.embed([chunk.content], model=embedding_model)[
                             0
                         ]
                     except EmbeddingError:
@@ -581,18 +647,102 @@ class MemoryStorage:
                 )
                 raise ValueError(f"Batch validation failed: {errors}")
 
+        # SPEC-009: Security scanning (all 3 layers for batch operations)
+        # Scan all memories and filter out BLOCKED ones
+        if self._scanner is not None:
+            from .security_scanner import ScanAction
+
+            scanned_memories = []
+            blocked_count = 0
+            masked_count = 0
+
+            for memory in memories:
+                scan_result = self._scanner.scan(memory["content"], force_ner=True)
+
+                if scan_result.action == ScanAction.BLOCKED:
+                    # Skip this memory entirely
+                    blocked_count += 1
+                    logger.warning(
+                        "batch_memory_blocked_secrets",
+                        extra={
+                            "group_id": memory.get("group_id"),
+                            "type": memory.get("type"),
+                            "findings": len(scan_result.findings),
+                        },
+                    )
+                    # Add blocked result to results list
+                    results.append({
+                        "memory_id": None,
+                        "status": "blocked",
+                        "reason": "secrets_detected",
+                        "embedding_status": "n/a",
+                    })
+                    continue
+
+                elif scan_result.action == ScanAction.MASKED:
+                    # Use masked content
+                    memory["content"] = scan_result.content
+                    masked_count += 1
+                    logger.info(
+                        "batch_memory_pii_masked",
+                        extra={
+                            "group_id": memory.get("group_id"),
+                            "type": memory.get("type"),
+                            "findings": len(scan_result.findings),
+                        },
+                    )
+
+                # Include memory for storage (PASSED or MASKED)
+                scanned_memories.append(memory)
+
+            if blocked_count > 0:
+                logger.info(
+                    "batch_scan_completed",
+                    extra={
+                        "total": len(memories),
+                        "blocked": blocked_count,
+                        "masked": masked_count,
+                        "stored": len(scanned_memories),
+                    },
+                )
+
+            # Update memories list to only include non-blocked items
+            memories = scanned_memories
+
+            # If all memories were blocked, return early
+            if not memories:
+                return results
+
         # Generate embeddings in batch (efficient for multiple memories)
-        contents = [m["content"] for m in memories]
+        # SPEC-010: Group memories by embedding model to ensure correct routing
+        # Mixed batches (e.g., code + prose) get routed to the correct model
+        memory_models = []
+        for memory in memories:
+            mem_content_type = memory.get("content_type")
+            mem_model = self._get_embedding_model(collection, mem_content_type)
+            memory_models.append(mem_model)
+
+        # Group by model for efficient batch embedding
+        from collections import defaultdict
+        model_groups = defaultdict(list)  # model -> [(original_index, content)]
+        for idx, (memory, model) in enumerate(zip(memories, memory_models)):
+            model_groups[model].append((idx, memory["content"]))
+
+        embeddings = [None] * len(memories)
+        embedding_status = EmbeddingStatus.COMPLETE
         try:
-            embeddings = self.embedding_client.embed(contents)
-            embedding_status = EmbeddingStatus.COMPLETE
-            logger.debug("batch_embeddings_generated", extra={"count": len(contents)})
+            for model, items in model_groups.items():
+                indices, contents = zip(*items)
+                group_embeddings = self.embedding_client.embed(list(contents), model=model)
+                for orig_idx, emb in zip(indices, group_embeddings):
+                    embeddings[orig_idx] = emb
+            logger.debug("batch_embeddings_generated", extra={"count": len(memories), "models": list(model_groups.keys())})
 
         except EmbeddingError as e:
             # Graceful degradation: Use zero vectors for all
             logger.warning(
                 "batch_embedding_failed",
-                extra={"error": str(e), "count": len(contents)},
+                extra={"error": str(e), "count": len(memories), "models": list(model_groups.keys())},
             )
 
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
@@ -607,14 +757,14 @@ class MemoryStorage:
                     ),
                 ).inc()
 
-            embeddings = [[0.0] * 768 for _ in contents]  # DEC-010: 768d placeholder
+            embeddings = [[0.0] * 768 for _ in memories]  # DEC-010: 768d placeholder
             embedding_status = EmbeddingStatus.PENDING
 
         # Collect chunk data for batch embedding (avoid N+1 API calls)
         pending_chunks = []
 
         # Build points for batch upsert
-        for memory, embedding in zip(memories, embeddings, strict=True):
+        for memory, embedding, mem_model in zip(memories, embeddings, memory_models, strict=True):
             memory_id = str(uuid.uuid4())
 
             # TECH-DEBT-012 Round 3: Handle created_at timestamp
@@ -713,7 +863,7 @@ class MemoryStorage:
                         chunk_payload_dict["chunking_metadata"] = chunking_metadata
 
                         # Collect for batch embedding (avoid N+1 API calls)
-                        pending_chunks.append((chunk_memory_id, chunk_payload_dict))
+                        pending_chunks.append((chunk_memory_id, chunk_payload_dict, mem_model))
                         results.append(
                             {
                                 "memory_id": chunk_memory_id,
@@ -753,7 +903,7 @@ class MemoryStorage:
                         "truncated": False,
                     }
 
-                    pending_chunks.append((chunk_memory_id, chunk_payload_dict))
+                    pending_chunks.append((chunk_memory_id, chunk_payload_dict, mem_model))
                     results.append(
                         {
                             "memory_id": chunk_memory_id,
@@ -800,14 +950,26 @@ class MemoryStorage:
                 }
             )
 
-        # Pass 2: Batch-embed all chunk contents in single API call
+        # Pass 2: Batch-embed all chunk contents, grouped by model
+        # SPEC-010: Each chunk uses its parent memory's embedding model
         if pending_chunks:
-            chunk_contents = [pd["content"] for _, pd in pending_chunks]
-            try:
-                chunk_embeddings = self.embedding_client.embed(chunk_contents)
-            except EmbeddingError:
-                chunk_embeddings = [[0.0] * 768 for _ in chunk_contents]
-            for (chunk_id, chunk_payload_dict), chunk_emb in zip(
+            # Group chunks by model for efficient batch embedding
+            chunk_model_groups = defaultdict(list)  # model -> [(index, chunk_id, payload)]
+            for idx, (chunk_id, chunk_payload_dict, chunk_model) in enumerate(pending_chunks):
+                chunk_model_groups[chunk_model].append((idx, chunk_id, chunk_payload_dict))
+
+            chunk_embeddings = [None] * len(pending_chunks)
+            for c_model, c_items in chunk_model_groups.items():
+                c_indices, c_ids, c_payloads = zip(*c_items)
+                c_contents = [p["content"] for p in c_payloads]
+                try:
+                    c_embs = self.embedding_client.embed(list(c_contents), model=c_model)
+                except EmbeddingError:
+                    c_embs = [[0.0] * 768 for _ in c_contents]
+                for c_idx, c_emb in zip(c_indices, c_embs):
+                    chunk_embeddings[c_idx] = c_emb
+
+            for (chunk_id, chunk_payload_dict, _), chunk_emb in zip(
                 pending_chunks, chunk_embeddings, strict=True
             ):
                 points.append(

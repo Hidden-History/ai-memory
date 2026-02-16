@@ -99,12 +99,13 @@ def test_counter_metrics_have_correct_labels():
     # memory_retrievals_total: ["collection", "status", "project"] per §7.3 multi-tenancy
     assert memory_retrievals_total._labelnames == ("collection", "status", "project")
 
-    # embedding_requests_total: ["status", "embedding_type", "context", "project"]
+    # embedding_requests_total: ["status", "embedding_type", "context", "project", "model"]
     assert embedding_requests_total._labelnames == (
         "status",
         "embedding_type",
         "context",
         "project",
+        "model",
     )
 
     # deduplication_events_total: ["action", "collection", "project"] - per BUG-021
@@ -291,7 +292,8 @@ def test_histogram_metrics_have_correct_labels():
     )
 
     # Legacy deprecated metrics (kept for backward compatibility)
-    assert embedding_duration_seconds._labelnames == ("embedding_type",)
+    # Note: embedding_duration_seconds now includes 'model' label per SPEC-010
+    assert embedding_duration_seconds._labelnames == ("embedding_type", "model")
     assert retrieval_duration_seconds._labelnames == ()
 
 

@@ -33,3 +33,7 @@ tree-sitter-javascript>=0.21.0,<1.0.0
 tree-sitter-typescript>=0.21.0,<1.0.0
 tree-sitter-go>=0.21.0,<1.0.0
 tree-sitter-rust>=0.21.0,<1.0.0
+
+# Security scanning - Layer 2 secret detection (SPEC-009)
+# Required for hook scripts (run from project venv)
+detect-secrets>=1.4.0

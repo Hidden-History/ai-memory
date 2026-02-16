@@ -71,3 +71,15 @@ oversight/
 
 # Claude Code local settings (user-specific)
 .claude/settings.json
+
+# Secrets — NEVER commit plaintext secrets
+# docker/.env is already ignored above under "# Environment files"
+
+# SOPS encrypted file IS safe to commit (values encrypted)
+# By default, secrets.enc.yaml is NOT ignored and WILL be committed.
+# The commented line below is for reference only — uncomment if you want to
+# explicitly whitelist it (useful if you have a broader ignore pattern):
+# !docker/secrets.enc.yaml
+
+# age private key — NEVER commit (default SOPS/age key location)
+**/.config/sops/age/keys.txt

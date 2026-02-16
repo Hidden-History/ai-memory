@@ -99,25 +99,26 @@ class EmbeddingClient:
 
         self.client = httpx.Client(timeout=timeout_config, limits=limits)
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for texts.
+    def embed(self, texts: list[str], model: str = "en") -> list[list[float]]:
+        """Generate embeddings for texts using specified model.
 
         Sends batch request to embedding service and returns vector embeddings.
         Uses connection pooling for optimal performance.
 
         Args:
             texts: List of text strings to embed (supports batch operations).
+            model: "en" for prose, "code" for code content. Default: "en".
 
         Returns:
             List of embedding vectors, one per input text. Each vector has
-            768 dimensions (DEC-010: Jina Embeddings v2 Base Code).
+            768 dimensions (SPEC-010: Jina Embeddings v2 dual model support).
 
         Raises:
             EmbeddingError: If request times out or HTTP error occurs.
 
         Example:
             >>> client = EmbeddingClient()
-            >>> embeddings = client.embed(["text1", "text2"])
+            >>> embeddings = client.embed(["text1", "text2"], model="en")
             >>> len(embeddings)
             2
             >>> len(embeddings[0])
@@ -127,8 +128,8 @@ class EmbeddingClient:
 
         try:
             response = self.client.post(
-                f"{self.base_url}/embed",
-                json={"texts": texts},
+                f"{self.base_url}/embed/dense",
+                json={"texts": texts, "model": model},
             )
             response.raise_for_status()
             embeddings = response.json()["embeddings"]
@@ -142,9 +143,10 @@ class EmbeddingClient:
                     embedding_type="dense",
                     context="realtime",
                     project="unknown",
+                    model=model,
                 ).inc()
             if embedding_duration_seconds:
-                embedding_duration_seconds.labels(embedding_type="dense").observe(
+                embedding_duration_seconds.labels(embedding_type="dense", model=model).observe(
                     duration_seconds
                 )
 
@@ -154,6 +156,7 @@ class EmbeddingClient:
                 embedding_type="dense",
                 duration_seconds=duration_seconds,
                 context="realtime",
+                model=model,
             )
 
             return embeddings
@@ -164,6 +167,7 @@ class EmbeddingClient:
                 extra={
                     "texts_count": len(texts),
                     "base_url": self.base_url,
+                    "model": model,
                     "error": str(e),
                 },
             )
@@ -177,9 +181,10 @@ class EmbeddingClient:
                     embedding_type="dense",
                     context="realtime",
                     project="unknown",
+                    model=model,
                 ).inc()
             if embedding_duration_seconds:
-                embedding_duration_seconds.labels(embedding_type="dense").observe(
+                embedding_duration_seconds.labels(embedding_type="dense", model=model).observe(
                     duration_seconds
                 )
 
@@ -197,6 +202,7 @@ class EmbeddingClient:
                 embedding_type="dense",
                 duration_seconds=duration_seconds,
                 context="realtime",
+                model=model,
             )
             push_failure_metrics_async(
                 component="embedding",
@@ -212,6 +218,7 @@ class EmbeddingClient:
                 extra={
                     "texts_count": len(texts),
                     "base_url": self.base_url,
+                    "model": model,
                     "error": str(e),
                 },
             )
@@ -225,9 +232,10 @@ class EmbeddingClient:
                     embedding_type="dense",
                     context="realtime",
                     project="unknown",
+                    model=model,
                 ).inc()
             if embedding_duration_seconds:
-                embedding_duration_seconds.labels(embedding_type="dense").observe(
+                embedding_duration_seconds.labels(embedding_type="dense", model=model).observe(
                     duration_seconds
                 )
 
@@ -245,6 +253,7 @@ class EmbeddingClient:
                 embedding_type="dense",
                 duration_seconds=duration_seconds,
                 context="realtime",
+                model=model,
             )
             push_failure_metrics_async(
                 component="embedding",

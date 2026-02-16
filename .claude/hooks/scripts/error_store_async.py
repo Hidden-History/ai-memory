@@ -197,6 +197,57 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
         # Format content for embedding
         content = format_error_content(error_context)
 
+        # SPEC-009: Security scanning (Layers 1+2 only for hooks, ~10ms overhead)
+        config = get_config()
+        if config.security_scanning_enabled:
+            try:
+                from memory.security_scanner import SecurityScanner, ScanAction
+
+                scanner = SecurityScanner(enable_ner=False)
+                scan_result = scanner.scan(content)
+
+                if scan_result.action == ScanAction.BLOCKED:
+                    # Secrets detected - block storage entirely
+                    log_to_activity(
+                        "🚫 ErrorPattern blocked: Secrets detected", INSTALL_DIR
+                    )
+                    logger.warning(
+                        "error_pattern_blocked_secrets",
+                        extra={
+                            "session_id": error_context.get("session_id", ""),
+                            "findings": len(scan_result.findings),
+                            "scan_duration_ms": scan_result.scan_duration_ms,
+                        },
+                    )
+                    return  # Exit early, do not store
+
+                elif scan_result.action == ScanAction.MASKED:
+                    # PII detected and masked
+                    content = scan_result.content
+                    logger.info(
+                        "error_pattern_pii_masked",
+                        extra={
+                            "session_id": error_context.get("session_id", ""),
+                            "findings": len(scan_result.findings),
+                            "scan_duration_ms": scan_result.scan_duration_ms,
+                        },
+                    )
+
+                # PASSED: No sensitive data, continue with original content
+
+            except ImportError:
+                logger.warning("security_scanner_unavailable", extra={"hook": "PostToolUse_Error"})
+            except Exception as e:
+                logger.error(
+                    "security_scan_failed",
+                    extra={
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "hook": "PostToolUse_Error",
+                    },
+                )
+                # Continue with original content if scanner fails
+
         # Use pre-computed content hash if available, otherwise compute it
         content_hash = error_context.get("content_hash")
         if not content_hash:
@@ -268,7 +319,8 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             def _generate_embedding():
                 config = get_config()
                 with EmbeddingClient(config) as embed_client:
-                    return embed_client.embed([content])[0]
+                    # SPEC-010: Use code model for code-patterns collection
+                    return embed_client.embed([content], model="code")[0]
 
             vector = await asyncio.to_thread(_generate_embedding)
             payload["embedding_status"] = "complete"

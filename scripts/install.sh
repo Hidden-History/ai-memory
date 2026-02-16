@@ -491,6 +491,73 @@ print(','.join(keys))
     echo ""
 }
 
+# Configure secrets storage backend (SPEC-011)
+configure_secrets_backend() {
+    # Skip if non-interactive mode
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        SECRETS_BACKEND="${SECRETS_BACKEND:-env-file}"
+        log_info "Non-interactive mode - using secrets backend: $SECRETS_BACKEND"
+        return 0
+    fi
+
+    echo ""
+    echo "=== Secrets Storage ==="
+    echo ""
+    echo "How would you like to store API keys and tokens?"
+    echo ""
+    echo "  [1] SOPS+age encryption (Recommended)"
+    echo "      Secrets encrypted in Git. Requires: sops, age (brew install sops age)"
+    echo ""
+    echo "  [2] System keyring (OS-level encryption)"
+    echo "      Uses macOS Keychain / GNOME Keyring / Windows Credential Locker"
+    echo ""
+    echo "  [3] .env file (Minimum security)"
+    echo "      Plaintext on disk. NOT recommended for shared machines."
+    echo ""
+    read -r -p "Choose [1/2/3] (default: 3): " SECRETS_CHOICE
+
+    case "${SECRETS_CHOICE:-3}" in
+        1)
+            SECRETS_BACKEND="sops-age"
+            if command -v sops &>/dev/null && command -v age-keygen &>/dev/null; then
+                log_info "sops and age found. Running setup..."
+                bash "$SCRIPT_DIR/setup-secrets.sh"
+            else
+                log_warning "sops and/or age not found."
+                echo "Install: brew install sops age  OR  apt install sops age"
+                echo "Then run: ./scripts/setup-secrets.sh"
+                echo "Falling back to .env file for now."
+                SECRETS_BACKEND="env-file"
+            fi
+            ;;
+        2)
+            SECRETS_BACKEND="keyring"
+            if "$INSTALL_DIR/.venv/bin/pip" install keyring 2>/dev/null; then
+                log_success "keyring installed successfully"
+            else
+                log_warning "Failed to install keyring. Falling back to .env file."
+                SECRETS_BACKEND="env-file"
+            fi
+            ;;
+        3|*)
+            SECRETS_BACKEND="env-file"
+            log_warning "Using plaintext .env file. Consider upgrading to SOPS+age."
+            ;;
+    esac
+
+    # Store backend choice in .env
+    local docker_env="$INSTALL_DIR/docker/.env"
+    if grep -q "^AI_MEMORY_SECRETS_BACKEND=" "$docker_env" 2>/dev/null; then
+        sed -i.bak "s|^AI_MEMORY_SECRETS_BACKEND=.*|AI_MEMORY_SECRETS_BACKEND=$SECRETS_BACKEND|" "$docker_env" && rm -f "$docker_env.bak"
+    else
+        echo "" >> "$docker_env"
+        echo "# Secrets Backend (SPEC-011)" >> "$docker_env"
+        echo "AI_MEMORY_SECRETS_BACKEND=$SECRETS_BACKEND" >> "$docker_env"
+    fi
+    log_success "Secrets backend set to: $SECRETS_BACKEND"
+    echo ""
+}
+
 # Main orchestration function
 main() {
     INSTALL_STARTED=true  # Enable cleanup handler
@@ -535,6 +602,7 @@ main() {
         install_python_dependencies
         configure_environment
         validate_external_services
+        configure_secrets_backend
 
         # Skip Docker-related steps if SKIP_DOCKER_CHECKS is set (for CI without Docker)
         if [[ "${SKIP_DOCKER_CHECKS:-}" == "true" ]]; then

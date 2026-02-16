@@ -23,3 +23,11 @@ tenacity>=8.0.0,<9.0.0
 # and logging_config (structlog). Any container importing memory.* needs these.
 anthropic>=0.61.0,<1.0.0
 structlog>=24.0.0,<26.0.0
+
+# SPEC-009: Security scanning dependencies
+# Layer 2: detect-secrets for entropy-based secret detection
+detect-secrets>=1.4.0
+
+# Layer 3: SpaCy NER for person name detection
+# Note: en_core_web_sm model downloaded in Dockerfile build step
+spacy>=3.8.0,<4.0.0

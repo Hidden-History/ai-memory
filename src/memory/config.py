@@ -62,9 +62,11 @@ TYPE_USER_MESSAGE = "user_message"
 TYPE_AGENT_RESPONSE = "agent_response"
 TYPE_SESSION = "session"  # Session summaries from PreCompact hook
 
-# Embedding configuration (DEC-010: Jina Embeddings v2 Base Code)
+# Embedding configuration (SPEC-010: Dual Embedding Models)
 EMBEDDING_DIMENSIONS = 768
-EMBEDDING_MODEL = "jina-embeddings-v2-base-en"
+EMBEDDING_MODEL = "jina-embeddings-v2-base-en"  # Legacy constant, kept for backward compat
+EMBEDDING_MODEL_EN = "jina-embeddings-v2-base-en"  # Prose model
+EMBEDDING_MODEL_CODE = "jina-embeddings-v2-base-code"  # Code model
 
 
 class MemoryConfig(BaseSettings):
@@ -391,6 +393,149 @@ class MemoryConfig(BaseSettings):
         description="Global kill switch for automated memory updates. When false: sync runs, no auto-corrections applied.",
     )
 
+    # =========================================================================
+    # v2.0.6 — Dual Embedding (SPEC-010)
+    # =========================================================================
+
+    embedding_model_dense_en: str = Field(
+        default="jinaai/jina-embeddings-v2-base-en",
+        description="Prose embedding model name (SDK-side display/logging only)",
+    )
+
+    embedding_model_dense_code: str = Field(
+        default="jinaai/jina-embeddings-v2-base-code",
+        description="Code embedding model name (SDK-side display/logging only)",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Security Scanning (SPEC-009)
+    # =========================================================================
+
+    security_scanning_enabled: bool = Field(
+        default=True,
+        description="Master toggle for scanning pipeline",
+    )
+
+    security_scanning_ner_enabled: bool = Field(
+        default=True,
+        description="Enable SpaCy NER layer (Layer 3). Set False if SpaCy not installed.",
+    )
+
+    security_block_on_secrets: bool = Field(
+        default=True,
+        description="Block content with detected secrets. If False, mask instead.",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Progressive Context Injection (SPEC-012, AD-6)
+    # =========================================================================
+
+    # Tier 2 — defaults, user CAN override
+    injection_enabled: bool = Field(
+        default=True,
+        description="Enable progressive context injection (Tier 1 + Tier 2)",
+    )
+
+    bootstrap_token_budget: int = Field(
+        default=2500,
+        ge=500,
+        le=5000,
+        description="Token budget for Tier 1 bootstrap injection (startup trigger)",
+    )
+
+    injection_confidence_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Minimum best retrieval score to inject context (Tier 2). Below this, skip injection entirely.",
+    )
+
+    injection_budget_floor: int = Field(
+        default=500,
+        ge=100,
+        le=2000,
+        description="Minimum token budget for Tier 2 per-turn injection",
+    )
+
+    injection_budget_ceiling: int = Field(
+        default=1500,
+        ge=500,
+        le=5000,
+        description="Maximum token budget for Tier 2 per-turn injection",
+    )
+
+    # Tier 3 — hidden/advanced
+    injection_quality_weight: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Weight for quality signal in adaptive budget computation",
+    )
+
+    injection_density_weight: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Weight for density signal in adaptive budget computation",
+    )
+
+    injection_drift_weight: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        description="Weight for topic drift signal in adaptive budget computation",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Encryption (SPEC-011)
+    # =========================================================================
+
+    secrets_backend: str = Field(
+        default="env-file",
+        pattern="^(sops-age|keyring|env-file)$",
+        description="Secrets storage method (informational/diagnostic only). Indicates which secrets storage method was selected during install: sops-age (SOPS+age encryption), keyring (OS-level encryption), env-file (plaintext). This field does NOT control decryption behavior (handled by start.sh wrapper script). Used for logging, telemetry, and status reporting.",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Freshness Detection (SPEC-013 Section 6)
+    # =========================================================================
+
+    freshness_enabled: bool = Field(
+        default=True,
+        description="Enable freshness detection for code-patterns memories",
+    )
+
+    freshness_commit_threshold_aging: int = Field(
+        default=3,
+        ge=1,
+        le=100,
+        description=(
+            "Commits touching a file since memory stored before "
+            "classifying as 'aging'. Default: 3."
+        ),
+    )
+
+    freshness_commit_threshold_stale: int = Field(
+        default=10,
+        ge=2,
+        le=500,
+        description=(
+            "Commits touching a file since memory stored before "
+            "classifying as 'stale'. Default: 10."
+        ),
+    )
+
+    freshness_commit_threshold_expired: int = Field(
+        default=25,
+        ge=3,
+        le=1000,
+        description=(
+            "Commits touching a file since memory stored before "
+            "classifying as 'expired' (even if blob hash matches). "
+            "Default: 25."
+        ),
+    )
+
     @field_validator("decay_type_overrides", mode="before")
     @classmethod
     def parse_type_overrides(cls, v: str) -> str:
@@ -440,6 +585,45 @@ class MemoryConfig(BaseSettings):
                 raise ValueError("GITHUB_REPO required when GITHUB_SYNC_ENABLED=true")
             if "/" not in self.github_repo:
                 raise ValueError("GITHUB_REPO must be in owner/repo format")
+        return self
+
+    @model_validator(mode="after")
+    def validate_injection_config(self) -> "MemoryConfig":
+        """Validate injection config consistency."""
+        if self.injection_budget_floor > self.injection_budget_ceiling:
+            raise ValueError(
+                f"INJECTION_BUDGET_FLOOR ({self.injection_budget_floor}) "
+                f"must be <= INJECTION_BUDGET_CEILING ({self.injection_budget_ceiling})"
+            )
+        weight_sum = (
+            self.injection_quality_weight
+            + self.injection_density_weight
+            + self.injection_drift_weight
+        )
+        if abs(weight_sum - 1.0) > 0.01:
+            raise ValueError(
+                f"Injection signal weights must sum to 1.0, got {weight_sum:.2f}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_freshness_thresholds(self) -> "MemoryConfig":
+        """Validate freshness thresholds are in ascending order.
+
+        Always validates regardless of freshness_enabled state to
+        prevent deferred errors when the feature is later enabled.
+        """
+        if not (
+            self.freshness_commit_threshold_aging
+            < self.freshness_commit_threshold_stale
+            < self.freshness_commit_threshold_expired
+        ):
+            raise ValueError(
+                "Freshness thresholds must be in ascending order: "
+                f"aging ({self.freshness_commit_threshold_aging}) < "
+                f"stale ({self.freshness_commit_threshold_stale}) < "
+                f"expired ({self.freshness_commit_threshold_expired})"
+            )
         return self
 
     def get_qdrant_url(self) -> str:

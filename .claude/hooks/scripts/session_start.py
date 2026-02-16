@@ -683,34 +683,178 @@ def main():
 
                 sys.exit(0)
 
-            # V2.0 Phase 5: Inject on resume and compact (conversation continuity)
-            # startup/clear: No injection - we don't know context yet or user wants fresh start
-            if trigger in ["startup", "clear"]:
+            # V2.0.6 SPEC-012: Progressive Context Injection (AD-6 override of Core Arch V2)
+            # clear: No injection - user wants fresh start, delete injection state
+            # startup: Tier 1 Bootstrap injection - conventions + guidelines + recent findings (2-3K)
+            # resume/compact: Session restore (existing behavior, 4K)
+
+            if trigger == "clear":
+                # User wants fresh start — delete injection state and skip injection
+                from pathlib import Path
+
+                state_path = Path(f"/tmp/ai-memory-{session_id}-injection-state.json")
+                state_path.unlink(missing_ok=True)
+
                 duration_ms = (time.perf_counter() - start_time) * 1000
                 logger.info(
-                    "v2_no_injection",
+                    "v2_clear_no_injection",
                     extra={
                         "trigger": trigger,
                         "session_id": session_id,
                         "project": project_name,
-                        "reason": "V2.0 injects on resume and compact only",
                         "duration_ms": round(duration_ms, 2),
                     },
                 )
 
-                # User notification - V2.0 behavior
+                # User notification
                 print(
-                    f"🧠 AI Memory V2.0: No injection on {trigger} (fresh start) [{duration_ms:.0f}ms]",
+                    f"🧠 AI Memory V2.0: Fresh start (no injection) [{duration_ms:.0f}ms]",
                     file=sys.stderr,
                 )
 
-                # Empty context JSON - no injection on startup/resume/clear
+                # Empty context JSON
                 print(
                     json.dumps(
                         {
                             "hookSpecificOutput": {
                                 "hookEventName": "SessionStart",
                                 "additionalContext": "",
+                            }
+                        }
+                    )
+                )
+
+                # BUG-020: Clean up dedup lock
+                try:
+                    if os.path.exists(lock_file_path):
+                        os.remove(lock_file_path)
+                except OSError:
+                    pass  # Best effort cleanup
+
+                sys.exit(0)
+
+            if trigger == "startup":
+                # Tier 1 Bootstrap: inject conventions, guidelines, recent findings
+                from memory.injection import (
+                    format_injection_output,
+                    init_session_state,
+                    log_injection_event,
+                    retrieve_bootstrap_context,
+                    select_results_greedy,
+                )
+                from memory.search import MemorySearch
+
+                bootstrap_results = retrieve_bootstrap_context(
+                    search_client=MemorySearch(config),
+                    project_name=project_name,
+                    config=config,
+                )
+
+                if not bootstrap_results:
+                    duration_ms = (time.perf_counter() - start_time) * 1000
+                    logger.info(
+                        "bootstrap_no_results",
+                        extra={
+                            "session_id": session_id,
+                            "project": project_name,
+                            "duration_ms": round(duration_ms, 2),
+                        },
+                    )
+
+                    # User notification
+                    print(
+                        f"🧠 AI Memory V2.0: No bootstrap context available [{duration_ms:.0f}ms]",
+                        file=sys.stderr,
+                    )
+
+                    # Empty context JSON
+                    print(
+                        json.dumps(
+                            {
+                                "hookSpecificOutput": {
+                                    "hookEventName": "SessionStart",
+                                    "additionalContext": "",
+                                }
+                            }
+                        )
+                    )
+
+                    # BUG-020: Clean up dedup lock
+                    try:
+                        if os.path.exists(lock_file_path):
+                            os.remove(lock_file_path)
+                    except OSError:
+                        pass  # Best effort cleanup
+
+                    sys.exit(0)
+
+                # Greedy fill with bootstrap budget
+                selected, tokens_used = select_results_greedy(
+                    results=bootstrap_results,
+                    budget=config.bootstrap_token_budget,
+                )
+
+                # Format and output
+                formatted = format_injection_output(selected, tier=1)
+
+                # Initialize session injection state (for Tier 2 dedup)
+                init_session_state(
+                    session_id=session_id,
+                    injected_ids=[r["id"] for r in selected],
+                )
+
+                # Audit log
+                log_injection_event(
+                    tier=1,
+                    trigger=trigger,
+                    project=project_name,
+                    session_id=session_id,
+                    results_considered=len(bootstrap_results),
+                    results_selected=len(selected),
+                    tokens_used=tokens_used,
+                    budget=config.bootstrap_token_budget,
+                    audit_dir=config.audit_dir,
+                )
+
+                # Calculate duration for logging
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                duration_seconds = duration_ms / 1000.0
+
+                # User notification
+                print(
+                    f"🧠 AI Memory V2.0: Bootstrap context injected ({len(selected)} items, {tokens_used} tokens) [{duration_ms:.0f}ms]",
+                    file=sys.stderr,
+                )
+
+                logger.info(
+                    "bootstrap_injection_complete",
+                    extra={
+                        "session_id": session_id,
+                        "project": project_name,
+                        "results_selected": len(selected),
+                        "tokens_used": tokens_used,
+                        "budget": config.bootstrap_token_budget,
+                        "duration_ms": round(duration_ms, 2),
+                    },
+                )
+
+                # Push metrics
+                from memory.metrics_push import push_hook_metrics_async
+
+                push_hook_metrics_async(
+                    hook_name="SessionStart",
+                    duration_seconds=duration_seconds,
+                    success=True,
+                    project=project_name,
+                )
+
+                # Output to Claude
+                print(
+                    json.dumps(
+                        {
+                            "hookSpecificOutput": {
+                                "hookEventName": "SessionStart",
+                                "additionalContext": formatted,
                             }
                         }
                     )
