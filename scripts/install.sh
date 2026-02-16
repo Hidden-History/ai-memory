@@ -1633,7 +1633,7 @@ start_services() {
         fi
         echo -n "."
         sleep 1
-        ((core_attempt++))
+        ((core_attempt++)) || true
     done
     if [[ $core_attempt -ge $core_timeout ]]; then
         log_error "Qdrant failed to become healthy within ${core_timeout}s"
