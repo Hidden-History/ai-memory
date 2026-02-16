@@ -42,13 +42,17 @@ cleanup() {
         echo ""
         log_warning "Installation interrupted (exit code: $exit_code)"
 
-        # Stop Docker services ONLY in full install mode
-        # In add-project mode, services are shared/pre-existing - don't touch them!
+        # BUG-097: Do NOT auto-destroy containers on failure.
+        # Running containers with their logs are the most valuable diagnostic tool.
+        # Previous behavior ran `docker compose down` without profile flags, which
+        # killed only qdrant + embedding (default-scope) while leaving 7 profile
+        # services orphaned — the root cause of "mysterious container disappearance"
+        # across Tests 1-5.
         if [[ "${INSTALL_MODE:-full}" == "full" && -f "$INSTALL_DIR/docker/docker-compose.yml" ]]; then
             echo ""
-            echo "[INFO] Stopping Docker services..."
-            cd "$INSTALL_DIR/docker" && docker compose down --timeout 5 2>/dev/null || true
-            echo "[INFO] Docker services stopped"
+            log_info "Docker services left running for inspection."
+            log_info "  View logs:  cd $INSTALL_DIR/docker && docker compose logs"
+            log_info "  Stop all:   cd $INSTALL_DIR/docker && docker compose --profile monitoring --profile github down"
         fi
 
         echo ""
@@ -2139,8 +2143,8 @@ run_health_check() {
         export QDRANT_API_KEY
     fi
 
-    # Call Python health check script
-    if python3 "$INSTALL_DIR/scripts/health-check.py"; then
+    # BUG-096: Must use venv Python (has httpx), not system python3 (doesn't)
+    if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/health-check.py"; then
         log_success "All health checks passed"
     else
         log_error "Health checks failed"
@@ -2157,7 +2161,7 @@ run_health_check() {
         echo "│     docker compose restart                                  │"
         echo "│                                                             │"
         echo "│  3. Retry health check:                                     │"
-        echo "│     python3 $INSTALL_DIR/scripts/health-check.py            │"
+        echo "│     $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/health-check.py │"
         echo "│                                                             │"
         echo "│  4. See troubleshooting guide:                              │"
         echo "│     cat $INSTALL_DIR/TROUBLESHOOTING.md                     │"
@@ -2428,7 +2432,7 @@ show_success_message() {
     echo "│   Useful commands:                                          │"
     echo "│                                                             │"
     echo "│   Health check:                                             │"
-    echo "│     python3 $INSTALL_DIR/scripts/health-check.py            │"
+    echo "│     $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/health-check.py │"
     echo "│                                                             │"
     echo "│   View logs:                                                │"
     echo "│     cd $INSTALL_DIR/docker && docker compose logs -f        │"
