@@ -1561,16 +1561,36 @@ start_services() {
         exit 1
     }
 
-    # Check Docker daemon is active
-    if ! systemctl is-active --quiet docker 2>/dev/null; then
-        log_warning "Docker daemon is not active — attempting to start..."
+    # Check Docker daemon is reachable (BUG-094: works with Docker Engine, Desktop, Colima, etc.)
+    if ! docker info &>/dev/null; then
+        log_warning "Docker daemon is not reachable — attempting systemd start..."
         sudo systemctl start docker 2>/dev/null || true
-        sleep 2
-        if ! systemctl is-active --quiet docker 2>/dev/null; then
-            log_error "Docker daemon failed to start. Check: systemctl status docker"
+        sleep 3
+        if ! docker info &>/dev/null; then
+            log_error "Docker daemon is not reachable."
+            log_error "  Docker Engine:  sudo systemctl start docker"
+            log_error "  Docker Desktop: Start from applications menu"
+            log_error "  Verify:         docker info"
             exit 1
         fi
         log_success "Docker daemon started"
+    fi
+
+    # BUG-095: Check Docker has enough memory for all services
+    local docker_mem_bytes
+    docker_mem_bytes=$(docker info --format '{{.MemTotal}}' 2>/dev/null || echo "0")
+    local docker_mem_gb=$((docker_mem_bytes / 1073741824))
+    log_info "Docker memory available: ${docker_mem_gb}GB ($((docker_mem_bytes / 1048576))MB)"
+    if [[ $docker_mem_gb -lt 3 ]]; then
+        log_warning "Docker has only ${docker_mem_gb}GB RAM (minimum 3GB, recommended 4GB+)"
+        log_warning "  Docker Desktop: Settings → Resources → Memory → set to 4GB+"
+        log_warning "  Low memory causes containers to disappear silently (OOM inside VM)"
+        echo ""
+        read -p "  Continue anyway? [y/N]: " low_mem_choice
+        if [[ ! "$low_mem_choice" =~ ^[Yy]$ ]]; then
+            log_info "Increase Docker memory and re-run the installer."
+            exit 0
+        fi
     fi
 
     # Build profile flags for later use
@@ -2435,15 +2455,18 @@ show_success_message() {
 # These provide clear, actionable guidance with NO FALLBACK warnings
 
 show_docker_not_running_error() {
-    log_error "Docker daemon is not running"
+    log_error "Docker daemon is not reachable"
     echo ""
     echo "┌─────────────────────────────────────────────────────────────┐"
     echo "│  Docker needs to be running to install AI Memory Module    │"
     echo "├─────────────────────────────────────────────────────────────┤"
     echo "│  Start Docker:                                              │"
-    echo "│    Ubuntu/Debian: sudo systemctl start docker               │"
-    echo "│    macOS:         Open Docker Desktop                       │"
-    echo "│    WSL2:          Start Docker Desktop on Windows           │"
+    echo "│    Docker Engine:  sudo systemctl start docker              │"
+    echo "│    Docker Desktop: Start from applications menu             │"
+    echo "│    macOS:          Open Docker Desktop                      │"
+    echo "│    WSL2:           Start Docker Desktop on Windows          │"
+    echo "│                                                             │"
+    echo "│  Verify: docker info                                        │"
     echo "│                                                             │"
     echo "│  NO FALLBACK: This installer will NOT continue without     │"
     echo "│  a running Docker daemon.                                  │"
