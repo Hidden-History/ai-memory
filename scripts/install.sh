@@ -375,15 +375,30 @@ print(','.join(keys))
             echo "   - Minimum scopes: Contents (read), Issues (read), Pull Requests (read), Actions (read)"
             echo "   - Set expiration (90 days recommended)"
             echo ""
+            echo "   IMPORTANT: Enter the FULL token exactly as shown by GitHub."
+            echo "   Fine-grained tokens start with: github_pat_..."
+            echo "   Classic tokens start with: ghp_..."
+            echo "   Include the entire string including the prefix."
+            echo ""
 
             read -sp "   GitHub PAT (hidden): " github_token
             GITHUB_TOKEN="$github_token"
             echo ""
 
+            # Validate PAT format
+            if [[ ! "$GITHUB_TOKEN" =~ ^(github_pat_|ghp_|gho_|ghs_|ghr_) ]]; then
+                log_warning "Token doesn't match known GitHub PAT formats (github_pat_*, ghp_*, etc.)"
+                log_warning "Make sure you entered the FULL token including the prefix"
+            fi
+
             # Auto-detect repo from .git remote
-            local detected_repo=""
+            local detected_repo="" detected_owner="" detected_name=""
             if [[ -d "$PROJECT_PATH/.git" ]]; then
                 detected_repo=$(cd "$PROJECT_PATH" && git remote get-url origin 2>/dev/null | sed -E 's|.*github\.com[:/](.+/[^.]+)(\.git)?$|\1|' || true)
+                if [[ -n "$detected_repo" ]]; then
+                    detected_owner="${detected_repo%%/*}"
+                    detected_name="${detected_repo##*/}"
+                fi
             fi
 
             if [[ -n "$detected_repo" ]]; then
@@ -392,12 +407,16 @@ print(','.join(keys))
                 if [[ ! "$use_detected" =~ ^[Nn]$ ]]; then
                     GITHUB_REPO="$detected_repo"
                 else
-                    read -p "   Repository (owner/repo): " github_repo
-                    GITHUB_REPO="$github_repo"
+                    echo ""
+                    read -p "   GitHub username or organization: " github_owner
+                    read -p "   Repository name: " github_name
+                    GITHUB_REPO="${github_owner}/${github_name}"
                 fi
             else
-                read -p "   Repository (owner/repo): " github_repo
-                GITHUB_REPO="$github_repo"
+                echo ""
+                read -p "   GitHub username or organization: " github_owner
+                read -p "   Repository name: " github_name
+                GITHUB_REPO="${github_owner}/${github_name}"
             fi
 
             # Validate PAT via GitHub API
@@ -471,6 +490,13 @@ print(','.join(keys))
 # Main orchestration function
 main() {
     INSTALL_STARTED=true  # Enable cleanup handler
+
+    # Persistent install logging — captures ALL output to a log file
+    # Essential for diagnosing issues like P1 (container disappearance)
+    mkdir -p "$INSTALL_DIR/logs" 2>/dev/null || true
+    INSTALL_LOG="$INSTALL_DIR/logs/install-$(date +%Y%m%d-%H%M%S).log"
+    exec > >(tee -a "$INSTALL_LOG") 2>&1
+    log_info "Install log: $INSTALL_LOG"
 
     echo ""
     echo "========================================"
@@ -1513,7 +1539,19 @@ print(hash_val.decode('utf-8'))
     log_info "Generated Prometheus healthcheck auth header"
 }
 
+# Log Docker container state for debugging (P1: container disappearance diagnosis)
+_log_docker_state() {
+    local label="${1:-}"
+    log_info "Docker state snapshot [$label]:"
+    docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>&1 | while IFS= read -r line; do
+        log_info "  $line"
+    done
+}
+
 # Service startup with 2026 security best practices (AC 7.1.7)
+# Uses PHASED startup: core services first (qdrant, embedding), then profile
+# services. This prevents --build of profile services from interfering with
+# core service startup (P1: Qdrant/Embedding container disappearance).
 start_services() {
     log_info "Starting Docker services..."
 
@@ -1523,31 +1561,99 @@ start_services() {
         exit 1
     }
 
-    # Build profile flags — CRITICAL: must be a SINGLE compose command
-    # Docker Compose V2 reconciles full project state on each `up -d`.
-    # Sequential invocations with different profiles causes earlier services
-    # to be removed. (BUG-088)
+    # Check Docker daemon is active
+    if ! systemctl is-active --quiet docker 2>/dev/null; then
+        log_warning "Docker daemon is not active — attempting to start..."
+        sudo systemctl start docker 2>/dev/null || true
+        sleep 2
+        if ! systemctl is-active --quiet docker 2>/dev/null; then
+            log_error "Docker daemon failed to start. Check: systemctl status docker"
+            exit 1
+        fi
+        log_success "Docker daemon started"
+    fi
+
+    # Build profile flags for later use
     local profile_flags=""
     if [[ "$INSTALL_MONITORING" == "true" ]]; then
         profile_flags="$profile_flags --profile monitoring"
     fi
     if [[ "$GITHUB_SYNC_ENABLED" == "true" ]]; then
         profile_flags="$profile_flags --profile github"
-        # Create state directory for github-sync bind mount
         mkdir -p "${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/github-state"
     fi
 
-    # Pull images (with all profiles active)
+    # ── Phase 1: Pull ALL images first ──
     log_info "Pulling Docker images (this may take a few minutes)..."
     docker compose $profile_flags pull
 
-    # Start ALL services in a single command (BUG-088 fix)
-    # BUG-079: --build forces rebuild of source-built containers
-    log_info "Starting services with security hardening..."
-    if [[ -n "$profile_flags" ]]; then
-        log_info "Active profiles: $profile_flags"
+    # ── Phase 2: Start CORE services first (no --build, no profiles) ──
+    # Qdrant uses a pre-built image (no build context). Embedding has a build
+    # context but we build it separately to avoid memory pressure from building
+    # multiple images simultaneously on low-RAM systems.
+    log_info "Phase 1/2: Starting core services (qdrant + embedding)..."
+    docker compose up -d qdrant
+    docker compose up -d --build embedding
+
+    _log_docker_state "after core startup"
+
+    # Wait for core services to be healthy before starting profile services
+    log_info "Waiting for core services to become healthy..."
+    local core_timeout=120
+    local core_attempt=0
+    echo -n "  Qdrant: "
+    while [[ $core_attempt -lt $core_timeout ]]; do
+        if curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:${QDRANT_PORT:-26350}/" &> /dev/null; then
+            echo -e "${GREEN}ready${NC}"
+            break
+        fi
+        echo -n "."
+        sleep 1
+        ((core_attempt++))
+    done
+    if [[ $core_attempt -ge $core_timeout ]]; then
+        log_error "Qdrant failed to become healthy within ${core_timeout}s"
+        _log_docker_state "qdrant timeout"
+        docker compose logs qdrant 2>&1 | tail -20 | while IFS= read -r line; do log_error "  $line"; done
+        exit 1
     fi
-    docker compose $profile_flags up -d --build
+
+    # Verify Qdrant is still running (P1 diagnosis)
+    local qdrant_status
+    qdrant_status=$(docker ps --filter "name=${CONTAINER_PREFIX}-qdrant" --format "{{.Status}}" 2>/dev/null)
+    if [[ -z "$qdrant_status" ]]; then
+        log_error "Qdrant container disappeared immediately after healthcheck!"
+        _log_docker_state "qdrant disappeared"
+        exit 1
+    fi
+    log_info "Qdrant verified running: $qdrant_status"
+
+    # ── Phase 3: Start profile services ──
+    if [[ -n "$profile_flags" ]]; then
+        log_info "Phase 2/2: Starting profile services ($profile_flags)..."
+        # BUG-079: --build forces rebuild of source-built containers
+        docker compose $profile_flags up -d --build
+        _log_docker_state "after profile startup"
+
+        # Verify core services survived profile startup
+        qdrant_status=$(docker ps --filter "name=${CONTAINER_PREFIX}-qdrant" --format "{{.Status}}" 2>/dev/null)
+        local embedding_status
+        embedding_status=$(docker ps --filter "name=${CONTAINER_PREFIX}-embedding" --format "{{.Status}}" 2>/dev/null)
+        if [[ -z "$qdrant_status" ]]; then
+            log_error "CRITICAL: Qdrant container disappeared after profile services started!"
+            log_error "This indicates Docker Compose V2 service reconciliation issue."
+            _log_docker_state "qdrant gone after profiles"
+            exit 1
+        fi
+        if [[ -z "$embedding_status" ]]; then
+            log_error "CRITICAL: Embedding container disappeared after profile services started!"
+            _log_docker_state "embedding gone after profiles"
+            exit 1
+        fi
+        log_info "Core services survived profile startup: qdrant=$qdrant_status, embedding=$embedding_status"
+    else
+        log_info "No profile services to start"
+    fi
 
     log_success "Docker services started"
 }

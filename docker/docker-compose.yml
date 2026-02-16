@@ -48,7 +48,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: ${EMBEDDING_MEMORY_LIMIT:-2G}
 
   monitoring-api:
     build:
