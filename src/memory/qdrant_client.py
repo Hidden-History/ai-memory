@@ -64,9 +64,12 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
     # Create client with timeout configuration
     # Timeout prevents indefinite hangs if Qdrant is unresponsive
     # BP-040: API key + HTTPS configurable via environment variables
-    # BUG-099: Suppress insecure connection warning for localhost — API key over
-    # localhost HTTP is safe (traffic never leaves the machine)
-    if config.qdrant_host in ("localhost", "127.0.0.1") and not config.qdrant_use_https:
+    # BUG-099/102: Suppress insecure connection warning for known-safe hosts.
+    # Localhost and Docker internal DNS are safe — traffic never leaves the
+    # machine or Docker network. Remote hosts are NOT suppressed to preserve
+    # the security warning for genuine misconfigurations.
+    _safe_hosts = {"localhost", "127.0.0.1", "qdrant", "host.docker.internal"}
+    if config.qdrant_host in _safe_hosts and not config.qdrant_use_https:
         warnings.filterwarnings(
             "ignore", message="Api key is used with an insecure connection"
         )

@@ -34,6 +34,7 @@ from qdrant_client.models import PointStruct
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from memory.config import get_config
+from memory.qdrant_client import get_qdrant_client
 from memory.deduplication import compute_content_hash
 from memory.template_models import BestPracticeTemplate, load_templates_from_file
 
@@ -266,15 +267,9 @@ def seed_templates(
 
     embedding_url = config.get_embedding_url()
 
-    # Connect to Qdrant
+    # Connect to Qdrant (BUG-102: use shared client for warning suppression)
     try:
-        client = QdrantClient(
-            host=config.qdrant_host,
-            port=config.qdrant_port,
-            api_key=config.qdrant_api_key,
-            https=config.qdrant_use_https,  # BP-040
-            timeout=10.0,
-        )
+        client = get_qdrant_client(config)
 
         # Verify collection exists
         collections = client.get_collections()
