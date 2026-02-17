@@ -5,6 +5,60 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.6] - 2026-02-XX
+
+LLM-Native Temporal Memory: Decay scoring, freshness detection, progressive injection,
+GitHub enrichment, security scanning, and Parzival session agent integration.
+
+### Added
+
+#### Temporal Memory (Phase 1a)
+- Exponential decay scoring via Qdrant Formula Query API (SPEC-001)
+- Audit trail with tamper-detection (SPEC-002)
+- GitHub sync engine with PR/issue/commit/CI ingestion (SPEC-003)
+- Source authority classification (SPEC-004)
+- Content deduplication and versioning (SPEC-005)
+- Memory type routing for collection/type assignment (SPEC-006)
+- Token budget management for context injection (SPEC-007)
+- Setup collections with v2.0.6 payload indexes (SPEC-008)
+
+#### Security & Injection (Phase 1b+1c)
+- 3-layer security scanning pipeline: regex + detect-secrets + SpaCy NER (SPEC-009)
+- Dual embedding routing for prose vs code content (SPEC-010)
+- SOPS+age encryption for secrets management (SPEC-011)
+- Progressive context injection with 3-tier bootstrap (SPEC-012)
+- Freshness detection with git blame integration (SPEC-013)
+
+#### Skills & Integration (Phase 1d)
+- 5 new skills: /memory-purge, /search-github, /github-sync, /pause-updates, /memory-refresh (SPEC-014)
+- Post-sync freshness feedback loop for merged PRs (SPEC-014)
+- Parzival session agent integration with Qdrant-backed memory (SPEC-015)
+- Parzival session pipeline: enhanced bootstrap, GitHub enrichment, closeout dual-write (SPEC-016)
+- 3 upgraded skills: /memory-status (4 new sections), /search-memory (decay scores), /save-memory (agent types) (SPEC-017)
+
+#### Release Engineering (Phase 1d)
+- v2.0.5 → v2.0.6 migration script with auto-backup (SPEC-018)
+- Historical handoff ingestion (57+ sessions → Qdrant) (SPEC-018)
+- 6 cross-phase E2E integration tests (SPEC-018)
+- 3 new docs: GITHUB-INTEGRATION.md, TEMPORAL-FEATURES.md, PARZIVAL-SESSION-GUIDE.md (SPEC-018)
+
+### Fixed
+- BUG-103: PyYAML missing from test dependencies (SPEC-017)
+- TECH-DEBT-156: Dead code branch in security scanner (SPEC-017)
+- TECH-DEBT-157: Session state path injection vulnerability (SPEC-017)
+- TECH-DEBT-158: Missing @pytest.mark.integration markers (SPEC-017)
+- TECH-DEBT-159: Missing PII pattern test coverage (SPEC-017)
+- TECH-DEBT-160: Test filename mismatch (SPEC-017)
+- TECH-DEBT-161: GitHub handle regex false positives (SPEC-017)
+- TECH-DEBT-162: detect-secrets per-call import overhead (SPEC-017)
+- TECH-DEBT-163: scan_batch() sequential loop (SPEC-017)
+- TECH-DEBT-164: Missing store_memory() return docstring (SPEC-017)
+- TECH-DEBT-165: scan_batch() missing force_ner parameter (SPEC-017)
+
+### Changed
+- Decay half-lives: agent_handoff 30→180d, added agent_insight 180d, agent_task 14d (SPEC-018)
+- CONFIGURATION.md updated with all v2.0.6 variables (SPEC-018)
+
 ## [2.0.5] - 2026-02-10
 
 Jira Cloud Integration: Sync and semantically search Jira issues and comments alongside your code memory.
@@ -345,7 +399,8 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.5...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.6...HEAD
+[2.0.6]: https://github.com/Hidden-History/ai-memory/compare/v2.0.5...v2.0.6
 [2.0.5]: https://github.com/Hidden-History/ai-memory/compare/v2.0.4...v2.0.5
 [2.0.4]: https://github.com/Hidden-History/ai-memory/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/Hidden-History/ai-memory/compare/v2.0.2...v2.0.3

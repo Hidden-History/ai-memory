@@ -13,6 +13,13 @@
   - [Search & Retrieval](#search--retrieval)
   - [Performance Tuning](#performance-tuning)
   - [Logging & Monitoring](#logging--monitoring)
+- [Temporal Configuration](#temporal-configuration)
+  - [Decay & Freshness](#decay--freshness)
+  - [GitHub Sync](#github-sync)
+- [Feature Configuration](#feature-configuration)
+  - [Parzival Session Agent](#parzival-session-agent)
+  - [Security Scanning](#security-scanning)
+  - [Context Injection](#context-injection)
 - [Docker Configuration](#docker-configuration)
 - [Hook Configuration](#hook-configuration)
 - [Agent-Specific Configuration](#agent-specific-configuration)
@@ -584,6 +591,554 @@ export MEMORY_STRUCTURED_LOGGING=false
 
 ---
 
+## ⏱️ Temporal Configuration
+
+### Decay & Freshness
+
+Controls how memories are scored and ranked over time using a combined semantic + temporal decay model.
+
+**Scoring formula:**
+```
+final_score = DECAY_SEMANTIC_WEIGHT * semantic + (1 - DECAY_SEMANTIC_WEIGHT) * temporal
+temporal    = 0.5 ^ (age_days / half_life_days)
+```
+
+The temporal weight is implicitly `1 - DECAY_SEMANTIC_WEIGHT`. At the half-life age, the temporal component is exactly 0.5, meaning memories age naturally without disappearing.
+
+---
+
+#### DECAY_SEMANTIC_WEIGHT
+**Purpose:** Semantic score weight in the final decay-ranked retrieval score
+
+**Default:** `0.7`
+
+**Format:** Float (0.0 to 1.0)
+
+**Example:**
+```bash
+# Default (semantic-heavy — relevance matters more than recency)
+export DECAY_SEMANTIC_WEIGHT=0.7
+
+# Balanced
+export DECAY_SEMANTIC_WEIGHT=0.5
+
+# Recency-heavy (temporal matters more)
+export DECAY_SEMANTIC_WEIGHT=0.3
+```
+
+**When to change:**
+- **Relevance-first**: Keep at 0.7 (default) when correctness matters more than freshness
+- **Recency-first**: Lower (0.3–0.5) for fast-moving projects where stale patterns are harmful
+- The temporal weight is automatically computed as `1 - DECAY_SEMANTIC_WEIGHT`
+
+---
+
+#### DECAY_HALF_LIFE_CODE_PATTERNS
+**Purpose:** Half-life in days for memories in the `code-patterns` collection
+
+**Default:** `14`
+
+**Format:** Integer (days)
+
+**Example:**
+```bash
+# Default (14 days)
+export DECAY_HALF_LIFE_CODE_PATTERNS=14
+
+# Slow decay (stable library/framework)
+export DECAY_HALF_LIFE_CODE_PATTERNS=30
+
+# Very slow decay
+export DECAY_HALF_LIFE_CODE_PATTERNS=90
+```
+
+**When to change:**
+- **Lower**: Projects with frequent refactors where old patterns quickly become outdated
+- **Higher**: Mature codebases with stable conventions that evolve slowly
+
+---
+
+#### DECAY_HALF_LIFE_DISCUSSIONS
+**Purpose:** Half-life in days for memories in the `discussions` collection
+
+**Default:** `21`
+
+**Format:** Integer (days)
+
+**Example:**
+```bash
+export DECAY_HALF_LIFE_DISCUSSIONS=21
+```
+
+**When to change:**
+- **Lower**: High-velocity teams where decisions are revisited frequently
+- **Higher**: Slow-moving projects where architectural discussions remain relevant for months
+
+---
+
+#### DECAY_HALF_LIFE_CONVENTIONS
+**Purpose:** Half-life in days for memories in the `conventions` collection
+
+**Default:** `60`
+
+**Format:** Integer (days)
+
+**Example:**
+```bash
+# Default (60 days — conventions change slowly)
+export DECAY_HALF_LIFE_CONVENTIONS=60
+
+# Fast-evolving style guide
+export DECAY_HALF_LIFE_CONVENTIONS=30
+```
+
+**When to change:**
+- Conventions typically evolve more slowly than implementation patterns — the higher default reflects this
+- **Lower**: Teams that actively revise coding standards sprint-over-sprint
+
+---
+
+#### DECAY_TYPE_OVERRIDES
+**Purpose:** Per memory-type half-life overrides, applied on top of collection defaults
+
+**Default:** `"github_ci_result:7,agent_task:14,github_code_blob:14,github_commit:14,conversation:21,session_summary:21,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,guideline:60,rule:60,architecture_decision:90,agent_handoff:180,agent_insight:180"` (15 type:days pairs)
+
+**Format:** Comma-separated `type:days` pairs
+
+**Example:**
+```bash
+# Override specific memory types (REPLACES all built-in defaults)
+export DECAY_TYPE_OVERRIDES="github_ci_result:7,conversation:21,decision:90"
+```
+
+**When to change:**
+- When certain memory types should have different half-lives than the built-in defaults
+- When adding custom memory types that need specific decay rates
+
+**Type override precedence:** `DECAY_TYPE_OVERRIDES` > collection-level half-life defaults
+
+> **Warning:** Setting this env var **replaces** all built-in type overrides, it does not append. If you set `DECAY_TYPE_OVERRIDES=conversation:14`, only `conversation` will have a type override — all other types fall back to their collection defaults.
+
+---
+
+#### FRESHNESS_ENABLED
+**Purpose:** Enable freshness detection via git blame checks during freshness scans
+
+**Default:** `true`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+# Enable (default) — git blame used during /freshness-report
+export FRESHNESS_ENABLED=true
+
+# Disable — skip git blame checks (faster scans, no git dependency)
+export FRESHNESS_ENABLED=false
+```
+
+**When to change:**
+- **Disable**: Environments without git access (CI containers, non-git directories)
+- **Disable**: When freshness scans are too slow and git blame is the bottleneck
+
+**Impact:**
+- When disabled, freshness scoring relies solely on timestamp-based decay; git blame correlation is skipped
+
+---
+
+### GitHub Sync
+
+Controls synchronisation of GitHub issues, pull requests, and CI results into the AI Memory collections.
+
+---
+
+#### GITHUB_SYNC_ENABLED
+**Purpose:** Enable the GitHub sync background service
+
+**Default:** `false`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+export GITHUB_SYNC_ENABLED=true
+```
+
+**When to change:**
+- Set to `true` when you want GitHub issues, PRs, and CI results automatically indexed as memories
+- Requires `GITHUB_TOKEN` and `GITHUB_REPO` to be set
+
+---
+
+#### GITHUB_TOKEN
+**Purpose:** GitHub Personal Access Token (fine-grained) for API authentication
+
+**Default:** `""` (no token — sync disabled)
+
+**Format:** String (GitHub PAT)
+
+**Required scopes:** `repo:read`, `issues:read`, `pull_requests:read`
+
+**Example:**
+```bash
+export GITHUB_TOKEN=github_pat_xxxxxxxxxxxxxxxxxxxx
+```
+
+**When to use:**
+- Required when `GITHUB_SYNC_ENABLED=true`
+- Use fine-grained tokens scoped to the specific repository for least privilege
+
+**Security:**
+⚠️ **Never commit tokens to git!**
+- Use `~/.ai-memory/.env` (gitignored)
+- Use your OS keychain or secrets manager
+- Rotate tokens regularly and set expiry dates in GitHub settings
+
+---
+
+#### GITHUB_REPO
+**Purpose:** GitHub repository to sync, in `owner/name` format
+
+**Default:** `""` (no repository)
+
+**Format:** `owner/repo` string
+
+**Example:**
+```bash
+# Public or private repository
+export GITHUB_REPO=Hidden-History/ai-memory
+
+# Personal project
+export GITHUB_REPO=myusername/my-project
+```
+
+**When to change:**
+- Set to your project's repository when enabling GitHub sync
+- Each project's `.env` should specify its own repository
+
+---
+
+#### GITHUB_SYNC_INTERVAL
+**Purpose:** How often (in seconds) the GitHub sync service polls for new data
+
+**Default:** `1800` (30 minutes)
+
+**Format:** Integer (seconds); set to `0` to disable automatic sync
+
+**Example:**
+```bash
+# Default (30 minutes)
+export GITHUB_SYNC_INTERVAL=1800
+
+# Hourly
+export GITHUB_SYNC_INTERVAL=3600
+
+# Disable automatic sync (manual only via /github-sync skill)
+export GITHUB_SYNC_INTERVAL=0
+```
+
+**When to change:**
+- **Lower**: High-velocity projects where you want PR/issue context refreshed more often
+- **Higher**: Cost-sensitive setups or low-activity repositories
+- **0**: When you prefer on-demand sync via the `/github-sync` skill
+
+---
+
+## 🤖 Feature Configuration
+
+### Parzival Session Agent
+
+Controls the Parzival session continuity agent, which manages handoffs between sessions, project oversight, and PM-style tracking.
+
+---
+
+#### PARZIVAL_ENABLED
+**Purpose:** Enable the Parzival session agent and session continuity features
+
+**Default:** `false`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+export PARZIVAL_ENABLED=true
+```
+
+**When to change:**
+- Set to `true` to enable session-to-session continuity, handoff documents, and oversight tracking
+- Requires the oversight folder to be present (see `PARZIVAL_OVERSIGHT_FOLDER`)
+
+---
+
+#### PARZIVAL_USER_NAME
+**Purpose:** Display name used by Parzival when addressing the user in handoffs and status reports
+
+**Default:** `"Developer"`
+
+**Format:** String
+
+**Example:**
+```bash
+export PARZIVAL_USER_NAME="Alice"
+export PARZIVAL_USER_NAME="Team Lead"
+```
+
+**When to change:**
+- Personalise Parzival's communications to use your name or role
+
+---
+
+#### PARZIVAL_LANGUAGE
+**Purpose:** Language Parzival uses for all interactions and spoken output
+
+**Default:** `"English"`
+
+**Format:** Language name string
+
+**Example:**
+```bash
+export PARZIVAL_LANGUAGE="English"
+export PARZIVAL_LANGUAGE="French"
+```
+
+**When to change:**
+- Set to your preferred language for Parzival's verbal communication during sessions
+
+---
+
+#### PARZIVAL_DOC_LANGUAGE
+**Purpose:** Language used in generated documents (handoffs, status reports, oversight files)
+
+**Default:** `"English"`
+
+**Format:** Language name string
+
+**Example:**
+```bash
+export PARZIVAL_DOC_LANGUAGE="English"
+export PARZIVAL_DOC_LANGUAGE="German"
+```
+
+**When to change:**
+- When documentation must be in a different language than verbal interactions (e.g., English communication, German docs)
+
+---
+
+#### PARZIVAL_OVERSIGHT_FOLDER
+**Purpose:** Relative path from the project root to the oversight directory used by Parzival
+
+**Default:** `"oversight"`
+
+**Format:** Relative path string
+
+**Example:**
+```bash
+# Default
+export PARZIVAL_OVERSIGHT_FOLDER=oversight
+
+# Custom location
+export PARZIVAL_OVERSIGHT_FOLDER=docs/oversight
+export PARZIVAL_OVERSIGHT_FOLDER=.parzival
+```
+
+**When to change:**
+- When your project uses a non-standard directory layout
+- When oversight files should be co-located with other documentation
+
+---
+
+#### PARZIVAL_HANDOFF_RETENTION
+**Purpose:** Maximum number of handoff files loaded at session start (older handoffs are not deleted, just skipped)
+
+**Default:** `10`
+
+**Format:** Integer (count)
+
+**Example:**
+```bash
+# Default (last 10 handoffs loaded at startup)
+export PARZIVAL_HANDOFF_RETENTION=10
+
+# Minimal (last 3 handoffs)
+export PARZIVAL_HANDOFF_RETENTION=3
+
+# Extended (last 20 handoffs)
+export PARZIVAL_HANDOFF_RETENTION=20
+```
+
+**When to change:**
+- **Lower**: Reduce SessionStart token usage when handoff history is long
+- **Higher**: Long-running projects where deeper history is needed for continuity
+
+**Note:** Older handoffs beyond the retention count are **not deleted** — they remain in the oversight folder and can be read manually.
+
+---
+
+### Security Scanning
+
+Controls the 3-layer content security scanning pipeline applied before any content is stored in memory.
+
+**Pipeline layers:**
+1. **Layer 1 — Regex patterns**: Fast detection of common secret patterns (API keys, tokens, connection strings)
+2. **Layer 2 — detect-secrets**: Baseline-aware secret scanning
+3. **Layer 3 — SpaCy NER**: Named entity recognition for PII and sensitive data classification
+
+---
+
+#### SECURITY_SCANNING_ENABLED
+**Purpose:** Enable the full 3-layer security scanning pipeline for all incoming content
+
+**Default:** `true`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+# Enable (default — recommended for all environments)
+export SECURITY_SCANNING_ENABLED=true
+
+# Disable (testing only — never in production)
+export SECURITY_SCANNING_ENABLED=false
+```
+
+**When to change:**
+- **Disable only for local testing** where you are deliberately storing test content that would otherwise be flagged
+- ⚠️ Never disable in production or shared environments
+
+---
+
+#### SECURITY_SCANNING_NER_ENABLED
+**Purpose:** Enable Layer 3 SpaCy NER scanning (can be disabled independently if SpaCy is not installed)
+
+**Default:** `true`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+# Enable NER (default)
+export SECURITY_SCANNING_NER_ENABLED=true
+
+# Disable NER (SpaCy not installed or performance concerns)
+export SECURITY_SCANNING_NER_ENABLED=false
+```
+
+**When to change:**
+- **Disable**: SpaCy is not installed in the environment
+- **Disable**: NER scanning adds unacceptable latency in high-throughput hooks
+- Layers 1 and 2 remain active even when NER is disabled
+
+---
+
+#### SECURITY_BLOCK_ON_SECRETS
+**Purpose:** When secrets are detected, block content from being stored (rather than warn-only)
+
+**Default:** `true`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+# Block mode (default — secrets prevent storage)
+export SECURITY_BLOCK_ON_SECRETS=true
+
+# Warn-only mode (secrets logged but content stored anyway)
+export SECURITY_BLOCK_ON_SECRETS=false
+```
+
+**When to change:**
+- **Warn-only mode**: Only during debugging of false-positive detection rules
+- ⚠️ Never set to `false` in production — secrets stored in vector databases are difficult to audit and purge
+
+---
+
+### Context Injection
+
+Controls the two-tier token budget system for injecting memories into Claude's context.
+
+**Tier overview:**
+- **Tier 1 (Bootstrap):** Runs at session start — injects high-priority context: conventions, architectural decisions, Parzival handoffs
+- **Tier 2 (Dynamic):** Runs per-turn — injects decay-ranked memories relevant to the current tool use or query
+
+Budgets are measured in **tokens** (approximately 4 characters per token).
+
+---
+
+#### BOOTSTRAP_TOKEN_BUDGET
+**Purpose:** Token budget for Tier 1 bootstrap context injection at session start
+
+**Default:** `2500`
+
+**Format:** Integer (tokens, range 500–5000)
+
+**Example:**
+```bash
+# Default
+export BOOTSTRAP_TOKEN_BUDGET=2500
+
+# Reduced (faster SessionStart, less bootstrap context)
+export BOOTSTRAP_TOKEN_BUDGET=1500
+
+# Expanded (richer session bootstrap)
+export BOOTSTRAP_TOKEN_BUDGET=5000
+```
+
+**When to change:**
+- **Lower**: When SessionStart is slow and you want to reduce initial context load
+- **Higher**: On projects with many critical conventions and decisions that must all be visible at session start
+- **Impact**: ~200–400 tokens per memory injected; budget controls how many fit
+
+---
+
+#### INJECTION_BUDGET_FLOOR
+**Purpose:** Minimum token budget for Tier 2 per-turn dynamic context injection
+
+**Default:** `500`
+
+**Format:** Integer (tokens, range 100–2000)
+
+**Example:**
+```bash
+# Default
+export INJECTION_BUDGET_FLOOR=500
+
+# Lower minimum (minimal per-turn overhead)
+export INJECTION_BUDGET_FLOOR=200
+```
+
+**When to change:**
+- **Lower**: Reduce minimum per-turn context when memory overhead is a concern
+- Must be ≤ `INJECTION_BUDGET_CEILING` (validated at startup)
+
+---
+
+#### INJECTION_BUDGET_CEILING
+**Purpose:** Maximum token budget for Tier 2 per-turn dynamic context injection
+
+**Default:** `1500`
+
+**Format:** Integer (tokens, range 500–5000)
+
+**Example:**
+```bash
+# Default
+export INJECTION_BUDGET_CEILING=1500
+
+# Rich per-turn context
+export INJECTION_BUDGET_CEILING=2500
+
+# Minimal ceiling
+export INJECTION_BUDGET_CEILING=800
+```
+
+**When to change:**
+- **Lower**: Reduce per-turn latency in fast-paced interactive sessions
+- **Higher**: When per-turn memory recall frequently misses important context
+- Must be ≥ `INJECTION_BUDGET_FLOOR` (validated at startup)
+- Per-turn injection uses decay-ranked scores, so the highest-relevance memories fill the budget first
+
+---
+
 ## 🐳 Docker Configuration
 
 ### docker-compose.yml Environment
@@ -870,6 +1425,9 @@ export MEMORY_SESSION_WINDOW_HOURS=24
 - [INSTALL.md](../INSTALL.md) - Installation and setup
 - [TROUBLESHOOTING.md](../TROUBLESHOOTING.md) - Common issues
 - [prometheus-queries.md](prometheus-queries.md) - Metrics and monitoring
+- [TEMPORAL-FEATURES.md](TEMPORAL-FEATURES.md) - Decay scoring and freshness detection
+- [GITHUB-INTEGRATION.md](GITHUB-INTEGRATION.md) - GitHub sync setup and usage
+- [PARZIVAL-SESSION-GUIDE.md](PARZIVAL-SESSION-GUIDE.md) - Parzival session agent
 
 ---
 

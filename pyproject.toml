@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-memory"
-version = "1.0.0"
+version = "2.0.6"
 description = "BMAD AI Memory Module - Vector-based memory system for AI agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -99,7 +99,7 @@ where = ["src"]
 
 # Pytest configuration (migrated from pytest.ini)
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "scripts"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]

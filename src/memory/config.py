@@ -371,7 +371,7 @@ class MemoryConfig(BaseSettings):
 
     # Tier 3 — hidden/advanced (not in .env.example uncommented)
     decay_type_overrides: str = Field(
-        default="github_ci_result:7,github_code_blob:14,github_commit:14,conversation:21,session_summary:21,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,agent_handoff:30,guideline:60,rule:60,architecture_decision:90",
+        default="github_ci_result:7,agent_task:14,github_code_blob:14,github_commit:14,conversation:21,session_summary:21,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,guideline:60,rule:60,architecture_decision:90,agent_handoff:180,agent_insight:180",
         description="Per-type half-life overrides. Format: type:days,type:days,...",
     )
 
