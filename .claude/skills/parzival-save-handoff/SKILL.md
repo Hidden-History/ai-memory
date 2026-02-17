@@ -59,8 +59,10 @@ def main():
             cwd=str(_project_root),
         )
     except Exception as e:
-        print(f"Error: Failed to save handoff to Qdrant: {e}")
-        sys.exit(1)
+        print(f"Warning: Failed to save handoff to Qdrant: {e}")
+        print("Closeout continues — file write is the primary record.")
+        push_skill_metrics_async("parzival-save-handoff", "error", time.perf_counter() - start_time)
+        return
 
     status = result.get("status", "unknown")
     if status == "stored":
@@ -70,7 +72,7 @@ def main():
     else:
         print(f"Handoff storage result: {status}")
 
-    metric_status = "success" if status == "stored" else "error"
+    metric_status = "success" if status in ("stored", "duplicate") else "error"
     push_skill_metrics_async("parzival-save-handoff", metric_status, time.perf_counter() - start_time)
 
 

@@ -74,6 +74,19 @@ Write as if the reader has never seen this project.]
 *Handoff created by Parzival session closeout protocol*
 ```
 
+## Step 1b: Save Handoff to Qdrant
+
+After creating the handoff file (Step 1), store it to Qdrant for cross-session retrieval:
+
+Run the `/parzival-save-handoff` skill with the handoff file path:
+```
+/parzival-save-handoff --file oversight/session-logs/SESSION_HANDOFF_[DATE].md
+```
+
+This stores the handoff to Qdrant (type=agent_handoff, agent_id=parzival).
+If Qdrant is unavailable, log a warning but do NOT block closeout.
+The file write (Step 1) is the primary record; Qdrant is the AI-searchable record.
+
 ## Step 2: Update Session Work Index
 
 Add entry to `oversight/SESSION_WORK_INDEX.md`:
@@ -85,6 +98,23 @@ Add entry to `oversight/SESSION_WORK_INDEX.md`:
 - **Progress:** [One sentence on what was accomplished]
 - **Handoff:** `session-logs/SESSION_HANDOFF_[DATE].md`
 ```
+
+## Step 2b: Save Active Task State to Qdrant
+
+After updating the Session Work Index (Step 2), store current task state:
+
+Call `store_agent_memory()` with `memory_type="agent_task"` for the current task summary:
+```
+store_agent_memory(
+    content="Active task: [TASK_ID] [TITLE] - [STATUS]. Next: [NEXT_STEP]",
+    memory_type="agent_task",
+    agent_id="parzival",
+    cwd=".",
+)
+```
+
+This creates a lightweight `agent_task` entry that Parzival can find at next session start.
+If Qdrant is unavailable, this step is skipped (file writes are the primary record).
 
 ## Step 3: Request Task Updates
 

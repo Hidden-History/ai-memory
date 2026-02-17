@@ -21,6 +21,7 @@ References:
 """
 
 import json
+import logging
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -36,7 +37,9 @@ from memory.config import (
     COLLECTION_DISCUSSIONS,
     MemoryConfig,
 )
+from memory.embeddings import EmbeddingError
 from memory.intent import IntentType, detect_intent, get_target_collection
+from memory.qdrant_client import QdrantUnavailable
 from memory.search import MemorySearch
 from memory.triggers import (
     detect_best_practices_keywords,
@@ -56,6 +59,8 @@ __all__ = [
     "route_collections",
     "select_results_greedy",
 ]
+
+logger = logging.getLogger("ai_memory.injection")
 
 # File path patterns that indicate code-related queries
 _FILE_PATH_RE = re.compile(
@@ -151,6 +156,66 @@ class InjectionSessionState:
         return Path(f"/tmp/ai-memory-{safe_id}-injection-state.json")
 
 
+def _build_github_enrichment(
+    search_client: MemorySearch,
+    config: MemoryConfig,
+    project_name: str,
+    last_session_date: str | None,
+) -> list[dict]:
+    """Query recent GitHub activity since last session.
+
+    Args:
+        search_client: MemorySearch instance.
+        config: MemoryConfig instance.
+        project_name: Project group_id for scoping.
+        last_session_date: ISO 8601 timestamp of last handoff's `timestamp` field.
+            If None, skips enrichment (no baseline to compare against).
+
+    Returns:
+        List of search result dicts for recent GitHub activity.
+        Limited to 10 results, ~500-800 tokens.
+    """
+    if not last_session_date:
+        return []
+
+    if not config.github_sync_enabled:
+        return []
+
+    recent_github = search_client.search(
+        query="merged pull request new issue opened closed",
+        collection=COLLECTION_DISCUSSIONS,
+        group_id=project_name,
+        limit=10,
+        source="github",
+        memory_type=[
+            "github_pr",
+            "github_issue",
+            "github_commit",
+        ],
+        fast_mode=True,
+    )
+
+    # Filter to items stored after last session
+    filtered = []
+    try:
+        baseline_dt = datetime.fromisoformat(last_session_date)
+    except (ValueError, TypeError):
+        return []
+
+    for result in recent_github:
+        result_timestamp = result.get("timestamp", "")
+        if not result_timestamp:
+            continue
+        try:
+            result_dt = datetime.fromisoformat(result_timestamp)
+            if result_dt > baseline_dt:
+                filtered.append(result)
+        except (ValueError, TypeError):
+            continue
+
+    return filtered[:10]
+
+
 def retrieve_bootstrap_context(
     search_client: MemorySearch,
     project_name: str,
@@ -177,36 +242,96 @@ def retrieve_bootstrap_context(
     results = []
 
     # 1. Conventions (shared, no group_id filter)
-    conventions = search_client.search(
-        query="project conventions rules guidelines standards",
-        collection=COLLECTION_CONVENTIONS,
-        group_id=None,  # Shared across projects
-        limit=5,
-        fast_mode=True,
-    )
-    results.extend(conventions)
+    try:
+        conventions = search_client.search(
+            query="project conventions rules guidelines standards",
+            collection=COLLECTION_CONVENTIONS,
+            group_id=None,
+            limit=5,
+            fast_mode=True,
+        )
+        results.extend(conventions)
+    except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
+        logger.warning(
+            "bootstrap_conventions_unavailable",
+            extra={"error": str(e)},
+        )
 
     # 2. Recent decisions (project-scoped)
-    decisions = search_client.search(
-        query="recent decisions architecture patterns",
-        collection=COLLECTION_DISCUSSIONS,
-        group_id=project_name,
-        limit=3,
-        memory_type=["decision"],
-        fast_mode=True,
-    )
-    results.extend(decisions)
+    try:
+        decisions = search_client.search(
+            query="recent decisions architecture patterns",
+            collection=COLLECTION_DISCUSSIONS,
+            group_id=project_name,
+            limit=3,
+            memory_type=["decision"],
+            fast_mode=True,
+        )
+        results.extend(decisions)
+    except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
+        logger.warning(
+            "bootstrap_decisions_unavailable",
+            extra={"error": str(e)},
+        )
 
-    # 3. Active agent context (project-scoped, last 7 days)
-    agent_context = search_client.search(
-        query="active task current work session handoff",
-        collection=COLLECTION_DISCUSSIONS,
-        group_id=project_name,
-        limit=2,
-        memory_type=["agent_handoff", "agent_memory"],
-        fast_mode=True,
-    )
-    results.extend(agent_context)
+    # 3. Active agent context (project-scoped)
+    if config.parzival_enabled:
+        try:
+            # 3a. Last handoff — most recent session summary
+            last_handoff = search_client.search(
+                query="session handoff summary current work status",
+                collection=COLLECTION_DISCUSSIONS,
+                group_id=project_name,
+                limit=1,
+                memory_type=["agent_handoff"],
+                agent_id="parzival",
+                fast_mode=True,
+            )
+            results.extend(last_handoff)
+
+            # 3b. Recent insights — key learnings (up to 3)
+            insights = search_client.search(
+                query="key insight learning pattern important",
+                collection=COLLECTION_DISCUSSIONS,
+                group_id=project_name,
+                limit=3,
+                memory_type=["agent_insight"],
+                agent_id="parzival",
+                fast_mode=True,
+            )
+            results.extend(insights)
+
+            # 3c. GitHub enrichment — recent activity since last session
+            last_session_date = None
+            if last_handoff:
+                last_session_date = last_handoff[0].get("timestamp")
+
+            github_enrichment = _build_github_enrichment(
+                search_client, config, project_name, last_session_date,
+            )
+            results.extend(github_enrichment)
+        except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
+            logger.warning(
+                "parzival_qdrant_unavailable",
+                extra={"fallback": "file_reads", "error": str(e)},
+            )
+    else:
+        # Fallback: existing generic agent context query (no agent_id filter)
+        try:
+            agent_context = search_client.search(
+                query="active task current work session handoff",
+                collection=COLLECTION_DISCUSSIONS,
+                group_id=project_name,
+                limit=2,
+                memory_type=["agent_handoff", "agent_memory"],
+                fast_mode=True,
+            )
+            results.extend(agent_context)
+        except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
+            logger.warning(
+                "bootstrap_agent_context_unavailable",
+                extra={"error": str(e)},
+            )
 
     # Sort all results by score (decay-weighted) for greedy fill
     results.sort(key=lambda r: r.get("score", 0), reverse=True)
