@@ -69,6 +69,14 @@ def test_store_memory_success(
     mock_embedding_client.embed.assert_called_once()
     mock_qdrant_client.upsert.assert_called_once()
 
+    # Verify stored point payload contains timestamp in ISO datetime format (stored_at)
+    upsert_call = mock_qdrant_client.upsert.call_args
+    stored_point = upsert_call[1]["points"][0]
+    assert "timestamp" in stored_point.payload
+    from datetime import datetime
+
+    datetime.fromisoformat(stored_point.payload["timestamp"])  # Validates ISO format
+
 
 def test_store_memory_embedding_failure(
     mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
@@ -119,7 +127,7 @@ def test_store_memory_duplicate(
     """Test duplicate detection skips storage and returns existing memory_id (AC 1.5.3)."""
     monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
     # Mock metrics to avoid Prometheus label errors in tests
-    monkeypatch.setattr("src.memory.storage.deduplication_events_total", None)
+    monkeypatch.setattr("src.memory.storage.deduplication_events_total", MagicMock())
 
     storage = MemoryStorage()
 
@@ -274,7 +282,7 @@ def test_check_duplicate_found(
 ):
     """Test duplicate check returns existing memory_id when hash exists."""
     # Mock metrics to avoid Prometheus label errors in tests
-    monkeypatch.setattr("src.memory.storage.deduplication_events_total", None)
+    monkeypatch.setattr("src.memory.storage.deduplication_events_total", MagicMock())
 
     storage = MemoryStorage()
 

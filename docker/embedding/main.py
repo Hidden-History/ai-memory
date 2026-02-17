@@ -16,7 +16,6 @@ import logging
 import os
 import sys
 import time
-from typing import List
 
 from fastapi import FastAPI, HTTPException
 from fastembed import TextEmbedding
@@ -92,22 +91,22 @@ load_models()  # Called at module init
 
 
 class EmbedRequest(BaseModel):
-    texts: List[str]
+    texts: list[str]
 
 
 class EmbedDenseRequest(BaseModel):
-    texts: List[str]
+    texts: list[str]
     model: str = "en"  # "en" or "code"
 
 
 class EmbedResponse(BaseModel):
-    embeddings: List[List[float]]
+    embeddings: list[list[float]]
     model: str = "jina-embeddings-v2-base-en"
     dimensions: int = VECTOR_DIMENSIONS
 
 
 class EmbedDenseResponse(BaseModel):
-    embeddings: List[List[float]]
+    embeddings: list[list[float]]
     model: str  # Full model name used
     dimensions: int  # 768
 
@@ -116,7 +115,7 @@ class HealthResponse(BaseModel):
     status: str
     model_loaded: bool
     model: str  # Backward compat - returns first loaded model
-    models: List[str]  # NEW: list both models
+    models: list[str]  # NEW: list both models
     dimensions: int
     uptime_seconds: int
 

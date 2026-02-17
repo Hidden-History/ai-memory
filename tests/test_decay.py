@@ -22,7 +22,6 @@ from src.memory.decay import (
     resolve_half_life_seconds,
 )
 
-
 # ============================================================================
 # Property-Based Tests (Hypothesis) — Section 7.1
 # ============================================================================
@@ -140,6 +139,7 @@ def test_default_weights():
 def default_config():
     """Config with default decay settings."""
     return MemoryConfig(
+        _env_file=None,
         decay_enabled=True,
         decay_type_overrides="github_ci_result:7,github_code_blob:14,github_commit:14,conversation:21,session_summary:21,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,agent_handoff:30,guideline:60,rule:60,architecture_decision:90",
     )
@@ -149,6 +149,7 @@ def default_config():
 def empty_overrides_config():
     """Config with no type overrides."""
     return MemoryConfig(
+        _env_file=None,
         decay_enabled=True,
         decay_type_overrides="",
     )
@@ -200,7 +201,9 @@ def test_global_default_fallback(default_config):
 
 def test_resolve_half_life_seconds(default_config):
     """Seconds conversion correct."""
-    seconds = resolve_half_life_seconds("github_ci_result", "discussions", default_config)
+    seconds = resolve_half_life_seconds(
+        "github_ci_result", "discussions", default_config
+    )
     assert seconds == 7 * 86400  # 604800
 
 
@@ -280,7 +283,7 @@ def test_formula_disabled_returns_none():
 def test_formula_prefetch_has_score_threshold(default_config):
     """score_threshold is on the Prefetch, not the formula."""
     embedding = [0.1] * 768
-    formula, prefetch = build_decay_formula(
+    _formula, prefetch = build_decay_formula(
         query_embedding=embedding,
         collection="discussions",
         config=default_config,
@@ -293,7 +296,7 @@ def test_formula_prefetch_has_search_params(default_config):
     """search_params (HNSW ef) is on the Prefetch."""
     embedding = [0.1] * 768
     params = models.SearchParams(hnsw_ef=128)
-    formula, prefetch = build_decay_formula(
+    _formula, prefetch = build_decay_formula(
         query_embedding=embedding,
         collection="discussions",
         config=default_config,
@@ -313,7 +316,7 @@ def test_formula_prefetch_has_filter(default_config):
             )
         ]
     )
-    formula, prefetch = build_decay_formula(
+    _formula, prefetch = build_decay_formula(
         query_embedding=embedding,
         collection="discussions",
         config=default_config,
@@ -398,9 +401,9 @@ def test_semantic_weight_zero_pure_temporal():
     )
 
     # With semantic_weight=0.0, only temporal matters — newer MUST rank higher
-    assert score_recent > score_old, (
-        "With semantic_weight=0.0, newer point should rank higher regardless of semantic scores"
-    )
+    assert (
+        score_recent > score_old
+    ), "With semantic_weight=0.0, newer point should rank higher regardless of semantic scores"
 
     # Verify semantic_score has zero influence:
     # Two points at same age but different semantic_score should have equal final scores
@@ -418,9 +421,9 @@ def test_semantic_weight_zero_pure_temporal():
         semantic_weight=0.0,
         semantic_score=0.99,
     )
-    assert abs(score_a - score_b) < 0.001, (
-        "With semantic_weight=0.0, different semantic_scores at same age should yield equal scores"
-    )
+    assert (
+        abs(score_a - score_b) < 0.001
+    ), "With semantic_weight=0.0, different semantic_scores at same age should yield equal scores"
 
 
 # ============================================================================
@@ -440,15 +443,21 @@ def test_formula_internal_structure(default_config):
     # Top level: SumExpression with exactly 2 elements (semantic + temporal)
     top_sum = formula.formula
     assert hasattr(top_sum, "sum"), "Top-level formula should be a SumExpression"
-    assert len(top_sum.sum) == 2, "Formula should have exactly 2 top-level components (semantic + temporal)"
+    assert (
+        len(top_sum.sum) == 2
+    ), "Formula should have exactly 2 top-level components (semantic + temporal)"
 
     # First element: semantic component (MultExpression with weight and $score)
     semantic_component = top_sum.sum[0]
-    assert hasattr(semantic_component, "mult"), "Semantic component should be MultExpression"
+    assert hasattr(
+        semantic_component, "mult"
+    ), "Semantic component should be MultExpression"
 
     # Second element: temporal component (MultExpression with weight and SumExpression of branches)
     temporal_component = top_sum.sum[1]
-    assert hasattr(temporal_component, "mult"), "Temporal component should be MultExpression"
+    assert hasattr(
+        temporal_component, "mult"
+    ), "Temporal component should be MultExpression"
 
     # The temporal mult should contain [weight, SumExpression(branches)]
     temporal_mult = temporal_component.mult
@@ -456,7 +465,9 @@ def test_formula_internal_structure(default_config):
 
     # The branch sum: grouped overrides + 1 catch-all
     branch_sum = temporal_mult[1]
-    assert hasattr(branch_sum, "sum"), "Temporal branches should be wrapped in SumExpression"
+    assert hasattr(
+        branch_sum, "sum"
+    ), "Temporal branches should be wrapped in SumExpression"
 
     # Count unique half-life groups in the config overrides
     overrides = default_config.get_decay_type_overrides()

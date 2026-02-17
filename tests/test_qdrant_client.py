@@ -20,6 +20,12 @@ from src.memory.qdrant_client import (
 class TestQdrantClient:
     """Test Qdrant client wrapper functionality."""
 
+    def setup_method(self):
+        """Clear client cache between tests."""
+        from src.memory.qdrant_client import _client_cache
+
+        _client_cache.clear()
+
     def test_get_qdrant_client_creates_client(self):
         """AC 1.4.3: get_qdrant_client() returns configured QdrantClient."""
         with patch("src.memory.qdrant_client.QdrantClient") as MockQdrantClient:

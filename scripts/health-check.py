@@ -24,7 +24,6 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Optional
 
 try:
     import httpx
@@ -48,15 +47,15 @@ class HealthCheckResult:
     component: str
     status: str  # "healthy", "unhealthy", "warning"
     message: str
-    latency_ms: Optional[float] = None
-    error_details: Optional[str] = None
+    latency_ms: float | None = None
+    error_details: str | None = None
 
 
 def check_qdrant(
     host: str = "localhost",
     port: int = 26350,
     timeout: int = 5,
-    api_key: Optional[str] = None,
+    api_key: str | None = None,
 ) -> HealthCheckResult:
     """
     Check Qdrant is running and collections exist.
@@ -396,7 +395,7 @@ def check_monitoring_api(
 
         if response.status_code == 200:
             return HealthCheckResult(
-                "monitoring", "healthy", f"Monitoring API ready", latency
+                "monitoring", "healthy", "Monitoring API ready", latency
             )
         else:
             return HealthCheckResult(
@@ -535,7 +534,7 @@ def check_jira_data_collection() -> HealthCheckResult:
         return HealthCheckResult(
             "jira_data_collection",
             "warning",
-            f"Check failed: {str(e)}",
+            f"Check failed: {e!s}",
             error_details="Enable debug logging for details",
         )
 
@@ -587,9 +586,7 @@ def run_health_checks() -> list[HealthCheckResult]:
             except Exception as e:
                 check_name = future_to_check[future]
                 results_list.append(
-                    HealthCheckResult(
-                        check_name, "unhealthy", f"Check failed: {str(e)}"
-                    )
+                    HealthCheckResult(check_name, "unhealthy", f"Check failed: {e!s}")
                 )
 
     # Sort by component name for consistent output

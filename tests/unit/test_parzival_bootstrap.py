@@ -9,8 +9,6 @@ Tests cover:
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from memory.config import COLLECTION_DISCUSSIONS, MemoryConfig
 from memory.injection import _build_github_enrichment, retrieve_bootstrap_context
 from memory.qdrant_client import QdrantUnavailable
@@ -97,7 +95,7 @@ class TestParzivalBootstrap:
         config.parzival_enabled = True
         config.github_sync_enabled = False
 
-        results = retrieve_bootstrap_context(mock_search, "test-project", config)
+        retrieve_bootstrap_context(mock_search, "test-project", config)
 
         # Should NOT have any calls with source="github"
         github_calls = [
@@ -220,7 +218,10 @@ class TestGitHubEnrichment:
         """Returns at most 10 results even if more match."""
         mock_search = MagicMock()
         mock_search.search.return_value = [
-            {"content": f"PR #{i}", "timestamp": f"2026-02-{15 + (i % 10):02d}T00:00:00Z"}
+            {
+                "content": f"PR #{i}",
+                "timestamp": f"2026-02-{15 + (i % 10):02d}T00:00:00Z",
+            }
             for i in range(15)
         ]
 

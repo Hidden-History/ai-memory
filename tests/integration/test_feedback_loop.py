@@ -8,9 +8,8 @@ requiring a running Qdrant instance.
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -33,8 +32,8 @@ def mock_sync_engine():
     with (
         patch("memory.connectors.github.sync.get_config") as mock_config,
         patch("memory.connectors.github.sync.get_qdrant_client") as mock_qdrant,
-        patch("memory.connectors.github.sync.GitHubClient") as mock_gh_client,
-        patch("memory.connectors.github.sync.MemoryStorage") as mock_storage,
+        patch("memory.connectors.github.sync.GitHubClient"),
+        patch("memory.connectors.github.sync.MemoryStorage"),
     ):
         config = MagicMock()
         config.github_sync_enabled = True
@@ -84,7 +83,9 @@ class TestTriggerFreshnessForMergedPR:
         # Access via kwargs
         actual_call = qdrant.set_payload.call_args
         assert actual_call.kwargs["payload"]["freshness_status"] == "stale"
-        assert actual_call.kwargs["payload"]["freshness_trigger"] == "post_sync_pr_merge"
+        assert (
+            actual_call.kwargs["payload"]["freshness_trigger"] == "post_sync_pr_merge"
+        )
         assert "freshness_checked_at" in actual_call.kwargs["payload"]
 
     def test_no_matching_files_returns_zero(self, mock_sync_engine):
@@ -168,8 +169,8 @@ class TestTriggerFreshnessForMergedPR:
         # Should have 2 must conditions: file_path + group_id
         assert len(scroll_filter.must) == 2
 
-        # Check group_id filter
-        group_filter = scroll_filter.must[1]
+        # Check group_id filter (search by key, not position, to avoid fragility)
+        group_filter = next(f for f in scroll_filter.must if f.key == "group_id")
         assert group_filter.key == "group_id"
 
     def test_code_patterns_collection_used(self, mock_sync_engine):

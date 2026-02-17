@@ -8,7 +8,6 @@ import pytest
 
 from memory.connectors.github.sync import GitHubSyncEngine, SyncResult
 
-
 # -- SyncResult Tests -------------------------------------------------
 
 
@@ -52,8 +51,10 @@ def test_engine_group_id_from_repo():
     config.github_sync_enabled = True
     config.github_repo = "owner/repo"
     config.github_token.get_secret_value.return_value = "ghp_test"
-    with patch("memory.connectors.github.sync.MemoryStorage"), \
-         patch("memory.connectors.github.sync.get_qdrant_client"):
+    with (
+        patch("memory.connectors.github.sync.MemoryStorage"),
+        patch("memory.connectors.github.sync.get_qdrant_client"),
+    ):
         engine = GitHubSyncEngine(config)
     assert engine._group_id == "owner/repo"
 
@@ -71,8 +72,10 @@ def _make_engine():
     config.project_path = "/tmp/test-project"
     config.get_qdrant_url.return_value = "http://localhost:6333"
     config.qdrant_api_key = None
-    with patch("memory.connectors.github.sync.MemoryStorage"), \
-         patch("memory.connectors.github.sync.get_qdrant_client") as mock_get_qdrant:
+    with (
+        patch("memory.connectors.github.sync.MemoryStorage"),
+        patch("memory.connectors.github.sync.get_qdrant_client") as mock_get_qdrant,
+    ):
         mock_get_qdrant.return_value = MagicMock()
         engine = GitHubSyncEngine(config)
     engine.client = AsyncMock()
@@ -151,10 +154,12 @@ async def test_sync_full_mode_ignores_timestamps():
     engine._sync_commits = mock_sync_commits
     engine._sync_ci_results = mock_sync_ci
     engine._push_metrics = MagicMock()
-    engine._load_state = MagicMock(return_value={
-        "pull_requests": {"last_synced": "2026-01-01T00:00:00"},
-        "issues": {"last_synced": "2026-01-01T00:00:00"},
-    })
+    engine._load_state = MagicMock(
+        return_value={
+            "pull_requests": {"last_synced": "2026-01-01T00:00:00"},
+            "issues": {"last_synced": "2026-01-01T00:00:00"},
+        }
+    )
     engine._save_state = MagicMock()
 
     await engine.sync(mode="full")
@@ -192,10 +197,12 @@ async def test_sync_incremental_uses_state():
     engine._sync_commits = mock_sync_commits
     engine._sync_ci_results = mock_sync_ci
     engine._push_metrics = MagicMock()
-    engine._load_state = MagicMock(return_value={
-        "pull_requests": {"last_synced": "2026-01-01T00:00:00"},
-        "issues": {"last_synced": "2026-01-02T00:00:00"},
-    })
+    engine._load_state = MagicMock(
+        return_value={
+            "pull_requests": {"last_synced": "2026-01-01T00:00:00"},
+            "issues": {"last_synced": "2026-01-02T00:00:00"},
+        }
+    )
     engine._save_state = MagicMock()
 
     await engine.sync(mode="incremental")
@@ -240,15 +247,35 @@ async def test_sync_saves_state_after_completion():
 async def test_sync_issues_skips_pull_requests():
     """Issues with pull_request field are skipped."""
     engine = _make_engine()
-    engine.client.list_issues = AsyncMock(return_value=[
-        {"number": 1, "title": "Real issue", "body": "text", "state": "open",
-         "html_url": "https://github.com/test", "created_at": "2026-01-01T00:00:00Z",
-         "updated_at": "2026-01-01T00:00:00Z", "labels": [], "assignees": [], "milestone": None},
-        {"number": 2, "title": "Actually a PR", "body": "text", "state": "open",
-         "html_url": "https://github.com/test", "created_at": "2026-01-01T00:00:00Z",
-         "updated_at": "2026-01-01T00:00:00Z", "labels": [], "assignees": [], "milestone": None,
-         "pull_request": {"url": "https://api.github.com/repos/test/pulls/2"}},
-    ])
+    engine.client.list_issues = AsyncMock(
+        return_value=[
+            {
+                "number": 1,
+                "title": "Real issue",
+                "body": "text",
+                "state": "open",
+                "html_url": "https://github.com/test",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+                "labels": [],
+                "assignees": [],
+                "milestone": None,
+            },
+            {
+                "number": 2,
+                "title": "Actually a PR",
+                "body": "text",
+                "state": "open",
+                "html_url": "https://github.com/test",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+                "labels": [],
+                "assignees": [],
+                "milestone": None,
+                "pull_request": {"url": "https://api.github.com/repos/test/pulls/2"},
+            },
+        ]
+    )
     engine.client.get_issue_comments = AsyncMock(return_value=[])
     engine._store_github_memory = AsyncMock(return_value=True)
 
@@ -263,19 +290,42 @@ async def test_sync_issues_skips_pull_requests():
 async def test_sync_issues_includes_comments():
     """Issue sync fetches and stores comments."""
     engine = _make_engine()
-    engine.client.list_issues = AsyncMock(return_value=[
-        {"number": 1, "title": "Issue", "body": "text", "state": "open",
-         "html_url": "https://github.com/test", "created_at": "2026-01-01T00:00:00Z",
-         "updated_at": "2026-01-01T00:00:00Z", "labels": [], "assignees": [], "milestone": None},
-    ])
-    engine.client.get_issue_comments = AsyncMock(return_value=[
-        {"id": 101, "body": "Comment 1", "user": {"login": "user1"},
-         "html_url": "https://github.com/test#1", "created_at": "2026-01-01T00:00:00Z",
-         "updated_at": "2026-01-01T00:00:00Z"},
-        {"id": 102, "body": "Comment 2", "user": {"login": "user2"},
-         "html_url": "https://github.com/test#2", "created_at": "2026-01-01T00:00:00Z",
-         "updated_at": "2026-01-01T00:00:00Z"},
-    ])
+    engine.client.list_issues = AsyncMock(
+        return_value=[
+            {
+                "number": 1,
+                "title": "Issue",
+                "body": "text",
+                "state": "open",
+                "html_url": "https://github.com/test",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+                "labels": [],
+                "assignees": [],
+                "milestone": None,
+            },
+        ]
+    )
+    engine.client.get_issue_comments = AsyncMock(
+        return_value=[
+            {
+                "id": 101,
+                "body": "Comment 1",
+                "user": {"login": "user1"},
+                "html_url": "https://github.com/test#1",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+            },
+            {
+                "id": 102,
+                "body": "Comment 2",
+                "user": {"login": "user2"},
+                "html_url": "https://github.com/test#2",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+            },
+        ]
+    )
     engine._store_github_memory = AsyncMock(return_value=True)
 
     result = SyncResult()
@@ -289,14 +339,34 @@ async def test_sync_issues_includes_comments():
 async def test_sync_issues_fail_open():
     """Individual issue failure doesn't stop sync."""
     engine = _make_engine()
-    engine.client.list_issues = AsyncMock(return_value=[
-        {"number": 1, "title": "Good", "body": "text", "state": "open",
-         "html_url": "https://github.com/test", "created_at": "2026-01-01T00:00:00Z",
-         "updated_at": "2026-01-01T00:00:00Z", "labels": [], "assignees": [], "milestone": None},
-        {"number": 2, "title": "Bad", "body": "text", "state": "open",
-         "html_url": "https://github.com/test", "created_at": "2026-01-01T00:00:00Z",
-         "updated_at": "2026-01-01T00:00:00Z", "labels": [], "assignees": [], "milestone": None},
-    ])
+    engine.client.list_issues = AsyncMock(
+        return_value=[
+            {
+                "number": 1,
+                "title": "Good",
+                "body": "text",
+                "state": "open",
+                "html_url": "https://github.com/test",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+                "labels": [],
+                "assignees": [],
+                "milestone": None,
+            },
+            {
+                "number": 2,
+                "title": "Bad",
+                "body": "text",
+                "state": "open",
+                "html_url": "https://github.com/test",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+                "labels": [],
+                "assignees": [],
+                "milestone": None,
+            },
+        ]
+    )
     engine.client.get_issue_comments = AsyncMock(return_value=[])
 
     call_count = 0
@@ -325,16 +395,34 @@ async def test_sync_issues_fail_open():
 async def test_sync_prs_fetches_files():
     """PR sync fetches changed files for composition."""
     engine = _make_engine()
-    engine.client.list_pull_requests = AsyncMock(return_value=[
-        {"number": 10, "title": "Test PR", "body": "desc", "state": "open",
-         "merged_at": None, "html_url": "https://github.com/test/pull/10",
-         "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
-         "labels": [], "base": {"ref": "main"}, "head": {"ref": "feat"}},
-    ])
-    engine.client.get_pr_files = AsyncMock(return_value=[
-        {"filename": "file.py", "status": "modified", "additions": 5, "deletions": 2,
-         "blob_url": "https://github.com/blob/1"},
-    ])
+    engine.client.list_pull_requests = AsyncMock(
+        return_value=[
+            {
+                "number": 10,
+                "title": "Test PR",
+                "body": "desc",
+                "state": "open",
+                "merged_at": None,
+                "html_url": "https://github.com/test/pull/10",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+                "labels": [],
+                "base": {"ref": "main"},
+                "head": {"ref": "feat"},
+            },
+        ]
+    )
+    engine.client.get_pr_files = AsyncMock(
+        return_value=[
+            {
+                "filename": "file.py",
+                "status": "modified",
+                "additions": 5,
+                "deletions": 2,
+                "blob_url": "https://github.com/blob/1",
+            },
+        ]
+    )
     engine.client.get_pr_reviews = AsyncMock(return_value=[])
     engine._store_github_memory = AsyncMock(return_value=True)
 
@@ -349,17 +437,36 @@ async def test_sync_prs_fetches_files():
 async def test_sync_prs_includes_reviews():
     """PR sync fetches and stores reviews."""
     engine = _make_engine()
-    engine.client.list_pull_requests = AsyncMock(return_value=[
-        {"number": 10, "title": "PR", "body": "", "state": "open",
-         "merged_at": None, "html_url": "https://github.com/test/pull/10",
-         "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
-         "labels": [], "base": {"ref": "main"}, "head": {"ref": "feat"}},
-    ])
+    engine.client.list_pull_requests = AsyncMock(
+        return_value=[
+            {
+                "number": 10,
+                "title": "PR",
+                "body": "",
+                "state": "open",
+                "merged_at": None,
+                "html_url": "https://github.com/test/pull/10",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+                "labels": [],
+                "base": {"ref": "main"},
+                "head": {"ref": "feat"},
+            },
+        ]
+    )
     engine.client.get_pr_files = AsyncMock(return_value=[])
-    engine.client.get_pr_reviews = AsyncMock(return_value=[
-        {"id": 201, "body": "LGTM", "state": "APPROVED", "user": {"login": "reviewer"},
-         "html_url": "https://github.com/review/1", "submitted_at": "2026-01-01T00:00:00Z"},
-    ])
+    engine.client.get_pr_reviews = AsyncMock(
+        return_value=[
+            {
+                "id": 201,
+                "body": "LGTM",
+                "state": "APPROVED",
+                "user": {"login": "reviewer"},
+                "html_url": "https://github.com/review/1",
+                "submitted_at": "2026-01-01T00:00:00Z",
+            },
+        ]
+    )
     engine._store_github_memory = AsyncMock(return_value=True)
 
     result = SyncResult()
@@ -373,18 +480,37 @@ async def test_sync_prs_includes_reviews():
 async def test_sync_prs_skips_empty_commented_reviews():
     """Only COMMENTED reviews without body are skipped; APPROVED preserved."""
     engine = _make_engine()
-    engine.client.list_pull_requests = AsyncMock(return_value=[
-        {"number": 10, "title": "PR", "body": "", "state": "open",
-         "merged_at": None, "html_url": "https://github.com/test/pull/10",
-         "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
-         "labels": [], "base": {"ref": "main"}, "head": {"ref": "feat"}},
-    ])
+    engine.client.list_pull_requests = AsyncMock(
+        return_value=[
+            {
+                "number": 10,
+                "title": "PR",
+                "body": "",
+                "state": "open",
+                "merged_at": None,
+                "html_url": "https://github.com/test/pull/10",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+                "labels": [],
+                "base": {"ref": "main"},
+                "head": {"ref": "feat"},
+            },
+        ]
+    )
     engine.client.get_pr_files = AsyncMock(return_value=[])
-    engine.client.get_pr_reviews = AsyncMock(return_value=[
-        {"id": 1, "body": "", "state": "APPROVED", "user": {"login": "reviewer"},
-         "html_url": "https://github.com/review/1", "submitted_at": "2026-01-01T00:00:00Z"},
-        {"id": 2, "body": None, "state": "COMMENTED", "user": {"login": "other"}},
-    ])
+    engine.client.get_pr_reviews = AsyncMock(
+        return_value=[
+            {
+                "id": 1,
+                "body": "",
+                "state": "APPROVED",
+                "user": {"login": "reviewer"},
+                "html_url": "https://github.com/review/1",
+                "submitted_at": "2026-01-01T00:00:00Z",
+            },
+            {"id": 2, "body": None, "state": "COMMENTED", "user": {"login": "other"}},
+        ]
+    )
     engine._store_github_memory = AsyncMock(return_value=True)
 
     result = SyncResult()
@@ -398,18 +524,41 @@ async def test_sync_prs_skips_empty_commented_reviews():
 async def test_sync_prs_includes_diffs():
     """PR sync stores diff summary per changed file."""
     engine = _make_engine()
-    engine.client.list_pull_requests = AsyncMock(return_value=[
-        {"number": 10, "title": "PR", "body": "", "state": "open",
-         "merged_at": None, "html_url": "https://github.com/test/pull/10",
-         "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
-         "labels": [], "base": {"ref": "main"}, "head": {"ref": "feat"}},
-    ])
-    engine.client.get_pr_files = AsyncMock(return_value=[
-        {"filename": "a.py", "status": "modified", "additions": 1, "deletions": 0,
-         "blob_url": "https://github.com/blob/a"},
-        {"filename": "b.py", "status": "added", "additions": 10, "deletions": 0,
-         "blob_url": "https://github.com/blob/b"},
-    ])
+    engine.client.list_pull_requests = AsyncMock(
+        return_value=[
+            {
+                "number": 10,
+                "title": "PR",
+                "body": "",
+                "state": "open",
+                "merged_at": None,
+                "html_url": "https://github.com/test/pull/10",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+                "labels": [],
+                "base": {"ref": "main"},
+                "head": {"ref": "feat"},
+            },
+        ]
+    )
+    engine.client.get_pr_files = AsyncMock(
+        return_value=[
+            {
+                "filename": "a.py",
+                "status": "modified",
+                "additions": 1,
+                "deletions": 0,
+                "blob_url": "https://github.com/blob/a",
+            },
+            {
+                "filename": "b.py",
+                "status": "added",
+                "additions": 10,
+                "deletions": 0,
+                "blob_url": "https://github.com/blob/b",
+            },
+        ]
+    )
     engine.client.get_pr_reviews = AsyncMock(return_value=[])
     engine._store_github_memory = AsyncMock(return_value=True)
 
@@ -423,16 +572,36 @@ async def test_sync_prs_includes_diffs():
 async def test_sync_prs_incremental_filter():
     """Incremental mode filters PRs by updated_at."""
     engine = _make_engine()
-    engine.client.list_pull_requests = AsyncMock(return_value=[
-        {"number": 1, "title": "Old PR", "body": "", "state": "closed",
-         "merged_at": None, "html_url": "https://github.com/test/pull/1",
-         "created_at": "2025-01-01T00:00:00Z", "updated_at": "2025-06-01T00:00:00Z",
-         "labels": [], "base": {"ref": "main"}, "head": {"ref": "old"}},
-        {"number": 2, "title": "New PR", "body": "", "state": "open",
-         "merged_at": None, "html_url": "https://github.com/test/pull/2",
-         "created_at": "2026-02-01T00:00:00Z", "updated_at": "2026-02-14T00:00:00Z",
-         "labels": [], "base": {"ref": "main"}, "head": {"ref": "new"}},
-    ])
+    engine.client.list_pull_requests = AsyncMock(
+        return_value=[
+            {
+                "number": 1,
+                "title": "Old PR",
+                "body": "",
+                "state": "closed",
+                "merged_at": None,
+                "html_url": "https://github.com/test/pull/1",
+                "created_at": "2025-01-01T00:00:00Z",
+                "updated_at": "2025-06-01T00:00:00Z",
+                "labels": [],
+                "base": {"ref": "main"},
+                "head": {"ref": "old"},
+            },
+            {
+                "number": 2,
+                "title": "New PR",
+                "body": "",
+                "state": "open",
+                "merged_at": None,
+                "html_url": "https://github.com/test/pull/2",
+                "created_at": "2026-02-01T00:00:00Z",
+                "updated_at": "2026-02-14T00:00:00Z",
+                "labels": [],
+                "base": {"ref": "main"},
+                "head": {"ref": "new"},
+            },
+        ]
+    )
     engine.client.get_pr_files = AsyncMock(return_value=[])
     engine.client.get_pr_reviews = AsyncMock(return_value=[])
     engine._store_github_memory = AsyncMock(return_value=True)
@@ -464,20 +633,33 @@ async def test_sync_commits_uses_branch():
 async def test_sync_commits_fetches_details():
     """Commit detail fetched for diff stats."""
     engine = _make_engine()
-    engine.client.list_commits = AsyncMock(return_value=[
-        {"sha": "abc123456789", "html_url": "https://github.com/commit/abc",
-         "commit": {"message": "test", "author": {"name": "Dev"},
-                    "committer": {"date": "2026-01-01T00:00:00Z"}},
-         "author": {"login": "dev"}},
-    ])
-    engine.client.get_commit = AsyncMock(return_value={
-        "sha": "abc123456789",
-        "commit": {"message": "test", "author": {"name": "Dev"},
-                   "committer": {"date": "2026-01-01T00:00:00Z"}},
-        "author": {"login": "dev"},
-        "files": [{"filename": "test.py"}],
-        "stats": {"total": 5, "additions": 3, "deletions": 2},
-    })
+    engine.client.list_commits = AsyncMock(
+        return_value=[
+            {
+                "sha": "abc123456789",
+                "html_url": "https://github.com/commit/abc",
+                "commit": {
+                    "message": "test",
+                    "author": {"name": "Dev"},
+                    "committer": {"date": "2026-01-01T00:00:00Z"},
+                },
+                "author": {"login": "dev"},
+            },
+        ]
+    )
+    engine.client.get_commit = AsyncMock(
+        return_value={
+            "sha": "abc123456789",
+            "commit": {
+                "message": "test",
+                "author": {"name": "Dev"},
+                "committer": {"date": "2026-01-01T00:00:00Z"},
+            },
+            "author": {"login": "dev"},
+            "files": [{"filename": "test.py"}],
+            "stats": {"total": 5, "additions": 3, "deletions": 2},
+        }
+    )
     engine._store_github_memory = AsyncMock(return_value=True)
 
     result = SyncResult()
@@ -493,12 +675,20 @@ async def test_sync_commits_fallback_to_summary():
     from memory.connectors.github.client import GitHubClientError
 
     engine = _make_engine()
-    engine.client.list_commits = AsyncMock(return_value=[
-        {"sha": "abc123456789", "html_url": "https://github.com/commit/abc",
-         "commit": {"message": "test", "author": {"name": "Dev"},
-                    "committer": {"date": "2026-01-01T00:00:00Z"}},
-         "author": {"login": "dev"}},
-    ])
+    engine.client.list_commits = AsyncMock(
+        return_value=[
+            {
+                "sha": "abc123456789",
+                "html_url": "https://github.com/commit/abc",
+                "commit": {
+                    "message": "test",
+                    "author": {"name": "Dev"},
+                    "committer": {"date": "2026-01-01T00:00:00Z"},
+                },
+                "author": {"login": "dev"},
+            },
+        ]
+    )
     engine.client.get_commit = AsyncMock(side_effect=GitHubClientError("404"))
     engine._store_github_memory = AsyncMock(return_value=True)
 
@@ -515,12 +705,20 @@ async def test_sync_commits_fallback_to_summary():
 async def test_sync_ci_completed_only():
     """Only completed workflow runs are synced."""
     engine = _make_engine()
-    engine.client.list_workflow_runs = AsyncMock(return_value=[
-        {"id": 100, "name": "tests", "conclusion": "success",
-         "head_sha": "abc123", "head_branch": "main",
-         "html_url": "https://github.com/actions/100",
-         "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"},
-    ])
+    engine.client.list_workflow_runs = AsyncMock(
+        return_value=[
+            {
+                "id": 100,
+                "name": "tests",
+                "conclusion": "success",
+                "head_sha": "abc123",
+                "head_branch": "main",
+                "html_url": "https://github.com/actions/100",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+            },
+        ]
+    )
     engine._store_github_memory = AsyncMock(return_value=True)
 
     result = SyncResult()
@@ -528,7 +726,8 @@ async def test_sync_ci_completed_only():
 
     # Verify status="completed" was passed
     engine.client.list_workflow_runs.assert_awaited_once_with(
-        created=None, status="completed",
+        created=None,
+        status="completed",
     )
     assert result.ci_results_synced == 1
 
@@ -543,7 +742,8 @@ async def test_sync_ci_date_filter():
     await engine._sync_ci_results("2026-02-10T12:00:00Z", "batch-1", result)
 
     engine.client.list_workflow_runs.assert_awaited_once_with(
-        created=">=2026-02-10", status="completed",
+        created=">=2026-02-10",
+        status="completed",
     )
 
 
@@ -569,6 +769,7 @@ async def test_dedup_skips_unchanged():
     engine.qdrant = mock_qdrant
 
     from memory.models import MemoryType
+
     stored = await engine._store_github_memory(
         content=content,
         memory_type=MemoryType.GITHUB_ISSUE,
@@ -600,6 +801,7 @@ async def test_dedup_supersedes_changed():
     engine.storage.store_memory = MagicMock(return_value={"status": "stored"})
 
     from memory.models import MemoryType
+
     stored = await engine._store_github_memory(
         content="Changed content",
         memory_type=MemoryType.GITHUB_ISSUE,
@@ -633,6 +835,7 @@ async def test_dedup_new_item_version_1():
     engine.storage.store_memory = MagicMock(return_value={"status": "stored"})
 
     from memory.models import MemoryType
+
     stored = await engine._store_github_memory(
         content="Brand new content",
         memory_type=MemoryType.GITHUB_ISSUE,
@@ -664,6 +867,7 @@ async def test_dedup_version_increments():
     engine.storage.store_memory = MagicMock(return_value={"status": "stored"})
 
     from memory.models import MemoryType
+
     await engine._store_github_memory(
         content="Updated again",
         memory_type=MemoryType.GITHUB_ISSUE,
@@ -689,15 +893,24 @@ async def test_dedup_batch_id_consistent():
     engine.storage.store_memory = MagicMock(return_value={"status": "stored"})
 
     from memory.models import MemoryType
+
     batch = "batch-test-42"
 
     await engine._store_github_memory(
-        content="Content A", memory_type=MemoryType.GITHUB_ISSUE,
-        github_id=1, batch_id=batch, url="", timestamp="2026-01-01T00:00:00Z",
+        content="Content A",
+        memory_type=MemoryType.GITHUB_ISSUE,
+        github_id=1,
+        batch_id=batch,
+        url="",
+        timestamp="2026-01-01T00:00:00Z",
     )
     await engine._store_github_memory(
-        content="Content B", memory_type=MemoryType.GITHUB_PR,
-        github_id=2, batch_id=batch, url="", timestamp="2026-01-01T00:00:00Z",
+        content="Content B",
+        memory_type=MemoryType.GITHUB_PR,
+        github_id=2,
+        batch_id=batch,
+        url="",
+        timestamp="2026-01-01T00:00:00Z",
     )
 
     calls = engine.storage.store_memory.call_args_list
@@ -717,6 +930,7 @@ async def test_dedup_pre_check_failure_proceeds():
     engine.storage.store_memory = MagicMock(return_value={"status": "stored"})
 
     from memory.models import MemoryType
+
     stored = await engine._store_github_memory(
         content="Content despite failure",
         memory_type=MemoryType.GITHUB_ISSUE,
@@ -795,10 +1009,12 @@ def test_push_metrics_success():
     mock_gauge = MagicMock()
     mock_pushadd = MagicMock()
 
-    with patch("prometheus_client.CollectorRegistry", return_value=mock_registry), \
-         patch("prometheus_client.Counter", return_value=mock_counter), \
-         patch("prometheus_client.Gauge", return_value=mock_gauge), \
-         patch("prometheus_client.exposition.pushadd_to_gateway", mock_pushadd):
+    with (
+        patch("prometheus_client.CollectorRegistry", return_value=mock_registry),
+        patch("prometheus_client.Counter", return_value=mock_counter),
+        patch("prometheus_client.Gauge", return_value=mock_gauge),
+        patch("prometheus_client.exposition.pushadd_to_gateway", mock_pushadd),
+    ):
         engine._push_metrics(result)
 
     mock_pushadd.assert_called_once()
@@ -812,9 +1028,12 @@ def test_push_metrics_failure_logged():
     engine = _make_engine()
     result = SyncResult()
 
-    with patch.dict("sys.modules", {
-        "prometheus_client": MagicMock(side_effect=ImportError("no module")),
-    }):
+    with patch.dict(
+        "sys.modules",
+        {
+            "prometheus_client": MagicMock(side_effect=ImportError("no module")),
+        },
+    ):
         # Should not raise
         engine._push_metrics(result)
 
@@ -834,6 +1053,7 @@ async def test_store_memory_receives_source_hook_and_session_id():
     engine.storage.store_memory = MagicMock(return_value={"status": "stored"})
 
     from memory.models import MemoryType
+
     await engine._store_github_memory(
         content="Test content",
         memory_type=MemoryType.GITHUB_ISSUE,
@@ -862,6 +1082,7 @@ async def test_qdrant_not_instantiated_per_item():
     engine.storage.store_memory = MagicMock(return_value={"status": "stored"})
 
     from memory.models import MemoryType
+
     # Call store_github_memory multiple times
     for i in range(5):
         await engine._store_github_memory(
@@ -920,12 +1141,10 @@ async def test_dedup_with_sub_id_for_comments():
         assert "sub_id" in call[1]
 
     # Verify dedup scroll filter includes sub_id
-    from qdrant_client import models as qmodels
     for scroll_call in mock_qdrant.scroll.call_args_list:
         scroll_filter = scroll_call[1]["scroll_filter"]
         sub_id_filters = [
-            f for f in scroll_filter.must
-            if hasattr(f, "key") and f.key == "sub_id"
+            f for f in scroll_filter.must if hasattr(f, "key") and f.key == "sub_id"
         ]
         assert len(sub_id_filters) == 1, "sub_id filter must be in dedup query"
 

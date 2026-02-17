@@ -78,8 +78,9 @@ def validate_payload(payload: dict) -> list[str]:
         "PreToolUse",
         "seed_script",
         "manual",
-        "jira_sync",       # Jira connector sync (v2.0.5)
-        "SDKWrapper",      # SDK-based conversation capture
+        "jira_sync",  # Jira connector sync (v2.0.5)
+        "github_sync",  # GitHub connector sync (v2.0.6)
+        "SDKWrapper",  # SDK-based conversation capture
         "agent:subagent",  # Agent-triggered storage
         "parzival_agent",  # Parzival session agent (SPEC-015)
     ]

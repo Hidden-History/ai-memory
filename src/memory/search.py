@@ -231,8 +231,12 @@ class MemorySearch:
                 )
                 group_id = None
         # Use config defaults if not provided
-        limit = limit or self.config.max_retrievals
-        score_threshold = score_threshold or self.config.similarity_threshold
+        limit = limit if limit is not None else self.config.max_retrievals
+        score_threshold = (
+            score_threshold
+            if score_threshold is not None
+            else self.config.similarity_threshold
+        )
 
         # Generate query embedding
         # Propagates EmbeddingError for graceful degradation
@@ -270,9 +274,7 @@ class MemorySearch:
             # non-GitHub discussions searches (Option A — backward compatible).
             if source == "github":
                 filter_conditions.append(
-                    FieldCondition(
-                        key="is_current", match=MatchValue(value=True)
-                    )
+                    FieldCondition(key="is_current", match=MatchValue(value=True))
                 )
 
         # SPEC-015: Agent-scoped filter (e.g., agent_id="parzival")

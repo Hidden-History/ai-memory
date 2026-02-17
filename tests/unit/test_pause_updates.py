@@ -10,7 +10,6 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 # -- Inline functions from the skill for testability -----------------------
 # (The skill code lives in SKILL.md, not an importable module)
 

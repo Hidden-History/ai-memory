@@ -21,10 +21,10 @@ from .sync import GitHubSyncEngine, SyncResult
 
 __all__ = [
     "AUTHORITY_TIER_MAP",
-    "CodeBlobSync",
-    "CodeSyncResult",
     "DISCUSSIONS_COLLECTION",
     "GITHUB_INDEXES",
+    "CodeBlobSync",
+    "CodeSyncResult",
     "GitHubClient",
     "GitHubClientError",
     "GitHubSyncEngine",

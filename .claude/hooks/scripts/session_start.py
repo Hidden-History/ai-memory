@@ -75,12 +75,10 @@ def estimate_tokens(content: str) -> int:
         content: Text content to estimate tokens for
 
     Returns:
-        Estimated token count (conservative ceiling estimate)
+        Estimated token count (ceiling estimate)
     """
     if not content:
         return 0
-    # Conservative estimate: 3 chars per token (2026 best practice)
-    # Prevents budget overruns with technical/markdown content
     return (len(content) + 2) // 3  # +2 for ceiling behavior
 
 
@@ -973,13 +971,13 @@ def main():
             if conversation_context:
                 # CR-3.5 HIGH FIX: Validate token budget before injection
                 context_char_count = len(conversation_context)
-                # Rough token estimate: 1 token ≈ 4 chars
-                estimated_tokens = context_char_count // 4
+                # Conservative token estimate: 1 token ≈ 3 chars (matches estimate_tokens())
+                estimated_tokens = (context_char_count + 2) // 3
                 token_budget = config.token_budget
 
                 if estimated_tokens > token_budget:
                     # Context exceeds budget - truncate to fit
-                    target_chars = token_budget * 4
+                    target_chars = token_budget * 3
                     conversation_context = (
                         conversation_context[:target_chars]
                         + f"\n\n... [truncated - exceeded token budget of {token_budget} tokens]"

@@ -4,7 +4,7 @@ Tests the full lifecycle: closeout stores → next session loads → content mat
 Requires Qdrant and embedding services running.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -47,9 +47,7 @@ class TestSessionRoundTrip:
 
     def test_graceful_degradation_qdrant_down(self):
         """Bootstrap returns empty results when Qdrant is unavailable."""
-        from unittest.mock import patch
 
-        from memory.config import MemoryConfig
         from memory.qdrant_client import QdrantUnavailable
         from memory.search import MemorySearch
 
@@ -58,8 +56,7 @@ class TestSessionRoundTrip:
             side_effect=QdrantUnavailable("Connection refused"),
         ):
             search = MemorySearch()
-            config = MemoryConfig()
-            config.parzival_enabled = True
+            config = MemoryConfig(_env_file=None, parzival_enabled=True)
 
             results = retrieve_bootstrap_context(search, "test-project", config)
             assert isinstance(results, list)

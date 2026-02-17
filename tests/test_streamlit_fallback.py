@@ -138,6 +138,13 @@ def test_collection_names_match():
         MemoryType.GITHUB_CI_RESULT,
         MemoryType.GITHUB_RELEASE,
     }
+    # Agent types stored in discussions collection (SPEC-014)
+    agent_types = {
+        MemoryType.AGENT_HANDOFF,
+        MemoryType.AGENT_INSIGHT,
+        MemoryType.AGENT_MEMORY,
+        MemoryType.AGENT_TASK,
+    }
 
     all_types = (
         code_pattern_types
@@ -145,6 +152,7 @@ def test_collection_names_match():
         | discussion_types
         | jira_data_types
         | github_types
+        | agent_types
     )
 
     # Verify all MemoryType enum values are accounted for

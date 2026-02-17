@@ -4,9 +4,9 @@ Tests MemoryType enum additions, content hash computation, index definitions,
 authority tier mapping, and collection constants.
 """
 
-import pytest
-
 from unittest.mock import MagicMock
+
+import pytest
 
 from memory.connectors.github.schema import (
     AUTHORITY_TIER_MAP,
@@ -17,7 +17,6 @@ from memory.connectors.github.schema import (
     get_authority_tier,
 )
 from memory.models import MemoryType
-
 
 # -- MemoryType Tests ----------------------------------------------------------
 
@@ -52,8 +51,8 @@ def test_github_type_values():
 
 
 def test_total_memory_type_count():
-    """Total MemoryType count is 26 (17 existing + 9 GitHub)."""
-    assert len(MemoryType) == 26
+    """Total MemoryType count is 30 (17 existing + 9 GitHub + 4 agent)."""
+    assert len(MemoryType) == 30
 
 
 def test_existing_types_unchanged():
@@ -254,9 +253,9 @@ def test_integer_indexes():
     int_fields = {"github_id", "authority_tier"}
     for idx in GITHUB_INDEXES:
         if idx["field_name"] in int_fields:
-            assert idx["schema"] == PayloadSchemaType.INTEGER, (
-                f"{idx['field_name']} should be INTEGER"
-            )
+            assert (
+                idx["schema"] == PayloadSchemaType.INTEGER
+            ), f"{idx['field_name']} should be INTEGER"
 
 
 # -- create_github_indexes() Function Tests -----------------------------------
@@ -305,6 +304,8 @@ class TestCreateGitHubIndexes:
     def test_unexpected_exception_propagates(self):
         """Non-'already exists' exceptions are re-raised."""
         mock_client = MagicMock()
-        mock_client.create_payload_index.side_effect = RuntimeError("connection refused")
+        mock_client.create_payload_index.side_effect = RuntimeError(
+            "connection refused"
+        )
         with pytest.raises(RuntimeError, match="connection refused"):
             create_github_indexes(mock_client)

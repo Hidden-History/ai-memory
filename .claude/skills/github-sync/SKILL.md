@@ -61,6 +61,12 @@ This skill invokes `GitHubSyncEngine.sync()` from `src/memory/connectors/github/
 # The skill invokes the sync engine via a thin script
 cd "$AI_MEMORY_INSTALL_DIR" || { echo "Error: AI_MEMORY_INSTALL_DIR is not set or directory does not exist"; exit 1; }
 MODE="${MODE:-incremental}"
+for arg in "$@"; do
+  case "$arg" in
+    --full) MODE="full" ;;
+    --incremental) MODE="incremental" ;;
+  esac
+done
 "$AI_MEMORY_INSTALL_DIR/.venv/bin/python" -c "
 import asyncio
 from memory.connectors.github.sync import GitHubSyncEngine

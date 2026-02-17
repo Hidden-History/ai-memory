@@ -3,14 +3,12 @@
 Tests parse_args() directly and main() via importlib to verify
 actual code paths rather than testing mocks.
 """
+
 import importlib.util
-import os
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # Load manual_save_memory as a module from the hooks script path
 _script_path = (
@@ -77,7 +75,7 @@ class TestParseArgs:
 
     def test_invalid_type_passes_through(self):
         """parse_args does not validate type values (main() does)."""
-        desc, typ = self.mod.parse_args(["--type", "bogus"])
+        _desc, typ = self.mod.parse_args(["--type", "bogus"])
         assert typ == "bogus"
 
 
@@ -102,7 +100,9 @@ class TestMainAgentPath:
         mock_config.parzival_enabled = True
 
         with (
-            patch.object(self.mod.sys, "argv", ["script", "Test note", "--type", "agent_memory"]),
+            patch.object(
+                self.mod.sys, "argv", ["script", "Test note", "--type", "agent_memory"]
+            ),
             patch("memory.config.get_config", return_value=mock_config),
             patch("memory.storage.MemoryStorage", return_value=mock_storage),
             patch.object(self.mod, "detect_project", return_value="test-project"),
@@ -130,7 +130,11 @@ class TestMainAgentPath:
         mock_config.parzival_enabled = True
 
         with (
-            patch.object(self.mod.sys, "argv", ["script", "--type", "agent_insight", "Key learning"]),
+            patch.object(
+                self.mod.sys,
+                "argv",
+                ["script", "--type", "agent_insight", "Key learning"],
+            ),
             patch("memory.config.get_config", return_value=mock_config),
             patch("memory.storage.MemoryStorage", return_value=mock_storage),
             patch.object(self.mod, "detect_project", return_value="test-project"),
@@ -158,7 +162,9 @@ class TestMainAgentPath:
         mock_config.parzival_enabled = False
 
         with (
-            patch.object(self.mod.sys, "argv", ["script", "--type", "agent_memory", "text"]),
+            patch.object(
+                self.mod.sys, "argv", ["script", "--type", "agent_memory", "text"]
+            ),
             patch("memory.config.get_config", return_value=mock_config),
             patch.object(self.mod, "detect_project", return_value="test-project"),
         ):
@@ -171,7 +177,9 @@ class TestMainAgentPath:
         with (
             patch.object(self.mod.sys, "argv", ["script", "regular save"]),
             patch.object(self.mod, "detect_project", return_value="test-project"),
-            patch.object(self.mod, "store_manual_summary", return_value=True) as mock_store,
+            patch.object(
+                self.mod, "store_manual_summary", return_value=True
+            ) as mock_store,
             patch.object(self.mod, "log_manual_save"),
         ):
             result = self.mod.main()
@@ -190,7 +198,9 @@ class TestMainAgentPath:
         mock_config.parzival_enabled = True
 
         with (
-            patch.object(self.mod.sys, "argv", ["script", "--type", "agent_memory", "text"]),
+            patch.object(
+                self.mod.sys, "argv", ["script", "--type", "agent_memory", "text"]
+            ),
             patch("memory.config.get_config", return_value=mock_config),
             patch("memory.storage.MemoryStorage", return_value=mock_storage),
             patch.object(self.mod, "detect_project", return_value="test-project"),

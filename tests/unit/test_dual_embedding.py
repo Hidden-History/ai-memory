@@ -7,8 +7,7 @@ Tests cover:
 - Config changes
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 
 class TestConfig:
@@ -28,7 +27,7 @@ class TestConfig:
 
     def test_config_module_constants(self):
         """Test module constants for dual embedding"""
-        from memory.config import EMBEDDING_MODEL_EN, EMBEDDING_MODEL_CODE
+        from memory.config import EMBEDDING_MODEL_CODE, EMBEDDING_MODEL_EN
 
         assert EMBEDDING_MODEL_EN == "jina-embeddings-v2-base-en"
         assert EMBEDDING_MODEL_CODE == "jina-embeddings-v2-base-code"
@@ -47,7 +46,9 @@ class TestClientRouting:
         mock_response.status_code = 200
         mock_response.json.return_value = {"embeddings": [[0.1] * 768]}
 
-        with patch.object(client.client, "post", return_value=mock_response) as mock_post:
+        with patch.object(
+            client.client, "post", return_value=mock_response
+        ) as mock_post:
             client.embed(["test"])
 
             # Check that /embed/dense was called with model=en
@@ -66,7 +67,9 @@ class TestClientRouting:
         mock_response.status_code = 200
         mock_response.json.return_value = {"embeddings": [[0.1] * 768]}
 
-        with patch.object(client.client, "post", return_value=mock_response) as mock_post:
+        with patch.object(
+            client.client, "post", return_value=mock_response
+        ) as mock_post:
             client.embed(["test"], model="en")
 
             call_args = mock_post.call_args
@@ -82,7 +85,9 @@ class TestClientRouting:
         mock_response.status_code = 200
         mock_response.json.return_value = {"embeddings": [[0.1] * 768]}
 
-        with patch.object(client.client, "post", return_value=mock_response) as mock_post:
+        with patch.object(
+            client.client, "post", return_value=mock_response
+        ) as mock_post:
             client.embed(["test"], model="code")
 
             call_args = mock_post.call_args
@@ -102,7 +107,9 @@ class TestClientRouting:
         from memory.storage import MemoryStorage
 
         storage = MemoryStorage()
-        model = storage._get_embedding_model("discussions", content_type="github_code_blob")
+        model = storage._get_embedding_model(
+            "discussions", content_type="github_code_blob"
+        )
 
         assert model == "code"
 

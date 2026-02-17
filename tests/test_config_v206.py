@@ -38,20 +38,23 @@ class TestDecayFieldDefaults:
         """Type overrides have the full default string."""
         config = MemoryConfig(_env_file=None)
         overrides = config.get_decay_type_overrides()
-        assert len(overrides) == 13
+        assert len(overrides) == 12
         assert overrides["github_ci_result"] == 7
         assert overrides["github_code_blob"] == 14
         assert overrides["github_commit"] == 14
-        assert overrides["conversation"] == 21
-        assert overrides["session_summary"] == 21
+        assert overrides["agent_task"] == 14
         assert overrides["github_issue"] == 30
         assert overrides["github_pr"] == 30
         assert overrides["jira_issue"] == 30
         assert overrides["agent_memory"] == 30
-        assert overrides["agent_handoff"] == 30
         assert overrides["guideline"] == 60
         assert overrides["rule"] == 60
-        assert overrides["architecture_decision"] == 90
+        assert overrides["agent_handoff"] == 180
+        assert overrides["agent_insight"] == 180
+        # CE-007: Verify phantom types were removed
+        assert "conversation" not in overrides
+        assert "session_summary" not in overrides
+        assert "architecture_decision" not in overrides
 
 
 class TestDecayFieldValidation:
@@ -60,8 +63,18 @@ class TestDecayFieldValidation:
     def test_decay_semantic_weight_bounds(self):
         """Semantic weight must be between 0.0 and 1.0."""
         # Valid boundaries
-        assert MemoryConfig(_env_file=None, decay_semantic_weight=0.0).decay_semantic_weight == 0.0
-        assert MemoryConfig(_env_file=None, decay_semantic_weight=1.0).decay_semantic_weight == 1.0
+        assert (
+            MemoryConfig(
+                _env_file=None, decay_semantic_weight=0.0
+            ).decay_semantic_weight
+            == 0.0
+        )
+        assert (
+            MemoryConfig(
+                _env_file=None, decay_semantic_weight=1.0
+            ).decay_semantic_weight
+            == 1.0
+        )
 
         # Out of range
         with pytest.raises(ValidationError):
@@ -140,7 +153,9 @@ class TestDecayTypeOverrides:
 
     def test_type_overrides_whitespace_handling(self):
         """Whitespace around entries is handled correctly."""
-        config = MemoryConfig(_env_file=None, decay_type_overrides=" foo : 7 , bar : 14 ")
+        config = MemoryConfig(
+            _env_file=None, decay_type_overrides=" foo : 7 , bar : 14 "
+        )
         overrides = config.get_decay_type_overrides()
         assert overrides == {"foo": 7, "bar": 14}
 
@@ -318,9 +333,9 @@ class TestFieldDescriptions:
         ]
         for field_name in new_fields:
             field_info = MemoryConfig.model_fields[field_name]
-            assert field_info.description is not None, (
-                f"Field '{field_name}' missing description"
-            )
-            assert len(field_info.description) > 0, (
-                f"Field '{field_name}' has empty description"
-            )
+            assert (
+                field_info.description is not None
+            ), f"Field '{field_name}' missing description"
+            assert (
+                len(field_info.description) > 0
+            ), f"Field '{field_name}' has empty description"

@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from memory.config import get_config
-from memory.security_scanner import SecurityScanner, ScanAction
+from memory.config import MemoryConfig, get_config
+from memory.security_scanner import ScanAction, SecurityScanner
 from memory.storage import MemoryStorage
 
 
@@ -67,6 +67,7 @@ class TestStorageIntegration:
 
         # Verify stored content is masked
         from memory.qdrant_client import get_qdrant_client
+
         client = get_qdrant_client()
         point = client.retrieve(
             collection_name="code-patterns",
@@ -99,6 +100,7 @@ class TestStorageIntegration:
 
         # Verify stored content is unchanged
         from memory.qdrant_client import get_qdrant_client
+
         client = get_qdrant_client()
         point = client.retrieve(
             collection_name="code-patterns",
@@ -190,6 +192,7 @@ class TestBatchStorageIntegration:
 
         # Verify masking in stored content
         from memory.qdrant_client import get_qdrant_client
+
         client = get_qdrant_client()
 
         point1 = client.retrieve(
@@ -215,7 +218,13 @@ class TestHookScriptIntegration:
 
     def test_user_prompt_hook_blocks_secrets(self):
         """Test that user_prompt_store_async blocks secrets."""
-        hook_script = Path(__file__).parent.parent.parent / ".claude" / "hooks" / "scripts" / "user_prompt_store_async.py"
+        hook_script = (
+            Path(__file__).parent.parent.parent
+            / ".claude"
+            / "hooks"
+            / "scripts"
+            / "user_prompt_store_async.py"
+        )
 
         if not hook_script.exists():
             pytest.skip("Hook script not found")
@@ -245,7 +254,13 @@ class TestHookScriptIntegration:
 
     def test_agent_response_hook_masks_pii(self):
         """Test that agent_response_store_async masks PII."""
-        hook_script = Path(__file__).parent.parent.parent / ".claude" / "hooks" / "scripts" / "agent_response_store_async.py"
+        hook_script = (
+            Path(__file__).parent.parent.parent
+            / ".claude"
+            / "hooks"
+            / "scripts"
+            / "agent_response_store_async.py"
+        )
 
         if not hook_script.exists():
             pytest.skip("Hook script not found")
@@ -319,10 +334,8 @@ class TestEdgeCases:
 
     def test_scanner_unavailable_degrades_gracefully(self):
         """Test that storage works when scanner is unavailable."""
-        config = get_config()
-
         # Create storage with scanner disabled
-        config.security_scanning_enabled = False
+        config = MemoryConfig(_env_file=None, security_scanning_enabled=False)
         storage = MemoryStorage(config)
 
         # Should store successfully without scanning

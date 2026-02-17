@@ -1,3 +1,8 @@
+---
+name: parzival-save-insight
+description: "Save a Parzival insight or learning to Qdrant for cross-session memory"
+---
+
 """Save Parzival insight to Qdrant: /parzival-save-insight
 
 Store an insight, learning, or pattern discovered during a session.

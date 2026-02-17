@@ -146,24 +146,23 @@ def section_sync(config) -> list[str]:
         with open(sync_state_path) as f:
             state = json.load(f)
 
-        last_sync = state.get("last_sync_completed", "")
-        items_synced = state.get("items_synced", 0)
-        errors = state.get("errors", 0)
+        # State schema: {type_key: {last_synced: ISO, last_count: int}}
+        # e.g. {"pull_requests": {"last_synced": "...", "last_count": 5}, ...}
+        type_entries = {k: v for k, v in state.items() if isinstance(v, dict)}
 
-        # Breakdown by type if available
-        breakdown = ""
-        if isinstance(items_synced, dict):
-            parts = [f"{v} {k}s" for k, v in items_synced.items() if v]
-            breakdown = f" ({', '.join(parts)})" if parts else ""
-            total = sum(items_synced.values())
-        else:
-            total = items_synced
+        # Most recent last_synced across all types
+        last_synced_times = [v.get("last_synced", "") for v in type_entries.values() if v.get("last_synced")]
+        last_sync = max(last_synced_times) if last_synced_times else ""
+
+        # Total items and per-type breakdown
+        total = sum(v.get("last_count", 0) for v in type_entries.values())
+        parts = [f"{v.get('last_count', 0)} {k}" for k, v in type_entries.items() if v.get("last_count")]
+        breakdown = f" ({', '.join(parts)})" if parts else ""
 
         ago = _time_ago(last_sync) if last_sync else ""
         ago_str = f" ({ago})" if ago else ""
         lines.append(f"  Last Sync: {last_sync}{ago_str}")
         lines.append(f"  Items Synced: {total}{breakdown}")
-        lines.append(f"  Errors: {errors}")
         lines.append(f"  GitHub Sync: enabled")
     except Exception as e:
         lines.append(f"  Sync state unreadable: {e}")

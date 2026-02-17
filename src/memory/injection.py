@@ -135,7 +135,9 @@ class InjectionSessionState:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(".tmp")
         tmp_path.write_text(json.dumps(asdict(self), default=str))
-        tmp_path.rename(path)  # Atomic on POSIX
+        import os
+
+        os.replace(str(tmp_path), str(path))  # Cross-platform atomic replace
 
     def reset_after_compact(self) -> None:
         """Reset injected IDs after compaction (context window cleared).
@@ -150,7 +152,7 @@ class InjectionSessionState:
     def _state_path(session_id: str) -> Path:
         """Get path to session state file."""
         # Sanitize session_id: alphanumeric + dash/underscore only, max 64 chars
-        safe_id = re.sub(r'[^a-zA-Z0-9_-]', '', session_id)[:64]
+        safe_id = re.sub(r"[^a-zA-Z0-9_-]", "", session_id)[:64]
         if not safe_id:
             safe_id = "unknown"
         return Path(f"/tmp/ai-memory-{safe_id}-injection-state.json")
@@ -307,7 +309,10 @@ def retrieve_bootstrap_context(
                 last_session_date = last_handoff[0].get("timestamp")
 
             github_enrichment = _build_github_enrichment(
-                search_client, config, project_name, last_session_date,
+                search_client,
+                config,
+                project_name,
+                last_session_date,
             )
             results.extend(github_enrichment)
         except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:

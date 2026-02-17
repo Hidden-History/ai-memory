@@ -143,9 +143,11 @@ def push_hook_metrics(
 
     try:
         pushadd_to_gateway(
-            PUSHGATEWAY_URL, job=JOB_NAME,
+            PUSHGATEWAY_URL,
+            job=JOB_NAME,
             grouping_key={"instance": f"hook_{hook_name}"},
-            registry=registry, timeout=0.5
+            registry=registry,
+            timeout=0.5,
         )
     except Exception as e:
         logger.warning(

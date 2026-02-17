@@ -27,6 +27,7 @@ class GitHubClientError(Exception):
 
     Wraps httpx errors and HTTP errors for consistent error handling.
     """
+
     pass
 
 
@@ -67,24 +68,27 @@ class GitHubClient:
     BASE_URL = "https://api.github.com"
 
     # Rate limit constants (BP-062)
-    PRIMARY_LIMIT = 5000           # requests/hour for PAT
-    SECONDARY_LIMIT_POINTS = 900   # points/minute
-    SAFETY_MARGIN = 0.20           # Reserve 20% of quota
-    MIN_REQUEST_DELAY_MS = 100     # Minimum delay between requests (ms)
+    PRIMARY_LIMIT = 5000  # requests/hour for PAT
+    SECONDARY_LIMIT_POINTS = 900  # points/minute
+    SAFETY_MARGIN = 0.20  # Reserve 20% of quota
+    MIN_REQUEST_DELAY_MS = 100  # Minimum delay between requests (ms)
 
     # Timeout configuration (BP-062)
-    CONNECT_TIMEOUT = 5.0          # seconds
-    READ_TIMEOUT = 30.0            # seconds
-    WRITE_TIMEOUT = 5.0            # seconds
-    POOL_TIMEOUT = 5.0             # seconds
+    CONNECT_TIMEOUT = 5.0  # seconds
+    READ_TIMEOUT = 30.0  # seconds
+    WRITE_TIMEOUT = 5.0  # seconds
+    POOL_TIMEOUT = 5.0  # seconds
 
     # Retry configuration
     MAX_RETRIES = 3
-    BASE_BACKOFF = 2               # seconds, exponential: min(60, 2^attempt)
-    MAX_BACKOFF = 60               # seconds
+    BASE_BACKOFF = 2  # seconds, exponential: min(60, 2^attempt)
+    MAX_BACKOFF = 60  # seconds
 
     # Pagination
-    DEFAULT_PER_PAGE = 100         # Maximum items per page (BP-062)
+    DEFAULT_PER_PAGE = 100  # Maximum items per page (BP-062)
+
+    # ETag cache size limit (GH-PERF-001: prevent unbounded growth)
+    MAX_ETAG_CACHE_SIZE = 1000
 
     def __init__(
         self,
@@ -435,13 +439,17 @@ class GitHubClient:
             self._secondary_window_start = now
 
         # Check secondary limit (900 points/min with 20% safety margin)
-        effective_secondary = int(self.SECONDARY_LIMIT_POINTS * (1 - self.SAFETY_MARGIN))
+        effective_secondary = int(
+            self.SECONDARY_LIMIT_POINTS * (1 - self.SAFETY_MARGIN)
+        )
         if self._secondary_points_used + point_cost > effective_secondary:
             wait_time = 60.0 - (now - self._secondary_window_start)
             if wait_time > 0:
                 logger.info(
                     "Secondary rate limit approaching (%d/%d points). Waiting %.1fs",
-                    self._secondary_points_used, effective_secondary, wait_time,
+                    self._secondary_points_used,
+                    effective_secondary,
+                    wait_time,
                 )
                 await asyncio.sleep(wait_time)
                 self._secondary_points_used = 0
@@ -449,15 +457,21 @@ class GitHubClient:
 
         # Check primary limit (20% safety margin)
         effective_primary_margin = int(self.PRIMARY_LIMIT * self.SAFETY_MARGIN)  # 1000
-        if self._rate_limit_remaining is not None and self._rate_limit_remaining < effective_primary_margin:
-            if self._rate_limit_reset:
-                wait_time = max(0, self._rate_limit_reset - time.time())
-                if wait_time > 0 and self._rate_limit_remaining < int(effective_primary_margin * 0.1):
-                    logger.warning(
-                        "Primary rate limit low (%d remaining). Waiting %.1fs for reset",
-                        self._rate_limit_remaining, wait_time,
-                    )
-                    await asyncio.sleep(min(wait_time, 60.0))
+        if (
+            self._rate_limit_remaining is not None
+            and self._rate_limit_remaining < effective_primary_margin
+            and self._rate_limit_reset
+        ):
+            wait_time = max(0, self._rate_limit_reset - time.time())
+            if wait_time > 0 and self._rate_limit_remaining < int(
+                effective_primary_margin * 0.1
+            ):
+                logger.warning(
+                    "Primary rate limit low (%d remaining). Waiting %.1fs for reset",
+                    self._rate_limit_remaining,
+                    wait_time,
+                )
+                await asyncio.sleep(min(wait_time, 60.0))
 
         # Enforce minimum delay between requests
         elapsed = now - self._last_request_time
@@ -472,20 +486,35 @@ class GitHubClient:
         """
         remaining = response.headers.get("X-RateLimit-Remaining")
         if remaining is not None:
-            self._rate_limit_remaining = int(remaining)
+            try:
+                self._rate_limit_remaining = int(remaining)
+            except ValueError:
+                logger.warning(
+                    "Non-numeric X-RateLimit-Remaining header: %r", remaining
+                )
 
         reset = response.headers.get("X-RateLimit-Reset")
         if reset is not None:
-            self._rate_limit_reset = float(reset)
+            try:
+                self._rate_limit_reset = float(reset)
+            except ValueError:
+                logger.warning("Non-numeric X-RateLimit-Reset header: %r", reset)
 
         # Log rate limit status periodically
-        if self._rate_limit_remaining is not None and self._rate_limit_remaining % 500 == 0:
+        if (
+            self._rate_limit_remaining is not None
+            and self._rate_limit_remaining % 500 == 0
+        ):
             logger.info(
                 "Rate limit status: %d remaining, resets at %s",
                 self._rate_limit_remaining,
-                datetime.fromtimestamp(self._rate_limit_reset, tz=timezone.utc).isoformat()
-                if self._rate_limit_reset
-                else "unknown",
+                (
+                    datetime.fromtimestamp(
+                        self._rate_limit_reset, tz=timezone.utc
+                    ).isoformat()
+                    if self._rate_limit_reset
+                    else "unknown"
+                ),
             )
 
     # --- ETag Caching (BP-062) ---
@@ -541,6 +570,14 @@ class GitHubClient:
         etag = response.headers.get("ETag")
         last_modified = response.headers.get("Last-Modified")
         if etag or last_modified:
+            # GH-PERF-001: LRU eviction — evict oldest 25% when cache is full.
+            # Python 3.7+ dicts preserve insertion order, so oldest keys come first.
+            if len(self._etag_cache) >= self.MAX_ETAG_CACHE_SIZE:
+                oldest_keys = list(self._etag_cache.keys())[
+                    : self.MAX_ETAG_CACHE_SIZE // 4
+                ]
+                for key in oldest_keys:
+                    del self._etag_cache[key]
             self._etag_cache[cache_key] = {
                 "etag": etag,
                 "last_modified": last_modified,
@@ -586,9 +623,13 @@ class GitHubClient:
                     method, path, params=params, headers=extra_headers or {}
                 )
 
-                # Track rate limits and point cost
+                # Track rate limits and point cost.
+                # GH-BUG-001: only charge secondary budget on the FIRST attempt
+                # to prevent double-decrement when a request is retried after
+                # a rate-limit response.
                 self._update_rate_limits(response)
-                self._secondary_points_used += point_cost
+                if attempt == 0:
+                    self._secondary_points_used += point_cost
 
                 # Rate limit exceeded -- wait and retry
                 if response.status_code == 403:
@@ -600,7 +641,9 @@ class GitHubClient:
                             wait = max(1, reset - time.time())
                             logger.warning(
                                 "Rate limit hit. Waiting %.0fs (attempt %d/%d)",
-                                wait, attempt + 1, self.MAX_RETRIES,
+                                wait,
+                                attempt + 1,
+                                self.MAX_RETRIES,
                             )
                             await asyncio.sleep(min(wait, self.MAX_BACKOFF))
                             continue
@@ -621,12 +664,16 @@ class GitHubClient:
                     if attempt < self.MAX_RETRIES:
                         logger.warning(
                             "Secondary rate limit. Retry-After: %ds (attempt %d/%d)",
-                            retry_after, attempt + 1, self.MAX_RETRIES,
+                            retry_after,
+                            attempt + 1,
+                            self.MAX_RETRIES,
                         )
                         await asyncio.sleep(retry_after)
                         continue
                     raise RateLimitExceeded(
-                        datetime.fromtimestamp(time.time() + retry_after, tz=timezone.utc),
+                        datetime.fromtimestamp(
+                            time.time() + retry_after, tz=timezone.utc
+                        ),
                         "Secondary rate limit exceeded",
                     )
 
@@ -647,10 +694,15 @@ class GitHubClient:
                         backoff = min(
                             self.MAX_BACKOFF,
                             self.BASE_BACKOFF ** (attempt + 1),
-                        ) + random.uniform(0, 1)  # jitter
+                        ) + random.uniform(
+                            0, 1
+                        )  # jitter
                         logger.warning(
                             "Server error %d. Retrying in %.1fs (attempt %d/%d)",
-                            response.status_code, backoff, attempt + 1, self.MAX_RETRIES,
+                            response.status_code,
+                            backoff,
+                            attempt + 1,
+                            self.MAX_RETRIES,
                         )
                         await asyncio.sleep(backoff)
                         continue
@@ -667,14 +719,18 @@ class GitHubClient:
                     backoff = min(self.MAX_BACKOFF, self.BASE_BACKOFF ** (attempt + 1))
                     logger.warning(
                         "Request timeout. Retrying in %.1fs (attempt %d/%d)",
-                        backoff, attempt + 1, self.MAX_RETRIES,
+                        backoff,
+                        attempt + 1,
+                        self.MAX_RETRIES,
                     )
                     await asyncio.sleep(backoff)
                     continue
-                raise GitHubClientError(f"Request timeout after {self.MAX_RETRIES} retries: {e}")
+                raise GitHubClientError(
+                    f"Request timeout after {self.MAX_RETRIES} retries: {e}"
+                ) from e
 
             except httpx.HTTPError as e:
-                raise GitHubClientError(f"HTTP error: {e}")
+                raise GitHubClientError(f"HTTP error: {e}") from e
 
         # Should not reach here, but defensive
         raise GitHubClientError("Request failed after all retries")
@@ -710,7 +766,9 @@ class GitHubClient:
             params = {}
         params["per_page"] = str(self.DEFAULT_PER_PAGE)
 
-        cache_key = self._cache_key(path, params) if use_cache and method == "GET" else ""
+        cache_key = (
+            self._cache_key(path, params) if use_cache and method == "GET" else ""
+        )
 
         # Note: This loop handles stale 304 retries (max MAX_RETRIES+1 iterations).
         # Each iteration calls _raw_request() which has its own retry loop for
@@ -723,7 +781,10 @@ class GitHubClient:
                 extra_headers = self._get_conditional_headers(cache_key)
 
             response = await self._raw_request(
-                method, path, params=params, point_cost=point_cost,
+                method,
+                path,
+                params=params,
+                point_cost=point_cost,
                 extra_headers=extra_headers if extra_headers else None,
             )
 
@@ -736,7 +797,9 @@ class GitHubClient:
                     return cached["data"]
                 # 304 but cache miss — clear stale conditional headers and retry
                 self._etag_cache.pop(cache_key, None)
-                self._secondary_points_used -= point_cost  # 304 is free, undo the charge
+                self._secondary_points_used -= (
+                    point_cost  # 304 is free, undo the charge
+                )
                 logger.warning("Received 304 but no cached data for %s, retrying", path)
                 if attempt < self.MAX_RETRIES:
                     continue
@@ -790,7 +853,10 @@ class GitHubClient:
 
         for page in range(max_pages):
             response = await self._raw_request(
-                "GET", current_path, params=current_params, point_cost=point_cost,
+                "GET",
+                current_path,
+                params=current_params,
+                point_cost=point_cost,
             )
 
             data = response.json()
@@ -808,15 +874,20 @@ class GitHubClient:
 
             # Parse the full URL to extract path and query params
             # The next URL is absolute, so we need to strip the base
-            current_path = next_url.split(self.base_url)[-1] if self.base_url in next_url else next_url
+            current_path = (
+                next_url.split(self.base_url)[-1]
+                if self.base_url in next_url
+                else next_url
+            )
             current_params = None  # Parameters are embedded in the Link URL
 
-            logger.debug("Paginating: page %d, %d items so far", page + 1, len(all_items))
+            logger.debug(
+                "Paginating: page %d, %d items so far", page + 1, len(all_items)
+            )
 
         return all_items
 
-    @staticmethod
-    def _parse_next_link(link_header: str) -> str | None:
+    def _parse_next_link(self, link_header: str) -> str | None:
         """Parse GitHub Link header to extract 'next' URL.
 
         Format: <https://api.github.com/...?page=2>; rel="next", <...>; rel="last"
@@ -833,7 +904,16 @@ class GitHubClient:
         for part in link_header.split(","):
             match = re.match(r'\s*<([^>]+)>;\s*rel="next"', part.strip())
             if match:
-                return match.group(1)
+                url = match.group(1)
+                # GH-SEC-006: reject any pagination URL not from our base URL
+                # to prevent open-redirect / SSRF via a crafted Link header.
+                if not url.startswith(self.base_url + "/"):
+                    logger.warning(
+                        "Rejecting Link header URL not matching base_url: %.100s",
+                        url,
+                    )
+                    return None
+                return url
         return None
 
     # --- Batch ID Generation (BP-074) ---
@@ -850,6 +930,7 @@ class GitHubClient:
             Unique batch ID string
         """
         import uuid
+
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         short_uuid = uuid.uuid4().hex[:8]
         return f"github_{timestamp}_{short_uuid}"

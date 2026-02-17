@@ -24,7 +24,6 @@ import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import httpx
 from qdrant_client import QdrantClient
@@ -34,8 +33,8 @@ from qdrant_client.models import PointStruct
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from memory.config import get_config
-from memory.qdrant_client import get_qdrant_client
 from memory.deduplication import compute_content_hash
+from memory.qdrant_client import get_qdrant_client
 from memory.template_models import BestPracticeTemplate, load_templates_from_file
 
 # Configure structured logging
@@ -47,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 def generate_embedding(
     text: str, embedding_url: str, timeout: float = 30.0
-) -> Optional[list[float]]:
+) -> list[float] | None:
     """Generate embedding for text using embedding service.
 
     2026 Pattern: Explicit timeouts per httpx best practices

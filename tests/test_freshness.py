@@ -18,12 +18,11 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from pydantic import ValidationError
 
-from memory.config import MemoryConfig, get_config, reset_config
+from memory.config import MemoryConfig
 from memory.freshness import (
     FreshnessReport,
     FreshnessResult,
     FreshnessTier,
-    GroundTruth,
     build_ground_truth_map,
     classify_freshness,
     count_commits_for_file,
@@ -96,7 +95,7 @@ class TestClassifyFreshness:
             freshness_commit_threshold_stale=10,
             freshness_commit_threshold_expired=25,
         )
-        tier, reason = classify_freshness(None, 0, config)
+        tier, _reason = classify_freshness(None, 0, config)
         assert tier == FreshnessTier.FRESH
 
     def test_classify_boundary_aging(self):
@@ -204,9 +203,7 @@ class TestCommitCounting:
         mock_client.scroll.return_value = ([], None)
 
         count = count_commits_for_file(
-            mock_client,
-            "src/memory/search.py",
-            "2026-02-16T00:00:00Z"
+            mock_client, "src/memory/search.py", "2026-02-16T00:00:00Z"
         )
 
         assert count == 0
@@ -228,9 +225,7 @@ class TestCommitCounting:
         mock_client.scroll.return_value = ([mock_commit1, mock_commit2], None)
 
         count = count_commits_for_file(
-            mock_client,
-            "src/memory/search.py",
-            "2026-02-16T00:00:00Z"
+            mock_client, "src/memory/search.py", "2026-02-16T00:00:00Z"
         )
 
         assert count == 1
@@ -252,9 +247,7 @@ class TestCommitCounting:
         mock_client.scroll.return_value = ([mock_commit1, mock_commit2], None)
 
         count = count_commits_for_file(
-            mock_client,
-            "src/memory/search.py",
-            "2026-02-16T00:00:00Z"
+            mock_client, "src/memory/search.py", "2026-02-16T00:00:00Z"
         )
 
         assert count == 1
@@ -263,9 +256,7 @@ class TestCommitCounting:
         """Test invalid stored_at timestamp returns 0."""
         mock_client = MagicMock()
         count = count_commits_for_file(
-            mock_client,
-            "src/memory/search.py",
-            "invalid-timestamp"
+            mock_client, "src/memory/search.py", "invalid-timestamp"
         )
         assert count == 0
 
@@ -297,10 +288,30 @@ class TestFreshnessScan:
 
         assert report.total_checked == 0
 
-    def test_scan_skips_no_file_path(self):
+    @patch("memory.freshness.build_ground_truth_map")
+    @patch("memory.freshness.get_qdrant_client")
+    def test_scan_skips_no_file_path(self, mock_get_client, mock_build_gt):
         """Test points without file_path are skipped."""
-        # This would require more complex mocking, tested in integration tests
-        pass
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        # Provide non-empty ground truth so the scan proceeds past early return
+        gt_entry = MagicMock()
+        gt_entry.blob_hash = "abc123"
+        mock_build_gt.return_value = {"src/memory/search.py": gt_entry}
+
+        # Return a point WITHOUT file_path in the code-patterns scroll
+        mock_point = MagicMock()
+        mock_point.id = "test-point-no-path"
+        mock_point.payload = {"type": "pattern", "stored_at": "2026-01-01T00:00:00Z"}
+        mock_client.scroll.return_value = ([mock_point], None)
+
+        config = MemoryConfig(freshness_enabled=True)
+        report = run_freshness_scan(config=config)
+
+        # Point without file_path is skipped → not counted
+        assert report.total_checked == 0
+        assert len(report.results) == 0
 
     @patch("memory.freshness.get_qdrant_client")
     def test_scan_qdrant_unavailable(self, mock_get_client):
@@ -325,8 +336,14 @@ class TestConfigValidation:
             freshness_commit_threshold_stale=10,
             freshness_commit_threshold_expired=25,
         )
-        assert config.freshness_commit_threshold_aging < config.freshness_commit_threshold_stale
-        assert config.freshness_commit_threshold_stale < config.freshness_commit_threshold_expired
+        assert (
+            config.freshness_commit_threshold_aging
+            < config.freshness_commit_threshold_stale
+        )
+        assert (
+            config.freshness_commit_threshold_stale
+            < config.freshness_commit_threshold_expired
+        )
 
     def test_config_threshold_validation_fail(self):
         """Test invalid ordering raises ValueError."""
@@ -351,12 +368,32 @@ class TestConfigValidation:
 class TestPayloadUpdates:
     """Test Qdrant payload update functionality."""
 
-    @patch("memory.freshness._update_freshness_payloads")
-    @patch("memory.freshness.get_qdrant_client")
-    def test_payload_update_freshness_status(self, mock_get_client, mock_update):
-        """Test set_payload called with correct fields."""
-        # This is tested implicitly through the full scan
-        pass
+    def test_payload_update_freshness_status(self):
+        """Test _update_freshness_payloads calls set_payload with correct fields."""
+        from memory.freshness import _update_freshness_payloads
+
+        mock_client = MagicMock()
+
+        results = [
+            FreshnessResult(
+                point_id="point-abc",
+                file_path="src/memory/search.py",
+                memory_type="pattern",
+                status=FreshnessTier.STALE,
+                reason="10 commits since stored",
+                stored_at="2026-01-01T00:00:00Z",
+                blob_hash_match=None,
+                commit_count=10,
+            )
+        ]
+
+        _update_freshness_payloads(mock_client, results)
+
+        mock_client.set_payload.assert_called_once()
+        call_kwargs = mock_client.set_payload.call_args.kwargs
+        assert call_kwargs["payload"]["freshness_status"] == FreshnessTier.STALE
+        assert "freshness_checked_at" in call_kwargs["payload"]
+        assert call_kwargs["points"] == ["point-abc"]
 
 
 class TestAuditLogging:
@@ -380,12 +417,13 @@ class TestAuditLogging:
             ]
 
             from memory.freshness import _log_freshness_results
+
             _log_freshness_results(results, config, cwd=tmpdir)
 
             log_path = Path(tmpdir) / ".audit" / "logs" / "freshness-log.jsonl"
             assert log_path.exists()
 
-            with open(log_path, "r") as f:
+            with open(log_path) as f:
                 line = f.readline()
                 entry = json.loads(line)
                 assert entry["point_id"] == "test-id"
@@ -409,6 +447,7 @@ class TestAuditLogging:
             ]
 
             from memory.freshness import _log_freshness_results
+
             _log_freshness_results(results, config, cwd=tmpdir)
 
             log_dir = Path(tmpdir) / ".audit" / "logs"
@@ -421,6 +460,9 @@ class TestReportFormatting:
 
     def test_report_format_all_fresh(self):
         """Test format output when everything is fresh."""
+        import dataclasses
+
+        ts = datetime.now(timezone.utc).isoformat()
         report = FreshnessReport(
             total_checked=10,
             fresh_count=10,
@@ -430,15 +472,30 @@ class TestReportFormatting:
             unknown_count=0,
             duration_seconds=1.5,
             results=[],
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=ts,
         )
 
-        # Import format function from skill
-        # This would be tested in integration tests
-        assert report.fresh_count == 10
+        # Serialize the report and verify all fields are present and correct
+        data = dataclasses.asdict(report)
+        assert data["total_checked"] == 10
+        assert data["fresh_count"] == 10
+        assert data["aging_count"] == 0
+        assert data["stale_count"] == 0
+        assert data["expired_count"] == 0
+        assert data["unknown_count"] == 0
+        # All checked points are fresh
+        assert data["fresh_count"] == data["total_checked"]
+        # Duration is positive
+        assert data["duration_seconds"] > 0
+        # Timestamp is a valid ISO string
+        assert isinstance(data["timestamp"], str)
+        datetime.fromisoformat(data["timestamp"])
 
     def test_report_format_mixed(self):
         """Test format output with mixed tiers."""
+        import dataclasses
+
+        ts = datetime.now(timezone.utc).isoformat()
         report = FreshnessReport(
             total_checked=20,
             fresh_count=10,
@@ -448,11 +505,24 @@ class TestReportFormatting:
             unknown_count=0,
             duration_seconds=2.0,
             results=[],
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=ts,
         )
 
-        assert report.total_checked == 20
-        assert report.fresh_count + report.aging_count + report.stale_count + report.expired_count == 20
+        # Serialize the report and verify structural consistency
+        data = dataclasses.asdict(report)
+        assert data["total_checked"] == 20
+        # All tier counts should sum to total_checked (unknown_count == 0 here)
+        tier_total = (
+            data["fresh_count"]
+            + data["aging_count"]
+            + data["stale_count"]
+            + data["expired_count"]
+            + data["unknown_count"]
+        )
+        assert tier_total == data["total_checked"]
+        # No single tier dominates (mixed distribution)
+        assert data["fresh_count"] < data["total_checked"]
+        assert data["expired_count"] > 0
 
 
 class TestIntegration:

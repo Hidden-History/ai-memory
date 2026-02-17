@@ -209,9 +209,7 @@ class TestTypeSpecificDecay:
 
         # Conversation (21d half-life) should rank higher than CI (7d half-life) at 7 days
         # At exactly 7 days: CI temporal = 0.5, conversation temporal > 0.5
-        assert conv_idx < ci_idx, (
-            "Slower-decaying type should rank higher at same age"
-        )
+        assert conv_idx < ci_idx, "Slower-decaying type should rank higher at same age"
 
 
 class TestDecayDisabled:
@@ -313,9 +311,9 @@ class TestMissingStoredAtFallback:
         no_date_idx = result_ids.index(no_date_id)
 
         # Recent should rank higher than point with 2020 fallback
-        assert recent_idx < no_date_idx, (
-            "Recent point should rank higher than point with missing stored_at"
-        )
+        assert (
+            recent_idx < no_date_idx
+        ), "Recent point should rank higher than point with missing stored_at"
 
         # Point with missing stored_at should still be returned (not filtered out)
         assert no_date_id in result_ids
@@ -542,7 +540,9 @@ class TestSearchIntegration:
         # Create the collection for search
         client.create_collection(
             collection_name=search_collection,
-            vectors_config=models.VectorParams(size=DIM, distance=models.Distance.COSINE),
+            vectors_config=models.VectorParams(
+                size=DIM, distance=models.Distance.COSINE
+            ),
         )
         client.create_payload_index(
             collection_name=search_collection,
@@ -588,8 +588,12 @@ class TestSearchIntegration:
         # Create MemorySearch with patched internals
         from src.memory.search import MemorySearch
 
-        with patch("src.memory.search.get_qdrant_client", return_value=client), \
-             patch("src.memory.search.EmbeddingClient", return_value=mock_embedding_client):
+        with (
+            patch("src.memory.search.get_qdrant_client", return_value=client),
+            patch(
+                "src.memory.search.EmbeddingClient", return_value=mock_embedding_client
+            ),
+        ):
             search = MemorySearch(config=config)
 
         results = search.search(
@@ -604,9 +608,9 @@ class TestSearchIntegration:
         recent_idx = result_ids.index(recent_id)
         old_idx = result_ids.index(old_id)
 
-        assert recent_idx < old_idx, (
-            "MemorySearch.search() with decay should rank newer point first"
-        )
+        assert (
+            recent_idx < old_idx
+        ), "MemorySearch.search() with decay should rank newer point first"
         assert results[recent_idx]["score"] > results[old_idx]["score"]
 
 
@@ -629,7 +633,9 @@ class TestDecayPerformance:
         perf_collection = "perf-test"
         c.create_collection(
             collection_name=perf_collection,
-            vectors_config=models.VectorParams(size=DIM, distance=models.Distance.COSINE),
+            vectors_config=models.VectorParams(
+                size=DIM, distance=models.Distance.COSINE
+            ),
         )
         c.create_payload_index(
             collection_name=perf_collection,
@@ -646,7 +652,13 @@ class TestDecayPerformance:
 
         # Insert 50+ points with varied ages and types
         points = []
-        types = ["conversation", "github_ci_result", "github_code_blob", "guideline", "rule"]
+        types = [
+            "conversation",
+            "github_ci_result",
+            "github_code_blob",
+            "guideline",
+            "rule",
+        ]
         for i in range(60):
             points.append(
                 models.PointStruct(
@@ -767,8 +779,8 @@ class TestCollectionDefaultsDifferentDecayRates:
             "stored_at": (now - age).isoformat(),
             "group_id": "test-project",
         }
-        cp_id = _insert_point(c, "code-patterns", vec, payload)
-        cv_id = _insert_point(c, "conventions", vec, payload)
+        _insert_point(c, "code-patterns", vec, payload)
+        _insert_point(c, "conventions", vec, payload)
 
         # Build formula for code-patterns (14d default)
         formula_cp, prefetch_cp = build_decay_formula(
@@ -884,9 +896,9 @@ class TestPointWithoutTypeField:
         result_ids = [str(r.id) for r in response.points]
 
         # Point without `type` MUST still be returned (not excluded by formula)
-        assert untyped_id in result_ids, (
-            "Point without `type` field should still be returned by formula query"
-        )
+        assert (
+            untyped_id in result_ids
+        ), "Point without `type` field should still be returned by formula query"
 
         # Document actual behavior: the untyped point's score vs typed point's score.
         # MatchAny/MatchExcept conditions all evaluate to 0.0 for missing `type`,

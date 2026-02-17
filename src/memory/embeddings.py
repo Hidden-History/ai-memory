@@ -99,7 +99,9 @@ class EmbeddingClient:
 
         self.client = httpx.Client(timeout=timeout_config, limits=limits)
 
-    def embed(self, texts: list[str], model: str = "en") -> list[list[float]]:
+    def embed(
+        self, texts: list[str], model: str = "en", project: str = "unknown"
+    ) -> list[list[float]]:
         """Generate embeddings for texts using specified model.
 
         Sends batch request to embedding service and returns vector embeddings.
@@ -142,13 +144,13 @@ class EmbeddingClient:
                     status="success",
                     embedding_type="dense",
                     context="realtime",
-                    project="unknown",
+                    project=project,
                     model=model,
                 ).inc()
             if embedding_duration_seconds:
-                embedding_duration_seconds.labels(embedding_type="dense", model=model).observe(
-                    duration_seconds
-                )
+                embedding_duration_seconds.labels(
+                    embedding_type="dense", model=model
+                ).observe(duration_seconds)
 
             # Push to Pushgateway for hook subprocess visibility
             push_embedding_metrics_async(
@@ -180,20 +182,20 @@ class EmbeddingClient:
                     status="timeout",
                     embedding_type="dense",
                     context="realtime",
-                    project="unknown",
+                    project=project,
                     model=model,
                 ).inc()
             if embedding_duration_seconds:
-                embedding_duration_seconds.labels(embedding_type="dense", model=model).observe(
-                    duration_seconds
-                )
+                embedding_duration_seconds.labels(
+                    embedding_type="dense", model=model
+                ).observe(duration_seconds)
 
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
                 failure_events_total.labels(
                     component="embedding",
                     error_code="EMBEDDING_TIMEOUT",
-                    project="unknown",
+                    project=project,
                 ).inc()
 
             # Push to Pushgateway for hook subprocess visibility
@@ -207,7 +209,7 @@ class EmbeddingClient:
             push_failure_metrics_async(
                 component="embedding",
                 error_code="EMBEDDING_TIMEOUT",
-                project="unknown",
+                project=project,
             )
 
             raise EmbeddingError("EMBEDDING_TIMEOUT") from e
@@ -231,20 +233,20 @@ class EmbeddingClient:
                     status="failed",
                     embedding_type="dense",
                     context="realtime",
-                    project="unknown",
+                    project=project,
                     model=model,
                 ).inc()
             if embedding_duration_seconds:
-                embedding_duration_seconds.labels(embedding_type="dense", model=model).observe(
-                    duration_seconds
-                )
+                embedding_duration_seconds.labels(
+                    embedding_type="dense", model=model
+                ).observe(duration_seconds)
 
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
                 failure_events_total.labels(
                     component="embedding",
                     error_code="EMBEDDING_ERROR",
-                    project="unknown",
+                    project=project,
                 ).inc()
 
             # Push to Pushgateway for hook subprocess visibility
@@ -258,7 +260,7 @@ class EmbeddingClient:
             push_failure_metrics_async(
                 component="embedding",
                 error_code="EMBEDDING_ERROR",
-                project="unknown",
+                project=project,
             )
 
             raise EmbeddingError(f"EMBEDDING_ERROR: {e}") from e

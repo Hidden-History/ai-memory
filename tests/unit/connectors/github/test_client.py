@@ -23,7 +23,6 @@ from src.memory.connectors.github.client import (
     RateLimitExceeded,
 )
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================
@@ -175,7 +174,9 @@ class TestContextManager:
     @pytest.mark.asyncio
     async def test_manual_close(self, github_client):
         """Manual close() closes httpx client."""
-        with patch.object(github_client._client, "aclose", new=AsyncMock()) as mock_aclose:
+        with patch.object(
+            github_client._client, "aclose", new=AsyncMock()
+        ) as mock_aclose:
             await github_client.close()
         mock_aclose.assert_called_once()
 
@@ -188,23 +189,51 @@ class TestContextManager:
 class TestParseLinkHeader:
     """Test Link header parsing."""
 
+    def _make_client(self, base_url="https://api.github.com"):
+        """Create a minimal GitHubClient for link header tests."""
+        return GitHubClient(token="test", repo="o/r", base_url=base_url)
+
     def test_parse_next_link_present(self):
         """_parse_next_link extracts URL from Link header."""
+        client = self._make_client()
         header = '<https://api.github.com/repos/o/r/issues?page=2>; rel="next", <https://api.github.com/repos/o/r/issues?page=5>; rel="last"'
-        assert GitHubClient._parse_next_link(header) == "https://api.github.com/repos/o/r/issues?page=2"
+        assert (
+            client._parse_next_link(header)
+            == "https://api.github.com/repos/o/r/issues?page=2"
+        )
 
     def test_parse_next_link_absent(self):
         """_parse_next_link returns None when no next page."""
+        client = self._make_client()
         header = '<https://api.github.com/repos/o/r/issues?page=5>; rel="last"'
-        assert GitHubClient._parse_next_link(header) is None
+        assert client._parse_next_link(header) is None
 
     def test_parse_next_link_empty(self):
         """_parse_next_link handles empty header."""
-        assert GitHubClient._parse_next_link("") is None
+        client = self._make_client()
+        assert client._parse_next_link("") is None
 
     def test_parse_next_link_none(self):
         """_parse_next_link handles None-like empty string."""
-        assert GitHubClient._parse_next_link("") is None
+        client = self._make_client()
+        assert client._parse_next_link("") is None
+
+    def test_parse_next_link_rejects_foreign_url(self):
+        """_parse_next_link rejects URLs not from base_url (GH-SEC-006)."""
+        client = self._make_client()
+        header = '<https://evil.com/repos/o/r/issues?page=2>; rel="next"'
+        assert client._parse_next_link(header) is None
+
+    def test_parse_next_link_github_enterprise(self):
+        """_parse_next_link accepts GitHub Enterprise URLs matching base_url."""
+        client = self._make_client(base_url="https://github.example.com/api/v3")
+        header = (
+            '<https://github.example.com/api/v3/repos/o/r/issues?page=2>; rel="next"'
+        )
+        assert (
+            client._parse_next_link(header)
+            == "https://github.example.com/api/v3/repos/o/r/issues?page=2"
+        )
 
 
 class TestPagination:
@@ -363,7 +392,9 @@ class TestRateLimiting:
                 "request",
                 new=AsyncMock(side_effect=[resp_429, resp_ok]),
             ),
-            patch("src.memory.connectors.github.client.asyncio.sleep", new=AsyncMock()) as mock_sleep,
+            patch(
+                "src.memory.connectors.github.client.asyncio.sleep", new=AsyncMock()
+            ) as mock_sleep,
         ):
             result = await github_client._request("GET", "/user")
 
@@ -418,7 +449,7 @@ class TestETagCaching:
             await github_client._request("GET", "/user")
 
         assert len(github_client._etag_cache) == 1
-        cached = list(github_client._etag_cache.values())[0]
+        cached = next(iter(github_client._etag_cache.values()))
         assert cached["etag"] == '"abc123"'
         assert cached["last_modified"] == "Wed, 14 Feb 2026 00:00:00 GMT"
 
@@ -540,7 +571,9 @@ class TestErrorHandling:
                 new=AsyncMock(side_effect=[resp_500, resp_ok]),
             ),
             patch("src.memory.connectors.github.client.asyncio.sleep", new=AsyncMock()),
-            patch("src.memory.connectors.github.client.random.uniform", return_value=0.5),
+            patch(
+                "src.memory.connectors.github.client.random.uniform", return_value=0.5
+            ),
         ):
             result = await github_client._request("GET", "/user")
 
@@ -640,7 +673,9 @@ class TestErrorHandling:
                 new=AsyncMock(return_value=resp_500),
             ) as mock_request,
             patch("src.memory.connectors.github.client.asyncio.sleep", new=AsyncMock()),
-            patch("src.memory.connectors.github.client.random.uniform", return_value=0.5),
+            patch(
+                "src.memory.connectors.github.client.random.uniform", return_value=0.5
+            ),
             pytest.raises(GitHubClientError, match="server error"),
         ):
             await github_client._request("GET", "/user")
@@ -674,6 +709,7 @@ class TestErrorHandling:
     def test_rate_limit_exceeded_has_reset_at(self):
         """RateLimitExceeded includes reset_at timestamp."""
         from datetime import datetime, timezone
+
         reset_at = datetime.now(timezone.utc)
         exc = RateLimitExceeded(reset_at)
         assert exc.reset_at == reset_at
@@ -773,14 +809,14 @@ class TestGitHubConfig:
         """Token and repo required when sync enabled."""
         from src.memory.config import MemoryConfig
 
-        with pytest.raises(Exception):  # ValidationError
+        with pytest.raises(ValueError):
             MemoryConfig(github_sync_enabled=True)
 
     def test_github_repo_format_validation(self):
         """Repo must be in owner/repo format."""
         from src.memory.config import MemoryConfig
 
-        with pytest.raises(Exception):  # ValidationError
+        with pytest.raises(ValueError):
             MemoryConfig(
                 github_sync_enabled=True,
                 github_token="ghp_test",
@@ -824,14 +860,14 @@ class TestGitHubConfig:
         """Sync interval must be between 60 and 86400."""
         from src.memory.config import MemoryConfig
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             MemoryConfig(github_sync_interval=30)  # Too low
 
     def test_github_code_blob_max_size_bounds(self):
         """Max size must be between 1024 and 1048576."""
         from src.memory.config import MemoryConfig
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             MemoryConfig(github_code_blob_max_size=500)  # Too low
 
 
@@ -1109,7 +1145,9 @@ class TestPaginationErrorHandling:
                 new=AsyncMock(return_value=resp_500),
             ),
             patch("src.memory.connectors.github.client.asyncio.sleep", new=AsyncMock()),
-            patch("src.memory.connectors.github.client.random.uniform", return_value=0.5),
+            patch(
+                "src.memory.connectors.github.client.random.uniform", return_value=0.5
+            ),
             pytest.raises(GitHubClientError, match="server error"),
         ):
             await github_client._paginate("/repos/owner/repo/issues")
@@ -1127,7 +1165,9 @@ class TestPaginationErrorHandling:
                 new=AsyncMock(side_effect=[resp_500, resp_ok]),
             ),
             patch("src.memory.connectors.github.client.asyncio.sleep", new=AsyncMock()),
-            patch("src.memory.connectors.github.client.random.uniform", return_value=0.5),
+            patch(
+                "src.memory.connectors.github.client.random.uniform", return_value=0.5
+            ),
         ):
             result = await github_client._paginate("/repos/owner/repo/issues")
 
@@ -1144,7 +1184,9 @@ class TestPrimaryRateLimitMargin:
         github_client._rate_limit_remaining = 999
         github_client._rate_limit_reset = time.time() + 3600
 
-        with patch("src.memory.connectors.github.client.asyncio.sleep", new=AsyncMock()) as mock_sleep:
+        with patch(
+            "src.memory.connectors.github.client.asyncio.sleep", new=AsyncMock()
+        ):
             await github_client._enforce_rate_limit(1)
 
         # Should NOT sleep for the hard wait since 999 > 100 (10% of 1000)
@@ -1160,7 +1202,9 @@ class TestPrimaryRateLimitMargin:
         github_client._rate_limit_remaining = 50
         github_client._rate_limit_reset = time.time() + 10
 
-        with patch("src.memory.connectors.github.client.asyncio.sleep", new=AsyncMock()) as mock_sleep:
+        with patch(
+            "src.memory.connectors.github.client.asyncio.sleep", new=AsyncMock()
+        ) as mock_sleep:
             await github_client._enforce_rate_limit(1)
 
         # 50 < 100 (10% of 1000), should trigger hard wait
@@ -1173,7 +1217,9 @@ class TestPrimaryRateLimitMargin:
         github_client._rate_limit_remaining = 1500
         github_client._rate_limit_reset = time.time() + 3600
 
-        with patch("src.memory.connectors.github.client.asyncio.sleep", new=AsyncMock()) as mock_sleep:
+        with patch(
+            "src.memory.connectors.github.client.asyncio.sleep", new=AsyncMock()
+        ) as mock_sleep:
             await github_client._enforce_rate_limit(1)
 
         # 1500 > 1000, should not trigger any primary limit sleep
@@ -1347,10 +1393,12 @@ class TestStaleCache304Retry:
             github_client._etag_cache.pop(cache_key, None)
             return resp_304
 
-        with patch.object(
-            github_client._client,
-            "request",
-            new=AsyncMock(side_effect=mock_request),
+        with (
+            patch.object(
+                github_client._client,
+                "request",
+                new=AsyncMock(side_effect=mock_request),
+            ),
+            pytest.raises(GitHubClientError, match="304 Not Modified"),
         ):
-            with pytest.raises(GitHubClientError, match="304 Not Modified"):
-                await github_client._request("GET", "/user")
+            await github_client._request("GET", "/user")

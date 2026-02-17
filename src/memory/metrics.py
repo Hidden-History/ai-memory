@@ -25,6 +25,13 @@ NFR Metric Mapping:
 
 from prometheus_client import Counter, Gauge, Histogram, Info
 
+try:
+    from importlib.metadata import version as pkg_version
+
+    _VERSION = pkg_version("ai-memory")
+except Exception:
+    _VERSION = "2.0.6"
+
 # ==============================================================================
 # COUNTERS - Monotonically increasing values
 # ==============================================================================
@@ -228,10 +235,10 @@ system_info = Info("aimemory_system", "Memory system configuration")
 # Initialize system info with static metadata
 system_info.info(
     {
-        "version": "2.0.0",
+        "version": _VERSION,
         "embedding_model": "jina-embeddings-v2-base-en",
         "vector_dimensions": "768",
-        "collections": "code-patterns,conventions,discussions",
+        "collections": "code-patterns,conventions,discussions,jira-data",
     }
 )
 

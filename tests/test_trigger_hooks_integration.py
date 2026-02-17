@@ -164,7 +164,9 @@ class TestFirstEditTriggerHook:
         assert result.stdout.strip() == ""
 
 
-@pytest.mark.skip(reason="unified_keyword_trigger.py archived per SPEC-012 (replaced by progressive context injection)")
+@pytest.mark.skip(
+    reason="unified_keyword_trigger.py archived per SPEC-012 (replaced by progressive context injection)"
+)
 class TestUnifiedKeywordTriggerHook:
     """Integration tests for unified_keyword_trigger.py hook (TECH-DEBT-062)."""
 

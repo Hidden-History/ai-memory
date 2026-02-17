@@ -64,7 +64,9 @@ TYPE_SESSION = "session"  # Session summaries from PreCompact hook
 
 # Embedding configuration (SPEC-010: Dual Embedding Models)
 EMBEDDING_DIMENSIONS = 768
-EMBEDDING_MODEL = "jina-embeddings-v2-base-en"  # Legacy constant, kept for backward compat
+EMBEDDING_MODEL = (
+    "jina-embeddings-v2-base-en"  # Legacy constant, kept for backward compat
+)
 EMBEDDING_MODEL_EN = "jina-embeddings-v2-base-en"  # Prose model
 EMBEDDING_MODEL_CODE = "jina-embeddings-v2-base-code"  # Code model
 
@@ -371,7 +373,7 @@ class MemoryConfig(BaseSettings):
 
     # Tier 3 — hidden/advanced (not in .env.example uncommented)
     decay_type_overrides: str = Field(
-        default="github_ci_result:7,agent_task:14,github_code_blob:14,github_commit:14,conversation:21,session_summary:21,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,guideline:60,rule:60,architecture_decision:90,agent_handoff:180,agent_insight:180",
+        default="github_ci_result:7,agent_task:14,github_code_blob:14,github_commit:14,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,guideline:60,rule:60,agent_handoff:180,agent_insight:180",
         description="Per-type half-life overrides. Format: type:days,type:days,...",
     )
 
@@ -581,7 +583,11 @@ class MemoryConfig(BaseSettings):
             if not pair.strip():
                 continue
             parts = pair.strip().split(":")
-            if len(parts) != 2 or not parts[0].strip() or not parts[1].strip().isdigit():
+            if (
+                len(parts) != 2
+                or not parts[0].strip()
+                or not parts[1].strip().isdigit()
+            ):
                 raise ValueError(
                     f"Invalid decay override format: '{pair}'. Expected 'type:days'."
                 )
@@ -592,7 +598,9 @@ class MemoryConfig(BaseSettings):
                 )
         return v
 
-    @field_validator("install_dir", "queue_path", "session_log_path", "audit_dir", mode="before")
+    @field_validator(
+        "install_dir", "queue_path", "session_log_path", "audit_dir", mode="before"
+    )
     @classmethod
     def expand_user_paths(cls, v):
         """Expand ~ and environment variables in paths."""
@@ -663,7 +671,8 @@ class MemoryConfig(BaseSettings):
 
     def get_qdrant_url(self) -> str:
         """Get full Qdrant URL for connections."""
-        return f"http://{self.qdrant_host}:{self.qdrant_port}"
+        scheme = "https" if self.qdrant_use_https else "http"
+        return f"{scheme}://{self.qdrant_host}:{self.qdrant_port}"
 
     def get_embedding_url(self) -> str:
         """Get full embedding service URL."""

@@ -1,3 +1,8 @@
+---
+name: parzival-save-handoff
+description: "Save Parzival session handoff document to Qdrant for cross-session memory"
+---
+
 """Save Parzival handoff to Qdrant: /parzival-save-handoff
 
 Called by parzival-closeout command after creating the handoff file.

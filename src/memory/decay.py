@@ -222,10 +222,10 @@ def build_decay_formula(
                 models.FieldCondition(
                     key="type",
                     # MatchExcept's Pydantic field is a reserved keyword "except".
-                # except_= kwarg is rejected by Pydantic; model_validate is required.
-                match=models.MatchExcept.model_validate(
-                    {"except": all_explicit_types}
-                ),
+                    # except_= kwarg is rejected by Pydantic; model_validate is required.
+                    match=models.MatchExcept.model_validate(
+                        {"except": all_explicit_types}
+                    ),
                 ),
                 models.ExpDecayExpression(
                     exp_decay=models.DecayParamsExpression(

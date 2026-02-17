@@ -1,34 +1,32 @@
 # Location: ai-memory/tests/unit/connectors/github/test_code_sync.py
 
-import pytest
-import ast
 from unittest.mock import AsyncMock, MagicMock, patch
-from qdrant_client import models
 
+import pytest
+
+from memory.connectors.github.client import GitHubClientError
 from memory.connectors.github.code_sync import (
     CodeBlobSync,
     CodeSyncResult,
-    CodeChunk,
-    chunk_python_ast,
-    detect_language,
-    extract_python_symbols,
-    extract_python_imports,
-    is_binary_file,
     _build_context_header,
     _chunk_semantic,
     _extract_import_lines,
-    DISCUSSIONS_COLLECTION,
+    chunk_python_ast,
+    detect_language,
+    extract_python_imports,
+    extract_python_symbols,
+    is_binary_file,
 )
-from memory.connectors.github.client import GitHubClientError
-
 
 # -- CodeSyncResult Tests --------------------------------------------
+
 
 def test_code_sync_result_defaults():
     """All counts default to zero."""
     result = CodeSyncResult()
     assert result.files_synced == 0
     assert result.chunks_created == 0
+
 
 def test_code_sync_result_to_dict():
     """to_dict includes all fields."""
@@ -40,31 +38,39 @@ def test_code_sync_result_to_dict():
 
 # -- Language Detection Tests ----------------------------------------
 
+
 def test_detect_python():
     assert detect_language("src/memory/storage.py") == "python"
+
 
 def test_detect_javascript():
     assert detect_language("app/index.js") == "javascript"
 
+
 def test_detect_typescript():
     assert detect_language("src/types.ts") == "typescript"
+
 
 def test_detect_yaml():
     assert detect_language("config.yaml") == "yaml"
     assert detect_language("config.yml") == "yaml"
 
+
 def test_detect_dockerfile():
     assert detect_language("Dockerfile") == "dockerfile"
     assert detect_language("docker/Dockerfile") == "dockerfile"
+
 
 def test_detect_unknown():
     assert detect_language("README") == "unknown"
     assert detect_language("file.xyz") == "unknown"
 
+
 def test_is_binary():
     assert is_binary_file("image.png") is True
     assert is_binary_file("app.exe") is True
     assert is_binary_file("data.sqlite") is True
+
 
 def test_is_not_binary():
     assert is_binary_file("app.py") is False
@@ -73,27 +79,33 @@ def test_is_not_binary():
 
 # -- Symbol Extraction Tests -----------------------------------------
 
+
 def test_extract_class():
     code = "class Foo:\n    pass\n"
     assert "Foo" in extract_python_symbols(code)
+
 
 def test_extract_function():
     code = "def bar():\n    pass\n"
     assert "bar" in extract_python_symbols(code)
 
+
 def test_extract_async_function():
     code = "async def baz():\n    pass\n"
     assert "baz" in extract_python_symbols(code)
+
 
 def test_extract_multiple_symbols():
     code = "class A:\n    pass\ndef b():\n    pass\nclass C:\n    pass\n"
     symbols = extract_python_symbols(code)
     assert symbols == ["A", "b", "C"]
 
+
 def test_extract_syntax_error():
     """SyntaxError returns empty list."""
     symbols = extract_python_symbols("def broken(:\n")
     assert symbols == []
+
 
 def test_extract_nested_not_included():
     """Nested functions/classes not included (top-level only)."""
@@ -104,17 +116,20 @@ def test_extract_nested_not_included():
 
 # -- Import Extraction Tests -----------------------------------------
 
+
 def test_extract_import():
     code = "import os\nimport sys\n"
     imports = extract_python_imports(code)
     assert "os" in imports
     assert "sys" in imports
 
+
 def test_extract_from_import():
     code = "from pathlib import Path\nfrom os.path import join\n"
     imports = extract_python_imports(code)
     assert "pathlib" in imports
     assert "os" in imports
+
 
 def test_extract_imports_deduped():
     code = "import os\nfrom os import path\n"
@@ -124,20 +139,24 @@ def test_extract_imports_deduped():
 
 # -- Context Header Tests --------------------------------------------
 
+
 def test_context_header_basic():
     header = _build_context_header("src/app.py", "python", [], ["os"])
     assert "File: src/app.py" in header
     assert "Language: python" in header
     assert "Imports: os" in header
 
+
 def test_context_header_with_class():
     header = _build_context_header("src/app.py", "python", ["MyClass"], [])
     assert "Symbol: MyClass" in header
+
 
 def test_context_header_with_class_and_method():
     header = _build_context_header("src/app.py", "python", ["MyClass", "my_method"], [])
     assert "Class: MyClass" in header
     assert "Method: my_method" in header
+
 
 def test_context_header_starts_with_comment():
     header = _build_context_header("test.py", "python", [], [])
@@ -146,16 +165,21 @@ def test_context_header_starts_with_comment():
 
 # -- Python AST Chunking Tests ---------------------------------------
 
+
 def test_chunk_python_single_function():
     code = "import os\n\ndef hello():\n    print('hi')\n"
     chunks = chunk_python_ast(code, "test.py")
     assert len(chunks) >= 1
     assert any("hello" in c.content for c in chunks)
 
+
 def test_chunk_python_class_and_function():
-    code = "class Foo:\n    def bar(self):\n        pass\n\ndef standalone():\n    pass\n"
+    code = (
+        "class Foo:\n    def bar(self):\n        pass\n\ndef standalone():\n    pass\n"
+    )
     chunks = chunk_python_ast(code, "test.py")
     assert len(chunks) >= 2
+
 
 def test_chunk_python_context_header():
     """Each chunk has context enrichment header."""
@@ -164,11 +188,13 @@ def test_chunk_python_context_header():
     for chunk in chunks:
         assert chunk.content.startswith("# File: src/test.py")
 
+
 def test_chunk_python_syntax_error_fallback():
     """SyntaxError falls back to semantic chunking."""
     code = "def broken(:\n    pass\n"
     chunks = chunk_python_ast(code, "test.py")
     assert len(chunks) >= 1  # Should not raise
+
 
 def test_chunk_python_indices():
     """Chunk indices and totals set correctly."""
@@ -177,6 +203,7 @@ def test_chunk_python_indices():
     for i, chunk in enumerate(chunks):
         assert chunk.chunk_index == i
         assert chunk.total_chunks == len(chunks)
+
 
 def test_chunk_python_module_level():
     """Module-level code captured separately."""
@@ -188,11 +215,13 @@ def test_chunk_python_module_level():
 
 # -- Semantic Chunking Tests -----------------------------------------
 
+
 def test_semantic_chunk_basic():
     """Non-Python code chunked semantically."""
     code = "\n".join([f"line {i}" for i in range(100)])
     chunks = _chunk_semantic(code, "app.js", "javascript")
     assert len(chunks) >= 1
+
 
 def test_semantic_chunk_has_header():
     """Semantic chunks have context headers."""
@@ -200,6 +229,7 @@ def test_semantic_chunk_has_header():
     chunks = _chunk_semantic(code, "app.js", "javascript")
     for chunk in chunks:
         assert "File: app.js" in chunk.content
+
 
 def test_semantic_chunk_overlap():
     """Multiple chunks have overlapping content."""
@@ -214,12 +244,14 @@ def test_semantic_chunk_overlap():
 
 # -- File Filtering Tests --------------------------------------------
 
+
 def test_should_sync_python():
     sync = CodeBlobSync.__new__(CodeBlobSync)
     sync.config = MagicMock()
     sync.config.github_code_blob_max_size = 102400
     sync._exclude_patterns = ["node_modules", "__pycache__"]
     assert sync._should_sync_file({"path": "src/app.py", "size": 5000}) is True
+
 
 def test_should_skip_binary():
     sync = CodeBlobSync.__new__(CodeBlobSync)
@@ -228,6 +260,7 @@ def test_should_skip_binary():
     sync._exclude_patterns = []
     assert sync._should_sync_file({"path": "icon.png", "size": 1000}) is False
 
+
 def test_should_skip_large_file():
     sync = CodeBlobSync.__new__(CodeBlobSync)
     sync.config = MagicMock()
@@ -235,12 +268,17 @@ def test_should_skip_large_file():
     sync._exclude_patterns = []
     assert sync._should_sync_file({"path": "big.py", "size": 200000}) is False
 
+
 def test_should_skip_excluded_dir():
     sync = CodeBlobSync.__new__(CodeBlobSync)
     sync.config = MagicMock()
     sync.config.github_code_blob_max_size = 102400
     sync._exclude_patterns = ["node_modules", "__pycache__"]
-    assert sync._should_sync_file({"path": "node_modules/pkg/index.js", "size": 100}) is False
+    assert (
+        sync._should_sync_file({"path": "node_modules/pkg/index.js", "size": 100})
+        is False
+    )
+
 
 def test_should_skip_excluded_extension():
     sync = CodeBlobSync.__new__(CodeBlobSync)
@@ -248,6 +286,7 @@ def test_should_skip_excluded_extension():
     sync.config.github_code_blob_max_size = 102400
     sync._exclude_patterns = ["*.min.js"]
     assert sync._should_sync_file({"path": "dist/app.min.js", "size": 100}) is False
+
 
 def test_should_skip_unknown_language():
     sync = CodeBlobSync.__new__(CodeBlobSync)
@@ -258,6 +297,7 @@ def test_should_skip_unknown_language():
 
 
 # -- Sync Integration Tests ------------------------------------------
+
 
 def _make_sync_instance():
     """Helper to create a CodeBlobSync instance without __init__."""
@@ -279,9 +319,13 @@ async def test_sync_code_blobs_empty_tree():
     sync = _make_sync_instance()
     sync.client.get_tree = AsyncMock(return_value=[])
 
-    with patch.object(sync, '_get_stored_blob_map', return_value={}), \
-         patch.object(sync, '_detect_deleted_files', new_callable=AsyncMock, return_value=0), \
-         patch.object(sync, '_push_metrics'):
+    with (
+        patch.object(sync, "_get_stored_blob_map", return_value={}),
+        patch.object(
+            sync, "_detect_deleted_files", new_callable=AsyncMock, return_value=0
+        ),
+        patch.object(sync, "_push_metrics"),
+    ):
         result = await sync.sync_code_blobs("batch-1")
 
     assert result.files_synced == 0
@@ -292,14 +336,22 @@ async def test_sync_code_blobs_empty_tree():
 async def test_sync_code_blobs_unchanged_skips():
     """Unchanged files (matching blob_hash) are skipped."""
     sync = _make_sync_instance()
-    sync.client.get_tree = AsyncMock(return_value=[
-        {"path": "src/app.py", "type": "blob", "sha": "abc123", "size": 500}
-    ])
+    sync.client.get_tree = AsyncMock(
+        return_value=[
+            {"path": "src/app.py", "type": "blob", "sha": "abc123", "size": 500}
+        ]
+    )
 
-    with patch.object(sync, '_get_stored_blob_map', return_value={"src/app.py": "abc123"}), \
-         patch.object(sync, '_update_last_synced') as mock_update, \
-         patch.object(sync, '_detect_deleted_files', new_callable=AsyncMock, return_value=0), \
-         patch.object(sync, '_push_metrics'):
+    with (
+        patch.object(
+            sync, "_get_stored_blob_map", return_value={"src/app.py": "abc123"}
+        ),
+        patch.object(sync, "_update_last_synced") as mock_update,
+        patch.object(
+            sync, "_detect_deleted_files", new_callable=AsyncMock, return_value=0
+        ),
+        patch.object(sync, "_push_metrics"),
+    ):
         result = await sync.sync_code_blobs("batch-1")
 
     assert result.files_synced == 0
@@ -311,16 +363,24 @@ async def test_sync_code_blobs_unchanged_skips():
 async def test_sync_code_blobs_changed_stores():
     """Changed files are re-embedded and stored."""
     sync = _make_sync_instance()
-    sync.client.get_tree = AsyncMock(return_value=[
-        {"path": "src/app.py", "type": "blob", "sha": "new_sha", "size": 500}
-    ])
+    sync.client.get_tree = AsyncMock(
+        return_value=[
+            {"path": "src/app.py", "type": "blob", "sha": "new_sha", "size": 500}
+        ]
+    )
 
     mock_sync_file = AsyncMock(return_value=3)
 
-    with patch.object(sync, '_get_stored_blob_map', return_value={"src/app.py": "old_sha"}), \
-         patch.object(sync, '_sync_file', mock_sync_file), \
-         patch.object(sync, '_detect_deleted_files', new_callable=AsyncMock, return_value=0), \
-         patch.object(sync, '_push_metrics'):
+    with (
+        patch.object(
+            sync, "_get_stored_blob_map", return_value={"src/app.py": "old_sha"}
+        ),
+        patch.object(sync, "_sync_file", mock_sync_file),
+        patch.object(
+            sync, "_detect_deleted_files", new_callable=AsyncMock, return_value=0
+        ),
+        patch.object(sync, "_push_metrics"),
+    ):
         result = await sync.sync_code_blobs("batch-1")
 
     assert result.files_synced == 1
@@ -333,9 +393,13 @@ async def test_sync_detects_deleted_files():
     sync = _make_sync_instance()
     sync.client.get_tree = AsyncMock(return_value=[])  # No files in tree
 
-    with patch.object(sync, '_get_stored_blob_map', return_value={}), \
-         patch.object(sync, '_detect_deleted_files', new_callable=AsyncMock, return_value=2), \
-         patch.object(sync, '_push_metrics'):
+    with (
+        patch.object(sync, "_get_stored_blob_map", return_value={}),
+        patch.object(
+            sync, "_detect_deleted_files", new_callable=AsyncMock, return_value=2
+        ),
+        patch.object(sync, "_push_metrics"),
+    ):
         result = await sync.sync_code_blobs("batch-1")
 
     assert result.files_deleted == 2
@@ -345,10 +409,12 @@ async def test_sync_detects_deleted_files():
 async def test_sync_fail_open_per_file():
     """Individual file failure doesn't stop sync."""
     sync = _make_sync_instance()
-    sync.client.get_tree = AsyncMock(return_value=[
-        {"path": "src/bad.py", "type": "blob", "sha": "sha1", "size": 500},
-        {"path": "src/good.py", "type": "blob", "sha": "sha2", "size": 500},
-    ])
+    sync.client.get_tree = AsyncMock(
+        return_value=[
+            {"path": "src/bad.py", "type": "blob", "sha": "sha1", "size": 500},
+            {"path": "src/good.py", "type": "blob", "sha": "sha2", "size": 500},
+        ]
+    )
 
     call_count = 0
 
@@ -359,10 +425,14 @@ async def test_sync_fail_open_per_file():
             raise RuntimeError("boom")
         return 2
 
-    with patch.object(sync, '_get_stored_blob_map', return_value={}), \
-         patch.object(sync, '_sync_file', side_effect=sync_file_effect), \
-         patch.object(sync, '_detect_deleted_files', new_callable=AsyncMock, return_value=0), \
-         patch.object(sync, '_push_metrics'):
+    with (
+        patch.object(sync, "_get_stored_blob_map", return_value={}),
+        patch.object(sync, "_sync_file", side_effect=sync_file_effect),
+        patch.object(
+            sync, "_detect_deleted_files", new_callable=AsyncMock, return_value=0
+        ),
+        patch.object(sync, "_push_metrics"),
+    ):
         result = await sync.sync_code_blobs("batch-1")
 
     assert result.errors == 1
@@ -383,10 +453,14 @@ async def test_sync_tree_failure_returns_error():
 
 # -- FIX-1: Sub-chunk header on all chunks ----------------------------
 
+
 def test_chunk_python_large_function_sub_chunked():
     """Large functions (>1024 tokens) are sub-chunked with headers on ALL chunks."""
     # Generate a function with 5000+ chars to trigger sub-chunking
-    body_lines = [f"    x_{i} = {i} * 2  # padding line to make content large enough" for i in range(150)]
+    body_lines = [
+        f"    x_{i} = {i} * 2  # padding line to make content large enough"
+        for i in range(150)
+    ]
     code = "import os\n\ndef big_func():\n" + "\n".join(body_lines) + "\n"
 
     chunks = chunk_python_ast(code, "big.py")
@@ -396,12 +470,13 @@ def test_chunk_python_large_function_sub_chunked():
 
     # ALL sub-chunks must start with context header
     for i, chunk in enumerate(func_chunks):
-        assert chunk.content.startswith("# File: big.py"), (
-            f"Sub-chunk {i} missing context header: {chunk.content[:80]}"
-        )
+        assert chunk.content.startswith(
+            "# File: big.py"
+        ), f"Sub-chunk {i} missing context header: {chunk.content[:80]}"
 
 
 # -- FIX-2: Decorator preservation ------------------------------------
+
 
 def test_chunk_python_decorated_function():
     """Decorated functions include decorator lines in chunk content."""
@@ -423,6 +498,7 @@ def test_chunk_python_decorated_class():
 
 # -- FIX-4: Malformed imports -----------------------------------------
 
+
 def test_chunk_python_empty_file():
     """Empty file returns empty chunk list."""
     chunks = chunk_python_ast("", "empty.py")
@@ -439,10 +515,13 @@ def test_extract_import_lines_malformed():
 
 # -- FIX-5/Overlap: Semantic chunk overlap percentage ------------------
 
+
 def test_semantic_chunk_overlap_percentage():
     """Overlap between adjacent semantic chunks is approximately 20%."""
     # Generate enough content for multiple chunks
-    code = "\n".join([f"// line {i}: some JavaScript code here padding" for i in range(500)])
+    code = "\n".join(
+        [f"// line {i}: some JavaScript code here padding" for i in range(500)]
+    )
     chunks = _chunk_semantic(code, "big.js", "javascript")
     assert len(chunks) >= 2, "Need at least 2 chunks to test overlap"
 
@@ -462,6 +541,7 @@ def test_semantic_chunk_overlap_percentage():
 
 # -- FIX-3: Deleted files source/type filter ---------------------------
 
+
 @pytest.mark.asyncio
 async def test_detect_deleted_files_with_source_filter():
     """_detect_deleted_files includes source and type in Qdrant filter."""
@@ -479,7 +559,9 @@ async def test_detect_deleted_files_with_source_filter():
 
     # Verify the scroll call includes source and type filters
     call_args = sync.qdrant.scroll.call_args
-    scroll_filter = call_args.kwargs.get("scroll_filter") or call_args[1].get("scroll_filter")
+    scroll_filter = call_args.kwargs.get("scroll_filter") or call_args[1].get(
+        "scroll_filter"
+    )
     must_conditions = scroll_filter.must
 
     filter_keys = [c.key for c in must_conditions]
@@ -494,6 +576,7 @@ async def test_detect_deleted_files_with_source_filter():
 
 
 # -- FIX-5: Pagination in _update_last_synced --------------------------
+
 
 def test_update_last_synced_pagination():
     """_update_last_synced paginates through >100 chunks."""

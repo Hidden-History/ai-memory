@@ -9,8 +9,7 @@ Tests cover:
 
 from __future__ import annotations
 
-import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -94,7 +93,7 @@ class TestParzivalConfig:
         from memory.config import MemoryConfig, reset_config
 
         reset_config()
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             MemoryConfig(parzival_handoff_retention=0)
         reset_config()
 
@@ -131,12 +130,17 @@ class TestStoreAgentMemory:
 
     def test_valid_types_accepted(self):
         """All 4 agent types are accepted (no ValueError)."""
-        from memory.models import MemoryType
         from memory.storage import MemoryStorage
 
         storage = MagicMock(spec=MemoryStorage)
         storage.store_agent_memory = MemoryStorage.store_agent_memory.__get__(storage)
-        storage.store_memory = MagicMock(return_value={"status": "stored", "memory_id": "test-id", "embedding_status": "complete"})
+        storage.store_memory = MagicMock(
+            return_value={
+                "status": "stored",
+                "memory_id": "test-id",
+                "embedding_status": "complete",
+            }
+        )
 
         for mtype in ["agent_handoff", "agent_memory", "agent_task", "agent_insight"]:
             result = storage.store_agent_memory(
@@ -150,12 +154,17 @@ class TestStoreAgentMemory:
     def test_delegates_to_store_memory(self):
         """store_agent_memory delegates to store_memory."""
         from memory.config import COLLECTION_DISCUSSIONS
-        from memory.models import MemoryType
         from memory.storage import MemoryStorage
 
         storage = MagicMock(spec=MemoryStorage)
         storage.store_agent_memory = MemoryStorage.store_agent_memory.__get__(storage)
-        storage.store_memory = MagicMock(return_value={"status": "stored", "memory_id": "abc", "embedding_status": "complete"})
+        storage.store_memory = MagicMock(
+            return_value={
+                "status": "stored",
+                "memory_id": "abc",
+                "embedding_status": "complete",
+            }
+        )
 
         storage.store_agent_memory(
             content="Test handoff content for delegation check",
@@ -166,7 +175,10 @@ class TestStoreAgentMemory:
 
         storage.store_memory.assert_called_once()
         call_kwargs = storage.store_memory.call_args
-        assert call_kwargs.kwargs.get("collection") or call_kwargs[1].get("collection") == COLLECTION_DISCUSSIONS
+        assert (
+            call_kwargs.kwargs.get("collection") == COLLECTION_DISCUSSIONS
+            or call_kwargs[1].get("collection") == COLLECTION_DISCUSSIONS
+        )
         # Check source_hook is parzival_agent
         assert "parzival_agent" in str(call_kwargs)
 
@@ -176,7 +188,13 @@ class TestStoreAgentMemory:
 
         storage = MagicMock(spec=MemoryStorage)
         storage.store_agent_memory = MemoryStorage.store_agent_memory.__get__(storage)
-        storage.store_memory = MagicMock(return_value={"status": "stored", "memory_id": "abc", "embedding_status": "complete"})
+        storage.store_memory = MagicMock(
+            return_value={
+                "status": "stored",
+                "memory_id": "abc",
+                "embedding_status": "complete",
+            }
+        )
 
         storage.store_agent_memory(
             content="Test content with agent_id field",
@@ -195,7 +213,13 @@ class TestStoreAgentMemory:
 
         storage = MagicMock(spec=MemoryStorage)
         storage.store_agent_memory = MemoryStorage.store_agent_memory.__get__(storage)
-        storage.store_memory = MagicMock(return_value={"status": "stored", "memory_id": "abc", "embedding_status": "complete"})
+        storage.store_memory = MagicMock(
+            return_value={
+                "status": "stored",
+                "memory_id": "abc",
+                "embedding_status": "complete",
+            }
+        )
 
         storage.store_agent_memory(
             content="Test content for session id check",
@@ -212,7 +236,13 @@ class TestStoreAgentMemory:
 
         storage = MagicMock(spec=MemoryStorage)
         storage.store_agent_memory = MemoryStorage.store_agent_memory.__get__(storage)
-        storage.store_memory = MagicMock(return_value={"status": "stored", "memory_id": "abc", "embedding_status": "complete"})
+        storage.store_memory = MagicMock(
+            return_value={
+                "status": "stored",
+                "memory_id": "abc",
+                "embedding_status": "complete",
+            }
+        )
 
         storage.store_agent_memory(
             content="Test content with custom session id",
@@ -230,7 +260,13 @@ class TestStoreAgentMemory:
 
         storage = MagicMock(spec=MemoryStorage)
         storage.store_agent_memory = MemoryStorage.store_agent_memory.__get__(storage)
-        storage.store_memory = MagicMock(return_value={"status": "stored", "memory_id": "abc", "embedding_status": "complete"})
+        storage.store_memory = MagicMock(
+            return_value={
+                "status": "stored",
+                "memory_id": "abc",
+                "embedding_status": "complete",
+            }
+        )
 
         storage.store_agent_memory(
             content="Test with metadata for extra fields",
@@ -249,16 +285,18 @@ class TestSearchAgentIdFilter:
 
     def test_search_accepts_agent_id_parameter(self):
         """MemorySearch.search() accepts agent_id parameter without error."""
-        from memory.search import MemorySearch
-
         # Just verify the method signature accepts agent_id
         import inspect
+
+        from memory.search import MemorySearch
+
         sig = inspect.signature(MemorySearch.search)
         assert "agent_id" in sig.parameters
 
     def test_agent_id_default_is_none(self):
         """agent_id defaults to None (backwards compatible)."""
         import inspect
+
         from memory.search import MemorySearch
 
         sig = inspect.signature(MemorySearch.search)
@@ -296,7 +334,9 @@ class TestValidationHook:
                 "source_hook": hook,
             }
             errors = validate_payload(payload)
-            assert not any("source_hook" in e for e in errors), f"Hook {hook} should be valid"
+            assert not any(
+                "source_hook" in e for e in errors
+            ), f"Hook {hook} should be valid"
 
 
 class TestContentTypeMap:
@@ -307,7 +347,6 @@ class TestContentTypeMap:
         import inspect
 
         from memory import storage
-        from memory.chunking import ContentType
 
         # Verify content_type_map in storage.py actually maps all 4 agent types
         # to the correct ContentType values — fails if any entry is removed
@@ -319,12 +358,12 @@ class TestContentTypeMap:
             ("MemoryType.AGENT_INSIGHT", "ContentType.PROSE"),
         ]
         for mem_type_str, content_type_str in expected_entries:
-            assert mem_type_str in source, (
-                f"{mem_type_str} missing from content_type_map in storage.py"
-            )
+            assert (
+                mem_type_str in source
+            ), f"{mem_type_str} missing from content_type_map in storage.py"
             # Also confirm the paired ContentType value appears adjacent in source
             idx = source.find(mem_type_str)
             nearby = source[idx : idx + 60]
-            assert content_type_str in nearby, (
-                f"{mem_type_str} is not mapped to {content_type_str} in storage.py"
-            )
+            assert (
+                content_type_str in nearby
+            ), f"{mem_type_str} is not mapped to {content_type_str} in storage.py"

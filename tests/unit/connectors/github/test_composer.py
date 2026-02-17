@@ -1,6 +1,5 @@
 """Tests for GitHub content composer functions (SPEC-006 Section 3.3)."""
 
-import pytest
 from memory.connectors.github.composer import (
     compose_ci_result,
     compose_commit,
@@ -10,7 +9,6 @@ from memory.connectors.github.composer import (
     compose_pr_diff,
     compose_pr_review,
 )
-
 
 # -- Issue Composition ------------------------------------------------
 

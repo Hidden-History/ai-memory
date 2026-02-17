@@ -37,7 +37,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # Add src to path for imports
 INSTALL_DIR = os.environ.get(
@@ -80,7 +80,7 @@ def build_search_query(story_id: str, component: str, agent: str) -> str:
     return " ".join(query_parts)
 
 
-def search_memories(query: str, cwd: str = None, limit: int = 5) -> Dict[str, Any]:
+def search_memories(query: str, cwd: str = None, limit: int = 5) -> dict[str, Any]:
     """
     Search for relevant memories in code-patterns and conventions.
 

@@ -105,14 +105,49 @@ LANGUAGE_MAP: dict[str, str] = {
 
 # Binary file extensions to always skip
 BINARY_EXTENSIONS: set[str] = {
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg", ".webp",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar",
-    ".exe", ".dll", ".so", ".dylib", ".bin",
-    ".pyc", ".pyo", ".class", ".o", ".obj",
-    ".woff", ".woff2", ".ttf", ".eot",
-    ".mp3", ".mp4", ".avi", ".mov", ".wav",
-    ".sqlite", ".db", ".lock",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".ico",
+    ".svg",
+    ".webp",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".bz2",
+    ".7z",
+    ".rar",
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",
+    ".bin",
+    ".pyc",
+    ".pyo",
+    ".class",
+    ".o",
+    ".obj",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".mp3",
+    ".mp4",
+    ".avi",
+    ".mov",
+    ".wav",
+    ".sqlite",
+    ".db",
+    ".lock",
 }
 
 
@@ -149,6 +184,7 @@ def is_binary_file(file_path: str) -> bool:
 # 3.3  Python Symbol Extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_python_symbols(content: str) -> list[str]:
     """Extract class and function names from Python source using AST.
 
@@ -169,9 +205,7 @@ def extract_python_symbols(content: str) -> list[str]:
 
     symbols = []
     for node in ast.iter_child_nodes(tree):
-        if isinstance(node, ast.ClassDef):
-            symbols.append(node.name)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             symbols.append(node.name)
 
     return symbols
@@ -196,9 +230,8 @@ def extract_python_imports(content: str) -> list[str]:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 imports.append(alias.name.split(".")[0])
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                imports.append(node.module.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imports.append(node.module.split(".")[0])
 
     return sorted(set(imports))
 
@@ -207,17 +240,18 @@ def extract_python_imports(content: str) -> list[str]:
 # 3.4  AST-Aware Chunking (Python)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CodeChunk:
     """A chunk of code with metadata for embedding."""
 
-    content: str              # The chunk content (with context header)
-    raw_content: str          # Original code without header
-    chunk_index: int          # Position in file
-    total_chunks: int         # Total chunks for this file (set after all chunks created)
-    symbol_name: str | None   # Class/function name if applicable
-    start_line: int           # Starting line number in source
-    end_line: int             # Ending line number in source
+    content: str  # The chunk content (with context header)
+    raw_content: str  # Original code without header
+    chunk_index: int  # Position in file
+    total_chunks: int  # Total chunks for this file (set after all chunks created)
+    symbol_name: str | None  # Class/function name if applicable
+    start_line: int  # Starting line number in source
+    end_line: int  # Ending line number in source
 
 
 def chunk_python_ast(content: str, file_path: str) -> list[CodeChunk]:
@@ -264,15 +298,17 @@ def chunk_python_ast(content: str, file_path: str) -> list[CodeChunk]:
     module_lines = _extract_module_level_lines(lines, node_ranges)
     if module_lines.strip():
         header = _build_context_header(file_path, "python", [], imports)
-        chunks.append(CodeChunk(
-            content=f"{header}\n{module_lines}",
-            raw_content=module_lines,
-            chunk_index=0,
-            total_chunks=0,  # Updated after all chunks created
-            symbol_name=None,
-            start_line=1,
-            end_line=len(lines),
-        ))
+        chunks.append(
+            CodeChunk(
+                content=f"{header}\n{module_lines}",
+                raw_content=module_lines,
+                chunk_index=0,
+                total_chunks=0,  # Updated after all chunks created
+                symbol_name=None,
+                start_line=1,
+                end_line=len(lines),
+            )
+        )
 
     # Class/function chunks
     for start, end, name in node_ranges:
@@ -289,18 +325,22 @@ def chunk_python_ast(content: str, file_path: str) -> list[CodeChunk]:
         estimated_tokens = len(chunk_content) // 4
         if estimated_tokens > 1024:
             # Sub-chunk large functions/classes
-            sub_chunks = _sub_chunk_large_block(chunk_content, file_path, name, imports, start)
+            sub_chunks = _sub_chunk_large_block(
+                chunk_content, file_path, name, imports, start
+            )
             chunks.extend(sub_chunks)
         else:
-            chunks.append(CodeChunk(
-                content=chunk_content,
-                raw_content=chunk_lines,
-                chunk_index=0,
-                total_chunks=0,
-                symbol_name=name,
-                start_line=start + 1,
-                end_line=end,
-            ))
+            chunks.append(
+                CodeChunk(
+                    content=chunk_content,
+                    raw_content=chunk_lines,
+                    chunk_index=0,
+                    total_chunks=0,
+                    symbol_name=name,
+                    start_line=start + 1,
+                    end_line=end,
+                )
+            )
 
     # Set total_chunks and chunk_index
     for i, chunk in enumerate(chunks):
@@ -330,7 +370,6 @@ def _extract_module_level_lines(lines: list[str], node_ranges: list[tuple]) -> s
             module_lines.append(line)
 
     return "\n".join(module_lines).strip()
-
 
 
 def _sub_chunk_large_block(
@@ -378,15 +417,17 @@ def _sub_chunk_large_block(
         symbols = [symbol_name] if symbol_name else []
         header = _build_context_header(file_path, "python", symbols, imports)
 
-        sub_chunks.append(CodeChunk(
-            content=f"{header}\n{chunk_code}",
-            raw_content=chunk_code,
-            chunk_index=0,
-            total_chunks=0,
-            symbol_name=symbol_name,
-            start_line=start_line + pos,
-            end_line=start_line + end,
-        ))
+        sub_chunks.append(
+            CodeChunk(
+                content=f"{header}\n{chunk_code}",
+                raw_content=chunk_code,
+                chunk_index=0,
+                total_chunks=0,
+                symbol_name=symbol_name,
+                start_line=start_line + pos,
+                end_line=start_line + end,
+            )
+        )
 
         # Advance with overlap (ensure forward progress to avoid infinite loop)
         chunk_size = end - pos
@@ -402,6 +443,7 @@ def _sub_chunk_large_block(
 # ---------------------------------------------------------------------------
 # 3.5  Semantic Chunking (Non-Python)
 # ---------------------------------------------------------------------------
+
 
 def _chunk_semantic(content: str, file_path: str, language: str) -> list[CodeChunk]:
     """Chunk non-Python code using semantic (line-based) chunking.
@@ -455,15 +497,17 @@ def _chunk_semantic(content: str, file_path: str, language: str) -> list[CodeChu
             break
 
         header = _build_context_header(file_path, language, [], import_lines)
-        chunks.append(CodeChunk(
-            content=f"{header}\n{chunk_text}",
-            raw_content=chunk_text,
-            chunk_index=0,
-            total_chunks=0,
-            symbol_name=None,
-            start_line=pos + 1,
-            end_line=end,
-        ))
+        chunks.append(
+            CodeChunk(
+                content=f"{header}\n{chunk_text}",
+                raw_content=chunk_text,
+                chunk_index=0,
+                total_chunks=0,
+                symbol_name=None,
+                start_line=pos + 1,
+                end_line=end,
+            )
+        )
 
         # Advance with overlap (ensure forward progress to avoid infinite loop)
         chunk_size = end - pos
@@ -521,6 +565,7 @@ def _extract_import_lines(lines: list[str], language: str) -> list[str]:
 # 3.6  Context Enrichment Header
 # ---------------------------------------------------------------------------
 
+
 def _build_context_header(
     file_path: str,
     language: str,
@@ -566,6 +611,7 @@ def _build_context_header(
 # 3.7  CodeBlobSync Class
 # ---------------------------------------------------------------------------
 
+
 class CodeBlobSync:
     """Syncs repository source files into discussions collection.
 
@@ -601,6 +647,16 @@ class CodeBlobSync:
             if p.strip()
         ]
 
+        # SEC-2: Security scanner to scan file content before chunking/storage
+        if self.config.security_scanning_enabled:
+            from memory.security_scanner import SecurityScanner
+
+            self._scanner = SecurityScanner(
+                enable_ner=self.config.security_scanning_ner_enabled
+            )
+        else:
+            self._scanner = None
+
     async def sync_code_blobs(self, batch_id: str) -> CodeSyncResult:
         """Sync code blobs from repository.
 
@@ -622,7 +678,8 @@ class CodeBlobSync:
 
         logger.info(
             "Starting code blob sync: branch=%s, batch=%s",
-            self.config.github_branch, batch_id,
+            self.config.github_branch,
+            batch_id,
         )
 
         # Step 1: Fetch file tree
@@ -676,8 +733,12 @@ class CodeBlobSync:
         logger.info(
             "Code blob sync complete: %d synced, %d skipped, %d deleted, "
             "%d chunks, %d errors in %.1fs",
-            result.files_synced, result.files_skipped, result.files_deleted,
-            result.chunks_created, result.errors, result.duration_seconds,
+            result.files_synced,
+            result.files_skipped,
+            result.files_deleted,
+            result.chunks_created,
+            result.errors,
+            result.duration_seconds,
         )
         return result
 
@@ -732,13 +793,13 @@ class CodeBlobSync:
 
         # Skip unknown languages (no value in embedding unrecognized files)
         language = detect_language(file_path)
-        if language == "unknown":
-            return False
-
-        return True
+        return language != "unknown"
 
     async def _sync_file(
-        self, entry: dict[str, Any], batch_id: str, old_blob_hash: str | None,
+        self,
+        entry: dict[str, Any],
+        batch_id: str,
+        old_blob_hash: str | None,
     ) -> int:
         """Sync a single file: fetch content, chunk, store.
 
@@ -759,8 +820,19 @@ class CodeBlobSync:
         blob = await self.client.get_blob(blob_sha)
         content = base64.b64decode(blob["content"]).decode("utf-8", errors="replace")
 
-        # Phase 1b: Insert security scanning here (AD-4)
-        # security_scanner.scan(content) -- if scan blocks (secrets detected), return 0
+        # SEC-2: Security scan before chunking — avoids wasting work on blocked files
+        if self._scanner is not None:
+            from memory.security_scanner import ScanAction
+
+            scan_result = self._scanner.scan(content)
+            if scan_result.action == ScanAction.BLOCKED:
+                logger.warning(
+                    "Security scan blocked file %s: %d secret finding(s)",
+                    file_path,
+                    len(scan_result.findings),
+                )
+                return 0
+            content = scan_result.content  # Use masked version
 
         # Detect language and extract symbols
         language = detect_language(file_path)
@@ -795,7 +867,7 @@ class CodeBlobSync:
                 "content_hash": content_hash,
                 "last_synced": now_iso,
                 "url": f"https://github.com/{self.config.github_repo}/blob/"
-                       f"{self.config.github_branch}/{file_path}",
+                f"{self.config.github_branch}/{file_path}",
                 "version": 1,
                 "is_current": True,
                 "supersedes": None,
@@ -827,7 +899,10 @@ class CodeBlobSync:
             except Exception as e:
                 logger.error(
                     "Failed to store chunk %d/%d of %s: %s",
-                    chunk.chunk_index, chunk.total_chunks, file_path, e,
+                    chunk.chunk_index,
+                    chunk.total_chunks,
+                    file_path,
+                    e,
                 )
 
         return stored_count
@@ -1001,12 +1076,16 @@ class CodeBlobSync:
                     payload={"is_current": False},
                     points=all_point_ids,
                 )
-                logger.debug("Superseded %d chunks for %s", len(all_point_ids), file_path)
+                logger.debug(
+                    "Superseded %d chunks for %s", len(all_point_ids), file_path
+                )
         except Exception as e:
             logger.warning("Failed to supersede blobs for %s: %s", file_path, e)
 
     async def _detect_deleted_files(
-        self, current_paths: set[str], stored_map: dict[str, str] | None = None,
+        self,
+        current_paths: set[str],
+        stored_map: dict[str, str] | None = None,
     ) -> int:
         """Detect files that were deleted from repository.
 
@@ -1076,7 +1155,11 @@ class CodeBlobSync:
                         points=all_point_ids,
                     )
                     deleted_count += 1
-                    logger.info("Marked deleted file: %s (%d chunks)", file_path, len(all_point_ids))
+                    logger.info(
+                        "Marked deleted file: %s (%d chunks)",
+                        file_path,
+                        len(all_point_ids),
+                    )
 
             return deleted_count
         except Exception as e:

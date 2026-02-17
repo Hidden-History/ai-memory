@@ -54,6 +54,8 @@ dependencies = [
     "tiktoken>=0.5.0,<1.0.0",
     # Numpy for vector operations (topic drift computation)
     "numpy>=1.26.0,<2.0.0",
+    # Security scanning - Layer 2 secret detection (SPEC-009)
+    "detect-secrets>=1.4.0",
 ]
 
 [project.optional-dependencies]

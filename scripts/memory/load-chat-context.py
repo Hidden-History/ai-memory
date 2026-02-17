@@ -38,7 +38,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Add src to path for imports
 INSTALL_DIR = os.environ.get(
@@ -56,7 +56,6 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
     from memory.config import get_config
     from memory.qdrant_client import get_qdrant_client
-    from memory.models import MemoryType
 
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
@@ -75,8 +74,8 @@ VALID_AGENTS = [
 
 
 def load_chat_context(
-    agent: str, session_id: Optional[str] = None, limit: int = 5
-) -> Dict[str, Any]:
+    agent: str, session_id: str | None = None, limit: int = 5
+) -> dict[str, Any]:
     """
     Load recent chat memories for session continuity.
 

@@ -15,8 +15,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from memory.config import (
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
@@ -25,7 +23,6 @@ from memory.config import (
 )
 from memory.injection import (
     InjectionSessionState,
-    RouteTarget,
     compute_adaptive_budget,
     compute_topic_drift,
     format_injection_output,
@@ -147,7 +144,11 @@ class TestComputeAdaptiveBudget:
             best_score, results, session_state, self.config
         )
         # Mixed signals → mid-range budget
-        assert self.config.injection_budget_floor < budget < self.config.injection_budget_ceiling
+        assert (
+            self.config.injection_budget_floor
+            < budget
+            < self.config.injection_budget_ceiling
+        )
 
     def test_neutral_drift_default(self):
         """Neutral drift (0.5) should be used when no previous embedding."""
@@ -226,7 +227,7 @@ class TestSelectResultsGreedy:
         ]
         budget = 50
 
-        selected, tokens_used = select_results_greedy(results, budget)
+        selected, _tokens_used = select_results_greedy(results, budget)
         # Should skip result 1 and select 2 and 3
         assert "1" not in [s["id"] for s in selected]
         assert len(selected) >= 2
@@ -241,7 +242,7 @@ class TestSelectResultsGreedy:
         excluded = ["2"]
         budget = 1000
 
-        selected, tokens_used = select_results_greedy(results, budget, excluded)
+        selected, _tokens_used = select_results_greedy(results, budget, excluded)
         assert "2" not in [s["id"] for s in selected]
         assert len(selected) == 2
 
@@ -262,7 +263,7 @@ class TestSelectResultsGreedy:
         ]
         budget = 1000
 
-        selected, tokens_used = select_results_greedy(results, budget)
+        selected, _tokens_used = select_results_greedy(results, budget)
         assert len(selected) == 1
         assert selected[0]["id"] == "2"
 

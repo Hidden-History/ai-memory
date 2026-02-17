@@ -29,7 +29,7 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
-from src.memory.models import EmbeddingStatus, MemoryType
+from memory.models import EmbeddingStatus, MemoryType
 
 # Add tests directory to sys.path so test_session_start.py can import
 # session_start_test_helpers from tests directory
@@ -81,41 +81,9 @@ def _is_port_open(port: int, host: str = "localhost") -> bool:
         return False
 
 
-@pytest.fixture(autouse=True)
-def skip_without_services(request):
-    """Auto-skip tests when required services are unavailable.
-
-    TECH-DEBT-019: Skip tests that require Docker services when services are down.
-
-    Checks pytest markers:
-    - requires_qdrant: Skips if Qdrant (port 26350) is unavailable
-    - requires_embedding: Skips if Embedding service (port 28080) is unavailable
-    - requires_docker_stack: Skips if either service is unavailable
-    - requires_api: Skips if Monitoring API (port 28000) is unavailable
-    - requires_streamlit: Skips if Streamlit dashboard (port 28501) is unavailable
-
-    Example:
-        @pytest.mark.requires_qdrant
-        def test_storage():
-            # Will skip if Qdrant not available on port 26350
-            pass
-    """
-    if request.node.get_closest_marker("requires_qdrant") and not _is_port_open(26350):
-        pytest.skip("Qdrant not available on port 26350")
-    if request.node.get_closest_marker("requires_embedding") and not _is_port_open(
-        28080
-    ):
-        pytest.skip("Embedding service not available on port 28080")
-    if request.node.get_closest_marker("requires_docker_stack") and not (
-        _is_port_open(26350) and _is_port_open(28080)
-    ):
-        pytest.skip("Docker stack not fully available")
-    if request.node.get_closest_marker("requires_api") and not _is_port_open(28000):
-        pytest.skip("Monitoring API not available on port 28000")
-    if request.node.get_closest_marker("requires_streamlit") and not _is_port_open(
-        28501
-    ):
-        pytest.skip("Streamlit dashboard not available on port 28501")
+## REMOVED: skip_without_services fixture (W3E-006)
+# Duplicate of skip_if_service_unavailable (line ~656) but with hardcoded ports.
+# Consolidated into skip_if_service_unavailable which reads ports from env vars.
 
 
 # =============================================================================
@@ -679,13 +647,24 @@ def skip_if_service_unavailable(request):
     requires_embedding = request.node.get_closest_marker("requires_embedding")
     requires_docker_stack = request.node.get_closest_marker("requires_docker_stack")
 
+    requires_api = request.node.get_closest_marker("requires_api")
+    requires_streamlit = request.node.get_closest_marker("requires_streamlit")
+
     # Check if any service marker is present
-    if not (requires_qdrant or requires_embedding or requires_docker_stack):
+    if not (
+        requires_qdrant
+        or requires_embedding
+        or requires_docker_stack
+        or requires_api
+        or requires_streamlit
+    ):
         return  # No service requirements, continue test
 
     # Get configured ports from environment
     qdrant_port = int(os.environ.get("QDRANT_PORT", "26350"))
     embedding_port = int(os.environ.get("EMBEDDING_SERVICE_PORT", "28080"))
+    api_port = int(os.environ.get("MONITORING_API_PORT", "28000"))
+    streamlit_port = int(os.environ.get("STREAMLIT_PORT", "28501"))
 
     # Check service availability based on markers
     if (requires_qdrant or requires_docker_stack) and not _check_service_available(
@@ -697,6 +676,12 @@ def skip_if_service_unavailable(request):
         "localhost", embedding_port
     ):
         pytest.skip(f"Embedding service not available on port {embedding_port}")
+
+    if requires_api and not _check_service_available("localhost", api_port):
+        pytest.skip(f"Monitoring API not available on port {api_port}")
+
+    if requires_streamlit and not _check_service_available("localhost", streamlit_port):
+        pytest.skip(f"Streamlit dashboard not available on port {streamlit_port}")
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("ai_memory.security_scanner")
 
@@ -64,7 +63,7 @@ class ScanFinding:
     finding_type: FindingType
     layer: int  # 1=regex, 2=detect-secrets, 3=SpaCy
     original_text: str  # For logging only — NOT stored in Qdrant
-    replacement: Optional[str]  # Masked replacement (None if BLOCK)
+    replacement: str | None  # Masked replacement (None if BLOCK)
     confidence: float  # 0.0-1.0
     start: int  # Character offset
     end: int  # Character offset
@@ -88,43 +87,43 @@ class ScanResult:
 # PII patterns (MASK action)
 PII_PATTERNS = {
     FindingType.PII_EMAIL: (
-        r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
         "[EMAIL_REDACTED]",
         0.95,
     ),
     FindingType.PII_PHONE: (
-        r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',
+        r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}",
         "[PHONE_REDACTED]",
         0.85,
     ),
     FindingType.PII_IP: (
         # IPv4, excluding private ranges
-        r'\b(?!127\.0\.0\.1|0\.0\.0\.0|10\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|192\.168\.)(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b',
+        r"\b(?!127\.0\.0\.1|0\.0\.0\.0|10\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|192\.168\.)(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b",
         "[IP_REDACTED]",
         0.80,
     ),
     FindingType.PII_CC: (
         # 13-19 digit sequences (Luhn validation done separately)
-        r'\b(?:\d{4}[-\s]?){3}\d{1,7}\b',
+        r"\b(?:\d{4}[-\s]?){3}\d{1,7}\b",
         "[CC_REDACTED]",
         0.90,
     ),
     FindingType.PII_SSN: (
-        r'\b\d{3}-\d{2}-\d{4}\b',
+        r"\b\d{3}-\d{2}-\d{4}\b",
         "[SSN_REDACTED]",
         0.95,
     ),
     FindingType.PII_HANDLE: (
         # GitHub handles: @username (min 2 chars after @, exclude Python decorators)
-        r'(?<!\w)@(?!pytest\b|dataclass\b|property\b|staticmethod\b|classmethod\b'
-        r'|abstractmethod\b|override\b|overload\b|cached_property\b'
-        r'|wraps\b|lru_cache\b|patch\b|mock\b|fixture\b|mark\b'
-        r')[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){1,38}\b',
+        r"(?<!\w)@(?!pytest\b|dataclass\b|property\b|staticmethod\b|classmethod\b"
+        r"|abstractmethod\b|override\b|overload\b|cached_property\b"
+        r"|wraps\b|lru_cache\b|patch\b|mock\b|fixture\b|mark\b"
+        r")[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){1,38}\b",
         "[HANDLE_REDACTED]",
         0.70,
     ),
     FindingType.PII_INTERNAL_URL: (
-        r'https?://(?:internal|intranet|wiki|jira|confluence)\.[a-zA-Z0-9.-]+\S*',
+        r"https?://(?:internal|intranet|wiki|jira|confluence)\.[a-zA-Z0-9.-]+\S*",
         "[INTERNAL_URL_REDACTED]",
         0.75,
     ),
@@ -133,22 +132,22 @@ PII_PATTERNS = {
 # Secret patterns (BLOCK action)
 SECRET_PATTERNS = {
     "github_tokens": (
-        r'ghp_[A-Za-z0-9_]{36}|github_pat_[A-Za-z0-9_]{82}',
+        r"ghp_[A-Za-z0-9_]{36}|github_pat_[A-Za-z0-9_]{82}",
         FindingType.SECRET_TOKEN,
         0.95,
     ),
     "aws_keys": (
-        r'AKIA[0-9A-Z]{16}',
+        r"AKIA[0-9A-Z]{16}",
         FindingType.SECRET_API_KEY,
         0.93,
     ),
     "stripe_keys": (
-        r'sk_live_[A-Za-z0-9]{24,}',
+        r"sk_live_[A-Za-z0-9]{24,}",
         FindingType.SECRET_API_KEY,
         0.93,
     ),
     "slack_tokens": (
-        r'xox[bpors]-[A-Za-z0-9-]{10,}',
+        r"xox[bpors]-[A-Za-z0-9-]{10,}",
         FindingType.SECRET_TOKEN,
         0.90,
     ),
@@ -168,6 +167,17 @@ def _luhn_check(card_number: str) -> bool:
     return checksum % 10 == 0
 
 
+def _mask_for_audit_log(text: str) -> str:
+    """Partially mask sensitive text for audit log (SEC-3).
+
+    Shows first 4 + '...' + last 4 chars for strings >10 chars to prevent
+    raw secret values from appearing in Layer 1 ScanFinding.original_text.
+    """
+    if len(text) > 10:
+        return text[:4] + "..." + text[-4:]
+    return "<redacted>"
+
+
 def _scan_layer1_regex(content: str) -> tuple[list[ScanFinding], bool]:
     """Layer 1: Regex pattern matching.
 
@@ -178,13 +188,13 @@ def _scan_layer1_regex(content: str) -> tuple[list[ScanFinding], bool]:
     has_secrets = False
 
     # Scan for secrets first
-    for name, (pattern, finding_type, confidence) in SECRET_PATTERNS.items():
+    for _name, (pattern, finding_type, confidence) in SECRET_PATTERNS.items():
         for match in re.finditer(pattern, content):
             findings.append(
                 ScanFinding(
                     finding_type=finding_type,
                     layer=1,
-                    original_text=match.group(0),
+                    original_text=_mask_for_audit_log(match.group(0)),  # SEC-3: masked
                     replacement=None,  # Secrets are blocked, not masked
                     confidence=confidence,
                     start=match.start(),
@@ -197,9 +207,8 @@ def _scan_layer1_regex(content: str) -> tuple[list[ScanFinding], bool]:
     for finding_type, (pattern, replacement, confidence) in PII_PATTERNS.items():
         for match in re.finditer(pattern, content):
             # Special validation for credit cards
-            if finding_type == FindingType.PII_CC:
-                if not _luhn_check(match.group(0)):
-                    continue
+            if finding_type == FindingType.PII_CC and not _luhn_check(match.group(0)):
+                continue
 
             findings.append(
                 ScanFinding(
@@ -259,7 +268,7 @@ def _scan_layer2_detect_secrets(content: str) -> tuple[list[ScanFinding], bool]:
 
     try:
         with _detect_secrets_default_settings():
-            for line_number, line in enumerate(content.splitlines(), start=1):
+            for _line_number, line in enumerate(content.splitlines(), start=1):
                 for secret in _detect_secrets_scan_line(line):
                     # Map detect-secrets type to our FindingType
                     if "key" in secret.type.lower() or "api" in secret.type.lower():
@@ -363,39 +372,36 @@ def _scan_layer3_spacy(content: str) -> list[ScanFinding]:
     try:
         segments = _segment_text(content)
 
-        # Process with memory_zone() context manager (SpaCy >=3.8.0)
+        # Collect all docs first so we can zip with segments for offset tracking
         if hasattr(nlp, "memory_zone"):
             with nlp.memory_zone():
-                for doc in nlp.pipe(segments, batch_size=50):
-                    for ent in doc.ents:
-                        if ent.label_ == "PERSON":
-                            findings.append(
-                                ScanFinding(
-                                    finding_type=FindingType.PII_NAME,
-                                    layer=3,
-                                    original_text=ent.text,
-                                    replacement="[NAME_REDACTED]",
-                                    confidence=0.80,
-                                    start=ent.start_char,
-                                    end=ent.end_char,
-                                )
-                            )
+                docs = list(nlp.pipe(segments, batch_size=50))
         else:
             # Fallback for older SpaCy versions
-            for doc in nlp.pipe(segments, batch_size=50):
-                for ent in doc.ents:
-                    if ent.label_ == "PERSON":
-                        findings.append(
-                            ScanFinding(
-                                finding_type=FindingType.PII_NAME,
-                                layer=3,
-                                original_text=ent.text,
-                                replacement="[NAME_REDACTED]",
-                                confidence=0.80,
-                                start=ent.start_char,
-                                end=ent.end_char,
-                            )
+            docs = list(nlp.pipe(segments, batch_size=50))
+
+        # SEC-1: Apply per-segment cumulative offset to entity positions.
+        # ent.start_char/end_char are relative to the segment doc, not the
+        # full content string. Track where each segment starts in the original.
+        seg_offset = 0
+        for seg, doc in zip(segments, docs, strict=False):
+            # Find exact start of this segment in the original content
+            found = content.find(seg, seg_offset)
+            current_seg_start = found if found >= 0 else seg_offset
+            for ent in doc.ents:
+                if ent.label_ == "PERSON":
+                    findings.append(
+                        ScanFinding(
+                            finding_type=FindingType.PII_NAME,
+                            layer=3,
+                            original_text=ent.text,
+                            replacement="[NAME_REDACTED]",
+                            confidence=0.80,
+                            start=current_seg_start + ent.start_char,
+                            end=current_seg_start + ent.end_char,
                         )
+                    )
+            seg_offset = current_seg_start + len(seg)
     except Exception as e:
         logger.error(f"SpaCy NER scan failed: {e}")
 
@@ -407,7 +413,9 @@ def _scan_layer3_spacy(content: str) -> list[ScanFinding]:
 # =============================================================================
 
 
-def _log_scan_result(result: "ScanResult", content: str, audit_dir: str | None = None) -> None:
+def _log_scan_result(
+    result: "ScanResult", content: str, audit_dir: str | None = None
+) -> None:
     """Append scan result to .audit/logs/sanitization-log.jsonl.
 
     Per SPEC-009 Section 6: All scan results must be logged to audit trail.
@@ -565,7 +573,7 @@ class SecurityScanner:
         pre_results = []
         ner_candidates = []  # texts that need L3
 
-        for i, text in enumerate(texts):
+        for _i, text in enumerate(texts):
             start_time = time.perf_counter()
             all_findings = []
             layers_executed = []
@@ -621,12 +629,20 @@ class SecurityScanner:
                     segments_per_text.append(_segment_text(text))
 
                 # Flatten for nlp.pipe(), track which text each segment belongs to
+                # SEC-1: also track each segment's start offset within its owner text
                 flat_segments = []
                 segment_owners = []
+                segment_offsets_in_text = []
                 for idx, segs in enumerate(segments_per_text):
+                    text = ner_candidates[idx]
+                    seg_offset = 0
                     for seg in segs:
                         flat_segments.append(seg)
                         segment_owners.append(idx)
+                        found = text.find(seg, seg_offset)
+                        seg_start = found if found >= 0 else seg_offset
+                        segment_offsets_in_text.append(seg_start)
+                        seg_offset = seg_start + len(seg)
 
                 if hasattr(nlp, "memory_zone"):
                     with nlp.memory_zone():
@@ -635,8 +651,11 @@ class SecurityScanner:
                     docs = list(nlp.pipe(flat_segments, batch_size=50))
 
                 # Collect findings per text
+                # SEC-1: add per-segment offset so entity positions are relative
+                # to the full owner text, not just the segment doc.
                 for doc_idx, doc in enumerate(docs):
                     owner_idx = segment_owners[doc_idx]
+                    seg_offset = segment_offsets_in_text[doc_idx]
                     if owner_idx not in ner_results_map:
                         ner_results_map[owner_idx] = []
                     for ent in doc.ents:
@@ -648,8 +667,8 @@ class SecurityScanner:
                                     original_text=ent.text,
                                     replacement="[NAME_REDACTED]",
                                     confidence=0.80,
-                                    start=ent.start_char,
-                                    end=ent.end_char,
+                                    start=seg_offset + ent.start_char,
+                                    end=seg_offset + ent.end_char,
                                 )
                             )
             except Exception as e:

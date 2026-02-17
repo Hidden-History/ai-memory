@@ -42,9 +42,9 @@ from .qdrant_client import get_qdrant_client
 logger = logging.getLogger("ai_memory.freshness")
 
 __all__ = [
-    "FreshnessTier",
     "FreshnessReport",
     "FreshnessResult",
+    "FreshnessTier",
     "GroundTruth",
     "build_ground_truth_map",
     "classify_freshness",
@@ -137,12 +137,8 @@ def build_ground_truth_map(
     scroll_filter = Filter(
         must=[
             FieldCondition(key="source", match=MatchValue(value="github")),
-            FieldCondition(
-                key="type", match=MatchValue(value="github_code_blob")
-            ),
-            FieldCondition(
-                key="is_current", match=MatchValue(value=True)
-            ),
+            FieldCondition(key="type", match=MatchValue(value="github_code_blob")),
+            FieldCondition(key="is_current", match=MatchValue(value=True)),
         ]
     )
 
@@ -155,7 +151,10 @@ def build_ground_truth_map(
             limit=100,
             offset=offset,
             with_payload=[
-                "file_path", "blob_hash", "last_commit_sha", "last_synced",
+                "file_path",
+                "blob_hash",
+                "last_commit_sha",
+                "last_synced",
             ],
         )
 
@@ -219,12 +218,8 @@ def count_commits_for_file(
     scroll_filter = Filter(
         must=[
             FieldCondition(key="source", match=MatchValue(value="github")),
-            FieldCondition(
-                key="type", match=MatchValue(value="github_commit")
-            ),
-            FieldCondition(
-                key="is_current", match=MatchValue(value=True)
-            ),
+            FieldCondition(key="type", match=MatchValue(value="github_commit")),
+            FieldCondition(key="is_current", match=MatchValue(value=True)),
         ]
     )
 
@@ -246,9 +241,7 @@ def count_commits_for_file(
                 continue
 
             try:
-                commit_dt = datetime.fromisoformat(
-                    timestamp_str.replace("Z", "+00:00")
-                )
+                commit_dt = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
             except ValueError:
                 continue
 
@@ -298,7 +291,8 @@ def classify_freshness(
         )
 
     hash_note = (
-        "content matches, " if blob_hash_match is True
+        "content matches, "
+        if blob_hash_match is True
         else "hash comparison unavailable, "
     )
 
@@ -321,8 +315,7 @@ def classify_freshness(
         )
 
     return FreshnessTier.FRESH, (
-        f"Low activity ({commit_count} commits), "
-        f"{hash_note.rstrip(', ')}"
+        f"Low activity ({commit_count} commits), " f"{hash_note.rstrip(', ')}"
     )
 
 
@@ -414,13 +407,9 @@ def run_freshness_scan(
     scroll_conditions = []
     if group_id is not None:
         scroll_conditions.append(
-            FieldCondition(
-                key="group_id", match=MatchValue(value=group_id)
-            )
+            FieldCondition(key="group_id", match=MatchValue(value=group_id))
         )
-    scroll_filter = (
-        Filter(must=scroll_conditions) if scroll_conditions else None
-    )
+    scroll_filter = Filter(must=scroll_conditions) if scroll_conditions else None
 
     offset = None
 
@@ -473,17 +462,13 @@ def run_freshness_scan(
                 commit_count = commit_count_cache[cache_key]
             else:
                 if stored_at:
-                    commit_count = count_commits_for_file(
-                        client, file_path, stored_at
-                    )
+                    commit_count = count_commits_for_file(client, file_path, stored_at)
                 else:
                     commit_count = 0
                 commit_count_cache[cache_key] = commit_count
 
             # Classify
-            status, reason = classify_freshness(
-                blob_hash_match, commit_count, config
-            )
+            status, reason = classify_freshness(blob_hash_match, commit_count, config)
 
             result = FreshnessResult(
                 point_id=str(point.id),
@@ -574,23 +559,26 @@ def _update_freshness_payloads(
         client: QdrantClient instance.
         results: List of FreshnessResult to update.
     """
+    from collections import defaultdict
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    groups: dict = defaultdict(list)
     for result in results:
+        groups[result.status].append(result)
+    for status, group in groups.items():
+        point_ids = [r.point_id for r in group]
         try:
             client.set_payload(
                 collection_name=COLLECTION_CODE_PATTERNS,
-                payload={
-                    "freshness_status": result.status,
-                    "freshness_checked_at": datetime.now(
-                        timezone.utc
-                    ).isoformat(),
-                },
-                points=[result.point_id],
+                payload={"freshness_status": status, "freshness_checked_at": now_iso},
+                points=point_ids,
             )
         except Exception as e:
             logger.warning(
                 "freshness_payload_update_failed",
                 extra={
-                    "point_id": result.point_id,
+                    "point_ids": point_ids,
+                    "status": status,
                     "error": str(e),
                 },
             )

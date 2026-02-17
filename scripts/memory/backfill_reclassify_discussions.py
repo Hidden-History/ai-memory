@@ -120,7 +120,7 @@ def backfill_reclassify(
         print(
             f"ERROR: Cannot connect to Qdrant at {config.qdrant_host}:{config.qdrant_port}"
         )
-        print(f"Details: {str(e)}")
+        print(f"Details: {e!s}")
         sys.exit(1)
 
     # MEDIUM-5: Replace print() with structured logging
@@ -185,7 +185,7 @@ def backfill_reclassify(
                     "scroll_failed",
                     extra={"type": memory_type, "offset": offset, "error": str(e)},
                 )
-                print(f"ERROR: Qdrant scroll failed: {str(e)}")
+                print(f"ERROR: Qdrant scroll failed: {e!s}")
                 break
 
             if not points:
@@ -328,7 +328,7 @@ def backfill_reclassify(
     )
 
     print(f"\n{'='*60}")
-    print(f"BACKFILL COMPLETE")
+    print("BACKFILL COMPLETE")
     print(f"{'='*60}")
     print(f"Total processed: {overall_stats['processed']}")
     print(f"Total reclassified: {overall_stats['reclassified']}")

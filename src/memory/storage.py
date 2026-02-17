@@ -101,7 +101,9 @@ class MemoryStorage:
         else:
             self._scanner = None
 
-    def _get_embedding_model(self, collection: str, content_type: str | None = None) -> str:
+    def _get_embedding_model(
+        self, collection: str, content_type: str | None = None
+    ) -> str:
         """Determine embedding model based on collection and content type.
 
         SPEC-010 Section 4.2: Routing Rules
@@ -260,9 +262,6 @@ class MemoryStorage:
         # whole storage (under threshold) or topical chunking (over threshold).
         # For other types, content passes through unchanged (chunked by hooks).
 
-        # Track original content size for chunking_metadata (V2.1 compliance)
-        original_content_length = len(content)
-
         additional_chunks = []
         chunk_results = None
         if chunker_content_type is not None:
@@ -365,14 +364,20 @@ class MemoryStorage:
 
         # Generate embedding with graceful degradation (AC 1.5.4)
         # SPEC-010: Route to appropriate model based on collection and content type
-        embedding_model = self._get_embedding_model(collection, extra_fields.get("content_type"))
+        embedding_model = self._get_embedding_model(
+            collection, extra_fields.get("content_type")
+        )
         try:
             embeddings = self.embedding_client.embed([content], model=embedding_model)
             embedding = embeddings[0]
             payload.embedding_status = EmbeddingStatus.COMPLETE
             logger.debug(
                 "embedding_generated",
-                extra={"content_hash": content_hash, "dimensions": len(embedding), "model": embedding_model},
+                extra={
+                    "content_hash": content_hash,
+                    "dimensions": len(embedding),
+                    "model": embedding_model,
+                },
             )
 
         except EmbeddingError as e:
@@ -398,7 +403,7 @@ class MemoryStorage:
             payload.embedding_status = EmbeddingStatus.PENDING
 
         # Build chunking_metadata (Chunking Strategy V2.1 compliance)
-        original_size_tokens = original_content_length // 4
+        original_size_tokens = len(content.split())
 
         if additional_chunks and chunk_results:
             # First chunk of multi-chunk content
@@ -483,9 +488,9 @@ class MemoryStorage:
                     )
 
                     try:
-                        chunk_embedding = self.embedding_client.embed([chunk.content], model=embedding_model)[
-                            0
-                        ]
+                        chunk_embedding = self.embedding_client.embed(
+                            [chunk.content], model=embedding_model
+                        )[0]
                     except EmbeddingError:
                         chunk_embedding = [0.0] * 768
 
@@ -681,12 +686,14 @@ class MemoryStorage:
                         },
                     )
                     # Add blocked result to results list
-                    results.append({
-                        "memory_id": None,
-                        "status": "blocked",
-                        "reason": "secrets_detected",
-                        "embedding_status": "n/a",
-                    })
+                    results.append(
+                        {
+                            "memory_id": None,
+                            "status": "blocked",
+                            "reason": "secrets_detected",
+                            "embedding_status": "n/a",
+                        }
+                    )
                     continue
 
                 elif scan_result.action == ScanAction.MASKED:
@@ -734,25 +741,37 @@ class MemoryStorage:
 
         # Group by model for efficient batch embedding
         from collections import defaultdict
+
         model_groups = defaultdict(list)  # model -> [(original_index, content)]
-        for idx, (memory, model) in enumerate(zip(memories, memory_models)):
+        for idx, (memory, model) in enumerate(
+            zip(memories, memory_models, strict=True)
+        ):
             model_groups[model].append((idx, memory["content"]))
 
         embeddings = [None] * len(memories)
         embedding_status = EmbeddingStatus.COMPLETE
         try:
             for model, items in model_groups.items():
-                indices, contents = zip(*items)
-                group_embeddings = self.embedding_client.embed(list(contents), model=model)
-                for orig_idx, emb in zip(indices, group_embeddings):
+                indices, contents = zip(*items, strict=True)
+                group_embeddings = self.embedding_client.embed(
+                    list(contents), model=model
+                )
+                for orig_idx, emb in zip(indices, group_embeddings, strict=True):
                     embeddings[orig_idx] = emb
-            logger.debug("batch_embeddings_generated", extra={"count": len(memories), "models": list(model_groups.keys())})
+            logger.debug(
+                "batch_embeddings_generated",
+                extra={"count": len(memories), "models": list(model_groups.keys())},
+            )
 
         except EmbeddingError as e:
             # Graceful degradation: Use zero vectors for all
             logger.warning(
                 "batch_embedding_failed",
-                extra={"error": str(e), "count": len(memories), "models": list(model_groups.keys())},
+                extra={
+                    "error": str(e),
+                    "count": len(memories),
+                    "models": list(model_groups.keys()),
+                },
             )
 
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
@@ -774,7 +793,9 @@ class MemoryStorage:
         pending_chunks = []
 
         # Build points for batch upsert
-        for memory, embedding, mem_model in zip(memories, embeddings, memory_models, strict=True):
+        for memory, embedding, mem_model in zip(
+            memories, embeddings, memory_models, strict=True
+        ):
             memory_id = str(uuid.uuid4())
 
             # TECH-DEBT-012 Round 3: Handle created_at timestamp
@@ -809,7 +830,7 @@ class MemoryStorage:
             # For other types, content passes through unchanged (chunked by hooks).
 
             # Calculate original size for chunking_metadata
-            original_size_tokens = len(content) // 4  # CHARS_PER_TOKEN = 4
+            original_size_tokens = len(content.split())
 
             if chunker_content_type is not None:
                 chunker = IntelligentChunker(max_chunk_tokens=512, overlap_pct=0.15)
@@ -878,7 +899,9 @@ class MemoryStorage:
                         chunk_payload_dict["chunking_metadata"] = chunking_metadata
 
                         # Collect for batch embedding (avoid N+1 API calls)
-                        pending_chunks.append((chunk_memory_id, chunk_payload_dict, mem_model))
+                        pending_chunks.append(
+                            (chunk_memory_id, chunk_payload_dict, mem_model)
+                        )
                         results.append(
                             {
                                 "memory_id": chunk_memory_id,
@@ -918,7 +941,9 @@ class MemoryStorage:
                         "truncated": False,
                     }
 
-                    pending_chunks.append((chunk_memory_id, chunk_payload_dict, mem_model))
+                    pending_chunks.append(
+                        (chunk_memory_id, chunk_payload_dict, mem_model)
+                    )
                     results.append(
                         {
                             "memory_id": chunk_memory_id,
@@ -969,19 +994,27 @@ class MemoryStorage:
         # SPEC-010: Each chunk uses its parent memory's embedding model
         if pending_chunks:
             # Group chunks by model for efficient batch embedding
-            chunk_model_groups = defaultdict(list)  # model -> [(index, chunk_id, payload)]
-            for idx, (chunk_id, chunk_payload_dict, chunk_model) in enumerate(pending_chunks):
-                chunk_model_groups[chunk_model].append((idx, chunk_id, chunk_payload_dict))
+            chunk_model_groups = defaultdict(
+                list
+            )  # model -> [(index, chunk_id, payload)]
+            for idx, (chunk_id, chunk_payload_dict, chunk_model) in enumerate(
+                pending_chunks
+            ):
+                chunk_model_groups[chunk_model].append(
+                    (idx, chunk_id, chunk_payload_dict)
+                )
 
             chunk_embeddings = [None] * len(pending_chunks)
             for c_model, c_items in chunk_model_groups.items():
-                c_indices, c_ids, c_payloads = zip(*c_items)
+                c_indices, _c_ids, c_payloads = zip(*c_items, strict=True)
                 c_contents = [p["content"] for p in c_payloads]
                 try:
-                    c_embs = self.embedding_client.embed(list(c_contents), model=c_model)
+                    c_embs = self.embedding_client.embed(
+                        list(c_contents), model=c_model
+                    )
                 except EmbeddingError:
                     c_embs = [[0.0] * 768 for _ in c_contents]
-                for c_idx, c_emb in zip(c_indices, c_embs):
+                for c_idx, c_emb in zip(c_indices, c_embs, strict=True):
                     chunk_embeddings[c_idx] = c_emb
 
             for (chunk_id, chunk_payload_dict, _), chunk_emb in zip(

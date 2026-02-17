@@ -6,7 +6,6 @@ These tests require actual sops and age binaries installed.
 
 import os
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -68,16 +67,11 @@ class TestSecretsBackendIntegration:
 
         SPEC-011 Section 12.2 Test 4: Missing sops → clear error message.
         """
-        start_script = project_root / "start.sh"
-
-        # Test env-file path (should work without sops)
-        env = os.environ.copy()
-        env["AI_MEMORY_SECRETS_BACKEND"] = "env-file"
-        # Just test the script runs without crashing (won't actually start services)
-        # We're testing the dispatch logic, not the full docker compose
-
-        # For a real integration test, we'd need Docker running
-        # Here we just verify the script doesn't crash on the dispatch logic
+        pytest.skip(
+            "TODO: requires Docker backend — validating dispatch logic for "
+            "AI_MEMORY_SECRETS_BACKEND requires the full Docker Compose stack. "
+            "Cover in CI E2E tests (TECH-DEBT-089-B) when Docker is available."
+        )
 
     def test_secrets_not_in_env_when_using_sops(self, docker_dir):
         """Test that when using SOPS, secret values should NOT be in .env.

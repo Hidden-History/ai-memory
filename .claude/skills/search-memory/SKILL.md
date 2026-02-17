@@ -162,7 +162,7 @@ Half-life varies by memory type (configured via `decay_type_overrides`):
 This skill uses `search_memories()` from `src/memory/search.py`:
 
 ```python
-from src.memory.search import search_memories
+from memory.search import search_memories
 
 results = search_memories(
     query="your search query",

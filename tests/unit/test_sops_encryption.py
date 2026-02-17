@@ -4,7 +4,6 @@ Tests config field validation, backend detection, and security patterns.
 """
 
 import os
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -55,9 +54,10 @@ class TestEncryptionConfig:
         with pytest.raises(Exception) as exc_info:
             get_config()
         # Pydantic ValidationError should mention pattern mismatch
-        assert "secrets_backend" in str(exc_info.value).lower() or "pattern" in str(
-            exc_info.value
-        ).lower()
+        assert (
+            "secrets_backend" in str(exc_info.value).lower()
+            or "pattern" in str(exc_info.value).lower()
+        )
 
     def test_secrets_backend_uppercase_rejected(self):
         """Test secrets_backend pattern requires lowercase values.
@@ -70,9 +70,10 @@ class TestEncryptionConfig:
         with pytest.raises(Exception) as exc_info:
             get_config()
         # Pydantic ValidationError should mention pattern mismatch
-        assert "secrets_backend" in str(exc_info.value).lower() or "pattern" in str(
-            exc_info.value
-        ).lower()
+        assert (
+            "secrets_backend" in str(exc_info.value).lower()
+            or "pattern" in str(exc_info.value).lower()
+        )
 
     def test_secrets_backend_in_env_file(self, tmp_path):
         """Test secrets_backend can be read from .env file."""
@@ -93,7 +94,10 @@ class TestEncryptionConfig:
         """Test secrets_backend description clarifies it's informational only."""
         field_info = MemoryConfig.model_fields["secrets_backend"]
         description = field_info.description or ""
-        assert "informational" in description.lower() or "diagnostic" in description.lower()
+        assert (
+            "informational" in description.lower()
+            or "diagnostic" in description.lower()
+        )
         assert "start.sh" in description or "wrapper" in description.lower()
 
 

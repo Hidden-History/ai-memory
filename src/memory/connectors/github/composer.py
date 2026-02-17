@@ -19,7 +19,7 @@ def compose_issue(issue: dict) -> str:
     Returns:
         Composed text for embedding
     """
-    labels = ", ".join(l["name"] for l in issue.get("labels", []))
+    labels = ", ".join(lbl["name"] for lbl in issue.get("labels", []))
     assignees = ", ".join(a["login"] for a in issue.get("assignees", []))
     milestone = (issue.get("milestone") or {}).get("title", "")
 
@@ -72,7 +72,7 @@ def compose_pr(pr: dict, files: list[dict]) -> str:
         Composed text for embedding
     """
     state = "merged" if pr.get("merged_at") else pr.get("state", "open")
-    labels = ", ".join(l["name"] for l in pr.get("labels", []))
+    labels = ", ".join(lbl["name"] for lbl in pr.get("labels", []))
     file_list = ", ".join(f["filename"] for f in files[:20])  # Cap at 20 files
     if len(files) > 20:
         file_list += f" (+{len(files) - 20} more)"
@@ -155,7 +155,10 @@ def compose_commit(commit: dict) -> str:
     """
     sha = commit.get("sha", "unknown")[:8]
     message = (commit.get("commit") or {}).get("message", "No message")
-    author = (commit.get("author") or {}).get("login", ((commit.get("commit") or {}).get("author") or {}).get("name", "unknown"))
+    author = (commit.get("author") or {}).get(
+        "login",
+        ((commit.get("commit") or {}).get("author") or {}).get("name", "unknown"),
+    )
 
     parts = [f"Commit {sha}: {message}"]
 

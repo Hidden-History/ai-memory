@@ -5,7 +5,7 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.6] - 2026-02-XX
+## [2.0.6] - 2026-02-17
 
 LLM-Native Temporal Memory: Decay scoring, freshness detection, progressive injection,
 GitHub enrichment, security scanning, and Parzival session agent integration.
@@ -31,6 +31,7 @@ GitHub enrichment, security scanning, and Parzival session agent integration.
 
 #### Skills & Integration (Phase 1d)
 - 5 new skills: /memory-purge, /search-github, /github-sync, /pause-updates, /memory-refresh (SPEC-014)
+- 2 Parzival skills: /parzival-save-handoff, /parzival-save-insight for cross-session memory (SPEC-015)
 - Post-sync freshness feedback loop for merged PRs (SPEC-014)
 - Parzival session agent integration with Qdrant-backed memory (SPEC-015)
 - Parzival session pipeline: enhanced bootstrap, GitHub enrichment, closeout dual-write (SPEC-016)

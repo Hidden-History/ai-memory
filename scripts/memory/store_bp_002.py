@@ -7,7 +7,6 @@ to the database for semantic retrieval.
 
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 
 # Add src to path for imports
@@ -109,13 +108,14 @@ Sources: Mem0, MemGPT/Letta, LangMem (2025-2026), Qdrant docs, Jina embeddings v
 NVIDIA NeMo, Adaptive Focus Memory paper, LOCOMO benchmark, 50+ production RAG sources
 """.strip()
 
+
 def main():
     """Store BP-002 to conventions collection."""
 
     # Get session ID from environment or use default
     session_id = os.environ.get("CLAUDE_SESSION_ID", "bp-002-storage")
 
-    print(f"Storing BP-002 to conventions collection...")
+    print("Storing BP-002 to conventions collection...")
     print(f"Session ID: {session_id}")
     print(f"Content length: {len(CONTENT)} chars")
 
@@ -135,15 +135,15 @@ def main():
                 "chunking",
                 "deduplication",
                 "context-reconstruction",
-                "memory-management"
+                "memory-management",
             ],
             source="https://github.com/ai-memory/docs/conversation-memory-best-practices.md",
             source_date="2026-02-06",
             auto_seeded=True,
-            type="guideline"
+            type="guideline",
         )
 
-        print(f"\n✓ Storage Result:")
+        print("\n✓ Storage Result:")
         print(f"  Status: {result.get('status')}")
         print(f"  Memory ID: {result.get('memory_id')}")
         print(f"  Embedding Status: {result.get('embedding_status')}")
@@ -151,20 +151,21 @@ def main():
         print(f"  Group ID: {result.get('group_id')}")
 
         if result.get("status") == "stored":
-            print(f"\n✓ SUCCESS: BP-002 stored to conventions collection")
+            print("\n✓ SUCCESS: BP-002 stored to conventions collection")
             return 0
         elif result.get("status") == "duplicate":
-            print(f"\n! DUPLICATE: BP-002 already exists in database")
+            print("\n! DUPLICATE: BP-002 already exists in database")
             return 0
         else:
             print(f"\n✗ WARNING: Unexpected status: {result.get('status')}")
             return 1
 
     except Exception as e:
-        print(f"\n✗ ERROR: Failed to store BP-002")
-        print(f"  Error: {str(e)}")
+        print("\n✗ ERROR: Failed to store BP-002")
+        print(f"  Error: {e!s}")
         print(f"  Type: {type(e).__name__}")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

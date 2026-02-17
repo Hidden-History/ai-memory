@@ -688,6 +688,13 @@ check_existing_installation() {
             return 0
         fi
 
+        # Non-interactive fallback: default to add-project mode
+        if [[ "$NON_INTERACTIVE" == "true" ]]; then
+            log_info "Non-interactive mode - defaulting to add-project mode"
+            INSTALL_MODE="add-project"
+            return 0
+        fi
+
         # Interactive prompt
         read -r -p "Choose [1/2/3]: " choice
         case "$choice" in
@@ -2624,6 +2631,13 @@ show_python_version_error() {
 # Parzival Session Agent (optional, SPEC-015)
 # =================================================================
 setup_parzival() {
+    # Skip in non-interactive mode (CI)
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        log_info "Non-interactive mode - skipping Parzival setup"
+        append_env_if_missing "PARZIVAL_ENABLED" "false"
+        return 0
+    fi
+
     echo ""
     echo "═══════════════════════════════════════════════════════"
     echo "  Parzival Session Agent (Optional)"

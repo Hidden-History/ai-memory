@@ -34,15 +34,15 @@ GITHUB_INDEXES: list[dict] = [
 
 # Authority tier mapping per Section 9 / FIX-28
 AUTHORITY_TIER_MAP: dict[str, int] = {
-    "github_issue": 1,          # Human-written issue descriptions
+    "github_issue": 1,  # Human-written issue descriptions
     "github_issue_comment": 1,  # Human-written comments
-    "github_pr": 1,             # Human-written PR descriptions
-    "github_pr_diff": 3,        # Machine-generated diff extraction
-    "github_pr_review": 1,      # Human-written review comments
-    "github_commit": 1,         # Human-written commit messages
-    "github_code_blob": 3,      # Automated code extraction
-    "github_ci_result": 3,      # Machine-generated CI output
-    "github_release": 1,        # Human-written release notes
+    "github_pr": 1,  # Human-written PR descriptions
+    "github_pr_diff": 3,  # Machine-generated diff extraction
+    "github_pr_review": 1,  # Human-written review comments
+    "github_commit": 1,  # Human-written commit messages
+    "github_code_blob": 3,  # Automated code extraction
+    "github_ci_result": 3,  # Machine-generated CI output
+    "github_release": 1,  # Human-written release notes
 }
 
 
@@ -116,7 +116,5 @@ def create_github_indexes(client: QdrantClient) -> dict[str, int]:
             else:
                 raise
 
-    logger.info(
-        "GitHub indexes: %d created, %d already existed", created, skipped
-    )
+    logger.info("GitHub indexes: %d created, %d already existed", created, skipped)
     return {"created": created, "skipped": skipped}

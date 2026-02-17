@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
 import github_sync
 from github_sync import main
 
-
 # -- Status Display Tests -----------------------------------------------
 
 
@@ -34,8 +33,10 @@ def test_status_display(capsys, tmp_path, monkeypatch):
     config.github_code_blob_enabled = True
     config.github_sync_interval = 1800
 
-    with patch.object(github_sync, "get_config", return_value=config), \
-         patch("sys.argv", ["github_sync.py", "--status"]):
+    with (
+        patch.object(github_sync, "get_config", return_value=config),
+        patch("sys.argv", ["github_sync.py", "--status"]),
+    ):
         main()
 
     output = capsys.readouterr().out
@@ -57,15 +58,24 @@ def test_full_sync_uses_full_mode():
 
     mock_engine = AsyncMock()
     mock_result = MagicMock(
-        issues_synced=5, comments_synced=2, prs_synced=3, reviews_synced=1,
-        diffs_synced=4, commits_synced=10, ci_results_synced=2,
-        items_skipped=1, errors=0, duration_seconds=5.0,
+        issues_synced=5,
+        comments_synced=2,
+        prs_synced=3,
+        reviews_synced=1,
+        diffs_synced=4,
+        commits_synced=10,
+        ci_results_synced=2,
+        items_skipped=1,
+        errors=0,
+        duration_seconds=5.0,
     )
     mock_engine.sync.return_value = mock_result
 
-    with patch.object(github_sync, "get_config", return_value=config), \
-         patch.object(github_sync, "GitHubSyncEngine", return_value=mock_engine), \
-         patch("sys.argv", ["github_sync.py", "--full"]):
+    with (
+        patch.object(github_sync, "get_config", return_value=config),
+        patch.object(github_sync, "GitHubSyncEngine", return_value=mock_engine),
+        patch("sys.argv", ["github_sync.py", "--full"]),
+    ):
         main()
 
     mock_engine.sync.assert_awaited_once_with(mode="full")
@@ -82,7 +92,10 @@ def test_code_only_skips_engine():
 
     mock_code_sync = AsyncMock()
     mock_code_result = MagicMock(
-        files_synced=5, files_skipped=0, files_deleted=0, errors=0,
+        files_synced=5,
+        files_skipped=0,
+        files_deleted=0,
+        errors=0,
     )
     mock_code_sync.sync_code_blobs.return_value = mock_code_result
 
@@ -90,11 +103,13 @@ def test_code_only_skips_engine():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch.object(github_sync, "get_config", return_value=config), \
-         patch.object(github_sync, "GitHubSyncEngine") as mock_engine_cls, \
-         patch.object(github_sync, "GitHubClient") as mock_client_cls, \
-         patch.object(github_sync, "CodeBlobSync", return_value=mock_code_sync), \
-         patch("sys.argv", ["github_sync.py", "--code-only"]):
+    with (
+        patch.object(github_sync, "get_config", return_value=config),
+        patch.object(github_sync, "GitHubSyncEngine") as mock_engine_cls,
+        patch.object(github_sync, "GitHubClient") as mock_client_cls,
+        patch.object(github_sync, "CodeBlobSync", return_value=mock_code_sync),
+        patch("sys.argv", ["github_sync.py", "--code-only"]),
+    ):
         mock_client_cls.return_value = mock_client
         mock_client_cls.generate_batch_id.return_value = "batch-1"
         main()
@@ -111,9 +126,11 @@ def test_disabled_exits_with_error():
     config = MagicMock()
     config.github_sync_enabled = False
 
-    with patch.object(github_sync, "get_config", return_value=config), \
-         patch("sys.argv", ["github_sync.py", "--full"]), \
-         pytest.raises(SystemExit) as exc_info:
+    with (
+        patch.object(github_sync, "get_config", return_value=config),
+        patch("sys.argv", ["github_sync.py", "--full"]),
+        pytest.raises(SystemExit) as exc_info,
+    ):
         main()
 
     assert exc_info.value.code == 1

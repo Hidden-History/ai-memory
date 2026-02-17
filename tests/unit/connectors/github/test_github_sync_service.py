@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
 
 import github_sync_service
-from github_sync_service import handle_signal, main, run_sync_cycle, write_health_file
+from github_sync_service import handle_signal, main, run_sync_cycle
 
 
 @pytest.fixture(autouse=True)
@@ -35,12 +35,18 @@ async def test_run_sync_cycle_both_engines():
 
     mock_engine = AsyncMock()
     mock_engine.sync.return_value = MagicMock(
-        issues_synced=5, prs_synced=3, commits_synced=10,
-        ci_results_synced=2, errors=0,
+        issues_synced=5,
+        prs_synced=3,
+        commits_synced=10,
+        ci_results_synced=2,
+        errors=0,
     )
 
     mock_code_result = MagicMock(
-        files_synced=10, files_skipped=5, files_deleted=1, errors=0,
+        files_synced=10,
+        files_skipped=5,
+        files_deleted=1,
+        errors=0,
     )
     mock_code_sync = AsyncMock()
     mock_code_sync.sync_code_blobs.return_value = mock_code_result
@@ -49,9 +55,15 @@ async def test_run_sync_cycle_both_engines():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch.object(github_sync_service, "GitHubSyncEngine", return_value=mock_engine) as mock_eng_cls, \
-         patch.object(github_sync_service, "GitHubClient") as mock_client_cls, \
-         patch.object(github_sync_service, "CodeBlobSync", return_value=mock_code_sync) as mock_cs_cls:
+    with (
+        patch.object(
+            github_sync_service, "GitHubSyncEngine", return_value=mock_engine
+        ) as mock_eng_cls,
+        patch.object(github_sync_service, "GitHubClient") as mock_client_cls,
+        patch.object(
+            github_sync_service, "CodeBlobSync", return_value=mock_code_sync
+        ) as mock_cs_cls,
+    ):
         mock_client_cls.return_value = mock_client
         mock_client_cls.generate_batch_id.return_value = "batch-1"
         result = await run_sync_cycle(config)
@@ -71,13 +83,18 @@ async def test_run_sync_cycle_code_disabled():
 
     mock_engine = AsyncMock()
     mock_engine.sync.return_value = MagicMock(
-        issues_synced=5, prs_synced=3, commits_synced=10,
-        ci_results_synced=2, errors=0,
+        issues_synced=5,
+        prs_synced=3,
+        commits_synced=10,
+        ci_results_synced=2,
+        errors=0,
     )
 
-    with patch.object(github_sync_service, "GitHubSyncEngine", return_value=mock_engine), \
-         patch.object(github_sync_service, "GitHubClient") as mock_client_cls, \
-         patch.object(github_sync_service, "CodeBlobSync") as mock_cs_cls:
+    with (
+        patch.object(github_sync_service, "GitHubSyncEngine", return_value=mock_engine),
+        patch.object(github_sync_service, "GitHubClient") as mock_client_cls,
+        patch.object(github_sync_service, "CodeBlobSync") as mock_cs_cls,
+    ):
         result = await run_sync_cycle(config)
 
     assert result is True
@@ -98,7 +115,10 @@ async def test_run_sync_cycle_engine_failure_continues():
     mock_engine.sync.side_effect = RuntimeError("Engine failed")
 
     mock_code_result = MagicMock(
-        files_synced=5, files_skipped=0, files_deleted=0, errors=0,
+        files_synced=5,
+        files_skipped=0,
+        files_deleted=0,
+        errors=0,
     )
     mock_code_sync = AsyncMock()
     mock_code_sync.sync_code_blobs.return_value = mock_code_result
@@ -107,9 +127,11 @@ async def test_run_sync_cycle_engine_failure_continues():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    with patch.object(github_sync_service, "GitHubSyncEngine", return_value=mock_engine), \
-         patch.object(github_sync_service, "GitHubClient") as mock_client_cls, \
-         patch.object(github_sync_service, "CodeBlobSync", return_value=mock_code_sync):
+    with (
+        patch.object(github_sync_service, "GitHubSyncEngine", return_value=mock_engine),
+        patch.object(github_sync_service, "GitHubClient") as mock_client_cls,
+        patch.object(github_sync_service, "CodeBlobSync", return_value=mock_code_sync),
+    ):
         mock_client_cls.return_value = mock_client
         mock_client_cls.generate_batch_id.return_value = "batch-1"
         result = await run_sync_cycle(config)
@@ -144,12 +166,18 @@ def test_health_file_written_on_success():
             coro.close()
         return True
 
-    with patch.object(github_sync_service, "get_config", return_value=config), \
-         patch("github_sync_service.asyncio.run", side_effect=mock_asyncio_run), \
-         patch("github_sync_service.time.sleep", side_effect=lambda s: setattr(
-             github_sync_service, "SHUTDOWN_REQUESTED", True)), \
-         patch("github_sync_service.signal.signal"), \
-         patch.object(github_sync_service, "write_health_file") as mock_write:
+    with (
+        patch.object(github_sync_service, "get_config", return_value=config),
+        patch("github_sync_service.asyncio.run", side_effect=mock_asyncio_run),
+        patch(
+            "github_sync_service.time.sleep",
+            side_effect=lambda s: setattr(
+                github_sync_service, "SHUTDOWN_REQUESTED", True
+            ),
+        ),
+        patch("github_sync_service.signal.signal"),
+        patch.object(github_sync_service, "write_health_file") as mock_write,
+    ):
         main()
 
     mock_write.assert_called_once()
@@ -167,12 +195,18 @@ def test_health_file_not_written_on_failure():
             coro.close()
         return False
 
-    with patch.object(github_sync_service, "get_config", return_value=config), \
-         patch("github_sync_service.asyncio.run", side_effect=mock_asyncio_run), \
-         patch("github_sync_service.time.sleep", side_effect=lambda s: setattr(
-             github_sync_service, "SHUTDOWN_REQUESTED", True)), \
-         patch("github_sync_service.signal.signal"), \
-         patch.object(github_sync_service, "write_health_file") as mock_write:
+    with (
+        patch.object(github_sync_service, "get_config", return_value=config),
+        patch("github_sync_service.asyncio.run", side_effect=mock_asyncio_run),
+        patch(
+            "github_sync_service.time.sleep",
+            side_effect=lambda s: setattr(
+                github_sync_service, "SHUTDOWN_REQUESTED", True
+            ),
+        ),
+        patch("github_sync_service.signal.signal"),
+        patch.object(github_sync_service, "write_health_file") as mock_write,
+    ):
         main()
 
     mock_write.assert_not_called()
@@ -186,9 +220,11 @@ def test_config_validation_fails_without_github_enabled():
     config = MagicMock()
     config.github_sync_enabled = False
 
-    with patch.object(github_sync_service, "get_config", return_value=config), \
-         patch("github_sync_service.signal.signal"), \
-         pytest.raises(SystemExit) as exc_info:
+    with (
+        patch.object(github_sync_service, "get_config", return_value=config),
+        patch("github_sync_service.signal.signal"),
+        pytest.raises(SystemExit) as exc_info,
+    ):
         main()
 
     assert exc_info.value.code == 1

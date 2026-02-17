@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -114,7 +112,7 @@ class TestScanPurgeable:
         for collection in collections:
             points_to_purge = []
             # scroll is called with a filter (mocked - doesn't validate Range)
-            points, next_offset = mock_client.scroll(
+            points, _next_offset = mock_client.scroll(
                 collection_name=collection,
                 scroll_filter=MagicMock(),  # Filter with Range(lt=cutoff_iso)
                 limit=100,
@@ -123,9 +121,13 @@ class TestScanPurgeable:
             )
             for point in points:
                 payload = point.payload or {}
-                points_to_purge.append((
-                    point.id, payload.get("type", "unknown"), payload.get("timestamp", "unknown")
-                ))
+                points_to_purge.append(
+                    (
+                        point.id,
+                        payload.get("type", "unknown"),
+                        payload.get("timestamp", "unknown"),
+                    )
+                )
             if points_to_purge:
                 results[collection] = points_to_purge
 
@@ -159,7 +161,10 @@ class TestExecutePurge:
         """execute_purge calls client.delete with correct IDs."""
         mock_client = MagicMock()
         purgeable = {
-            "code-patterns": [("p1", "code_pattern", "ts1"), ("p2", "code_pattern", "ts2")],
+            "code-patterns": [
+                ("p1", "code_pattern", "ts1"),
+                ("p2", "code_pattern", "ts2"),
+            ],
         }
 
         deleted = {}
@@ -189,7 +194,12 @@ class TestExecutePurge:
 
     def test_project_scoped_purge(self):
         """Only deletes vectors matching current group_id."""
-        from qdrant_client.models import FieldCondition, Filter, MatchValue
+        from qdrant_client.models import (
+            FieldCondition,
+            Filter,
+            MatchValue,
+            Range,
+        )
 
         mock_client = MagicMock()
         pa = _make_mock_point("pa1", "code_pattern", "2025-01-01T00:00:00+00:00")
@@ -197,14 +207,13 @@ class TestExecutePurge:
 
         group_id = "project-a"
 
-        # Build filter with group_id (Range mocked since datetime strings
-        # are only accepted by Qdrant server, not the Python model)
+        # Build filter with group_id and timestamp range
         must_conditions = [
-            MagicMock(key="timestamp"),  # Range filter (mocked)
+            FieldCondition(key="timestamp", range=Range(lt=0.0)),
             FieldCondition(key="group_id", match=MatchValue(value=group_id)),
         ]
 
-        points, _ = mock_client.scroll(
+        _points, _ = mock_client.scroll(
             collection_name="code-patterns",
             scroll_filter=Filter(must=must_conditions),
             limit=100,

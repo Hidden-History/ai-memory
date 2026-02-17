@@ -29,17 +29,17 @@ from pathlib import Path
 # Add src to path for local imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from qdrant_client.models import KeywordIndexParams
+
 from memory.config import get_config
 from memory.qdrant_client import get_qdrant_client
-
-from qdrant_client.models import KeywordIndexParams
 
 # Configuration
 SCRIPT_DIR = Path(__file__).resolve().parent
 INSTALL_DIR = Path(
     os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
 )
-COLLECTIONS = ["code-patterns", "conventions", "discussions"]
+COLLECTIONS = ["code-patterns", "conventions", "discussions", "jira-data"]
 BATCH_SIZE = 100
 
 # Colors
@@ -72,6 +72,7 @@ DEFAULT_HALF_LIFE = 30
 
 # ─── Helper functions ─────────────────────────────────────────────────────────
 
+
 def compute_decay_score(stored_at: str, half_life_days: int) -> float:
     """AD-5 formula: 0.5^(age_days / half_life_days)."""
     try:
@@ -95,6 +96,7 @@ def get_source_authority(memory_type: str) -> float:
 
 
 # ─── Step 1: Version detection ────────────────────────────────────────────────
+
 
 def detect_version(client) -> str:
     """Detect current data version by inspecting payload fields.
@@ -125,6 +127,7 @@ def detect_version(client) -> str:
 
 # ─── Step 2: Auto-backup ──────────────────────────────────────────────────────
 
+
 def auto_backup() -> bool:
     """Run backup_qdrant.py via subprocess before migration.
 
@@ -132,7 +135,7 @@ def auto_backup() -> bool:
         True on success, False on failure.
     """
     backup_script = SCRIPT_DIR / "backup_qdrant.py"
-    print(f"  Running pre-migration backup...")
+    print("  Running pre-migration backup...")
     try:
         result = subprocess.run(
             [sys.executable, str(backup_script)],
@@ -158,6 +161,7 @@ def auto_backup() -> bool:
 
 # ─── Step 3: Freshness bootstrap ─────────────────────────────────────────────
 
+
 def build_freshness_payload(payload: dict) -> dict:
     """Compute the 5 new freshness fields for a given point payload."""
     memory_type = payload.get("type", "")
@@ -173,9 +177,7 @@ def build_freshness_payload(payload: dict) -> dict:
     }
 
 
-def migrate_collection_freshness(
-    client, collection: str, dry_run: bool
-) -> dict:
+def migrate_collection_freshness(client, collection: str, dry_run: bool) -> dict:
     """Add freshness fields to all vectors in a collection.
 
     Returns stats dict: total, updated, skipped, failed.
@@ -220,9 +222,7 @@ def migrate_collection_freshness(
                     )
                     stats["updated"] += 1
                 except Exception as e:
-                    print(
-                        f"    {YELLOW}! Failed point {str(point.id)[:8]}: {e}{RESET}"
-                    )
+                    print(f"    {YELLOW}! Failed point {str(point.id)[:8]}: {e}{RESET}")
                     stats["failed"] += 1
 
         if next_offset is None:
@@ -259,6 +259,7 @@ def run_freshness_bootstrap(client, dry_run: bool) -> tuple[int, list]:
 
 # ─── Step 4: agent_id index on discussions ───────────────────────────────────
 
+
 def create_agent_id_index(client, dry_run: bool) -> bool:
     """Create agent_id keyword index on discussions collection.
 
@@ -280,9 +281,7 @@ def create_agent_id_index(client, dry_run: bool) -> bool:
     except Exception as e:
         err_str = str(e).lower()
         if "already exists" in err_str or "conflict" in err_str:
-            print(
-                f"  {YELLOW}!{RESET} agent_id index on discussions already exists"
-            )
+            print(f"  {YELLOW}!{RESET} agent_id index on discussions already exists")
             return True
         print(f"  {RED}✗ Failed to create agent_id index: {e}{RESET}")
         return False
@@ -321,7 +320,7 @@ def update_env_file(dry_run: bool) -> bool:
 
     additions = []
     for key, default in PARZIVAL_VARS:
-        if not re.search(rf'^{re.escape(key)}=', existing, re.MULTILINE):
+        if not re.search(rf"^{re.escape(key)}=", existing, re.MULTILINE):
             additions.append(f"{key}={default}")
     lines_to_append = additions
 
@@ -342,6 +341,7 @@ def update_env_file(dry_run: bool) -> bool:
 
 
 # ─── Step 6: Update hooks via merge_settings.py ──────────────────────────────
+
 
 def update_hooks(dry_run: bool) -> bool:
     """Call merge_settings.py via subprocess if it exists.
@@ -385,6 +385,7 @@ def update_hooks(dry_run: bool) -> bool:
 
 # ─── Step 7: Audit log ────────────────────────────────────────────────────────
 
+
 def log_migration(
     vectors_migrated: int,
     collections_processed: list,
@@ -424,6 +425,7 @@ def log_migration(
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -471,7 +473,9 @@ def main():
         sys.exit(0)
 
     if version == "empty":
-        print(f"\n{YELLOW}! Collections are empty — applying schema migration only.{RESET}\n")
+        print(
+            f"\n{YELLOW}! Collections are empty — applying schema migration only.{RESET}\n"
+        )
 
     # Step 2: Backup
     if not args.skip_backup and not args.dry_run:
@@ -479,7 +483,7 @@ def main():
         backup_ok = auto_backup()
         if not backup_ok:
             print(f"{RED}Error: Pre-migration backup failed. Aborting.{RESET}")
-            print(f"  Use --skip-backup to proceed without backup (not recommended)")
+            print("  Use --skip-backup to proceed without backup (not recommended)")
             sys.exit(1)
     elif args.dry_run:
         print(f"{YELLOW}Skipping backup (dry-run mode){RESET}")
@@ -488,7 +492,9 @@ def main():
 
     # Step 3: Freshness bootstrap
     print("\nStep 2/6: Freshness bootstrap")
-    total_migrated, collections_processed = run_freshness_bootstrap(client, args.dry_run)
+    total_migrated, collections_processed = run_freshness_bootstrap(
+        client, args.dry_run
+    )
 
     # Step 4: Create agent_id index
     print("\nStep 3/6: Create agent_id index on discussions")

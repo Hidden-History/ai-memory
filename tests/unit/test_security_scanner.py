@@ -5,7 +5,6 @@ Tests the 3-layer scanner (regex, detect-secrets, SpaCy NER).
 """
 
 import pytest
-from unittest.mock import Mock, patch
 
 
 class TestLayer1Regex:
@@ -13,7 +12,7 @@ class TestLayer1Regex:
 
     def test_email_detection_and_masking(self):
         """Test email detection and masking"""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("Contact me at user@example.com for details")
@@ -26,7 +25,7 @@ class TestLayer1Regex:
 
     def test_phone_detection_and_masking(self):
         """Test phone number detection and masking"""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("Call me at 555-123-4567")
@@ -37,7 +36,7 @@ class TestLayer1Regex:
 
     def test_github_pat_detection_blocks_content(self):
         """Test GitHub PAT detection blocks storage"""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("My token is ghp_" + "A" * 36)
@@ -48,7 +47,7 @@ class TestLayer1Regex:
 
     def test_aws_key_detection_blocks_content(self):
         """Test AWS access key detection blocks storage"""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("AWS key: AKIAIOSFODNN7EXAMPLE")
@@ -58,7 +57,7 @@ class TestLayer1Regex:
 
     def test_clean_content_passes(self):
         """Test clean content passes through"""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("This is clean code without any PII or secrets")
@@ -69,7 +68,7 @@ class TestLayer1Regex:
 
     def test_ip_address_masking(self):
         """Test IP address detection (excluding private ranges)"""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("Server at 8.8.8.8 is online")
@@ -79,7 +78,7 @@ class TestLayer1Regex:
 
     def test_private_ip_not_masked(self):
         """Test private IP ranges are not masked"""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("Local server at 192.168.1.1")
@@ -93,7 +92,7 @@ class TestScannerOrchestration:
 
     def test_blocked_returns_immediately(self):
         """Test that BLOCKED returns immediately without Layer 3"""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=True)
         result = scanner.scan("Secret: ghp_" + "A" * 36)
@@ -126,7 +125,7 @@ class TestScannerOrchestration:
 
     def test_multiple_findings_all_masked(self):
         """Test multiple PII items are all masked"""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("Email user@test.com and phone 555-1234567")
@@ -143,7 +142,7 @@ class TestEdgeCases:
 
     def test_empty_content(self):
         """Test scanner handles empty content"""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("")
@@ -154,7 +153,7 @@ class TestEdgeCases:
 
     def test_very_long_content(self):
         """Test scanner handles very long content (>10K chars)"""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         long_content = "Clean text. " * 1000  # ~12K chars
@@ -184,7 +183,12 @@ class TestScanResult:
 
     def test_scan_result_attributes(self):
         """Test ScanResult has all required attributes"""
-        from memory.security_scanner import ScanResult, ScanAction, ScanFinding, FindingType
+        from memory.security_scanner import (
+            FindingType,
+            ScanAction,
+            ScanFinding,
+            ScanResult,
+        )
 
         finding = ScanFinding(
             finding_type=FindingType.PII_EMAIL,
@@ -216,7 +220,7 @@ class TestLayer1PiiPatterns:
 
     def test_ssn_detection_and_masking(self):
         """Test Social Security Number detection."""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("My SSN is 123-45-6789")
@@ -227,7 +231,7 @@ class TestLayer1PiiPatterns:
 
     def test_credit_card_with_valid_luhn(self):
         """Test credit card detection with Luhn-valid number."""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         # 4532015112830366 is Luhn-valid
@@ -239,7 +243,7 @@ class TestLayer1PiiPatterns:
 
     def test_credit_card_invalid_luhn_not_masked(self):
         """Test credit card-like number with invalid Luhn passes through."""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         # 1234-5678-9012-3456 fails Luhn check
@@ -250,7 +254,7 @@ class TestLayer1PiiPatterns:
 
     def test_github_handle_detection(self):
         """Test GitHub handle detection."""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("See PR by @octocat for details")
@@ -261,7 +265,7 @@ class TestLayer1PiiPatterns:
 
     def test_internal_url_detection(self):
         """Test internal URL detection."""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("Check https://internal.company.com/wiki/page")
@@ -272,7 +276,7 @@ class TestLayer1PiiPatterns:
 
     def test_jira_url_detection(self):
         """Test Jira internal URL detection."""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("See https://jira.company.com/browse/PROJ-123")
@@ -286,7 +290,7 @@ class TestLayer1SecretPatterns:
 
     def test_stripe_live_key_blocks(self):
         """Test Stripe live key detection blocks content."""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("Stripe key: sk_live_" + "a" * 24)
@@ -296,7 +300,7 @@ class TestLayer1SecretPatterns:
 
     def test_slack_token_blocks(self):
         """Test Slack token detection blocks content."""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("Slack: xoxb-" + "1234567890-" * 3)
@@ -306,7 +310,7 @@ class TestLayer1SecretPatterns:
 
     def test_github_fine_grained_pat_blocks(self):
         """Test GitHub fine-grained PAT detection blocks content."""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("Token: github_pat_" + "A" * 82)
@@ -338,13 +342,13 @@ class TestGitHubHandleFalsePositives:
         for text in decorator_texts:
             result = scanner.scan(f"Code: {text}\ndef func(): pass")
             # Decorators should NOT be flagged as handles
-            assert "[HANDLE_REDACTED]" not in result.content, (
-                f"False positive: {text} was flagged as GitHub handle"
-            )
+            assert (
+                "[HANDLE_REDACTED]" not in result.content
+            ), f"False positive: {text} was flagged as GitHub handle"
 
     def test_real_github_handles_still_detected(self):
         """Test that real GitHub handles ARE still detected."""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
         result = scanner.scan("Thanks to @octocat and @torvalds for the review")
@@ -395,22 +399,29 @@ class TestScanBatchNER:
 
     def test_batch_blocked_texts_excluded_from_ner(self):
         """Test that BLOCKED texts skip NER processing."""
-        from memory.security_scanner import SecurityScanner, ScanAction, _spacy_available
+        from memory.security_scanner import (
+            ScanAction,
+            SecurityScanner,
+            _spacy_available,
+        )
 
         if _spacy_available is False:
             pytest.skip("SpaCy not available")
 
         scanner = SecurityScanner(enable_ner=True)
-        results = scanner.scan_batch([
-            "Clean text about John Smith",
-            "Secret: ghp_" + "A" * 36,
-            "More text about Jane Doe",
-        ], force_ner=True)
+        results = scanner.scan_batch(
+            [
+                "Clean text about John Smith",
+                "Secret: ghp_" + "A" * 36,
+                "More text about Jane Doe",
+            ],
+            force_ner=True,
+        )
 
         assert len(results) == 3
         assert results[1].action == ScanAction.BLOCKED
         assert 3 not in results[1].layers_executed  # Blocked BEFORE NER
-        assert 3 in results[0].layers_executed      # Non-blocked DID run NER
+        assert 3 in results[0].layers_executed  # Non-blocked DID run NER
 
     def test_batch_empty_list(self):
         """Test scan_batch() with empty list returns empty list."""
@@ -423,14 +434,16 @@ class TestScanBatchNER:
 
     def test_batch_preserves_order(self):
         """Test that scan_batch() results order matches input order."""
-        from memory.security_scanner import SecurityScanner, ScanAction
+        from memory.security_scanner import ScanAction, SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
-        results = scanner.scan_batch([
-            "Email: user@test.com",
-            "Clean text here",
-            "Phone: 555-123-4567",
-        ])
+        results = scanner.scan_batch(
+            [
+                "Email: user@test.com",
+                "Clean text here",
+                "Phone: 555-123-4567",
+            ]
+        )
 
         assert len(results) == 3
         assert results[0].action == ScanAction.MASKED

@@ -14,11 +14,10 @@ Exit Codes:
 - 1: Error
 """
 
-import json
 import logging
 import os
 import sys
-from typing import Any, Dict
+from typing import Any
 
 import requests
 
@@ -42,7 +41,7 @@ logger.addHandler(handler)
 logger.propagate = False
 
 
-def check_qdrant_health() -> Dict[str, Any]:
+def check_qdrant_health() -> dict[str, Any]:
     """Check Qdrant service health and get collection stats.
 
     Returns:
@@ -75,7 +74,7 @@ def check_qdrant_health() -> Dict[str, Any]:
         return {"healthy": False, "error": str(e)}
 
 
-def check_embedding_service() -> Dict[str, Any]:
+def check_embedding_service() -> dict[str, Any]:
     """Check embedding service health.
 
     Returns:
@@ -131,18 +130,18 @@ def main() -> int:
 
     # Configuration
     config = get_config()
-    print(f"\n⚙️  Configuration:")
+    print("\n⚙️  Configuration:")
     print(f"   Qdrant: {config.qdrant_host}:{config.qdrant_port}")
     print(f"   Embedding: {config.embedding_host}:{config.embedding_port}")
     print(f"   Similarity Threshold: {config.similarity_threshold}")
 
     # Qdrant Health
-    print(f"\n🗄️  Qdrant Service:")
+    print("\n🗄️  Qdrant Service:")
     qdrant_health = check_qdrant_health()
 
     if qdrant_health["healthy"]:
         print("   Status: ✅ Healthy")
-        print(f"\n   Collections:")
+        print("\n   Collections:")
 
         for name, stats in qdrant_health["collections"].items():
             if "error" in stats:
@@ -153,11 +152,11 @@ def main() -> int:
                 icon = "✅" if status == "GREEN" else "⚠️"
                 print(f"      {icon} {name}: {points} points ({status})")
     else:
-        print(f"   Status: ❌ Unhealthy")
+        print("   Status: ❌ Unhealthy")
         print(f"   Error: {qdrant_health.get('error', 'Unknown')}")
 
     # Embedding Service Health
-    print(f"\n🔢 Embedding Service:")
+    print("\n🔢 Embedding Service:")
     embedding_health = check_embedding_service()
 
     if embedding_health["healthy"]:

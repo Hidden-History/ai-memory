@@ -24,7 +24,8 @@ def pytest_configure(config):
         os.environ["EMBEDDING_READ_TIMEOUT"] = "60.0"
 
     # Set correct Qdrant URL for integration tests (host port, not container port)
-    os.environ["QDRANT_URL"] = "http://localhost:26350"
+    if "QDRANT_URL" not in os.environ:
+        os.environ["QDRANT_URL"] = "http://localhost:26350"
 
 
 def pytest_collection_modifyitems(items):

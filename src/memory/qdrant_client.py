@@ -25,6 +25,8 @@ __all__ = [
 
 logger = logging.getLogger("ai_memory.storage")
 
+_client_cache: dict[str, "QdrantClient"] = {}
+
 
 class QdrantUnavailable(Exception):
     """Raised when Qdrant is not available.
@@ -61,6 +63,10 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
     """
     config = config or get_config()
 
+    cache_key = f"{config.qdrant_host}:{config.qdrant_port}:{config.qdrant_api_key}:{config.qdrant_use_https}"
+    if cache_key in _client_cache:
+        return _client_cache[cache_key]
+
     # Create client with timeout configuration
     # Timeout prevents indefinite hangs if Qdrant is unresponsive
     # BP-040: API key + HTTPS configurable via environment variables
@@ -81,6 +87,7 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
         timeout=10,
     )
 
+    _client_cache[cache_key] = client
     return client
 
 

@@ -24,9 +24,7 @@ def reset_metrics_module():
             REGISTRY.unregister(collector)
 
     # Remove metrics module from sys.modules
-    modules_to_remove = [
-        k for k in sys.modules if "memory.metrics" in k or k == "memory"
-    ]
+    modules_to_remove = [k for k in sys.modules if "memory.metrics" in k]
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 
@@ -38,9 +36,7 @@ def reset_metrics_module():
         with contextlib.suppress(Exception):
             REGISTRY.unregister(collector)
 
-    modules_to_remove = [
-        k for k in sys.modules if "memory.metrics" in k or k == "memory"
-    ]
+    modules_to_remove = [k for k in sys.modules if "memory.metrics" in k]
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 

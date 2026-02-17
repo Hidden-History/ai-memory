@@ -29,8 +29,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from memory.config import get_config
 from memory.connectors.github.client import GitHubClient
-from memory.connectors.github.sync import GitHubSyncEngine
 from memory.connectors.github.code_sync import CodeBlobSync
+from memory.connectors.github.sync import GitHubSyncEngine
 
 logger = logging.getLogger("ai_memory.github.service")
 
@@ -41,7 +41,9 @@ SHUTDOWN_REQUESTED = False
 def handle_signal(signum, frame):
     """Handle SIGTERM/SIGINT for graceful shutdown."""
     global SHUTDOWN_REQUESTED
-    logger.info("Shutdown signal received (signal=%d), finishing current cycle...", signum)
+    logger.info(
+        "Shutdown signal received (signal=%d), finishing current cycle...", signum
+    )
     SHUTDOWN_REQUESTED = True
 
 
@@ -60,8 +62,11 @@ async def run_sync_cycle(config) -> bool:
         result = await engine.sync()
         logger.info(
             "Sync cycle complete: issues=%d, prs=%d, commits=%d, ci=%d, errors=%d",
-            result.issues_synced, result.prs_synced, result.commits_synced,
-            result.ci_results_synced, result.errors,
+            result.issues_synced,
+            result.prs_synced,
+            result.commits_synced,
+            result.ci_results_synced,
+            result.errors,
         )
     except Exception as e:
         logger.error("Sync engine failed: %s", e)
@@ -81,8 +86,10 @@ async def run_sync_cycle(config) -> bool:
                 code_result = await code_sync.sync_code_blobs(batch_id)
             logger.info(
                 "Code sync complete: synced=%d, skipped=%d, deleted=%d, errors=%d",
-                code_result.files_synced, code_result.files_skipped,
-                code_result.files_deleted, code_result.errors,
+                code_result.files_synced,
+                code_result.files_skipped,
+                code_result.files_deleted,
+                code_result.errors,
             )
         except Exception as e:
             logger.error("Code blob sync failed: %s", e)
@@ -128,7 +135,9 @@ def main():
 
     logger.info(
         "GitHub sync service starting (interval=%ds, sync_on_start=%s, repo=%s)",
-        interval, sync_on_start, config.github_repo,
+        interval,
+        sync_on_start,
+        config.github_repo,
     )
 
     # Main loop

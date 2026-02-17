@@ -20,7 +20,6 @@ from typing import Any
 from qdrant_client import models
 
 from memory.config import COLLECTION_CODE_PATTERNS, MemoryConfig, get_config
-from memory.qdrant_client import get_qdrant_client
 from memory.connectors.github.client import GitHubClient, GitHubClientError
 from memory.connectors.github.composer import (
     compose_ci_result,
@@ -37,6 +36,7 @@ from memory.connectors.github.schema import (
     compute_content_hash,
 )
 from memory.models import MemoryType
+from memory.qdrant_client import get_qdrant_client
 from memory.storage import MemoryStorage
 
 logger = logging.getLogger("ai_memory.github.sync")
@@ -131,9 +131,23 @@ class GitHubSyncEngine:
         self._group_id = self.config.github_repo  # owner/repo as tenant ID
         self.qdrant = get_qdrant_client(self.config)
 
+        # SEC-2: Security scanner for GitHub content before storage
+        if self.config.security_scanning_enabled:
+            from memory.security_scanner import SecurityScanner
+
+            self._scanner = SecurityScanner(
+                enable_ner=self.config.security_scanning_ner_enabled
+            )
+        else:
+            self._scanner = None
+
         # Resolve state file path
         # .audit/state/ created by SPEC-003 / install script
-        project_root = Path(self.config.project_path) if hasattr(self.config, "project_path") else Path.cwd()
+        project_root = (
+            Path(self.config.project_path)
+            if hasattr(self.config, "project_path")
+            else Path.cwd()
+        )
         self._project_root = project_root
         self._state_dir = project_root / ".audit" / "state"
         self._state_file = self._state_dir / self.STATE_FILENAME
@@ -159,24 +173,38 @@ class GitHubSyncEngine:
 
         logger.info(
             "Starting GitHub sync: mode=%s, repo=%s, batch=%s",
-            mode, self.config.github_repo, batch_id,
+            mode,
+            self.config.github_repo,
+            batch_id,
         )
 
         async with self.client:
             # Priority order: PRs -> Issues -> Commits -> CI Results
-            since = None if mode == "full" else state.get("pull_requests", {}).get("last_synced")
+            since = (
+                None
+                if mode == "full"
+                else state.get("pull_requests", {}).get("last_synced")
+            )
             pr_count = await self._sync_pull_requests(since, batch_id, result)
             self._save_type_state(state, "pull_requests", pr_count)
 
-            since = None if mode == "full" else state.get("issues", {}).get("last_synced")
+            since = (
+                None if mode == "full" else state.get("issues", {}).get("last_synced")
+            )
             issue_count = await self._sync_issues(since, batch_id, result)
             self._save_type_state(state, "issues", issue_count)
 
-            since = None if mode == "full" else state.get("commits", {}).get("last_synced")
+            since = (
+                None if mode == "full" else state.get("commits", {}).get("last_synced")
+            )
             commit_count = await self._sync_commits(since, batch_id, result)
             self._save_type_state(state, "commits", commit_count)
 
-            since = None if mode == "full" else state.get("ci_results", {}).get("last_synced")
+            since = (
+                None
+                if mode == "full"
+                else state.get("ci_results", {}).get("last_synced")
+            )
             ci_count = await self._sync_ci_results(since, batch_id, result)
             self._save_type_state(state, "ci_results", ci_count)
 
@@ -186,7 +214,9 @@ class GitHubSyncEngine:
 
         logger.info(
             "GitHub sync complete: %d synced, %d skipped, %d errors in %.1fs",
-            result.total_synced, result.items_skipped, result.errors,
+            result.total_synced,
+            result.items_skipped,
+            result.errors,
             result.duration_seconds,
         )
         return result
@@ -194,7 +224,10 @@ class GitHubSyncEngine:
     # -- Per-Type Sync Methods -----------------------------------------
 
     async def _sync_issues(
-        self, since: str | None, batch_id: str, result: SyncResult,
+        self,
+        since: str | None,
+        batch_id: str,
+        result: SyncResult,
     ) -> int:
         """Sync issues and their comments.
 
@@ -232,7 +265,7 @@ class GitHubSyncEngine:
                     timestamp=issue.get("updated_at") or issue["created_at"],
                     extra_payload={
                         "state": issue["state"],
-                        "labels": [l["name"] for l in issue.get("labels", [])],
+                        "labels": [lbl["name"] for lbl in issue.get("labels", [])],
                         "milestone": (issue.get("milestone") or {}).get("title"),
                         "assignees": [a["login"] for a in issue.get("assignees", [])],
                     },
@@ -245,11 +278,14 @@ class GitHubSyncEngine:
                 # Sync comments for this issue
                 try:
                     comments = await self.client.get_issue_comments(
-                        issue["number"], since=since,
+                        issue["number"],
+                        since=since,
                     )
                     for comment in comments:
                         try:
-                            composed_comment = compose_issue_comment(comment, issue["number"])
+                            composed_comment = compose_issue_comment(
+                                comment, issue["number"]
+                            )
                             comment_stored = await self._store_github_memory(
                                 content=composed_comment,
                                 memory_type=MemoryType.GITHUB_ISSUE_COMMENT,
@@ -257,10 +293,13 @@ class GitHubSyncEngine:
                                 sub_id=str(comment["id"]),
                                 batch_id=batch_id,
                                 url=comment["html_url"],
-                                timestamp=comment.get("updated_at") or comment["created_at"],
+                                timestamp=comment.get("updated_at")
+                                or comment["created_at"],
                                 extra_payload={
                                     "state": issue["state"],
-                                    "labels": [l["name"] for l in issue.get("labels", [])],
+                                    "labels": [
+                                        lbl["name"] for lbl in issue.get("labels", [])
+                                    ],
                                 },
                             )
                             if comment_stored:
@@ -268,10 +307,16 @@ class GitHubSyncEngine:
                             else:
                                 result.items_skipped += 1
                         except Exception as e:
-                            logger.warning("Failed to sync comment on issue #%d: %s", issue["number"], e)
+                            logger.warning(
+                                "Failed to sync comment on issue #%d: %s",
+                                issue["number"],
+                                e,
+                            )
                             result.errors += 1
                 except GitHubClientError as e:
-                    logger.warning("Failed to fetch comments for issue #%d: %s", issue["number"], e)
+                    logger.warning(
+                        "Failed to fetch comments for issue #%d: %s", issue["number"], e
+                    )
 
                 count += 1
             except Exception as e:
@@ -283,7 +328,10 @@ class GitHubSyncEngine:
         return count
 
     async def _sync_pull_requests(
-        self, since: str | None, batch_id: str, result: SyncResult,
+        self,
+        since: str | None,
+        batch_id: str,
+        result: SyncResult,
     ) -> int:
         """Sync pull requests, their reviews, and diff summaries.
 
@@ -332,7 +380,7 @@ class GitHubSyncEngine:
                         "files_changed": [f["filename"] for f in files],
                         "review_state": None,
                         "ci_status": None,
-                        "labels": [l["name"] for l in pr.get("labels", [])],
+                        "labels": [lbl["name"] for lbl in pr.get("labels", [])],
                         "merged_at": pr.get("merged_at"),
                     },
                 )
@@ -356,7 +404,10 @@ class GitHubSyncEngine:
                     reviews = await self.client.get_pr_reviews(pr["number"])
                     for review in reviews:
                         try:
-                            if not review.get("body") and review.get("state", "").upper() == "COMMENTED":
+                            if (
+                                not review.get("body")
+                                and review.get("state", "").upper() == "COMMENTED"
+                            ):
                                 continue  # Skip empty COMMENTED reviews (preserve APPROVED/CHANGES_REQUESTED)
                             composed_review = compose_pr_review(review, pr["number"])
                             review_stored = await self._store_github_memory(
@@ -366,11 +417,16 @@ class GitHubSyncEngine:
                                 sub_id=str(review["id"]),
                                 batch_id=batch_id,
                                 url=review.get("html_url", pr["html_url"]),
-                                timestamp=review.get("submitted_at") or pr["updated_at"],
+                                timestamp=review.get("submitted_at")
+                                or pr["updated_at"],
                                 extra_payload={
                                     "pr_number": pr["number"],
-                                    "review_state": (review.get("state") or "commented").lower(),
-                                    "reviewer": (review.get("user") or {}).get("login", "unknown"),
+                                    "review_state": (
+                                        review.get("state") or "commented"
+                                    ).lower(),
+                                    "reviewer": (review.get("user") or {}).get(
+                                        "login", "unknown"
+                                    ),
                                 },
                             )
                             if review_stored:
@@ -378,10 +434,17 @@ class GitHubSyncEngine:
                             else:
                                 result.items_skipped += 1
                         except Exception as e:
-                            logger.warning("Failed to sync review %s on PR #%d: %s", review.get("id"), pr["number"], e)
+                            logger.warning(
+                                "Failed to sync review %s on PR #%d: %s",
+                                review.get("id"),
+                                pr["number"],
+                                e,
+                            )
                             result.errors += 1
                 except GitHubClientError as e:
-                    logger.warning("Failed to fetch reviews for PR #%d: %s", pr["number"], e)
+                    logger.warning(
+                        "Failed to fetch reviews for PR #%d: %s", pr["number"], e
+                    )
 
                 # Sync diff summaries (one per changed file)
                 for file_entry in files:
@@ -408,7 +471,12 @@ class GitHubSyncEngine:
                         else:
                             result.items_skipped += 1
                     except Exception as e:
-                        logger.warning("Failed to sync diff for %s on PR #%d: %s", file_entry.get("filename"), pr["number"], e)
+                        logger.warning(
+                            "Failed to sync diff for %s on PR #%d: %s",
+                            file_entry.get("filename"),
+                            pr["number"],
+                            e,
+                        )
                         result.errors += 1
 
                 count += 1
@@ -420,7 +488,10 @@ class GitHubSyncEngine:
         return count
 
     async def _sync_commits(
-        self, since: str | None, batch_id: str, result: SyncResult,
+        self,
+        since: str | None,
+        batch_id: str,
+        result: SyncResult,
     ) -> int:
         """Sync commits with diff stats.
 
@@ -434,7 +505,8 @@ class GitHubSyncEngine:
         """
         try:
             commits = await self.client.list_commits(
-                sha=self.config.github_branch, since=since,
+                sha=self.config.github_branch,
+                since=since,
             )
         except GitHubClientError as e:
             logger.error("Failed to fetch commits: %s", e)
@@ -468,7 +540,9 @@ class GitHubSyncEngine:
                             f["filename"] for f in commit_detail.get("files", [])
                         ],
                         "stats": commit_detail.get("stats", {}),
-                        "author": (commit_summary.get("author") or {}).get("login", "unknown"),
+                        "author": (commit_summary.get("author") or {}).get(
+                            "login", "unknown"
+                        ),
                     },
                 )
                 if stored:
@@ -484,7 +558,10 @@ class GitHubSyncEngine:
         return count
 
     async def _sync_ci_results(
-        self, since: str | None, batch_id: str, result: SyncResult,
+        self,
+        since: str | None,
+        batch_id: str,
+        result: SyncResult,
     ) -> int:
         """Sync GitHub Actions workflow runs.
 
@@ -499,7 +576,8 @@ class GitHubSyncEngine:
         created_filter = f">={since[:10]}" if since else None
         try:
             runs = await self.client.list_workflow_runs(
-                created=created_filter, status="completed",
+                created=created_filter,
+                status="completed",
             )
         except GitHubClientError as e:
             logger.error("Failed to fetch workflow runs: %s", e)
@@ -533,7 +611,9 @@ class GitHubSyncEngine:
                     result.items_skipped += 1
                 count += 1
             except Exception as e:
-                logger.error("Failed to sync CI run %s: %s", run.get("id", "unknown"), e)
+                logger.error(
+                    "Failed to sync CI run %s: %s", run.get("id", "unknown"), e
+                )
                 result.errors += 1
                 result.error_details.append(f"CI run {run.get('id', 'unknown')}: {e}")
 
@@ -565,16 +645,18 @@ class GitHubSyncEngine:
             while True:
                 points, next_offset = self.qdrant.scroll(
                     collection_name=COLLECTION_CODE_PATTERNS,
-                    scroll_filter=models.Filter(must=[
-                        models.FieldCondition(
-                            key="file_path",
-                            match=models.MatchValue(value=file_path),
-                        ),
-                        models.FieldCondition(
-                            key="group_id",
-                            match=models.MatchValue(value=self._group_id),
-                        ),
-                    ]),
+                    scroll_filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="file_path",
+                                match=models.MatchValue(value=file_path),
+                            ),
+                            models.FieldCondition(
+                                key="group_id",
+                                match=models.MatchValue(value=self._group_id),
+                            ),
+                        ]
+                    ),
                     limit=100,
                     offset=offset,
                     with_payload=["freshness_status"],
@@ -715,7 +797,23 @@ class GitHubSyncEngine:
                     logger.warning("Failed to update last_synced: %s", e)
                 return False
 
-            # Changed -- mark old as superseded
+            # Security scan BEFORE supersession (GH-REV-001: prevents data loss
+            # if scan blocks — old version stays is_current=True)
+            if self._scanner is not None:
+                from memory.security_scanner import ScanAction
+
+                scan_result = self._scanner.scan(content)
+                if scan_result.action == ScanAction.BLOCKED:
+                    logger.warning(
+                        "Security scan blocked %s #%s: %d secret finding(s)",
+                        type_value,
+                        github_id,
+                        len(scan_result.findings),
+                    )
+                    return False
+                content = scan_result.content  # Use masked version
+
+            # Changed -- mark old as superseded (only after scan passes)
             version = old_point.payload.get("version", 1) + 1
             supersedes = str(old_point.id)
             try:
@@ -727,7 +825,23 @@ class GitHubSyncEngine:
             except Exception as e:
                 logger.warning("Failed to mark old point as superseded: %s", e)
 
-        # Step 3: Store via store_memory() pipeline
+        else:
+            # No old point — still run security scan for new content
+            if self._scanner is not None:
+                from memory.security_scanner import ScanAction
+
+                scan_result = self._scanner.scan(content)
+                if scan_result.action == ScanAction.BLOCKED:
+                    logger.warning(
+                        "Security scan blocked %s #%s: %d secret finding(s)",
+                        type_value,
+                        github_id,
+                        len(scan_result.findings),
+                    )
+                    return False
+                content = scan_result.content  # Use masked version
+
+        # Step 4: Store via store_memory() pipeline
         authority_tier = AUTHORITY_TIER_MAP.get(type_value, 1)
 
         github_payload = {
@@ -763,7 +877,10 @@ class GitHubSyncEngine:
             if store_result and store_result.get("status") != "error":
                 logger.debug(
                     "Stored %s #%d (v%d, batch=%s)",
-                    type_value, github_id, version, batch_id,
+                    type_value,
+                    github_id,
+                    version,
+                    batch_id,
                 )
                 return True
             return False
@@ -851,12 +968,16 @@ class GitHubSyncEngine:
 
             # Record per-type counts
             sync_total.labels(type="issue", status="synced").inc(result.issues_synced)
-            sync_total.labels(type="comment", status="synced").inc(result.comments_synced)
+            sync_total.labels(type="comment", status="synced").inc(
+                result.comments_synced
+            )
             sync_total.labels(type="pr", status="synced").inc(result.prs_synced)
             sync_total.labels(type="review", status="synced").inc(result.reviews_synced)
             sync_total.labels(type="diff", status="synced").inc(result.diffs_synced)
             sync_total.labels(type="commit", status="synced").inc(result.commits_synced)
-            sync_total.labels(type="ci_result", status="synced").inc(result.ci_results_synced)
+            sync_total.labels(type="ci_result", status="synced").inc(
+                result.ci_results_synced
+            )
             sync_total.labels(type="all", status="skipped").inc(result.items_skipped)
             sync_total.labels(type="all", status="error").inc(result.errors)
             sync_duration.set(result.duration_seconds)

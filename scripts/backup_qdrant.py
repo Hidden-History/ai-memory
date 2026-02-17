@@ -22,11 +22,9 @@ import json
 import os
 import shutil
 import sys
-import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 try:
     import httpx
@@ -51,8 +49,8 @@ QDRANT_HOST = os.environ.get("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.environ.get("QDRANT_PORT", "26350"))
 QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
 
-# Collections to backup (must match config.py)
-COLLECTIONS = ["discussions", "conventions", "code-patterns"]
+# Collections to backup (must match config.py — includes jira-data from v2.0.5)
+COLLECTIONS = ["discussions", "conventions", "code-patterns", "jira-data"]
 
 # Timeouts
 SNAPSHOT_CREATE_TIMEOUT = 60  # Creating snapshot can take time for large collections

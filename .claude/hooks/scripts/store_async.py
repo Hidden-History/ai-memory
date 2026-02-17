@@ -227,6 +227,40 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
             )
             return
 
+        # SPEC-009: Security scanning before storage (match other 3 hooks)
+        try:
+            from memory.config import get_config as _get_sec_config
+
+            sec_config = _get_sec_config()
+            if sec_config.security_scanning_enabled:
+                try:
+                    from memory.security_scanner import SecurityScanner, ScanAction
+
+                    scanner = SecurityScanner(enable_ner=False)
+                    scan_result = scanner.scan(patterns["content"])
+                    if scan_result.action == ScanAction.BLOCKED:
+                        logger.warning(
+                            "code_pattern_blocked_secrets",
+                            extra={
+                                "session_id": session_id,
+                                "file_path": file_path,
+                                "findings_count": len(scan_result.findings),
+                            },
+                        )
+                        return
+                    elif scan_result.action == ScanAction.MASKED:
+                        patterns["content"] = scan_result.content
+                except ImportError:
+                    logger.warning(
+                        "security_scanner_unavailable",
+                        extra={"hook": "PostToolUse"},
+                    )
+        except Exception as e:
+            logger.error(
+                "security_scan_failed",
+                extra={"hook": "PostToolUse", "error": str(e)},
+            )
+
         # TECH-DEBT-051: Use IntelligentChunker for content chunking
         # MVP returns whole content as single chunk; TECH-DEBT-052 adds Tree-sitter AST chunking
         chunker = IntelligentChunker(max_chunk_tokens=512, overlap_pct=0.15)

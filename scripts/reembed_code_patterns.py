@@ -18,10 +18,7 @@ Flags:
 import argparse
 import json
 import logging
-import os
 import sys
-import time
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -112,7 +109,9 @@ def create_snapshot(client: QdrantClient, collection_name: str) -> str:
     """Create Qdrant snapshot of collection."""
     logger.info(f"Creating snapshot of {collection_name}...")
     try:
-        snapshot_name = f"{SNAPSHOT_PREFIX}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+        snapshot_name = (
+            f"{SNAPSHOT_PREFIX}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+        )
         result = client.create_snapshot(collection_name=collection_name)
         logger.info(f"Snapshot created: {result.name}")
         return result.name
@@ -338,9 +337,7 @@ def reembed_collection(
                 )
 
                 upsert_points.append(
-                    PointStruct(
-                        id=point.id, vector=new_vector, payload=updated_payload
-                    )
+                    PointStruct(id=point.id, vector=new_vector, payload=updated_payload)
                 )
 
             try:
@@ -462,7 +459,7 @@ def main():
         new_results = run_golden_queries(client, collection_name, golden_queries)
         metrics = compute_quality_metrics(baseline_results, new_results)
 
-        logger.info(f"Validation Metrics:")
+        logger.info("Validation Metrics:")
         logger.info(f"  Recall improved: {metrics['recall_improved']}")
         logger.info(f"  Recall regressed: {metrics['recall_regressed']}")
         logger.info(f"  Min recall@5: {metrics['min_recall_at_5']}")

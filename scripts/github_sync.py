@@ -23,8 +23,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from memory.config import get_config
 from memory.connectors.github.client import GitHubClient
-from memory.connectors.github.sync import GitHubSyncEngine
 from memory.connectors.github.code_sync import CodeBlobSync
+from memory.connectors.github.sync import GitHubSyncEngine
 
 
 def show_status(config):
@@ -52,7 +52,9 @@ def show_status(config):
         print("Last sync state (issues/PRs/commits/CI):")
         for key, val in state.items():
             if isinstance(val, dict) and "last_synced" in val:
-                print(f"  {key}: last_synced={val['last_synced']}, count={val.get('last_count', '?')}")
+                print(
+                    f"  {key}: last_synced={val['last_synced']}, count={val.get('last_count', '?')}"
+                )
     else:
         print("No sync state found (never synced)")
 
@@ -68,14 +70,22 @@ async def run_sync(config, full: bool = False, code_only: bool = False):
         print(f"Syncing GitHub data from {config.github_repo} (mode={mode})...")
         engine = GitHubSyncEngine(config)
         result = await engine.sync(mode=mode)
-        print(f"  Issues: {result.issues_synced} synced, Comments: {result.comments_synced}")
-        print(f"  PRs: {result.prs_synced}, Reviews: {result.reviews_synced}, Diffs: {result.diffs_synced}")
-        print(f"  Commits: {result.commits_synced}, CI results: {result.ci_results_synced}")
+        print(
+            f"  Issues: {result.issues_synced} synced, Comments: {result.comments_synced}"
+        )
+        print(
+            f"  PRs: {result.prs_synced}, Reviews: {result.reviews_synced}, Diffs: {result.diffs_synced}"
+        )
+        print(
+            f"  Commits: {result.commits_synced}, CI results: {result.ci_results_synced}"
+        )
         print(f"  Skipped (dedup): {result.items_skipped}, Errors: {result.errors}")
         print(f"  Duration: {result.duration_seconds:.1f}s")
 
     if code_only or config.github_code_blob_enabled:
-        print(f"\nSyncing code blobs from {config.github_repo} ({config.github_branch} branch)...")
+        print(
+            f"\nSyncing code blobs from {config.github_repo} ({config.github_branch} branch)..."
+        )
         client = GitHubClient(
             token=config.github_token.get_secret_value(),
             repo=config.github_repo,
@@ -111,8 +121,12 @@ Configuration:
 
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--full", action="store_true", help="Full sync (all data)")
-    mode_group.add_argument("--incremental", action="store_true", help="Incremental sync (default)")
-    mode_group.add_argument("--code-only", action="store_true", help="Sync only code blobs")
+    mode_group.add_argument(
+        "--incremental", action="store_true", help="Incremental sync (default)"
+    )
+    mode_group.add_argument(
+        "--code-only", action="store_true", help="Sync only code blobs"
+    )
     mode_group.add_argument("--status", action="store_true", help="Display sync status")
 
     args = parser.parse_args()

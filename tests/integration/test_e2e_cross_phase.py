@@ -13,12 +13,11 @@ Run with: pytest tests/integration/test_e2e_cross_phase.py -v --run-integration
 """
 
 import uuid
+from unittest.mock import MagicMock, patch
 
-import numpy as np
 import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
-from unittest.mock import MagicMock, patch
 
 
 @pytest.fixture
@@ -33,18 +32,24 @@ def qdrant_inmemory():
     return client
 
 
+FIXED_EMBEDDING = [0.5] * 768
+
+
 @pytest.fixture
 def mock_embedding():
     """Mock embedding client returning deterministic 768-dim vectors."""
     mock = MagicMock()
-    mock.embed.return_value = [np.random.rand(768).tolist()]
+    mock.embed.return_value = [FIXED_EMBEDDING]
     # Patch BOTH storage and search embedding clients
-    with patch("memory.storage.EmbeddingClient", return_value=mock), \
-         patch("memory.search.EmbeddingClient", return_value=mock):
+    with (
+        patch("memory.storage.EmbeddingClient", return_value=mock),
+        patch("memory.search.EmbeddingClient", return_value=mock),
+    ):
         yield mock
 
 
 # ─── Test 1: Session Round-Trip (SPEC-001 decay + SPEC-012 injection) ────────
+
 
 @pytest.mark.integration
 def test_e2e_session_round_trip(qdrant_inmemory, mock_embedding, monkeypatch):
@@ -88,6 +93,7 @@ def test_e2e_session_round_trip(qdrant_inmemory, mock_embedding, monkeypatch):
 
 
 # ─── Test 2: Freshness Scan Detection (SPEC-013 + SPEC-003 GitHub) ───────────
+
 
 @pytest.mark.integration
 def test_e2e_freshness_data_stored(qdrant_inmemory, mock_embedding):
@@ -135,6 +141,7 @@ def test_e2e_freshness_data_stored(qdrant_inmemory, mock_embedding):
 
 
 # ─── Test 3: Security → Storage → Search (SPEC-009 + storage + search) ───────
+
 
 @pytest.mark.integration
 def test_e2e_security_storage_search(qdrant_inmemory, mock_embedding, monkeypatch):
@@ -185,6 +192,7 @@ def test_e2e_security_storage_search(qdrant_inmemory, mock_embedding, monkeypatc
 
 # ─── Test 4: Parzival Handoff Round-Trip (SPEC-015 + SPEC-016) ───────────────
 
+
 @pytest.mark.integration
 def test_e2e_parzival_handoff_round_trip(qdrant_inmemory, mock_embedding, monkeypatch):
     """Store handoff via agent API → search → verify agent_id filter.
@@ -229,6 +237,7 @@ def test_e2e_parzival_handoff_round_trip(qdrant_inmemory, mock_embedding, monkey
 
 # ─── Test 5: Upgrade Simulation (SPEC-018 migration script) ──────────────────
 
+
 @pytest.mark.integration
 def test_e2e_upgrade_simulation(qdrant_inmemory, mock_embedding):
     """Create v2.0.5-like vectors → run migration functions → verify fields added.
@@ -238,7 +247,9 @@ def test_e2e_upgrade_simulation(qdrant_inmemory, mock_embedding):
     fields (decay_score, freshness_status, source_authority, is_current, version)
     onto existing vectors that lack them.
     """
-    from migrate_v205_to_v206 import build_freshness_payload, get_source_authority
+    migrate = pytest.importorskip("migrate_v205_to_v206")
+    build_freshness_payload = migrate.build_freshness_payload
+    get_source_authority = migrate.get_source_authority
 
     # 1. Create vectors WITHOUT v2.0.6 fields (simulating v2.0.5 data)
     point_id = str(uuid.uuid4())
@@ -250,11 +261,13 @@ def test_e2e_upgrade_simulation(qdrant_inmemory, mock_embedding):
     }
     qdrant_inmemory.upsert(
         collection_name="code-patterns",
-        points=[PointStruct(
-            id=point_id,
-            vector=[0.1] * 768,
-            payload=old_payload,
-        )],
+        points=[
+            PointStruct(
+                id=point_id,
+                vector=[0.1] * 768,
+                payload=old_payload,
+            )
+        ],
     )
 
     # 2. Run migration logic via build_freshness_payload (the core migration function)
@@ -282,6 +295,7 @@ def test_e2e_upgrade_simulation(qdrant_inmemory, mock_embedding):
 
 # ─── Test 6: Kill Switch (SPEC-014 /pause-updates + config toggle) ───────────
 
+
 @pytest.mark.integration
 def test_e2e_kill_switch(monkeypatch):
     """Toggle auto_update env var → verify config reflects changes.
@@ -293,7 +307,9 @@ def test_e2e_kill_switch(monkeypatch):
     from memory.config import get_config, reset_config
 
     if not hasattr(get_config(), "auto_update_enabled"):
-        pytest.skip("auto_update_enabled not present on config — skipping kill switch test")
+        pytest.skip(
+            "auto_update_enabled not present on config — skipping kill switch test"
+        )
 
     # 1. Verify auto_update starts enabled (default)
     reset_config()

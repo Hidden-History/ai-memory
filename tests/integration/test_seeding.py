@@ -428,6 +428,8 @@ class TestSeedTemplates:
         self, mock_get_client, mock_get_hashes, mock_generate_embedding
     ):
         """Test deduplication skips existing content."""
+        import hashlib
+
         # Mock Qdrant client
         mock_client = Mock()
         mock_get_client.return_value = mock_client
@@ -439,11 +441,15 @@ class TestSeedTemplates:
         mock_collections.collections = [mock_collection_info]
         mock_client.get_collections.return_value = mock_collections
 
-        # Mock existing hashes - first 2 templates already exist
-        mock_get_hashes.return_value = {
-            "sha256:abc123",  # Simulated hash for template 0
-            "sha256:def456",  # Simulated hash for template 1
-        }
+        # Calculate the actual SHA256 hash of the first template's content
+        # create_test_templates generates content=f"Test best practice {i}"
+        first_content = "Test best practice 0"
+        first_hash = (
+            "sha256:" + hashlib.sha256(first_content.encode("utf-8")).hexdigest()
+        )
+
+        # Mock existing hashes: first template already exists (by actual hash)
+        mock_get_hashes.return_value = {first_hash}
 
         mock_generate_embedding.return_value = [0.1] * 768
         mock_client.upsert = Mock()
@@ -451,11 +457,10 @@ class TestSeedTemplates:
         config = self.create_mock_config()
         templates = self.create_test_templates(count=5)
 
-        # With actual hashes, this won't match - but we're testing the logic
         count = seed_templates(templates, config, dry_run=False, skip_duplicates=True)
 
-        # All 5 should be inserted since mock hashes don't match actual content hashes
-        assert count == 5
+        # 1 template skipped (first_hash matches template 0) → 4 inserted
+        assert count == 4
 
     @patch("seed_best_practices.generate_embedding")
     @patch("seed_best_practices.get_qdrant_client")

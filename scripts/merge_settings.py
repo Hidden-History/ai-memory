@@ -26,7 +26,6 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 
 def deep_merge(base: dict, overlay: dict) -> dict:
@@ -204,7 +203,10 @@ def _upgrade_hook_commands(settings: dict) -> dict:
 
     # BUG-078: Upgrade SessionStart matcher
     for wrapper in hooks.get("SessionStart", []):
-        if isinstance(wrapper, dict) and wrapper.get("matcher") == "startup|resume|compact|clear":
+        if (
+            isinstance(wrapper, dict)
+            and wrapper.get("matcher") == "startup|resume|compact|clear"
+        ):
             wrapper["matcher"] = "resume|compact"
 
     return settings

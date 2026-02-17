@@ -64,12 +64,13 @@ Defaults → Environment Variables → Runtime Overrides
 **Format:**
 ```bash
 # Core Settings
-QDRANT_URL=http://localhost:26350
-MEMORY_LOG_LEVEL=INFO
+QDRANT_HOST=localhost
+QDRANT_PORT=26350
+LOG_LEVEL=INFO
 
 # Performance
-MEMORY_MAX_RETRIEVALS=10
-MEMORY_SIMILARITY_THRESHOLD=0.7
+MAX_RETRIEVALS=10
+SIMILARITY_THRESHOLD=0.7
 ```
 
 **When to use:**
@@ -170,12 +171,11 @@ export AI_MEMORY_PROJECT_ID=my-awesome-project
 ```
 
 **Related:**
-- `QDRANT_COLLECTION_PREFIX` - Collection-level isolation
 - `group_id` payload field - Record-level isolation
 
 ---
 
-#### MEMORY_LOG_LEVEL
+#### LOG_LEVEL
 **Purpose:** Logging verbosity
 
 **Default:** `INFO`
@@ -189,7 +189,7 @@ export AI_MEMORY_PROJECT_ID=my-awesome-project
 
 **Example:**
 ```bash
-export MEMORY_LOG_LEVEL=DEBUG
+export LOG_LEVEL=DEBUG
 ```
 
 **When to change:**
@@ -204,32 +204,51 @@ export MEMORY_LOG_LEVEL=DEBUG
 
 ### Qdrant Configuration
 
-#### QDRANT_URL
-**Purpose:** Qdrant vector database connection URL
+#### QDRANT_HOST
+**Purpose:** Qdrant vector database hostname
 
-**Default:** `http://localhost:26350`
+**Default:** `localhost`
 
-**Format:** `http://HOST:PORT` or `https://HOST:PORT`
+**Format:** Hostname or IP address
 
 **Example:**
 ```bash
-# Local development
-export QDRANT_URL=http://localhost:26350
+# Local development (default)
+export QDRANT_HOST=localhost
 
 # Remote Qdrant Cloud
-export QDRANT_URL=https://xyz.qdrant.io
+export QDRANT_HOST=xyz.qdrant.io
+
+# Docker network
+export QDRANT_HOST=ai-memory-qdrant
+```
+
+**Related:**
+- `QDRANT_PORT` - Qdrant server port
+- `QDRANT_API_KEY` - For Qdrant Cloud authentication
+- `QDRANT_USE_HTTPS` - Enable HTTPS for connections
+
+---
+
+#### QDRANT_PORT
+**Purpose:** Qdrant vector database port
+
+**Default:** `26350`
+
+**Format:** Integer (port number)
+
+**Example:**
+```bash
+# Default
+export QDRANT_PORT=26350
 
 # Custom port
-export QDRANT_URL=http://localhost:16333
+export QDRANT_PORT=16333
 ```
 
 **When to change:**
 - **Custom port**: Avoid conflicts with other services
 - **Remote Qdrant**: Using Qdrant Cloud or shared instance
-- **Docker network**: Using custom Docker network
-
-**Related:**
-- `QDRANT_API_KEY` - For Qdrant Cloud authentication
 
 ---
 
@@ -258,80 +277,62 @@ export QDRANT_API_KEY=your-api-key-here
 
 ---
 
-#### QDRANT_COLLECTION_PREFIX
-**Purpose:** Prefix for collection names (multi-tenancy)
+### Embedding Configuration
 
-**Default:** `ai_memory_` (results in `ai_memory_code-patterns`, `ai_memory_discussions`, etc.)
+#### EMBEDDING_HOST
+**Purpose:** Embedding service hostname
 
-**Format:** String (alphanumeric + underscore)
+**Default:** `localhost`
+
+**Format:** Hostname or IP address
+
+**Example:**
+```bash
+# Local development (default)
+export EMBEDDING_HOST=localhost
+
+# Docker network
+export EMBEDDING_HOST=ai-memory-embedding
+```
+
+**Related:**
+- `EMBEDDING_PORT` - Embedding service port
+
+---
+
+#### EMBEDDING_PORT
+**Purpose:** Embedding service port
+
+**Default:** `28080`
+
+**Format:** Integer (port number)
 
 **Example:**
 ```bash
 # Default
-export QDRANT_COLLECTION_PREFIX=ai_memory_
-
-# Testing
-export QDRANT_COLLECTION_PREFIX=test_
-
-# Per-user
-export QDRANT_COLLECTION_PREFIX=user_alice_
-```
-
-**When to change:**
-- **Testing**: Isolate test data from production
-- **Multi-user**: Separate collections per user
-- **Multi-environment**: dev/staging/prod isolation
-
-**Impact:**
-- Collections created: `{prefix}code-patterns`, `{prefix}discussions`, `{prefix}conventions`
-
----
-
-### Embedding Configuration
-
-#### EMBEDDING_URL
-**Purpose:** Embedding service endpoint
-
-**Default:** `http://localhost:28080/embed`
-
-**Format:** `http://HOST:PORT/PATH`
-
-**Example:**
-```bash
-# Local development
-export EMBEDDING_URL=http://localhost:28080/embed
+export EMBEDDING_PORT=28080
 
 # Custom port
-export EMBEDDING_URL=http://localhost:18080/embed
-
-# External service (Jina AI API)
-export EMBEDDING_URL=https://api.jina.ai/v1/embeddings
+export EMBEDDING_PORT=18080
 ```
 
 **When to change:**
-- **Custom port**: Avoid conflicts
-- **External service**: Using Jina AI API instead of self-hosted
-- **Load balancer**: Multiple embedding service instances
+- **Custom port**: Avoid conflicts with other services
 
 ---
 
-#### EMBEDDING_MODEL
-**Purpose:** Embedding model identifier
+#### EMBEDDING_MODEL_DENSE_EN
+**Purpose:** Prose embedding model identifier (used for non-code content)
 
 **Default:** `jinaai/jina-embeddings-v2-base-en` (768 dimensions)
 
-**Options:**
-- `jinaai/jina-embeddings-v2-base-en` - General purpose with code support (768d) ✅ Recommended
-- `jinaai/jina-embeddings-v2-base-code` - Code-specific variant (768d)
-
 **Example:**
 ```bash
-export EMBEDDING_MODEL=jinaai/jina-embeddings-v2-base-en
+export EMBEDDING_MODEL_DENSE_EN=jinaai/jina-embeddings-v2-base-en
 ```
 
 **When to change:**
-- **Specialized needs**: Use code-specific variant for pure code embeddings
-- **Testing**: Compare model performance
+- Upgrading to a new Jina embedding model release
 
 ⚠️ **Warning:** Changing models invalidates existing embeddings. You must:
 1. Stop services
@@ -340,56 +341,43 @@ export EMBEDDING_MODEL=jinaai/jina-embeddings-v2-base-en
 
 ---
 
-#### EMBEDDING_TIMEOUT
-**Purpose:** Maximum time to wait for embedding generation
+#### EMBEDDING_MODEL_DENSE_CODE
+**Purpose:** Code embedding model identifier (used for code content)
 
-**Default:** `30` seconds
-
-**Format:** Integer (seconds)
+**Default:** `jinaai/jina-embeddings-v2-base-code` (768 dimensions)
 
 **Example:**
 ```bash
-# Default
-export EMBEDDING_TIMEOUT=30
-
-# Faster timeout (aggressive)
-export EMBEDDING_TIMEOUT=10
-
-# Slower connection
-export EMBEDDING_TIMEOUT=60
+export EMBEDDING_MODEL_DENSE_CODE=jinaai/jina-embeddings-v2-base-code
 ```
 
 **When to change:**
-- **Slow network**: Increase timeout
-- **Production**: Lower timeout to fail fast (use graceful degradation)
-
-**Graceful Degradation:**
-If embedding fails, system stores memory with zero vector and `embedding_status=pending`
+- Upgrading to a new Jina code embedding model release
 
 ---
 
 ### Search & Retrieval
 
-#### MEMORY_MAX_RETRIEVALS
+#### MAX_RETRIEVALS
 **Purpose:** Maximum memories to retrieve in search/SessionStart
 
 **Default:** `5`
 
-**Format:** Integer (1-20)
+**Format:** Integer (1-50)
 
 **Example:**
 ```bash
 # Conservative (faster, less context)
-export MEMORY_MAX_RETRIEVALS=3
+export MAX_RETRIEVALS=3
 
 # Default
-export MEMORY_MAX_RETRIEVALS=5
+export MAX_RETRIEVALS=5
 
 # Comprehensive (slower, more context)
-export MEMORY_MAX_RETRIEVALS=10
+export MAX_RETRIEVALS=10
 
 # Maximum
-export MEMORY_MAX_RETRIEVALS=20
+export MAX_RETRIEVALS=50
 ```
 
 **When to change:**
@@ -403,23 +391,23 @@ export MEMORY_MAX_RETRIEVALS=20
 
 ---
 
-#### MEMORY_SIMILARITY_THRESHOLD
+#### SIMILARITY_THRESHOLD
 **Purpose:** Minimum similarity score for search results (0-1)
 
-**Default:** `0.5` (50%)
+**Default:** `0.7` (70%)
 
 **Format:** Float (0.0 to 1.0)
 
 **Example:**
 ```bash
 # Strict (only high relevance)
-export MEMORY_SIMILARITY_THRESHOLD=0.8
+export SIMILARITY_THRESHOLD=0.8
 
 # Default (medium relevance)
-export MEMORY_SIMILARITY_THRESHOLD=0.5
+export SIMILARITY_THRESHOLD=0.7
 
 # Permissive (include low relevance)
-export MEMORY_SIMILARITY_THRESHOLD=0.3
+export SIMILARITY_THRESHOLD=0.3
 ```
 
 **When to change:**
@@ -436,111 +424,10 @@ export MEMORY_SIMILARITY_THRESHOLD=0.3
 
 ---
 
-#### MEMORY_SESSION_WINDOW_HOURS
-**Purpose:** SessionStart retrieval time window (hours)
-
-**Default:** `48` (2 days)
-
-**Format:** Integer (hours)
-
-**Example:**
-```bash
-# Short window (recent sessions only)
-export MEMORY_SESSION_WINDOW_HOURS=24
-
-# Default
-export MEMORY_SESSION_WINDOW_HOURS=48
-
-# Long window (full history)
-export MEMORY_SESSION_WINDOW_HOURS=168  # 1 week
-```
-
-**When to change:**
-- **Recent focus**: Short window for active projects
-- **Long-term recall**: Longer window for dormant projects
-- **Performance**: Shorter window = faster searches
-
-**Impact:**
-- SessionStart only retrieves memories with `created_at` within this window
-- Older memories still exist but won't appear in automatic context
-
----
-
-### Performance Tuning
-
-#### MEMORY_BATCH_SIZE
-**Purpose:** Batch size for bulk operations
-
-**Default:** `100`
-
-**Format:** Integer (1-1000)
-
-**Example:**
-```bash
-export MEMORY_BATCH_SIZE=100
-```
-
-**When to change:**
-- **Large imports**: Increase for better throughput
-- **Memory constraints**: Decrease if hitting RAM limits
-
-**Impact:**
-- Embedding generation: Processes N items at once
-- Qdrant upsert: Batches N points per request
-
----
-
-#### MEMORY_CACHE_TTL
-**Purpose:** Cache time-to-live for embeddings and search results
-
-**Default:** `1800` (30 minutes)
-
-**Format:** Integer (seconds)
-
-**Example:**
-```bash
-# No caching
-export MEMORY_CACHE_TTL=0
-
-# Default (30 minutes)
-export MEMORY_CACHE_TTL=1800
-
-# Long cache (1 hour)
-export MEMORY_CACHE_TTL=3600
-```
-
-**When to change:**
-- **Development**: Set to 0 to disable caching
-- **Production**: Increase for better performance
-
-**What's cached:**
-- Query embeddings (same query = reuse embedding)
-- Search results (for identical queries)
-
----
-
-#### MEMORY_FORK_TIMEOUT
-**Purpose:** PostToolUse fork timeout (background process spawn)
-
-**Default:** `1000` (1 second)
-
-**Format:** Integer (milliseconds)
-
-**Example:**
-```bash
-export MEMORY_FORK_TIMEOUT=1000
-```
-
-**When to change:**
-- Slow disk I/O (increase timeout)
-- Should rarely need adjustment (fork is fast)
-
----
-
 ### Logging & Monitoring
 
-#### MEMORY_PROMETHEUS_PORT
-**Purpose:** Prometheus metrics exporter port
+#### MONITORING_PORT
+**Purpose:** Monitoring API port (health checks and metrics endpoint)
 
 **Default:** `28000`
 
@@ -548,7 +435,7 @@ export MEMORY_FORK_TIMEOUT=1000
 
 **Example:**
 ```bash
-export MEMORY_PROMETHEUS_PORT=28000
+export MONITORING_PORT=28000
 ```
 
 **When to change:**
@@ -559,33 +446,33 @@ export MEMORY_PROMETHEUS_PORT=28000
 
 ---
 
-#### MEMORY_STRUCTURED_LOGGING
-**Purpose:** Enable structured JSON logging
+#### LOG_FORMAT
+**Purpose:** Log output format
 
-**Default:** `true`
+**Default:** `json`
 
-**Options:** `true`, `false`
+**Options:** `json`, `text`
 
 **Example:**
 ```bash
-# Structured logging (JSON)
-export MEMORY_STRUCTURED_LOGGING=true
+# Structured logging (JSON) — default, recommended for production
+export LOG_FORMAT=json
 
 # Human-readable logging
-export MEMORY_STRUCTURED_LOGGING=false
+export LOG_FORMAT=text
 ```
 
 **When to change:**
-- **Production**: Enable for log aggregation (ELK, Splunk)
-- **Development**: Disable for human readability
+- **Production**: Keep `json` for log aggregation (ELK, Splunk)
+- **Development**: Use `text` for human readability
 
 **Output Example:**
 
 ```json
-// Structured (MEMORY_STRUCTURED_LOGGING=true)
+// Structured (LOG_FORMAT=json)
 {"timestamp": "2026-01-17T10:30:00Z", "level": "INFO", "event": "memory_stored", "memory_id": "abc123", "type": "implementation"}
 
-// Human-readable (MEMORY_STRUCTURED_LOGGING=false)
+// Human-readable (LOG_FORMAT=text)
 2026-01-17 10:30:00 INFO memory_stored memory_id=abc123 type=implementation
 ```
 
@@ -1252,13 +1139,23 @@ Configure different token budgets for BMAD agents:
 **File:** `src/memory/config.py`
 
 ```python
-AGENT_TOKEN_BUDGETS = {
-    "default": 2000,        # General sessions
-    "architect": 3000,      # Architecture planning (more context)
-    "pm": 1500,            # PM sessions (less technical)
-    "dev": 2500,           # Development (code-heavy)
-    "tea": 2000,           # Testing (balanced)
-    "sm": 1000,            # Scrum Master (minimal)
+AGENTS = {
+    "architect": {"budget": 1500},       # Architecture planning
+    "analyst": {"budget": 1200},         # Analysis sessions
+    "pm": {"budget": 1200},              # PM sessions
+    "developer": {"budget": 1200},       # Development
+    "dev": {"budget": 1200},             # Development (alias)
+    "solo-dev": {"budget": 1500},        # Solo development
+    "quick-flow-solo-dev": {"budget": 1500},
+    "ux-designer": {"budget": 1000},     # UX design
+    "qa": {"budget": 1000},              # QA testing
+    "tea": {"budget": 1000},             # TEA agent
+    "code-review": {"budget": 1200},     # Code review
+    "code-reviewer": {"budget": 1200},   # Code reviewer (alias)
+    "scrum-master": {"budget": 800},     # Scrum Master (minimal)
+    "sm": {"budget": 800},               # Scrum Master (alias)
+    "tech-writer": {"budget": 800},      # Technical writing
+    "default": {"budget": 1000},         # General sessions
 }
 ```
 
@@ -1281,16 +1178,13 @@ AGENT_TOKEN_BUDGETS = {
 # ~/.ai-memory/.env
 
 # Verbose logging
-MEMORY_LOG_LEVEL=DEBUG
+LOG_LEVEL=DEBUG
 
 # Lower threshold (see more results)
-MEMORY_SIMILARITY_THRESHOLD=0.3
+SIMILARITY_THRESHOLD=0.3
 
 # More retrievals (comprehensive context)
-MEMORY_MAX_RETRIEVALS=10
-
-# No caching (always fresh)
-MEMORY_CACHE_TTL=0
+MAX_RETRIEVALS=10
 ```
 
 ### Production Configuration
@@ -1299,19 +1193,16 @@ MEMORY_CACHE_TTL=0
 # ~/.ai-memory/.env
 
 # Standard logging
-MEMORY_LOG_LEVEL=INFO
+LOG_LEVEL=INFO
 
 # Strict relevance
-MEMORY_SIMILARITY_THRESHOLD=0.7
+SIMILARITY_THRESHOLD=0.7
 
 # Balanced retrievals
-MEMORY_MAX_RETRIEVALS=5
-
-# Long cache (performance)
-MEMORY_CACHE_TTL=3600
+MAX_RETRIEVALS=5
 
 # Structured logging for aggregation
-MEMORY_STRUCTURED_LOGGING=true
+LOG_FORMAT=json
 ```
 
 ### Testing Configuration
@@ -1319,17 +1210,11 @@ MEMORY_STRUCTURED_LOGGING=true
 ```bash
 # ~/.ai-memory/.env
 
-# Test collection prefix
-QDRANT_COLLECTION_PREFIX=test_
-
 # Debug logging
-MEMORY_LOG_LEVEL=DEBUG
+LOG_LEVEL=DEBUG
 
 # Permissive threshold
-MEMORY_SIMILARITY_THRESHOLD=0.2
-
-# Fast timeout (fail fast)
-EMBEDDING_TIMEOUT=5
+SIMILARITY_THRESHOLD=0.2
 ```
 
 ### Remote Qdrant Cloud
@@ -1337,15 +1222,12 @@ EMBEDDING_TIMEOUT=5
 ```bash
 # ~/.ai-memory/.env
 
-# Qdrant Cloud URL
-QDRANT_URL=https://xyz-abc.qdrant.io
+# Qdrant Cloud host and HTTPS
+QDRANT_HOST=xyz-abc.qdrant.io
+QDRANT_USE_HTTPS=true
 
 # API key (from Qdrant Cloud console)
 QDRANT_API_KEY=your-api-key-here
-
-# Use external embedding service
-EMBEDDING_URL=https://api.jina.ai/v1/embeddings
-JINA_API_KEY=your-jina-key
 ```
 
 ---
@@ -1363,7 +1245,7 @@ JINA_API_KEY=your-jina-key
 ls -la ~/.ai-memory/.env
 
 # Verify variable is set
-python3 -c "from memory.config import get_config; print(get_config().qdrant_url)"
+python3 -c "from memory.config import get_config; c = get_config(); print(c.get_qdrant_url())"
 ```
 
 **Solutions:**
@@ -1371,10 +1253,11 @@ python3 -c "from memory.config import get_config; print(get_config().qdrant_url)
 2. **Format**: No quotes around values
    ```bash
    # Correct
-   QDRANT_URL=http://localhost:26350
+   QDRANT_HOST=localhost
+   QDRANT_PORT=26350
 
    # Wrong
-   QDRANT_URL="http://localhost:26350"
+   QDRANT_HOST="localhost"
    ```
 3. **Restart**: Restart hooks/services after changing
 </details>
@@ -1407,13 +1290,10 @@ docker compose -f docker/docker-compose.yml up -d
 **Optimizations:**
 ```bash
 # Reduce retrievals
-export MEMORY_MAX_RETRIEVALS=3
+export MAX_RETRIEVALS=3
 
 # Increase threshold (fewer results)
-export MEMORY_SIMILARITY_THRESHOLD=0.7
-
-# Shorter time window
-export MEMORY_SESSION_WINDOW_HOURS=24
+export SIMILARITY_THRESHOLD=0.7
 ```
 </details>
 
