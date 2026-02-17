@@ -542,7 +542,7 @@ def qdrant_client(qdrant_base_url: str) -> Generator:
 
 @pytest.fixture
 def test_collection(
-    qdrant_client: httpx.Client,
+    qdrant_client,
     request: pytest.FixtureRequest,
 ) -> Generator[str, None, None]:
     """Create a test collection and ensure cleanup after test.
@@ -550,22 +550,25 @@ def test_collection(
     Yields the collection name. Collection is automatically deleted
     after the test completes, even if the test fails.
     """
+    from qdrant_client.models import Distance, VectorParams
+
     # Generate unique collection name based on test name
     collection_name = f"test_{request.node.name}"
 
     # Create collection with DEC-010 dimensions (Jina Embeddings v2 Base Code = 768)
-    response = qdrant_client.put(
-        f"/collections/{collection_name}",
-        json={"vectors": {"size": 768, "distance": "Cosine"}},
-    )
-    if response.status_code not in (200, 409):  # 409 = already exists
-        pytest.fail(f"Failed to create test collection: {response.text}")
+    try:
+        qdrant_client.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(size=768, distance=Distance.COSINE),
+        )
+    except Exception:
+        pass  # Collection may already exist
 
     yield collection_name
 
     # Cleanup - always runs, even on test failure
     with contextlib.suppress(Exception):
-        qdrant_client.delete(f"/collections/{collection_name}")
+        qdrant_client.delete_collection(collection_name=collection_name)
 
 
 @pytest.fixture(scope="session")

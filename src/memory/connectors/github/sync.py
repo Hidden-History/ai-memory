@@ -812,6 +812,7 @@ class GitHubSyncEngine:
                     )
                     return False
                 content = scan_result.content  # Use masked version
+                content_hash = compute_content_hash(content)  # W4C-003: rehash post-scan
 
             # Changed -- mark old as superseded (only after scan passes)
             version = old_point.payload.get("version", 1) + 1
@@ -840,6 +841,7 @@ class GitHubSyncEngine:
                     )
                     return False
                 content = scan_result.content  # Use masked version
+                content_hash = compute_content_hash(content)  # W4C-003: rehash post-scan
 
         # Step 4: Store via store_memory() pipeline
         authority_tier = AUTHORITY_TIER_MAP.get(type_value, 1)

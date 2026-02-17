@@ -191,6 +191,7 @@ class MemoryPayload:
             "source_hook": self.source_hook,
             "session_id": self.session_id,
             "timestamp": self.timestamp,
+            "stored_at": self.timestamp,  # W4C-001: alias for decay scoring + freshness
             "domain": self.domain,
             "importance": self.importance,
             "embedding_status": (

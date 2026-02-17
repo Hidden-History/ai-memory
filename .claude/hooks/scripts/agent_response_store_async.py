@@ -319,15 +319,15 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                             "chunk_type": "whole",
                             "chunk_index": 0,
                             "total_chunks": 1,
-                            "chunk_size_tokens": len(response_text) // 4,
+                            "chunk_size_tokens": (len(response_text) + 2) // 3,
                             "overlap_tokens": 0,
-                            "original_size_tokens": len(response_text) // 4,
+                            "original_size_tokens": (len(response_text) + 2) // 3,
                         },
                     )
                 )
         else:
             # Chunking not available — store whole
-            est_tokens = len(response_text) // 4
+            est_tokens = (len(response_text) + 2) // 3
             chunks_to_store.append(
                 (
                     response_text,
@@ -486,8 +486,8 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
             )
 
             token_count = (
-                len(response_text) // 4
-            )  # Fast estimation, consider tiktoken if accuracy critical
+                len(response_text) + 2
+            ) // 3  # Fast estimation, consider tiktoken if accuracy critical
             if token_count > 0:
                 push_token_metrics_async(
                     operation="capture",
