@@ -144,7 +144,11 @@ class InjectionSessionState:
     @staticmethod
     def _state_path(session_id: str) -> Path:
         """Get path to session state file."""
-        return Path(f"/tmp/ai-memory-{session_id}-injection-state.json")
+        # Sanitize session_id: alphanumeric + dash/underscore only, max 64 chars
+        safe_id = re.sub(r'[^a-zA-Z0-9_-]', '', session_id)[:64]
+        if not safe_id:
+            safe_id = "unknown"
+        return Path(f"/tmp/ai-memory-{safe_id}-injection-state.json")
 
 
 def retrieve_bootstrap_context(

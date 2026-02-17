@@ -26,6 +26,11 @@ logger = logging.getLogger("ai_memory.security_scanner")
 _spacy_nlp = None
 _spacy_available = None
 
+# Layer 2 (detect-secrets) is lazy-loaded to avoid import overhead (TD-162)
+_detect_secrets_available = None
+_detect_secrets_scan_line = None
+_detect_secrets_default_settings = None
+
 
 class ScanAction(str, Enum):
     """Outcome of security scan."""
@@ -110,7 +115,11 @@ PII_PATTERNS = {
         0.95,
     ),
     FindingType.PII_HANDLE: (
-        r'@[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}\b',
+        # GitHub handles: @username (min 2 chars after @, exclude Python decorators)
+        r'(?<!\w)@(?!pytest\b|dataclass\b|property\b|staticmethod\b|classmethod\b'
+        r'|abstractmethod\b|override\b|overload\b|cached_property\b'
+        r'|wraps\b|lru_cache\b|patch\b|mock\b|fixture\b|mark\b'
+        r')[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){1,38}\b',
         "[HANDLE_REDACTED]",
         0.70,
     ),
@@ -212,6 +221,30 @@ def _scan_layer1_regex(content: str) -> tuple[list[ScanFinding], bool]:
 # =============================================================================
 
 
+def _load_detect_secrets():
+    """Lazy load detect-secrets (called on first Layer 2 scan)."""
+    global _detect_secrets_available, _detect_secrets_scan_line, _detect_secrets_default_settings
+
+    if _detect_secrets_available is False:
+        return False
+
+    if _detect_secrets_available is True:
+        return True
+
+    try:
+        from detect_secrets.core.scan import scan_line
+        from detect_secrets.settings import default_settings
+
+        _detect_secrets_scan_line = scan_line
+        _detect_secrets_default_settings = default_settings
+        _detect_secrets_available = True
+        return True
+    except ImportError:
+        logger.warning("detect-secrets not installed, Layer 2 will be skipped")
+        _detect_secrets_available = False
+        return False
+
+
 def _scan_layer2_detect_secrets(content: str) -> tuple[list[ScanFinding], bool]:
     """Layer 2: detect-secrets entropy scanning.
 
@@ -221,17 +254,13 @@ def _scan_layer2_detect_secrets(content: str) -> tuple[list[ScanFinding], bool]:
     findings = []
     has_secrets = False
 
-    try:
-        from detect_secrets.core.scan import scan_line
-        from detect_secrets.settings import default_settings
-    except ImportError:
-        logger.warning("detect-secrets not installed, skipping Layer 2")
+    if not _load_detect_secrets():
         return findings, has_secrets
 
     try:
-        with default_settings():
+        with _detect_secrets_default_settings():
             for line_number, line in enumerate(content.splitlines(), start=1):
-                for secret in scan_line(line):
+                for secret in _detect_secrets_scan_line(line):
                     # Map detect-secrets type to our FindingType
                     if "key" in secret.type.lower() or "api" in secret.type.lower():
                         finding_type = FindingType.SECRET_API_KEY
@@ -428,6 +457,22 @@ class SecurityScanner:
         """
         self.enable_ner = enable_ner
 
+    def _apply_masks_and_determine_action(
+        self, content: str, findings: list[ScanFinding]
+    ) -> tuple[str, ScanAction]:
+        """Apply PII masks and determine final action. Used by both scan() and scan_batch()."""
+        pii_findings = [f for f in findings if f.replacement is not None]
+        pii_findings.sort(key=lambda f: f.start, reverse=True)
+        masked_content = content
+        for finding in pii_findings:
+            masked_content = (
+                masked_content[: finding.start]
+                + finding.replacement
+                + masked_content[finding.end :]
+            )
+        action = ScanAction.MASKED if pii_findings else ScanAction.PASSED
+        return masked_content, action
+
     def scan(self, content: str, force_ner: bool = False) -> ScanResult:
         """Scan a single text. Returns ScanResult with action, cleaned content, and findings.
 
@@ -480,26 +525,15 @@ class SecurityScanner:
             all_findings.extend(layer3_findings)
             layers_executed.append(3)
 
-        # Apply all PII masks
-        masked_content = content
-        # Sort findings by position (descending) to avoid offset shifts
-        pii_findings = [f for f in all_findings if f.replacement is not None]
-        pii_findings.sort(key=lambda f: f.start, reverse=True)
-
-        for finding in pii_findings:
-            masked_content = (
-                masked_content[: finding.start]
-                + finding.replacement
-                + masked_content[finding.end :]
-            )
-
-        # Determine final action
-        action = ScanAction.MASKED if pii_findings else ScanAction.PASSED
+        # Apply masks using shared helper
+        masked_content, action = self._apply_masks_and_determine_action(
+            content, all_findings
+        )
 
         duration_ms = (time.perf_counter() - start_time) * 1000
         result = ScanResult(
             action=action,
-            content=masked_content if action != ScanAction.BLOCKED else content,
+            content=masked_content,
             findings=all_findings,
             scan_duration_ms=duration_ms,
             layers_executed=layers_executed,
@@ -507,8 +541,150 @@ class SecurityScanner:
         _log_scan_result(result, content)
         return result
 
-    def scan_batch(self, texts: list[str]) -> list[ScanResult]:
-        """Scan multiple texts. Uses SpaCy batch processing if NER enabled."""
-        # For now, scan individually
-        # TODO: Optimize with true batch processing for SpaCy
-        return [self.scan(text) for text in texts]
+    def scan_batch(self, texts: list[str], force_ner: bool = False) -> list[ScanResult]:
+        """Scan multiple texts with optional SpaCy batch NER.
+
+        When NER is enabled (via instance config or force_ner), Layer 3
+        uses nlp.pipe() for cross-text batching which is more efficient
+        than per-text NER. Layers 1+2 are always per-text.
+
+        Args:
+            texts: List of text strings to scan.
+            force_ner: If True, enable Layer 3 for this batch regardless of config.
+
+        Returns:
+            List of ScanResult, one per input text.
+        """
+        use_ner = self.enable_ner or force_ner
+
+        if not use_ner:
+            # No NER: scan each text individually (L1+L2 only)
+            return [self.scan(text) for text in texts]
+
+        # With NER: run L1+L2 per-text, then batch L3 via nlp.pipe()
+        pre_results = []
+        ner_candidates = []  # texts that need L3
+
+        for i, text in enumerate(texts):
+            start_time = time.perf_counter()
+            all_findings = []
+            layers_executed = []
+
+            # Layer 1
+            l1_findings, has_secrets_l1 = _scan_layer1_regex(text)
+            all_findings.extend(l1_findings)
+            layers_executed.append(1)
+
+            if has_secrets_l1:
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                result = ScanResult(
+                    action=ScanAction.BLOCKED,
+                    content="",
+                    findings=all_findings,
+                    scan_duration_ms=duration_ms,
+                    layers_executed=layers_executed,
+                )
+                _log_scan_result(result, text)
+                pre_results.append(result)
+                continue
+
+            # Layer 2
+            l2_findings, has_secrets_l2 = _scan_layer2_detect_secrets(text)
+            all_findings.extend(l2_findings)
+            layers_executed.append(2)
+
+            if has_secrets_l2:
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                result = ScanResult(
+                    action=ScanAction.BLOCKED,
+                    content="",
+                    findings=all_findings,
+                    scan_duration_ms=duration_ms,
+                    layers_executed=layers_executed,
+                )
+                _log_scan_result(result, text)
+                pre_results.append(result)
+                continue
+
+            # Mark for NER batch processing
+            pre_results.append((start_time, all_findings, layers_executed, text))
+            ner_candidates.append(text)
+
+        # Batch NER processing
+        nlp = _load_spacy_model()
+        ner_results_map = {}  # index -> list[ScanFinding]
+
+        if nlp is not None and ner_candidates:
+            try:
+                segments_per_text = []
+                for text in ner_candidates:
+                    segments_per_text.append(_segment_text(text))
+
+                # Flatten for nlp.pipe(), track which text each segment belongs to
+                flat_segments = []
+                segment_owners = []
+                for idx, segs in enumerate(segments_per_text):
+                    for seg in segs:
+                        flat_segments.append(seg)
+                        segment_owners.append(idx)
+
+                if hasattr(nlp, "memory_zone"):
+                    with nlp.memory_zone():
+                        docs = list(nlp.pipe(flat_segments, batch_size=50))
+                else:
+                    docs = list(nlp.pipe(flat_segments, batch_size=50))
+
+                # Collect findings per text
+                for doc_idx, doc in enumerate(docs):
+                    owner_idx = segment_owners[doc_idx]
+                    if owner_idx not in ner_results_map:
+                        ner_results_map[owner_idx] = []
+                    for ent in doc.ents:
+                        if ent.label_ == "PERSON":
+                            ner_results_map[owner_idx].append(
+                                ScanFinding(
+                                    finding_type=FindingType.PII_NAME,
+                                    layer=3,
+                                    original_text=ent.text,
+                                    replacement="[NAME_REDACTED]",
+                                    confidence=0.80,
+                                    start=ent.start_char,
+                                    end=ent.end_char,
+                                )
+                            )
+            except Exception as e:
+                logger.error(f"Batch SpaCy NER failed: {e}")
+
+        # Finalize results
+        final_results = []
+        ner_text_idx = 0
+
+        for pre in pre_results:
+            if isinstance(pre, ScanResult):
+                final_results.append(pre)
+            else:
+                start_time, all_findings, layers_executed, text = pre
+                layers_executed.append(3)
+
+                # Add NER findings for this text
+                ner_findings = ner_results_map.get(ner_text_idx, [])
+                all_findings.extend(ner_findings)
+                ner_text_idx += 1
+
+                # Apply masks using shared helper
+                masked_content, action = self._apply_masks_and_determine_action(
+                    text, all_findings
+                )
+                duration_ms = (time.perf_counter() - start_time) * 1000
+
+                result = ScanResult(
+                    action=action,
+                    content=masked_content,
+                    findings=all_findings,
+                    scan_duration_ms=duration_ms,
+                    layers_executed=layers_executed,
+                )
+                _log_scan_result(result, text)
+                final_results.append(result)
+
+        return final_results

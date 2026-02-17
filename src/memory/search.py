@@ -145,6 +145,7 @@ class MemorySearch:
         memory_type: str | list[str] | None = None,
         fast_mode: bool = False,  # NEW: Use hnsw_ef=64 for triggers
         source: str | None = None,  # SPEC-005: Namespace filter (e.g., "github")
+        agent_id: str | None = None,  # SPEC-015: Agent-scoped filter
     ) -> list[dict]:
         """Search for relevant memories using semantic similarity with project scoping.
 
@@ -273,6 +274,15 @@ class MemorySearch:
                         key="is_current", match=MatchValue(value=True)
                     )
                 )
+
+        # SPEC-015: Agent-scoped filter (e.g., agent_id="parzival")
+        if agent_id is not None:
+            filter_conditions.append(
+                FieldCondition(
+                    key="agent_id",
+                    match=MatchValue(value=agent_id),
+                )
+            )
 
         query_filter = Filter(must=filter_conditions) if filter_conditions else None
 

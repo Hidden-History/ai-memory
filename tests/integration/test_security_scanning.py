@@ -20,6 +20,7 @@ from memory.security_scanner import SecurityScanner, ScanAction
 from memory.storage import MemoryStorage
 
 
+@pytest.mark.integration
 class TestStorageIntegration:
     """Test scanner integration with MemoryStorage."""
 
@@ -108,6 +109,7 @@ class TestStorageIntegration:
         assert point.payload["content"] == clean_content
 
 
+@pytest.mark.integration
 class TestBatchStorageIntegration:
     """Test scanner integration with batch storage."""
 
@@ -207,6 +209,7 @@ class TestBatchStorageIntegration:
         assert "555-123-4567" not in point2.payload["content"]
 
 
+@pytest.mark.integration
 class TestHookScriptIntegration:
     """Test scanner integration with hook scripts via subprocess."""
 
@@ -271,6 +274,7 @@ class TestHookScriptIntegration:
         assert result.returncode == 0
 
 
+@pytest.mark.integration
 class TestPerformance:
     """Test scanner performance benchmarks."""
 
@@ -309,6 +313,7 @@ class TestPerformance:
         assert result.scan_duration_ms < 100.0
 
 
+@pytest.mark.integration
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
@@ -356,6 +361,7 @@ class TestEdgeCases:
         assert result["memory_id"] is not None
 
 
+@pytest.mark.integration
 class TestScannerLayers:
     """Test individual scanner layers."""
 

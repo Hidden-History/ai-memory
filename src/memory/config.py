@@ -536,6 +536,41 @@ class MemoryConfig(BaseSettings):
         ),
     )
 
+    # =========================================================================
+    # v2.0.6 — Parzival Session Agent (SPEC-015)
+    # =========================================================================
+
+    parzival_enabled: bool = Field(
+        default=False,
+        description="Enable Parzival session agent. Set by installer when user opts in.",
+    )
+
+    parzival_user_name: str = Field(
+        default="Developer",
+        description="User's display name for Parzival greeting and handoffs.",
+    )
+
+    parzival_language: str = Field(
+        default="English",
+        description="Parzival communication language.",
+    )
+
+    parzival_doc_language: str = Field(
+        default="English",
+        description="Language for Parzival-generated documents (handoffs, specs).",
+    )
+
+    parzival_oversight_folder: str = Field(
+        default="oversight",
+        description="Project-relative path to oversight directory. Created by installer.",
+    )
+
+    parzival_handoff_retention: int = Field(
+        default=10,
+        ge=1,
+        description="Number of recent handoff files to keep in oversight/session-logs/.",
+    )
+
     @field_validator("decay_type_overrides", mode="before")
     @classmethod
     def parse_type_overrides(cls, v: str) -> str:

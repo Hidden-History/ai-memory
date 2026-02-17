@@ -27,6 +27,17 @@ def pytest_configure(config):
     os.environ["QDRANT_URL"] = "http://localhost:26350"
 
 
+def pytest_collection_modifyitems(items):
+    """Auto-apply @pytest.mark.integration to all tests in this directory.
+
+    Ensures `pytest -m 'not integration'` excludes ALL integration tests,
+    even if individual test classes lack explicit markers (TD-158).
+    """
+    for item in items:
+        if "/tests/integration/" in str(item.fspath):
+            item.add_marker(pytest.mark.integration)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def integration_environment():
     """Ensure integration test environment is properly configured.

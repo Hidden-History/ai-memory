@@ -35,6 +35,9 @@ The memory system has 3 collections:
 
 # Limit results
 /search-memory "database patterns" --limit 10
+
+# Hide decay scores
+/search-memory "authentication" --no-decay
 ```
 
 ## Options
@@ -44,6 +47,8 @@ The memory system has 3 collections:
 - `--intent <intent>` - Use intent detection (how, what, why)
 - `--limit <n>` - Maximum results to return (default: 5)
 - `--group-id <id>` - Filter by project (default: auto-detect from cwd)
+- `--decay` - Show decay scores per result (default: enabled)
+- `--no-decay` - Hide decay scores from output
 
 ## Memory Types by Collection
 
@@ -76,6 +81,57 @@ When using `--intent`, the system routes to the appropriate primary collection:
 
 If primary collection has insufficient results, automatically expands to secondary collections.
 
+## Output Format
+
+Each result shows relevance score, content summary, metadata, and decay scores:
+
+```
+1. [0.85] Implementation of authentication middleware
+   Collection: code-patterns | Type: implementation | 2026-01-15
+   Decay: 0.72 (temporal: 0.61, semantic: 0.85)
+
+2. [0.78] JWT token validation pattern
+   Collection: code-patterns | Type: implementation | 2026-01-10
+   Decay: 0.65 (temporal: 0.52, semantic: 0.78)
+```
+
+When decay scoring is disabled or timestamp is unavailable:
+```
+1. [0.85] Implementation of authentication middleware
+   Collection: code-patterns | Type: implementation | 2026-01-15
+   Decay: n/a (temporal: n/a, semantic: 0.85)
+```
+
+## Score Interpretation
+
+Results include three scores:
+- **Relevance** (primary sort): Combined score from semantic + temporal
+- **Semantic**: How closely the content matches your query (vector similarity)
+- **Temporal**: How recent the memory is (exponential decay)
+
+A memory with semantic=0.90 and temporal=0.30 is very relevant but old.
+A memory with semantic=0.60 and temporal=0.95 is less relevant but very recent.
+
+### Decay Formula
+
+```
+final_score = 0.7 * semantic + 0.3 * 0.5^(age_days / half_life)
+```
+
+Sub-scores are recomputed client-side (Qdrant returns only the combined score):
+
+```python
+age_days = (datetime.now(timezone.utc) - datetime.fromisoformat(stored_at)).days
+temporal_score = 0.5 ** (age_days / half_life)
+semantic_score = (combined_score - 0.3 * temporal_score) / 0.7
+```
+
+Half-life varies by memory type (configured via `decay_type_overrides`):
+- `conversation`, `session_summary`: 21 days
+- `github_commit`, `github_code_blob`: 14 days
+- `github_issue`, `github_pr`: 30 days
+- `rule`, `guideline`: 60 days
+
 ## Examples
 
 ```bash
@@ -96,6 +152,9 @@ If primary collection has insufficient results, automatically expands to seconda
 
 # Search multiple types
 /search-memory "auth patterns" --type implementation,error_fix --limit 10
+
+# Search without decay score display
+/search-memory "auth patterns" --no-decay
 ```
 
 ## Python Implementation Reference
@@ -122,6 +181,7 @@ results = search_memories(
 - **Cascading**: Searches primary collection first, expands only if insufficient results
 - **Attribution**: All results include collection and type attribution
 - **Performance**: < 2s for typical searches (NFR-P1)
+- **Decay Scoring**: Uses AD-5 formula (SPEC-001). Sub-scores recomputed client-side.
 
 ## Notes
 
@@ -129,3 +189,4 @@ results = search_memories(
 - Score threshold defaults to 0.7 (configurable in .env)
 - Project auto-detection uses git repository root
 - code-patterns filtered by project, conventions/discussions are cross-project
+- Decay scores displayed to 2 decimal places

@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from .chunking import ContentType, IntelligentChunker
-from .config import MemoryConfig, get_config
+from .config import COLLECTION_DISCUSSIONS, MemoryConfig, get_config
 from .embeddings import EmbeddingClient, EmbeddingError
 from .models import EmbeddingStatus, MemoryPayload, MemoryType
 from .qdrant_client import QdrantUnavailable, get_qdrant_client
@@ -162,14 +162,19 @@ class MemoryStorage:
             **extra_fields: Additional payload fields (domain, importance, tags, etc.)
 
         Returns:
-            Dictionary with:
-                - memory_id: UUID string if stored, None if duplicate
-                - status: "stored" or "duplicate"
-                - embedding_status: "complete", "pending", or "failed"
+            dict with keys:
+                - memory_id (str): UUID of stored/matched memory, or None if blocked
+                - status (str): One of:
+                    - "stored": Successfully stored (content may have been masked for PII)
+                    - "blocked": Content blocked due to secrets detection, not stored
+                    - "duplicate": Content hash matches existing memory, not re-stored
+                - embedding_status (str): "complete" (success), "pending" (embedding
+                    service down), or "n/a" (blocked/duplicate)
+                - reason (str): Human-readable explanation (present on "blocked" status)
 
         Raises:
             ValueError: If cwd is None or payload validation fails
-            QdrantUnavailable: If Qdrant is unreachable (caller should queue)
+            QdrantUnavailable: If Qdrant storage backend fails
 
         Example:
             >>> storage = MemoryStorage()
@@ -244,6 +249,11 @@ class MemoryStorage:
             MemoryType.AGENT_RESPONSE: ContentType.AGENT_RESPONSE,
             MemoryType.JIRA_ISSUE: ContentType.PROSE,
             MemoryType.JIRA_COMMENT: ContentType.PROSE,
+            # v2.0.6 Agent Memory Types (SPEC-015) — enables chunking for oversized agent content
+            MemoryType.AGENT_HANDOFF: ContentType.AGENT_RESPONSE,
+            MemoryType.AGENT_MEMORY: ContentType.PROSE,
+            MemoryType.AGENT_TASK: ContentType.PROSE,
+            MemoryType.AGENT_INSIGHT: ContentType.PROSE,
         }
         chunker_content_type = content_type_map.get(memory_type)
         # Note: For USER_MESSAGE/AGENT_RESPONSE, IntelligentChunker handles
@@ -787,6 +797,11 @@ class MemoryStorage:
                 MemoryType.AGENT_RESPONSE: ContentType.AGENT_RESPONSE,
                 MemoryType.JIRA_ISSUE: ContentType.PROSE,
                 MemoryType.JIRA_COMMENT: ContentType.PROSE,
+                # v2.0.6 Agent Memory Types (SPEC-015)
+                MemoryType.AGENT_HANDOFF: ContentType.AGENT_RESPONSE,
+                MemoryType.AGENT_MEMORY: ContentType.PROSE,
+                MemoryType.AGENT_TASK: ContentType.PROSE,
+                MemoryType.AGENT_INSIGHT: ContentType.PROSE,
             }
             chunker_content_type = content_type_map.get(memory_type)
             # Note: For USER_MESSAGE/AGENT_RESPONSE, IntelligentChunker handles
@@ -1064,6 +1079,75 @@ class MemoryStorage:
             raise QdrantUnavailable(
                 f"Failed to retrieve memory {memory_id}: {e}"
             ) from e
+
+    def store_agent_memory(
+        self,
+        content: str,
+        memory_type: str,
+        agent_id: str = "parzival",
+        group_id: str | None = None,
+        session_id: str | None = None,
+        cwd: str | None = None,
+        metadata: dict | None = None,
+    ) -> dict:
+        """Store an agent memory to the discussions collection.
+
+        Convenience method that wraps store_memory() with agent-specific
+        defaults. Validates memory_type against allowed agent types,
+        sets agent_id payload field, and routes to discussions collection.
+
+        Passes through the full security scanning pipeline (AD-4).
+        Chunks if content > 3K tokens (per Chunking-Strategy-V2).
+
+        Args:
+            content: Memory content text.
+            memory_type: One of: agent_handoff, agent_memory, agent_task, agent_insight.
+            agent_id: Agent identifier (default "parzival").
+            group_id: Project identifier. Auto-detected from cwd if None.
+            session_id: Optional session identifier. Defaults to f"agent_{agent_id}".
+            cwd: Working directory for project detection.
+            metadata: Additional payload fields to include.
+
+        Returns:
+            store_memory() result dict with status, memory_id, embedding_status.
+
+        Raises:
+            ValueError: If memory_type is not a valid agent type.
+            ValueError: If neither group_id nor cwd is provided.
+        """
+        VALID_AGENT_TYPES = {
+            "agent_handoff",
+            "agent_memory",
+            "agent_task",
+            "agent_insight",
+        }
+        if memory_type not in VALID_AGENT_TYPES:
+            raise ValueError(
+                f"Invalid agent memory type: '{memory_type}'. "
+                f"Must be one of: {sorted(VALID_AGENT_TYPES)}"
+            )
+
+        if group_id is None and cwd is None:
+            raise ValueError("Either group_id or cwd must be provided")
+
+        extra_fields = {
+            "agent_id": agent_id,
+        }
+        if metadata:
+            extra_fields.update(metadata)
+
+        effective_session_id = session_id or f"agent_{agent_id}"
+
+        return self.store_memory(
+            content=content,
+            cwd=cwd or ".",
+            memory_type=MemoryType(memory_type),
+            source_hook="parzival_agent",
+            session_id=effective_session_id,
+            collection=COLLECTION_DISCUSSIONS,
+            group_id=group_id,
+            **extra_fields,
+        )
 
     def _check_duplicate(
         self, content_hash: str, collection: str, group_id: str

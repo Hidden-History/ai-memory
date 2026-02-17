@@ -81,6 +81,7 @@ def validate_payload(payload: dict) -> list[str]:
         "jira_sync",       # Jira connector sync (v2.0.5)
         "SDKWrapper",      # SDK-based conversation capture
         "agent:subagent",  # Agent-triggered storage
+        "parzival_agent",  # Parzival session agent (SPEC-015)
     ]
     if (
         "source_hook" in payload

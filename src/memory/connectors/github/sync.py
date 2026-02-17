@@ -19,7 +19,7 @@ from typing import Any
 
 from qdrant_client import models
 
-from memory.config import MemoryConfig, get_config
+from memory.config import COLLECTION_CODE_PATTERNS, MemoryConfig, get_config
 from memory.qdrant_client import get_qdrant_client
 from memory.connectors.github.client import GitHubClient, GitHubClientError
 from memory.connectors.github.composer import (
@@ -338,6 +338,16 @@ class GitHubSyncEngine:
                 )
                 if stored:
                     result.prs_synced += 1
+                    # Trigger freshness flagging for merged PRs
+                    if pr.get("merged_at"):
+                        try:
+                            files_list = [f["filename"] for f in files]
+                            self._trigger_freshness_for_merged_pr(files_list)
+                        except Exception as e:
+                            logger.warning(
+                                "freshness_trigger_failed",
+                                extra={"pr": pr["number"], "error": str(e)},
+                            )
                 else:
                     result.items_skipped += 1
 
@@ -528,6 +538,81 @@ class GitHubSyncEngine:
                 result.error_details.append(f"CI run {run.get('id', 'unknown')}: {e}")
 
         return count
+
+    # -- Post-Sync Freshness Feedback Loop -----------------------------
+
+    def _trigger_freshness_for_merged_pr(
+        self,
+        files_changed: list[str],
+    ) -> int:
+        """Flag code-patterns memories as stale for files changed in a merged PR.
+
+        Scrolls code-patterns collection for memories matching any of the
+        changed file paths, and updates their freshness_status to "stale".
+
+        Args:
+            files_changed: List of file paths from the merged PR.
+
+        Returns:
+            Number of memories flagged as stale.
+        """
+        if not files_changed:
+            return 0
+
+        flagged = 0
+        for file_path in files_changed:
+            offset = None
+            while True:
+                points, next_offset = self.qdrant.scroll(
+                    collection_name=COLLECTION_CODE_PATTERNS,
+                    scroll_filter=models.Filter(must=[
+                        models.FieldCondition(
+                            key="file_path",
+                            match=models.MatchValue(value=file_path),
+                        ),
+                        models.FieldCondition(
+                            key="group_id",
+                            match=models.MatchValue(value=self._group_id),
+                        ),
+                    ]),
+                    limit=100,
+                    offset=offset,
+                    with_payload=["freshness_status"],
+                )
+
+                for point in points:
+                    try:
+                        self.qdrant.set_payload(
+                            collection_name=COLLECTION_CODE_PATTERNS,
+                            payload={
+                                "freshness_status": "stale",
+                                "freshness_checked_at": datetime.now(
+                                    timezone.utc
+                                ).isoformat(),
+                                "freshness_trigger": "post_sync_pr_merge",
+                            },
+                            points=[point.id],
+                        )
+                        flagged += 1
+                    except Exception as e:
+                        logger.warning(
+                            "freshness_flag_failed",
+                            extra={"point_id": str(point.id), "error": str(e)},
+                        )
+
+                if next_offset is None:
+                    break
+                offset = next_offset
+
+        if flagged > 0:
+            logger.info(
+                "post_sync_freshness_flagged",
+                extra={
+                    "flagged_count": flagged,
+                    "files_checked": len(files_changed),
+                },
+            )
+        return flagged
 
     # -- Core Storage with Dedup/Versioning ----------------------------
 

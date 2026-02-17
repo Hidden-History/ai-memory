@@ -634,6 +634,9 @@ main() {
     verify_project_hooks
     setup_audit_directory
 
+    # Parzival session agent (optional, SPEC-015)
+    setup_parzival
+
     # Record project in manifest for cross-filesystem recovery discovery
     record_installed_project
 
@@ -2615,6 +2618,147 @@ show_python_version_error() {
     echo "│  functionality. You must upgrade Python.                   │"
     echo "└─────────────────────────────────────────────────────────────┘"
     exit 1
+}
+
+# =================================================================
+# Parzival Session Agent (optional, SPEC-015)
+# =================================================================
+setup_parzival() {
+    echo ""
+    echo "═══════════════════════════════════════════════════════"
+    echo "  Parzival Session Agent (Optional)"
+    echo "═══════════════════════════════════════════════════════"
+    echo ""
+    echo "Parzival is a Technical PM & Quality Gatekeeper that provides:"
+    echo "  - Cross-session memory (remembers previous sessions)"
+    echo "  - Project oversight (tracks bugs, specs, decisions)"
+    echo "  - Quality gatekeeping (verification checklists)"
+    echo ""
+    read -p "Enable Parzival session agent? [y/N] " parzival_choice
+
+    if [[ "${parzival_choice,,}" =~ ^(y|yes)$ ]]; then
+        log_info "Setting up Parzival..."
+
+        # Deploy commands to project
+        deploy_parzival_commands
+
+        # Deploy oversight templates
+        deploy_oversight_templates
+
+        # Add Parzival config to .env
+        configure_parzival_env
+
+        # Create agent_id payload index
+        create_agent_id_index
+
+        log_success "Parzival enabled"
+    else
+        log_info "Skipping Parzival setup (PARZIVAL_ENABLED=false)"
+        # Ensure disabled in .env
+        append_env_if_missing "PARZIVAL_ENABLED" "false"
+    fi
+}
+
+deploy_parzival_commands() {
+    local cmd_source="$INSTALL_DIR/.claude/commands/parzival"
+    local cmd_dest="$PROJECT_PATH/.claude/commands/parzival"
+
+    mkdir -p "$cmd_dest"
+
+    if [[ -d "$cmd_source" ]]; then
+        cp -r "$cmd_source/"* "$cmd_dest/"
+        log_info "Parzival commands deployed to $cmd_dest"
+    else
+        log_warning "Parzival command source not found at $cmd_source"
+    fi
+
+    # Deploy subagent files so exec= directives in parzival.md resolve correctly
+    local agent_dest="$PROJECT_PATH/.claude/agents"
+    mkdir -p "$agent_dest"
+
+    for agent_file in code-reviewer.md verify-implementation.md; do
+        if [[ -f "$INSTALL_DIR/.claude/agents/$agent_file" ]]; then
+            cp "$INSTALL_DIR/.claude/agents/$agent_file" "$agent_dest/$agent_file"
+        fi
+    done
+
+    if [[ -d "$INSTALL_DIR/.claude/agents/parzival" ]]; then
+        cp -r "$INSTALL_DIR/.claude/agents/parzival" "$agent_dest/"
+    fi
+
+    log_info "Parzival agent files deployed to $agent_dest"
+}
+
+deploy_oversight_templates() {
+    local tmpl_source="$INSTALL_DIR/templates/oversight"
+    local oversight_dest="$PROJECT_PATH/oversight"
+
+    if [[ ! -d "$tmpl_source" ]]; then
+        log_warning "Oversight templates not found at $tmpl_source"
+        return
+    fi
+
+    # Create oversight directory structure (skip existing files)
+    mkdir -p "$oversight_dest"
+
+    # Copy templates, preserving directory structure, skip existing
+    while read -r tmpl_file; do
+        local rel_path="${tmpl_file#$tmpl_source/}"
+        local dest_file="$oversight_dest/$rel_path"
+        local dest_dir="$(dirname "$dest_file")"
+
+        mkdir -p "$dest_dir"
+
+        if [[ ! -f "$dest_file" ]]; then
+            cp "$tmpl_file" "$dest_file"
+        fi
+    done < <(find "$tmpl_source" -type f)
+
+    log_info "Oversight templates deployed to $oversight_dest (existing files preserved)"
+}
+
+configure_parzival_env() {
+    local env_file="$INSTALL_DIR/docker/.env"
+
+    append_env_if_missing "PARZIVAL_ENABLED" "true"
+    append_env_if_missing "PARZIVAL_USER_NAME" "Developer"
+    append_env_if_missing "PARZIVAL_LANGUAGE" "English"
+    append_env_if_missing "PARZIVAL_DOC_LANGUAGE" "English"
+    append_env_if_missing "PARZIVAL_OVERSIGHT_FOLDER" "oversight"
+    append_env_if_missing "PARZIVAL_HANDOFF_RETENTION" "10"
+
+    # Prompt for user name
+    read -p "Your name for Parzival greetings [Developer]: " user_name
+    if [[ -n "$user_name" ]]; then
+        escaped_name=$(printf '%s\n' "$user_name" | sed 's/[\\\/&]/\\&/g')
+        sed -i "s/^PARZIVAL_USER_NAME=.*/PARZIVAL_USER_NAME=$escaped_name/" "$env_file"
+    fi
+}
+
+# Helper: append key=value to .env if key not already present
+append_env_if_missing() {
+    local key="$1"
+    local value="$2"
+    local env_file="$INSTALL_DIR/docker/.env"
+    if ! grep -q "^${key}=" "$env_file" 2>/dev/null; then
+        echo "${key}=${value}" >> "$env_file"
+    fi
+}
+
+create_agent_id_index() {
+    local qdrant_url="http://localhost:${QDRANT_PORT:-26350}"
+    local api_key
+    api_key=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" | cut -d= -f2-)
+
+    log_info "Creating agent_id payload index on discussions collection..."
+
+    curl -s -X PUT \
+        -H "Api-Key: $api_key" \
+        -H "Content-Type: application/json" \
+        -d '{"field_name": "agent_id", "field_schema": {"type": "keyword", "is_tenant": true}}' \
+        "$qdrant_url/collections/discussions/index" > /dev/null 2>&1 || {
+        log_warning "Could not create agent_id index (may already exist or Qdrant not running)"
+    }
 }
 
 # Record installed project path in manifest for recovery script discovery

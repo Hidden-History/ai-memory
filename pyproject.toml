@@ -81,6 +81,8 @@ dev = [
     "python-json-logger>=4.0.0,<5.0.0",
     # YAML processing with format preservation
     "ruamel.yaml>=0.19.0,<1.0.0",
+    # YAML parsing (required by tests/unit/test_sops_encryption.py)
+    "PyYAML>=6.0,<7.0",
 ]
 
 [project.urls]

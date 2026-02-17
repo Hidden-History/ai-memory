@@ -22,7 +22,7 @@ __all__ = [
 class MemoryType(str, Enum):
     """Types of memories that can be stored (Memory System v2.0).
 
-    Total: 26 types (4 code-patterns + 5 conventions + 6 discussions + 2 jira-data + 9 github)
+    Total: 30 types (4 code-patterns + 5 conventions + 6 discussions + 2 jira-data + 9 github + 4 agent)
     Spec: oversight/specs/MEMORY-SYSTEM-REDESIGN-v2.md Section 5
 
     Note: Uses (str, Enum) pattern for Python 3.10 compatibility (AMD ROCm images).
@@ -33,6 +33,7 @@ class MemoryType(str, Enum):
         code-patterns: IMPLEMENTATION, ERROR_FIX, REFACTOR, FILE_PATTERN
         conventions: RULE, GUIDELINE, PORT, NAMING, STRUCTURE
         discussions: DECISION, SESSION, BLOCKER, PREFERENCE, USER_MESSAGE, AGENT_RESPONSE
+        discussions (agent namespace): AGENT_HANDOFF, AGENT_MEMORY, AGENT_TASK, AGENT_INSIGHT
         jira-data: JIRA_ISSUE, JIRA_COMMENT
         discussions (github namespace): GITHUB_ISSUE, GITHUB_ISSUE_COMMENT, GITHUB_PR,
             GITHUB_PR_DIFF, GITHUB_PR_REVIEW, GITHUB_COMMIT, GITHUB_CODE_BLOB,
@@ -63,6 +64,12 @@ class MemoryType(str, Enum):
     # === jira-data collection (External work items from Jira Cloud) ===
     JIRA_ISSUE = "jira_issue"  # Jira issue with metadata
     JIRA_COMMENT = "jira_comment"  # Jira issue comment
+
+    # === discussions collection — Agent namespace (SPEC-015, AD-7) ===
+    AGENT_HANDOFF = "agent_handoff"  # Session handoff summaries
+    AGENT_MEMORY = "agent_memory"  # General agent memories, project knowledge
+    AGENT_TASK = "agent_task"  # Task state tracking
+    AGENT_INSIGHT = "agent_insight"  # Insights, learnings, patterns
 
     # === discussions collection — GitHub namespace (WHAT code DID do) ===
     # Stored with source="github" for namespace isolation (AD-1, BP-075)
