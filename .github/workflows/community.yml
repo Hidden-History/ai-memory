@@ -21,8 +21,8 @@ jobs:
       - name: Welcome first-time contributors
         uses: actions/first-interaction@v3
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          issue-message: |
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          issue_message: |
             👋 Welcome to AI Memory Module! Thanks for opening your first issue.
 
             A maintainer will review your issue soon. In the meantime:
@@ -31,7 +31,7 @@ jobs:
             - Star the repo if you find it useful ⭐
 
             Please ensure you've filled out the issue template completely to help us assist you faster.
-          pr-message: |
+          pr_message: |
             🎉 Thanks for your first pull request to AI Memory Module!
 
             A maintainer will review your PR soon. Here's what happens next:
@@ -93,7 +93,7 @@ jobs:
     if: github.event_name == 'pull_request_target'
     steps:
       - name: Verify issue link
-        uses: hattan/verify-linked-issue-action@v1.2.0
+        uses: hattan/verify-linked-issue-action@bea64a33e19f9de109c88aee8ef5c1657f09b049 # v1.1.5 pinned to SHA
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
