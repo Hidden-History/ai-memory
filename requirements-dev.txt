@@ -18,7 +18,7 @@ playwright==1.58.0
 
 # Code Quality
 black==25.12.0
-ruff==0.14.14
+ruff==0.15.1
 mypy==1.19.1
 
 # Prometheus metrics (Story 6.1)
@@ -32,4 +32,4 @@ ruamel.yaml==0.19.1
 
 # Configuration management (Story 7.4)
 pydantic==2.12.5
-pydantic-settings==2.12.0
+pydantic-settings==2.13.0
