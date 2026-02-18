@@ -2013,6 +2013,14 @@ create_project_symlinks() {
     # Create project .claude directory structure
     mkdir -p "$PROJECT_PATH/.claude/hooks/scripts"
 
+    # BUG-106: Remove stale/broken symlinks before creating fresh ones
+    # Prior installs may leave symlinks pointing to deleted targets (e.g. archived hooks)
+    for existing in "$PROJECT_PATH/.claude/hooks/scripts"/*.py; do
+        if [[ -L "$existing" && ! -e "$existing" ]]; then
+            rm -f "$existing"
+        fi
+    done
+
     # Link or copy hook scripts from shared install
     local file_count=0
     for script in "$INSTALL_DIR/.claude/hooks/scripts"/*.py; do
