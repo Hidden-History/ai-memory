@@ -205,7 +205,8 @@ class JiraClient:
             # Convert ISO 8601 to Jira JQL format (YYYY-MM-DD HH:mm)
             # Jira rejects ISO 8601 T-separator format silently (returns 0 results)
             try:
-                dt = datetime.fromisoformat(updated_since)
+                # Python 3.10 compat: fromisoformat() doesn't support "Z" suffix until 3.11
+                dt = datetime.fromisoformat(updated_since.replace("Z", "+00:00"))
                 jql_date = dt.strftime("%Y-%m-%d %H:%M")
             except (ValueError, TypeError):
                 # Fallback: use as-is if already in Jira format
