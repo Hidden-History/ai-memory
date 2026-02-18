@@ -77,14 +77,41 @@ MODEL_REGISTRY: dict[str, TextEmbedding] = {}
 models_ready_time: float = 0.0
 
 def load_models():
-    """Load both embedding models at startup."""
+    """Load both embedding models at startup with graceful fallback.
+
+    The 'en' model is required — if it fails, the service cannot start.
+    The 'code' model is optional — if it fails, 'en' is used as fallback.
+    """
     global models_ready_time
-    for key, name in MODEL_NAMES.items():
-        logger.info("model_loading", extra={"model": name, "key": key})
+
+    # Load the required 'en' model first
+    en_name = MODEL_NAMES["en"]
+    logger.info("model_loading", extra={"model": en_name, "key": "en"})
+    start_load = time.time()
+    MODEL_REGISTRY["en"] = TextEmbedding(en_name)
+    load_duration = time.time() - start_load
+    logger.info("model_loaded", extra={"model": en_name, "key": "en", "load_time_seconds": round(load_duration, 2)})
+
+    # Load optional 'code' model with fallback to 'en'
+    code_name = MODEL_NAMES["code"]
+    try:
+        logger.info("model_loading", extra={"model": code_name, "key": "code"})
         start_load = time.time()
-        MODEL_REGISTRY[key] = TextEmbedding(name)
+        MODEL_REGISTRY["code"] = TextEmbedding(code_name)
         load_duration = time.time() - start_load
-        logger.info("model_loaded", extra={"model": name, "key": key, "load_time_seconds": round(load_duration, 2)})
+        logger.info("model_loaded", extra={"model": code_name, "key": "code", "load_time_seconds": round(load_duration, 2)})
+    except Exception as e:
+        logger.warning(
+            "model_load_fallback",
+            extra={
+                "model": code_name,
+                "key": "code",
+                "error": str(e),
+                "fallback": "Using 'en' model for code embeddings",
+            },
+        )
+        MODEL_REGISTRY["code"] = MODEL_REGISTRY["en"]
+
     models_ready_time = time.time()
 
 load_models()  # Called at module init
