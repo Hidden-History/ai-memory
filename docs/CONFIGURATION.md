@@ -1121,7 +1121,7 @@ Complete hook configuration example:
       },
       {
         "hooks": [
-          {"type": "command", "command": ".claude/hooks/scripts/unified_keyword_trigger.py", "timeout": 5000}
+          {"type": "command", "command": ".claude/hooks/scripts/context_injection_tier2.py", "timeout": 5000}
         ]
       }
     ],

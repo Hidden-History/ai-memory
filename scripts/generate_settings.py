@@ -43,7 +43,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
 
     2026 Best Practice: Complete Claude Code V2.0 hook structure
     - SessionStart: Requires 'matcher' (resume|compact) per Core-Architecture-V2 Section 7.2
-    - UserPromptSubmit: Captures user prompts and triggers keyword detection
+    - UserPromptSubmit: Captures user prompts and triggers context injection
     - PreToolUse: Triggers for new file creation and first edit detection
     - PostToolUse: Wrapper with 'matcher' + nested 'hooks' array (Bash errors, Edit/Write capture)
     - PreCompact: Wrapper with 'matcher' for auto|manual triggers
@@ -113,7 +113,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": _hook_cmd("unified_keyword_trigger.py"),
+                            "command": _hook_cmd("context_injection_tier2.py"),
                             "timeout": 5000,
                         }
                     ]
