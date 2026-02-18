@@ -77,6 +77,8 @@ def create_collections(dry_run: bool = False) -> None:
         collection_names.append(COLLECTION_JIRA_DATA)
         print(f"Jira sync enabled - adding {COLLECTION_JIRA_DATA} collection")
 
+    failed_collections = []
+
     for collection_name in collection_names:
         # Create collection (delete first if exists)
         # Note: recreate_collection is deprecated in qdrant-client 1.8+
@@ -202,9 +204,15 @@ def create_collections(dry_run: bool = False) -> None:
 
         except Exception as e:
             logger.error(f"Failed to create indexes for {collection_name}: {e}")
-            raise RuntimeError(f"Index creation failed for {collection_name}") from e
+            print(f"WARNING: Index creation failed for {collection_name}: {e}", file=sys.stderr)
+            failed_collections.append(collection_name)
+            continue
 
         print(f"Created collection: {collection_name}")
+
+    if failed_collections:
+        print(f"WARNING: Failed collections: {', '.join(failed_collections)}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

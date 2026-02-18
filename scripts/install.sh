@@ -1913,7 +1913,7 @@ setup_collections() {
     log_info "Setting up Qdrant collections..."
 
     # Run the setup script
-    if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/setup-collections.py" 2>/dev/null; then
+    if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/setup-collections.py" 2>&1; then
         log_success "Qdrant collections created (code-patterns, conventions, discussions)"
     else
         log_warning "Collection setup had issues - will be created on first use"
