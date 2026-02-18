@@ -156,11 +156,45 @@ The installer offers optional Jira Cloud integration. When enabled, it prompts f
 2. **Jira instance URL** (e.g., `https://company.atlassian.net`)
 3. **Jira email**
 4. **Jira API token** (hidden input)
-5. **Project keys** (comma-separated, e.g., `PROJ,DEV`)
+5. **Project keys** (JSON array, e.g., `["PROJ","DEV"]`)
 
 The installer validates credentials via the Jira API before proceeding. On success, it offers an initial full sync and configures automated cron-based sync (6am/6pm daily).
 
 See [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for complete Jira setup and usage guide.
+
+**Optional: GitHub Repository Integration** *(v2.0.6+)*
+
+The installer offers optional GitHub integration for syncing PRs, issues, commits, and code into memory. When enabled, it prompts for:
+
+1. **Enable GitHub sync?** `[y/N]`
+2. **GitHub Personal Access Token** (fine-grained, `repo` scope — see [GitHub PAT setup](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens))
+3. **GitHub repository** (e.g., `owner/repo-name`)
+
+The installer validates the token via the GitHub API before proceeding. On success, it configures automated sync.
+
+**Required environment variables:**
+| Variable | Description |
+|----------|-------------|
+| `GITHUB_TOKEN` | Fine-grained Personal Access Token with `repo` scope |
+| `GITHUB_REPO` | Repository in `owner/repo` format |
+| `GITHUB_SYNC_ENABLED` | Set to `true` to enable (default: `false`) |
+
+See [docs/GITHUB-INTEGRATION.md](docs/GITHUB-INTEGRATION.md) for complete setup guide.
+
+**Optional: Parzival Session Agent** *(v2.0.6+)*
+
+Parzival provides cross-session memory for project oversight — session handoffs, insights, and project knowledge persist in Qdrant.
+
+1. **Enable Parzival?** `[y/N]`
+2. **Your name** (used in handoff documents)
+
+**Required environment variables:**
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PARZIVAL_ENABLED` | Enable Parzival integration | `false` |
+| `PARZIVAL_USER_NAME` | Your name for handoffs | *(required if enabled)* |
+
+See [docs/PARZIVAL-SESSION-GUIDE.md](docs/PARZIVAL-SESSION-GUIDE.md) for usage.
 
 > **Note:** The installer generates `~/.ai-memory/docker/.env` with random secrets for Qdrant, Grafana, and Prometheus automatically. To customize these values (e.g., change the Grafana admin password or configure the LLM classifier provider), edit `~/.ai-memory/docker/.env` after installation. See `docker/.env.example` for all available options.
 
@@ -310,7 +344,7 @@ Add hook configuration to `$TARGET_PROJECT/.claude/settings.json`:
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|compact",
+        "matcher": "resume|compact",
         "hooks": [
           {"type": "command", "command": ".claude/hooks/scripts/session_start.py"}
         ]
@@ -420,11 +454,43 @@ git pull origin main
 **V2.0 Migration Notes:**
 - Old collection names (`implementations`, `best_practices`, `agent-memory`) automatically renamed
 - New collections: `code-patterns`, `conventions`, `discussions`
-- Memory types updated to V2.0 schema (17 types)
+- Memory types updated to V2.0 schema (17 types (30 types in v2.0.6))
 - Automatic triggers enabled (error detection, new file, first edit, decision keywords, best practices)
 - No data loss - all existing memories preserved
 
 **No manual migration needed** - The installer handles all updates automatically.
+
+### Upgrading from v2.0.5 to v2.0.6
+
+v2.0.6 adds temporal memory features (decay scoring, GitHub sync, security scanning, Parzival integration).
+
+**Automated upgrade:**
+```bash
+# 1. Pull latest
+cd /path/to/ai-memory
+git fetch origin && git checkout v2.0.6
+
+# 2. Run the migration script (backs up data automatically)
+python scripts/migrate_v205_to_v206.py
+
+# 3. Re-run installer to update hooks and services
+./scripts/install.sh /path/to/your-project
+```
+
+**What the migration script does:**
+- Creates automatic backup of all Qdrant collections
+- Adds v2.0.6 payload indexes to existing collections
+- Re-embeds code-patterns collection with `jina-v2-base-code` model (improves code retrieval 10-30%)
+- Preserves all existing data — no memories are lost
+
+**Optional: Enable GitHub sync** (see below)
+**Optional: Enable Parzival session agent** (see below)
+
+**V2.0.6 Migration Notes:**
+- Memory types expanded from 17 to 30 (9 GitHub types + 4 agent types)
+- New config variables available — see [CONFIGURATION.md](docs/CONFIGURATION.md) for full list
+- Existing hooks are updated automatically by the installer
+- New skills available immediately after upgrade
 
 ### Version Check
 
@@ -703,7 +769,7 @@ MEMORY_CACHE_TTL=3600
 JIRA_INSTANCE_URL=https://company.atlassian.net
 JIRA_EMAIL=user@company.com
 JIRA_API_TOKEN=your_api_token_here
-JIRA_PROJECTS=PROJ,DEV,OPS
+JIRA_PROJECTS=["PROJ","DEV","OPS"]
 JIRA_SYNC_ENABLED=true
 JIRA_SYNC_DELAY_MS=100
 ```
@@ -719,7 +785,7 @@ Edit `.claude/settings.json` in your target project to customize hook behavior:
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|compact",
+        "matcher": "resume|compact",
         "hooks": [
           {"type": "command", "command": ".claude/hooks/scripts/session_start.py"}
         ]

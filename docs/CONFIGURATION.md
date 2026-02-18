@@ -939,6 +939,31 @@ export SECURITY_BLOCK_ON_SECRETS=false
 
 ---
 
+### `AUTO_UPDATE_ENABLED`
+
+Controls whether the memory system automatically updates stale memories when changes are detected.
+
+| Property | Value |
+|----------|-------|
+| **Type** | Boolean |
+| **Default** | `true` |
+| **Required** | No |
+| **Tier** | 2 (Has default, user can override) |
+
+**Usage:**
+- Set to `false` to pause all automatic memory updates (kill switch)
+- Can be toggled via the `/pause-updates` skill
+- When disabled, manual operations (`/github-sync`, `/memory-refresh`) still work
+- Status visible in `/memory-status` output
+
+**Example:**
+```env
+AUTO_UPDATE_ENABLED=true    # Default: automatic updates active
+AUTO_UPDATE_ENABLED=false   # Pause all automatic updates
+```
+
+---
+
 ### Context Injection
 
 Controls the two-tier token budget system for injecting memories into Claude's context.
@@ -1082,7 +1107,7 @@ Complete hook configuration example:
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|compact",
+        "matcher": "resume|compact",
         "hooks": [
           {
             "type": "command",

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.5-green?style=flat-square" alt="Version 2.0.5">
+  <img src="https://img.shields.io/badge/version-2.0.6-green?style=flat-square" alt="Version 2.0.6">
   <a href="https://github.com/Hidden-History/ai-memory/stargazers"><img src="https://img.shields.io/github/stars/Hidden-History/ai-memory?color=blue&style=flat-square" alt="Stars"></a>
   <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
   <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
@@ -65,8 +65,8 @@ Traditional knowledge bases require upfront schema design and manual curation. A
 
 ## ✨ V2.0 Memory System
 
-- 🗂️ **Three Specialized Collections**: code-patterns (HOW), conventions (WHAT), discussions (WHY)
-- 🎯 **17 Memory Types**: Precise categorization for implementation, errors, decisions, Jira issues, and more
+- 🗂️ **Four Specialized Collections**: code-patterns (HOW), conventions (WHAT), discussions (WHY), jira-data (JIRA)
+- 🎯 **30 Memory Types**: Precise categorization for implementation, errors, decisions, Jira issues, GitHub data, agent memory, and more
 - ⚡ **6 Automatic Triggers**: Smart context injection when you need it most
 - 🔍 **Intent Detection**: Automatically routes queries to the right collection
 - 💬 **Conversation Memory**: Turn-by-turn capture with post-compaction context continuity
@@ -78,6 +78,22 @@ Traditional knowledge bases require upfront schema design and manual curation. A
 ---
 
 > **New here?** Jump to [Quick Start](#-quick-start-1) to get running in 5 minutes.
+
+---
+
+## 🕰️ V2.0.6 — Temporal Memory
+
+v2.0.6 adds the **WHEN dimension** — your memories now understand time, freshness, and relevance decay.
+
+- ⏳ **Semantic Decay Scoring**: Older memories naturally lose relevance via exponential decay with type-specific half-lives (code: 14d, discussions: 21d, conventions: 60d)
+- 🔄 **GitHub History Sync**: Ingest PRs, issues, commits, CI results, and code blobs from your GitHub repo into the memory system
+- 🛡️ **Security Scanning Pipeline**: 3-layer PII and secrets detection (regex + detect-secrets + SpaCy NER) runs before any content is stored
+- 🎯 **Progressive Context Injection**: Smart 3-tier context delivery — session bootstrap, per-turn injection, and confidence-filtered retrieval
+- 🔍 **Freshness Detection**: Automatically identifies stale memories by comparing against current git state
+- 🔐 **SOPS+age Encryption**: Encrypt sensitive configuration with modern age encryption
+- 🧭 **Dual Embedding Routing**: Code content uses `jina-v2-base-code`, prose uses `jina-v2-base-en` for 10-30% better retrieval
+- 🤖 **Parzival Session Agent**: Cross-session memory for the Parzival oversight agent, backed by Qdrant vector search
+- 🧰 **7 New Skills**: `/memory-purge`, `/search-github`, `/github-sync`, `/pause-updates`, `/memory-refresh`, `/parzival-save-handoff`, `/parzival-save-insight`
 
 ---
 
@@ -201,6 +217,8 @@ Docker Services
         ├── Pushgateway (port 29091)
         └── Grafana (port 23000)
 ```
+
+**v2.0.6 additions**: GitHub sync service ingests repository data (PRs, issues, commits, code blobs) into the discussions collection. A 3-layer security scanning pipeline (regex + detect-secrets + SpaCy NER) screens all content before storage. Semantic decay scoring applies time-weighted relevance to all search queries. The Parzival session agent stores cross-session memory in the discussions collection for project continuity.
 
 ### Collection Structure
 
@@ -400,7 +418,7 @@ All services use `2XXXX` prefix to avoid conflicts:
 | `JIRA_INSTANCE_URL`    | *(empty)*            | Jira Cloud URL (e.g., `https://company.atlassian.net`) |
 | `JIRA_EMAIL`           | *(empty)*            | Jira account email for Basic Auth |
 | `JIRA_API_TOKEN`       | *(empty)*            | API token from [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens) |
-| `JIRA_PROJECTS`        | *(empty)*            | Comma-separated project keys (e.g., `PROJ,DEV,OPS`) |
+| `JIRA_PROJECTS`        | *(empty)*            | JSON array of project keys (e.g., `["PROJ","DEV","OPS"]`). Comma-separated also accepted for backwards compatibility. |
 | `JIRA_SYNC_ENABLED`    | `false`              | Enable Jira synchronization       |
 | `JIRA_SYNC_DELAY_MS`   | `100`                | Delay between API requests (ms)   |
 
@@ -448,6 +466,26 @@ Use slash commands for manual control:
 /search-jira "query"    # Semantic search across Jira content
 /search-jira --issue PROJ-42  # Lookup issue + all comments
 ```
+
+#### v2.0.6 Skills
+
+| Command | Description |
+|---------|-------------|
+| `/memory-purge` | Purge old memories with dry-run safety (e.g., `--older-than 90d`) |
+| `/search-github` | Semantic search of GitHub data (PRs, issues, commits, code) |
+| `/github-sync` | Manually trigger GitHub repository sync |
+| `/pause-updates` | Toggle automatic memory updates on/off (kill switch) |
+| `/memory-refresh` | Trigger freshness scan on changed files |
+| `/parzival-save-handoff` | Save Parzival session handoff to Qdrant memory |
+| `/parzival-save-insight` | Save a Parzival insight for cross-session recall |
+
+#### Upgraded Skills (v2.0.6)
+
+| Command | What Changed |
+|---------|-------------|
+| `/memory-status` | 4 new sections: decay stats, GitHub sync status, security scan summary, Parzival session info |
+| `/search-memory` | Now displays decay scores alongside relevance scores |
+| `/save-memory` | Supports agent memory types (handoff, insight, task) |
 
 See [docs/HOOKS.md](docs/HOOKS.md) for hook documentation, [docs/COMMANDS.md](docs/COMMANDS.md) for commands, [docs/llm-classifier.md](docs/llm-classifier.md) for LLM classifier setup, and [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for Jira integration guide.
 
