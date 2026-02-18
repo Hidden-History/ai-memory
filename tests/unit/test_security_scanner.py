@@ -10,6 +10,11 @@ import pytest
 class TestLayer1Regex:
     """Test Layer 1: Regex pattern matching"""
 
+    @pytest.fixture(autouse=True)
+    def _disable_detect_secrets(self, monkeypatch):
+        """Isolate Layer 1 tests from Layer 2 detect-secrets interference."""
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+
     def test_email_detection_and_masking(self):
         """Test email detection and masking"""
         from memory.security_scanner import ScanAction, SecurityScanner
@@ -90,6 +95,11 @@ class TestLayer1Regex:
 class TestScannerOrchestration:
     """Test scanner execution logic"""
 
+    @pytest.fixture(autouse=True)
+    def _disable_detect_secrets(self, monkeypatch):
+        """Isolate orchestration tests from Layer 2 detect-secrets interference."""
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+
     def test_blocked_returns_immediately(self):
         """Test that BLOCKED returns immediately without Layer 3"""
         from memory.security_scanner import ScanAction, SecurityScanner
@@ -139,6 +149,11 @@ class TestScannerOrchestration:
 
 class TestEdgeCases:
     """Test edge cases"""
+
+    @pytest.fixture(autouse=True)
+    def _disable_detect_secrets(self, monkeypatch):
+        """Isolate edge case tests from Layer 2 detect-secrets interference."""
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
 
     def test_empty_content(self):
         """Test scanner handles empty content"""
@@ -217,6 +232,11 @@ class TestScanResult:
 
 class TestLayer1PiiPatterns:
     """Test ALL PII patterns from security_scanner.py PII_PATTERNS (TD-159)."""
+
+    @pytest.fixture(autouse=True)
+    def _disable_detect_secrets(self, monkeypatch):
+        """Isolate Layer 1 PII tests from Layer 2 detect-secrets interference."""
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
 
     def test_ssn_detection_and_masking(self):
         """Test Social Security Number detection."""
@@ -322,6 +342,11 @@ class TestLayer1SecretPatterns:
 class TestGitHubHandleFalsePositives:
     """Test TD-161: GitHub handle regex false positive fixes."""
 
+    @pytest.fixture(autouse=True)
+    def _disable_detect_secrets(self, monkeypatch):
+        """Isolate false-positive tests from Layer 2 detect-secrets interference."""
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+
     def test_python_decorators_not_flagged(self):
         """Test that Python decorators are NOT detected as GitHub handles."""
         from memory.security_scanner import SecurityScanner
@@ -369,6 +394,11 @@ class TestGitHubHandleFalsePositives:
 
 class TestScanBatchNER:
     """Test TD-163/TD-165: scan_batch() with NER batching and force_ner."""
+
+    @pytest.fixture(autouse=True)
+    def _disable_detect_secrets(self, monkeypatch):
+        """Isolate batch tests from Layer 2 detect-secrets interference."""
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
 
     def test_batch_without_ner_scans_individually(self):
         """Test batch scanning without NER is sequential L1+L2."""

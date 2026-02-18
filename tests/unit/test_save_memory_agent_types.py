@@ -32,10 +32,13 @@ class TestParseArgs:
     """Test parse_args() function extracted from manual_save_memory.py."""
 
     @pytest.fixture(autouse=True)
-    def _load(self):
+    def _load(self, monkeypatch):
         """Skip if script not found (e.g. CI without full install)."""
         if not _script_path.exists():
             pytest.skip(f"Script not found: {_script_path}")
+        # Point to repo root so src/memory is found during import
+        repo_root = str(Path(__file__).resolve().parents[2])
+        monkeypatch.setenv("AI_MEMORY_INSTALL_DIR", repo_root)
         self.mod = _load_script()
 
     def test_no_args(self):
@@ -83,9 +86,12 @@ class TestMainAgentPath:
     """Test main() agent memory path using mocked storage."""
 
     @pytest.fixture(autouse=True)
-    def _load(self):
+    def _load(self, monkeypatch):
         if not _script_path.exists():
             pytest.skip(f"Script not found: {_script_path}")
+        # Point to repo root so src/memory is found during import
+        repo_root = str(Path(__file__).resolve().parents[2])
+        monkeypatch.setenv("AI_MEMORY_INSTALL_DIR", repo_root)
         self.mod = _load_script()
 
     def test_agent_memory_calls_store_agent_memory(self):

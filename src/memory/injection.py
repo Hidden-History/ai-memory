@@ -200,7 +200,8 @@ def _build_github_enrichment(
     # Filter to items stored after last session
     filtered = []
     try:
-        baseline_dt = datetime.fromisoformat(last_session_date)
+        # Python 3.10 compat: fromisoformat() doesn't support "Z" suffix until 3.11
+        baseline_dt = datetime.fromisoformat(last_session_date.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return []
 
@@ -209,7 +210,7 @@ def _build_github_enrichment(
         if not result_timestamp:
             continue
         try:
-            result_dt = datetime.fromisoformat(result_timestamp)
+            result_dt = datetime.fromisoformat(result_timestamp.replace("Z", "+00:00"))
             if result_dt > baseline_dt:
                 filtered.append(result)
         except (ValueError, TypeError):

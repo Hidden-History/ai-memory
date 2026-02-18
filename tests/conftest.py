@@ -556,13 +556,11 @@ def test_collection(
     collection_name = f"test_{request.node.name}"
 
     # Create collection with DEC-010 dimensions (Jina Embeddings v2 Base Code = 768)
-    try:
+    with contextlib.suppress(Exception):  # Collection may already exist
         qdrant_client.create_collection(
             collection_name=collection_name,
             vectors_config=VectorParams(size=768, distance=Distance.COSINE),
         )
-    except Exception:
-        pass  # Collection may already exist
 
     yield collection_name
 
