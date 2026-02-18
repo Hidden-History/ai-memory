@@ -16,11 +16,13 @@ from pathlib import Path
 import pytest
 
 from memory.config import MemoryConfig, get_config
+from memory.models import MemoryType
 from memory.security_scanner import ScanAction, SecurityScanner
 from memory.storage import MemoryStorage
 
 
 @pytest.mark.integration
+@pytest.mark.requires_embedding
 class TestStorageIntegration:
     """Test scanner integration with MemoryStorage."""
 
@@ -35,8 +37,8 @@ class TestStorageIntegration:
         # Attempt to store memory with GitHub PAT
         result = storage.store_memory(
             content="My token is ghp_" + "A" * 36,
-            content_type="implementation",
-            source_hook="test",
+            memory_type=MemoryType.IMPLEMENTATION,
+            source_hook="manual",
             session_id="test-session",
             cwd="/tmp",
         )
@@ -56,8 +58,8 @@ class TestStorageIntegration:
         # Store memory with email
         result = storage.store_memory(
             content="Contact me at user@example.com for details",
-            content_type="implementation",
-            source_hook="test",
+            memory_type=MemoryType.IMPLEMENTATION,
+            source_hook="manual",
             session_id="test-session",
             cwd="/tmp",
         )
@@ -89,8 +91,8 @@ class TestStorageIntegration:
         clean_content = "This is clean code without any PII or secrets"
         result = storage.store_memory(
             content=clean_content,
-            content_type="implementation",
-            source_hook="test",
+            memory_type=MemoryType.IMPLEMENTATION,
+            source_hook="manual",
             session_id="test-session",
             cwd="/tmp",
         )
@@ -112,6 +114,7 @@ class TestStorageIntegration:
 
 
 @pytest.mark.integration
+@pytest.mark.requires_embedding
 class TestBatchStorageIntegration:
     """Test scanner integration with batch storage."""
 
@@ -127,19 +130,19 @@ class TestBatchStorageIntegration:
             {
                 "content": "Clean content 1",
                 "type": "implementation",
-                "source_hook": "test",
+                "source_hook": "manual",
                 "session_id": "test-session",
             },
             {
                 "content": "Secret: ghp_" + "A" * 36,
                 "type": "implementation",
-                "source_hook": "test",
+                "source_hook": "manual",
                 "session_id": "test-session",
             },
             {
                 "content": "Clean content 2",
                 "type": "implementation",
-                "source_hook": "test",
+                "source_hook": "manual",
                 "session_id": "test-session",
             },
         ]
@@ -174,13 +177,13 @@ class TestBatchStorageIntegration:
             {
                 "content": "Email: user1@example.com",
                 "type": "implementation",
-                "source_hook": "test",
+                "source_hook": "manual",
                 "session_id": "test-session",
             },
             {
                 "content": "Phone: 555-123-4567",
                 "type": "implementation",
-                "source_hook": "test",
+                "source_hook": "manual",
                 "session_id": "test-session",
             },
         ]
@@ -332,6 +335,7 @@ class TestPerformance:
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
+    @pytest.mark.requires_embedding
     def test_scanner_unavailable_degrades_gracefully(self):
         """Test that storage works when scanner is unavailable."""
         # Create storage with scanner disabled
@@ -341,8 +345,8 @@ class TestEdgeCases:
         # Should store successfully without scanning
         result = storage.store_memory(
             content="Email: user@example.com",
-            content_type="implementation",
-            source_hook="test",
+            memory_type=MemoryType.IMPLEMENTATION,
+            source_hook="manual",
             session_id="test-session",
             cwd="/tmp",
         )
@@ -350,6 +354,7 @@ class TestEdgeCases:
         assert result["status"] == "stored"
         assert result["memory_id"] is not None
 
+    @pytest.mark.requires_embedding
     def test_scanner_error_continues_with_original_content(self):
         """Test that scanner errors don't block storage."""
         config = get_config()
@@ -358,13 +363,13 @@ class TestEdgeCases:
 
         storage = MemoryStorage()
 
-        # Extremely long content that might cause scanner issues
-        long_content = "Clean text. " * 10000
+        # Long content under 100K char limit but large enough to stress scanner
+        long_content = "Clean text. " * 5000
 
         result = storage.store_memory(
             content=long_content,
-            content_type="implementation",
-            source_hook="test",
+            memory_type=MemoryType.IMPLEMENTATION,
+            source_hook="manual",
             session_id="test-session",
             cwd="/tmp",
         )
@@ -391,8 +396,11 @@ class TestScannerLayers:
         result = scanner.scan("AKIAIOSFODNN7EXAMPLE")
         assert result.action == ScanAction.BLOCKED
 
-    def test_layer1_detects_common_pii(self):
+    def test_layer1_detects_common_pii(self, monkeypatch):
         """Test that Layer 1 detects common PII patterns."""
+        from memory import security_scanner as scanner_mod
+
+        monkeypatch.setattr(scanner_mod, "_detect_secrets_available", False)
         scanner = SecurityScanner(enable_ner=False)
 
         # Test email
@@ -405,12 +413,20 @@ class TestScannerLayers:
         assert result.action == ScanAction.MASKED
         assert "[PHONE_REDACTED]" in result.content
 
-    def test_layer3_detects_person_names(self):
+    def test_layer3_detects_person_names(self, monkeypatch):
         """Test that Layer 3 (SpaCy NER) detects person names."""
         config = get_config()
         if not config.security_scanning_ner_enabled:
             pytest.skip("NER layer disabled in config")
 
+        try:
+            import spacy  # noqa: F401
+        except ImportError:
+            pytest.skip("SpaCy not installed")
+
+        from memory import security_scanner as scanner_mod
+
+        monkeypatch.setattr(scanner_mod, "_detect_secrets_available", False)
         scanner = SecurityScanner(enable_ner=True)
 
         result = scanner.scan("John Smith wrote this code.")

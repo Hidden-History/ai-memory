@@ -47,13 +47,18 @@ class TestSessionRoundTrip:
 
     def test_graceful_degradation_qdrant_down(self):
         """Bootstrap returns empty results when Qdrant is unavailable."""
+        from unittest.mock import MagicMock
 
         from memory.qdrant_client import QdrantUnavailable
         from memory.search import MemorySearch
 
+        # Mock client that raises on actual queries (not during construction)
+        mock_client = MagicMock()
+        mock_client.query_points.side_effect = QdrantUnavailable("Connection refused")
+
         with patch(
             "memory.search.get_qdrant_client",
-            side_effect=QdrantUnavailable("Connection refused"),
+            return_value=mock_client,
         ):
             search = MemorySearch()
             config = MemoryConfig(_env_file=None, parzival_enabled=True)

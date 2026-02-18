@@ -14,6 +14,14 @@ import numpy as np
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _disable_detect_secrets(monkeypatch):
+    """Disable detect-secrets in CI to prevent Layer 2 entropy scanning from blocking test content."""
+    from memory import security_scanner
+
+    monkeypatch.setattr(security_scanner, "_detect_secrets_available", False)
+
+
 @pytest.mark.integration
 class TestDualModelEmbedding:
     """Test that different models produce different vectors"""
@@ -153,7 +161,7 @@ class TestStorageRouting:
                     content="def test(): pass",
                     cwd="/test/project",
                     memory_type=MemoryType.IMPLEMENTATION,
-                    source_hook="test",
+                    source_hook="manual",
                     session_id="test-session",
                     collection="code-patterns",
                 )
@@ -181,7 +189,7 @@ class TestStorageRouting:
                     content="User asked about feature X",
                     cwd="/test/project",
                     memory_type=MemoryType.USER_MESSAGE,
-                    source_hook="test",
+                    source_hook="manual",
                     session_id="test-session",
                     collection="discussions",
                 )
@@ -230,14 +238,14 @@ class TestStorageRouting:
             {
                 "content": "def test1(): pass",
                 "type": "implementation",
-                "source_hook": "test",
+                "source_hook": "manual",
                 "session_id": "test",
                 "group_id": "test-project",
             },
             {
                 "content": "def test2(): pass",
                 "type": "implementation",
-                "source_hook": "test",
+                "source_hook": "manual",
                 "session_id": "test",
                 "group_id": "test-project",
             },

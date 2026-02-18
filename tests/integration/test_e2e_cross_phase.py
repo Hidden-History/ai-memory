@@ -20,6 +20,14 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 
+@pytest.fixture(autouse=True)
+def _disable_detect_secrets(monkeypatch):
+    """Disable detect-secrets in CI to prevent Layer 2 entropy scanning from blocking test content."""
+    from memory import security_scanner
+
+    monkeypatch.setattr(security_scanner, "_detect_secrets_available", False)
+
+
 @pytest.fixture
 def qdrant_inmemory():
     """In-memory Qdrant client with all 3 collections."""
@@ -77,7 +85,7 @@ def test_e2e_session_round_trip(qdrant_inmemory, mock_embedding, monkeypatch):
         content="Authentication uses JWT tokens",
         memory_type=MemoryType.IMPLEMENTATION,
         cwd="/tmp/test-project",
-        source_hook="test",
+        source_hook="manual",
         session_id="test-session-1",
     )
     assert result["status"] == "stored"
@@ -116,7 +124,7 @@ def test_e2e_freshness_data_stored(qdrant_inmemory, mock_embedding):
         content="Auth middleware implementation",
         memory_type=MemoryType.IMPLEMENTATION,
         cwd="/tmp/test-project",
-        source_hook="test",
+        source_hook="manual",
         session_id="test-session-1",
         file_path="src/auth.py",
     )
@@ -128,7 +136,7 @@ def test_e2e_freshness_data_stored(qdrant_inmemory, mock_embedding):
         collection="discussions",
         memory_type=MemoryType.GITHUB_PR,
         cwd="/tmp/test-project",
-        source_hook="test",
+        source_hook="manual",
         session_id="test-session-1",
     )
     assert result2["status"] == "stored"
@@ -169,7 +177,7 @@ def test_e2e_security_storage_search(qdrant_inmemory, mock_embedding, monkeypatc
         content="Database connection string for auth service",
         memory_type=MemoryType.IMPLEMENTATION,
         cwd="/tmp/test-project",
-        source_hook="test",
+        source_hook="manual",
         session_id="test-session-1",
     )
     assert result["status"] == "stored"
