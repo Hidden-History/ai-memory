@@ -194,15 +194,23 @@ jobs:
           for attempt in 1 2 3; do
             echo "API call attempt $attempt/3..."
 
-            RESPONSE=$(curl -sf --max-time 30 \
+            # -s: silent, no -f: let HTTP errors return body for diagnosis
+            # || true: prevent bash -e from aborting on curl timeout (exit 28)
+            RESPONSE=$(curl -s --max-time 120 \
               -w "\n%{http_code}" \
               https://ollama.com/api/chat \
               -H "Authorization: Bearer $OLLAMA_API_KEY" \
               -H "Content-Type: application/json" \
-              -d "$PAYLOAD" 2>&1)
+              -d "$PAYLOAD" 2>&1) || true
 
             HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
             BODY=$(echo "$RESPONSE" | sed '$d')
+
+            # Handle curl timeout (empty or non-numeric HTTP code)
+            if ! echo "$HTTP_CODE" | grep -qE '^[0-9]+$'; then
+              echo "::warning::curl failed (timeout or network error) on attempt $attempt"
+              HTTP_CODE=0
+            fi
 
             echo "HTTP Status: $HTTP_CODE"
 
@@ -319,11 +327,11 @@ jobs:
           for attempt in 1 2 3; do
             echo "Classification attempt $attempt/3..."
 
-            RESPONSE=$(curl -sf --max-time 30 \
+            RESPONSE=$(curl -s --max-time 60 \
               https://ollama.com/api/chat \
               -H "Authorization: Bearer $OLLAMA_API_KEY" \
               -H "Content-Type: application/json" \
-              -d "$PAYLOAD" 2>&1)
+              -d "$PAYLOAD" 2>&1) || true
 
             # Extract label if successful
             LABEL=$(echo "$RESPONSE" | jq -r '.message.content // empty' 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
