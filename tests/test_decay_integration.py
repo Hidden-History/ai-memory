@@ -4,6 +4,7 @@ Uses qdrant_client in-memory mode (no external server required).
 Tests actual formula execution against real Qdrant query engine.
 """
 
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -720,8 +721,10 @@ class TestDecayPerformance:
 
         # Per SPEC-001 AC 6.5: production target is <5ms. 50ms threshold used here
         # for in-memory Python Qdrant (10x slower than production server).
-        assert overhead_ms < 50.0, (
-            f"Decay overhead {overhead_ms:.2f}ms exceeds 50ms threshold. "
+        # CI shared runners have higher variance; use 100ms threshold there.
+        threshold = 100.0 if os.environ.get("CI") else 50.0
+        assert overhead_ms < threshold, (
+            f"Decay overhead {overhead_ms:.2f}ms exceeds {threshold:.0f}ms threshold. "
             f"Mean decay: {mean_decay:.2f}ms, mean simple: {mean_simple:.2f}ms"
         )
 

@@ -8,6 +8,13 @@ import pytest
 
 from memory.connectors.github.sync import GitHubSyncEngine, SyncResult
 
+
+@pytest.fixture(autouse=True)
+def _disable_detect_secrets(monkeypatch):
+    """Disable detect-secrets in CI to prevent Layer 2 entropy scanning from blocking test content."""
+    monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+
+
 # -- SyncResult Tests -------------------------------------------------
 
 

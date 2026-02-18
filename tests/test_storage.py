@@ -14,6 +14,12 @@ from src.memory.qdrant_client import QdrantUnavailable
 from src.memory.storage import MemoryStorage
 
 
+@pytest.fixture(autouse=True)
+def _disable_detect_secrets(monkeypatch):
+    """Disable detect-secrets in CI to prevent Layer 2 entropy scanning from blocking test content."""
+    monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+
+
 @pytest.fixture
 def mock_config(monkeypatch):
     """Mock configuration."""
