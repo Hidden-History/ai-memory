@@ -1278,6 +1278,13 @@ copy_files() {
         cp -r "$SOURCE_DIR/.claude/agents/"* "$INSTALL_DIR/.claude/agents/" 2>/dev/null || true
     fi
 
+    # BUG-107: Copy Claude Code commands (Parzival session commands)
+    if [[ -d "$SOURCE_DIR/.claude/commands" ]]; then
+        log_info "Copying Claude Code commands..."
+        mkdir -p "$INSTALL_DIR/.claude/commands"
+        cp -r "$SOURCE_DIR/.claude/commands/"* "$INSTALL_DIR/.claude/commands/" 2>/dev/null || true
+    fi
+
     # Copy templates for best practices seeding
     if [[ -d "$SOURCE_DIR/templates" ]]; then
         log_info "Copying templates..."
@@ -2698,13 +2705,14 @@ deploy_parzival_commands() {
     local agent_dest="$PROJECT_PATH/.claude/agents"
     mkdir -p "$agent_dest"
 
+    # BUG-108: Skip copy if file already exists (main installer may have created symlinks)
     for agent_file in code-reviewer.md verify-implementation.md; do
-        if [[ -f "$INSTALL_DIR/.claude/agents/$agent_file" ]]; then
+        if [[ -f "$INSTALL_DIR/.claude/agents/$agent_file" && ! -e "$agent_dest/$agent_file" ]]; then
             cp "$INSTALL_DIR/.claude/agents/$agent_file" "$agent_dest/$agent_file"
         fi
     done
 
-    if [[ -d "$INSTALL_DIR/.claude/agents/parzival" ]]; then
+    if [[ -d "$INSTALL_DIR/.claude/agents/parzival" && ! -e "$agent_dest/parzival" ]]; then
         cp -r "$INSTALL_DIR/.claude/agents/parzival" "$agent_dest/"
     fi
 
