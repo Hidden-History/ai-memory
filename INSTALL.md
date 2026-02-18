@@ -346,13 +346,46 @@ Add hook configuration to `$TARGET_PROJECT/.claude/settings.json`:
       {
         "matcher": "resume|compact",
         "hooks": [
-          {"type": "command", "command": ".claude/hooks/scripts/session_start.py"}
+          {"type": "command", "command": ".claude/hooks/scripts/session_start.py", "timeout": 30000}
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/user_prompt_capture.py"}
+        ]
+      },
+      {
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/unified_keyword_trigger.py", "timeout": 5000}
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/new_file_trigger.py", "timeout": 2000}
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/first_edit_trigger.py", "timeout": 2000}
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|NotebookEdit",
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/error_detection.py", "timeout": 2000},
+          {"type": "command", "command": ".claude/hooks/scripts/error_pattern_capture.py"}
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
         "hooks": [
           {"type": "command", "command": ".claude/hooks/scripts/post_tool_capture.py"}
         ]
@@ -363,6 +396,13 @@ Add hook configuration to `$TARGET_PROJECT/.claude/settings.json`:
         "matcher": "auto|manual",
         "hooks": [
           {"type": "command", "command": ".claude/hooks/scripts/pre_compact_save.py", "timeout": 10000}
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/agent_response_capture.py"}
         ]
       }
     ]
@@ -710,7 +750,7 @@ docker compose -f docker/docker-compose.yml restart ai-memory-prometheus  # moni
 docker compose -f docker/docker-compose.yml ps
 
 # Quick health check
-curl -s http://localhost:26350/health | head -1  # Qdrant
+curl -s -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health | head -1  # Qdrant
 curl -s http://localhost:28080/health             # Embedding
 
 # Full health check
@@ -787,13 +827,46 @@ Edit `.claude/settings.json` in your target project to customize hook behavior:
       {
         "matcher": "resume|compact",
         "hooks": [
-          {"type": "command", "command": ".claude/hooks/scripts/session_start.py"}
+          {"type": "command", "command": ".claude/hooks/scripts/session_start.py", "timeout": 30000}
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/user_prompt_capture.py"}
+        ]
+      },
+      {
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/unified_keyword_trigger.py", "timeout": 5000}
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/new_file_trigger.py", "timeout": 2000}
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/first_edit_trigger.py", "timeout": 2000}
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|NotebookEdit",
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/error_detection.py", "timeout": 2000},
+          {"type": "command", "command": ".claude/hooks/scripts/error_pattern_capture.py"}
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
         "hooks": [
           {"type": "command", "command": ".claude/hooks/scripts/post_tool_capture.py"}
         ]
@@ -804,6 +877,13 @@ Edit `.claude/settings.json` in your target project to customize hook behavior:
         "matcher": "auto|manual",
         "hooks": [
           {"type": "command", "command": ".claude/hooks/scripts/pre_compact_save.py", "timeout": 10000}
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/agent_response_capture.py"}
         ]
       }
     ]

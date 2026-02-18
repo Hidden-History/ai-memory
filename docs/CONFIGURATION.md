@@ -588,14 +588,14 @@ export DECAY_HALF_LIFE_CONVENTIONS=30
 #### DECAY_TYPE_OVERRIDES
 **Purpose:** Per memory-type half-life overrides, applied on top of collection defaults
 
-**Default:** `"github_ci_result:7,agent_task:14,github_code_blob:14,github_commit:14,conversation:21,session_summary:21,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,guideline:60,rule:60,architecture_decision:90,agent_handoff:180,agent_insight:180"` (15 type:days pairs)
+**Default:** `"github_ci_result:7,agent_task:14,github_code_blob:14,github_commit:14,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,guideline:60,rule:60,agent_handoff:180,agent_insight:180"` (12 type:days pairs)
 
 **Format:** Comma-separated `type:days` pairs
 
 **Example:**
 ```bash
 # Override specific memory types (REPLACES all built-in defaults)
-export DECAY_TYPE_OVERRIDES="github_ci_result:7,conversation:21,decision:90"
+export DECAY_TYPE_OVERRIDES="github_ci_result:7,agent_task:14,guideline:60"
 ```
 
 **When to change:**
@@ -604,7 +604,7 @@ export DECAY_TYPE_OVERRIDES="github_ci_result:7,conversation:21,decision:90"
 
 **Type override precedence:** `DECAY_TYPE_OVERRIDES` > collection-level half-life defaults
 
-> **Warning:** Setting this env var **replaces** all built-in type overrides, it does not append. If you set `DECAY_TYPE_OVERRIDES=conversation:14`, only `conversation` will have a type override — all other types fall back to their collection defaults.
+> **Warning:** Setting this env var **replaces** all built-in type overrides, it does not append. If you set `DECAY_TYPE_OVERRIDES=agent_task:14`, only `agent_task` will have a type override — all other types fall back to their collection defaults.
 
 ---
 
@@ -1109,23 +1109,48 @@ Complete hook configuration example:
       {
         "matcher": "resume|compact",
         "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/scripts/session_start.py",
-            "timeout": 5000
-          }
+          {"type": "command", "command": ".claude/hooks/scripts/session_start.py", "timeout": 30000}
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/user_prompt_capture.py"}
+        ]
+      },
+      {
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/unified_keyword_trigger.py", "timeout": 5000}
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/new_file_trigger.py", "timeout": 2000}
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/first_edit_trigger.py", "timeout": 2000}
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|NotebookEdit",
+        "matcher": "Bash",
         "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/scripts/post_tool_capture.py",
-            "timeout": 1000
-          }
+          {"type": "command", "command": ".claude/hooks/scripts/error_detection.py", "timeout": 2000},
+          {"type": "command", "command": ".claude/hooks/scripts/error_pattern_capture.py"}
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/post_tool_capture.py"}
         ]
       }
     ],
@@ -1133,11 +1158,14 @@ Complete hook configuration example:
       {
         "matcher": "auto|manual",
         "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/scripts/pre_compact_save.py",
-            "timeout": 10000
-          }
+          {"type": "command", "command": ".claude/hooks/scripts/pre_compact_save.py", "timeout": 10000}
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/agent_response_capture.py"}
         ]
       }
     ]
@@ -1149,9 +1177,12 @@ Complete hook configuration example:
 
 | Hook | Recommended Timeout | Maximum |
 |------|-------------------|---------|
-| SessionStart | 5000ms (5s) | 10000ms |
-| PostToolUse | 1000ms (1s) | 2000ms |
+| SessionStart | 30000ms (30s) | 30000ms |
+| UserPromptSubmit | none / 5000ms (5s) | — |
+| PreToolUse | 2000ms (2s) | 2000ms |
+| PostToolUse | 2000ms (2s) / none | — |
 | PreCompact | 10000ms (10s) | 30000ms |
+| Stop | none | — |
 
 ---
 
