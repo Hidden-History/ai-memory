@@ -43,7 +43,19 @@ GitHub enrichment, security scanning, and Parzival session agent integration.
 - 6 cross-phase E2E integration tests (SPEC-018)
 - 3 new docs: GITHUB-INTEGRATION.md, TEMPORAL-FEATURES.md, PARZIVAL-SESSION-GUIDE.md (SPEC-018)
 
+#### Parzival Integration (PLAN-007)
+- 37 oversight templates now tracked in git (`templates/oversight/`) — fixed `.gitignore` root-anchor pattern
+- CLAUDE-PARZIVAL-SECTION.md template moved to `templates/` root for user CLAUDE.md integration
+- 8 POV reference docs added to `docs/parzival/` (deprecating standalone POV repo)
+- Backup-on-overwrite for Parzival commands during re-install (`.bak.YYYYMMDDHHMMSS`)
+- Agent files always deploy latest version on re-install (system-owned files)
+
 ### Fixed
+- BUG-104: Collection setup errors hidden by `2>/dev/null` — now uses `log_error` with re-run command
+- BUG-105: Embedding model download fails on first start — pre-download at build time with graceful fallback
+- BUG-106: Broken symlinks left after hook archival — cleanup before verification + replaced archived trigger
+- BUG-107: Parzival commands not deployed — `cp -r` for entire commands directory
+- BUG-108: Agent deployment fails on same-file copy — skip redundant copies in `deploy_parzival_commands()`
 - BUG-103: PyYAML missing from test dependencies (SPEC-017)
 - TECH-DEBT-156: Dead code branch in security scanner (SPEC-017)
 - TECH-DEBT-157: Session state path injection vulnerability (SPEC-017)
@@ -59,6 +71,16 @@ GitHub enrichment, security scanning, and Parzival session agent integration.
 ### Changed
 - Decay half-lives: agent_handoff 30→180d, added agent_insight 180d, agent_task 14d (SPEC-018)
 - CONFIGURATION.md updated with all v2.0.6 variables (SPEC-018)
+- Installer: `shopt -s nullglob` for safe glob expansion in all deployment functions
+- Installer: all arithmetic uses POSIX `$((expr))` pattern (replaced 12 bash-specific `((var++))` instances)
+- Installer: `cp` commands in `copy_files()` have error handling with actionable messages
+- Installer: `setup-collections.py` adds `--force` flag, try/except per collection, skip-if-exists default
+- Installer: `generate_settings.py` uses `os.environ.get()` for service config, correct hook timeouts
+- Installer: `merge_settings.py` deep merge preserves user scalar values (base-wins pattern)
+- Installer: `configure_parzival_env()` respects `NON_INTERACTIVE` mode with proper sed escaping
+- Installer: `create_agent_id_index()` checks docker/.env exists before grep
+- Installer: broken symlink and stale file cleanup in `create_project_symlinks()`
+- Installer: skills symlink uses `${skill_dir%/}` for trailing slash safety
 
 ## [2.0.5] - 2026-02-10
 
