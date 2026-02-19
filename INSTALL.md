@@ -117,6 +117,43 @@ docker ps  # Should not error
 
 Follow official Claude Code installation: [claude.ai/code](https://claude.ai/code)
 
+### 4. 🔐 Install SOPS + age (Optional — for encrypted secrets)
+
+If you want to store API keys and tokens encrypted in Git (recommended for teams and shared machines), install SOPS and age **before** running the installer:
+
+**macOS (Homebrew):**
+
+```bash
+brew install sops age
+```
+
+**Ubuntu/Debian:**
+
+```bash
+# SOPS
+curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
+sudo mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
+sudo chmod +x /usr/local/bin/sops
+
+# age
+sudo apt install age
+```
+
+**Windows (WSL2):**
+
+```bash
+# Inside WSL2 terminal — same as Ubuntu/Debian above
+```
+
+**Verify installation:**
+
+```bash
+sops --version    # Should print sops x.x.x
+age-keygen --version  # Should print age x.x.x
+```
+
+> **Note:** SOPS+age is optional. The installer will detect whether they're installed and show availability next to the option. Without them, you can use plaintext `.env` files or system keyring instead.
+
 ## 🚀 Installation
 
 > **⚠️ Install ONCE, Add Projects:** AI-Memory is installed to a single location. Clone the repository once, then run the installer for each project you want to add. **Do NOT clone ai-memory into each project!**

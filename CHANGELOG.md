@@ -55,7 +55,8 @@ GitHub enrichment, security scanning, and Parzival session agent integration.
 - BUG-105: Embedding model download fails on first start — pre-download at build time with graceful fallback
 - BUG-106: Broken symlinks left after hook archival — cleanup before verification + replaced archived trigger
 - BUG-107: Parzival commands not deployed — `cp -r` for entire commands directory
-- BUG-108: Agent deployment fails on same-file copy — skip redundant copies in `deploy_parzival_commands()`
+- BUG-108: Agent deployment fails on same-file copy — skip if already installed by `create_project_symlinks()`
+- DOC-001: Verification doc references wrong config field name (`auto_update` → `auto_update_enabled`)
 - BUG-103: PyYAML missing from test dependencies (SPEC-017)
 - TECH-DEBT-156: Dead code branch in security scanner (SPEC-017)
 - TECH-DEBT-157: Session state path injection vulnerability (SPEC-017)
@@ -81,6 +82,8 @@ GitHub enrichment, security scanning, and Parzival session agent integration.
 - Installer: `create_agent_id_index()` checks docker/.env exists before grep
 - Installer: broken symlink and stale file cleanup in `create_project_symlinks()`
 - Installer: skills symlink uses `${skill_dir%/}` for trailing slash safety
+- Installer: SOPS+age secrets option shows availability status (`NOT INSTALLED` / `Recommended`) before user selects
+- INSTALL.md: Added SOPS+age prerequisite section with install instructions for macOS, Ubuntu/Debian, and WSL2
 
 ## [2.0.5] - 2026-02-10
 

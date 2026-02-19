@@ -506,8 +506,18 @@ configure_secrets_backend() {
     echo ""
     echo "How would you like to store API keys and tokens?"
     echo ""
-    echo "  [1] SOPS+age encryption (Recommended)"
-    echo "      Secrets encrypted in Git. Requires: sops, age (brew install sops age)"
+
+    # Check SOPS+age availability before presenting options
+    local sops_available=false
+    if command -v sops &>/dev/null && command -v age-keygen &>/dev/null; then
+        sops_available=true
+        echo "  [1] SOPS+age encryption (Recommended)"
+        echo "      Secrets encrypted in Git."
+    else
+        echo "  [1] SOPS+age encryption (NOT INSTALLED)"
+        echo "      Requires: sops, age — install with: brew install sops age"
+        echo "      Or: sudo apt install sops age"
+    fi
     echo ""
     echo "  [2] System keyring (OS-level encryption)"
     echo "      Uses macOS Keychain / GNOME Keyring / Windows Credential Locker"
@@ -520,12 +530,12 @@ configure_secrets_backend() {
     case "${SECRETS_CHOICE:-3}" in
         1)
             SECRETS_BACKEND="sops-age"
-            if command -v sops &>/dev/null && command -v age-keygen &>/dev/null; then
+            if [[ "$sops_available" == "true" ]]; then
                 log_info "sops and age found. Running setup..."
                 bash "$SCRIPT_DIR/setup-secrets.sh"
             else
                 log_warning "sops and/or age not found."
-                echo "Install: brew install sops age  OR  apt install sops age"
+                echo "Install: brew install sops age  OR  sudo apt install sops age"
                 echo "Then run: ./scripts/setup-secrets.sh"
                 echo "Falling back to .env file for now."
                 SECRETS_BACKEND="env-file"
@@ -2726,14 +2736,24 @@ deploy_parzival_commands() {
 
     for agent_file in code-reviewer.md verify-implementation.md; do
         if [[ -f "$INSTALL_DIR/.claude/agents/$agent_file" ]]; then
-            cp "$INSTALL_DIR/.claude/agents/$agent_file" "$agent_dest/$agent_file"
-            agents_deployed=$((agents_deployed + 1))
+            # BUG-108: Skip if already installed (symlink or copy from create_project_symlinks)
+            if [[ -e "$agent_dest/$agent_file" ]]; then
+                log_info "Agent $agent_file already installed — skipping"
+            else
+                cp "$INSTALL_DIR/.claude/agents/$agent_file" "$agent_dest/$agent_file"
+                agents_deployed=$((agents_deployed + 1))
+            fi
         fi
     done
 
     if [[ -d "$INSTALL_DIR/.claude/agents/parzival" ]]; then
-        cp -r "$INSTALL_DIR/.claude/agents/parzival" "$agent_dest/"
-        agents_deployed=$((agents_deployed + 1))
+        # BUG-108: Skip if already installed
+        if [[ -e "$agent_dest/parzival" ]]; then
+            log_info "Parzival agent directory already installed — skipping"
+        else
+            cp -r "$INSTALL_DIR/.claude/agents/parzival" "$agent_dest/"
+            agents_deployed=$((agents_deployed + 1))
+        fi
     fi
 
     log_info "Parzival agent files deployed ($agents_deployed) to $agent_dest"
