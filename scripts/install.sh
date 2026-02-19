@@ -1834,7 +1834,7 @@ wait_for_services() {
                 break
             fi
             sleep 2
-            ((attempt+=2)) || true
+            attempt=$((attempt + 2))
         done
 
         # Cleanup log tail if still running (timeout case)
@@ -2722,18 +2722,21 @@ deploy_parzival_commands() {
     # Deploy subagent files so exec= directives in parzival.md resolve correctly
     local agent_dest="$PROJECT_PATH/.claude/agents"
     mkdir -p "$agent_dest"
+    local agents_deployed=0
 
     for agent_file in code-reviewer.md verify-implementation.md; do
         if [[ -f "$INSTALL_DIR/.claude/agents/$agent_file" ]]; then
             cp "$INSTALL_DIR/.claude/agents/$agent_file" "$agent_dest/$agent_file"
+            agents_deployed=$((agents_deployed + 1))
         fi
     done
 
     if [[ -d "$INSTALL_DIR/.claude/agents/parzival" ]]; then
         cp -r "$INSTALL_DIR/.claude/agents/parzival" "$agent_dest/"
+        agents_deployed=$((agents_deployed + 1))
     fi
 
-    log_info "Parzival agent files deployed to $agent_dest"
+    log_info "Parzival agent files deployed ($agents_deployed) to $agent_dest"
 }
 
 deploy_oversight_templates() {

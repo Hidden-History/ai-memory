@@ -1,3 +1,5 @@
+> **Note**: This is preserved reference documentation from the standalone POV Oversight Agent repository. Paths and commands shown may reference the original standalone structure. For current ai-memory installation, see [INSTALL.md](../INSTALL.md).
+
 <div align="center">
 
 <img src="assets/parzival_oversight_agent.png" alt="Parzival Oversight Agent Banner" width="100%">
