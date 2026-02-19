@@ -23,6 +23,7 @@
 #   - Port conflict detection: https://www.cyberciti.biz/faq/unix-linux-check-if-port-is-in-use-command/
 
 set -euo pipefail
+shopt -s nullglob
 
 # Script directory for relative path resolution
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -749,7 +750,7 @@ update_shared_scripts() {
     for script in "$SCRIPT_DIR"/*.py; do
         if [[ -f "$script" ]]; then
             cp "$script" "$INSTALL_DIR/scripts/"
-            ((updated_count++)) || true
+            updated_count=$((updated_count + 1))
         fi
     done
 
@@ -765,7 +766,7 @@ update_shared_scripts() {
             if [[ -f "$hook" ]]; then
                 source_hooks+=("$(basename "$hook")")
                 cp "$hook" "$INSTALL_DIR/.claude/hooks/scripts/"
-                ((hooks_count++)) || true
+                hooks_count=$((hooks_count + 1))
             fi
         done
 
@@ -785,7 +786,7 @@ update_shared_scripts() {
                 if [[ "$is_source" == false ]]; then
                     mkdir -p "$archive_dir"
                     mv "$existing" "$archive_dir/"
-                    ((archived_count++)) || true
+                    archived_count=$((archived_count + 1))
                 fi
             fi
         done
@@ -1239,7 +1240,7 @@ copy_files() {
 
     # Copy core files (preserve directory structure)
     log_info "Copying docker configuration..."
-    cp -r "$SOURCE_DIR/docker/"* "$INSTALL_DIR/docker/"
+    cp -r "$SOURCE_DIR/docker/"* "$INSTALL_DIR/docker/" || { log_error "Failed to copy docker files"; exit 1; }
     # BUG-040: Explicitly copy dotfiles - glob .* matches . and .. causing failures
     # Copy .env if it exists in source (contains credentials)
     if [[ -f "$SOURCE_DIR/docker/.env" ]]; then
@@ -1252,10 +1253,10 @@ copy_files() {
     fi
 
     log_info "Copying Python memory modules..."
-    cp -r "$SOURCE_DIR/src/memory/"* "$INSTALL_DIR/src/memory/"
+    cp -r "$SOURCE_DIR/src/memory/"* "$INSTALL_DIR/src/memory/" || { log_error "Failed to copy Python memory modules"; exit 1; }
 
     log_info "Copying scripts..."
-    cp -r "$SOURCE_DIR/scripts/"* "$INSTALL_DIR/scripts/"
+    cp -r "$SOURCE_DIR/scripts/"* "$INSTALL_DIR/scripts/" || { log_error "Failed to copy scripts"; exit 1; }
 
     log_info "Copying monitoring module..."
     if [[ -d "$SOURCE_DIR/monitoring" ]]; then
@@ -1264,7 +1265,7 @@ copy_files() {
     fi
 
     log_info "Copying Claude Code hooks..."
-    cp -r "$SOURCE_DIR/.claude/hooks/"* "$INSTALL_DIR/.claude/hooks/"
+    cp -r "$SOURCE_DIR/.claude/hooks/"* "$INSTALL_DIR/.claude/hooks/" || { log_error "Failed to copy Claude Code hooks"; exit 1; }
 
     # Copy Claude Code skills (core ai-memory functionality)
     if [[ -d "$SOURCE_DIR/.claude/skills" ]]; then
@@ -1721,7 +1722,7 @@ start_services() {
         fi
         echo -n "."
         sleep 1
-        ((core_attempt++)) || true
+        core_attempt=$((core_attempt + 1))
     done
     if [[ $core_attempt -ge $core_timeout ]]; then
         log_error "Qdrant failed to become healthy within ${core_timeout}s"
@@ -1793,7 +1794,7 @@ wait_for_services() {
             echo -n "."
         fi
         sleep 1
-        ((attempt++)) || true
+        attempt=$((attempt + 1))
     done
 
     if [[ $attempt -eq $max_attempts ]]; then
@@ -1867,7 +1868,7 @@ wait_for_services() {
         fi
         echo -n "."
         sleep 1
-        ((attempt++)) || true
+        attempt=$((attempt + 1))
     done
 
     if [[ $attempt -eq 30 ]]; then
@@ -1887,7 +1888,7 @@ wait_for_services() {
             fi
             echo -n "."
             sleep 1
-            ((attempt++)) || true
+            attempt=$((attempt + 1))
         done
         if [[ $attempt -eq 60 ]]; then
             echo -e "${YELLOW}timeout (non-critical)${NC}"
@@ -1904,7 +1905,7 @@ wait_for_services() {
             fi
             echo -n "."
             sleep 1
-            ((attempt++)) || true
+            attempt=$((attempt + 1))
         done
         if [[ $attempt -eq 60 ]]; then
             echo -e "${YELLOW}timeout (non-critical)${NC}"
@@ -1923,7 +1924,7 @@ setup_collections() {
     if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/setup-collections.py" 2>&1; then
         log_success "Qdrant collections created (code-patterns, conventions, discussions)"
     else
-        log_warning "Collection setup had issues - will be created on first use"
+        log_error "Collection setup FAILED - re-run: $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/setup-collections.py"
     fi
 }
 
@@ -2024,7 +2025,12 @@ create_project_symlinks() {
     # Prior installs may leave symlinks pointing to deleted targets (e.g. archived hooks)
     for existing in "$PROJECT_PATH/.claude/hooks/scripts"/*.py; do
         if [[ -L "$existing" && ! -e "$existing" ]]; then
-            rm -f "$existing"
+            rm -f "$existing"  # broken symlink
+        elif [[ -f "$existing" && ! -L "$existing" ]]; then
+            local bn=$(basename "$existing")
+            if [[ ! -f "$INSTALL_DIR/.claude/hooks/scripts/$bn" ]]; then
+                rm -f "$existing"  # stale regular file from prior copy-mode install
+            fi
         fi
     done
 
@@ -2045,7 +2051,7 @@ create_project_symlinks() {
                 # Use symlinks on native Linux/macOS
                 ln -sf "$script" "$target_path"
             fi
-            ((file_count++)) || true
+            file_count=$((file_count + 1))
         fi
     done
 
@@ -2066,7 +2072,7 @@ create_project_symlinks() {
                 if [[ ! -f "$INSTALL_DIR/.claude/hooks/scripts/$basename_hook" ]]; then
                     mkdir -p "$archive_dir"
                     mv "$existing" "$archive_dir/"
-                    ((archived_count++)) || true
+                    archived_count=$((archived_count + 1))
                 fi
             fi
         done
@@ -2123,9 +2129,9 @@ create_project_symlinks() {
                 else
                     # Symlink entire skill directory
                     rm -rf "$target_skill"
-                    ln -sf "$skill_dir" "$PROJECT_PATH/.claude/skills/"
+                    ln -sf "${skill_dir%/}" "$PROJECT_PATH/.claude/skills/$skill_name"
                 fi
-                ((skills_count++)) || true
+                skills_count=$((skills_count + 1))
             fi
         done
         if [[ $skills_count -gt 0 ]]; then
@@ -2147,7 +2153,7 @@ create_project_symlinks() {
                 else
                     ln -sf "$agent_file" "$target_agent"
                 fi
-                ((agents_count++)) || true
+                agents_count=$((agents_count + 1))
             fi
         done
         if [[ $agents_count -gt 0 ]]; then
@@ -2695,24 +2701,35 @@ deploy_parzival_commands() {
     mkdir -p "$cmd_dest"
 
     if [[ -d "$cmd_source" ]]; then
-        cp -r "$cmd_source/"* "$cmd_dest/"
+        # Backup existing commands before overwrite
+        for src_file in "$cmd_source"/*.md; do
+            local bn=$(basename "$src_file")
+            local dest_file="$cmd_dest/$bn"
+            if [[ -f "$dest_file" ]]; then
+                cp "$dest_file" "$dest_file.bak.$(date +%Y%m%d%H%M%S)"
+            fi
+        done
+        cp -r "$cmd_source/"* "$cmd_dest/" 2>/dev/null || true
         log_info "Parzival commands deployed to $cmd_dest"
     else
         log_warning "Parzival command source not found at $cmd_source"
     fi
 
+    # TODO(v2.0.7): De-duplicate agent deployment — create_project_symlinks() already covers
+    # agents in $PROJECT_PATH/.claude/agents/. This section deploys the same files.
+    # After v2.0.6, consolidate into a single deployment path.
+
     # Deploy subagent files so exec= directives in parzival.md resolve correctly
     local agent_dest="$PROJECT_PATH/.claude/agents"
     mkdir -p "$agent_dest"
 
-    # BUG-108: Skip copy if file already exists (main installer may have created symlinks)
     for agent_file in code-reviewer.md verify-implementation.md; do
-        if [[ -f "$INSTALL_DIR/.claude/agents/$agent_file" && ! -e "$agent_dest/$agent_file" ]]; then
+        if [[ -f "$INSTALL_DIR/.claude/agents/$agent_file" ]]; then
             cp "$INSTALL_DIR/.claude/agents/$agent_file" "$agent_dest/$agent_file"
         fi
     done
 
-    if [[ -d "$INSTALL_DIR/.claude/agents/parzival" && ! -e "$agent_dest/parzival" ]]; then
+    if [[ -d "$INSTALL_DIR/.claude/agents/parzival" ]]; then
         cp -r "$INSTALL_DIR/.claude/agents/parzival" "$agent_dest/"
     fi
 
@@ -2757,11 +2774,13 @@ configure_parzival_env() {
     append_env_if_missing "PARZIVAL_OVERSIGHT_FOLDER" "oversight"
     append_env_if_missing "PARZIVAL_HANDOFF_RETENTION" "10"
 
-    # Prompt for user name
-    read -p "Your name for Parzival greetings [Developer]: " user_name
-    if [[ -n "$user_name" ]]; then
-        escaped_name=$(printf '%s\n' "$user_name" | sed 's/[\\\/&]/\\&/g')
-        sed -i.bak "s/^PARZIVAL_USER_NAME=.*/PARZIVAL_USER_NAME=$escaped_name/" "$env_file" && rm -f "$env_file.bak"
+    # Prompt for user name (skip in non-interactive mode)
+    if [[ "$NON_INTERACTIVE" != "true" ]]; then
+        read -p "Your name for Parzival greetings [Developer]: " user_name
+        if [[ -n "$user_name" ]]; then
+            escaped_name=$(printf '%s\n' "$user_name" | sed 's/[&/\$`"!]/\\&/g')
+            sed -i.bak "s/^PARZIVAL_USER_NAME=.*/PARZIVAL_USER_NAME=$escaped_name/" "$env_file" && rm -f "$env_file.bak"
+        fi
     fi
 }
 
@@ -2777,8 +2796,10 @@ append_env_if_missing() {
 
 create_agent_id_index() {
     local qdrant_url="http://localhost:${QDRANT_PORT:-26350}"
-    local api_key
-    api_key=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" | cut -d= -f2-)
+    local api_key=""
+    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
+        api_key=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2-) || true
+    fi
 
     log_info "Creating agent_id payload index on discussions collection..."
 

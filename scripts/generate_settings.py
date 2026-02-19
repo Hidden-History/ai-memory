@@ -71,17 +71,17 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         "AI_MEMORY_INSTALL_DIR": install_dir,
         # Project identification for multi-tenancy
         "AI_MEMORY_PROJECT_ID": project_name,
-        # Service configuration - ports per CLAUDE.md
-        "QDRANT_HOST": "localhost",
-        "QDRANT_PORT": "26350",
-        "EMBEDDING_HOST": "localhost",
-        "EMBEDDING_PORT": "28080",
+        # Service configuration - read from environment, fall back to defaults per CLAUDE.md
+        "QDRANT_HOST": os.environ.get("QDRANT_HOST", "localhost"),
+        "QDRANT_PORT": os.environ.get("QDRANT_PORT", "26350"),
+        "EMBEDDING_HOST": os.environ.get("EMBEDDING_HOST", "localhost"),
+        "EMBEDDING_PORT": os.environ.get("EMBEDDING_PORT", "28080"),
         # TECH-DEBT-002: Lower threshold for NL query → code content matching
-        "SIMILARITY_THRESHOLD": "0.4",
+        "SIMILARITY_THRESHOLD": os.environ.get("SIMILARITY_THRESHOLD", "0.4"),
         "LOG_LEVEL": "INFO",
         # Pushgateway configuration for metrics
-        "PUSHGATEWAY_URL": "localhost:29091",
-        "PUSHGATEWAY_ENABLED": "true",
+        "PUSHGATEWAY_URL": os.environ.get("PUSHGATEWAY_URL", "localhost:29091"),
+        "PUSHGATEWAY_ENABLED": os.environ.get("PUSHGATEWAY_ENABLED", "true"),
     }
 
     # Only include QDRANT_API_KEY if it has a non-empty value
@@ -106,6 +106,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         {
                             "type": "command",
                             "command": _hook_cmd("user_prompt_capture.py"),
+                            "timeout": 2000,
                         }
                     ]
                 },
@@ -153,6 +154,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         {
                             "type": "command",
                             "command": _hook_cmd("error_pattern_capture.py"),
+                            "timeout": 3000,
                         },
                     ],
                 },
@@ -162,6 +164,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         {
                             "type": "command",
                             "command": _hook_cmd("post_tool_capture.py"),
+                            "timeout": 3000,
                         }
                     ],
                 },
@@ -184,6 +187,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         {
                             "type": "command",
                             "command": _hook_cmd("agent_response_capture.py"),
+                            "timeout": 5000,
                         }
                     ]
                 }

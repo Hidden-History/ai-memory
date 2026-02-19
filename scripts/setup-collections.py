@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Create Qdrant collections for AI Memory Module.
 
-Creates three v2.0 collections:
+Creates up to four v2.0 collections:
 - code-patterns: HOW things are built (implementation, error_fix, refactor, file_pattern)
 - conventions: WHAT rules to follow (guideline, anti_pattern, decision)
 - discussions: WHY things were decided (session, conversation, analysis, reflection)
+- jira-data: Jira issues and comments (enabled when jira_sync_enabled=true)
 
 Implements Story 1.3 AC 1.3.1.
 """
@@ -41,11 +42,13 @@ from memory.qdrant_client import get_qdrant_client
 logger = logging.getLogger(__name__)
 
 
-def create_collections(dry_run: bool = False) -> None:
+def create_collections(dry_run: bool = False, force: bool = False) -> None:
     """Create Qdrant collections with proper schema.
 
     Args:
         dry_run: If True, preview what would be created without making changes
+        force: If True, delete and recreate existing collections (DATA LOSS).
+            Default (False) skips existing collections for safe re-install.
 
     Raises:
         Exception: If connection to Qdrant fails
@@ -85,42 +88,46 @@ def create_collections(dry_run: bool = False) -> None:
         if dry_run:
             exists = client.collection_exists(collection_name)
             print(f"DRY RUN: Collection '{collection_name}' exists: {exists}")
-            print(
-                f"DRY RUN: Would {'recreate' if exists else 'create'} collection '{collection_name}'"
-            )
+            action = "recreate" if exists and force else ("skip" if exists else "create")
+            print(f"DRY RUN: Would {action} collection '{collection_name}'")
             continue
 
-        if client.collection_exists(collection_name):
-            client.delete_collection(collection_name)
-
-        # BP-038 Section 2.1: HNSW on-disk for memory efficiency
-        hnsw_config = HnswConfigDiff(
-            m=16,
-            ef_construct=100,
-            full_scan_threshold=10000,
-            on_disk=True,
-        )
-
-        # BP-038 Section 2.1: Scalar int8 quantization for 4x compression
-        quantization_config = ScalarQuantization(
-            scalar=ScalarQuantizationConfig(
-                type=ScalarType.INT8,
-                quantile=0.99,
-                always_ram=True,
-            )
-        )
-
-        client.create_collection(
-            collection_name=collection_name,
-            vectors_config=vector_config,
-            hnsw_config=hnsw_config,
-            quantization_config=quantization_config,
-        )
-
-        # Create keyword indexes for filtering
-        # These enable fast payload filtering for multi-tenancy and provenance
-        # Wrapped in try/except to handle Qdrant connection/permission failures
         try:
+            if client.collection_exists(collection_name):
+                if not force:
+                    print(
+                        f"Collection '{collection_name}' already exists (skipping, use --force to recreate)"
+                    )
+                    continue
+                client.delete_collection(collection_name)
+
+            # BP-038 Section 2.1: HNSW on-disk for memory efficiency
+            hnsw_config = HnswConfigDiff(
+                m=16,
+                ef_construct=100,
+                full_scan_threshold=10000,
+                on_disk=True,
+            )
+
+            # BP-038 Section 2.1: Scalar int8 quantization for 4x compression
+            quantization_config = ScalarQuantization(
+                scalar=ScalarQuantizationConfig(
+                    type=ScalarType.INT8,
+                    quantile=0.99,
+                    always_ram=True,
+                )
+            )
+
+            client.create_collection(
+                collection_name=collection_name,
+                vectors_config=vector_config,
+                hnsw_config=hnsw_config,
+                quantization_config=quantization_config,
+            )
+
+            # Create keyword indexes for filtering
+            # These enable fast payload filtering for multi-tenancy and provenance
+
             # group_id uses is_tenant=True for optimized multi-project storage layout
             client.create_payload_index(
                 collection_name=collection_name,
@@ -203,8 +210,8 @@ def create_collections(dry_run: bool = False) -> None:
                 print(f"  Created {len(jira_indexes)} Jira-specific indexes")
 
         except Exception as e:
-            logger.error(f"Failed to create indexes for {collection_name}: {e}")
-            print(f"WARNING: Index creation failed for {collection_name}: {e}", file=sys.stderr)
+            logger.error(f"Failed to setup {collection_name}: {e}")
+            print(f"WARNING: Setup failed for {collection_name}: {e}", file=sys.stderr)
             failed_collections.append(collection_name)
             continue
 
@@ -218,6 +225,8 @@ def create_collections(dry_run: bool = False) -> None:
 if __name__ == "__main__":
     import argparse
 
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
     parser = argparse.ArgumentParser(
         description="Create Qdrant collections for AI Memory Module (V2.0)"
     )
@@ -226,5 +235,10 @@ if __name__ == "__main__":
         action="store_true",
         help="Preview what would be created without making changes",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Delete and recreate existing collections (DATA LOSS)",
+    )
     args = parser.parse_args()
-    create_collections(dry_run=args.dry_run)
+    create_collections(dry_run=args.dry_run, force=args.force)

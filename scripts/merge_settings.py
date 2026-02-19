@@ -57,8 +57,8 @@ def deep_merge(base: dict, overlay: dict) -> dict:
                 # Append to lists, deduplicate hooks by command
                 result[key] = merge_lists(result[key], value)
             else:
-                # Preserve existing non-dict/list values
-                result[key] = value
+                # Preserve existing scalar values (base wins — user customizations not overwritten)
+                pass  # Keep result[key] unchanged
         else:
             result[key] = value
 
