@@ -112,7 +112,7 @@ services:
     # Then set PROMETHEUS_BASIC_AUTH_HEADER in .env (format: "Basic <base64>")
     # Note: For production, use external monitoring (Grafana checks, monitoring-api)
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "--header=Authorization: ${PROMETHEUS_BASIC_AUTH_HEADER:-Basic REPLACE_WITH_BASE64_CREDENTIALS}", "http://localhost:9090/-/healthy"]
+      test: ["CMD-SHELL", "if [ -n \"$PROMETHEUS_BASIC_AUTH_HEADER\" ]; then wget --quiet --tries=1 --spider --header=\"Authorization: $PROMETHEUS_BASIC_AUTH_HEADER\" http://localhost:9090/-/healthy; else wget --quiet --tries=1 --spider http://localhost:9090/-/healthy; fi"]
       interval: 30s
       timeout: 10s
       retries: 3

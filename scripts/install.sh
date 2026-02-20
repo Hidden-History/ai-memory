@@ -1100,7 +1100,6 @@ install_python_dependencies() {
     # (TECH-DEBT-135: hooks require this path)
     # ============================================
     local venv_dir="$INSTALL_DIR/.venv"
-    local pip_exit_code=0
 
     # Check for existing user venv (informational only)
     if [[ -n "${VIRTUAL_ENV:-}" ]]; then
@@ -1126,96 +1125,81 @@ install_python_dependencies() {
 
     # Install in the installation venv (not user's venv)
     log_info "Installing with pip install -e \".[dev]\"..."
-    if "$venv_dir/bin/pip" install -e "$INSTALL_DIR[dev]" 2>&1 | tail -5; then
+    if "$venv_dir/bin/pip" install --retries 3 --timeout 120 -e "$INSTALL_DIR[dev]" 2>&1 | tail -5; then
         log_success "Python dependencies installed successfully"
         log_info "Hooks will use: $venv_dir/bin/python"
-    else
-        pip_exit_code=$?
     fi
 
     # ============================================
     # Venv Verification (TECH-DEBT-136)
     # ============================================
-    if [[ $pip_exit_code -eq 0 ]]; then
-        echo ""
-        log_info "Verifying venv installation..."
+    echo ""
+    log_info "Verifying venv installation..."
 
-        VENV_PYTHON="$venv_dir/bin/python"
+    VENV_PYTHON="$venv_dir/bin/python"
 
-        # Check venv Python exists
-        if [ ! -f "$VENV_PYTHON" ]; then
-            log_error "Venv Python not found at $VENV_PYTHON"
-            log_error "Venv creation failed. Please check permissions and disk space."
-            exit 1
-        fi
-
-        # Verify critical packages are importable
-        log_info "Checking critical dependencies..."
-
-        CRITICAL_PACKAGES=(
-            "qdrant_client:Qdrant client for memory storage"
-            "prometheus_client:Prometheus metrics"
-            "httpx:HTTP client for embedding service"
-            "pydantic:Configuration validation"
-            "structlog:Logging"
-        )
-
-        FAILED_PACKAGES=()
-
-        for pkg_info in "${CRITICAL_PACKAGES[@]}"; do
-            pkg_name="${pkg_info%%:*}"
-            pkg_desc="${pkg_info##*:}"
-
-            if ! "$VENV_PYTHON" -c "import $pkg_name" 2>/dev/null; then
-                echo "  ✗ $pkg_name ($pkg_desc) - FAILED"
-                FAILED_PACKAGES+=("$pkg_name")
-            else
-                echo "  ✓ $pkg_name"
-            fi
-        done
-
-        if [ ${#FAILED_PACKAGES[@]} -gt 0 ]; then
-            echo ""
-            log_error "Critical packages failed to import: ${FAILED_PACKAGES[*]}"
-            log_error "Installation cannot continue. Please check:"
-            echo "  1. Network connectivity (packages may not have downloaded)"
-            echo "  2. Disk space"
-            echo "  3. Python version compatibility"
-            exit 1
-        fi
-
-        # Check optional packages (warn but don't fail)
-        log_info "Checking optional dependencies..."
-
-        OPTIONAL_PACKAGES=(
-            "tree_sitter:AST-based code chunking"
-            "tree_sitter_python:Python code parsing"
-        )
-
-        for pkg_info in "${OPTIONAL_PACKAGES[@]}"; do
-            pkg_name="${pkg_info%%:*}"
-            pkg_desc="${pkg_info##*:}"
-
-            if ! "$VENV_PYTHON" -c "import $pkg_name" 2>/dev/null; then
-                echo "  ⚠ $pkg_name ($pkg_desc) - Not available (optional feature disabled)"
-            else
-                echo "  ✓ $pkg_name"
-            fi
-        done
-
-        log_success "Venv verification passed. All critical packages available."
+    # Check venv Python exists
+    if [ ! -f "$VENV_PYTHON" ]; then
+        log_error "Venv Python not found at $VENV_PYTHON"
+        log_error "Venv creation failed. Please check permissions and disk space."
+        exit 1
     fi
 
-    # Handle pip failure gracefully - warn but don't abort install
-    if [[ $pip_exit_code -ne 0 ]]; then
-        log_warning "pip install failed (exit code: $pip_exit_code)"
-        log_warning "Python dependencies NOT installed - hooks may not work correctly"
+    # Verify critical packages are importable
+    log_info "Checking critical dependencies..."
+
+    CRITICAL_PACKAGES=(
+        "qdrant_client:Qdrant client for memory storage"
+        "prometheus_client:Prometheus metrics"
+        "httpx:HTTP client for embedding service"
+        "pydantic:Configuration validation"
+        "structlog:Logging"
+    )
+
+    FAILED_PACKAGES=()
+
+    for pkg_info in "${CRITICAL_PACKAGES[@]}"; do
+        pkg_name="${pkg_info%%:*}"
+        pkg_desc="${pkg_info##*:}"
+
+        if ! "$VENV_PYTHON" -c "import $pkg_name" 2>/dev/null; then
+            echo "  ✗ $pkg_name ($pkg_desc) - FAILED"
+            FAILED_PACKAGES+=("$pkg_name")
+        else
+            echo "  ✓ $pkg_name"
+        fi
+    done
+
+    if [ ${#FAILED_PACKAGES[@]} -gt 0 ]; then
         echo ""
-        echo "To install manually:"
-        echo "  source $INSTALL_DIR/.venv/bin/activate"
-        echo "  pip install -e \"$INSTALL_DIR[dev]\""
-        echo ""
+        log_error "Critical packages failed to import: ${FAILED_PACKAGES[*]}"
+        log_error "Installation cannot continue. Please check:"
+        echo "  1. Network connectivity (packages may not have downloaded)"
+        echo "  2. Disk space"
+        echo "  3. Python version compatibility"
+        exit 1
     fi
+
+    # Check optional packages (warn but don't fail)
+    log_info "Checking optional dependencies..."
+
+    OPTIONAL_PACKAGES=(
+        "tree_sitter:AST-based code chunking"
+        "tree_sitter_python:Python code parsing"
+    )
+
+    for pkg_info in "${OPTIONAL_PACKAGES[@]}"; do
+        pkg_name="${pkg_info%%:*}"
+        pkg_desc="${pkg_info##*:}"
+
+        if ! "$VENV_PYTHON" -c "import $pkg_name" 2>/dev/null; then
+            echo "  ⚠ $pkg_name ($pkg_desc) - Not available (optional feature disabled)"
+        else
+            echo "  ✓ $pkg_name"
+        fi
+    done
+
+    log_success "Venv verification passed. All critical packages available."
 
     return 0  # Always return success - don't fail entire install
 }
@@ -1594,8 +1578,8 @@ generate_prometheus_auth() {
         return 0
     fi
 
-    # Generate bcrypt hash using Python
-    local bcrypt_hash bcrypt_stderr=""
+    # Step 1: Try Python bcrypt
+    local bcrypt_hash="" bcrypt_stderr=""
     bcrypt_hash=$(PROM_PASS="$prometheus_password" "$INSTALL_DIR/.venv/bin/python" -c "
 import bcrypt, os
 password = os.environ['PROM_PASS'].encode('utf-8')
@@ -1610,8 +1594,26 @@ print(hash_val.decode('utf-8'))
         log_warning "Ensure bcrypt is installed: $INSTALL_DIR/.venv/bin/pip install bcrypt"
     fi
 
+    # Step 2: Fallback to htpasswd if bcrypt failed
     if [[ -z "$bcrypt_hash" ]]; then
-        log_warning "Failed to generate bcrypt hash - check Python/bcrypt installation"
+        log_info "Trying htpasswd as bcrypt fallback..."
+        local htpasswd_output=""
+        htpasswd_output=$(htpasswd -nbBC 10 admin "$prometheus_password" 2>/dev/null) || true
+        if [[ -n "$htpasswd_output" ]]; then
+            bcrypt_hash=$(echo "$htpasswd_output" | cut -d: -f2)
+            log_info "bcrypt hash generated via htpasswd fallback"
+        fi
+    fi
+
+    # Step 3: Graceful degradation — run without auth if neither tool worked
+    if [[ -z "$bcrypt_hash" ]]; then
+        log_warning "WARNING: Prometheus running WITHOUT authentication. Install bcrypt or apache2-utils to enable auth."
+        {
+            echo "# Prometheus Web Configuration"
+            echo "# Auto-generated by install.sh"
+            echo "# Authentication is DISABLED - install bcrypt or apache2-utils to enable"
+            echo "# Run installer again after installing bcrypt or apache2-utils"
+        } > "$web_yml"
         return 0
     fi
 
@@ -1755,7 +1757,7 @@ start_services() {
     if [[ -n "$profile_flags" ]]; then
         log_info "Phase 2/2: Starting profile services ($profile_flags)..."
         # BUG-079: --build forces rebuild of source-built containers
-        docker compose $profile_flags up -d --build
+        docker compose $profile_flags up -d --build --no-recreate
         _log_docker_state "after profile startup"
 
         # Verify core services survived profile startup
