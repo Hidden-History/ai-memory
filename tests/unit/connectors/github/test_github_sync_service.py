@@ -183,8 +183,8 @@ def test_health_file_written_on_success():
     mock_write.assert_called_once()
 
 
-def test_health_file_not_written_on_failure():
-    """Health file not created when sync fails."""
+def test_health_file_written_on_failure():
+    """BUG-111: Health file IS created even when sync fails (service is alive)."""
     config = MagicMock()
     config.github_sync_enabled = True
     config.github_sync_interval = 1
@@ -209,7 +209,40 @@ def test_health_file_not_written_on_failure():
     ):
         main()
 
-    mock_write.assert_not_called()
+    # BUG-111: Health file indicates "service is alive", not "last sync was perfect"
+    mock_write.assert_called_once()
+
+
+def test_warning_logged_on_sync_failure():
+    """BUG-111: Warning logged when sync cycle fails."""
+    config = MagicMock()
+    config.github_sync_enabled = True
+    config.github_sync_interval = 1
+    config.github_repo = "owner/repo"
+
+    def mock_asyncio_run(coro):
+        if hasattr(coro, "close"):
+            coro.close()
+        return False
+
+    with (
+        patch.object(github_sync_service, "get_config", return_value=config),
+        patch("github_sync_service.asyncio.run", side_effect=mock_asyncio_run),
+        patch(
+            "github_sync_service.time.sleep",
+            side_effect=lambda s: setattr(
+                github_sync_service, "SHUTDOWN_REQUESTED", True
+            ),
+        ),
+        patch("github_sync_service.signal.signal"),
+        patch.object(github_sync_service, "write_health_file"),
+        patch.object(github_sync_service.logger, "warning") as mock_warning,
+    ):
+        main()
+
+    # BUG-111: Warning should be logged when sync fails
+    mock_warning.assert_called_once()
+    assert "errors" in mock_warning.call_args[0][0].lower() or "error" in mock_warning.call_args[0][0].lower()
 
 
 # -- Config Validation Tests ---------------------------------------------

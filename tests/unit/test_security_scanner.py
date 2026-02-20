@@ -111,11 +111,13 @@ class TestScannerOrchestration:
         # Should only execute layers 1 and maybe 2, not 3
         assert 3 not in result.layers_executed
 
-    def test_layer_selection_ner_disabled(self):
+    def test_layer_selection_ner_disabled(self, monkeypatch):
         """Test that NER layer is skipped when disabled"""
         from memory.security_scanner import SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
+        # BUG-110: Force strict session mode so Layer 2 runs (relaxed is now default)
+        monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: True)
         result = scanner.scan("Clean content")
 
         # Should only execute layers 1 and 2
@@ -529,27 +531,31 @@ class TestSourceTypeAwareness:
         # so it won't actually block, but it will be in layers_executed)
         assert 2 in result.layers_executed
 
-    def test_user_session_always_runs_layer2(self, monkeypatch):
-        """User session content should always run Layer 2 scanning."""
+    def test_user_session_runs_layer2_in_strict_mode(self, monkeypatch):
+        """User session content should run Layer 2 scanning in strict mode."""
         from memory.security_scanner import SecurityScanner
 
         monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
 
         scanner = SecurityScanner(enable_ner=False)
+        # BUG-110: Must set strict mode for Layer 2 to run (relaxed is now default)
+        monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: True)
         result = scanner.scan("Safe content here", source_type="user_session")
 
         assert 2 in result.layers_executed
 
-    def test_default_source_type_runs_all_layers(self, monkeypatch):
-        """Default source_type should be user_session, running all applicable layers."""
+    def test_default_source_type_runs_all_layers_in_strict_mode(self, monkeypatch):
+        """Default source_type (user_session) in strict mode should run all applicable layers."""
         from memory.security_scanner import SecurityScanner
 
         monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
 
         scanner = SecurityScanner(enable_ner=False)
+        # BUG-110: Must set strict mode for Layer 2 to run (relaxed is now default)
+        monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: True)
         result = scanner.scan("Safe content")
 
-        # Default (user_session) must include Layer 2
+        # Default (user_session) in strict mode must include Layer 2
         assert 2 in result.layers_executed
 
     def test_github_code_blob_skips_layer2_in_relaxed_mode(self, monkeypatch):
@@ -569,14 +575,16 @@ class TestSourceTypeAwareness:
         assert result.action != ScanAction.BLOCKED
         assert 2 not in result.layers_executed
 
-    def test_non_github_source_always_runs_layer2(self, monkeypatch):
-        """Non-github source types must always run Layer 2 regardless of mode."""
+    def test_non_github_non_session_source_always_runs_layer2(self, monkeypatch):
+        """Non-github, non-session source types must always run Layer 2 regardless of mode."""
         from memory.security_scanner import SecurityScanner
 
         monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
 
         scanner = SecurityScanner(enable_ner=False)
-        for src in ("user_session", "jira_issue", "agent_memory"):
+        # BUG-110: user_session now respects session mode (relaxed default skips L2)
+        # Only test non-session, non-github sources here
+        for src in ("jira_issue", "agent_memory"):
             result = scanner.scan("Safe text", source_type=src)
             assert (
                 2 in result.layers_executed
@@ -607,3 +615,107 @@ class TestSourceTypeAwareness:
         result = scanner.scan("Safe content", source_type="user_session")
         # user_session should still run all layers regardless of github off mode
         assert 1 in result.layers_executed
+
+
+class TestSessionModeAwareness:
+    """Test BUG-110: security_scan_session_mode config for session content."""
+
+    def test_session_scanning_relaxed_skips_layer2(self, monkeypatch):
+        """Session content should skip Layer 2 detect-secrets in relaxed mode (default)."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", True)
+        scanner = SecurityScanner(enable_ner=False)
+        # Relaxed mode is default — _is_strict_session_mode returns False
+        monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: False)
+        monkeypatch.setattr(scanner, "_is_session_scanning_off", lambda: False)
+
+        content = "Configure QDRANT_API_KEY and GITHUB_TOKEN in your environment"
+        result = scanner.scan(content, source_type="user_session")
+
+        # Layer 2 should be skipped in relaxed mode
+        assert 2 not in result.layers_executed
+        # Layer 1 should still run
+        assert 1 in result.layers_executed
+        # Content discussing env var names should not be blocked by L1
+        assert result.action != ScanAction.BLOCKED
+
+    def test_session_scanning_strict_runs_layer2(self, monkeypatch):
+        """Session content should run Layer 2 detect-secrets in strict mode."""
+        from memory.security_scanner import SecurityScanner
+
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+        scanner = SecurityScanner(enable_ner=False)
+        monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: True)
+        monkeypatch.setattr(scanner, "_is_session_scanning_off", lambda: False)
+
+        result = scanner.scan("Safe content here", source_type="user_session")
+
+        # In strict mode, Layer 2 must run
+        assert 2 in result.layers_executed
+
+    def test_session_scanning_off_skips_all(self, monkeypatch):
+        """Session content should skip ALL scanning when mode is 'off'."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        monkeypatch.setattr(scanner, "_is_session_scanning_off", lambda: True)
+
+        # Content with patterns that would normally trigger L1 regex
+        content = "Contact user@example.com about the QDRANT_API_KEY configuration"
+        result = scanner.scan(content, source_type="user_session")
+
+        assert result.action == ScanAction.PASSED
+        assert result.content == content  # No masking applied
+        assert result.layers_executed == []  # No layers ran
+
+    def test_session_mode_does_not_affect_github(self, monkeypatch):
+        """Session mode config should NOT affect GitHub content scanning."""
+        from memory.security_scanner import SecurityScanner
+
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+        scanner = SecurityScanner(enable_ner=False)
+        # Session scanning off, but GitHub should still run normally
+        monkeypatch.setattr(scanner, "_is_session_scanning_off", lambda: True)
+        monkeypatch.setattr(scanner, "_is_github_scanning_off", lambda: False)
+        monkeypatch.setattr(scanner, "_is_strict_github_mode", lambda: True)
+
+        result = scanner.scan("Safe content", source_type="github_issue")
+
+        # GitHub content should still be scanned (strict mode = all layers)
+        assert 1 in result.layers_executed
+        assert 2 in result.layers_executed
+
+    def test_config_validation_session_mode(self, monkeypatch):
+        """Reject invalid security_scan_session_mode values."""
+        from pydantic import ValidationError
+
+        from memory.config import MemoryConfig, reset_config
+
+        reset_config()
+        monkeypatch.setenv("SECURITY_SCAN_SESSION_MODE", "invalid_mode")
+
+        with pytest.raises(ValidationError):
+            MemoryConfig()
+
+        # Clean up
+        reset_config()
+
+    def test_scan_batch_respects_session_mode(self, monkeypatch):
+        """Batch scanning should respect session relaxed mode."""
+        from memory.security_scanner import SecurityScanner
+
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", True)
+        scanner = SecurityScanner(enable_ner=False)
+        monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: False)
+        monkeypatch.setattr(scanner, "_is_session_scanning_off", lambda: False)
+
+        results = scanner.scan_batch(
+            ["Clean text about QDRANT_API_KEY config", "Another safe text"],
+            source_type="user_session",
+        )
+
+        assert len(results) == 2
+        # Layer 2 should be skipped for both in relaxed session mode
+        for r in results:
+            assert 2 not in r.layers_executed

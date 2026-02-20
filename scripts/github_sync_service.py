@@ -148,9 +148,10 @@ def main():
             first_run = False
         else:
             logger.info("Starting sync cycle...")
-            success = asyncio.run(run_sync_cycle(config))
-            if success:
-                write_health_file()
+            sync_ok = asyncio.run(run_sync_cycle(config))
+            write_health_file()
+            if not sync_ok:
+                logger.warning("Sync cycle completed with errors (health file still written — service is alive)")
             first_run = False
 
         # Sleep in small increments to allow graceful shutdown

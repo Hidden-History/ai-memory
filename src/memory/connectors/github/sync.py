@@ -878,6 +878,7 @@ class GitHubSyncEngine:
                 source_hook="github_sync",
                 session_id=f"github_sync_{batch_id}",
                 collection=DISCUSSIONS_COLLECTION,
+                source_type=type_value,
                 **github_payload,
             )
             if store_result and store_result.get("status") != "error":

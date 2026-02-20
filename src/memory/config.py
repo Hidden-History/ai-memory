@@ -435,6 +435,14 @@ class MemoryConfig(BaseSettings):
         pattern="^(relaxed|strict|off)$",
     )
 
+    security_scan_session_mode: str = Field(
+        default="relaxed",
+        description="Scan mode for session content (user prompts, agent responses): "
+        "'relaxed' (Layer 1 regex only, skip detect-secrets Layer 2), "
+        "'strict' (full Layer 1+2 scan), 'off' (no scanning for session content).",
+        pattern="^(relaxed|strict|off)$",
+    )
+
     # =========================================================================
     # v2.0.6 — Progressive Context Injection (SPEC-012, AD-6)
     # =========================================================================

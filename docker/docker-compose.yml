@@ -362,6 +362,8 @@ services:
       - GITHUB_CODE_BLOB_MAX_SIZE=${GITHUB_CODE_BLOB_MAX_SIZE:-102400}
       - GITHUB_CODE_BLOB_EXCLUDE=${GITHUB_CODE_BLOB_EXCLUDE:-node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info}
       - AI_MEMORY_PROJECT_ID=${AI_MEMORY_PROJECT_ID}
+      - SECURITY_SCAN_GITHUB_MODE=${SECURITY_SCAN_GITHUB_MODE:-relaxed}
+      - SECURITY_SCAN_SESSION_MODE=${SECURITY_SCAN_SESSION_MODE:-relaxed}
       - LOG_LEVEL=${BMAD_LOG_LEVEL:-INFO}
     volumes:
       # Persist sync state across container restarts

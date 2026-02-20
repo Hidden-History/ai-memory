@@ -184,7 +184,7 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                 from memory.security_scanner import SecurityScanner, ScanAction
 
                 scanner = SecurityScanner(enable_ner=False)
-                scan_result = scanner.scan(response_text)
+                scan_result = scanner.scan(response_text, source_type="user_session")
 
                 if scan_result.action == ScanAction.BLOCKED:
                     # Secrets detected - block storage entirely

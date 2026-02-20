@@ -328,3 +328,139 @@ def test_check_duplicate_query_failure(
 
     # Should fail open - allow storage if check fails (returns None)
     assert existing_id is None
+
+
+# =============================================================================
+# BUG-109: store_memory passes source_type through to scanner
+# =============================================================================
+
+
+def test_store_memory_passes_source_type_to_scanner(
+    mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+):
+    """BUG-109: Verify source_type is forwarded to SecurityScanner.scan()."""
+    monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
+
+    storage = MemoryStorage()
+
+    # Replace the scanner with a mock to capture the source_type argument
+    mock_scanner = MagicMock()
+    mock_scan_result = MagicMock()
+    mock_scan_result.action = MagicMock()
+    mock_scan_result.action.__eq__ = lambda self, other: False  # Not BLOCKED
+    mock_scan_result.content = "Test content for source_type forwarding"
+    mock_scanner.scan.return_value = mock_scan_result
+    storage._scanner = mock_scanner
+
+    storage.store_memory(
+        content="Test content for source_type forwarding",
+        cwd=str(tmp_path),
+        group_id="test-project",
+        memory_type=MemoryType.IMPLEMENTATION,
+        source_hook="github_sync",
+        session_id="sess-109",
+        source_type="github_issue",
+    )
+
+    # Verify scanner.scan() was called with source_type="github_issue"
+    mock_scanner.scan.assert_called_once_with(
+        "Test content for source_type forwarding",
+        source_type="github_issue",
+    )
+
+
+def test_store_memory_defaults_source_type_to_user_session(
+    mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+):
+    """BUG-109: Verify source_type defaults to 'user_session' when not provided."""
+    monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
+
+    storage = MemoryStorage()
+
+    mock_scanner = MagicMock()
+    mock_scan_result = MagicMock()
+    mock_scan_result.action = MagicMock()
+    mock_scan_result.action.__eq__ = lambda self, other: False
+    mock_scan_result.content = "Test content default source_type"
+    mock_scanner.scan.return_value = mock_scan_result
+    storage._scanner = mock_scanner
+
+    storage.store_memory(
+        content="Test content default source_type",
+        cwd=str(tmp_path),
+        group_id="test-project",
+        memory_type=MemoryType.IMPLEMENTATION,
+        source_hook="PostToolUse",
+        session_id="sess-109b",
+        # No source_type — should default to "user_session"
+    )
+
+    mock_scanner.scan.assert_called_once_with(
+        "Test content default source_type",
+        source_type="user_session",
+    )
+
+
+def test_store_memories_batch_passes_source_type(
+    mock_config, mock_qdrant_client, mock_embedding_client, monkeypatch
+):
+    """BUG-109: Verify store_memories_batch forwards source_type to scanner."""
+    mock_embedding_client.embed.return_value = [[0.1] * 768]
+
+    storage = MemoryStorage()
+
+    mock_scanner = MagicMock()
+    mock_scan_result = MagicMock()
+    mock_scan_result.action = MagicMock()
+    mock_scan_result.action.__eq__ = lambda self, other: False
+    mock_scan_result.content = "Batch content with source_type"
+    mock_scanner.scan.return_value = mock_scan_result
+    storage._scanner = mock_scanner
+
+    memories = [
+        {
+            "content": "Batch content with source_type",
+            "group_id": "proj",
+            "type": MemoryType.IMPLEMENTATION.value,
+            "source_hook": "github_sync",
+            "session_id": "sess",
+        },
+    ]
+
+    storage.store_memories_batch(memories, source_type="github_pr")
+
+    # Verify scanner.scan() was called with the forwarded source_type
+    mock_scanner.scan.assert_called_once_with(
+        "Batch content with source_type",
+        force_ner=True,
+        source_type="github_pr",
+    )
+
+
+def test_github_content_not_double_blocked(
+    mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+):
+    """BUG-109 integration: GitHub content with QDRANT_API_KEY discussion should NOT be blocked in relaxed mode."""
+    monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
+    # Disable detect-secrets so only Layer 1 regex runs (already done by autouse fixture)
+
+    storage = MemoryStorage()
+
+    # Content that discusses API keys without containing real secrets
+    content = "Configure QDRANT_API_KEY in your .env file. The GITHUB_TOKEN variable is also needed."
+    result = storage.store_memory(
+        content=content,
+        cwd=str(tmp_path),
+        group_id="test-project",
+        memory_type=MemoryType.IMPLEMENTATION,
+        source_hook="github_sync",
+        session_id="sess-integration",
+        source_type="github_issue",  # BUG-109: Pass through source_type
+    )
+
+    # This content does NOT contain real secrets (no ghp_*, AKIA*, etc.)
+    # Layer 1 regex should NOT block it, and Layer 2 is skipped for github_ in relaxed mode
+    assert result["status"] in ("stored", "duplicate"), (
+        f"Expected stored/duplicate but got {result['status']}. "
+        f"GitHub content discussing env vars should not be blocked when source_type is passed."
+    )

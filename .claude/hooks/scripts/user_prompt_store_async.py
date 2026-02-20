@@ -183,7 +183,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 from memory.security_scanner import SecurityScanner, ScanAction
 
                 scanner = SecurityScanner(enable_ner=False)
-                scan_result = scanner.scan(prompt)
+                scan_result = scanner.scan(prompt, source_type="user_session")
 
                 if scan_result.action == ScanAction.BLOCKED:
                     # Secrets detected - block storage entirely

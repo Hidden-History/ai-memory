@@ -511,6 +511,17 @@ class SecurityScanner:
                 layers_executed=[],
             )
 
+        # BUG-110: "off" mode — skip ALL scanning for session content
+        if source_type == "user_session" and self._is_session_scanning_off():
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            return ScanResult(
+                action=ScanAction.PASSED,
+                content=content,
+                findings=[],
+                scan_duration_ms=duration_ms,
+                layers_executed=[],
+            )
+
         all_findings = []
         layers_executed = []
 
@@ -531,11 +542,14 @@ class SecurityScanner:
             _log_scan_result(result, content, source_type)
             return result
 
-        # Source-type-aware scanning (BP-090, RISK-001 fix)
+        # Source-type-aware scanning (BP-090, RISK-001 fix, BUG-110)
         # For GitHub content in relaxed mode, skip Layer 2 (detect-secrets)
-        # to avoid false positives on code variable names and hex strings
+        # to avoid false positives on code variable names and hex strings.
+        # For session content in relaxed mode, also skip Layer 2 to avoid
+        # false positives when discussing API keys/tokens in workspace context.
         skip_layer2 = (
-            source_type.startswith("github_") and not self._is_strict_github_mode()
+            (source_type.startswith("github_") and not self._is_strict_github_mode())
+            or (source_type == "user_session" and not self._is_strict_session_mode())
         )
 
         # Layer 2: detect-secrets (skipped for trusted sources in relaxed mode)
@@ -596,6 +610,24 @@ class SecurityScanner:
         except Exception:
             return False
 
+    def _is_strict_session_mode(self) -> bool:
+        """Check if session scanning is set to strict mode."""
+        try:
+            from memory.config import get_config
+
+            return get_config().security_scan_session_mode == "strict"
+        except Exception:
+            return False  # Default to relaxed if config unavailable
+
+    def _is_session_scanning_off(self) -> bool:
+        """Check if session scanning is completely disabled."""
+        try:
+            from memory.config import get_config
+
+            return get_config().security_scan_session_mode == "off"
+        except Exception:
+            return False
+
     def scan_batch(
         self,
         texts: list[str],
@@ -627,16 +659,35 @@ class SecurityScanner:
         pre_results = []
         ner_candidates = []  # texts that need L3
 
-        # Source-type-aware scanning (BP-090, RISK-001 fix)
+        # Source-type-aware scanning (BP-090, RISK-001 fix, BUG-110)
         skip_layer2 = (
-            source_type.startswith("github_") and not self._is_strict_github_mode()
+            (source_type.startswith("github_") and not self._is_strict_github_mode())
+            or (source_type == "user_session" and not self._is_strict_session_mode())
         )
+
+        # Hoist config checks out of per-text loop (code review fix)
+        github_scanning_off = self._is_github_scanning_off()
+        session_scanning_off = self._is_session_scanning_off()
 
         for _i, text in enumerate(texts):
             start_time = time.perf_counter()
 
             # BP-090: "off" mode — skip ALL scanning for GitHub content
-            if source_type.startswith("github_") and self._is_github_scanning_off():
+            if source_type.startswith("github_") and github_scanning_off:
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                pre_results.append(
+                    ScanResult(
+                        action=ScanAction.PASSED,
+                        content=text,
+                        findings=[],
+                        scan_duration_ms=duration_ms,
+                        layers_executed=[],
+                    )
+                )
+                continue
+
+            # BUG-110: "off" mode — skip ALL scanning for session content
+            if source_type == "user_session" and session_scanning_off:
                 duration_ms = (time.perf_counter() - start_time) * 1000
                 pre_results.append(
                     ScanResult(

@@ -135,6 +135,7 @@ class MemoryStorage:
         session_id: str,
         collection: str = "code-patterns",
         group_id: str | None = None,
+        source_type: str | None = None,
         **extra_fields,
     ) -> dict:
         """Store a memory with automatic project detection and validation.
@@ -225,7 +226,7 @@ class MemoryStorage:
         if self._scanner is not None:
             from .security_scanner import ScanAction
 
-            scan_result = self._scanner.scan(content)
+            scan_result = self._scanner.scan(content, source_type=source_type or "user_session")
             if scan_result.action == ScanAction.BLOCKED:
                 logger.warning(
                     "content_blocked_secrets_detected",
@@ -571,6 +572,7 @@ class MemoryStorage:
         memories: list[dict],
         cwd: str | None = None,
         collection: str = "code-patterns",
+        source_type: str | None = None,
     ) -> list[dict]:
         """Store multiple memories in batch for efficiency.
 
@@ -596,6 +598,8 @@ class MemoryStorage:
             cwd: Optional working directory for auto project detection.
                  Used when individual memory lacks group_id.
             collection: Qdrant collection name (default: "code-patterns")
+            source_type: Origin of content. Defaults to "user_session" (highest scrutiny).
+                         Use "github_*" for GitHub-sourced content (relaxed mode skips L2).
 
         Returns:
             List of result dictionaries, one per input memory, with:
@@ -672,7 +676,11 @@ class MemoryStorage:
             masked_count = 0
 
             for memory in memories:
-                scan_result = self._scanner.scan(memory["content"], force_ner=True)
+                scan_result = self._scanner.scan(
+                    memory["content"],
+                    force_ner=True,
+                    source_type=source_type or "user_session",
+                )
 
                 if scan_result.action == ScanAction.BLOCKED:
                     # Skip this memory entirely
