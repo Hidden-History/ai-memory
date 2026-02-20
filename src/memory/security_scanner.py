@@ -14,10 +14,10 @@ import json
 import logging
 import re
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from contextlib import nullcontext
 from pathlib import Path
 
 logger = logging.getLogger("ai_memory.security_scanner")
