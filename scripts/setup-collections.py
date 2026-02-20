@@ -88,7 +88,9 @@ def create_collections(dry_run: bool = False, force: bool = False) -> None:
         if dry_run:
             exists = client.collection_exists(collection_name)
             print(f"DRY RUN: Collection '{collection_name}' exists: {exists}")
-            action = "recreate" if exists and force else ("skip" if exists else "create")
+            action = (
+                "recreate" if exists and force else ("skip" if exists else "create")
+            )
             print(f"DRY RUN: Would {action} collection '{collection_name}'")
             continue
 
@@ -249,7 +251,10 @@ def create_collections(dry_run: bool = False, force: bool = False) -> None:
         print(f"Created collection: {collection_name}")
 
     if failed_collections:
-        print(f"WARNING: Failed collections: {', '.join(failed_collections)}", file=sys.stderr)
+        print(
+            f"WARNING: Failed collections: {', '.join(failed_collections)}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 

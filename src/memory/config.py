@@ -431,7 +431,7 @@ class MemoryConfig(BaseSettings):
     security_scan_github_mode: str = Field(
         default="relaxed",
         description="Scan mode for GitHub content: 'relaxed' (PII only, skip detect-secrets), "
-                    "'strict' (full 3-layer scan), 'off' (no scanning for GitHub content).",
+        "'strict' (full 3-layer scan), 'off' (no scanning for GitHub content).",
         pattern="^(relaxed|strict|off)$",
     )
 

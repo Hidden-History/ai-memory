@@ -287,14 +287,20 @@ class TestRemoveDeadHooks:
                 "PostToolUse": [
                     {
                         "hooks": [
-                            {"command": f'[ -f "{scripts_dir}/live_script.py" ] && python "{scripts_dir}/live_script.py" || true', "type": "command"}
+                            {
+                                "command": f'[ -f "{scripts_dir}/live_script.py" ] && python "{scripts_dir}/live_script.py" || true',
+                                "type": "command",
+                            }
                         ]
                     },
                     {
                         "hooks": [
-                            {"command": f'[ -f "{scripts_dir}/dead_script.py" ] && python "{scripts_dir}/dead_script.py" || true', "type": "command"}
+                            {
+                                "command": f'[ -f "{scripts_dir}/dead_script.py" ] && python "{scripts_dir}/dead_script.py" || true',
+                                "type": "command",
+                            }
                         ]
-                    }
+                    },
                 ]
             }
         }

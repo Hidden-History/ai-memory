@@ -260,12 +260,22 @@ def _remove_dead_hooks(settings: dict, install_dir: str | None = None) -> dict:
                     if not isinstance(hook, dict) or "command" not in hook:
                         live_sub_hooks.append(hook)
                         continue
-                    match = re.search(r'\.claude/hooks/scripts/([^"]+?)(?:"|$)', hook["command"])
+                    match = re.search(
+                        r'\.claude/hooks/scripts/([^"]+?)(?:"|$)', hook["command"]
+                    )
                     if match:
                         script_name = match.group(1)
-                        script_path = Path(install_dir) / ".claude" / "hooks" / "scripts" / script_name
+                        script_path = (
+                            Path(install_dir)
+                            / ".claude"
+                            / "hooks"
+                            / "scripts"
+                            / script_name
+                        )
                         if not script_path.exists():
-                            print(f"  Removing dead hook: {script_name} (script not found at {script_path})")
+                            print(
+                                f"  Removing dead hook: {script_name} (script not found at {script_path})"
+                            )
                             removed_count += 1
                             continue  # Drop only this dead sub-hook
                     live_sub_hooks.append(hook)
@@ -278,12 +288,22 @@ def _remove_dead_hooks(settings: dict, install_dir: str | None = None) -> dict:
 
             # Case 2: direct command format — remove wrapper if script is dead
             if "command" in wrapper:
-                match = re.search(r'\.claude/hooks/scripts/([^"]+?)(?:"|$)', wrapper["command"])
+                match = re.search(
+                    r'\.claude/hooks/scripts/([^"]+?)(?:"|$)', wrapper["command"]
+                )
                 if match:
                     script_name = match.group(1)
-                    script_path = Path(install_dir) / ".claude" / "hooks" / "scripts" / script_name
+                    script_path = (
+                        Path(install_dir)
+                        / ".claude"
+                        / "hooks"
+                        / "scripts"
+                        / script_name
+                    )
                     if not script_path.exists():
-                        print(f"  Removing dead hook: {script_name} (script not found at {script_path})")
+                        print(
+                            f"  Removing dead hook: {script_name} (script not found at {script_path})"
+                        )
                         removed_count += 1
                         continue  # Drop dead wrapper
 

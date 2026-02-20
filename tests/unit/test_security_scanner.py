@@ -578,7 +578,9 @@ class TestSourceTypeAwareness:
         scanner = SecurityScanner(enable_ner=False)
         for src in ("user_session", "jira_issue", "agent_memory"):
             result = scanner.scan("Safe text", source_type=src)
-            assert 2 in result.layers_executed, f"Layer 2 missing for source_type={src!r}"
+            assert (
+                2 in result.layers_executed
+            ), f"Layer 2 missing for source_type={src!r}"
 
     def test_github_source_skips_all_scanning_in_off_mode(self, monkeypatch):
         """GitHub content should skip ALL scanning when mode is 'off'."""

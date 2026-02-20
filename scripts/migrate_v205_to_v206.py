@@ -323,7 +323,11 @@ def create_v206_payload_indexes(client, dry_run: bool) -> bool:
                 )
             except Exception as e:
                 err_str = str(e).lower()
-                if "already exists" in err_str or "conflict" in err_str or "not found" in err_str:
+                if (
+                    "already exists" in err_str
+                    or "conflict" in err_str
+                    or "not found" in err_str
+                ):
                     continue  # Idempotent: index already exists or collection missing
                 print(f"  {YELLOW}! Failed {field_name} on {collection}: {e}{RESET}")
                 all_ok = False

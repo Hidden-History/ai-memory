@@ -538,8 +538,7 @@ class SecurityScanner:
         # For GitHub content in relaxed mode, skip Layer 2 (detect-secrets)
         # to avoid false positives on code variable names and hex strings
         skip_layer2 = (
-            source_type.startswith("github_")
-            and not self._is_strict_github_mode()
+            source_type.startswith("github_") and not self._is_strict_github_mode()
         )
 
         # Layer 2: detect-secrets (skipped for trusted sources in relaxed mode)
@@ -633,8 +632,7 @@ class SecurityScanner:
 
         # Source-type-aware scanning (BP-090, RISK-001 fix)
         skip_layer2 = (
-            source_type.startswith("github_")
-            and not self._is_strict_github_mode()
+            source_type.startswith("github_") and not self._is_strict_github_mode()
         )
 
         for _i, text in enumerate(texts):

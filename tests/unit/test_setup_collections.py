@@ -26,9 +26,7 @@ V206_FIELDS = [
 
 ALL_COLLECTIONS = ["code-patterns", "conventions", "discussions"]
 
-SETUP_SCRIPT = (
-    "/mnt/e/projects/dev-ai-memory/ai-memory/scripts/setup-collections.py"
-)
+SETUP_SCRIPT = "/mnt/e/projects/dev-ai-memory/ai-memory/scripts/setup-collections.py"
 MIGRATE_SCRIPT = (
     "/mnt/e/projects/dev-ai-memory/ai-memory/scripts/migrate_v205_to_v206.py"
 )
@@ -182,9 +180,9 @@ class TestMigrationV206Indexes:
         field_schema_pairs = {(fld, schema) for _, fld, schema in calls}
 
         expected_pairs = set(V206_FIELDS)
-        assert field_schema_pairs == expected_pairs, (
-            f"Schema mismatch. Expected: {expected_pairs}, got: {field_schema_pairs}"
-        )
+        assert (
+            field_schema_pairs == expected_pairs
+        ), f"Schema mismatch. Expected: {expected_pairs}, got: {field_schema_pairs}"
 
     def test_migration_idempotent_on_already_exists(self, migration_module):
         """Running create_v206_payload_indexes when index already exists doesn't error."""
@@ -195,15 +193,21 @@ class TestMigrationV206Indexes:
 
         mock_client.create_payload_index.side_effect = side_effect
 
-        result = migration_module.create_v206_payload_indexes(mock_client, dry_run=False)
-        assert result is True, "Idempotent run should return True when indexes already exist"
+        result = migration_module.create_v206_payload_indexes(
+            mock_client, dry_run=False
+        )
+        assert (
+            result is True
+        ), "Idempotent run should return True when indexes already exist"
 
     def test_migration_returns_false_on_unexpected_error(self, migration_module):
         """Returns False when a non-idempotent error occurs."""
         mock_client = MagicMock()
         mock_client.create_payload_index.side_effect = Exception("Connection reset")
 
-        result = migration_module.create_v206_payload_indexes(mock_client, dry_run=False)
+        result = migration_module.create_v206_payload_indexes(
+            mock_client, dry_run=False
+        )
         assert result is False, "Should return False on unexpected errors"
 
     def test_migration_dry_run_skips_client_calls(self, migration_module):
