@@ -201,7 +201,7 @@ def check_embedding_service(
 
 
 def check_embedding_functionality(
-    host: str = "localhost", port: int = 28080, timeout: int = 30
+    host: str = "localhost", port: int = 28080, timeout: int = 120
 ) -> HealthCheckResult:
     """
     Test actual embedding generation (functional test).

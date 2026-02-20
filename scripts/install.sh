@@ -622,7 +622,6 @@ main() {
         else
             start_services
             wait_for_services
-            setup_collections
             copy_env_template
             run_health_check
             seed_best_practices
@@ -1753,6 +1752,12 @@ start_services() {
     fi
     log_info "Qdrant verified running: $qdrant_status"
 
+    # Collections must exist before profile services start (github-sync uses them immediately)
+    setup_collections || {
+        log_error "Collection setup failed — cannot proceed without collections"
+        exit 1
+    }
+
     # ── Phase 3: Start profile services ──
     if [[ -n "$profile_flags" ]]; then
         log_info "Phase 2/2: Starting profile services ($profile_flags)..."
@@ -1870,6 +1875,18 @@ wait_for_services() {
         fi
     fi
 
+    # Warmup: Send first inference request to fully load ONNX model into memory.
+    # The /health endpoint returns OK before the model is ready for inference.
+    # On low-memory systems, first inference can take 60-90s (cold start).
+    log_info "Warming up embedding model..."
+    if curl -sf --max-time 120 -X POST "http://127.0.0.1:$EMBEDDING_PORT/embed" \
+        -H "Content-Type: application/json" \
+        -d '{"texts":["warmup"]}' > /dev/null 2>&1; then
+        log_success "Embedding model ready for inference"
+    else
+        log_warning "Embedding warmup timed out — health check may retry"
+    fi
+
     # Optional: Wait for Monitoring API (non-critical, just info)
     attempt=0
     echo -n "  Monitoring ($MONITORING_PORT): "
@@ -1937,6 +1954,7 @@ setup_collections() {
         log_success "Qdrant collections created (code-patterns, conventions, discussions)"
     else
         log_error "Collection setup FAILED - re-run: $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/setup-collections.py"
+        return 1
     fi
 }
 

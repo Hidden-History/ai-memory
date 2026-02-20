@@ -17,6 +17,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from contextlib import nullcontext
 from pathlib import Path
 
 logger = logging.getLogger("ai_memory.security_scanner")
@@ -371,37 +372,33 @@ def _scan_layer3_spacy(content: str) -> list[ScanFinding]:
 
     try:
         segments = _segment_text(content)
-
-        # Collect all docs first so we can zip with segments for offset tracking
-        if hasattr(nlp, "memory_zone"):
-            with nlp.memory_zone():
-                docs = list(nlp.pipe(segments, batch_size=50))
-        else:
-            # Fallback for older SpaCy versions
+        ctx = nlp.memory_zone() if hasattr(nlp, "memory_zone") else nullcontext()
+        with ctx:
+            # Collect all docs first so we can zip with segments for offset tracking
             docs = list(nlp.pipe(segments, batch_size=50))
 
-        # SEC-1: Apply per-segment cumulative offset to entity positions.
-        # ent.start_char/end_char are relative to the segment doc, not the
-        # full content string. Track where each segment starts in the original.
-        seg_offset = 0
-        for seg, doc in zip(segments, docs, strict=False):
-            # Find exact start of this segment in the original content
-            found = content.find(seg, seg_offset)
-            current_seg_start = found if found >= 0 else seg_offset
-            for ent in doc.ents:
-                if ent.label_ == "PERSON":
-                    findings.append(
-                        ScanFinding(
-                            finding_type=FindingType.PII_NAME,
-                            layer=3,
-                            original_text=ent.text,
-                            replacement="[NAME_REDACTED]",
-                            confidence=0.80,
-                            start=current_seg_start + ent.start_char,
-                            end=current_seg_start + ent.end_char,
+            # SEC-1: Apply per-segment cumulative offset to entity positions.
+            # ent.start_char/end_char are relative to the segment doc, not the
+            # full content string. Track where each segment starts in the original.
+            seg_offset = 0
+            for seg, doc in zip(segments, docs, strict=False):
+                # Find exact start of this segment in the original content
+                found = content.find(seg, seg_offset)
+                current_seg_start = found if found >= 0 else seg_offset
+                for ent in doc.ents:
+                    if ent.label_ == "PERSON":
+                        findings.append(
+                            ScanFinding(
+                                finding_type=FindingType.PII_NAME,
+                                layer=3,
+                                original_text=ent.text,
+                                replacement="[NAME_REDACTED]",
+                                confidence=0.80,
+                                start=current_seg_start + ent.start_char,
+                                end=current_seg_start + ent.end_char,
+                            )
                         )
-                    )
-            seg_offset = current_seg_start + len(seg)
+                seg_offset = current_seg_start + len(seg)
     except Exception as e:
         logger.error(f"SpaCy NER scan failed: {e}")
 
@@ -722,33 +719,33 @@ class SecurityScanner:
                         segment_offsets_in_text.append(seg_start)
                         seg_offset = seg_start + len(seg)
 
-                if hasattr(nlp, "memory_zone"):
-                    with nlp.memory_zone():
-                        docs = list(nlp.pipe(flat_segments, batch_size=50))
-                else:
+                ctx = (
+                    nlp.memory_zone() if hasattr(nlp, "memory_zone") else nullcontext()
+                )
+                with ctx:
                     docs = list(nlp.pipe(flat_segments, batch_size=50))
 
-                # Collect findings per text
-                # SEC-1: add per-segment offset so entity positions are relative
-                # to the full owner text, not just the segment doc.
-                for doc_idx, doc in enumerate(docs):
-                    owner_idx = segment_owners[doc_idx]
-                    seg_offset = segment_offsets_in_text[doc_idx]
-                    if owner_idx not in ner_results_map:
-                        ner_results_map[owner_idx] = []
-                    for ent in doc.ents:
-                        if ent.label_ == "PERSON":
-                            ner_results_map[owner_idx].append(
-                                ScanFinding(
-                                    finding_type=FindingType.PII_NAME,
-                                    layer=3,
-                                    original_text=ent.text,
-                                    replacement="[NAME_REDACTED]",
-                                    confidence=0.80,
-                                    start=seg_offset + ent.start_char,
-                                    end=seg_offset + ent.end_char,
+                    # Collect findings per text
+                    # SEC-1: add per-segment offset so entity positions are relative
+                    # to the full owner text, not just the segment doc.
+                    for doc_idx, doc in enumerate(docs):
+                        owner_idx = segment_owners[doc_idx]
+                        seg_offset = segment_offsets_in_text[doc_idx]
+                        if owner_idx not in ner_results_map:
+                            ner_results_map[owner_idx] = []
+                        for ent in doc.ents:
+                            if ent.label_ == "PERSON":
+                                ner_results_map[owner_idx].append(
+                                    ScanFinding(
+                                        finding_type=FindingType.PII_NAME,
+                                        layer=3,
+                                        original_text=ent.text,
+                                        replacement="[NAME_REDACTED]",
+                                        confidence=0.80,
+                                        start=seg_offset + ent.start_char,
+                                        end=seg_offset + ent.end_char,
+                                    )
                                 )
-                            )
             except Exception as e:
                 logger.error(f"Batch SpaCy NER failed: {e}")
 
