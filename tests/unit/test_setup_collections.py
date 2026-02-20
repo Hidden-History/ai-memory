@@ -7,6 +7,7 @@ Tests verify:
 """
 
 import importlib.util
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,10 +27,10 @@ V206_FIELDS = [
 
 ALL_COLLECTIONS = ["code-patterns", "conventions", "discussions"]
 
-SETUP_SCRIPT = "/mnt/e/projects/dev-ai-memory/ai-memory/scripts/setup-collections.py"
-MIGRATE_SCRIPT = (
-    "/mnt/e/projects/dev-ai-memory/ai-memory/scripts/migrate_v205_to_v206.py"
-)
+# Resolve paths relative to the repo root (parent of tests/)
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+SETUP_SCRIPT = str(_REPO_ROOT / "scripts" / "setup-collections.py")
+MIGRATE_SCRIPT = str(_REPO_ROOT / "scripts" / "migrate_v205_to_v206.py")
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
