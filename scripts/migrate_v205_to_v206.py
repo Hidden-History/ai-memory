@@ -29,7 +29,7 @@ from pathlib import Path
 # Add src to path for local imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from qdrant_client.models import KeywordIndexParams
+from qdrant_client.models import KeywordIndexParams, PayloadSchemaType
 
 from memory.config import get_config
 from memory.qdrant_client import get_qdrant_client
@@ -102,9 +102,9 @@ def detect_version(client) -> str:
     """Detect current data version by inspecting payload fields.
 
     Returns:
-        "empty"  – collection has no points
-        "v2.0.6" – freshness fields already present in ALL sampled points
-        "v2.0.5" – pre-migration data (any point missing freshness fields)
+        "empty"  - collection has no points
+        "v2.0.6" - freshness fields already present in ALL sampled points
+        "v2.0.5" - pre-migration data (any point missing freshness fields)
     """
     points, _ = client.scroll(
         collection_name="code-patterns",
@@ -186,12 +186,12 @@ def migrate_collection_freshness(client, collection: str, dry_run: bool) -> dict
 
     offset = None
     while True:
-        scroll_kwargs = dict(
-            collection_name=collection,
-            limit=BATCH_SIZE,
-            with_payload=True,
-            with_vectors=False,
-        )
+        scroll_kwargs = {
+            "collection_name": collection,
+            "limit": BATCH_SIZE,
+            "with_payload": True,
+            "with_vectors": False,
+        }
         if offset is not None:
             scroll_kwargs["offset"] = offset
 
@@ -287,7 +287,55 @@ def create_agent_id_index(client, dry_run: bool) -> bool:
         return False
 
 
-# ─── Step 5: Append config vars to .env ──────────────────────────────────────
+# ─── Step 5: v2.0.6 payload indexes on all collections ───────────────────────
+
+
+def create_v206_payload_indexes(client, dry_run: bool) -> bool:
+    """Create v2.0.6 freshness payload indexes on all collections.
+
+    These indexes enable efficient filtering on decay_score, freshness_status,
+    source_authority, is_current, and version fields added by the migration.
+
+    Returns:
+        True if all indexes created successfully.
+    """
+    V206_INDEXES = [
+        ("decay_score", PayloadSchemaType.FLOAT),
+        ("freshness_status", PayloadSchemaType.KEYWORD),
+        ("source_authority", PayloadSchemaType.FLOAT),
+        ("is_current", PayloadSchemaType.BOOL),
+        ("version", PayloadSchemaType.INTEGER),
+    ]
+
+    all_ok = True
+    for collection in COLLECTIONS:
+        for field_name, schema_type in V206_INDEXES:
+            if dry_run:
+                print(
+                    f"  {GRAY}[DRY RUN] Would create {field_name} index on {collection}{RESET}"
+                )
+                continue
+            try:
+                client.create_payload_index(
+                    collection_name=collection,
+                    field_name=field_name,
+                    field_schema=schema_type,
+                )
+            except Exception as e:
+                err_str = str(e).lower()
+                if "already exists" in err_str or "conflict" in err_str or "not found" in err_str:
+                    continue  # Idempotent: index already exists or collection missing
+                print(f"  {YELLOW}! Failed {field_name} on {collection}: {e}{RESET}")
+                all_ok = False
+
+    if not dry_run:
+        print(
+            f"  {GREEN}✓{RESET} Created v2.0.6 payload indexes on {len(COLLECTIONS)} collections"
+        )
+    return all_ok
+
+
+# ─── Step 6: Append config vars to .env ──────────────────────────────────────
 
 PARZIVAL_VARS = [
     ("PARZIVAL_ENABLED", "false"),
@@ -391,6 +439,7 @@ def log_migration(
     collections_processed: list,
     duration_seconds: float,
     agent_id_index_created: bool,
+    v206_indexes_created: bool,
     dry_run: bool,
 ) -> None:
     """Append migration entry to .audit/migration-log.json."""
@@ -413,6 +462,7 @@ def log_migration(
         "collections_processed": collections_processed,
         "duration_seconds": round(duration_seconds, 2),
         "agent_id_index_created": agent_id_index_created,
+        "v206_indexes_created": v206_indexes_created,
         "dry_run": dry_run,
     }
 
@@ -479,7 +529,7 @@ def main():
 
     # Step 2: Backup
     if not args.skip_backup and not args.dry_run:
-        print("\nStep 1/6: Pre-migration backup")
+        print("\nStep 1/7: Pre-migration backup")
         backup_ok = auto_backup()
         if not backup_ok:
             print(f"{RED}Error: Pre-migration backup failed. Aborting.{RESET}")
@@ -491,31 +541,36 @@ def main():
         print(f"\n{YELLOW}! Skipping backup (--skip-backup){RESET}")
 
     # Step 3: Freshness bootstrap
-    print("\nStep 2/6: Freshness bootstrap")
+    print("\nStep 2/7: Freshness bootstrap")
     total_migrated, collections_processed = run_freshness_bootstrap(
         client, args.dry_run
     )
 
     # Step 4: Create agent_id index
-    print("\nStep 3/6: Create agent_id index on discussions")
+    print("\nStep 3/7: Create agent_id index on discussions")
     index_created = create_agent_id_index(client, args.dry_run)
 
-    # Step 5: Update .env
-    print("\nStep 4/6: Update .env config")
+    # Step 5: Create v2.0.6 payload indexes
+    print("\nStep 4/7: Create v2.0.6 payload indexes on all collections")
+    v206_indexes_ok = create_v206_payload_indexes(client, args.dry_run)
+
+    # Step 6: Update .env
+    print("\nStep 5/7: Update .env config")
     update_env_file(args.dry_run)
 
-    # Step 6: Update hooks
-    print("\nStep 5/6: Update hooks")
+    # Step 7: Update hooks
+    print("\nStep 6/7: Update hooks")
     update_hooks(args.dry_run)
 
-    # Step 7: Audit log
-    print("\nStep 6/6: Write audit log")
+    # Step 8: Audit log
+    print("\nStep 7/7: Write audit log")
     duration = time.monotonic() - start_time
     log_migration(
         vectors_migrated=total_migrated,
         collections_processed=collections_processed,
         duration_seconds=duration,
         agent_id_index_created=index_created,
+        v206_indexes_created=v206_indexes_ok,
         dry_run=args.dry_run,
     )
 
@@ -530,6 +585,7 @@ def main():
     print(f"  Collections      : {', '.join(collections_processed)}")
     print(f"  Duration         : {duration:.1f}s")
     print(f"  index created    : {index_created}")
+    print(f"  v2.0.6 indexes   : {v206_indexes_ok}")
     print(f"{'='*60}\n")
 
 

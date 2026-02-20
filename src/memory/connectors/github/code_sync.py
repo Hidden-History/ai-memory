@@ -824,7 +824,7 @@ class CodeBlobSync:
         if self._scanner is not None:
             from memory.security_scanner import ScanAction
 
-            scan_result = self._scanner.scan(content)
+            scan_result = self._scanner.scan(content, source_type="github_code_blob")
             if scan_result.action == ScanAction.BLOCKED:
                 logger.warning(
                     "Security scan blocked file %s: %d secret finding(s)",

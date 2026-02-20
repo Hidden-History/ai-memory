@@ -177,6 +177,37 @@ def create_collections(dry_run: bool = False, force: bool = False) -> None:
                 field_schema=PayloadSchemaType.DATETIME,
             )
 
+            # v2.0.6: Freshness and decay payload indexes (SPEC-008, FAIL-003 fix)
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="decay_score",
+                field_schema=PayloadSchemaType.FLOAT,
+            )
+
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="freshness_status",
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
+
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="source_authority",
+                field_schema=PayloadSchemaType.FLOAT,
+            )
+
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="is_current",
+                field_schema=PayloadSchemaType.BOOL,
+            )
+
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="version",
+                field_schema=PayloadSchemaType.INTEGER,
+            )
+
             # BP-038 Section 2.1: file_path index for code-patterns only
             # Enables file-specific pattern lookup
             if collection_name == COLLECTION_CODE_PATTERNS:

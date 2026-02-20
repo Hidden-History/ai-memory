@@ -20,7 +20,7 @@ GitHub enrichment, security scanning, and Parzival session agent integration.
 - Content deduplication and versioning (SPEC-005)
 - Memory type routing for collection/type assignment (SPEC-006)
 - Token budget management for context injection (SPEC-007)
-- Setup collections with v2.0.6 payload indexes (SPEC-008)
+- Docker infrastructure, install script, Grafana dashboard, CLI, and collection setup (SPEC-008)
 
 #### Security & Injection (Phase 1b+1c)
 - 3-layer security scanning pipeline: regex + detect-secrets + SpaCy NER (SPEC-009)

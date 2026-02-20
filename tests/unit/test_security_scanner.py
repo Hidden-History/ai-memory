@@ -481,3 +481,127 @@ class TestScanBatchNER:
         assert results[1].action == ScanAction.PASSED
         assert results[2].action == ScanAction.MASKED
         assert "[PHONE_REDACTED]" in results[2].content
+
+
+class TestSourceTypeAwareness:
+    """Test source_type parameter and GitHub scan profiles (BP-090, RISK-001)."""
+
+    def _make_relaxed_config(self):
+        return type("MockConfig", (), {"security_scan_github_mode": "relaxed"})()
+
+    def _make_strict_config(self):
+        return type("MockConfig", (), {"security_scan_github_mode": "strict"})()
+
+    def test_github_source_skips_layer2_in_relaxed_mode(self, monkeypatch):
+        """GitHub content should skip Layer 2 detect-secrets in relaxed mode."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", True)
+        monkeypatch.setattr(
+            "memory.security_scanner.SecurityScanner._is_strict_github_mode",
+            lambda self: False,
+        )
+
+        scanner = SecurityScanner(enable_ner=False)
+        # High-entropy variable name that would trigger detect-secrets but not Layer 1 regex
+        content = "config = {'TIMEOUT_SECONDS': 30, 'MAX_RETRIES': 3, 'POOL_SIZE': 10}"
+        result = scanner.scan(content, source_type="github_issue")
+
+        # Layer 2 is skipped, so no block from entropy detection
+        assert result.action != ScanAction.BLOCKED
+        # Layer 2 should not appear in executed layers
+        assert 2 not in result.layers_executed
+
+    def test_github_source_runs_layer2_in_strict_mode(self, monkeypatch):
+        """GitHub content should use full scanning when strict mode is active."""
+        from memory.security_scanner import SecurityScanner
+
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+        monkeypatch.setattr(
+            "memory.security_scanner.SecurityScanner._is_strict_github_mode",
+            lambda self: True,
+        )
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("Safe content here", source_type="github_issue")
+
+        # In strict mode, Layer 2 must run (detect-secrets disabled via monkeypatch
+        # so it won't actually block, but it will be in layers_executed)
+        assert 2 in result.layers_executed
+
+    def test_user_session_always_runs_layer2(self, monkeypatch):
+        """User session content should always run Layer 2 scanning."""
+        from memory.security_scanner import SecurityScanner
+
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("Safe content here", source_type="user_session")
+
+        assert 2 in result.layers_executed
+
+    def test_default_source_type_runs_all_layers(self, monkeypatch):
+        """Default source_type should be user_session, running all applicable layers."""
+        from memory.security_scanner import SecurityScanner
+
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("Safe content")
+
+        # Default (user_session) must include Layer 2
+        assert 2 in result.layers_executed
+
+    def test_github_code_blob_skips_layer2_in_relaxed_mode(self, monkeypatch):
+        """github_code_blob source should also skip Layer 2 in relaxed mode."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", True)
+        monkeypatch.setattr(
+            "memory.security_scanner.SecurityScanner._is_strict_github_mode",
+            lambda self: False,
+        )
+
+        scanner = SecurityScanner(enable_ner=False)
+        content = "API_KEY = 'placeholder' and TOKEN = 'not_real_value_just_a_name'"
+        result = scanner.scan(content, source_type="github_code_blob")
+
+        assert result.action != ScanAction.BLOCKED
+        assert 2 not in result.layers_executed
+
+    def test_non_github_source_always_runs_layer2(self, monkeypatch):
+        """Non-github source types must always run Layer 2 regardless of mode."""
+        from memory.security_scanner import SecurityScanner
+
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+
+        scanner = SecurityScanner(enable_ner=False)
+        for src in ("user_session", "jira_issue", "agent_memory"):
+            result = scanner.scan("Safe text", source_type=src)
+            assert 2 in result.layers_executed, f"Layer 2 missing for source_type={src!r}"
+
+    def test_github_source_skips_all_scanning_in_off_mode(self, monkeypatch):
+        """GitHub content should skip ALL scanning when mode is 'off'."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        monkeypatch.setattr(scanner, "_is_github_scanning_off", lambda: True)
+
+        # Content with patterns that would normally trigger L1 regex
+        content = "Contact user@example.com about the configuration API_KEY variable"
+        result = scanner.scan(content, source_type="github_issue")
+        assert result.action == ScanAction.PASSED
+        assert result.content == content  # No masking applied
+        assert result.layers_executed == []  # No layers ran
+
+    def test_off_mode_does_not_affect_user_sessions(self, monkeypatch):
+        """Off mode for GitHub should NOT affect user_session scanning."""
+        from memory.security_scanner import SecurityScanner
+
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+        scanner = SecurityScanner(enable_ner=False)
+        monkeypatch.setattr(scanner, "_is_github_scanning_off", lambda: True)
+
+        result = scanner.scan("Safe content", source_type="user_session")
+        # user_session should still run all layers regardless of github off mode
+        assert 1 in result.layers_executed

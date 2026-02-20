@@ -428,6 +428,13 @@ class MemoryConfig(BaseSettings):
         description="Block content with detected secrets. If False, mask instead.",
     )
 
+    security_scan_github_mode: str = Field(
+        default="relaxed",
+        description="Scan mode for GitHub content: 'relaxed' (PII only, skip detect-secrets), "
+                    "'strict' (full 3-layer scan), 'off' (no scanning for GitHub content).",
+        pattern="^(relaxed|strict|off)$",
+    )
+
     # =========================================================================
     # v2.0.6 — Progressive Context Injection (SPEC-012, AD-6)
     # =========================================================================

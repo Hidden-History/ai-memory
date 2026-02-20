@@ -414,7 +414,10 @@ def _scan_layer3_spacy(content: str) -> list[ScanFinding]:
 
 
 def _log_scan_result(
-    result: "ScanResult", content: str, audit_dir: str | None = None
+    result: "ScanResult",
+    content: str,
+    source_type: str = "user_session",
+    audit_dir: str | None = None,
 ) -> None:
     """Append scan result to .audit/logs/sanitization-log.jsonl.
 
@@ -425,6 +428,7 @@ def _log_scan_result(
     Args:
         result: ScanResult from scan() call.
         content: Original content (used for content_hash correlation only).
+        source_type: Origin of content (e.g. "user_session", "github_issue").
         audit_dir: Path to .audit/ directory. If None, uses cwd/.audit/.
     """
     import os
@@ -435,6 +439,7 @@ def _log_scan_result(
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "action": result.action.value,
+        "source_type": source_type,
         "findings_count": len(result.findings),
         "layers_executed": result.layers_executed,
         "scan_duration_ms": round(result.scan_duration_ms, 2),
@@ -481,15 +486,34 @@ class SecurityScanner:
         action = ScanAction.MASKED if pii_findings else ScanAction.PASSED
         return masked_content, action
 
-    def scan(self, content: str, force_ner: bool = False) -> ScanResult:
+    def scan(
+        self,
+        content: str,
+        force_ner: bool = False,
+        source_type: str = "user_session",
+    ) -> ScanResult:
         """Scan a single text. Returns ScanResult with action, cleaned content, and findings.
 
         Args:
             content: Text content to scan.
             force_ner: If True, enable Layer 3 (SpaCy NER) for this call regardless
                        of instance config. Used by batch operations per SPEC-009.
+            source_type: Origin of content. Defaults to "user_session" (highest scrutiny).
+                         Use "github_*" for GitHub-sourced content (relaxed mode skips L2).
         """
         start_time = time.perf_counter()
+
+        # BP-090: "off" mode — skip ALL scanning for GitHub content
+        if source_type.startswith("github_") and self._is_github_scanning_off():
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            return ScanResult(
+                action=ScanAction.PASSED,
+                content=content,
+                findings=[],
+                scan_duration_ms=duration_ms,
+                layers_executed=[],
+            )
+
         all_findings = []
         layers_executed = []
 
@@ -507,25 +531,34 @@ class SecurityScanner:
                 scan_duration_ms=duration_ms,
                 layers_executed=layers_executed,
             )
-            _log_scan_result(result, content)
+            _log_scan_result(result, content, source_type)
             return result
 
-        # Layer 2: detect-secrets
-        layer2_findings, has_secrets_l2 = _scan_layer2_detect_secrets(content)
-        all_findings.extend(layer2_findings)
-        layers_executed.append(2)
+        # Source-type-aware scanning (BP-090, RISK-001 fix)
+        # For GitHub content in relaxed mode, skip Layer 2 (detect-secrets)
+        # to avoid false positives on code variable names and hex strings
+        skip_layer2 = (
+            source_type.startswith("github_")
+            and not self._is_strict_github_mode()
+        )
 
-        if has_secrets_l2:
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            result = ScanResult(
-                action=ScanAction.BLOCKED,
-                content="",
-                findings=all_findings,
-                scan_duration_ms=duration_ms,
-                layers_executed=layers_executed,
-            )
-            _log_scan_result(result, content)
-            return result
+        # Layer 2: detect-secrets (skipped for trusted sources in relaxed mode)
+        if not skip_layer2:
+            layer2_findings, has_secrets_l2 = _scan_layer2_detect_secrets(content)
+            all_findings.extend(layer2_findings)
+            layers_executed.append(2)
+
+            if has_secrets_l2:
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                result = ScanResult(
+                    action=ScanAction.BLOCKED,
+                    content="",
+                    findings=all_findings,
+                    scan_duration_ms=duration_ms,
+                    layers_executed=layers_executed,
+                )
+                _log_scan_result(result, content, source_type)
+                return result
 
         # Layer 3: SpaCy NER (if enabled or forced for batch operations)
         if self.enable_ner or force_ner:
@@ -546,10 +579,33 @@ class SecurityScanner:
             scan_duration_ms=duration_ms,
             layers_executed=layers_executed,
         )
-        _log_scan_result(result, content)
+        _log_scan_result(result, content, source_type)
         return result
 
-    def scan_batch(self, texts: list[str], force_ner: bool = False) -> list[ScanResult]:
+    def _is_strict_github_mode(self) -> bool:
+        """Check if GitHub scanning is set to strict mode."""
+        try:
+            from memory.config import get_config
+
+            return get_config().security_scan_github_mode == "strict"
+        except Exception:
+            return False  # Default to relaxed if config unavailable
+
+    def _is_github_scanning_off(self) -> bool:
+        """Check if GitHub scanning is completely disabled."""
+        try:
+            from memory.config import get_config
+
+            return get_config().security_scan_github_mode == "off"
+        except Exception:
+            return False
+
+    def scan_batch(
+        self,
+        texts: list[str],
+        force_ner: bool = False,
+        source_type: str = "user_session",
+    ) -> list[ScanResult]:
         """Scan multiple texts with optional SpaCy batch NER.
 
         When NER is enabled (via instance config or force_ner), Layer 3
@@ -559,6 +615,8 @@ class SecurityScanner:
         Args:
             texts: List of text strings to scan.
             force_ner: If True, enable Layer 3 for this batch regardless of config.
+            source_type: Origin of content. Defaults to "user_session" (highest scrutiny).
+                         Use "github_*" for GitHub-sourced content (relaxed mode skips L2).
 
         Returns:
             List of ScanResult, one per input text.
@@ -567,14 +625,35 @@ class SecurityScanner:
 
         if not use_ner:
             # No NER: scan each text individually (L1+L2 only)
-            return [self.scan(text) for text in texts]
+            return [self.scan(text, source_type=source_type) for text in texts]
 
         # With NER: run L1+L2 per-text, then batch L3 via nlp.pipe()
         pre_results = []
         ner_candidates = []  # texts that need L3
 
+        # Source-type-aware scanning (BP-090, RISK-001 fix)
+        skip_layer2 = (
+            source_type.startswith("github_")
+            and not self._is_strict_github_mode()
+        )
+
         for _i, text in enumerate(texts):
             start_time = time.perf_counter()
+
+            # BP-090: "off" mode — skip ALL scanning for GitHub content
+            if source_type.startswith("github_") and self._is_github_scanning_off():
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                pre_results.append(
+                    ScanResult(
+                        action=ScanAction.PASSED,
+                        content=text,
+                        findings=[],
+                        scan_duration_ms=duration_ms,
+                        layers_executed=[],
+                    )
+                )
+                continue
+
             all_findings = []
             layers_executed = []
 
@@ -592,27 +671,28 @@ class SecurityScanner:
                     scan_duration_ms=duration_ms,
                     layers_executed=layers_executed,
                 )
-                _log_scan_result(result, text)
+                _log_scan_result(result, text, source_type)
                 pre_results.append(result)
                 continue
 
-            # Layer 2
-            l2_findings, has_secrets_l2 = _scan_layer2_detect_secrets(text)
-            all_findings.extend(l2_findings)
-            layers_executed.append(2)
+            # Layer 2: detect-secrets (skipped for trusted sources in relaxed mode)
+            if not skip_layer2:
+                l2_findings, has_secrets_l2 = _scan_layer2_detect_secrets(text)
+                all_findings.extend(l2_findings)
+                layers_executed.append(2)
 
-            if has_secrets_l2:
-                duration_ms = (time.perf_counter() - start_time) * 1000
-                result = ScanResult(
-                    action=ScanAction.BLOCKED,
-                    content="",
-                    findings=all_findings,
-                    scan_duration_ms=duration_ms,
-                    layers_executed=layers_executed,
-                )
-                _log_scan_result(result, text)
-                pre_results.append(result)
-                continue
+                if has_secrets_l2:
+                    duration_ms = (time.perf_counter() - start_time) * 1000
+                    result = ScanResult(
+                        action=ScanAction.BLOCKED,
+                        content="",
+                        findings=all_findings,
+                        scan_duration_ms=duration_ms,
+                        layers_executed=layers_executed,
+                    )
+                    _log_scan_result(result, text, source_type)
+                    pre_results.append(result)
+                    continue
 
             # Mark for NER batch processing
             pre_results.append((start_time, all_findings, layers_executed, text))
@@ -703,7 +783,7 @@ class SecurityScanner:
                     scan_duration_ms=duration_ms,
                     layers_executed=layers_executed,
                 )
-                _log_scan_result(result, text)
+                _log_scan_result(result, text, source_type)
                 final_results.append(result)
 
         return final_results
