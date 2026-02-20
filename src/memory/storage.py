@@ -226,7 +226,9 @@ class MemoryStorage:
         if self._scanner is not None:
             from .security_scanner import ScanAction
 
-            scan_result = self._scanner.scan(content, source_type=source_type or "user_session")
+            scan_result = self._scanner.scan(
+                content, source_type=source_type or "user_session"
+            )
             if scan_result.action == ScanAction.BLOCKED:
                 logger.warning(
                     "content_blocked_secrets_detected",

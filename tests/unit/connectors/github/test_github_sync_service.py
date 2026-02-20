@@ -242,7 +242,10 @@ def test_warning_logged_on_sync_failure():
 
     # BUG-111: Warning should be logged when sync fails
     mock_warning.assert_called_once()
-    assert "errors" in mock_warning.call_args[0][0].lower() or "error" in mock_warning.call_args[0][0].lower()
+    assert (
+        "errors" in mock_warning.call_args[0][0].lower()
+        or "error" in mock_warning.call_args[0][0].lower()
+    )
 
 
 # -- Config Validation Tests ---------------------------------------------

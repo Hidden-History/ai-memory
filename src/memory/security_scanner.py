@@ -548,9 +548,8 @@ class SecurityScanner:
         # For session content in relaxed mode, also skip Layer 2 to avoid
         # false positives when discussing API keys/tokens in workspace context.
         skip_layer2 = (
-            (source_type.startswith("github_") and not self._is_strict_github_mode())
-            or (source_type == "user_session" and not self._is_strict_session_mode())
-        )
+            source_type.startswith("github_") and not self._is_strict_github_mode()
+        ) or (source_type == "user_session" and not self._is_strict_session_mode())
 
         # Layer 2: detect-secrets (skipped for trusted sources in relaxed mode)
         if not skip_layer2:
@@ -661,9 +660,8 @@ class SecurityScanner:
 
         # Source-type-aware scanning (BP-090, RISK-001 fix, BUG-110)
         skip_layer2 = (
-            (source_type.startswith("github_") and not self._is_strict_github_mode())
-            or (source_type == "user_session" and not self._is_strict_session_mode())
-        )
+            source_type.startswith("github_") and not self._is_strict_github_mode()
+        ) or (source_type == "user_session" and not self._is_strict_session_mode())
 
         # Hoist config checks out of per-text loop (code review fix)
         github_scanning_off = self._is_github_scanning_off()
