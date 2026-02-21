@@ -420,7 +420,7 @@ class TestScannerLayers:
             pytest.skip("NER layer disabled in config")
 
         try:
-            import spacy  # noqa: F401
+            import spacy
         except ImportError:
             pytest.skip("SpaCy not installed")
 
