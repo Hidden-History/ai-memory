@@ -424,6 +424,11 @@ class TestScannerLayers:
         except ImportError:
             pytest.skip("SpaCy not installed")
 
+        try:
+            spacy.load("en_core_web_sm")
+        except OSError:
+            pytest.skip("SpaCy en_core_web_sm model not available")
+
         from memory import security_scanner as scanner_mod
 
         monkeypatch.setattr(scanner_mod, "_detect_secrets_available", False)
