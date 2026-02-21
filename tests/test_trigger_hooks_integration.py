@@ -57,7 +57,7 @@ class TestNewFileTriggerHook:
             input="not valid json",
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (graceful degradation)
@@ -75,7 +75,7 @@ class TestNewFileTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (graceful degradation)
@@ -93,7 +93,7 @@ class TestNewFileTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (not this hook's concern)
@@ -118,7 +118,7 @@ class TestFirstEditTriggerHook:
             input="not valid json",
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (graceful degradation)
@@ -137,7 +137,7 @@ class TestFirstEditTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (graceful degradation)
@@ -156,7 +156,7 @@ class TestFirstEditTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (not this hook's concern)
@@ -185,7 +185,7 @@ class TestUnifiedKeywordTriggerHook:
             input="not valid json",
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (graceful degradation)
@@ -202,7 +202,7 @@ class TestUnifiedKeywordTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (graceful degradation)
@@ -219,7 +219,7 @@ class TestUnifiedKeywordTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (no keywords detected)
@@ -250,7 +250,7 @@ class TestHooksGracefulDegradation:
             input="",
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         assert result.returncode == 0

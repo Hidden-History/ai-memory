@@ -89,6 +89,25 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
     if api_key:
         env_section["QDRANT_API_KEY"] = api_key
 
+    # Add Parzival env vars if enabled (SPEC-015)
+    if os.environ.get("PARZIVAL_ENABLED", "").lower() == "true":
+        env_section["PARZIVAL_ENABLED"] = "true"
+        env_section["PARZIVAL_USER_NAME"] = os.environ.get(
+            "PARZIVAL_USER_NAME", "Developer"
+        )
+        env_section["PARZIVAL_LANGUAGE"] = os.environ.get(
+            "PARZIVAL_LANGUAGE", "English"
+        )
+        env_section["PARZIVAL_DOC_LANGUAGE"] = os.environ.get(
+            "PARZIVAL_DOC_LANGUAGE", "English"
+        )
+        env_section["PARZIVAL_OVERSIGHT_FOLDER"] = os.environ.get(
+            "PARZIVAL_OVERSIGHT_FOLDER", "oversight"
+        )
+        env_section["PARZIVAL_HANDOFF_RETENTION"] = os.environ.get(
+            "PARZIVAL_HANDOFF_RETENTION", "10"
+        )
+
     return {
         # Schema reference for IDE validation (BUG-029+030 fix)
         "$schema": "https://json.schemastore.org/claude-code-settings.json",
@@ -96,7 +115,11 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         "hooks": {
             "SessionStart": [
                 {
-                    "matcher": "resume|compact",
+                    "matcher": (
+                        "startup|resume|compact|clear"
+                        if os.environ.get("PARZIVAL_ENABLED", "").lower() == "true"
+                        else "resume|compact"
+                    ),
                     "hooks": [session_start_hook],
                 }
             ],

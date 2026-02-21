@@ -184,7 +184,8 @@ def test_health_file_written_on_success():
     ):
         main()
 
-    mock_write.assert_called_once()
+    # BUG-119: Called at startup + after sync cycle = 2 calls
+    assert mock_write.call_count == 2
 
 
 def test_health_file_written_on_failure():
@@ -213,8 +214,8 @@ def test_health_file_written_on_failure():
     ):
         main()
 
-    # BUG-111: Health file indicates "service is alive", not "last sync was perfect"
-    mock_write.assert_called_once()
+    # BUG-111+119: Startup health file + post-sync health file = 2 calls
+    assert mock_write.call_count == 2
 
 
 def test_warning_logged_on_sync_failure():

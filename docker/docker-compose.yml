@@ -197,7 +197,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 120s
 
   # NOTE: grafana-datasource-init removed - credentials now injected via
   # environment variable substitution in provisioning file (BP-040, Grafana 10+)
@@ -414,11 +414,11 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "python3", "-c", "from pathlib import Path; exit(0 if Path('/tmp/sync.health').exists() else 1)"]
+      test: ["CMD", "python3", "-c", "from pathlib import Path; import time; p = Path('/tmp/sync.health'); exit(0 if p.exists() and (time.time() - p.stat().st_mtime) < 3600 else 1)"]
       interval: 60s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 120s
 
 volumes:
   qdrant_storage:

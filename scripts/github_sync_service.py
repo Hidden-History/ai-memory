@@ -143,6 +143,11 @@ def main():
         config.github_repo,
     )
 
+    # BUG-119: Write health file at startup so Docker healthcheck passes
+    # during the (potentially long) first sync cycle
+    write_health_file()
+    logger.info("Startup health file written (Docker healthcheck will pass)")
+
     # Main loop
     first_run = True
     while not SHUTDOWN_REQUESTED:

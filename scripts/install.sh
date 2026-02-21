@@ -624,12 +624,15 @@ main() {
             wait_for_services
             copy_env_template
             run_health_check
+            verify_embedding_readiness
             seed_best_practices
             run_initial_jira_sync
             setup_jira_cron
-            verify_embedding_readiness
             setup_github_indexes
             run_initial_github_sync
+
+            # BUG-125: Drain queued events that failed during service startup
+            drain_pending_queue
         fi
     else
         log_info "Skipping shared infrastructure setup (add-project mode)"
@@ -1295,6 +1298,11 @@ copy_files() {
         cp -r "$SOURCE_DIR/templates/"* "$INSTALL_DIR/templates/"
     fi
 
+    # Copy CHANGELOG for reference (TD-170)
+    if [[ -f "$SOURCE_DIR/CHANGELOG.md" ]]; then
+        cp "$SOURCE_DIR/CHANGELOG.md" "$INSTALL_DIR/" || log_warning "Failed to copy CHANGELOG.md"
+    fi
+
     # Make scripts executable (both .py and .sh files)
     log_info "Making scripts executable..."
     chmod +x "$INSTALL_DIR/scripts/"*.{py,sh} 2>/dev/null || true
@@ -1933,10 +1941,19 @@ wait_for_services() {
             log_warning "Streamlit dashboard did not start within 60s"
         fi
 
-        # Wait for Grafana (Install #11: 2GB systems need >60s)
+        # Wait for Grafana (BUG-124: non-blocking on low-memory systems)
+        local docker_mem_bytes
+        docker_mem_bytes=$(docker info --format '{{.MemTotal}}' 2>/dev/null || echo "0")
+        local docker_mem_gb=$(( docker_mem_bytes / 1073741824 ))
+        local grafana_wait=120
+        if [[ $docker_mem_gb -lt 3 ]]; then
+            grafana_wait=30
+            log_info "Low Docker memory (${docker_mem_gb}GB) — reduced Grafana wait to ${grafana_wait}s"
+        fi
+
         attempt=0
         echo -n "  Grafana (23000): "
-        while [[ $attempt -lt 120 ]]; do
+        while [[ $attempt -lt $grafana_wait ]]; do
             if curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:23000/api/health" &> /dev/null; then
                 echo -e "${GREEN}ready${NC}"
                 break
@@ -1945,9 +1962,9 @@ wait_for_services() {
             sleep 1
             attempt=$((attempt + 1))
         done
-        if [[ $attempt -eq 120 ]]; then
+        if [[ $attempt -eq $grafana_wait ]]; then
             echo -e "${YELLOW}timeout (non-critical)${NC}"
-            log_warning "Grafana dashboard did not start within 120s"
+            log_info "Grafana will start in background — dashboard available at http://localhost:23000"
         fi
     fi
 
@@ -2421,6 +2438,47 @@ verify_embedding_readiness() {
     log_warning "Embedding service slow to respond — GitHub sync may have embedding timeouts"
 }
 
+drain_pending_queue() {
+    local queue_file="$INSTALL_DIR/queue/pending_queue.jsonl"
+    if [[ ! -f "$queue_file" ]] || [[ ! -s "$queue_file" ]]; then
+        log_info "No queued events to process"
+        return 0
+    fi
+
+    local count
+    count=$(wc -l < "$queue_file" 2>/dev/null || echo "0")
+    log_info "Processing $count queued events..."
+
+    # Run in subshell to contain venv activation and env sourcing
+    (
+        # Source docker/.env for Qdrant connection settings
+        if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
+            set -a
+            source "$INSTALL_DIR/docker/.env"
+            set +a
+        fi
+
+        # Activate venv for Python dependencies
+        if [[ -f "$INSTALL_DIR/.venv/bin/activate" ]]; then
+            # shellcheck disable=SC1091
+            source "$INSTALL_DIR/.venv/bin/activate"
+        fi
+
+        python3 "$INSTALL_DIR/scripts/memory/process_retry_queue.py"
+    ) 2>&1 | tee -a "$LOG_FILE" || {
+        log_warning "Queue drain completed with errors (non-fatal)"
+    }
+
+    # Report result
+    if [[ -f "$queue_file" ]] && [[ -s "$queue_file" ]]; then
+        local remaining
+        remaining=$(wc -l < "$queue_file" 2>/dev/null || echo "0")
+        log_warning "$remaining items still in queue after drain"
+    else
+        log_success "All queued events processed"
+    fi
+}
+
 # Set up GitHub payload indexes (PLAN-006 Phase 1a)
 setup_github_indexes() {
     if [[ "$GITHUB_SYNC_ENABLED" != "true" ]]; then
@@ -2765,6 +2823,16 @@ setup_parzival() {
 
         # Create agent_id payload index
         create_agent_id_index
+
+        # BUG-118 + BUG-120: Sync Parzival env vars and matcher to settings.json
+        if [[ -f "$PROJECT_SETTINGS" ]]; then
+            log_info "Updating project settings with Parzival configuration..."
+            python3 "$INSTALL_DIR/scripts/update_parzival_settings.py" \
+                "$PROJECT_SETTINGS" \
+                "$INSTALL_DIR/docker/.env" 2>&1 | tee -a "$LOG_FILE" || {
+                log_warning "Failed to update Parzival settings in settings.json"
+            }
+        fi
 
         log_success "Parzival enabled"
     else

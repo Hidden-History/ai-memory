@@ -67,7 +67,7 @@ except ImportError:
 
 # TECH-DEBT-142: Import push metrics for Pushgateway
 try:
-    from memory.metrics_push import push_hook_metrics_async, push_capture_metrics_async
+    from memory.metrics_push import push_capture_metrics_async, push_hook_metrics_async
 except ImportError:
     push_hook_metrics_async = None
     push_capture_metrics_async = None
@@ -243,8 +243,8 @@ def analyze_transcript(entries: list[dict[str, Any]]) -> dict[str, Any]:
         ]
 
     return {
-        "tools_used": sorted(list(tools_used)),
-        "files_modified": sorted(list(files_modified)),
+        "tools_used": sorted(tools_used),
+        "files_modified": sorted(files_modified),
         "user_prompts_count": len(user_prompts),
         "first_user_prompt": first_user_prompt,
         "last_user_prompts": last_user_prompts,
@@ -363,6 +363,38 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
         # Build payload
         content_hash = compute_content_hash(summary_data["content"])
         memory_id = str(uuid.uuid4())
+
+        # SPEC-009: Security scanning before storage
+        try:
+            from memory.config import get_config as _get_sec_config
+
+            sec_config = _get_sec_config()
+            if sec_config.security_scanning_enabled:
+                try:
+                    from memory.security_scanner import ScanAction, SecurityScanner
+
+                    scanner = SecurityScanner(enable_ner=False)
+                    scan_result = scanner.scan(summary_data["content"])
+                    if scan_result.action == ScanAction.BLOCKED:
+                        logger.warning(
+                            "session_summary_blocked_secrets",
+                            extra={
+                                "session_id": summary_data["session_id"],
+                                "group_id": summary_data["group_id"],
+                                "findings_count": len(scan_result.findings),
+                            },
+                        )
+                        return False
+                    elif scan_result.action == ScanAction.MASKED:
+                        summary_data["content"] = scan_result.content
+                except ImportError:
+                    logger.warning(
+                        "security_scanner_unavailable", extra={"hook": "PreCompact"}
+                    )
+        except Exception as e:
+            logger.error(
+                "security_scan_failed", extra={"hook": "PreCompact", "error": str(e)}
+            )
 
         # Generate embedding
         embedding_status = EmbeddingStatus.PENDING.value
@@ -836,9 +868,10 @@ def main() -> int:
             # SIGALRM not available (Windows) - proceed without timeout
             pass
 
+        stored = None
         try:
             # Store session summary synchronously
-            store_session_summary(summary_data)
+            stored = store_session_summary(summary_data)
         except TimeoutError:
             # Queue to file on timeout
             logger.warning(
@@ -861,18 +894,36 @@ def main() -> int:
 
         # TECH-DEBT-142: Push hook duration to Pushgateway
         duration_ms = (time.perf_counter() - start_time) * 1000
-        if push_hook_metrics_async:
-            push_hook_metrics_async(
-                hook_name="PreCompact",
-                duration_seconds=duration_ms / 1000,
-                success=True,
-                project=project,
-            )
         trigger = hook_input["trigger"]
-        print(
-            f"📤 AI Memory: Session summary saved for {project} (trigger: {trigger}) [{duration_ms:.0f}ms]",
-            file=sys.stderr,
-        )
+        if stored is False:
+            # Content was blocked by SecurityScanner — do not claim success
+            logger.warning(
+                "session_summary_skipped",
+                extra={"session_id": summary_data["session_id"], "reason": "blocked"},
+            )
+            if push_hook_metrics_async:
+                push_hook_metrics_async(
+                    hook_name="PreCompact",
+                    duration_seconds=duration_ms / 1000,
+                    success=False,
+                    project=project,
+                )
+            print(
+                f"⚠️  AI Memory: Session summary blocked/skipped for {project} (trigger: {trigger}) [{duration_ms:.0f}ms]",
+                file=sys.stderr,
+            )
+        else:
+            if push_hook_metrics_async:
+                push_hook_metrics_async(
+                    hook_name="PreCompact",
+                    duration_seconds=duration_ms / 1000,
+                    success=True,
+                    project=project,
+                )
+            print(
+                f"📤 AI Memory: Session summary saved for {project} (trigger: {trigger}) [{duration_ms:.0f}ms]",
+                file=sys.stderr,
+            )
 
         # Activity log with full content
         tools_list = (

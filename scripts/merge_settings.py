@@ -201,13 +201,20 @@ def _upgrade_hook_commands(settings: dict) -> dict:
                     if match:
                         hook["command"] = _hook_cmd(match.group(1))
 
-    # BUG-078: Upgrade SessionStart matcher
+    # BUG-078: SessionStart matcher management
+    # Standard sessions: "resume|compact" (BUG-078 — correct)
+    # Parzival sessions: "startup|resume|compact|clear" (BUG-118 — needs startup for Tier 1 Bootstrap)
+    parzival_enabled = os.environ.get("PARZIVAL_ENABLED", "").lower() == "true"
     for wrapper in hooks.get("SessionStart", []):
-        if (
-            isinstance(wrapper, dict)
-            and wrapper.get("matcher") == "startup|resume|compact|clear"
-        ):
-            wrapper["matcher"] = "resume|compact"
+        if isinstance(wrapper, dict):
+            if parzival_enabled:
+                # Expand matcher for Parzival sessions
+                if wrapper.get("matcher") == "resume|compact":
+                    wrapper["matcher"] = "startup|resume|compact|clear"
+            else:
+                # Narrow matcher for standard sessions (BUG-078)
+                if wrapper.get("matcher") == "startup|resume|compact|clear":
+                    wrapper["matcher"] = "resume|compact"
 
     return settings
 
