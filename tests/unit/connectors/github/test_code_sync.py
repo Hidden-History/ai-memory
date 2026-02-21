@@ -306,10 +306,19 @@ def _make_sync_instance():
     sync.config.github_branch = "main"
     sync.config.github_repo = "owner/repo"
     sync.config.github_code_blob_max_size = 102400
+    sync.config.github_sync_total_timeout = 1800
+    sync.config.github_sync_per_file_timeout = 60
+    sync.config.github_sync_circuit_breaker_threshold = 5
+    sync.config.github_sync_circuit_breaker_reset = 60
     sync.client = AsyncMock()
     sync._group_id = "owner/repo"
     sync._exclude_patterns = []
     sync.storage = MagicMock()
+
+    # BUG-112: Circuit breaker required by sync_code_blobs
+    from memory.classifier.circuit_breaker import CircuitBreaker
+
+    sync._circuit_breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60)
     return sync
 
 

@@ -10,6 +10,7 @@ Best Practices: https://medium.com/@sparknp1/8-httpx-asyncio-patterns-for-safer-
 import contextlib
 import logging
 import os
+import random
 import time
 
 import httpx
@@ -99,7 +100,56 @@ class EmbeddingClient:
 
         self.client = httpx.Client(timeout=timeout_config, limits=limits)
 
+        # BUG-113: Retry configuration for transient timeout failures
+        self._max_retries = int(os.getenv("EMBEDDING_MAX_RETRIES", "2"))
+        self._backoff_base = float(os.getenv("EMBEDDING_BACKOFF_BASE", "1.0"))
+        self._backoff_cap = float(os.getenv("EMBEDDING_BACKOFF_CAP", "15.0"))
+
     def embed(
+        self, texts: list[str], model: str = "en", project: str = "unknown"
+    ) -> list[list[float]]:
+        """Generate embeddings with retry on timeout errors.
+
+        Wraps _embed_once() with exponential backoff + full jitter (AWS formula,
+        BP-091). Only retries on timeout errors; non-timeout errors raise immediately.
+
+        Args:
+            texts: List of text strings to embed.
+            model: "en" for prose, "code" for code content.
+            project: Project identifier for metrics.
+
+        Returns:
+            List of embedding vectors (768 dimensions each).
+
+        Raises:
+            EmbeddingError: If all retries exhausted or non-timeout error occurs.
+        """
+        last_error: EmbeddingError | None = None
+        for attempt in range(1 + self._max_retries):
+            try:
+                return self._embed_once(texts, model=model, project=project)
+            except EmbeddingError as e:
+                if "timeout" not in str(e).lower():
+                    raise  # Non-timeout errors: no retry
+                last_error = e
+                if attempt < self._max_retries:
+                    sleep_time = random.uniform(
+                        0, min(self._backoff_cap, self._backoff_base * (2**attempt))
+                    )
+                    logger.warning(
+                        "embedding_retry",
+                        extra={
+                            "attempt": attempt + 1,
+                            "max_retries": self._max_retries,
+                            "sleep_seconds": round(sleep_time, 2),
+                            "texts_count": len(texts),
+                            "model": model,
+                        },
+                    )
+                    time.sleep(sleep_time)
+        raise last_error  # type: ignore[misc]
+
+    def _embed_once(
         self, texts: list[str], model: str = "en", project: str = "unknown"
     ) -> list[list[float]]:
         """Generate embeddings for texts using specified model.

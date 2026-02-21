@@ -2423,21 +2423,36 @@ print(f'OK: {created} created, {existing} already existed')
 }
 
 # Run initial GitHub sync (PLAN-006 Phase 1a)
+# BUG-115: Added timeout wrapper and status tracking to prevent indefinite hangs
 run_initial_github_sync() {
     if [[ "$GITHUB_SYNC_ENABLED" == "true" && "$GITHUB_INITIAL_SYNC" == "true" ]]; then
-        log_info "Running initial GitHub sync (may take 5-30 minutes)..."
+        local sync_timeout="${GITHUB_SYNC_INSTALL_TIMEOUT:-600}"
+        log_info "Running initial GitHub sync (timeout: ${sync_timeout}s)..."
         log_info "Repo: $GITHUB_REPO"
 
         # CWD must be $INSTALL_DIR (not docker/) so engine's Path.cwd()/.audit/state/
         # writes to the correct location that the container volume also maps to
         # BUG-098: Source docker/.env so pydantic MemoryConfig reads GITHUB_SYNC_ENABLED
         # and other env vars — .env is at docker/.env but CWD is $INSTALL_DIR
-        if (cd "$INSTALL_DIR" && [[ -f docker/.env ]] || { echo "[ERROR] docker/.env not found"; exit 1; } && set -a && source docker/.env && set +a && ".venv/bin/python" "scripts/github_sync.py" --full) 2>&1 | tee "$INSTALL_DIR/logs/github_initial_sync.log"; then
-            log_success "Initial GitHub sync completed"
-        else
-            log_warning "Initial sync had errors — check $INSTALL_DIR/logs/github_initial_sync.log"
-            log_info "Re-run manually: cd $INSTALL_DIR && set -a && source docker/.env && set +a && .venv/bin/python scripts/github_sync.py --full"
-        fi
+        local exit_code=0
+        (cd "$INSTALL_DIR" && [[ -f docker/.env ]] || { echo "[ERROR] docker/.env not found"; exit 1; } && set -a && source docker/.env && set +a && timeout "$sync_timeout" ".venv/bin/python" "scripts/github_sync.py" --full) 2>&1 | tee "$INSTALL_DIR/logs/github_initial_sync.log"
+        exit_code=${PIPESTATUS[0]}
+
+        case $exit_code in
+            0)
+                GITHUB_SYNC_STATUS="success"
+                log_success "Initial GitHub sync completed"
+                ;;
+            124)
+                GITHUB_SYNC_STATUS="timeout"
+                log_warning "Initial GitHub sync timed out after ${sync_timeout}s (will continue in background service)"
+                ;;
+            *)
+                GITHUB_SYNC_STATUS="error"
+                log_warning "Initial sync had errors (exit code: $exit_code) — check $INSTALL_DIR/logs/github_initial_sync.log"
+                log_info "Re-run manually: cd $INSTALL_DIR && set -a && source docker/.env && set +a && .venv/bin/python scripts/github_sync.py --full"
+                ;;
+        esac
     fi
 }
 
@@ -2551,6 +2566,11 @@ show_success_message() {
     fi
     if [[ "$GITHUB_SYNC_ENABLED" == "true" ]]; then
     echo "│     ✓ GitHub sync (${GITHUB_REPO})                     │"
+    case "${GITHUB_SYNC_STATUS:-}" in
+        success)  echo "│       Initial sync: completed successfully               │" ;;
+        timeout)  echo "│       Initial sync: timed out (will continue in service)  │" ;;
+        error)    echo "│       Initial sync: had errors (check logs)               │" ;;
+    esac
     fi
     echo "│                                                             │"
     echo "├─────────────────────────────────────────────────────────────┤"

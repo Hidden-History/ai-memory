@@ -93,7 +93,10 @@ async def run_sync(config, full: bool = False, code_only: bool = False):
         async with client:
             code_sync = CodeBlobSync(client, config)
             batch_id = GitHubClient.generate_batch_id()
-            code_result = await code_sync.sync_code_blobs(batch_id)
+            code_result = await code_sync.sync_code_blobs(
+                batch_id,
+                total_timeout=config.github_sync_total_timeout,
+            )
         print(f"  Files synced: {code_result.files_synced}")
         print(f"  Files skipped: {code_result.files_skipped}")
         print(f"  Files deleted: {code_result.files_deleted}")

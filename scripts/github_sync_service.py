@@ -83,7 +83,10 @@ async def run_sync_cycle(config) -> bool:
             async with client:
                 code_sync = CodeBlobSync(client, config)
                 batch_id = GitHubClient.generate_batch_id()
-                code_result = await code_sync.sync_code_blobs(batch_id)
+                code_result = await code_sync.sync_code_blobs(
+                    batch_id,
+                    total_timeout=config.github_sync_total_timeout,
+                )
             logger.info(
                 "Code sync complete: synced=%d, skipped=%d, deleted=%d, errors=%d",
                 code_result.files_synced,
@@ -151,7 +154,9 @@ def main():
             sync_ok = asyncio.run(run_sync_cycle(config))
             write_health_file()
             if not sync_ok:
-                logger.warning("Sync cycle completed with errors (health file still written — service is alive)")
+                logger.warning(
+                    "Sync cycle completed with errors (health file still written — service is alive)"
+                )
             first_run = False
 
         # Sleep in small increments to allow graceful shutdown

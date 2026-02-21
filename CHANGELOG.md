@@ -51,6 +51,13 @@ GitHub enrichment, security scanning, and Parzival session agent integration.
 - Agent files always deploy latest version on re-install (system-owned files)
 
 ### Fixed
+
+#### Install #7 Bug Fixes (BUG-112 through BUG-115)
+- **BUG-112** (HIGH): Code blob sync hangs indefinitely — Added total timeout, per-file timeout via `asyncio.wait_for()`, circuit breaker (reuses existing `CircuitBreaker` class), and progress logging every 10 files to `code_sync.py`. 5 new config fields for tuning thresholds.
+- **BUG-113** (MEDIUM): Embedding service timeouts with no retry — Added retry with full-jitter exponential backoff (AWS formula) to `EmbeddingClient.embed()`. Configurable via `EMBEDDING_MAX_RETRIES`, `EMBEDDING_BACKOFF_BASE`, `EMBEDDING_BACKOFF_CAP` env vars. Only retries on timeout errors.
+- **BUG-114** (LOW): `indexed_vectors_count=0` appeared broken — Documented as expected behavior when `full_scan_threshold=10000` and collection has < 10K vectors. Qdrant uses brute-force search, not HNSW, which is correct.
+- **BUG-115** (LOW): `install.sh` initial sync has no timeout — Wrapped sync call with `timeout` command, tracks exit status (success/timeout/error), displays status in install success message.
+
 - BUG-104: Collection setup errors hidden by `2>/dev/null` — now uses `log_error` with re-run command
 - BUG-105: Embedding model download fails on first start — pre-download at build time with graceful fallback
 - BUG-106: Broken symlinks left after hook archival — cleanup before verification + replaced archived trigger

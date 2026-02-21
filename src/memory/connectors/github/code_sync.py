@@ -8,6 +8,7 @@ Reference: PLAN-006 Section 3.3 (Code Blob Embedding Strategy)
 """
 
 import ast
+import asyncio
 import base64
 import logging
 import os
@@ -647,6 +648,14 @@ class CodeBlobSync:
             if p.strip()
         ]
 
+        # BUG-112: Circuit breaker for code blob sync resilience
+        from memory.classifier.circuit_breaker import CircuitBreaker
+
+        self._circuit_breaker = CircuitBreaker(
+            failure_threshold=self.config.github_sync_circuit_breaker_threshold,
+            reset_timeout=self.config.github_sync_circuit_breaker_reset,
+        )
+
         # SEC-2: Security scanner to scan file content before chunking/storage
         if self.config.security_scanning_enabled:
             from memory.security_scanner import SecurityScanner
@@ -657,29 +666,42 @@ class CodeBlobSync:
         else:
             self._scanner = None
 
-    async def sync_code_blobs(self, batch_id: str) -> CodeSyncResult:
+    async def sync_code_blobs(
+        self,
+        batch_id: str,
+        total_timeout: int | None = None,
+    ) -> CodeSyncResult:
         """Sync code blobs from repository.
 
         Flow:
         1. Fetch file tree from GitHub
         2. Filter eligible files (size, patterns, binary)
         3. Compare blob_hash against stored versions
-        4. Fetch, chunk, and store changed/new files
+        4. Fetch, chunk, and store changed/new files (with per-file timeout)
         5. Detect and mark deleted files
+
+        BUG-112: Added total_timeout, per-file timeout, circuit breaker, and
+        progress logging to prevent indefinite hangs during code blob sync.
 
         Args:
             batch_id: Sync batch ID for versioning (BP-074)
+            total_timeout: Total timeout in seconds. Defaults to config value.
 
         Returns:
             CodeSyncResult with file/chunk counts
         """
         start = time.monotonic()
         result = CodeSyncResult()
+        if total_timeout is None:
+            total_timeout = self.config.github_sync_total_timeout
+        per_file_timeout = self.config.github_sync_per_file_timeout
 
         logger.info(
-            "Starting code blob sync: branch=%s, batch=%s",
+            "Starting code blob sync: branch=%s, batch=%s, total_timeout=%ds, per_file_timeout=%ds",
             self.config.github_branch,
             batch_id,
+            total_timeout,
+            per_file_timeout,
         )
 
         # Step 1: Fetch file tree
@@ -695,8 +717,9 @@ class CodeBlobSync:
         # Step 2: Build stored blob lookup map (BP-066 batch lookup)
         stored_map = self._get_stored_blob_map()
 
-        # Step 3: Sync each eligible file
+        # Step 3: Pre-filter eligible files for accurate progress counts
         current_paths: set[str] = set()
+        eligible_entries: list[tuple[dict, str | None]] = []  # (entry, stored_hash)
         for entry in tree_entries:
             file_path = entry["path"]
             current_paths.add(file_path)
@@ -705,25 +728,90 @@ class CodeBlobSync:
                 result.files_skipped += 1
                 continue
 
-            # Compare blob hash
             stored_hash = stored_map.get(file_path)
             if stored_hash == entry["sha"]:
-                # Unchanged -- update last_synced only
                 self._update_last_synced(file_path)
                 result.files_skipped += 1
                 continue
 
-            # Changed or new -- fetch and process
+            eligible_entries.append((entry, stored_hash))
+
+        total_eligible = len(eligible_entries)
+        logger.info(
+            "Code blob sync: %d eligible files to process (of %d total tree entries)",
+            total_eligible,
+            len(tree_entries),
+        )
+
+        # Step 4: Sync each eligible file with timeouts and circuit breaker
+        cb_provider = "code_blob_sync"  # Circuit breaker provider key
+        for idx, (entry, stored_hash) in enumerate(eligible_entries):
+            file_path = entry["path"]
+
+            # BUG-112: Total timeout check
+            elapsed = time.monotonic() - start
+            if elapsed >= total_timeout:
+                remaining = total_eligible - idx
+                logger.warning(
+                    "Code blob sync total timeout reached (%.0fs >= %ds). "
+                    "Stopping with %d files remaining.",
+                    elapsed,
+                    total_timeout,
+                    remaining,
+                )
+                result.error_details.append(
+                    f"total_timeout: stopped after {idx}/{total_eligible} files ({elapsed:.0f}s)"
+                )
+                break
+
+            # BUG-112: Circuit breaker check
+            if not self._circuit_breaker.is_available(cb_provider):
+                remaining = total_eligible - idx
+                logger.warning(
+                    "Code blob sync circuit breaker OPEN after %d consecutive failures. "
+                    "Stopping with %d files remaining.",
+                    self._circuit_breaker.failure_threshold,
+                    remaining,
+                )
+                result.error_details.append(
+                    f"circuit_breaker_open: stopped after {idx}/{total_eligible} files"
+                )
+                break
+
+            # BUG-112: Progress logging every 10 files
+            if idx > 0 and idx % 10 == 0:
+                logger.info(
+                    "Code blob sync progress: %d/%d files (%.0fs elapsed)",
+                    idx,
+                    total_eligible,
+                    time.monotonic() - start,
+                )
+
+            # BUG-112: Per-file timeout via asyncio.wait_for
             try:
-                chunks_stored = await self._sync_file(entry, batch_id, stored_hash)
+                chunks_stored = await asyncio.wait_for(
+                    self._sync_file(entry, batch_id, stored_hash),
+                    timeout=per_file_timeout,
+                )
                 result.files_synced += 1
                 result.chunks_created += chunks_stored
+                self._circuit_breaker.record_success(cb_provider)
+            except asyncio.TimeoutError:
+                logger.error(
+                    "Per-file timeout (%ds) for %s", per_file_timeout, file_path
+                )
+                result.errors += 1
+                result.error_details.append(
+                    f"{file_path}: per_file_timeout ({per_file_timeout}s)"
+                )
+                self._circuit_breaker.record_failure(cb_provider, "timeout")
             except Exception as e:
                 logger.error("Failed to sync file %s: %s", file_path, e)
                 result.errors += 1
                 result.error_details.append(f"{file_path}: {e}")
+                self._circuit_breaker.record_failure(cb_provider, type(e).__name__)
 
-        # Step 4: Detect deleted files
+        # Step 5: Detect deleted files
         deleted = await self._detect_deleted_files(current_paths, stored_map=stored_map)
         result.files_deleted = deleted
 
@@ -811,8 +899,6 @@ class CodeBlobSync:
         Returns:
             Number of chunks stored
         """
-        import asyncio
-
         file_path = entry["path"]
         blob_sha = entry["sha"]
 

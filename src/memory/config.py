@@ -323,6 +323,38 @@ class MemoryConfig(BaseSettings):
         description="Comma-separated glob patterns to exclude from code blob sync",
     )
 
+    # --- GitHub Sync Resilience (BUG-112) ---
+    github_sync_total_timeout: int = Field(
+        default=1800,
+        ge=60,
+        le=7200,
+        description="Total timeout for code blob sync in service mode (seconds, default: 30 min)",
+    )
+    github_sync_install_timeout: int = Field(
+        default=600,
+        ge=60,
+        le=3600,
+        description="Total timeout for code blob sync during install (seconds, default: 10 min)",
+    )
+    github_sync_per_file_timeout: int = Field(
+        default=60,
+        ge=10,
+        le=300,
+        description="Per-file timeout covering fetch+chunk+embed+store (seconds, default: 60)",
+    )
+    github_sync_circuit_breaker_threshold: int = Field(
+        default=5,
+        ge=2,
+        le=20,
+        description="Consecutive file failures before circuit breaker opens",
+    )
+    github_sync_circuit_breaker_reset: int = Field(
+        default=60,
+        ge=10,
+        le=300,
+        description="Seconds before circuit breaker transitions OPEN -> HALF_OPEN",
+    )
+
     # =========================================================================
     # v2.0.6 — Decay Scoring (SPEC-001 Section 4.3)
     # =========================================================================

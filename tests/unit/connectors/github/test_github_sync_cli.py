@@ -115,7 +115,9 @@ def test_code_only_skips_engine():
         main()
 
     mock_engine_cls.assert_not_called()
-    mock_code_sync.sync_code_blobs.assert_awaited_once_with("batch-1")
+    mock_code_sync.sync_code_blobs.assert_awaited_once_with(
+        "batch-1", total_timeout=config.github_sync_total_timeout
+    )
 
 
 # -- Config Validation Tests ---------------------------------------------

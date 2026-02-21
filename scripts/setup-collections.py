@@ -104,6 +104,12 @@ def create_collections(dry_run: bool = False, force: bool = False) -> None:
                 client.delete_collection(collection_name)
 
             # BP-038 Section 2.1: HNSW on-disk for memory efficiency
+            # BUG-114: full_scan_threshold=10000 means Qdrant uses brute-force search
+            # (not HNSW) for collections with fewer than 10K vectors. This is expected
+            # behavior — indexed_vectors_count=0 does NOT mean search is broken; it means
+            # no HNSW graph was built yet. Search works via brute-force scan for any
+            # points that have real (non-zero) embeddings.
+            # Reference: https://qdrant.tech/documentation/concepts/indexing/#vector-index
             hnsw_config = HnswConfigDiff(
                 m=16,
                 ef_construct=100,
