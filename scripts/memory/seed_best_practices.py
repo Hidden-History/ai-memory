@@ -518,7 +518,7 @@ Examples:
             return 1
 
     print(f"\n{'=' * 70}")
-    print("  BMAD Best Practices Seeding")
+    print("  Best Practices Seeding")
     print(f"{'=' * 70}\n")
     print(f"  Loaded {len(all_templates)} templates from {len(json_files)} files")
 
