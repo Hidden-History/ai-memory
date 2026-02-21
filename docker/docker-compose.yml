@@ -197,7 +197,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 60s
 
   # NOTE: grafana-datasource-init removed - credentials now injected via
   # environment variable substitution in provisioning file (BP-040, Grafana 10+)

@@ -448,28 +448,39 @@ def check_venv_health() -> HealthCheckResult:
         )
 
     # Critical packages that must be importable
+    # TASK-024: Use find_spec (136x faster than actual imports) + timeout=30 safety net
     critical_packages = [
         "qdrant_client",
         "prometheus_client",
         "httpx",
         "pydantic",
         "structlog",
+        "spacy",
     ]
 
+    # Single subprocess with find_spec — avoids loading 701+ modules (grpc, protobuf)
+    check_code = (
+        "import importlib.util, sys; "
+        f"missing = [p for p in {critical_packages!r} if importlib.util.find_spec(p) is None]; "
+        "print(','.join(missing) if missing else 'ok'); "
+        "sys.exit(1 if missing else 0)"
+    )
+
     failed_packages = []
-    for pkg in critical_packages:
-        try:
-            result = subprocess.run(
-                [str(venv_python), "-c", f"import {pkg}"],
-                capture_output=True,
-                timeout=10,
-            )
-            if result.returncode != 0:
-                failed_packages.append(pkg)
-        except subprocess.TimeoutExpired:
-            failed_packages.append(f"{pkg}(timeout)")
-        except Exception:
-            failed_packages.append(f"{pkg}(error)")
+    try:
+        result = subprocess.run(
+            [str(venv_python), "-c", check_code],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            output = result.stdout.strip()
+            failed_packages = [p.strip() for p in output.split(",") if p.strip()]
+    except subprocess.TimeoutExpired:
+        failed_packages = ["find_spec(timeout)"]
+    except Exception:
+        failed_packages = ["find_spec(error)"]
 
     if failed_packages:
         return HealthCheckResult(

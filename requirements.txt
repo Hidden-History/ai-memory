@@ -43,3 +43,7 @@ numpy>=1.26.0,<2.0.0
 # Security scanning - Layer 2 secret detection (SPEC-009)
 # Required for hook scripts (run from project venv)
 detect-secrets>=1.4.0
+
+# Security scanning - Layer 3 NER-based PII detection (SPEC-009)
+# en_core_web_sm model downloaded in install.sh post-install step
+spacy>=3.8.0,<4.0.0

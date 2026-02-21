@@ -10,7 +10,7 @@ import hashlib
 import logging
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import PayloadSchemaType
+from qdrant_client.models import KeywordIndexParams, PayloadSchemaType
 
 logger = logging.getLogger("ai_memory.github.schema")
 
@@ -20,7 +20,10 @@ DISCUSSIONS_COLLECTION = "discussions"
 # GitHub namespace indexes to create on discussions collection.
 # These are ADDITIONAL to existing discussions indexes (group_id, type, stored_at).
 GITHUB_INDEXES: list[dict] = [
-    {"field_name": "source", "schema": PayloadSchemaType.KEYWORD, "is_tenant": True},
+    {
+        "field_name": "source",
+        "schema": KeywordIndexParams(type="keyword", is_tenant=True),
+    },
     {"field_name": "github_id", "schema": PayloadSchemaType.INTEGER},
     {"field_name": "file_path", "schema": PayloadSchemaType.KEYWORD},
     {"field_name": "sha", "schema": PayloadSchemaType.KEYWORD},
@@ -95,16 +98,13 @@ def create_github_indexes(client: QdrantClient) -> dict[str, int]:
     for index_def in GITHUB_INDEXES:
         field_name = index_def["field_name"]
         try:
-            kwargs = {
-                "collection_name": DISCUSSIONS_COLLECTION,
-                "field_name": field_name,
-                "field_schema": index_def["schema"],
-            }
-            # is_tenant only supported for keyword indexes
-            if index_def.get("is_tenant"):
-                kwargs["is_tenant"] = True
-
-            client.create_payload_index(**kwargs)
+            # BUG-116: is_tenant is encoded in KeywordIndexParams, not as a direct kwarg.
+            # Pattern: setup-collections.py:140-147 (KeywordIndexParams for tenant indexes)
+            client.create_payload_index(
+                collection_name=DISCUSSIONS_COLLECTION,
+                field_name=field_name,
+                field_schema=index_def["schema"],
+            )
             created += 1
             logger.info("Created index: %s (%s)", field_name, index_def["schema"])
         except Exception as e:
@@ -116,7 +116,11 @@ def create_github_indexes(client: QdrantClient) -> dict[str, int]:
             elif "timeout" in str(e).lower() or isinstance(e, (TimeoutError, OSError)):
                 # TASK-023: Retry once on timeout (Qdrant may be slow under load)
                 try:
-                    client.create_payload_index(**kwargs)
+                    client.create_payload_index(
+                        collection_name=DISCUSSIONS_COLLECTION,
+                        field_name=field_name,
+                        field_schema=index_def["schema"],
+                    )
                     created += 1
                     logger.info("Created index on retry: %s", field_name)
                 except Exception as retry_err:

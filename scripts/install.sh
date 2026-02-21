@@ -627,6 +627,7 @@ main() {
             seed_best_practices
             run_initial_jira_sync
             setup_jira_cron
+            verify_embedding_readiness
             setup_github_indexes
             run_initial_github_sync
         fi
@@ -1127,6 +1128,14 @@ install_python_dependencies() {
     if "$venv_dir/bin/pip" install --retries 3 --timeout 120 -e "$INSTALL_DIR[dev]" 2>&1 | tail -5; then
         log_success "Python dependencies installed successfully"
         log_info "Hooks will use: $venv_dir/bin/python"
+    fi
+
+    # Download SpaCy NER model (SPEC-009 Layer 3 PII detection)
+    log_info "Downloading SpaCy en_core_web_sm model..."
+    if "$venv_dir/bin/python" -m spacy download en_core_web_sm 2>&1 | tail -3; then
+        log_success "SpaCy NER model ready"
+    else
+        log_warning "SpaCy model download failed — Layer 3 NER will fall back to L1+L2"
     fi
 
     # ============================================
@@ -1924,10 +1933,10 @@ wait_for_services() {
             log_warning "Streamlit dashboard did not start within 60s"
         fi
 
-        # Wait for Grafana
+        # Wait for Grafana (Install #11: 2GB systems need >60s)
         attempt=0
         echo -n "  Grafana (23000): "
-        while [[ $attempt -lt 60 ]]; do
+        while [[ $attempt -lt 120 ]]; do
             if curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:23000/api/health" &> /dev/null; then
                 echo -e "${GREEN}ready${NC}"
                 break
@@ -1936,9 +1945,9 @@ wait_for_services() {
             sleep 1
             attempt=$((attempt + 1))
         done
-        if [[ $attempt -eq 60 ]]; then
+        if [[ $attempt -eq 120 ]]; then
             echo -e "${YELLOW}timeout (non-critical)${NC}"
-            log_warning "Grafana dashboard did not start within 60s"
+            log_warning "Grafana dashboard did not start within 120s"
         fi
     fi
 
@@ -2391,6 +2400,27 @@ setup_jira_cron() {
     fi
 }
 
+# Verify embedding service is ready between sync phases (Install #11: 44% failure without this)
+verify_embedding_readiness() {
+    if [[ "$GITHUB_SYNC_ENABLED" != "true" ]]; then
+        return
+    fi
+
+    log_info "Verifying embedding service readiness..."
+    local embed_attempts=0
+    while [[ $embed_attempts -lt 30 ]]; do
+        if curl -sf --max-time 10 -X POST "http://127.0.0.1:$EMBEDDING_PORT/embed" \
+            -H "Content-Type: application/json" \
+            -d '{"texts":["readiness check"]}' > /dev/null 2>&1; then
+            log_success "Embedding service ready"
+            return
+        fi
+        sleep 2
+        embed_attempts=$((embed_attempts + 1))
+    done
+    log_warning "Embedding service slow to respond — GitHub sync may have embedding timeouts"
+}
+
 # Set up GitHub payload indexes (PLAN-006 Phase 1a)
 setup_github_indexes() {
     if [[ "$GITHUB_SYNC_ENABLED" != "true" ]]; then
@@ -2412,7 +2442,11 @@ counts = create_github_indexes(client)
 created = counts.get('created', 0)
 existing = counts.get('skipped', 0)
 print(f'OK: {created} created, {existing} already existed')
-" 2>&1) || result="FAILED"
+" 2>&1)
+    local rc=$?
+    if [[ $rc -ne 0 || -z "$result" ]]; then
+        result="FAILED (exit=$rc): ${result:-no output}"
+    fi
 
     if [[ "$result" == FAILED* ]]; then
         log_warning "GitHub index creation failed: $result"

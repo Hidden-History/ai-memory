@@ -25,7 +25,7 @@ COPY scripts/ /app/scripts/
 RUN mkdir -p /app/.audit/state /tmp
 
 # Create non-root user (security hardening)
-RUN useradd -r -u 1001 -g users ghsync && \
+RUN useradd -u 1001 -g users -s /usr/sbin/nologin ghsync && \
     chown -R ghsync:users /app /tmp
 
 # Set Python path to include src directory where memory module lives

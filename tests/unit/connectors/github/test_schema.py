@@ -124,14 +124,24 @@ def test_github_indexes_count():
 
 
 def test_source_index_is_tenant():
-    """source index has is_tenant=True (BP-075)."""
+    """source index has is_tenant=True via KeywordIndexParams (BP-075, BUG-116)."""
+    from qdrant_client.models import KeywordIndexParams
+
     source_idx = next(i for i in GITHUB_INDEXES if i["field_name"] == "source")
-    assert source_idx.get("is_tenant") is True
+    assert isinstance(source_idx["schema"], KeywordIndexParams)
+    assert source_idx["schema"].is_tenant is True
 
 
 def test_only_source_is_tenant():
-    """Only source index is marked as tenant."""
-    tenant_indexes = [i for i in GITHUB_INDEXES if i.get("is_tenant")]
+    """Only source index uses KeywordIndexParams with is_tenant."""
+    from qdrant_client.models import KeywordIndexParams
+
+    tenant_indexes = [
+        i
+        for i in GITHUB_INDEXES
+        if isinstance(i["schema"], KeywordIndexParams)
+        and getattr(i["schema"], "is_tenant", False)
+    ]
     assert len(tenant_indexes) == 1
     assert tenant_indexes[0]["field_name"] == "source"
 
@@ -223,11 +233,12 @@ def test_authority_tier_unknown_type_raises():
 
 
 def test_source_index_is_keyword():
-    """source index uses KEYWORD schema type."""
-    from qdrant_client.models import PayloadSchemaType
+    """source index uses KeywordIndexParams with type='keyword' (BUG-116)."""
+    from qdrant_client.models import KeywordIndexParams
 
     source_idx = next(i for i in GITHUB_INDEXES if i["field_name"] == "source")
-    assert source_idx["schema"] == PayloadSchemaType.KEYWORD
+    assert isinstance(source_idx["schema"], KeywordIndexParams)
+    assert source_idx["schema"].type == "keyword"
 
 
 def test_is_current_index_is_bool():
@@ -279,18 +290,26 @@ class TestCreateGitHubIndexes:
         result = create_github_indexes(mock_client)
         assert result == {"created": 0, "skipped": 10}
 
-    def test_is_tenant_passed_for_source_only(self):
-        """is_tenant=True is only passed for the source index."""
+    def test_is_tenant_encoded_in_schema_not_kwarg(self):
+        """BUG-116: is_tenant is in KeywordIndexParams, not a direct kwarg."""
+        from qdrant_client.models import KeywordIndexParams
+
         mock_client = MagicMock()
         create_github_indexes(mock_client)
 
-        # Find the call for 'source' field
+        # Verify NO call passes is_tenant as a direct keyword argument
         for call in mock_client.create_payload_index.call_args_list:
             kwargs = call[1] if call[1] else {}
-            if "field_name" in kwargs and kwargs["field_name"] == "source":
-                assert kwargs.get("is_tenant") is True
-            elif "field_name" in kwargs:
-                assert "is_tenant" not in kwargs or kwargs.get("is_tenant") is None
+            assert (
+                "is_tenant" not in kwargs
+            ), f"is_tenant should not be a direct kwarg (field: {kwargs.get('field_name')})"
+
+        # Verify source field_schema is KeywordIndexParams with is_tenant=True
+        for call in mock_client.create_payload_index.call_args_list:
+            kwargs = call[1] if call[1] else {}
+            if kwargs.get("field_name") == "source":
+                assert isinstance(kwargs["field_schema"], KeywordIndexParams)
+                assert kwargs["field_schema"].is_tenant is True
 
     def test_returns_correct_counts_mixed(self):
         """Mixed success/failure returns correct created/skipped counts."""
