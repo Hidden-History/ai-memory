@@ -84,7 +84,7 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
         port=config.qdrant_port,
         api_key=config.qdrant_api_key,
         https=config.qdrant_use_https,
-        timeout=10,
+        timeout=config.qdrant_timeout,
     )
 
     _client_cache[cache_key] = client

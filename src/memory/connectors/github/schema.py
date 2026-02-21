@@ -113,6 +113,19 @@ def create_github_indexes(client: QdrantClient) -> dict[str, int]:
             if "already exists" in str(e).lower():
                 skipped += 1
                 logger.debug("Index already exists: %s", field_name)
+            elif "timeout" in str(e).lower() or isinstance(e, (TimeoutError, OSError)):
+                # TASK-023: Retry once on timeout (Qdrant may be slow under load)
+                try:
+                    client.create_payload_index(**kwargs)
+                    created += 1
+                    logger.info("Created index on retry: %s", field_name)
+                except Exception as retry_err:
+                    logger.warning(
+                        "Index creation failed after retry: %s (%s)",
+                        field_name,
+                        retry_err,
+                    )
+                    raise
             else:
                 raise
 

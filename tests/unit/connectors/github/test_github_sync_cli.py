@@ -120,6 +120,79 @@ def test_code_only_skips_engine():
     )
 
 
+# -- No Code Blobs Flag Tests -------------------------------------------
+
+
+def test_no_code_blobs_skips_code_sync():
+    """--full --no-code-blobs runs engine sync but skips code blob sync."""
+    config = MagicMock()
+    config.github_sync_enabled = True
+    config.github_repo = "owner/repo"
+    config.github_code_blob_enabled = True  # Would normally trigger code sync
+
+    mock_engine = AsyncMock()
+    mock_result = MagicMock(
+        issues_synced=5,
+        comments_synced=2,
+        prs_synced=3,
+        reviews_synced=1,
+        diffs_synced=4,
+        commits_synced=10,
+        ci_results_synced=2,
+        items_skipped=1,
+        errors=0,
+        duration_seconds=5.0,
+    )
+    mock_engine.sync.return_value = mock_result
+
+    with (
+        patch.object(github_sync, "get_config", return_value=config),
+        patch.object(github_sync, "GitHubSyncEngine", return_value=mock_engine),
+        patch.object(github_sync, "CodeBlobSync") as mock_code_sync_cls,
+        patch("sys.argv", ["github_sync.py", "--full", "--no-code-blobs"]),
+    ):
+        main()
+
+    # Engine sync should still run
+    mock_engine.sync.assert_awaited_once_with(mode="full")
+    # Code blob sync should NOT run despite github_code_blob_enabled=True
+    mock_code_sync_cls.assert_not_called()
+
+
+def test_no_code_blobs_without_full_flag():
+    """--no-code-blobs works with incremental mode too."""
+    config = MagicMock()
+    config.github_sync_enabled = True
+    config.github_repo = "owner/repo"
+    config.github_code_blob_enabled = True
+
+    mock_engine = AsyncMock()
+    mock_result = MagicMock(
+        issues_synced=1,
+        comments_synced=0,
+        prs_synced=0,
+        reviews_synced=0,
+        diffs_synced=0,
+        commits_synced=0,
+        ci_results_synced=0,
+        items_skipped=0,
+        errors=0,
+        duration_seconds=1.0,
+    )
+    mock_engine.sync.return_value = mock_result
+
+    with (
+        patch.object(github_sync, "get_config", return_value=config),
+        patch.object(github_sync, "GitHubSyncEngine", return_value=mock_engine),
+        patch.object(github_sync, "CodeBlobSync") as mock_code_sync_cls,
+        patch("sys.argv", ["github_sync.py", "--no-code-blobs"]),
+    ):
+        main()
+
+    mock_engine.sync.assert_awaited_once_with(mode="incremental")
+    mock_code_sync_cls.assert_not_called()
+
+
 # -- Config Validation Tests ---------------------------------------------
 
 

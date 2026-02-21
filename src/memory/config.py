@@ -181,6 +181,13 @@ class MemoryConfig(BaseSettings):
         description="Use HTTPS for Qdrant connections (BP-040: required for production with API keys)",
     )
 
+    qdrant_timeout: int = Field(
+        default=30,
+        ge=5,
+        le=120,
+        description="Qdrant client timeout in seconds (TASK-023: increased from 10 to 30 for index creation under load)",
+    )
+
     embedding_host: str = Field(
         default="localhost", description="Embedding service hostname"
     )

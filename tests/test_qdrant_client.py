@@ -71,7 +71,7 @@ class TestQdrantClient:
             # Verify timeout was set
             call_kwargs = MockQdrantClient.call_args.kwargs
             assert "timeout" in call_kwargs
-            assert call_kwargs["timeout"] == 10
+            assert call_kwargs["timeout"] == 30  # TASK-023: increased from 10 to 30
 
     def test_check_qdrant_health_healthy(self):
         """AC 1.4.3: check_qdrant_health() returns True when accessible."""

@@ -65,6 +65,7 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
       - VECTOR_DIMENSIONS=768
     depends_on:
       qdrant:
@@ -224,6 +225,7 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
       - QDRANT_USE_HTTPS=${QDRANT_USE_HTTPS:-false}
       - QDRANT_EXTERNAL_PORT=26350
       - EMBEDDING_SERVICE_URL=http://embedding:8080
@@ -278,6 +280,7 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
       - PUSHGATEWAY_URL=pushgateway:9091
       - AI_MEMORY_QUEUE_DIR=/app/queue
       # Classifier configuration
@@ -349,6 +352,7 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
       - EMBEDDING_HOST=embedding
       - EMBEDDING_PORT=8080
       - PUSHGATEWAY_URL=pushgateway:9091

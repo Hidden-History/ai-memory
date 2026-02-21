@@ -309,3 +309,62 @@ class TestCreateGitHubIndexes:
         )
         with pytest.raises(RuntimeError, match="connection refused"):
             create_github_indexes(mock_client)
+
+    def test_timeout_retries_once_then_succeeds(self):
+        """BUG-116/TASK-023: Timeout on first attempt retries once and succeeds."""
+        mock_client = MagicMock()
+        call_count = 0
+
+        def side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            # First call: timeout, retry succeeds, rest succeed
+            if call_count == 1:
+                raise TimeoutError("Connection timed out")
+            return None
+
+        mock_client.create_payload_index.side_effect = side_effect
+
+        result = create_github_indexes(mock_client)
+
+        # First index: timeout + retry = 2 calls, then 9 more = 11 total
+        assert mock_client.create_payload_index.call_count == 11
+        assert result["created"] == 10
+        assert result["skipped"] == 0
+
+    def test_timeout_retry_also_fails_raises(self):
+        """If retry after timeout also fails, should raise."""
+        mock_client = MagicMock()
+        mock_client.create_payload_index.side_effect = TimeoutError(
+            "Connection timed out"
+        )
+
+        with pytest.raises(TimeoutError):
+            create_github_indexes(mock_client)
+
+    def test_timeout_string_match_retries(self):
+        """Errors containing 'timeout' in message also trigger retry."""
+        mock_client = MagicMock()
+        call_count = 0
+
+        def side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("Request timeout after 30s")
+            return None
+
+        mock_client.create_payload_index.side_effect = side_effect
+
+        result = create_github_indexes(mock_client)
+
+        assert result["created"] == 10
+
+    def test_return_dict_keys_are_created_and_skipped(self):
+        """BUG-116: Return dict has 'created' and 'skipped', NOT 'existing'."""
+        mock_client = MagicMock()
+        result = create_github_indexes(mock_client)
+
+        assert "created" in result
+        assert "skipped" in result
+        assert "existing" not in result

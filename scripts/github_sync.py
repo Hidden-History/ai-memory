@@ -62,7 +62,9 @@ def show_status(config):
     print("Code blob sync: stateless (no persistent state file)")
 
 
-async def run_sync(config, full: bool = False, code_only: bool = False):
+async def run_sync(
+    config, full: bool = False, code_only: bool = False, no_code_blobs: bool = False
+):
     """Run GitHub sync."""
     mode = "full" if full else "incremental"
 
@@ -82,7 +84,7 @@ async def run_sync(config, full: bool = False, code_only: bool = False):
         print(f"  Skipped (dedup): {result.items_skipped}, Errors: {result.errors}")
         print(f"  Duration: {result.duration_seconds:.1f}s")
 
-    if code_only or config.github_code_blob_enabled:
+    if code_only or (config.github_code_blob_enabled and not no_code_blobs):
         print(
             f"\nSyncing code blobs from {config.github_repo} ({config.github_branch} branch)..."
         )
@@ -132,6 +134,12 @@ Configuration:
     )
     mode_group.add_argument("--status", action="store_true", help="Display sync status")
 
+    parser.add_argument(
+        "--no-code-blobs",
+        action="store_true",
+        help="Skip code blob sync (use when github-sync service handles it)",
+    )
+
     args = parser.parse_args()
 
     config = get_config()
@@ -145,7 +153,14 @@ Configuration:
         show_status(config)
         return
 
-    asyncio.run(run_sync(config, full=args.full, code_only=args.code_only))
+    asyncio.run(
+        run_sync(
+            config,
+            full=args.full,
+            code_only=args.code_only,
+            no_code_blobs=args.no_code_blobs,
+        )
+    )
     print("\nDone.")
 
 

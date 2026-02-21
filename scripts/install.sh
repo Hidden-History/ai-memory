@@ -2410,7 +2410,7 @@ from memory.connectors.github.schema import create_github_indexes
 client = get_qdrant_client()
 counts = create_github_indexes(client)
 created = counts.get('created', 0)
-existing = counts.get('existing', 0)
+existing = counts.get('skipped', 0)
 print(f'OK: {created} created, {existing} already existed')
 " 2>&1) || result="FAILED"
 
@@ -2426,26 +2426,23 @@ print(f'OK: {created} created, {existing} already existed')
 # BUG-115: Added timeout wrapper and status tracking to prevent indefinite hangs
 run_initial_github_sync() {
     if [[ "$GITHUB_SYNC_ENABLED" == "true" && "$GITHUB_INITIAL_SYNC" == "true" ]]; then
-        local sync_timeout="${GITHUB_SYNC_INSTALL_TIMEOUT:-600}"
-        log_info "Running initial GitHub sync (timeout: ${sync_timeout}s)..."
+        log_info "Running initial GitHub sync — issues, PRs, commits (code blobs handled by service)..."
         log_info "Repo: $GITHUB_REPO"
 
         # CWD must be $INSTALL_DIR (not docker/) so engine's Path.cwd()/.audit/state/
         # writes to the correct location that the container volume also maps to
         # BUG-098: Source docker/.env so pydantic MemoryConfig reads GITHUB_SYNC_ENABLED
         # and other env vars — .env is at docker/.env but CWD is $INSTALL_DIR
+        # BUG-117: --no-code-blobs skips code blob sync during install; the github-sync
+        # service container handles code blobs automatically on startup (GITHUB_SYNC_ON_START=true)
         local exit_code=0
-        (cd "$INSTALL_DIR" && [[ -f docker/.env ]] || { echo "[ERROR] docker/.env not found"; exit 1; } && set -a && source docker/.env && set +a && timeout "$sync_timeout" ".venv/bin/python" "scripts/github_sync.py" --full) 2>&1 | tee "$INSTALL_DIR/logs/github_initial_sync.log"
+        (cd "$INSTALL_DIR" && [[ -f docker/.env ]] || { echo "[ERROR] docker/.env not found"; exit 1; } && set -a && source docker/.env && set +a && ".venv/bin/python" "scripts/github_sync.py" --full --no-code-blobs) 2>&1 | tee "$INSTALL_DIR/logs/github_initial_sync.log"
         exit_code=${PIPESTATUS[0]}
 
         case $exit_code in
             0)
                 GITHUB_SYNC_STATUS="success"
-                log_success "Initial GitHub sync completed"
-                ;;
-            124)
-                GITHUB_SYNC_STATUS="timeout"
-                log_warning "Initial GitHub sync timed out after ${sync_timeout}s (will continue in background service)"
+                log_success "Initial GitHub sync completed (code blob sync running in background via service)"
                 ;;
             *)
                 GITHUB_SYNC_STATUS="error"
@@ -2567,8 +2564,7 @@ show_success_message() {
     if [[ "$GITHUB_SYNC_ENABLED" == "true" ]]; then
     echo "│     ✓ GitHub sync (${GITHUB_REPO})                     │"
     case "${GITHUB_SYNC_STATUS:-}" in
-        success)  echo "│       Initial sync: completed successfully               │" ;;
-        timeout)  echo "│       Initial sync: timed out (will continue in service)  │" ;;
+        success)  echo "│       Initial sync: completed (code blobs via service)    │" ;;
         error)    echo "│       Initial sync: had errors (check logs)               │" ;;
     esac
     fi
