@@ -222,7 +222,9 @@ def parse_args(argv: list[str]) -> tuple[str, str | None]:
                 type_override = argv[i + 1]
                 i += 2
             else:
-                raise ValueError("--type requires a value (agent_memory or agent_insight)")
+                raise ValueError(
+                    "--type requires a value (agent_memory or agent_insight)"
+                )
         else:
             description_parts.append(argv[i])
             i += 1
@@ -255,17 +257,25 @@ def main() -> int:
         # Check if parzival is enabled
         try:
             from memory.config import get_config
+
             config = get_config()
             if not config.parzival_enabled:
-                print("Error: Agent memory types require Parzival to be enabled (parzival_enabled=true)", file=sys.stderr)
+                print(
+                    "Error: Agent memory types require Parzival to be enabled (parzival_enabled=true)",
+                    file=sys.stderr,
+                )
                 return 1
         except Exception:
-            print("Error: Could not load config to check parzival_enabled", file=sys.stderr)
+            print(
+                "Error: Could not load config to check parzival_enabled",
+                file=sys.stderr,
+            )
             return 1
 
         # Use store_agent_memory() from SPEC-015
         try:
             from memory.storage import MemoryStorage
+
             storage = MemoryStorage()
             result = storage.store_agent_memory(
                 content=description or "Manual save",
@@ -276,13 +286,18 @@ def main() -> int:
             )
 
             if result["status"] == "stored":
-                print(f"✅ Saved {type_override} to Parzival namespace for {project_name}")
+                print(
+                    f"✅ Saved {type_override} to Parzival namespace for {project_name}"
+                )
                 if description:
                     print(f"   Note: {description}")
                 log_manual_save(project_name, description, True)
                 return 0
             elif result["status"] == "blocked":
-                print("Content blocked by security scanner (secrets detected)", file=sys.stderr)
+                print(
+                    "Content blocked by security scanner (secrets detected)",
+                    file=sys.stderr,
+                )
                 log_manual_save(project_name, description, False)
                 return 1
             elif result["status"] == "duplicate":
@@ -299,7 +314,10 @@ def main() -> int:
             log_manual_save(project_name, description, False)
             return 1
     elif type_override is not None:
-        print(f"Error: Invalid type '{type_override}'. Must be 'agent_memory' or 'agent_insight'", file=sys.stderr)
+        print(
+            f"Error: Invalid type '{type_override}'. Must be 'agent_memory' or 'agent_insight'",
+            file=sys.stderr,
+        )
         return 1
 
     # Default path: store session summary (existing behavior unchanged)

@@ -74,6 +74,7 @@ from memory.queue import queue_operation
 try:
     import tiktoken
     from memory.chunking.truncation import structured_truncate
+
     TRUNCATION_AVAILABLE = True
 except ImportError:
     TRUNCATION_AVAILABLE = False
@@ -130,12 +131,10 @@ def format_error_content(error_context: dict[str, Any]) -> str:
                 sections = {
                     "command": error_context.get("command", ""),
                     "error": error_context.get("error_message", ""),
-                    "output": error_context.get("output", "")
+                    "output": error_context.get("output", ""),
                 }
                 truncated_output = structured_truncate(
-                    error_context["output"],
-                    max_tokens=800,
-                    sections=sections
+                    error_context["output"], max_tokens=800, sections=sections
                 )
                 parts.append(truncated_output)
             except Exception as e:
@@ -143,7 +142,10 @@ def format_error_content(error_context: dict[str, Any]) -> str:
                 parts.append(error_context["output"])
         else:
             # Truncation not available - store full output (V2.1 zero-truncation principle)
-            logger.warning("storing_full_output_no_truncation", extra={"output_length": len(error_context["output"])})
+            logger.warning(
+                "storing_full_output_no_truncation",
+                extra={"output_length": len(error_context["output"])},
+            )
             parts.append(error_context["output"])
 
     return "\n".join(parts)
@@ -236,7 +238,9 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 # PASSED: No sensitive data, continue with original content
 
             except ImportError:
-                logger.warning("security_scanner_unavailable", extra={"hook": "PostToolUse_Error"})
+                logger.warning(
+                    "security_scanner_unavailable", extra={"hook": "PostToolUse_Error"}
+                )
             except Exception as e:
                 logger.error(
                     "security_scan_failed",

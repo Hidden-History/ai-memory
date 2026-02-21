@@ -444,7 +444,9 @@ class TestSessionStartHook:
             patch("memory.qdrant_client.get_qdrant_client", return_value=mock_qdrant),
             patch("memory.config.get_config", return_value=mock_config),
         ):
-            from session_start import estimate_tokens, inject_with_priority
+            from session_start import inject_with_priority
+
+            from memory.chunking.truncation import count_tokens
 
             mock_config.token_budget = 1000  # Small budget
 
@@ -454,8 +456,8 @@ class TestSessionStartHook:
                 token_budget=1000,
             )
 
-            # Verify total tokens don't exceed budget
-            actual_tokens = estimate_tokens(result)
+            # Verify total tokens don't exceed budget (TD-167: estimate_tokens → count_tokens)
+            actual_tokens = count_tokens(result)
             assert (
                 actual_tokens <= 1000
             ), f"Token budget exceeded: {actual_tokens} > 1000"

@@ -53,7 +53,10 @@ memory_retrievals_total, retrieval_duration_seconds, _ = get_metrics()
 
 # TECH-DEBT-142: Import push metrics for Pushgateway
 try:
-    from memory.metrics_push import push_hook_metrics_async, push_retrieval_metrics_async
+    from memory.metrics_push import (
+        push_hook_metrics_async,
+        push_retrieval_metrics_async,
+    )
 except ImportError:
     push_hook_metrics_async = None
     push_retrieval_metrics_async = None
