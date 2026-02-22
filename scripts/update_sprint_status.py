@@ -25,7 +25,6 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
 
 from ruamel.yaml import YAML
 
@@ -40,7 +39,7 @@ STORY_DONE_ANYWHERE = re.compile(r"Story\s+(\d+)\.(\d+)\s+complete", re.IGNORECA
 STORY_WIP = re.compile(r"(?:WIP|\[WIP\])\s+Story\s+(\d+)\.(\d+)", re.IGNORECASE)
 
 
-def get_git_commits(num_commits: int = 20) -> List[str]:
+def get_git_commits(num_commits: int = 20) -> list[str]:
     """Fetch recent git commit messages.
 
     Args:
@@ -90,7 +89,7 @@ def get_git_commits(num_commits: int = 20) -> List[str]:
         raise
 
 
-def parse_story_updates(commits: List[str]) -> Dict[str, str]:
+def parse_story_updates(commits: list[str]) -> dict[str, str]:
     """Parse commit messages for story status updates.
 
     Args:
@@ -105,7 +104,7 @@ def parse_story_updates(commits: List[str]) -> Dict[str, str]:
         >>> parse_story_updates(["def5678 WIP Story 7.1 implementation"])
         {'7-1': 'in-progress'}
     """
-    updates: Dict[str, str] = {}
+    updates: dict[str, str] = {}
 
     for commit in commits:
         if not commit.strip():
@@ -172,10 +171,10 @@ def parse_story_updates(commits: List[str]) -> Dict[str, str]:
 
 def update_sprint_status_yaml(
     yaml_path: Path,
-    updates: Dict[str, str],
+    updates: dict[str, str],
     dry_run: bool = False,
     strict: bool = False,
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """Update sprint-status.yaml with story status changes.
 
     Uses ruamel.yaml to preserve comments and formatting.
@@ -213,7 +212,7 @@ def update_sprint_status_yaml(
         yaml.default_flow_style = False
 
         try:
-            with open(yaml_path, "r") as f:
+            with open(yaml_path) as f:
                 data = yaml.load(f)
         except FileNotFoundError:
             logger.error("yaml_file_not_found", extra={"path": str(yaml_path)})
@@ -234,7 +233,7 @@ def update_sprint_status_yaml(
         # Track updates
         updated_count = 0
         not_found_count = 0
-        updated_stories: Set[str] = set()
+        updated_stories: set[str] = set()
 
         # Apply updates
         for story_id, new_status in updates.items():

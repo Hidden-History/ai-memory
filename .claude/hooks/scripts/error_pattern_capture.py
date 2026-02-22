@@ -346,7 +346,11 @@ def main() -> int:
     project = detect_project_func(os.getcwd()) if detect_project_func else "unknown"
 
     # HIGH-2 FIX: Use proper with statement to ensure __exit__() on all paths
-    cm = track_hook_duration_func("PostToolUse_Error", project=project) if track_hook_duration_func else contextlib.nullcontext()
+    cm = (
+        track_hook_duration_func("PostToolUse_Error", project=project)
+        if track_hook_duration_func
+        else contextlib.nullcontext()
+    )
 
     with cm:
         try:

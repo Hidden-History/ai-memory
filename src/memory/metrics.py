@@ -25,6 +25,13 @@ NFR Metric Mapping:
 
 from prometheus_client import Counter, Gauge, Histogram, Info
 
+try:
+    from importlib.metadata import version as pkg_version
+
+    _VERSION = pkg_version("ai-memory")
+except Exception:
+    _VERSION = "2.0.6"
+
 # ==============================================================================
 # COUNTERS - Monotonically increasing values
 # ==============================================================================
@@ -50,11 +57,12 @@ memory_retrievals_total = Counter(
 embedding_requests_total = Counter(
     "aimemory_embedding_requests_total",
     "Total embedding generation requests",
-    ["status", "embedding_type", "context", "project"],
+    ["status", "embedding_type", "context", "project", "model"],
     # status: success, timeout, failed
     # embedding_type: dense, sparse_bm25, sparse_splade
     # context: realtime (NFR-P6), batch (NFR-P2) - for distinguishing latency targets
     # project: project name for multi-tenancy filtering
+    # model: en (prose) or code (code) - SPEC-010 dual embedding routing
 )
 
 # Deduplication events - Counter for tracking dedup outcomes
@@ -198,7 +206,7 @@ embedding_realtime_duration_seconds = Histogram(
 embedding_duration_seconds = Histogram(
     "ai_memory_embedding_latency",
     "[DEPRECATED] Use aimemory_embedding_*_duration_seconds instead",
-    ["embedding_type"],
+    ["embedding_type", "model"],
     buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0],
 )
 
@@ -227,10 +235,10 @@ system_info = Info("aimemory_system", "Memory system configuration")
 # Initialize system info with static metadata
 system_info.info(
     {
-        "version": "2.0.0",
+        "version": _VERSION,
         "embedding_model": "jina-embeddings-v2-base-en",
         "vector_dimensions": "768",
-        "collections": "code-patterns,conventions,discussions",
+        "collections": "code-patterns,conventions,discussions,jira-data",
     }
 )
 

@@ -27,7 +27,6 @@ Usage:
 
 import argparse
 import json
-import logging
 import os
 import sys
 from datetime import datetime, timezone
@@ -340,12 +339,12 @@ def main():
     if args.stats:
         queue = MemoryQueue()
         stats = queue.get_stats()
-        print(f"Queue Statistics:")
+        print("Queue Statistics:")
         print(f"  Total items: {stats['total_items']}")
         print(f"  Ready for retry: {stats['ready_for_retry']}")
         print(f"  Awaiting backoff: {stats['awaiting_backoff']}")
         print(f"  Exhausted (max retries): {stats['exhausted']}")
-        print(f"  By failure reason:")
+        print("  By failure reason:")
         for reason, count in stats["by_failure_reason"].items():
             print(f"    {reason}: {count}")
         return 0
@@ -362,14 +361,14 @@ def main():
 
     stats = process_queue(force=args.force, dry_run=args.dry_run, limit=args.limit)
 
-    print(f"\nProcessing Complete:")
+    print("\nProcessing Complete:")
     print(f"  Processed: {stats['processed']}")
     print(f"  Success: {stats['success']}")
     print(f"  Failed: {stats['failed']}")
     print(f"  Moved to DLQ: {stats['moved_to_dlq']}")
 
     if stats["errors"]:
-        print(f"\nErrors:")
+        print("\nErrors:")
         for error in stats["errors"][:10]:
             print(f"  - {error}")
         if len(stats["errors"]) > 10:

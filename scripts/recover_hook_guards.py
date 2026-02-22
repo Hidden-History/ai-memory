@@ -27,7 +27,6 @@ import sys
 import tempfile
 from datetime import datetime
 
-
 # --- Helpers ----------------------------------------------------------------
 
 
@@ -137,9 +136,7 @@ def _get_non_command_values(d: dict, path: str = "") -> dict:
     return values
 
 
-def _run_safety_checks(
-    original: dict, settings: dict, commands_guarded: int
-) -> tuple:
+def _run_safety_checks(original: dict, settings: dict, commands_guarded: int) -> tuple:
     """
     Run all safety checks.
 
@@ -256,7 +253,10 @@ def _find_settings_files(extra_search_paths: list | None = None) -> list:
                     if os.path.isfile(settings):
                         candidates.add(settings)
         except (json.JSONDecodeError, OSError) as e:
-            print(f"Warning: Could not read manifest {manifest_path}: {e}", file=sys.stderr)
+            print(
+                f"Warning: Could not read manifest {manifest_path}: {e}",
+                file=sys.stderr,
+            )
 
     # --- Source 2: Sibling directories of install dir (fallback) ---
     parent_dir = os.path.dirname(install_dir)
@@ -270,12 +270,14 @@ def _find_settings_files(extra_search_paths: list | None = None) -> list:
             pass
 
     # --- Source 3: Extra search paths from --search-path ---
-    for search_path in (extra_search_paths or []):
+    for search_path in extra_search_paths or []:
         search_path = os.path.expanduser(search_path)
         if os.path.isdir(search_path):
             try:
                 for entry in os.listdir(search_path):
-                    candidate = os.path.join(search_path, entry, ".claude", "settings.json")
+                    candidate = os.path.join(
+                        search_path, entry, ".claude", "settings.json"
+                    )
                     if os.path.isfile(candidate):
                         candidates.add(candidate)
             except OSError:
@@ -292,7 +294,10 @@ def _find_settings_files(extra_search_paths: list | None = None) -> list:
         try:
             with open(path) as f:
                 data = json.load(f)
-            if isinstance(data.get("env"), dict) and "AI_MEMORY_INSTALL_DIR" in data["env"]:
+            if (
+                isinstance(data.get("env"), dict)
+                and "AI_MEMORY_INSTALL_DIR" in data["env"]
+            ):
                 result.append(path)
         except (json.JSONDecodeError, OSError):
             continue

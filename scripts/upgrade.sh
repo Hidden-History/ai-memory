@@ -160,6 +160,27 @@ fi
 
 echo ""
 
+# Step 3.5: Run migration (v2.0.5 → v2.0.6)
+echo -e "${YELLOW}Step 3.5: Running migration...${NC}"
+
+if python3 "$SCRIPT_DIR/migrate_v205_to_v206.py"; then
+    echo -e "${GREEN}  ✓ Migration complete${NC}"
+else
+    echo -e "${YELLOW}  ! Migration had warnings (see above)${NC}"
+fi
+
+# Step 3.6: Ingest historical handoffs (if Parzival enabled)
+if grep -q "^PARZIVAL_ENABLED=true" "$INSTALL_DIR/.env" 2>/dev/null; then
+    echo -e "${YELLOW}Step 3.6: Ingesting historical handoffs...${NC}"
+    if python3 "$SCRIPT_DIR/ingest_historical_handoffs.py"; then
+        echo -e "${GREEN}  ✓ Handoff ingestion complete${NC}"
+    else
+        echo -e "${YELLOW}  ! Handoff ingestion had warnings (see above)${NC}"
+    fi
+fi
+
+echo ""
+
 # Step 4: Verify
 echo -e "${YELLOW}Step 4: Verifying installation...${NC}"
 

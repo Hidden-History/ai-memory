@@ -131,6 +131,7 @@ class TestValidateLabel:
     def test_jira_data_is_valid_collection(self):
         """BUG-076: jira-data should be in VALID_COLLECTIONS."""
         from memory.metrics_push import VALID_COLLECTIONS
+
         assert "jira-data" in VALID_COLLECTIONS
 
 

@@ -24,13 +24,11 @@ Reference:
 """
 
 import asyncio
-import logging
 import os
 import signal
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
 
 # Setup Python path for imports
 INSTALL_DIR = os.environ.get(
@@ -251,7 +249,7 @@ class ClassificationWorker:
         self.max_backoff = MAX_BACKOFF
 
         # MEDIUM #4: Track in-flight batch for graceful shutdown
-        self.current_batch_task: Optional[asyncio.Task] = None
+        self.current_batch_task: asyncio.Task | None = None
 
     async def process_queue(self):
         """Main processing loop with graceful shutdown."""
@@ -307,7 +305,7 @@ class ClassificationWorker:
                 # Continue processing after error (don't crash daemon)
                 await asyncio.sleep(backoff)
 
-    async def process_batch(self, tasks: List[ClassificationTask]):
+    async def process_batch(self, tasks: list[ClassificationTask]):
         """Process batch concurrently with error handling.
 
         Args:
@@ -375,7 +373,7 @@ class ClassificationWorker:
         # MEDIUM #1: Update health check file (Docker healthcheck)
         _touch_health_file()
 
-    async def process_task(self, task: ClassificationTask) -> Optional[bool]:
+    async def process_task(self, task: ClassificationTask) -> bool | None:
         """Classify content and update Qdrant payload.
 
         Args:

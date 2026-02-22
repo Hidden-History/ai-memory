@@ -25,9 +25,8 @@ import json
 import logging
 import os
 import sys
-import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # Add src to path for imports
 # Try dev repo FIRST, then fall back to installed location
@@ -44,10 +43,8 @@ from memory.config import (
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
     COLLECTION_DISCUSSIONS,
-    get_config,
 )
 from memory.logging_config import StructuredFormatter
-from memory.models import MemoryType
 from memory.qdrant_client import QdrantUnavailable
 from memory.storage import MemoryStorage
 
@@ -116,7 +113,7 @@ def get_timeout() -> int:
 # This provides automatic retry with exponential backoff via MemoryQueue class
 
 
-async def store_memory_async(payload: Dict[str, Any]) -> None:
+async def store_memory_async(payload: dict[str, Any]) -> None:
     """
     Store memory to Qdrant using MemoryStorage class.
 

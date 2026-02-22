@@ -17,7 +17,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
@@ -62,9 +62,13 @@ TYPE_USER_MESSAGE = "user_message"
 TYPE_AGENT_RESPONSE = "agent_response"
 TYPE_SESSION = "session"  # Session summaries from PreCompact hook
 
-# Embedding configuration (DEC-010: Jina Embeddings v2 Base Code)
+# Embedding configuration (SPEC-010: Dual Embedding Models)
 EMBEDDING_DIMENSIONS = 768
-EMBEDDING_MODEL = "jina-embeddings-v2-base-en"
+EMBEDDING_MODEL = (
+    "jina-embeddings-v2-base-en"  # Legacy constant, kept for backward compat
+)
+EMBEDDING_MODEL_EN = "jina-embeddings-v2-base-en"  # Prose model
+EMBEDDING_MODEL_CODE = "jina-embeddings-v2-base-code"  # Code model
 
 
 class MemoryConfig(BaseSettings):
@@ -177,6 +181,13 @@ class MemoryConfig(BaseSettings):
         description="Use HTTPS for Qdrant connections (BP-040: required for production with API keys)",
     )
 
+    qdrant_timeout: int = Field(
+        default=30,
+        ge=5,
+        le=120,
+        description="Qdrant client timeout in seconds (TASK-023: increased from 10 to 30 for index creation under load)",
+    )
+
     embedding_host: str = Field(
         default="localhost", description="Embedding service hostname"
     )
@@ -276,7 +287,374 @@ class MemoryConfig(BaseSettings):
         description="Delay between Jira API requests in milliseconds (rate limiting)",
     )
 
-    @field_validator("install_dir", "queue_path", "session_log_path", mode="before")
+    # =========================================================================
+    # v2.0.6 — GitHub Integration (SPEC-004, Tier 1: conditional required)
+    # =========================================================================
+
+    github_sync_enabled: bool = Field(
+        default=False,
+        description="Enable GitHub sync integration",
+    )
+    github_token: SecretStr = Field(
+        default=SecretStr(""),
+        description="GitHub PAT for API access (fine-grained, minimum scopes: repo:read, issues:read, pull_requests:read)",
+    )
+    github_repo: str = Field(
+        default="",
+        description="Target repository (owner/repo). Auto-detected from .git/config.",
+    )
+
+    # --- GitHub Integration (Tier 2: defaults) ---
+    github_sync_interval: int = Field(
+        default=1800,
+        ge=60,
+        le=86400,
+        description="Polling interval in seconds (default: 1800 = 30 min)",
+    )
+    github_branch: str = Field(
+        default="main",
+        description="Branch to sync code blobs from",
+    )
+    github_code_blob_enabled: bool = Field(
+        default=True,
+        description="Sync source code files from repository",
+    )
+    github_code_blob_max_size: int = Field(
+        default=102400,
+        ge=1024,
+        le=1048576,
+        description="Skip files larger than this (bytes, default: 102400 = 100KB)",
+    )
+    github_code_blob_exclude: str = Field(
+        default="node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info",
+        description="Comma-separated glob patterns to exclude from code blob sync",
+    )
+
+    # --- GitHub Sync Resilience (BUG-112) ---
+    github_sync_total_timeout: int = Field(
+        default=1800,
+        ge=60,
+        le=7200,
+        description="Total timeout for code blob sync in service mode (seconds, default: 30 min)",
+    )
+    github_sync_install_timeout: int = Field(
+        default=600,
+        ge=60,
+        le=3600,
+        description="Total timeout for code blob sync during install (seconds, default: 10 min)",
+    )
+    github_sync_per_file_timeout: int = Field(
+        default=60,
+        ge=10,
+        le=300,
+        description="Per-file timeout covering fetch+chunk+embed+store (seconds, default: 60)",
+    )
+    github_sync_circuit_breaker_threshold: int = Field(
+        default=5,
+        ge=2,
+        le=20,
+        description="Consecutive file failures before circuit breaker opens",
+    )
+    github_sync_circuit_breaker_reset: int = Field(
+        default=60,
+        ge=10,
+        le=300,
+        description="Seconds before circuit breaker transitions OPEN -> HALF_OPEN",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Decay Scoring (SPEC-001 Section 4.3)
+    # =========================================================================
+
+    # Tier 2 — defaults, user CAN override
+    decay_enabled: bool = Field(
+        default=True,
+        description="Enable decay scoring",
+    )
+
+    decay_semantic_weight: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Weight for semantic similarity in fused score (0.0-1.0). Temporal weight = 1 - this.",
+    )
+
+    decay_half_life_code_patterns: int = Field(
+        default=14,
+        ge=1,
+        description="Half-life in days for code-patterns collection decay",
+    )
+
+    decay_half_life_discussions: int = Field(
+        default=21,
+        ge=1,
+        description="Half-life in days for discussions collection decay",
+    )
+
+    decay_half_life_conventions: int = Field(
+        default=60,
+        ge=1,
+        description="Half-life in days for conventions collection decay",
+    )
+
+    decay_half_life_jira_data: int = Field(
+        default=30,
+        ge=1,
+        description="Half-life in days for jira-data collection decay",
+    )
+
+    decay_min_score: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Minimum decay score floor. Reserved for Phase 3 — not enforced yet.",
+    )
+
+    # Tier 3 — hidden/advanced (not in .env.example uncommented)
+    decay_type_overrides: str = Field(
+        default="github_ci_result:7,agent_task:14,github_code_blob:14,github_commit:14,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,guideline:60,rule:60,agent_handoff:180,agent_insight:180",
+        description="Per-type half-life overrides. Format: type:days,type:days,...",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Audit Trail (SPEC-002 Section 5.2)
+    # =========================================================================
+
+    audit_dir: Path = Field(
+        default_factory=lambda: Path(".audit"),
+        description="Project-local audit directory (gitignored). Created by install script.",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Automated Updates (SPEC-002 Section 5.3)
+    # =========================================================================
+
+    auto_update_enabled: bool = Field(
+        default=True,
+        description="Global kill switch for automated memory updates. When false: sync runs, no auto-corrections applied.",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Dual Embedding (SPEC-010)
+    # =========================================================================
+
+    embedding_model_dense_en: str = Field(
+        default="jinaai/jina-embeddings-v2-base-en",
+        description="Prose embedding model name (SDK-side display/logging only)",
+    )
+
+    embedding_model_dense_code: str = Field(
+        default="jinaai/jina-embeddings-v2-base-code",
+        description="Code embedding model name (SDK-side display/logging only)",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Security Scanning (SPEC-009)
+    # =========================================================================
+
+    security_scanning_enabled: bool = Field(
+        default=True,
+        description="Master toggle for scanning pipeline",
+    )
+
+    security_scanning_ner_enabled: bool = Field(
+        default=True,
+        description="Enable SpaCy NER layer (Layer 3). Set False if SpaCy not installed.",
+    )
+
+    security_block_on_secrets: bool = Field(
+        default=True,
+        description="Block content with detected secrets. If False, mask instead.",
+    )
+
+    security_scan_github_mode: str = Field(
+        default="relaxed",
+        description="Scan mode for GitHub content: 'relaxed' (PII only, skip detect-secrets), "
+        "'strict' (full 3-layer scan), 'off' (no scanning for GitHub content).",
+        pattern="^(relaxed|strict|off)$",
+    )
+
+    security_scan_session_mode: str = Field(
+        default="relaxed",
+        description="Scan mode for session content (user prompts, agent responses): "
+        "'relaxed' (Layer 1 regex only, skip detect-secrets Layer 2), "
+        "'strict' (full Layer 1+2 scan), 'off' (no scanning for session content).",
+        pattern="^(relaxed|strict|off)$",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Progressive Context Injection (SPEC-012, AD-6)
+    # =========================================================================
+
+    # Tier 2 — defaults, user CAN override
+    injection_enabled: bool = Field(
+        default=True,
+        description="Enable progressive context injection (Tier 1 + Tier 2)",
+    )
+
+    bootstrap_token_budget: int = Field(
+        default=2500,
+        ge=500,
+        le=5000,
+        description="Token budget for Tier 1 bootstrap injection (startup trigger)",
+    )
+
+    injection_confidence_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Minimum best retrieval score to inject context (Tier 2). Below this, skip injection entirely.",
+    )
+
+    injection_budget_floor: int = Field(
+        default=500,
+        ge=100,
+        le=2000,
+        description="Minimum token budget for Tier 2 per-turn injection",
+    )
+
+    injection_budget_ceiling: int = Field(
+        default=1500,
+        ge=500,
+        le=5000,
+        description="Maximum token budget for Tier 2 per-turn injection",
+    )
+
+    # Tier 3 — hidden/advanced
+    injection_quality_weight: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Weight for quality signal in adaptive budget computation",
+    )
+
+    injection_density_weight: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Weight for density signal in adaptive budget computation",
+    )
+
+    injection_drift_weight: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        description="Weight for topic drift signal in adaptive budget computation",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Encryption (SPEC-011)
+    # =========================================================================
+
+    secrets_backend: str = Field(
+        default="env-file",
+        pattern="^(sops-age|keyring|env-file)$",
+        description="Secrets storage method (informational/diagnostic only). Indicates which secrets storage method was selected during install: sops-age (SOPS+age encryption), keyring (OS-level encryption), env-file (plaintext). This field does NOT control decryption behavior (handled by start.sh wrapper script). Used for logging, telemetry, and status reporting.",
+    )
+
+    # =========================================================================
+    # v2.0.6 — Freshness Detection (SPEC-013 Section 6)
+    # =========================================================================
+
+    freshness_enabled: bool = Field(
+        default=True,
+        description="Enable freshness detection for code-patterns memories",
+    )
+
+    freshness_commit_threshold_aging: int = Field(
+        default=3,
+        ge=1,
+        le=100,
+        description=(
+            "Commits touching a file since memory stored before "
+            "classifying as 'aging'. Default: 3."
+        ),
+    )
+
+    freshness_commit_threshold_stale: int = Field(
+        default=10,
+        ge=2,
+        le=500,
+        description=(
+            "Commits touching a file since memory stored before "
+            "classifying as 'stale'. Default: 10."
+        ),
+    )
+
+    freshness_commit_threshold_expired: int = Field(
+        default=25,
+        ge=3,
+        le=1000,
+        description=(
+            "Commits touching a file since memory stored before "
+            "classifying as 'expired' (even if blob hash matches). "
+            "Default: 25."
+        ),
+    )
+
+    # =========================================================================
+    # v2.0.6 — Parzival Session Agent (SPEC-015)
+    # =========================================================================
+
+    parzival_enabled: bool = Field(
+        default=False,
+        description="Enable Parzival session agent. Set by installer when user opts in.",
+    )
+
+    parzival_user_name: str = Field(
+        default="Developer",
+        description="User's display name for Parzival greeting and handoffs.",
+    )
+
+    parzival_language: str = Field(
+        default="English",
+        description="Parzival communication language.",
+    )
+
+    parzival_doc_language: str = Field(
+        default="English",
+        description="Language for Parzival-generated documents (handoffs, specs).",
+    )
+
+    parzival_oversight_folder: str = Field(
+        default="oversight",
+        description="Project-relative path to oversight directory. Created by installer.",
+    )
+
+    parzival_handoff_retention: int = Field(
+        default=10,
+        ge=1,
+        description="Number of recent handoff files to keep in oversight/session-logs/.",
+    )
+
+    @field_validator("decay_type_overrides", mode="before")
+    @classmethod
+    def parse_type_overrides(cls, v: str) -> str:
+        """Validate format: type:days,type:days,..."""
+        if not v:
+            return v
+        for pair in v.split(","):
+            if not pair.strip():
+                continue
+            parts = pair.strip().split(":")
+            if (
+                len(parts) != 2
+                or not parts[0].strip()
+                or not parts[1].strip().isdigit()
+            ):
+                raise ValueError(
+                    f"Invalid decay override format: '{pair}'. Expected 'type:days'."
+                )
+            days = int(parts[1].strip())
+            if days < 1:
+                raise ValueError(
+                    f"Invalid decay override days: '{pair}'. Days must be >= 1."
+                )
+        return v
+
+    @field_validator(
+        "install_dir", "queue_path", "session_log_path", "audit_dir", mode="before"
+    )
     @classmethod
     def expand_user_paths(cls, v):
         """Expand ~ and environment variables in paths."""
@@ -294,9 +672,61 @@ class MemoryConfig(BaseSettings):
             return [p.strip() for p in v.split(",") if p.strip()]
         return v
 
+    @model_validator(mode="after")
+    def validate_github_config(self) -> "MemoryConfig":
+        """Validate GitHub config is complete when enabled."""
+        if self.github_sync_enabled:
+            if not self.github_token.get_secret_value():
+                raise ValueError("GITHUB_TOKEN required when GITHUB_SYNC_ENABLED=true")
+            if not self.github_repo:
+                raise ValueError("GITHUB_REPO required when GITHUB_SYNC_ENABLED=true")
+            if "/" not in self.github_repo:
+                raise ValueError("GITHUB_REPO must be in owner/repo format")
+        return self
+
+    @model_validator(mode="after")
+    def validate_injection_config(self) -> "MemoryConfig":
+        """Validate injection config consistency."""
+        if self.injection_budget_floor > self.injection_budget_ceiling:
+            raise ValueError(
+                f"INJECTION_BUDGET_FLOOR ({self.injection_budget_floor}) "
+                f"must be <= INJECTION_BUDGET_CEILING ({self.injection_budget_ceiling})"
+            )
+        weight_sum = (
+            self.injection_quality_weight
+            + self.injection_density_weight
+            + self.injection_drift_weight
+        )
+        if abs(weight_sum - 1.0) > 0.01:
+            raise ValueError(
+                f"Injection signal weights must sum to 1.0, got {weight_sum:.2f}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_freshness_thresholds(self) -> "MemoryConfig":
+        """Validate freshness thresholds are in ascending order.
+
+        Always validates regardless of freshness_enabled state to
+        prevent deferred errors when the feature is later enabled.
+        """
+        if not (
+            self.freshness_commit_threshold_aging
+            < self.freshness_commit_threshold_stale
+            < self.freshness_commit_threshold_expired
+        ):
+            raise ValueError(
+                "Freshness thresholds must be in ascending order: "
+                f"aging ({self.freshness_commit_threshold_aging}) < "
+                f"stale ({self.freshness_commit_threshold_stale}) < "
+                f"expired ({self.freshness_commit_threshold_expired})"
+            )
+        return self
+
     def get_qdrant_url(self) -> str:
         """Get full Qdrant URL for connections."""
-        return f"http://{self.qdrant_host}:{self.qdrant_port}"
+        scheme = "https" if self.qdrant_use_https else "http"
+        return f"{scheme}://{self.qdrant_host}:{self.qdrant_port}"
 
     def get_embedding_url(self) -> str:
         """Get full embedding service URL."""
@@ -305,6 +735,22 @@ class MemoryConfig(BaseSettings):
     def get_monitoring_url(self) -> str:
         """Get full monitoring API URL."""
         return f"http://{self.monitoring_host}:{self.monitoring_port}"
+
+    def get_decay_type_overrides(self) -> dict[str, int]:
+        """Parse decay_type_overrides string into dict.
+
+        Returns:
+            Mapping of content type name to half-life in days.
+        """
+        if not self.decay_type_overrides:
+            return {}
+        result = {}
+        for pair in self.decay_type_overrides.split(","):
+            if not pair.strip():
+                continue
+            type_name, days = pair.strip().split(":")
+            result[type_name.strip()] = int(days.strip())
+        return result
 
 
 # Agent configuration - SINGLE SOURCE OF TRUTH (CR-4.27)

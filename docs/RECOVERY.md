@@ -33,7 +33,7 @@
 | `embedding_status: pending` in payloads | Embedding service down | `docker compose ps embedding` | `docker compose restart embedding` | 30-90s |
 | Empty session context at SessionStart | No memories captured yet | `ls -lah ~/.claude-memory/pending_queue.jsonl` | Check if hooks configured | Varies |
 | Slow hook execution (>2s) | Cold embedding service | `curl http://localhost:28080/health` | `docker compose restart embedding` | 30s |
-| "QDRANT_UNAVAILABLE" in logs | Qdrant connection refused | `curl http://localhost:26350/health` | `docker compose up -d qdrant` | 30-60s |
+| "QDRANT_UNAVAILABLE" in logs | Qdrant connection refused | `curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health` | `docker compose up -d qdrant` | 30-60s |
 | Backfill script hangs | Stale lock file | `ls -lah ~/.claude-memory/*.lock` | `rm ~/.claude-memory/backfill.lock` | Instant |
 | Queue file corrupt | Interrupted write | `python -m json.tool < pending_queue.jsonl` | `python scripts/memory/repair_queue.py` | 1-5min |
 | Memory search returns nothing | Embeddings not generated | Check `embedding_status` in Qdrant | `python scripts/memory/backfill_embeddings.py` | 1-10min |
@@ -50,7 +50,7 @@
 - Logs show "QDRANT_UNAVAILABLE" or "Connection refused" errors
 - Memories queued to `~/.claude-memory/pending_queue.jsonl` but not stored in Qdrant
 - SessionStart hook returns empty context despite previous sessions
-- `curl http://localhost:26350/health` returns connection error
+- `curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health` returns connection error
 
 ### Root Causes
 
@@ -82,7 +82,7 @@ lsof -i :26350
 netstat -tuln | grep 26350
 
 # Step 5: Check Qdrant health endpoint (if container running but unhealthy)
-curl http://localhost:26350/health
+curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health
 # Expected healthy response: {"status":"pass"}
 ```
 
@@ -96,7 +96,7 @@ docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d qdrant
 
 # 2. Wait for healthy (30-60s)
 # Retry every 5s until health check passes
-while ! curl -f http://localhost:26350/health 2>/dev/null; do
+while ! curl -f -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health 2>/dev/null; do
     echo "Waiting for Qdrant..."
     sleep 5
 done
@@ -195,7 +195,7 @@ docker compose -f ~/.ai-memory/docker/docker-compose.yml ps qdrant
 # STATUS should be "running" (not "exited")
 
 # 2. Health check passes
-curl http://localhost:26350/health
+curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health
 # Response: {"status":"pass"}
 
 # 3. Collections accessible
@@ -244,12 +244,12 @@ docker compose -f ~/.ai-memory/docker/docker-compose.yml down -v
 docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d
 
 # 5. Verify clean start
-curl http://localhost:26350/health
+curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health
 ```
 
 ### Prevention & Monitoring
 
-- **Daily health check**: Add `curl http://localhost:26350/health` to cron
+- **Daily health check**: Add `curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health` to cron
 - **Docker auto-restart**: Services configured with `restart: unless-stopped`
 - **Disk space monitoring**: Alert when <5GB free in ~/.ai-memory
 - **Log rotation**: Prevent log files from filling disk

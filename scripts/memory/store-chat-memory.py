@@ -53,7 +53,6 @@ else:
 
 from qdrant_client.models import PointStruct
 
-from memory.config import get_config
 from memory.embeddings import EmbeddingClient, EmbeddingError
 from memory.logging_config import StructuredFormatter
 from memory.models import VALID_AGENTS, EmbeddingStatus, MemoryType
@@ -260,7 +259,7 @@ def main() -> int:
             )
         else:
             print(
-                f"⚠️  AI Memory: Chat memory storage failed (graceful degradation)",
+                "⚠️  AI Memory: Chat memory storage failed (graceful degradation)",
                 file=sys.stderr,
             )
 
@@ -271,7 +270,7 @@ def main() -> int:
         logger.error(
             "script_failed", extra={"error": str(e), "error_type": type(e).__name__}
         )
-        print(f"⚠️  AI Memory: Script error (graceful degradation)", file=sys.stderr)
+        print("⚠️  AI Memory: Script error (graceful degradation)", file=sys.stderr)
         return 0  # Always exit 0
 
 

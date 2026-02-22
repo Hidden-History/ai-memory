@@ -12,7 +12,6 @@ Exit codes:
 
 import argparse
 import json
-import os
 import shutil
 import sys
 from datetime import datetime
@@ -76,7 +75,7 @@ def repair_queue(
     recovered_count = 0
 
     # Read and validate each line
-    with open(queue_path, "r", encoding="utf-8", errors="ignore") as f:
+    with open(queue_path, encoding="utf-8", errors="ignore") as f:
         for line_num, line in enumerate(f, 1):
             line = line.strip()
             if not line:
@@ -106,7 +105,7 @@ def repair_queue(
                             valid_entries.append(json.dumps(recovered))
                             recovered_count += 1
                             if verbose:
-                                print(f"    → Recovered by closing brace")
+                                print("    → Recovered by closing brace")
                     except json.JSONDecodeError:
                         pass
 
@@ -114,7 +113,7 @@ def repair_queue(
     corrupt_count = len(corrupt_lines)
 
     # Report findings
-    print(f"\nQueue Analysis:")
+    print("\nQueue Analysis:")
     print(f"  Valid entries:   {valid_count}")
     print(f"  Corrupt entries: {corrupt_count}")
     print(f"  Recovered:       {recovered_count}")
@@ -162,7 +161,7 @@ def repair_queue(
         # Restore backup if possible
         if backup_path.exists() and not queue_path.exists():
             shutil.copy2(backup_path, queue_path)
-            print(f"  Restored original from backup")
+            print("  Restored original from backup")
         return (valid_count, corrupt_count, recovered_count)
 
     return (valid_count, corrupt_count, recovered_count)

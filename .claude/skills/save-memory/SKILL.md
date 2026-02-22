@@ -34,13 +34,34 @@ project's configured AI Memory installation.
 ## What Gets Stored
 
 The script stores to the discussions collection with:
-- type: session
+- type: session (default); agent_memory or agent_insight (when --type is used)
 - source_hook: ManualSave
 - group_id: Auto-detected from current project directory
 - session_id: Current Claude session ID (from CLAUDE_SESSION_ID env var)
 - content: Structured summary with timestamp and user description
 - embedding: 768-dim Jina v2 vector for semantic retrieval
 - content_hash: SHA-256 for deduplication
+
+## Agent Memory Support
+
+When `--type agent_memory` or `--type agent_insight` is used, the memory is stored
+via `store_agent_memory()` to the Parzival namespace with `agent_id=parzival`.
+
+This requires Parzival to be enabled (`parzival_enabled=true` in config).
+If Parzival is not enabled, the command returns an error.
+
+### Usage
+
+```bash
+# Default behavior (unchanged)
+/save-memory "Completed authentication refactor"
+
+# Save as agent memory (general project knowledge)
+/save-memory "The decay formula uses 0.7/0.3 weighting" --type agent_memory
+
+# Save as agent insight (key learning or pattern)
+/save-memory "PyYAML not in test deps caused CI failures" --type agent_insight
+```
 
 ## Environment Variables (Auto-Configured)
 
@@ -75,6 +96,12 @@ These are set automatically in settings.json by the installer:
 
 # Quick save without description
 /save-memory
+
+# Save as agent memory (general project knowledge)
+/save-memory "The decay formula uses 0.7/0.3 weighting" --type agent_memory
+
+# Save as agent insight (key learning or pattern)
+/save-memory "PyYAML not in test deps caused CI failures" --type agent_insight
 ```
 
 ## Technical Details

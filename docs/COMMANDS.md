@@ -155,7 +155,7 @@ To view detailed metrics, visit:
 docker compose -f docker/docker-compose.yml ps
 
 # Check if services are running
-curl http://localhost:26350/health
+curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health
 curl http://localhost:28080/health
 ```
 
@@ -344,7 +344,7 @@ curl http://localhost:26350/collections/discussions/points/scroll \
 **Solution:**
 ```bash
 # Check Qdrant health
-curl http://localhost:26350/health
+curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health
 
 # If down, restart
 docker compose -f docker/docker-compose.yml restart ai-memory-qdrant

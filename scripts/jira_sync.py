@@ -147,7 +147,10 @@ async def run_sync(args, config):
         else:
             # Sync all configured projects
             if not config.jira_projects:
-                print("Error: No projects configured (JIRA_PROJECTS is empty)", file=sys.stderr)
+                print(
+                    "Error: No projects configured (JIRA_PROJECTS is empty)",
+                    file=sys.stderr,
+                )
                 sys.exit(1)
 
             print(f"Projects: {', '.join(config.jira_projects)}")

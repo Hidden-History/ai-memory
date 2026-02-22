@@ -21,7 +21,7 @@ COPY scripts/ /app/scripts/
 RUN mkdir -p /app/queue /tmp
 
 # Create non-root user (security hardening 2025)
-RUN useradd -r -u 1001 -g users classifier && \
+RUN useradd -u 1001 -g users -s /usr/sbin/nologin classifier && \
     chown -R classifier:users /app /tmp
 
 # Set Python path to include src directory where memory module lives

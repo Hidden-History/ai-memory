@@ -26,7 +26,6 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 
 def deep_merge(base: dict, overlay: dict) -> dict:
@@ -58,8 +57,8 @@ def deep_merge(base: dict, overlay: dict) -> dict:
                 # Append to lists, deduplicate hooks by command
                 result[key] = merge_lists(result[key], value)
             else:
-                # Preserve existing non-dict/list values
-                result[key] = value
+                # Preserve existing scalar values (base wins — user customizations not overwritten)
+                pass  # Keep result[key] unchanged
         else:
             result[key] = value
 
@@ -202,10 +201,125 @@ def _upgrade_hook_commands(settings: dict) -> dict:
                     if match:
                         hook["command"] = _hook_cmd(match.group(1))
 
-    # BUG-078: Upgrade SessionStart matcher
+    # BUG-078: SessionStart matcher management
+    # Standard sessions: "resume|compact" (BUG-078 — correct)
+    # Parzival sessions: "startup|resume|compact|clear" (BUG-118 — needs startup for Tier 1 Bootstrap)
+    parzival_enabled = os.environ.get("PARZIVAL_ENABLED", "").lower() == "true"
     for wrapper in hooks.get("SessionStart", []):
-        if isinstance(wrapper, dict) and wrapper.get("matcher") == "startup|resume|compact|clear":
-            wrapper["matcher"] = "resume|compact"
+        if isinstance(wrapper, dict):
+            if parzival_enabled:
+                # Expand matcher for Parzival sessions
+                if wrapper.get("matcher") == "resume|compact":
+                    wrapper["matcher"] = "startup|resume|compact|clear"
+            else:
+                # Narrow matcher for standard sessions (BUG-078)
+                if wrapper.get("matcher") == "startup|resume|compact|clear":
+                    wrapper["matcher"] = "resume|compact"
+
+    return settings
+
+
+def _remove_dead_hooks(settings: dict, install_dir: str | None = None) -> dict:
+    """Remove hook entries whose script files no longer exist.
+
+    After template updates, old hook scripts may be archived or deleted
+    but their entries persist in settings.json due to the append-only
+    merge strategy. This sweep removes dead references.
+
+    Args:
+        settings: The merged settings dict (mutated in-place).
+        install_dir: AI Memory install directory. If None, reads from
+                     AI_MEMORY_INSTALL_DIR env var or defaults to ~/.ai-memory.
+
+    Returns:
+        The settings dict with dead hook entries removed.
+    """
+    import re
+
+    if install_dir is None:
+        install_dir = os.environ.get(
+            "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+        )
+
+    scripts_dir = Path(install_dir) / ".claude" / "hooks" / "scripts"
+    if not scripts_dir.exists():
+        # During fresh install, scripts dir doesn't exist yet — skip cleanup
+        return settings
+
+    hooks = settings.get("hooks", {})
+    removed_count = 0
+
+    for hook_type, wrappers in list(hooks.items()):
+        if not isinstance(wrappers, list):
+            continue
+
+        # Filter: keep entries whose scripts exist (or are not BMAD hook scripts)
+        live_wrappers = []
+        for wrapper in wrappers:
+            if not isinstance(wrapper, dict):
+                live_wrappers.append(wrapper)
+                continue
+
+            # Case 1: nested hooks array — filter individual dead sub-hooks
+            if "hooks" in wrapper and isinstance(wrapper["hooks"], list):
+                live_sub_hooks = []
+                for hook in wrapper["hooks"]:
+                    if not isinstance(hook, dict) or "command" not in hook:
+                        live_sub_hooks.append(hook)
+                        continue
+                    match = re.search(
+                        r'\.claude/hooks/scripts/([^"]+?)(?:"|$)', hook["command"]
+                    )
+                    if match:
+                        script_name = match.group(1)
+                        script_path = (
+                            Path(install_dir)
+                            / ".claude"
+                            / "hooks"
+                            / "scripts"
+                            / script_name
+                        )
+                        if not script_path.exists():
+                            print(
+                                f"  Removing dead hook: {script_name} (script not found at {script_path})"
+                            )
+                            removed_count += 1
+                            continue  # Drop only this dead sub-hook
+                    live_sub_hooks.append(hook)
+                # Keep wrapper only if it still has live hooks
+                if live_sub_hooks:
+                    updated = dict(wrapper)
+                    updated["hooks"] = live_sub_hooks
+                    live_wrappers.append(updated)
+                continue
+
+            # Case 2: direct command format — remove wrapper if script is dead
+            if "command" in wrapper:
+                match = re.search(
+                    r'\.claude/hooks/scripts/([^"]+?)(?:"|$)', wrapper["command"]
+                )
+                if match:
+                    script_name = match.group(1)
+                    script_path = (
+                        Path(install_dir)
+                        / ".claude"
+                        / "hooks"
+                        / "scripts"
+                        / script_name
+                    )
+                    if not script_path.exists():
+                        print(
+                            f"  Removing dead hook: {script_name} (script not found at {script_path})"
+                        )
+                        removed_count += 1
+                        continue  # Drop dead wrapper
+
+            live_wrappers.append(wrapper)
+
+        hooks[hook_type] = live_wrappers
+
+    if removed_count > 0:
+        print(f"  Cleaned up {removed_count} dead hook reference(s)")
 
     return settings
 
@@ -277,6 +391,8 @@ def merge_settings(
     # Note: _upgrade_hook_commands mutates in-place. Safe because
     # merged is the only reference used after this point.
     merged = _upgrade_hook_commands(merged)
+    # FAIL-001 fix: Remove hook entries whose scripts no longer exist
+    merged = _remove_dead_hooks(merged)
 
     # Backup existing settings (copy, not rename - safer)
     if path.exists():

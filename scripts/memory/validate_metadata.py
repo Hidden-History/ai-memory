@@ -27,8 +27,7 @@ import argparse
 import json
 import re
 import sys
-from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 # Required metadata fields for ALL memory types
 REQUIRED_FIELDS = [
@@ -103,7 +102,7 @@ MAX_JSON_DEPTH = 100
 MAX_JSON_SIZE = 1_000_000  # 1MB
 
 
-def validate_json_safety(obj: Any, depth: int = 0) -> Tuple[bool, List[str]]:
+def validate_json_safety(obj: Any, depth: int = 0) -> tuple[bool, list[str]]:
     """
     Validate JSON structure is safe (not too deep).
 
@@ -132,7 +131,7 @@ def validate_json_safety(obj: Any, depth: int = 0) -> Tuple[bool, List[str]]:
     return True, []
 
 
-def validate_required_fields(metadata: Dict) -> Tuple[bool, List[str]]:
+def validate_required_fields(metadata: dict) -> tuple[bool, list[str]]:
     """
     Validate all required fields are present.
     """
@@ -145,7 +144,7 @@ def validate_required_fields(metadata: Dict) -> Tuple[bool, List[str]]:
     return len(errors) == 0, errors
 
 
-def validate_type(metadata: Dict) -> Tuple[bool, List[str]]:
+def validate_type(metadata: dict) -> tuple[bool, list[str]]:
     """Validate memory type is valid."""
     errors = []
     memory_type = metadata.get("type", "")
@@ -160,7 +159,7 @@ def validate_type(metadata: Dict) -> Tuple[bool, List[str]]:
     return len(errors) == 0, errors
 
 
-def validate_importance(metadata: Dict) -> Tuple[bool, List[str]]:
+def validate_importance(metadata: dict) -> tuple[bool, list[str]]:
     """Validate importance level (if provided)."""
     errors = []
     importance = metadata.get("importance", "")
@@ -173,7 +172,7 @@ def validate_importance(metadata: Dict) -> Tuple[bool, List[str]]:
     return len(errors) == 0, errors
 
 
-def validate_agent(metadata: Dict) -> Tuple[bool, List[str]]:
+def validate_agent(metadata: dict) -> tuple[bool, list[str]]:
     """Validate agent field (if provided)."""
     errors = []
     warnings = []
@@ -187,7 +186,7 @@ def validate_agent(metadata: Dict) -> Tuple[bool, List[str]]:
     return True, warnings  # Just warnings, not blocking
 
 
-def validate_source_hook(metadata: Dict) -> Tuple[bool, List[str]]:
+def validate_source_hook(metadata: dict) -> tuple[bool, list[str]]:
     """Validate source_hook field."""
     errors = []
     source_hook = metadata.get("source_hook", "")
@@ -201,7 +200,7 @@ def validate_source_hook(metadata: Dict) -> Tuple[bool, List[str]]:
     return len(errors) == 0, errors
 
 
-def validate_group_id(metadata: Dict) -> Tuple[bool, List[str]]:
+def validate_group_id(metadata: dict) -> tuple[bool, list[str]]:
     """Validate group_id for multitenancy."""
     errors = []
     group_id = metadata.get("group_id", "")
@@ -214,7 +213,7 @@ def validate_group_id(metadata: Dict) -> Tuple[bool, List[str]]:
     return len(errors) == 0, errors
 
 
-def validate_unique_id(metadata: Dict) -> Tuple[bool, List[str]]:
+def validate_unique_id(metadata: dict) -> tuple[bool, list[str]]:
     """Validate unique_id format (if provided)."""
     errors = []
     warnings = []
@@ -254,7 +253,7 @@ def validate_unique_id(metadata: Dict) -> Tuple[bool, List[str]]:
     return len(errors) == 0, errors + warnings
 
 
-def validate_created_at(metadata: Dict) -> Tuple[bool, List[str]]:
+def validate_created_at(metadata: dict) -> tuple[bool, list[str]]:
     """Validate created_at format (ISO 8601) if provided."""
     errors = []
     created_at = metadata.get("created_at", "")
@@ -269,7 +268,7 @@ def validate_created_at(metadata: Dict) -> Tuple[bool, List[str]]:
     return len(errors) == 0, errors
 
 
-def validate_component(metadata: Dict) -> Tuple[bool, List[str]]:
+def validate_component(metadata: dict) -> tuple[bool, list[str]]:
     """Validate component field (if provided)."""
     errors = []
     component = metadata.get("component", "")
@@ -280,7 +279,7 @@ def validate_component(metadata: Dict) -> Tuple[bool, List[str]]:
     return len(errors) == 0, errors
 
 
-def validate_metadata_complete(metadata: Dict) -> Tuple[bool, Dict]:
+def validate_metadata_complete(metadata: dict) -> tuple[bool, dict]:
     """
     Complete metadata validation with all proven patterns.
 
@@ -376,7 +375,7 @@ def validate_metadata_complete(metadata: Dict) -> Tuple[bool, Dict]:
     return is_valid, details
 
 
-def format_validation_results(is_valid: bool, details: Dict) -> str:
+def format_validation_results(is_valid: bool, details: dict) -> str:
     """Format validation results for display."""
     lines = [
         "\n" + "=" * 60,
@@ -437,7 +436,7 @@ def main():
     else:
         # File path
         try:
-            with open(metadata_input, "r") as f:
+            with open(metadata_input) as f:
                 metadata = json.load(f)
         except FileNotFoundError:
             print(f"ERROR: Metadata file not found: {metadata_input}")

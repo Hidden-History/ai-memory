@@ -27,9 +27,10 @@ COPY docker/embedding/requirements.txt .
 # Install Python dependencies
 RUN pip install --upgrade --no-cache-dir -r requirements.txt
 
-# Pre-download Jina v2 Base Code model
-# NOTE: Temporarily disabled due to network timeouts - model will download at runtime
-# RUN python -c "from fastembed import TextEmbedding; TextEmbedding('jinaai/jina-embeddings-v2-base-code')"
+# Pre-download both embedding models at build time (BUG-105)
+# Downloads ~500MB each from HuggingFace. Eliminates runtime download dependency.
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('jinaai/jina-embeddings-v2-base-en')" && \
+    python -c "from fastembed import TextEmbedding; TextEmbedding('jinaai/jina-embeddings-v2-base-code')"
 
 # Stage 2: Runtime - Minimal production image
 FROM python:3.12-slim
@@ -56,8 +57,8 @@ RUN useradd -m -u 1000 -s /bin/bash embedding && \
 # Copy virtual environment from builder
 COPY --from=builder --chown=embedding:embedding /opt/venv /opt/venv
 
-# Copy model cache from builder (disabled - model downloads at runtime)
-# COPY --from=builder --chown=embedding:embedding /root/.cache /home/embedding/.cache
+# Copy pre-downloaded model cache from builder stage (BUG-105)
+COPY --from=builder --chown=embedding:embedding /root/.cache /home/embedding/.cache
 
 # Copy application code
 COPY --chown=embedding:embedding docker/embedding/main.py .

@@ -1,0 +1,150 @@
+{
+  "queries": [
+    {
+      "id": "GQ-001",
+      "text": "how does store_memory handle deduplication",
+      "expected_files": ["src/memory/storage.py"],
+      "expected_symbols": ["store_memory", "MemoryStorage"],
+      "min_score": 0.5
+    },
+    {
+      "id": "GQ-002",
+      "text": "MemoryStorage class initialization",
+      "expected_files": ["src/memory/storage.py"],
+      "expected_symbols": ["MemoryStorage", "__init__"],
+      "min_score": 0.5
+    },
+    {
+      "id": "GQ-003",
+      "text": "embedding client connection pooling setup",
+      "expected_files": ["src/memory/embeddings.py"],
+      "expected_symbols": ["EmbeddingClient", "__init__"],
+      "min_score": 0.5
+    },
+    {
+      "id": "GQ-004",
+      "text": "files that use qdrant_client",
+      "expected_files": ["src/memory/storage.py", "src/memory/qdrant_client.py"],
+      "expected_symbols": ["QdrantClient"],
+      "min_score": 0.4
+    },
+    {
+      "id": "GQ-005",
+      "text": "error handling patterns in async storage hooks",
+      "expected_files": [".claude/hooks/scripts/user_prompt_store_async.py", ".claude/hooks/scripts/agent_response_store_async.py"],
+      "expected_symbols": ["store_", "async"],
+      "min_score": 0.4
+    },
+    {
+      "id": "GQ-006",
+      "text": "how does code_sync interact with storage module",
+      "expected_files": ["src/memory/connectors/github/code_sync.py", "src/memory/storage.py"],
+      "expected_symbols": ["store_memory", "sync"],
+      "min_score": 0.4
+    },
+    {
+      "id": "GQ-007",
+      "text": "environment variable configuration for qdrant",
+      "expected_files": ["src/memory/config.py"],
+      "expected_symbols": ["MemoryConfig", "qdrant"],
+      "min_score": 0.5
+    },
+    {
+      "id": "GQ-008",
+      "text": "batch embedding generation with timeout handling",
+      "expected_files": ["src/memory/embeddings.py"],
+      "expected_symbols": ["embed", "EmbeddingClient"],
+      "min_score": 0.5
+    },
+    {
+      "id": "GQ-009",
+      "text": "project detection from cwd path",
+      "expected_files": ["src/memory/project.py"],
+      "expected_symbols": ["detect_project"],
+      "min_score": 0.5
+    },
+    {
+      "id": "GQ-010",
+      "text": "payload validation before storage",
+      "expected_files": ["src/memory/validation.py"],
+      "expected_symbols": ["validate_payload"],
+      "min_score": 0.5
+    },
+    {
+      "id": "GQ-011",
+      "text": "prometheus metrics for embedding requests",
+      "expected_files": ["src/memory/metrics.py"],
+      "expected_symbols": ["embedding_requests_total", "Counter"],
+      "min_score": 0.5
+    },
+    {
+      "id": "GQ-012",
+      "text": "graceful degradation when embedding service fails",
+      "expected_files": ["src/memory/storage.py", "src/memory/embeddings.py"],
+      "expected_symbols": ["EmbeddingError", "zero vector"],
+      "min_score": 0.4
+    },
+    {
+      "id": "GQ-013",
+      "text": "chunk code files into semantic blocks",
+      "expected_files": ["src/memory/connectors/github/code_sync.py"],
+      "expected_symbols": ["chunk", "semantic"],
+      "min_score": 0.4
+    },
+    {
+      "id": "GQ-014",
+      "text": "retry queue for failed qdrant operations",
+      "expected_files": ["src/memory/queue.py"],
+      "expected_symbols": ["queue_operation", "retry"],
+      "min_score": 0.5
+    },
+    {
+      "id": "GQ-015",
+      "text": "hook script activity logging",
+      "expected_files": [".claude/hooks/scripts/user_prompt_store_async.py"],
+      "expected_symbols": ["log_to_activity", "logger"],
+      "min_score": 0.4
+    },
+    {
+      "id": "GQ-016",
+      "text": "session context injection at startup",
+      "expected_files": [".claude/hooks/scripts/session_start.py"],
+      "expected_symbols": ["inject", "context"],
+      "min_score": 0.4
+    },
+    {
+      "id": "GQ-017",
+      "text": "memory type classification enum values",
+      "expected_files": ["src/memory/models.py"],
+      "expected_symbols": ["MemoryType", "enum"],
+      "min_score": 0.5
+    },
+    {
+      "id": "GQ-018",
+      "text": "github sync polling interval configuration",
+      "expected_files": ["src/memory/connectors/github/sync.py"],
+      "expected_symbols": ["sync_interval", "polling"],
+      "min_score": 0.4
+    },
+    {
+      "id": "GQ-019",
+      "text": "AST parsing for python code scope extraction",
+      "expected_files": ["src/memory/connectors/github/code_sync.py"],
+      "expected_symbols": ["ast", "parse", "scope"],
+      "min_score": 0.4
+    },
+    {
+      "id": "GQ-020",
+      "text": "content hash computation for deduplication",
+      "expected_files": ["src/memory/validation.py"],
+      "expected_symbols": ["compute_content_hash", "hashlib"],
+      "min_score": 0.5
+    }
+  ],
+  "metadata": {
+    "created": "2026-02-16",
+    "collection": "code-patterns",
+    "model": "code",
+    "description": "Golden query set for validating code embedding quality (SPEC-010)"
+  }
+}

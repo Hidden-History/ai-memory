@@ -24,7 +24,6 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Optional
 
 try:
     import httpx
@@ -48,15 +47,15 @@ class HealthCheckResult:
     component: str
     status: str  # "healthy", "unhealthy", "warning"
     message: str
-    latency_ms: Optional[float] = None
-    error_details: Optional[str] = None
+    latency_ms: float | None = None
+    error_details: str | None = None
 
 
 def check_qdrant(
     host: str = "localhost",
     port: int = 26350,
     timeout: int = 5,
-    api_key: Optional[str] = None,
+    api_key: str | None = None,
 ) -> HealthCheckResult:
     """
     Check Qdrant is running and collections exist.
@@ -202,7 +201,7 @@ def check_embedding_service(
 
 
 def check_embedding_functionality(
-    host: str = "localhost", port: int = 28080, timeout: int = 30
+    host: str = "localhost", port: int = 28080, timeout: int = 120
 ) -> HealthCheckResult:
     """
     Test actual embedding generation (functional test).
@@ -396,7 +395,7 @@ def check_monitoring_api(
 
         if response.status_code == 200:
             return HealthCheckResult(
-                "monitoring", "healthy", f"Monitoring API ready", latency
+                "monitoring", "healthy", "Monitoring API ready", latency
             )
         else:
             return HealthCheckResult(
@@ -449,28 +448,39 @@ def check_venv_health() -> HealthCheckResult:
         )
 
     # Critical packages that must be importable
+    # TASK-024: Use find_spec (136x faster than actual imports) + timeout=30 safety net
     critical_packages = [
         "qdrant_client",
         "prometheus_client",
         "httpx",
         "pydantic",
         "structlog",
+        "spacy",
     ]
 
+    # Single subprocess with find_spec — avoids loading 701+ modules (grpc, protobuf)
+    check_code = (
+        "import importlib.util, sys; "
+        f"missing = [p for p in {critical_packages!r} if importlib.util.find_spec(p) is None]; "
+        "print(','.join(missing) if missing else 'ok'); "
+        "sys.exit(1 if missing else 0)"
+    )
+
     failed_packages = []
-    for pkg in critical_packages:
-        try:
-            result = subprocess.run(
-                [str(venv_python), "-c", f"import {pkg}"],
-                capture_output=True,
-                timeout=10,
-            )
-            if result.returncode != 0:
-                failed_packages.append(pkg)
-        except subprocess.TimeoutExpired:
-            failed_packages.append(f"{pkg}(timeout)")
-        except Exception:
-            failed_packages.append(f"{pkg}(error)")
+    try:
+        result = subprocess.run(
+            [str(venv_python), "-c", check_code],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            output = result.stdout.strip()
+            failed_packages = [p.strip() for p in output.split(",") if p.strip()]
+    except subprocess.TimeoutExpired:
+        failed_packages = ["find_spec(timeout)"]
+    except Exception:
+        failed_packages = ["find_spec(error)"]
 
     if failed_packages:
         return HealthCheckResult(
@@ -535,7 +545,7 @@ def check_jira_data_collection() -> HealthCheckResult:
         return HealthCheckResult(
             "jira_data_collection",
             "warning",
-            f"Check failed: {str(e)}",
+            f"Check failed: {e!s}",
             error_details="Enable debug logging for details",
         )
 
@@ -587,9 +597,7 @@ def run_health_checks() -> list[HealthCheckResult]:
             except Exception as e:
                 check_name = future_to_check[future]
                 results_list.append(
-                    HealthCheckResult(
-                        check_name, "unhealthy", f"Check failed: {str(e)}"
-                    )
+                    HealthCheckResult(check_name, "unhealthy", f"Check failed: {e!s}")
                 )
 
     # Sort by component name for consistent output

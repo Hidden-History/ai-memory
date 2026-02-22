@@ -5,6 +5,93 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.6] - 2026-02-17
+
+LLM-Native Temporal Memory: Decay scoring, freshness detection, progressive injection,
+GitHub enrichment, security scanning, and Parzival session agent integration.
+
+### Added
+
+#### Temporal Memory (Phase 1a)
+- Exponential decay scoring via Qdrant Formula Query API (SPEC-001)
+- Audit trail with tamper-detection (SPEC-002)
+- GitHub sync engine with PR/issue/commit/CI ingestion (SPEC-003)
+- Source authority classification (SPEC-004)
+- Content deduplication and versioning (SPEC-005)
+- Memory type routing for collection/type assignment (SPEC-006)
+- Token budget management for context injection (SPEC-007)
+- Docker infrastructure, install script, Grafana dashboard, CLI, and collection setup (SPEC-008)
+
+#### Security & Injection (Phase 1b+1c)
+- 3-layer security scanning pipeline: regex + detect-secrets + SpaCy NER (SPEC-009)
+- Dual embedding routing for prose vs code content (SPEC-010)
+- SOPS+age encryption for secrets management (SPEC-011)
+- Progressive context injection with 3-tier bootstrap (SPEC-012)
+- Freshness detection with git blame integration (SPEC-013)
+
+#### Skills & Integration (Phase 1d)
+- 5 new skills: /memory-purge, /search-github, /github-sync, /pause-updates, /memory-refresh (SPEC-014)
+- 2 Parzival skills: /parzival-save-handoff, /parzival-save-insight for cross-session memory (SPEC-015)
+- Post-sync freshness feedback loop for merged PRs (SPEC-014)
+- Parzival session agent integration with Qdrant-backed memory (SPEC-015)
+- Parzival session pipeline: enhanced bootstrap, GitHub enrichment, closeout dual-write (SPEC-016)
+- 3 upgraded skills: /memory-status (4 new sections), /search-memory (decay scores), /save-memory (agent types) (SPEC-017)
+
+#### Release Engineering (Phase 1d)
+- v2.0.5 → v2.0.6 migration script with auto-backup (SPEC-018)
+- Historical handoff ingestion (57+ sessions → Qdrant) (SPEC-018)
+- 6 cross-phase E2E integration tests (SPEC-018)
+- 3 new docs: GITHUB-INTEGRATION.md, TEMPORAL-FEATURES.md, PARZIVAL-SESSION-GUIDE.md (SPEC-018)
+
+#### Parzival Integration (PLAN-007)
+- 37 oversight templates now tracked in git (`templates/oversight/`) — fixed `.gitignore` root-anchor pattern
+- CLAUDE-PARZIVAL-SECTION.md template moved to `templates/` root for user CLAUDE.md integration
+- 8 POV reference docs added to `docs/parzival/` (deprecating standalone POV repo)
+- Backup-on-overwrite for Parzival commands during re-install (`.bak.YYYYMMDDHHMMSS`)
+- Agent files always deploy latest version on re-install (system-owned files)
+
+### Fixed
+
+#### Install #7 Bug Fixes (BUG-112 through BUG-115)
+- **BUG-112** (HIGH): Code blob sync hangs indefinitely — Added total timeout, per-file timeout via `asyncio.wait_for()`, circuit breaker (reuses existing `CircuitBreaker` class), and progress logging every 10 files to `code_sync.py`. 5 new config fields for tuning thresholds.
+- **BUG-113** (MEDIUM): Embedding service timeouts with no retry — Added retry with full-jitter exponential backoff (AWS formula) to `EmbeddingClient.embed()`. Configurable via `EMBEDDING_MAX_RETRIES`, `EMBEDDING_BACKOFF_BASE`, `EMBEDDING_BACKOFF_CAP` env vars. Only retries on timeout errors.
+- **BUG-114** (LOW): `indexed_vectors_count=0` appeared broken — Documented as expected behavior when `full_scan_threshold=10000` and collection has < 10K vectors. Qdrant uses brute-force search, not HNSW, which is correct.
+- **BUG-115** (LOW): `install.sh` initial sync has no timeout — Wrapped sync call with `timeout` command, tracks exit status (success/timeout/error), displays status in install success message.
+
+- BUG-104: Collection setup errors hidden by `2>/dev/null` — now uses `log_error` with re-run command
+- BUG-105: Embedding model download fails on first start — pre-download at build time with graceful fallback
+- BUG-106: Broken symlinks left after hook archival — cleanup before verification + replaced archived trigger
+- BUG-107: Parzival commands not deployed — `cp -r` for entire commands directory
+- BUG-108: Agent deployment fails on same-file copy — skip if already installed by `create_project_symlinks()`
+- DOC-001: Verification doc references wrong config field name (`auto_update` → `auto_update_enabled`)
+- BUG-103: PyYAML missing from test dependencies (SPEC-017)
+- TECH-DEBT-156: Dead code branch in security scanner (SPEC-017)
+- TECH-DEBT-157: Session state path injection vulnerability (SPEC-017)
+- TECH-DEBT-158: Missing @pytest.mark.integration markers (SPEC-017)
+- TECH-DEBT-159: Missing PII pattern test coverage (SPEC-017)
+- TECH-DEBT-160: Test filename mismatch (SPEC-017)
+- TECH-DEBT-161: GitHub handle regex false positives (SPEC-017)
+- TECH-DEBT-162: detect-secrets per-call import overhead (SPEC-017)
+- TECH-DEBT-163: scan_batch() sequential loop (SPEC-017)
+- TECH-DEBT-164: Missing store_memory() return docstring (SPEC-017)
+- TECH-DEBT-165: scan_batch() missing force_ner parameter (SPEC-017)
+
+### Changed
+- Decay half-lives: agent_handoff 30→180d, added agent_insight 180d, agent_task 14d (SPEC-018)
+- CONFIGURATION.md updated with all v2.0.6 variables (SPEC-018)
+- Installer: `shopt -s nullglob` for safe glob expansion in all deployment functions
+- Installer: all arithmetic uses POSIX `$((expr))` pattern (replaced 12 bash-specific `((var++))` instances)
+- Installer: `cp` commands in `copy_files()` have error handling with actionable messages
+- Installer: `setup-collections.py` adds `--force` flag, try/except per collection, skip-if-exists default
+- Installer: `generate_settings.py` uses `os.environ.get()` for service config, correct hook timeouts
+- Installer: `merge_settings.py` deep merge preserves user scalar values (base-wins pattern)
+- Installer: `configure_parzival_env()` respects `NON_INTERACTIVE` mode with proper sed escaping
+- Installer: `create_agent_id_index()` checks docker/.env exists before grep
+- Installer: broken symlink and stale file cleanup in `create_project_symlinks()`
+- Installer: skills symlink uses `${skill_dir%/}` for trailing slash safety
+- Installer: SOPS+age secrets option shows availability status (`NOT INSTALLED` / `Recommended`) before user selects
+- INSTALL.md: Added SOPS+age prerequisite section with install instructions for macOS, Ubuntu/Debian, and WSL2
+
 ## [2.0.5] - 2026-02-10
 
 Jira Cloud Integration: Sync and semantically search Jira issues and comments alongside your code memory.
@@ -345,7 +432,8 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.5...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.6...HEAD
+[2.0.6]: https://github.com/Hidden-History/ai-memory/compare/v2.0.5...v2.0.6
 [2.0.5]: https://github.com/Hidden-History/ai-memory/compare/v2.0.4...v2.0.5
 [2.0.4]: https://github.com/Hidden-History/ai-memory/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/Hidden-History/ai-memory/compare/v2.0.2...v2.0.3

@@ -32,7 +32,6 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 # Add src to path for imports
 INSTALL_DIR = os.environ.get(
@@ -56,7 +55,6 @@ except ImportError:
         COLLECTION_CODE_PATTERNS,
         COLLECTION_CONVENTIONS,
         COLLECTION_DISCUSSIONS,
-        get_config,
     )
     from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 
@@ -119,7 +117,7 @@ def estimate_tokens(text: str) -> int:
     return len(text) // 4
 
 
-def validate_token_budget(content: str) -> Tuple[bool, List[str]]:
+def validate_token_budget(content: str) -> tuple[bool, list[str]]:
     """
     Validate content doesn't exceed token limits.
     """
@@ -135,7 +133,7 @@ def validate_token_budget(content: str) -> Tuple[bool, List[str]]:
     return len(messages) == 0, messages
 
 
-def validate_file_references(content: str, memory_type: str) -> Tuple[bool, List[str]]:
+def validate_file_references(content: str, memory_type: str) -> tuple[bool, list[str]]:
     """
     Validate file:line references are present.
 
@@ -166,7 +164,7 @@ def validate_file_references(content: str, memory_type: str) -> Tuple[bool, List
     return len(messages) == 0, messages
 
 
-def validate_code_snippets(content: str) -> Tuple[bool, List[str]]:
+def validate_code_snippets(content: str) -> tuple[bool, list[str]]:
     """
     Validate code snippets if present.
 
@@ -193,7 +191,7 @@ def validate_code_snippets(content: str) -> Tuple[bool, List[str]]:
     return True, warnings  # Warnings only, not blocking
 
 
-def check_duplicate_unique_id(client, unique_id: str) -> Tuple[bool, str]:
+def check_duplicate_unique_id(client, unique_id: str) -> tuple[bool, str]:
     """
     Check if unique_id already exists in any collection.
     """
@@ -226,7 +224,7 @@ def check_duplicate_unique_id(client, unique_id: str) -> Tuple[bool, str]:
     return False, f"'{unique_id}' is available"
 
 
-def check_similar_content(client, content: str) -> Tuple[bool, List[Dict]]:
+def check_similar_content(client, content: str) -> tuple[bool, list[dict]]:
     """
     Check for exact and semantically similar content.
 
@@ -265,7 +263,7 @@ def check_similar_content(client, content: str) -> Tuple[bool, List[Dict]]:
     return len(similar) > 0, similar
 
 
-def validate_metadata_fields(metadata: Dict) -> Tuple[bool, List[str]]:
+def validate_metadata_fields(metadata: dict) -> tuple[bool, list[str]]:
     """
     Validate required metadata fields and values.
 
@@ -302,7 +300,7 @@ def validate_metadata_fields(metadata: Dict) -> Tuple[bool, List[str]]:
     return len(errors) == 0, errors + warnings
 
 
-def validate_content_quality(content: str) -> Tuple[bool, List[str]]:
+def validate_content_quality(content: str) -> tuple[bool, list[str]]:
     """
     Validate content meets quality thresholds.
     """
@@ -331,10 +329,10 @@ def validate_content_quality(content: str) -> Tuple[bool, List[str]]:
 
 def validate_before_storage(
     information: str,
-    metadata: Dict,
+    metadata: dict,
     skip_duplicate_check: bool = False,
     skip_similarity_check: bool = False,
-) -> Tuple[bool, str, Dict]:
+) -> tuple[bool, str, dict]:
     """
     Complete pre-storage validation with all proven patterns.
 
@@ -457,7 +455,7 @@ def main():
     if args.content:
         content = args.content
     elif args.content_file:
-        with open(args.content_file, "r") as f:
+        with open(args.content_file) as f:
             content = f.read()
     else:
         print("ERROR: Must provide --content or --content-file")
@@ -467,7 +465,7 @@ def main():
     if args.metadata:
         metadata = json.loads(args.metadata)
     elif args.metadata_file:
-        with open(args.metadata_file, "r") as f:
+        with open(args.metadata_file) as f:
             metadata = json.load(f)
     else:
         print("ERROR: Must provide --metadata or --metadata-file")

@@ -24,9 +24,7 @@ def reset_metrics_module():
             REGISTRY.unregister(collector)
 
     # Remove metrics module from sys.modules
-    modules_to_remove = [
-        k for k in sys.modules if "memory.metrics" in k or k == "memory"
-    ]
+    modules_to_remove = [k for k in sys.modules if "memory.metrics" in k]
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 
@@ -38,9 +36,7 @@ def reset_metrics_module():
         with contextlib.suppress(Exception):
             REGISTRY.unregister(collector)
 
-    modules_to_remove = [
-        k for k in sys.modules if "memory.metrics" in k or k == "memory"
-    ]
+    modules_to_remove = [k for k in sys.modules if "memory.metrics" in k]
     for mod in modules_to_remove:
         sys.modules.pop(mod, None)
 
@@ -99,12 +95,13 @@ def test_counter_metrics_have_correct_labels():
     # memory_retrievals_total: ["collection", "status", "project"] per §7.3 multi-tenancy
     assert memory_retrievals_total._labelnames == ("collection", "status", "project")
 
-    # embedding_requests_total: ["status", "embedding_type", "context", "project"]
+    # embedding_requests_total: ["status", "embedding_type", "context", "project", "model"]
     assert embedding_requests_total._labelnames == (
         "status",
         "embedding_type",
         "context",
         "project",
+        "model",
     )
 
     # deduplication_events_total: ["action", "collection", "project"] - per BUG-021
@@ -291,7 +288,8 @@ def test_histogram_metrics_have_correct_labels():
     )
 
     # Legacy deprecated metrics (kept for backward compatibility)
-    assert embedding_duration_seconds._labelnames == ("embedding_type",)
+    # Note: embedding_duration_seconds now includes 'model' label per SPEC-010
+    assert embedding_duration_seconds._labelnames == ("embedding_type", "model")
     assert retrieval_duration_seconds._labelnames == ()
 
 

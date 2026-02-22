@@ -181,15 +181,16 @@ class TestMemoryTypeEnumStructure:
         assert hasattr(MemoryType, "RULE")
         assert hasattr(MemoryType, "DECISION")
 
-    def test_memory_type_enum_has_17_types(self):
-        """Verify MemoryType enum has exactly 17 types (V2.0.5 spec).
+    def test_memory_type_enum_has_expected_types(self):
+        """Verify MemoryType enum has expected number of types.
 
-        4 code-patterns + 5 conventions + 6 discussions + 2 jira-data = 17 total
+        V2.0.5: 17 types (4 code-patterns + 5 conventions + 6 discussions + 2 jira-data)
+        V2.0.6: 30 types (added GitHub sync, agent, decay, freshness types)
         """
         all_types = list(MemoryType)
         assert (
-            len(all_types) == 17
-        ), f"MemoryType enum should have 17 types (V2.0.5 spec), got {len(all_types)}"
+            len(all_types) == 30
+        ), f"MemoryType enum should have 30 types (V2.0.6 spec), got {len(all_types)}"
 
     def test_memory_type_values_are_lowercase_snake_case(self):
         """Verify all MemoryType values use lowercase snake_case.

@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-memory"
-version = "1.0.0"
+version = "2.0.6"
 description = "BMAD AI Memory Module - Vector-based memory system for AI agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,7 +27,7 @@ classifiers = [
 
 dependencies = [
     # Vector Database
-    "qdrant-client>=1.12.0,<2.0.0",
+    "qdrant-client>=1.14.0,<2.0.0",
     # HTTP Client
     "httpx>=0.27.0,<1.0.0",
     # Environment Configuration
@@ -52,6 +52,12 @@ dependencies = [
     "tree-sitter-rust>=0.21.0,<1.0.0",
     # Token counting for smart truncation
     "tiktoken>=0.5.0,<1.0.0",
+    # Numpy for vector operations (topic drift computation)
+    "numpy>=1.26.0,<2.0.0",
+    # Security scanning - Layer 2 secret detection (SPEC-009)
+    "detect-secrets>=1.4.0",
+    # Security scanning - Layer 3 NER-based PII detection (SPEC-009)
+    "spacy>=3.8.0,<4.0.0",
 ]
 
 [project.optional-dependencies]
@@ -62,6 +68,7 @@ dev = [
     "pytest-cov>=7.0.0,<8.0.0",
     "pytest-mock>=3.15.0,<4.0.0",
     "pytest-timeout>=2.4.0,<3.0.0",
+    "hypothesis>=6.0.0,<7.0.0",
     "requests>=2.32.0,<3.0.0",
     "psutil>=7.0.0,<8.0.0",
     # E2E Testing
@@ -78,6 +85,8 @@ dev = [
     "python-json-logger>=4.0.0,<5.0.0",
     # YAML processing with format preservation
     "ruamel.yaml>=0.19.0,<1.0.0",
+    # YAML parsing (required by tests/unit/test_sops_encryption.py)
+    "PyYAML>=6.0,<7.0",
 ]
 
 [project.urls]
@@ -94,7 +103,7 @@ where = ["src"]
 
 # Pytest configuration (migrated from pytest.ini)
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "scripts"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]

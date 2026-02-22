@@ -1,0 +1,34 @@
+# Project Standards Index
+# This file indexes all standards for quick lookup and drift detection
+
+schema_version: "1.0"
+project: "[PROJECT_NAME]"
+last_updated: "[YYYY-MM-DD]"
+
+# Global standards (apply to all BMAD projects)
+# These come from the module and should rarely change
+global:
+  # Example entries - uncomment and populate as needed
+  # - file: standards/_global/logging.md
+  #   hash: ""  # Auto-generated for drift detection
+  #   topics: [logging, structured-logging]
+  # - file: standards/_global/python.md
+  #   hash: ""
+  #   topics: [python, naming, conventions]
+
+# Project-specific standards (apply only to this project)
+# Create these based on your architecture decisions
+project:
+  # Example entries - uncomment and populate as needed
+  # - file: standards/_project/ports.md
+  #   hash: ""
+  #   topics: [ports, docker, services]
+  # - file: standards/_project/qdrant.md
+  #   hash: ""
+  #   topics: [qdrant, vector-db, storage]
+
+# Quick topic lookup
+# Maps topics to standard files for fast retrieval
+topic_index:
+  # Example: logging -> standards/_global/logging.md
+  # Populated automatically when standards are created

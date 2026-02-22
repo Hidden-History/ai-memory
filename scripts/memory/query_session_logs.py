@@ -28,9 +28,9 @@ Best Practices (2026):
 import argparse
 import gzip
 import json
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Optional
 
 
 def iter_log_files(log_path: Path) -> Iterator[Path]:
@@ -66,7 +66,7 @@ def read_jsonl(file_path: Path) -> Iterator[dict]:
                         # Skip malformed lines gracefully
                         continue
     else:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     try:
@@ -78,9 +78,9 @@ def read_jsonl(file_path: Path) -> Iterator[dict]:
 
 def query_sessions(
     log_path: Path,
-    project: Optional[str] = None,
-    since: Optional[str] = None,
-    min_results: Optional[int] = None,
+    project: str | None = None,
+    since: str | None = None,
+    min_results: int | None = None,
 ) -> list[dict]:
     """Query session logs with filters.
 

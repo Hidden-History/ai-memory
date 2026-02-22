@@ -27,9 +27,8 @@ import os
 import subprocess
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 
 # Color codes for terminal output
@@ -185,7 +184,7 @@ def check_hook_scripts_exist(results: TestResults, verbose: bool = False) -> boo
 
 
 def check_settings_json(
-    results: TestResults, verbose: bool = False, project_path: Optional[Path] = None
+    results: TestResults, verbose: bool = False, project_path: Path | None = None
 ) -> bool:
     """Verify .claude/settings.json has correct hook configuration.
 
@@ -212,7 +211,7 @@ def check_settings_json(
     print_test("Settings file", "PASS", str(settings_path))
 
     try:
-        with open(settings_path, "r") as f:
+        with open(settings_path) as f:
             settings = json.load(f)
     except json.JSONDecodeError as e:
         results.add_fail("settings_parse", f"Invalid JSON: {e}")
@@ -400,7 +399,7 @@ def test_session_start_hook(results: TestResults, verbose: bool = False) -> bool
                     if context:
                         print(f"         Context length: {len(context)} chars")
                     else:
-                        print(f"         No context returned (no memories)")
+                        print("         No context returned (no memories)")
             else:
                 results.add_warning("session_start_hook", "Missing hookSpecificOutput")
                 print_test(
@@ -659,7 +658,7 @@ def test_full_workflow(results: TestResults, verbose: bool = False) -> bool:
             return False
 
         # Wait briefly for embedding to complete
-        print(f"         Waiting for embedding to complete...")
+        print("         Waiting for embedding to complete...")
         time.sleep(2)
 
         # Step 2: Search for the memory

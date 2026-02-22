@@ -208,12 +208,12 @@ class TestSeedTemplates:
         ]
 
     @patch("seed_best_practices.generate_embedding")
-    @patch("seed_best_practices.QdrantClient")
-    def test_seed_templates_success(self, mock_qdrant_class, mock_generate_embedding):
+    @patch("seed_best_practices.get_qdrant_client")
+    def test_seed_templates_success(self, mock_get_client, mock_generate_embedding):
         """Test successful seeding of templates."""
         # Mock Qdrant client
         mock_client = Mock()
-        mock_qdrant_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         # Mock collections response - just mock the response directly
         mock_collection_info = Mock()
@@ -245,14 +245,14 @@ class TestSeedTemplates:
         assert call_args.kwargs["wait"] is True
 
     @patch("seed_best_practices.generate_embedding")
-    @patch("seed_best_practices.QdrantClient")
+    @patch("seed_best_practices.get_qdrant_client")
     def test_seed_templates_batch_processing(
-        self, mock_qdrant_class, mock_generate_embedding
+        self, mock_get_client, mock_generate_embedding
     ):
         """Test batch processing with multiple batches."""
         # Mock Qdrant client
         mock_client = Mock()
-        mock_qdrant_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         mock_collection_info = Mock()
         mock_collection_info.name = "conventions"
@@ -273,12 +273,12 @@ class TestSeedTemplates:
         assert mock_client.upsert.call_count == 3  # 3 batches
 
     @patch("seed_best_practices.generate_embedding")
-    @patch("seed_best_practices.QdrantClient")
-    def test_seed_templates_dry_run(self, mock_qdrant_class, mock_generate_embedding):
+    @patch("seed_best_practices.get_qdrant_client")
+    def test_seed_templates_dry_run(self, mock_get_client, mock_generate_embedding):
         """Test dry-run mode doesn't actually insert."""
         # Mock Qdrant client
         mock_client = Mock()
-        mock_qdrant_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         mock_collection_info = Mock()
         mock_collection_info.name = "conventions"
@@ -298,11 +298,11 @@ class TestSeedTemplates:
         assert count == 0  # Dry run returns 0
         assert not mock_client.upsert.called  # Never called in dry-run
 
-    @patch("seed_best_practices.QdrantClient")
-    def test_seed_templates_qdrant_connection_failed(self, mock_qdrant_class):
+    @patch("seed_best_practices.get_qdrant_client")
+    def test_seed_templates_qdrant_connection_failed(self, mock_get_client):
         """Test graceful handling when Qdrant is unreachable."""
         # Mock connection failure
-        mock_qdrant_class.side_effect = Exception("Connection refused")
+        mock_get_client.side_effect = Exception("Connection refused")
 
         config = self.create_mock_config()
         templates = self.create_test_templates(count=5)
@@ -312,12 +312,12 @@ class TestSeedTemplates:
 
         assert "Cannot connect to Qdrant" in str(exc_info.value)
 
-    @patch("seed_best_practices.QdrantClient")
-    def test_seed_templates_collection_not_found(self, mock_qdrant_class):
+    @patch("seed_best_practices.get_qdrant_client")
+    def test_seed_templates_collection_not_found(self, mock_get_client):
         """Test error when best_practices collection doesn't exist."""
         # Mock Qdrant client
         mock_client = Mock()
-        mock_qdrant_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         # Mock collections without best_practices
         mock_coll1 = Mock()
@@ -339,14 +339,14 @@ class TestSeedTemplates:
         assert "not found" in str(exc_info.value).lower()
 
     @patch("seed_best_practices.generate_embedding")
-    @patch("seed_best_practices.QdrantClient")
+    @patch("seed_best_practices.get_qdrant_client")
     def test_seed_templates_embedding_failures(
-        self, mock_qdrant_class, mock_generate_embedding
+        self, mock_get_client, mock_generate_embedding
     ):
         """Test graceful handling when some embeddings fail."""
         # Mock Qdrant client
         mock_client = Mock()
-        mock_qdrant_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         mock_collection_info = Mock()
         mock_collection_info.name = "conventions"
@@ -379,14 +379,14 @@ class TestSeedTemplates:
         assert len(call_args.kwargs["points"]) == 3
 
     @patch("seed_best_practices.generate_embedding")
-    @patch("seed_best_practices.QdrantClient")
+    @patch("seed_best_practices.get_qdrant_client")
     def test_seed_templates_batch_failure_continues(
-        self, mock_qdrant_class, mock_generate_embedding
+        self, mock_get_client, mock_generate_embedding
     ):
         """Test graceful degradation when a batch upsert fails."""
         # Mock Qdrant client
         mock_client = Mock()
-        mock_qdrant_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         mock_collection_info = Mock()
         mock_collection_info.name = "conventions"
@@ -423,14 +423,16 @@ class TestSeedTemplates:
 
     @patch("seed_best_practices.generate_embedding")
     @patch("seed_best_practices.get_existing_hashes")
-    @patch("seed_best_practices.QdrantClient")
+    @patch("seed_best_practices.get_qdrant_client")
     def test_seed_templates_with_deduplication(
-        self, mock_qdrant_class, mock_get_hashes, mock_generate_embedding
+        self, mock_get_client, mock_get_hashes, mock_generate_embedding
     ):
         """Test deduplication skips existing content."""
+        import hashlib
+
         # Mock Qdrant client
         mock_client = Mock()
-        mock_qdrant_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         mock_collection_info = Mock()
         mock_collection_info.name = "conventions"
@@ -439,11 +441,15 @@ class TestSeedTemplates:
         mock_collections.collections = [mock_collection_info]
         mock_client.get_collections.return_value = mock_collections
 
-        # Mock existing hashes - first 2 templates already exist
-        mock_get_hashes.return_value = {
-            "sha256:abc123",  # Simulated hash for template 0
-            "sha256:def456",  # Simulated hash for template 1
-        }
+        # Calculate the actual SHA256 hash of the first template's content
+        # create_test_templates generates content=f"Test best practice {i}"
+        first_content = "Test best practice 0"
+        first_hash = (
+            "sha256:" + hashlib.sha256(first_content.encode("utf-8")).hexdigest()
+        )
+
+        # Mock existing hashes: first template already exists (by actual hash)
+        mock_get_hashes.return_value = {first_hash}
 
         mock_generate_embedding.return_value = [0.1] * 768
         mock_client.upsert = Mock()
@@ -451,21 +457,20 @@ class TestSeedTemplates:
         config = self.create_mock_config()
         templates = self.create_test_templates(count=5)
 
-        # With actual hashes, this won't match - but we're testing the logic
         count = seed_templates(templates, config, dry_run=False, skip_duplicates=True)
 
-        # All 5 should be inserted since mock hashes don't match actual content hashes
-        assert count == 5
+        # 1 template skipped (first_hash matches template 0) → 4 inserted
+        assert count == 4
 
     @patch("seed_best_practices.generate_embedding")
-    @patch("seed_best_practices.QdrantClient")
+    @patch("seed_best_practices.get_qdrant_client")
     def test_seed_templates_custom_batch_size(
-        self, mock_qdrant_class, mock_generate_embedding
+        self, mock_get_client, mock_generate_embedding
     ):
         """Test custom batch size parameter."""
         # Mock Qdrant client
         mock_client = Mock()
-        mock_qdrant_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         mock_collection_info = Mock()
         mock_collection_info.name = "conventions"
@@ -490,8 +495,8 @@ class TestSeedTemplates:
 class TestGetExistingHashes:
     """Test get_existing_hashes function for deduplication."""
 
-    @patch("seed_best_practices.QdrantClient")
-    def test_get_existing_hashes_success(self, mock_qdrant_class):
+    @patch("seed_best_practices.get_qdrant_client")
+    def test_get_existing_hashes_success(self, mock_get_client):
         """Test successful retrieval of existing hashes."""
 
         mock_client = Mock()
@@ -515,8 +520,8 @@ class TestGetExistingHashes:
         assert "sha256:hash2" in hashes
         assert "sha256:hash3" in hashes
 
-    @patch("seed_best_practices.QdrantClient")
-    def test_get_existing_hashes_empty_collection(self, mock_qdrant_class):
+    @patch("seed_best_practices.get_qdrant_client")
+    def test_get_existing_hashes_empty_collection(self, mock_get_client):
         """Test empty collection returns empty set."""
 
         mock_client = Mock()
@@ -526,8 +531,8 @@ class TestGetExistingHashes:
 
         assert hashes == set()
 
-    @patch("seed_best_practices.QdrantClient")
-    def test_get_existing_hashes_error_graceful(self, mock_qdrant_class):
+    @patch("seed_best_practices.get_qdrant_client")
+    def test_get_existing_hashes_error_graceful(self, mock_get_client):
         """Test graceful handling of scroll errors."""
 
         mock_client = Mock()

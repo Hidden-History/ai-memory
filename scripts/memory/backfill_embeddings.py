@@ -90,7 +90,7 @@ def acquire_lock() -> bool:
         _lock_fd = open(LOCK_FILE, "w")
         fcntl.flock(_lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         return True
-    except (IOError, OSError):
+    except OSError:
         if _lock_fd:
             _lock_fd.close()
             _lock_fd = None

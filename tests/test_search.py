@@ -24,6 +24,7 @@ def mock_config(monkeypatch):
     mock_cfg.similarity_threshold = 0.7
     mock_cfg.hnsw_ef_fast = 64  # TECH-DEBT-066
     mock_cfg.hnsw_ef_accurate = 128  # TECH-DEBT-066
+    mock_cfg.decay_enabled = False  # SPEC-001: disable decay for mock-based tests
     monkeypatch.setattr("src.memory.search.get_config", lambda: mock_cfg)
     return mock_cfg
 
@@ -560,6 +561,23 @@ class TestSearchMemories:
         )
         assert isinstance(results, list)
 
+    def test_search_memories_with_source(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_memories() passes source parameter through to search()."""
+        from unittest import mock
+
+        from src.memory.search import MemorySearch, search_memories
+
+        with mock.patch.object(MemorySearch, "search", return_value=[]) as mock_search:
+            search_memories(query="test", collection="discussions", source="github")
+            mock_search.assert_called_once()
+            call_kwargs = mock_search.call_args
+            assert (
+                call_kwargs.kwargs.get("source") == "github"
+                or call_kwargs[1].get("source") == "github"
+            )
+
 
 class TestSearchParams:
     """Tests for hnsw_ef parameter tuning (TECH-DEBT-066)."""
@@ -698,3 +716,48 @@ class TestSearchParams:
 
         call_kwargs = mock_qdrant_client.query_points.call_args.kwargs
         assert call_kwargs["search_params"].hnsw_ef == 128
+
+
+class TestDecayPath:
+    """Test that decay-enabled search uses Formula Query with prefetch."""
+
+    def test_search_with_decay_enabled_uses_prefetch_and_query(
+        self, mock_qdrant_client, mock_embedding_client, monkeypatch
+    ):
+        """When decay_enabled=True, query_points uses prefetch + FormulaQuery (SPEC-001)."""
+        from src.memory.decay import build_decay_formula
+
+        mock_cfg = Mock()
+        mock_cfg.max_retrievals = 5
+        mock_cfg.similarity_threshold = 0.7
+        mock_cfg.hnsw_ef_fast = 64
+        mock_cfg.hnsw_ef_accurate = 128
+        mock_cfg.decay_enabled = True
+        mock_cfg.decay_semantic_weight = 0.7
+        mock_cfg.get_decay_type_overrides.return_value = {}
+        mock_cfg.decay_half_life_code_patterns = 14.0
+        mock_cfg.decay_half_life_discussions = 21.0
+        mock_cfg.decay_half_life_conventions = 30.0
+        mock_cfg.decay_half_life_jira_data = 30.0
+        monkeypatch.setattr("src.memory.search.get_config", lambda: mock_cfg)
+
+        build_decay_called = []
+
+        original_build = build_decay_formula
+
+        def tracking_build(*args, **kwargs):
+            build_decay_called.append(kwargs)
+            return original_build(*args, **kwargs)
+
+        monkeypatch.setattr("src.memory.search.build_decay_formula", tracking_build)
+
+        search = MemorySearch()
+        search.search(query="test query", collection="code-patterns")
+
+        # build_decay_formula was called
+        assert len(build_decay_called) == 1
+
+        # query_points was called with prefetch kwarg
+        call_kwargs = mock_qdrant_client.query_points.call_args.kwargs
+        assert "prefetch" in call_kwargs
+        assert call_kwargs["prefetch"] is not None

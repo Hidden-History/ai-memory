@@ -246,7 +246,11 @@ def main() -> int:
     project = detect_project_func(os.getcwd()) if detect_project_func else "unknown"
 
     # HIGH-1 FIX: Use proper with statement to ensure __exit__() on all paths
-    cm = track_hook_duration_func("PostToolUse", project=project) if track_hook_duration_func else contextlib.nullcontext()
+    cm = (
+        track_hook_duration_func("PostToolUse", project=project)
+        if track_hook_duration_func
+        else contextlib.nullcontext()
+    )
 
     with cm:
         try:
@@ -285,7 +289,9 @@ def main() -> int:
             if tool_name == "NotebookEdit":
                 file_path = tool_input.get("notebook_path", "")
             else:
-                file_path = tool_response.get("filePath") or tool_input.get("file_path", "")
+                file_path = tool_response.get("filePath") or tool_input.get(
+                    "file_path", ""
+                )
 
             # Extract content based on tool type
             content = ""

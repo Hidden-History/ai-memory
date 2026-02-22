@@ -8,6 +8,7 @@ Best Practices: https://softlandia.com/articles/deploying-qdrant-with-grpc-auth-
 """
 
 import logging
+import warnings
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import KeywordIndexParams
@@ -23,6 +24,8 @@ __all__ = [
 ]
 
 logger = logging.getLogger("ai_memory.storage")
+
+_client_cache: dict[str, "QdrantClient"] = {}
 
 
 class QdrantUnavailable(Exception):
@@ -60,17 +63,31 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
     """
     config = config or get_config()
 
+    cache_key = f"{config.qdrant_host}:{config.qdrant_port}:{config.qdrant_api_key}:{config.qdrant_use_https}"
+    if cache_key in _client_cache:
+        return _client_cache[cache_key]
+
     # Create client with timeout configuration
     # Timeout prevents indefinite hangs if Qdrant is unresponsive
     # BP-040: API key + HTTPS configurable via environment variables
+    # BUG-099/102: Suppress insecure connection warning for known-safe hosts.
+    # Localhost and Docker internal DNS are safe — traffic never leaves the
+    # machine or Docker network. Remote hosts are NOT suppressed to preserve
+    # the security warning for genuine misconfigurations.
+    _safe_hosts = {"localhost", "127.0.0.1", "qdrant", "host.docker.internal"}
+    if config.qdrant_host in _safe_hosts and not config.qdrant_use_https:
+        warnings.filterwarnings(
+            "ignore", message="Api key is used with an insecure connection"
+        )
     client = QdrantClient(
         host=config.qdrant_host,
         port=config.qdrant_port,
         api_key=config.qdrant_api_key,
         https=config.qdrant_use_https,
-        timeout=10,
+        timeout=config.qdrant_timeout,
     )
 
+    _client_cache[cache_key] = client
     return client
 
 

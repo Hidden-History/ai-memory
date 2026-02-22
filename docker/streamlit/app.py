@@ -21,7 +21,6 @@ import json
 import os
 import sys
 import time
-from typing import Optional
 
 import httpx
 import streamlit as st
@@ -277,7 +276,7 @@ def get_type_counts(_client: QdrantClient, collection_name: str) -> dict[str, in
     return type_counts
 
 
-def get_embedding(text: str) -> Optional[list[float]]:
+def get_embedding(text: str) -> list[float] | None:
     """Generate embedding vector via embedding service."""
     embedding_url = os.getenv("EMBEDDING_SERVICE_URL", "http://embedding:8080")
 
@@ -411,7 +410,7 @@ def display_statistics():
     queue_count = 0
     if os.path.exists(queue_file):
         try:
-            with open(queue_file, "r") as f:
+            with open(queue_file) as f:
                 queue_count = sum(1 for line in f if line.strip())
         except Exception:
             pass
@@ -440,7 +439,7 @@ def read_activity_log_cached(log_path: str, mtime: float) -> list[str]:
         List of log lines
     """
     try:
-        with open(log_path, "r") as f:
+        with open(log_path) as f:
             return f.readlines()
     except Exception as e:
         st.error(f"❌ Error reading log file: {e}")
@@ -457,7 +456,7 @@ def get_log_stats() -> dict:
         try:
             stat = os.stat(ACTIVITY_LOG_PATH)
             size = stat.st_size
-            with open(ACTIVITY_LOG_PATH, "r") as f:
+            with open(ACTIVITY_LOG_PATH) as f:
                 lines = sum(1 for _ in f)
             return {
                 "size_mb": size / 1024 / 1024,
@@ -784,7 +783,7 @@ def display_statistics_page():
                 elif total_count == 0:
                     st.info(f"ℹ️ No memories in {collection_name}")
                 else:
-                    st.warning(f"⚠️ Could not retrieve type breakdown")
+                    st.warning("⚠️ Could not retrieve type breakdown")
 
             except Exception as e:
                 st.error(f"❌ Error analyzing {collection_name}: {e}")
@@ -800,7 +799,7 @@ def display_statistics_page():
 
     if os.path.exists(queue_file):
         try:
-            with open(queue_file, "r") as f:
+            with open(queue_file) as f:
                 lines = [line.strip() for line in f if line.strip()]
             queue_count = len(lines)
 
@@ -890,7 +889,7 @@ def display_statistics_page():
                                             # Remove items with no content
                                             queue.dequeue(entry["id"])
                                             success_count += 1
-                                    except Exception as e:
+                                    except Exception:
                                         queue.mark_failed(entry["id"])
                                         fail_count += 1
 

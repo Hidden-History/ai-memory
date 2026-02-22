@@ -275,7 +275,11 @@ class ASTChunker:
             # Remove import lines (already captured separately) to avoid duplication
             if import_text and header_text:
                 import_lines = set(import_text.strip().split("\n"))
-                header_lines = [line for line in header_text.split("\n") if line.strip() not in import_lines]
+                header_lines = [
+                    line
+                    for line in header_text.split("\n")
+                    if line.strip() not in import_lines
+                ]
                 file_header = "\n".join(header_lines).strip()
             elif header_text:
                 file_header = header_text
@@ -303,7 +307,9 @@ class ASTChunker:
                     },
                 )
                 # Split large node into multiple chunks
-                sub_chunk_texts = self._split_large_node(node, content, language, content_bytes)
+                sub_chunk_texts = self._split_large_node(
+                    node, content, language, content_bytes
+                )
 
                 # Process each sub-chunk
                 for sub_idx, sub_chunk_text in enumerate(sub_chunk_texts):
@@ -391,10 +397,7 @@ class ASTChunker:
                 context_parts.append(import_text)
             context = "\n\n".join(context_parts)
 
-            if context:
-                chunk_content = f"{context}\n\n{node_text}"
-            else:
-                chunk_content = node_text
+            chunk_content = f"{context}\n\n{node_text}" if context else node_text
 
             # Store tail for next chunk's overlap (extract from original node_text before imports)
             clean_node_text = self._get_node_text(content, node, content_bytes)
@@ -505,7 +508,9 @@ class ASTChunker:
 
         return import_nodes
 
-    def _extract_node_text(self, content: str, nodes: list[Node], content_bytes: bytes | None = None) -> str:
+    def _extract_node_text(
+        self, content: str, nodes: list[Node], content_bytes: bytes | None = None
+    ) -> str:
         """Extract text from multiple nodes.
 
         Args:
@@ -519,9 +524,13 @@ class ASTChunker:
         if not nodes:
             return ""
 
-        return "\n".join(self._get_node_text(content, node, content_bytes) for node in nodes)
+        return "\n".join(
+            self._get_node_text(content, node, content_bytes) for node in nodes
+        )
 
-    def _get_node_text(self, content: str, node: Node, content_bytes: bytes | None = None) -> str:
+    def _get_node_text(
+        self, content: str, node: Node, content_bytes: bytes | None = None
+    ) -> str:
         """Get text content of a node using byte offsets.
 
         Args:
@@ -534,7 +543,7 @@ class ASTChunker:
         """
         if content_bytes is None:
             content_bytes = content.encode("utf-8")
-        return content_bytes[node.start_byte:node.end_byte].decode("utf-8")
+        return content_bytes[node.start_byte : node.end_byte].decode("utf-8")
 
     def _get_node_name(self, node: Node) -> str | None:
         """Extract function/class name from node.
@@ -553,7 +562,13 @@ class ASTChunker:
 
         return None
 
-    def _split_large_node(self, node: Node, content: str, language: str, content_bytes: bytes | None = None) -> list[str]:
+    def _split_large_node(
+        self,
+        node: Node,
+        content: str,
+        language: str,
+        content_bytes: bytes | None = None,
+    ) -> list[str]:
         """Split a large AST node into smaller chunks at statement boundaries.
 
         FIX-5: Implements recursive splitting per Chunking-Strategy-V1.md.

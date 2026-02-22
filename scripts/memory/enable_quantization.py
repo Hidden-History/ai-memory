@@ -41,7 +41,6 @@ for path in [
         break
 
 from qdrant_client.models import (
-    QuantizationSearchParams,
     ScalarQuantization,
     ScalarQuantizationConfig,
     ScalarType,
