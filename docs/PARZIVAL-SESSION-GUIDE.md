@@ -51,43 +51,40 @@ bash install.sh --component parzival
 
 ## Session Start — What Gets Loaded
 
-When you run `/parzival-start`, Parzival performs a Tier 1 bootstrap (see [TEMPORAL-FEATURES.md](TEMPORAL-FEATURES.md)) within a ~2–3K token budget:
+Context loading happens in two distinct layers: an **automatic** layer driven by the SessionStart hook, and a **manual** layer driven by the `/parzival-start` command.
 
-### 1. Latest Handoff
+### Layer 1 — Automatic: SessionStart Hook
 
-```
-Qdrant query: agent_id=parzival, type=agent_handoff, limit=1
-Sort: created_at DESC
-```
+The SessionStart hook (`.claude/hooks/scripts/session_start.py`) runs automatically on every session event. You do not need to invoke it manually.
 
-Loads the session state from your last closeout: what was completed, what's in progress, blockers, next steps.
+**On `startup` trigger** (new session):
 
-### 2. Active Insights
+Calls `retrieve_bootstrap_context()` via `MemorySearch`, which queries Qdrant for conventions, guidelines, and recent findings. Token budget: `BOOTSTRAP_TOKEN_BUDGET` (default: 2,500 tokens).
 
-```
-Qdrant query: agent_id=parzival, type=agent_insight
-Sort: decay-ranked (semantic + temporal)
-Limit: top 5
-```
+**On `resume` or `compact` trigger** (session restore):
 
-Surfaced learned knowledge — architectural decisions made, patterns discovered, recurring issues resolved.
+1. Queries the `discussions` collection for recent session summaries
+2. Searches `discussions` for relevant decisions
+3. Searches `code-patterns` for relevant patterns
+4. Searches `conventions` for applicable conventions
 
-### 3. GitHub Enrichment
+This is the Qdrant-backed context injection that restores your working memory after a compaction or session resume.
 
-If `GITHUB_SYNC_ENABLED=true`, Parzival also queries:
-- Merged PRs since `last_session_end`
-- New issues opened since `last_session_end`
-- CI failures on the default branch
+**Fallback (Qdrant Unavailable):**
 
-This appears as a "What changed since last session" summary at the start of `/parzival-start` output.
+If Qdrant is offline, the SessionStart hook outputs empty context and logs a warning. Claude continues without memory injection.
 
-### Fallback (Qdrant Unavailable)
+### Layer 2 — Manual: `/parzival-start` Command
 
-If Qdrant is offline at session start:
+Running `/parzival-start` reads **local oversight files** to provide PM-level project status. This always reads from the filesystem — it does not query Qdrant:
 
-1. Read `oversight/SESSION_WORK_INDEX.md` for current sprint state
-2. Read the latest handoff file from `oversight/session-logs/` (sorted by filename date)
-3. Log a warning that Qdrant-backed enrichment was skipped
+1. `oversight/SESSION_WORK_INDEX.md` — running log of sessions and sprint state
+2. Latest `oversight/session-logs/SESSION_HANDOFF_*.md` — last session closeout snapshot
+3. `oversight/tracking/task-tracker.md` — active task list
+4. `oversight/tracking/blockers-log.md` — open blockers
+5. `oversight/tracking/risk-register.md` — risk register
+
+This gives Parzival a human-readable project management view at the start of each session, independent of whether Qdrant is available.
 
 ---
 
@@ -155,7 +152,7 @@ Commands live in `.claude/commands/parzival/` and are invoked with `/`.
 
 | Command | Description |
 |---|---|
-| `/parzival-start` | Load context from Qdrant, display session status, show GitHub enrichment summary |
+| `/parzival-start` | Load context from local oversight files, display session status |
 | `/parzival-closeout` | Create handoff file, dual-write to Qdrant, update work index, end session |
 | `/parzival-status` | Quick status check: active tasks, blockers, recent handoff summary |
 | `/parzival-handoff` | Mid-session state snapshot (does not end the session) |

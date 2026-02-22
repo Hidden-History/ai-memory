@@ -54,9 +54,10 @@ Different memory types have different relevance windows. CI results become irrel
 | `agent_memory` | 30 days | General agent memories refresh regularly |
 | `guideline` | 60 days | Standards are semi-permanent |
 | `rule` | 60 days | Rules change but not constantly |
-| `architecture_decision` | 90 days | Architecture decisions are long-lived |
 | `agent_handoff` | 180 days | Historical session records for continuity |
 | `agent_insight` | 180 days | Learned knowledge persists across many sessions |
+
+> **Note**: Types not listed in `DECAY_TYPE_OVERRIDES` (e.g., `conversation`, `session_summary`) fall back to their collection-level defaults: `code-patterns` = 14 days, `discussions` = 21 days, `conventions` = 60 days.
 
 ### Implementation
 
@@ -64,11 +65,11 @@ Decay scoring is implemented via the Qdrant Formula Query API. The temporal scor
 
 ### Overriding Half-Lives
 
-To customize half-lives for your workflow, set `DECAY_TYPE_OVERRIDES` as a JSON string in your `.env`:
+To customize half-lives for your workflow, set `DECAY_TYPE_OVERRIDES` as a comma-separated list of `type:days` pairs in your `.env`:
 
 ```bash
 # Example: make guidelines decay faster, extend handoff lifetime
-DECAY_TYPE_OVERRIDES='{"guideline": 30, "agent_handoff": 365}'
+DECAY_TYPE_OVERRIDES="guideline:30,agent_handoff:365"
 ```
 
 ---
@@ -77,25 +78,25 @@ DECAY_TYPE_OVERRIDES='{"guideline": 30, "agent_handoff": 365}'
 
 ### Freshness Tiers
 
-Every memory in the system has a freshness tier based on its age:
+Every code-patterns memory has a freshness tier based on how many commits have touched its source file since the memory was stored:
 
-| Tier | Age | Meaning |
+| Tier | Threshold | Meaning |
 |---|---|---|
-| **Fresh** | < 7 days | Fully current, no action needed |
-| **Aging** | 7–30 days | Worth reviewing if the topic comes up |
-| **Stale** | 30–90 days | Likely outdated; re-evaluation recommended |
-| **Expired** | > 90 days | Probably superseded; consider archiving or refreshing |
+| **Fresh** | < 3 commits | Fully current, no action needed |
+| **Aging** | 3–10 commits | Worth reviewing if the topic comes up |
+| **Stale** | 10–25 commits | Likely outdated; re-evaluation recommended |
+| **Expired** | > 25 commits | Probably superseded; consider archiving |
 
-Freshness tiers are computed at query time and surfaced in search results and the `/freshness-report` output.
+Note: Freshness detection applies specifically to code-patterns memories that have `source_file` metadata. Freshness tiers are surfaced in search results and the `/freshness-report` output.
 
-### Git Blame Integration
+### Git-Based Verification
 
-For `code-patterns` memories, freshness detection goes further by comparing the stored pattern against actual file modification dates via `git blame`:
+For `code-patterns` memories, freshness detection can optionally cross-reference against actual file history via `git log`:
 
 1. Each `code-patterns` point stores the `source_file` path it was derived from
-2. During a freshness scan, the integration runs `git blame` on each source file
-3. If the file's last commit date is **newer** than the memory's `created_at`, the pattern is flagged as `needs_review`
-4. This catches cases where code changed but the memory was never updated
+2. During a freshness scan with `--git-check`, the system counts commits that touched each source file since the memory was stored
+3. The commit count determines the freshness tier (< 3 = Fresh, 3–10 = Aging, 10–25 = Stale, > 25 = Expired)
+4. If the file has been modified but the memory was never updated, the pattern is flagged as `needs_review`
 
 ### `/freshness-report` Skill
 
@@ -150,9 +151,9 @@ Loaded once when the session begins. Optimized for orienting Claude Code to the 
 | Agent handoff | ~800 tokens | Most recent `agent_handoff` from Qdrant |
 | Active insights | ~600 tokens | Top `agent_insight` memories (decay-ranked) |
 | GitHub enrichment | ~600 tokens | Merged PRs + new issues since last session |
-| **Total** | **~2,000–3,000 tokens** | Configurable via `INJECTION_TIER1_BUDGET` |
+| **Total** | **~2,500 tokens (default)** | Configurable via `BOOTSTRAP_TOKEN_BUDGET` |
 
-If Qdrant is unavailable, Tier 1 falls back to reading `SESSION_WORK_INDEX.md` and the latest handoff file from `oversight/session-logs/`.
+If Qdrant is unavailable, Tier 1 outputs empty context and logs a warning. Claude continues without memory injection.
 
 ### Tier 2 — Per-Turn (Ongoing)
 
@@ -162,7 +163,7 @@ Injected on each conversation turn alongside the user's message. Optimized for r
 |---|---|---|
 | Decay-ranked search | ~1,200 tokens | Top memories matching the current turn's query |
 | Active task context | ~300 tokens | Current `agent_task` state |
-| **Total** | **~1,500 tokens** | Configurable via `INJECTION_TIER2_BUDGET` |
+| **Total** | **500–1,500 tokens (adaptive)** | Configurable via `INJECTION_BUDGET_FLOOR` and `INJECTION_BUDGET_CEILING` |
 
 Per-turn injection uses the same decay-scoring formula so that recent, relevant memories surface ahead of older ones.
 
@@ -170,10 +171,11 @@ Per-turn injection uses the same decay-scoring formula so that recent, relevant 
 
 ```bash
 # Token budget for Tier 1 (session start bootstrap)
-INJECTION_TIER1_BUDGET=3000
+BOOTSTRAP_TOKEN_BUDGET=2500
 
-# Token budget for Tier 2 (per-turn injection)
-INJECTION_TIER2_BUDGET=1500
+# Adaptive token budget range for Tier 2 (per-turn injection)
+INJECTION_BUDGET_FLOOR=500
+INJECTION_BUDGET_CEILING=1500
 ```
 
 Reduce these if you find Claude Code's context window filling up too quickly. Increase them if you need deeper history.
@@ -186,18 +188,18 @@ All temporal feature settings with their defaults:
 
 ```bash
 # Decay Scoring
-DECAY_SEMANTIC_WEIGHT=0.7          # Weight for semantic similarity (0.0–1.0)
-DECAY_TEMPORAL_WEIGHT=0.3          # Weight for temporal score (0.0–1.0)
-DECAY_TYPE_OVERRIDES='{}'          # JSON map of memory_type → half_life_days
+DECAY_SEMANTIC_WEIGHT=0.7          # Weight for semantic similarity (0.0–1.0); temporal weight = 1 - this value
+DECAY_TYPE_OVERRIDES="github_ci_result:7,agent_task:14,github_code_blob:14,github_commit:14,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,guideline:60,rule:60,agent_handoff:180,agent_insight:180"
+                                   # Per-type half-life overrides (comma-separated type:days pairs)
 
 # Freshness Detection
-FRESHNESS_ENABLED=true             # Enable freshness tier computation
-FRESHNESS_GIT_BLAME=true           # Enable git blame checks for code-patterns
+FRESHNESS_ENABLED=true             # Enable freshness detection for code-patterns memories
 
 # Progressive Injection
-INJECTION_TIER1_BUDGET=3000        # Token budget for session start bootstrap
-INJECTION_TIER2_BUDGET=1500        # Token budget for per-turn injection
+BOOTSTRAP_TOKEN_BUDGET=2500        # Token budget for Tier 1 (session start bootstrap)
+INJECTION_BUDGET_FLOOR=500         # Minimum token budget for Tier 2 (per-turn, adaptive)
+INJECTION_BUDGET_CEILING=1500      # Maximum token budget for Tier 2 (per-turn, adaptive)
 INJECTION_ENABLED=true             # Master switch for progressive injection
 ```
 
-> **Note**: `DECAY_SEMANTIC_WEIGHT + DECAY_TEMPORAL_WEIGHT` must equal `1.0`. The system validates this on startup and logs a warning if the values don't sum correctly, then normalizes them automatically.
+> **Note**: The temporal weight is automatically computed as `1 - DECAY_SEMANTIC_WEIGHT`. Only `DECAY_SEMANTIC_WEIGHT` is configurable.

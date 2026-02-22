@@ -12,7 +12,7 @@
 | **Docker**  | 20.10          | Latest      | For Qdrant + embedding service |
 | **OS**      | Linux, macOS, WSL2 | Linux   | Windows requires WSL2 |
 | **RAM**     | 4GB            | 8GB+        | For Docker services |
-| **Disk**    | 2GB free       | 5GB+        | For Docker images + data |
+| **Disk**    | 5GB free       | 10GB+       | Docker images alone are ~3GB; allow extra space for data |
 
 ## 🐍 Python Dependencies
 
@@ -56,6 +56,20 @@ async with AsyncSDKWrapper(
 ) as wrapper:
     result = await wrapper.send_message("Hello")
 ```
+
+## ✅ What You'll Need Before Starting
+
+Before running the installer, make sure you have these ready:
+
+- [ ] Docker Desktop installed and running
+- [ ] Python 3.10+ installed
+- [ ] Claude Code installed
+- [ ] ~5GB free disk space
+- [ ] (Optional) GitHub Personal Access Token (PAT) for repository sync — [see GitHub integration setup](#optional-github-repository-integration-v206)
+- [ ] (Optional) Jira API token for Jira sync
+- [ ] (Optional) SOPS + age for encrypted secrets
+
+---
 
 ## 📋 Prerequisites
 
@@ -204,15 +218,31 @@ See [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for complete Jira setup
 The installer offers optional GitHub integration for syncing PRs, issues, commits, and code into memory. When enabled, it prompts for:
 
 1. **Enable GitHub sync?** `[y/N]`
-2. **GitHub Personal Access Token** (fine-grained, `repo` scope — see [GitHub PAT setup](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens))
+2. **GitHub Personal Access Token** — see step-by-step walkthrough below
 3. **GitHub repository** (e.g., `owner/repo-name`)
 
 The installer validates the token via the GitHub API before proceeding. On success, it configures automated sync.
 
+#### Creating a Fine-Grained GitHub Personal Access Token
+
+1. Go to [github.com/settings/tokens?type=beta](https://github.com/settings/tokens?type=beta) (fine-grained tokens page)
+2. Click **Generate new token**
+3. Set a descriptive token name (e.g., `ai-memory-sync`)
+4. Set an expiration (90 days recommended)
+5. Under **Repository access**, select **Only select repositories** → choose your repository
+6. Under **Repository permissions**, enable the following (all Read-only):
+   - **Contents** — Read-only
+   - **Issues** — Read-only
+   - **Pull requests** — Read-only
+   - **Actions** — Read-only (for CI results)
+   - **Metadata** — Read-only (always required; auto-selected)
+7. Click **Generate token** and **copy the token immediately** (it is only shown once)
+8. Paste the token when the installer prompts for `GITHUB_TOKEN`
+
 **Required environment variables:**
 | Variable | Description |
 |----------|-------------|
-| `GITHUB_TOKEN` | Fine-grained Personal Access Token with `repo` scope |
+| `GITHUB_TOKEN` | Fine-grained Personal Access Token with the permissions listed above |
 | `GITHUB_REPO` | Repository in `owner/repo` format |
 | `GITHUB_SYNC_ENABLED` | Set to `true` to enable (default: `false`) |
 
@@ -233,55 +263,11 @@ Parzival provides cross-session memory for project oversight — session handoff
 
 See [docs/PARZIVAL-SESSION-GUIDE.md](docs/PARZIVAL-SESSION-GUIDE.md) for usage.
 
-> **Note:** The installer generates `~/.ai-memory/docker/.env` with random secrets for Qdrant, Grafana, and Prometheus automatically. To customize these values (e.g., change the Grafana admin password or configure the LLM classifier provider), edit `~/.ai-memory/docker/.env` after installation. See `docker/.env.example` for all available options.
+> **Note:** The installer generates `~/.ai-memory/docker/.env` with random secrets for Qdrant, Grafana, and Prometheus automatically. The Grafana admin password is **randomly generated** (not "admin") and stored as `GRAFANA_ADMIN_PASSWORD` in that file. To customize values or configure the LLM classifier provider, edit `~/.ai-memory/docker/.env` after installation. See `docker/.env.example` for all available options.
 
 **Installation output:**
 
-```
-═══════════════════════════════════════════════════════════
-  AI Memory Module Installation
-═══════════════════════════════════════════════════════════
-Target Project: /home/user/projects/my-app
-Install Directory: /home/user/.ai-memory
-
-[1/7] Validating prerequisites...
-  ✅ Python 3.11.0 found
-  ✅ Docker 24.0.6 found
-  ✅ Claude Code project detected
-
-[2/7] Copying hooks and skills...
-  ✅ Copied .claude/hooks/scripts/
-  ✅ Copied .claude/skills/
-
-[3/7] Updating .claude/settings.json...
-  ✅ Hook configuration added
-
-[4/7] Creating installation directory...
-  ✅ Created /home/user/.ai-memory
-
-[5/7] Installing Python dependencies...
-  ✅ Installed: qdrant-client==1.12.1, httpx==0.27.0, pydantic==2.10.3
-
-[6/7] Starting Docker services...
-  ✅ Qdrant started (port 26350)
-  ✅ Embedding service started (port 28080)
-  ✅ Monitoring API started (port 28000)
-
-[7/7] Running health check...
-  ✅ Qdrant healthy
-  ✅ Embedding service healthy
-  ✅ Monitoring API healthy
-
-═══════════════════════════════════════════════════════════
-  Installation Complete!
-═══════════════════════════════════════════════════════════
-
-Next steps:
-  1. Start using Claude Code in: /home/user/projects/my-app
-  2. Memories will be captured automatically
-  3. Access Streamlit dashboard: http://localhost:28501
-  4. Access Grafana: http://localhost:23000 (user: admin, pass: admin)
-```
+The installer will validate prerequisites, copy hooks/skills, configure settings, start Docker services, and run health checks. Progress is shown in the terminal. On success, a summary banner displays, including the URLs for the Streamlit and Grafana dashboards and a reminder to find your Grafana password in `~/.ai-memory/docker/.env`.
 
 ### Adding Additional Projects
 
@@ -641,7 +627,7 @@ cd /path/to/target/project
 Verify memory was stored:
 
 ```bash
-curl http://localhost:26350/collections/code-patterns/points/scroll | jq
+curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/collections/code-patterns/points/scroll | jq
 ```
 
 ### 4. 🔗 Verify Jira Sync (if enabled)
@@ -659,7 +645,7 @@ python scripts/jira_sync.py --incremental
 ### 5. 📊 Access Dashboards
 
 - **Streamlit Dashboard:** http://localhost:28501 - Memory browser and statistics
-- **Grafana:** http://localhost:23000 (user: `admin`, pass: `admin`) - Performance dashboards
+- **Grafana:** http://localhost:23000 — Login with credentials set during installation (check `~/.ai-memory/docker/.env` for `GRAFANA_ADMIN_PASSWORD`) - Performance dashboards
 - **Prometheus:** http://localhost:29090 - Raw metrics explorer
 - **Pushgateway:** http://localhost:29091 - Hook metrics collection (requires `--profile monitoring`)
 
@@ -701,7 +687,7 @@ This starts:
 ### Access Grafana
 
 1. Open http://localhost:23000
-2. Login: admin / admin
+2. Login with username `admin` and the password from `~/.ai-memory/docker/.env` (`GRAFANA_ADMIN_PASSWORD`)
 3. Navigate to Dashboards → AI Memory
 
 ### Verify Metrics Flow
@@ -837,10 +823,6 @@ AI_MEMORY_INSTALL_DIR=/home/user/.ai-memory
 
 # Logging
 MEMORY_LOG_LEVEL=INFO  # DEBUG for verbose
-
-# Performance tuning
-MEMORY_BATCH_SIZE=100
-MEMORY_CACHE_TTL=3600
 
 # Jira Cloud Integration (Optional)
 JIRA_INSTANCE_URL=https://company.atlassian.net

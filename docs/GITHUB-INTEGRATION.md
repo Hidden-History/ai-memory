@@ -14,7 +14,7 @@ When GitHub integration is enabled, the AI Memory Module continuously ingests yo
 - **CI results** — workflow names, job statuses, failure logs
 - **Code blobs** — file contents via AST-aware chunking
 
-All content is embedded using `jina-embeddings-v2-base-en` (768d) and stored with rich metadata for filtering. Semantic search lets you find relevant history without knowing exact keywords.
+Prose content (PRs, issues, commits) is embedded using `jina-embeddings-v2-base-en` (768d); code blobs use `jina-embeddings-v2-base-code` (768d) for better code retrieval. All content is stored with rich metadata for filtering. Semantic search lets you find relevant history without knowing exact keywords.
 
 ---
 
@@ -42,7 +42,7 @@ Set these in your `.env` file:
 GITHUB_SYNC_ENABLED=true
 GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 GITHUB_REPO=owner/repo-name
-GITHUB_SYNC_INTERVAL=3600
+GITHUB_SYNC_INTERVAL=1800
 ```
 
 | Variable | Required | Default | Description |
@@ -50,7 +50,9 @@ GITHUB_SYNC_INTERVAL=3600
 | `GITHUB_SYNC_ENABLED` | No | `false` | Enable GitHub synchronization |
 | `GITHUB_TOKEN` | Yes* | *(empty)* | Personal Access Token (classic or fine-grained) |
 | `GITHUB_REPO` | Yes* | *(empty)* | Repository in `owner/repo` format |
-| `GITHUB_SYNC_INTERVAL` | No | `3600` | Sync frequency in seconds (default 1 hour) |
+| `GITHUB_SYNC_INTERVAL` | No | `1800` | Sync frequency in seconds (default 30 minutes) |
+| `GITHUB_CODE_SYNC_ENABLED` | No | `true` | Enable syncing of code blobs separately from PRs/issues/commits |
+| `GITHUB_SYNC_LOOKBACK_DAYS` | No | `90` | How far back (in days) the initial full sync fetches history |
 | `GITHUB_SYNC_LOG_LEVEL` | No | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 
 *Required when `GITHUB_SYNC_ENABLED=true`
@@ -74,14 +76,18 @@ The installer validates the token against the GitHub API before proceeding. On s
 | Content Type | Memory Type | What's Captured |
 |---|---|---|
 | Pull Requests | `github_pr` | Title, body, diff summary, labels, state, author |
-| Issues | `github_issue` | Title, body, comments, labels, state, assignees |
+| PR Diffs | `github_pr_diff` | Extracted diff content per file in the PR |
+| PR Reviews | `github_pr_review` | Review comments and review body text |
+| Issues | `github_issue` | Title, body, labels, state, assignees |
+| Issue Comments | `github_issue_comment` | Individual comments on issues |
 | Commits | `github_commit` | Message, stats (additions/deletions), author, date |
 | CI Results | `github_ci_result` | Workflow name, job status, branch, run URL |
 | Code Blobs | `github_code_blob` | File contents via AST chunking, path, language |
+| Releases | `github_release` | Release name, tag, body (release notes) |
 
 ### Incremental Sync (Default)
 
-After the first run, only new or updated items are fetched. The last-seen state is tracked per content type in `.audit/state/github_sync_state.json`:
+After the first run, only new or updated items are fetched. The last-seen state is tracked per content type in `~/.ai-memory/.audit/state/github_sync_state.json`:
 
 ```json
 {
@@ -117,7 +123,7 @@ Intelligent Chunker
     │   Code Blobs: ContentType.CODE (AST-aware boundaries)
     │
     ▼
-Embedding Service (jina-embeddings-v2-base-en, 768d)
+Embedding Service (dual routing: prose → jina-v2-base-en, code → jina-v2-base-code, 768d)
     │
     ▼
 Qdrant (code-patterns collection for code blobs, discussions for PRs/issues/commits)
@@ -125,7 +131,7 @@ Qdrant (code-patterns collection for code blobs, discussions for PRs/issues/comm
     │   memory_type tag for filtering
     │
     ▼
-State Persistence (.audit/state/github_sync_state.json)
+State Persistence (~/.ai-memory/.audit/state/github_sync_state.json)
 ```
 
 ### Rate Limiting
@@ -198,7 +204,7 @@ When Parzival session agent is enabled (see [PARZIVAL-SESSION-GUIDE.md](PARZIVAL
 - **New issues opened** — items requiring attention
 - **CI failures** — any broken builds on the main branch
 
-This appears automatically during `/parzival-start` within the Tier 1 context injection (2-3K token budget).
+This appears automatically at session start via the `SessionStart` hook's Tier 1 context injection (~2,500 token budget). The `/parzival-start` command reads local oversight files separately — it does not trigger the Qdrant-backed enrichment.
 
 ---
 
@@ -270,11 +276,24 @@ rm ~/.ai-memory/.audit/state/github_sync_state.json
 
 ## Automated Sync Schedule
 
-The installer configures a background service for automated incremental sync:
+The installer configures a Docker background service (`ai-memory-github-sync`) for automated incremental sync:
 
-- **Schedule**: Every hour (configurable via `GITHUB_SYNC_INTERVAL`)
+- **Service name**: `ai-memory-github-sync`
+- **Schedule**: Every 30 minutes by default (configurable via `GITHUB_SYNC_INTERVAL`)
 - **Mode**: Incremental (only new/updated items)
 - **Log output**: `~/.ai-memory/logs/github_sync.log`
+
+The service runs continuously in the Docker stack. Verify it is running with:
+
+```bash
+docker compose -f docker/docker-compose.yml ps
+```
+
+Expected output will include a row like:
+
+```
+ai-memory-github-sync   running   (no ports)
+```
 
 To manually trigger outside the schedule:
 

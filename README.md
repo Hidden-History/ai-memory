@@ -24,10 +24,11 @@
 
 ## 🚀 Key Features
 
-* **💾 Long-Term Persistence:** Stop re-explaining your codebase. Agents retrieve past context automatically at session start.
-* **📂 Structured BMAD Integration:** Purpose-built for BMAD workflows and multi-agent "Party Mode."
-* **🔍 Semantic Retrieval:** Uses vector embeddings to find relevant memories based on intent, not just keywords.
-* **⚖️ Decision Tracking:** Automatically captures "lessons learned" and integration rules during the dev cycle.
+* **🧠 Cross-Session Memory:** Claude remembers your last session automatically — no re-explaining needed.
+* **⏳ Semantic Decay:** Memories age naturally — recent patterns rank higher than stale ones.
+* **🛡️ 3-Layer Security:** PII and secrets caught before storage via regex + detect-secrets + SpaCy NER.
+* **🐙 GitHub History Sync:** PRs, issues, commits, CI results searchable by meaning.
+* **🎯 Progressive Context Injection:** Right memories, right time, within token budgets.
 
 ---
 
@@ -61,6 +62,42 @@ Traditional knowledge bases require upfront schema design and manual curation. A
 </td>
 </tr>
 </table>
+
+---
+
+## 🧭 Parzival: Cross-Session Memory
+
+**Claude picks up exactly where you left off — no re-explaining needed.**
+
+Parzival is the cross-session memory layer included with AI-Memory. At the start of every session, the automatic `SessionStart` hook queries Qdrant for your latest handoff, decay-ranked insights, and recent GitHub activity — before you type a single word.
+
+- **Automatic Session Resume**: The `SessionStart` hook queries Qdrant at startup, injecting your last handoff, active insights, and recent GitHub activity automatically — no manual trigger needed
+- **Manual Context Load**: `/parzival-start` reads LOCAL oversight files (specs, plans, tracking) to orient Parzival within your project structure — separate from the automatic Qdrant queries
+- **Session Closeout**: `/parzival-closeout` saves a structured handoff to `oversight/session-logs/` and dual-writes it to the `discussions` Qdrant collection for future retrieval
+- **Persistent Insights**: `/parzival-save-insight` captures learned knowledge with 180-day decay, surfaced automatically in future sessions
+- **GitHub Enrichment**: Surfaces merged PRs, new issues, and CI failures since your last session (requires `GITHUB_SYNC_ENABLED=true`)
+- **Oversight Directory**: Structured templates for specs, plans, session logs, tracking, and knowledge files deployed to `oversight/`
+- **Enabled at Install**: The installer prompts `Enable Parzival session agent? [y/N]` — or enable later with `bash install.sh --component parzival`
+
+Parzival is optional — all other AI Memory features (decay scoring, GitHub sync, search skills, freshness detection) work independently without it.
+
+See [docs/PARZIVAL-SESSION-GUIDE.md](docs/PARZIVAL-SESSION-GUIDE.md) for setup, commands, and the full skills reference.
+
+---
+
+## 🏆 What No Other Tool Has
+
+AI-Memory combines capabilities that exist nowhere else as a single integrated system:
+
+| Capability | What It Does |
+|------------|-------------|
+| **Semantic Decay Scoring** | Memories age naturally via exponential decay — recent patterns rank higher than stale ones, automatically |
+| **Cross-Session Memory** | Qdrant vector search resurfaces exactly the right context at session start, without you asking |
+| **3-Layer Security Pipeline** | PII and secrets screened via regex + detect-secrets + SpaCy NER before any content is stored |
+| **GitHub History → Semantic Search** | PRs, issues, commits, CI results, code blobs, diffs, reviews, and releases searchable by meaning |
+| **Freshness Detection** | Stale code-pattern memories flagged automatically by comparing stored patterns against current git state (3/10/25 commit thresholds) |
+| **Dual Embedding Routing** | Code uses `jina-v2-base-code`; prose uses `jina-v2-base-en` — 10-30% better retrieval accuracy |
+| **Progressive Context Injection** | Token-budget-aware 3-tier delivery: session bootstrap, per-turn injection, confidence-filtered retrieval |
 
 ---
 
@@ -120,7 +157,7 @@ See [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for setup and usage gui
 Bring your repository history into semantic memory with built-in GitHub support:
 
 - **Semantic Search**: Search PRs, issues, commits, CI results, and code blobs by meaning, not keywords
-- **5 Content Types**: `github_pr`, `github_issue`, `github_commit`, `github_ci_result`, `github_code_blob`
+- **9 Content Types**: `github_pr`, `github_issue`, `github_commit`, `github_ci_result`, `github_code_blob`, `github_pr_diff`, `github_pr_review`, `github_issue_comment`, `github_release`
 - **Full & Incremental Sync**: First run backfills full history; subsequent runs fetch only new or updated items
 - **AST-Aware Code Chunking**: Code blobs are split at AST boundaries (functions, classes), not arbitrary character offsets
 - **Freshness Feedback Loop**: Merged PRs automatically flag stale code-pattern memories for review
@@ -156,24 +193,6 @@ User: "Research best practices for writing commit messages"
 ```
 
 **The Result:** Your AI agents continuously discover and codify knowledge into reusable skills.
-
----
-
-## 🧭 Parzival Session Agent (Included, Optional)
-
-Keep your project context alive across Claude Code sessions with the Parzival session agent, deployed by the installer as an optional component:
-
-- **Cross-Session Memory**: Loads your last handoff, active insights, and GitHub activity at session start — no manual re-orientation needed
-- **Session Start**: `/parzival-start` queries Qdrant for the latest handoff, decay-ranked insights, and changes since your last session
-- **Session Closeout**: `/parzival-closeout` saves a structured handoff file and dual-writes it to the `discussions` collection in Qdrant
-- **GitHub Enrichment**: Surfaces merged PRs, new issues, and CI failures since your last session (requires `GITHUB_SYNC_ENABLED=true`)
-- **Oversight Directory**: The installer deploys `oversight/` with structured templates for specs, plans, session logs, tracking, and knowledge files
-- **Two Storage Skills**: `/parzival-save-handoff` stores handoff content; `/parzival-save-insight` captures learned knowledge with 180-day decay
-- **Enabled at Install**: The installer prompts `Enable Parzival session agent? [y/N]` — or enable later with `bash install.sh --component parzival`
-
-Parzival is optional — all other AI Memory features (decay scoring, GitHub sync, search skills, freshness detection) work independently without it.
-
-See [docs/PARZIVAL-SESSION-GUIDE.md](docs/PARZIVAL-SESSION-GUIDE.md) for setup, commands, and the full skills reference.
 
 ---
 
@@ -324,7 +343,7 @@ curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health
 curl http://localhost:28080/health
 
 # Check Grafana (port 23000) - if monitoring enabled
-open http://localhost:23000  # admin/admin
+open http://localhost:23000  # credentials from installation
 ```
 
 ### 3. Install to Project
@@ -740,7 +759,7 @@ For more detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ### Grafana Dashboards (V3)
 
-Access Grafana at `http://localhost:23000` (admin/admin):
+Access Grafana at `http://localhost:23000` (credentials set during installation):
 
 | Dashboard | Purpose |
 |-----------|---------|
@@ -831,16 +850,6 @@ See [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) for complete instructions i
 1. **Enable monitoring profile** for production use:
    ```bash
    docker compose -f docker/docker-compose.yml --profile monitoring up -d
-   ```
-
-2. **Adjust batch size** for large projects:
-   ```bash
-   export MEMORY_BATCH_SIZE=100  # Default: 50
-   ```
-
-3. **Increase cache TTL** for stable projects:
-   ```bash
-   export MEMORY_CACHE_TTL=3600  # Default: 1800 seconds
    ```
 
 ## 🛠️ Development

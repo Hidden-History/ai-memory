@@ -277,6 +277,35 @@ export QDRANT_API_KEY=your-api-key-here
 
 ---
 
+#### QDRANT_USE_HTTPS
+**Purpose:** Use HTTPS instead of HTTP for Qdrant connections
+
+**Default:** `false`
+
+**Options:** `true`, `false`
+
+**Format:** Boolean (`true`/`false`)
+
+**Example:**
+```bash
+# Required for Qdrant Cloud or secured remote instances
+export QDRANT_USE_HTTPS=true
+
+# Local development (default — Docker services use plain HTTP)
+export QDRANT_USE_HTTPS=false
+```
+
+**When to change:**
+- **Qdrant Cloud**: Always set to `true` (Qdrant Cloud requires HTTPS)
+- **Remote production**: Enable when connecting to a secured Qdrant instance with TLS
+- **Local development**: Leave `false` (local Docker services use plain HTTP)
+
+**Related:**
+- `QDRANT_HOST` - Qdrant server hostname
+- `QDRANT_API_KEY` - Authentication key
+
+---
+
 ### Embedding Configuration
 
 #### EMBEDDING_HOST
@@ -609,7 +638,7 @@ export DECAY_TYPE_OVERRIDES="github_ci_result:7,agent_task:14,guideline:60"
 ---
 
 #### FRESHNESS_ENABLED
-**Purpose:** Enable freshness detection via git blame checks during freshness scans
+**Purpose:** Enable freshness detection for code-patterns memories using commit-count thresholds
 
 **Default:** `true`
 
@@ -617,19 +646,19 @@ export DECAY_TYPE_OVERRIDES="github_ci_result:7,agent_task:14,guideline:60"
 
 **Example:**
 ```bash
-# Enable (default) — git blame used during /freshness-report
+# Enable (default) — commit-count freshness tiers used during /freshness-report
 export FRESHNESS_ENABLED=true
 
-# Disable — skip git blame checks (faster scans, no git dependency)
+# Disable — skip freshness checks (faster scans, no git dependency)
 export FRESHNESS_ENABLED=false
 ```
 
 **When to change:**
 - **Disable**: Environments without git access (CI containers, non-git directories)
-- **Disable**: When freshness scans are too slow and git blame is the bottleneck
+- **Disable**: When freshness scans are too slow and git history lookups are the bottleneck
 
 **Impact:**
-- When disabled, freshness scoring relies solely on timestamp-based decay; git blame correlation is skipped
+- When disabled, freshness scoring relies solely on timestamp-based decay; commit-count tier classification is skipped
 
 ---
 
@@ -728,6 +757,35 @@ export GITHUB_SYNC_INTERVAL=0
 - **Lower**: High-velocity projects where you want PR/issue context refreshed more often
 - **Higher**: Cost-sensitive setups or low-activity repositories
 - **0**: When you prefer on-demand sync via the `/github-sync` skill
+
+---
+
+#### GITHUB_CODE_BLOB_ENABLED
+**Purpose:** Enable code blob synchronisation — fetches source files from the repository and stores them as memories in the `code-patterns` collection (separate from PR/issue/commit sync)
+
+**Default:** `true` (when `GITHUB_SYNC_ENABLED=true`)
+
+**Options:** `true`, `false`
+
+**Format:** Boolean (`true`/`false`)
+
+**Example:**
+```bash
+# Enable code blob sync (default)
+export GITHUB_CODE_BLOB_ENABLED=true
+
+# Disable — only sync PRs, issues, and commits; skip source files
+export GITHUB_CODE_BLOB_ENABLED=false
+```
+
+**When to change:**
+- **Disable**: To reduce GitHub API calls and storage when code context is not needed
+- **Disable**: For repositories with very large codebases where blob sync is slow
+- **Enable**: When you want Claude to have access to current source file content as memories
+
+**Related:**
+- `GITHUB_SYNC_ENABLED` — master switch for all GitHub sync
+- `GITHUB_SYNC_INTERVAL` — polling frequency
 
 ---
 
@@ -939,6 +997,30 @@ export SECURITY_BLOCK_ON_SECRETS=false
 
 ---
 
+#### SECURITY_SCAN_SESSION_MODE
+**Purpose:** Controls scanning intensity for session content (user prompts, agent responses captured by hooks)
+
+**Default:** `"relaxed"`
+
+**Options:**
+- `relaxed` — Layer 1 regex patterns only (catches real secrets like API keys, tokens). Layer 2 detect-secrets entropy scanning is skipped for session content. This is the recommended default because session discussions about API keys/tokens would otherwise be false-positive blocked.
+- `strict` — Full Layer 1 + Layer 2 scanning for session content (same as non-session content). May cause false positives when discussing security topics.
+- `off` — No security scanning for session content. Not recommended.
+
+**When to change:**
+- Keep `relaxed` (default) for most workflows
+- Use `strict` only if your sessions never discuss API keys, tokens, or security configuration
+- Use `off` only for testing
+
+**Example:**
+```bash
+export SECURITY_SCAN_SESSION_MODE=relaxed
+```
+
+**Background:** Added in v2.0.6 to fix BUG-110, where session content discussing API keys was being blocked by Layer 2 entropy scanning, preventing any session data from being stored.
+
+---
+
 ### `AUTO_UPDATE_ENABLED`
 
 Controls whether the memory system automatically updates stale memories when changes are detected.
@@ -976,6 +1058,31 @@ Budgets are measured in **tokens** (approximately 4 characters per token).
 
 ---
 
+#### INJECTION_ENABLED
+**Purpose:** Master switch for the progressive context injection system (both Tier 1 bootstrap and Tier 2 per-turn)
+
+**Default:** `true`
+
+**Options:** `true`, `false`
+
+**Format:** Boolean (`true`/`false`)
+
+**Example:**
+```bash
+# Enable (default)
+export INJECTION_ENABLED=true
+
+# Disable — no memories injected into Claude's context
+export INJECTION_ENABLED=false
+```
+
+**When to change:**
+- **Disable**: When testing or debugging and you want to verify Claude's response without memory context
+- **Disable**: In minimal setups where context injection overhead is not desired
+- Disabling overrides all other injection settings (budget, confidence threshold, etc.)
+
+---
+
 #### BOOTSTRAP_TOKEN_BUDGET
 **Purpose:** Token budget for Tier 1 bootstrap context injection at session start
 
@@ -999,6 +1106,32 @@ export BOOTSTRAP_TOKEN_BUDGET=5000
 - **Lower**: When SessionStart is slow and you want to reduce initial context load
 - **Higher**: On projects with many critical conventions and decisions that must all be visible at session start
 - **Impact**: ~200–400 tokens per memory injected; budget controls how many fit
+
+---
+
+#### INJECTION_CONFIDENCE_THRESHOLD
+**Purpose:** Minimum retrieval confidence score for Tier 2 per-turn injection — if the best match is below this threshold, injection is skipped entirely for that turn
+
+**Default:** `0.6`
+
+**Format:** Float (0.0 to 1.0)
+
+**Example:**
+```bash
+# Default (skip injection when best match is below 60% confidence)
+export INJECTION_CONFIDENCE_THRESHOLD=0.6
+
+# Strict (only inject when highly confident)
+export INJECTION_CONFIDENCE_THRESHOLD=0.8
+
+# Permissive (always attempt injection)
+export INJECTION_CONFIDENCE_THRESHOLD=0.3
+```
+
+**When to change:**
+- **Raise**: Reduce irrelevant per-turn injections (fewer but higher-quality injections)
+- **Lower**: Ensure more injection attempts, even for loosely related queries
+- **Impact**: Directly controls whether Tier 2 fires per turn; Tier 1 bootstrap is unaffected
 
 ---
 
