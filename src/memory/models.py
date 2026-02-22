@@ -22,7 +22,7 @@ __all__ = [
 class MemoryType(str, Enum):
     """Types of memories that can be stored (Memory System v2.0).
 
-    Total: 17 types (4 code-patterns + 5 conventions + 6 discussions + 2 jira-data)
+    Total: 30 types (4 code-patterns + 5 conventions + 6 discussions + 2 jira-data + 9 github + 4 agent)
     Spec: oversight/specs/MEMORY-SYSTEM-REDESIGN-v2.md Section 5
 
     Note: Uses (str, Enum) pattern for Python 3.10 compatibility (AMD ROCm images).
@@ -33,7 +33,11 @@ class MemoryType(str, Enum):
         code-patterns: IMPLEMENTATION, ERROR_FIX, REFACTOR, FILE_PATTERN
         conventions: RULE, GUIDELINE, PORT, NAMING, STRUCTURE
         discussions: DECISION, SESSION, BLOCKER, PREFERENCE, USER_MESSAGE, AGENT_RESPONSE
+        discussions (agent namespace): AGENT_HANDOFF, AGENT_MEMORY, AGENT_TASK, AGENT_INSIGHT
         jira-data: JIRA_ISSUE, JIRA_COMMENT
+        discussions (github namespace): GITHUB_ISSUE, GITHUB_ISSUE_COMMENT, GITHUB_PR,
+            GITHUB_PR_DIFF, GITHUB_PR_REVIEW, GITHUB_COMMIT, GITHUB_CODE_BLOB,
+            GITHUB_CI_RESULT, GITHUB_RELEASE
     """
 
     # === code-patterns collection (HOW things are built) ===
@@ -60,6 +64,24 @@ class MemoryType(str, Enum):
     # === jira-data collection (External work items from Jira Cloud) ===
     JIRA_ISSUE = "jira_issue"  # Jira issue with metadata
     JIRA_COMMENT = "jira_comment"  # Jira issue comment
+
+    # === discussions collection — Agent namespace (SPEC-015, AD-7) ===
+    AGENT_HANDOFF = "agent_handoff"  # Session handoff summaries
+    AGENT_MEMORY = "agent_memory"  # General agent memories, project knowledge
+    AGENT_TASK = "agent_task"  # Task state tracking
+    AGENT_INSIGHT = "agent_insight"  # Insights, learnings, patterns
+
+    # === discussions collection — GitHub namespace (WHAT code DID do) ===
+    # Stored with source="github" for namespace isolation (AD-1, BP-075)
+    GITHUB_ISSUE = "github_issue"  # Issue title + body
+    GITHUB_ISSUE_COMMENT = "github_issue_comment"  # Issue comment body
+    GITHUB_PR = "github_pr"  # PR title + description
+    GITHUB_PR_DIFF = "github_pr_diff"  # PR diff summary (chunked)
+    GITHUB_PR_REVIEW = "github_pr_review"  # PR review comment
+    GITHUB_COMMIT = "github_commit"  # Commit message + stats
+    GITHUB_CODE_BLOB = "github_code_blob"  # File content (AST-chunked)
+    GITHUB_CI_RESULT = "github_ci_result"  # CI workflow result
+    GITHUB_RELEASE = "github_release"  # Release notes
 
 
 class ImportanceLevel(str, Enum):
@@ -148,6 +170,13 @@ class MemoryPayload:
     source_date: str | None = None  # ISO 8601 date when source was published/updated
     auto_seeded: bool = False  # True = auto-captured by agent, False = manually seeded
 
+    # Decay & freshness fields (v2.0.6)
+    decay_score: float = 1.0
+    freshness_status: str = "unverified"
+    source_authority: float = 0.4
+    is_current: bool = True
+    version: int = 1
+
     def to_dict(self) -> dict:
         """Convert to dictionary for Qdrant storage.
 
@@ -169,6 +198,7 @@ class MemoryPayload:
             "source_hook": self.source_hook,
             "session_id": self.session_id,
             "timestamp": self.timestamp,
+            "stored_at": self.timestamp,  # W4C-001: alias for decay scoring + freshness
             "domain": self.domain,
             "importance": self.importance,
             "embedding_status": (
@@ -195,6 +225,13 @@ class MemoryPayload:
         if self.source_date is not None:
             result["source_date"] = self.source_date
         result["auto_seeded"] = self.auto_seeded  # Always include (bool has default)
+
+        # Decay & freshness fields (v2.0.6)
+        result["decay_score"] = self.decay_score
+        result["freshness_status"] = self.freshness_status
+        result["source_authority"] = self.source_authority
+        result["is_current"] = self.is_current
+        result["version"] = self.version
 
         # Include created_at if set (TECH-DEBT-012 Round 3)
         if self.created_at is not None:

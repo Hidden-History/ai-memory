@@ -71,7 +71,10 @@ memory_retrievals_total, retrieval_duration_seconds, _ = get_metrics()
 
 # TECH-DEBT-142: Import push metrics for Pushgateway
 try:
-    from memory.metrics_push import push_hook_metrics_async, push_retrieval_metrics_async
+    from memory.metrics_push import (
+        push_hook_metrics_async,
+        push_retrieval_metrics_async,
+    )
 except ImportError:
     push_hook_metrics_async = None
     push_retrieval_metrics_async = None
@@ -263,7 +266,8 @@ def main() -> int:
         # When auto-trigger is removed from settings.json, this script
         # will only be called by review agents or manual skills
         explicit_mode = (
-            os.environ.get("AI_MEMORY_BEST_PRACTICES_EXPLICIT", "false").lower() == "true"
+            os.environ.get("AI_MEMORY_BEST_PRACTICES_EXPLICIT", "false").lower()
+            == "true"
         )
 
         # If called without explicit flag and not by a review agent, exit silently

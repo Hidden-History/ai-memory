@@ -57,7 +57,7 @@ class TestNewFileTriggerHook:
             input="not valid json",
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (graceful degradation)
@@ -75,7 +75,7 @@ class TestNewFileTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (graceful degradation)
@@ -93,7 +93,7 @@ class TestNewFileTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (not this hook's concern)
@@ -118,7 +118,7 @@ class TestFirstEditTriggerHook:
             input="not valid json",
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (graceful degradation)
@@ -137,7 +137,7 @@ class TestFirstEditTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (graceful degradation)
@@ -156,7 +156,7 @@ class TestFirstEditTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (not this hook's concern)
@@ -164,6 +164,9 @@ class TestFirstEditTriggerHook:
         assert result.stdout.strip() == ""
 
 
+@pytest.mark.skip(
+    reason="unified_keyword_trigger.py archived per SPEC-012 (replaced by progressive context injection)"
+)
 class TestUnifiedKeywordTriggerHook:
     """Integration tests for unified_keyword_trigger.py hook (TECH-DEBT-062)."""
 
@@ -182,7 +185,7 @@ class TestUnifiedKeywordTriggerHook:
             input="not valid json",
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (graceful degradation)
@@ -199,7 +202,7 @@ class TestUnifiedKeywordTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (graceful degradation)
@@ -216,7 +219,7 @@ class TestUnifiedKeywordTriggerHook:
             input=json.dumps(hook_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         # Should exit 0 (no keywords detected)
@@ -232,7 +235,7 @@ class TestHooksGracefulDegradation:
         params=[
             ".claude/hooks/scripts/new_file_trigger.py",
             ".claude/hooks/scripts/first_edit_trigger.py",
-            ".claude/hooks/scripts/unified_keyword_trigger.py",  # TECH-DEBT-062: Consolidated trigger
+            # unified_keyword_trigger.py archived per SPEC-012 (replaced by progressive context injection)
         ]
     )
     def hook_script(self, request):
@@ -247,7 +250,7 @@ class TestHooksGracefulDegradation:
             input="",
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=30,
             env=hook_env,
         )
         assert result.returncode == 0

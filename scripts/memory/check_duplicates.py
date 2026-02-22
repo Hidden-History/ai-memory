@@ -30,7 +30,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
 
 # Add src to path for imports
 INSTALL_DIR = os.environ.get(
@@ -46,7 +45,6 @@ try:
 except ImportError:
     # Running from dev repo
     sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
-    from memory.config import get_config
     from memory.embeddings import EmbeddingClient, EmbeddingError
     from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 
@@ -70,7 +68,7 @@ def generate_content_hash(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def check_hash_duplicate(client, content_hash: str) -> Tuple[bool, List[Dict]]:
+def check_hash_duplicate(client, content_hash: str) -> tuple[bool, list[dict]]:
     """
     Check for exact duplicate by content hash across all collections.
 
@@ -113,7 +111,7 @@ def check_hash_duplicate(client, content_hash: str) -> Tuple[bool, List[Dict]]:
     return len(duplicates) > 0, duplicates
 
 
-def check_semantic_duplicate(client, content: str) -> Tuple[bool, List[Dict]]:
+def check_semantic_duplicate(client, content: str) -> tuple[bool, list[dict]]:
     """
     Check for semantically similar content across all collections.
 
@@ -169,7 +167,7 @@ def check_semantic_duplicate(client, content: str) -> Tuple[bool, List[Dict]]:
     return len(similar) > 0, similar
 
 
-def check_unique_id_collision(client, unique_id: str) -> Tuple[bool, Optional[Dict]]:
+def check_unique_id_collision(client, unique_id: str) -> tuple[bool, dict | None]:
     """
     Check if unique_id already exists in any collection.
 
@@ -208,9 +206,9 @@ def check_unique_id_collision(client, unique_id: str) -> Tuple[bool, Optional[Di
 
 def check_for_duplicates(
     content: str,
-    unique_id: Optional[str] = None,
+    unique_id: str | None = None,
     skip_semantic: bool = False,
-) -> Tuple[bool, Dict]:
+) -> tuple[bool, dict]:
     """
     Complete duplicate detection with all proven patterns.
 
@@ -269,7 +267,7 @@ def check_for_duplicates(
     return duplicates_found, details
 
 
-def format_results(duplicates_found: bool, details: Dict) -> str:
+def format_results(duplicates_found: bool, details: dict) -> str:
     """Format duplicate check results for display."""
     lines = [
         "\n" + "=" * 60,
@@ -350,7 +348,7 @@ def main():
         content = args.content
     else:
         try:
-            with open(args.content_file, "r") as f:
+            with open(args.content_file) as f:
                 content = f.read()
         except FileNotFoundError:
             print(f"ERROR: Content file not found: {args.content_file}")
@@ -360,7 +358,7 @@ def main():
     unique_id = args.unique_id
     if args.metadata:
         try:
-            with open(args.metadata, "r") as f:
+            with open(args.metadata) as f:
                 metadata = json.load(f)
                 unique_id = metadata.get("unique_id")
         except (FileNotFoundError, json.JSONDecodeError) as e:

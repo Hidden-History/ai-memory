@@ -838,7 +838,7 @@ class TestASTChunkerBUG075:
     def test_preserves_comment_headers(self):
         """BUG-075: Comment headers before functions should be preserved."""
         chunker = ASTChunker()
-        code = '''// This is a test file
+        code = """// This is a test file
 // Author: Test Author
 
 function hello() {
@@ -848,7 +848,7 @@ function hello() {
 function world() {
     return "world";
 }
-'''
+"""
         chunks = chunker.chunk(code, "test.js")
         # Comment header should be preserved in chunks
         assert "// This is a test file" in chunks[0].content
@@ -857,7 +857,7 @@ function world() {
     def test_multibyte_utf8_characters(self):
         """BUG-075: Multi-byte UTF-8 chars should not cause offset drift."""
         chunker = ASTChunker()
-        code = '''# Description \u2014 with em dash
+        code = """# Description \u2014 with em dash
 # More info \u2013 en dash too
 
 def foo():
@@ -865,7 +865,7 @@ def foo():
 
 def bar():
     return "goodbye"
-'''
+"""
         chunks = chunker.chunk(code, "test.py")
         # Both functions should be extracted correctly
         assert "def foo():" in chunks[0].content
@@ -876,12 +876,12 @@ def bar():
     def test_comment_only_header_no_imports(self):
         """BUG-075: Files with comments but no imports should preserve comments."""
         chunker = ASTChunker()
-        code = '''# No imports in this file
+        code = """# No imports in this file
 # Just comments
 
 def standalone():
     x = 1
     return x
-'''
+"""
         chunks = chunker.chunk(code, "test.py")
         assert "# No imports in this file" in chunks[0].content

@@ -48,6 +48,7 @@ VALID_DIRECTIONS = {"input", "output", "stored"}
 VALID_HOOK_TYPES = {
     "SessionStart",
     "UserPromptSubmit",
+    "UserPromptSubmit_Tier2",  # SPEC-012: Tier 2 per-turn context injection
     "PreToolUse",
     "PreToolUse_NewFile",  # CR-3: New file creation trigger variant
     "PreToolUse_FirstEdit",  # TECH-DEBT-141: First edit trigger
@@ -142,9 +143,11 @@ def push_hook_metrics(
 
     try:
         pushadd_to_gateway(
-            PUSHGATEWAY_URL, job=JOB_NAME,
+            PUSHGATEWAY_URL,
+            job=JOB_NAME,
             grouping_key={"instance": f"hook_{hook_name}"},
-            registry=registry, timeout=0.5
+            registry=registry,
+            timeout=0.5,
         )
     except Exception as e:
         logger.warning(
@@ -618,6 +621,7 @@ def push_embedding_metrics_async(
     duration_seconds: float,
     context: str = "realtime",
     project: str = "unknown",
+    model: str = "en",
 ):
     """Push embedding request metrics asynchronously (fire-and-forget).
 
@@ -633,6 +637,7 @@ def push_embedding_metrics_async(
         duration_seconds: Embedding generation duration
         context: "realtime" (NFR-P6) or "batch" (NFR-P2) - determines latency target
         project: Project name for multi-tenancy
+        model: Embedding model key ("en" for prose, "code" for code) per SPEC-010
     """
     if not PUSHGATEWAY_ENABLED:
         return
@@ -652,6 +657,7 @@ def push_embedding_metrics_async(
             "duration_seconds": duration_seconds,
             "context": context,
             "project": project,
+            "model": model,
         }
 
         # Fork to background using subprocess.Popen
@@ -669,13 +675,15 @@ registry = CollectorRegistry()
 requests = Counter(
     "aimemory_embedding_requests_total",
     "Total embedding requests",
-    ["status", "embedding_type", "context"],
+    ["status", "embedding_type", "context", "project", "model"],
     registry=registry
 )
 requests.labels(
     status=data["status"],
     embedding_type=data["embedding_type"],
-    context=data["context"]
+    context=data["context"],
+    project=data["project"],
+    model=data["model"]
 ).inc()
 
 # Use appropriate histogram based on context
@@ -1448,4 +1456,106 @@ except Exception as e:
         logger.warning(
             "metrics_fork_failed",
             extra={"error": str(e), "metric": "session_injection"},
+        )
+
+
+def push_freshness_metrics_async(
+    fresh: int,
+    aging: int,
+    stale: int,
+    expired: int,
+    unknown: int,
+    duration_seconds: float,
+    project: str = "unknown",
+) -> None:
+    """Push freshness scan metrics asynchronously (fire-and-forget).
+
+    Uses subprocess fork pattern to avoid blocking freshness scan execution.
+
+    Args:
+        fresh: Count of fresh memories.
+        aging: Count of aging memories.
+        stale: Count of stale memories.
+        expired: Count of expired memories.
+        unknown: Count of unknown memories.
+        duration_seconds: Scan duration.
+        project: Project name.
+    """
+    if not PUSHGATEWAY_ENABLED:
+        return
+
+    # Validate labels
+    project = _validate_label(project, "project")
+
+    try:
+        # Serialize metrics data for background process
+        metrics_data = {
+            "fresh": fresh,
+            "aging": aging,
+            "stale": stale,
+            "expired": expired,
+            "unknown": unknown,
+            "duration_seconds": duration_seconds,
+            "project": project,
+        }
+
+        # Fork to background using subprocess.Popen
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                f"""
+import json, os
+from prometheus_client import CollectorRegistry, Gauge, Histogram, pushadd_to_gateway
+
+data = json.loads({json.dumps(metrics_data)!r})
+registry = CollectorRegistry()
+
+# Freshness scan duration histogram
+duration = Histogram(
+    "aimemory_freshness_scan_duration_seconds",
+    "Freshness scan duration",
+    ["project"],
+    registry=registry,
+    buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0)
+)
+duration.labels(project=data["project"]).observe(data["duration_seconds"])
+
+# Freshness memories count gauge (by status)
+memories = Gauge(
+    "aimemory_freshness_memories_total",
+    "Current count of memories by freshness tier",
+    ["status", "project"],
+    registry=registry
+)
+memories.labels(status="fresh", project=data["project"]).set(data["fresh"])
+memories.labels(status="aging", project=data["project"]).set(data["aging"])
+memories.labels(status="stale", project=data["project"]).set(data["stale"])
+memories.labels(status="expired", project=data["project"]).set(data["expired"])
+memories.labels(status="unknown", project=data["project"]).set(data["unknown"])
+
+try:
+    pushadd_to_gateway(
+        os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
+        job="ai_memory_hooks",
+        grouping_key={{"instance": "freshness"}},
+        registry=registry,
+        timeout=0.5
+    )
+except Exception as e:
+    import logging
+    logging.getLogger("ai_memory.metrics").warning(
+        "pushgateway_async_failed",
+        extra={{"error": str(e), "metric": "freshness"}}
+    )
+""",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "metrics_fork_failed",
+            extra={"error": str(e), "metric": "freshness"},
         )

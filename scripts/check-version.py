@@ -14,7 +14,6 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 import httpx
 
@@ -29,7 +28,7 @@ GITHUB_REPO = os.environ.get("AI_MEMORY_GITHUB_REPO", "ai-memory-module")
 MAX_RETRIES = int(os.environ.get("AI_MEMORY_VERSION_CHECK_RETRIES", "3"))
 
 
-def get_latest_version() -> Optional[str]:
+def get_latest_version() -> str | None:
     """Fetch latest version from GitHub releases with retry logic.
 
     2026 Best Practices:
@@ -68,7 +67,7 @@ def get_latest_version() -> Optional[str]:
             tag_name = response.json()["tag_name"]
             return tag_name.lstrip("v")
 
-        except httpx.TimeoutException as e:
+        except httpx.TimeoutException:
             last_error = "Timeout checking for updates (network slow or offline)"
             # Exponential backoff: 1s, 2s, 4s
             if attempt < MAX_RETRIES - 1:

@@ -13,6 +13,13 @@
   - [Search & Retrieval](#search--retrieval)
   - [Performance Tuning](#performance-tuning)
   - [Logging & Monitoring](#logging--monitoring)
+- [Temporal Configuration](#temporal-configuration)
+  - [Decay & Freshness](#decay--freshness)
+  - [GitHub Sync](#github-sync)
+- [Feature Configuration](#feature-configuration)
+  - [Parzival Session Agent](#parzival-session-agent)
+  - [Security Scanning](#security-scanning)
+  - [Context Injection](#context-injection)
 - [Docker Configuration](#docker-configuration)
 - [Hook Configuration](#hook-configuration)
 - [Agent-Specific Configuration](#agent-specific-configuration)
@@ -57,12 +64,13 @@ Defaults → Environment Variables → Runtime Overrides
 **Format:**
 ```bash
 # Core Settings
-QDRANT_URL=http://localhost:26350
-MEMORY_LOG_LEVEL=INFO
+QDRANT_HOST=localhost
+QDRANT_PORT=26350
+LOG_LEVEL=INFO
 
 # Performance
-MEMORY_MAX_RETRIEVALS=10
-MEMORY_SIMILARITY_THRESHOLD=0.7
+MAX_RETRIEVALS=10
+SIMILARITY_THRESHOLD=0.7
 ```
 
 **When to use:**
@@ -163,12 +171,11 @@ export AI_MEMORY_PROJECT_ID=my-awesome-project
 ```
 
 **Related:**
-- `QDRANT_COLLECTION_PREFIX` - Collection-level isolation
 - `group_id` payload field - Record-level isolation
 
 ---
 
-#### MEMORY_LOG_LEVEL
+#### LOG_LEVEL
 **Purpose:** Logging verbosity
 
 **Default:** `INFO`
@@ -182,7 +189,7 @@ export AI_MEMORY_PROJECT_ID=my-awesome-project
 
 **Example:**
 ```bash
-export MEMORY_LOG_LEVEL=DEBUG
+export LOG_LEVEL=DEBUG
 ```
 
 **When to change:**
@@ -197,32 +204,51 @@ export MEMORY_LOG_LEVEL=DEBUG
 
 ### Qdrant Configuration
 
-#### QDRANT_URL
-**Purpose:** Qdrant vector database connection URL
+#### QDRANT_HOST
+**Purpose:** Qdrant vector database hostname
 
-**Default:** `http://localhost:26350`
+**Default:** `localhost`
 
-**Format:** `http://HOST:PORT` or `https://HOST:PORT`
+**Format:** Hostname or IP address
 
 **Example:**
 ```bash
-# Local development
-export QDRANT_URL=http://localhost:26350
+# Local development (default)
+export QDRANT_HOST=localhost
 
 # Remote Qdrant Cloud
-export QDRANT_URL=https://xyz.qdrant.io
+export QDRANT_HOST=xyz.qdrant.io
+
+# Docker network
+export QDRANT_HOST=ai-memory-qdrant
+```
+
+**Related:**
+- `QDRANT_PORT` - Qdrant server port
+- `QDRANT_API_KEY` - For Qdrant Cloud authentication
+- `QDRANT_USE_HTTPS` - Enable HTTPS for connections
+
+---
+
+#### QDRANT_PORT
+**Purpose:** Qdrant vector database port
+
+**Default:** `26350`
+
+**Format:** Integer (port number)
+
+**Example:**
+```bash
+# Default
+export QDRANT_PORT=26350
 
 # Custom port
-export QDRANT_URL=http://localhost:16333
+export QDRANT_PORT=16333
 ```
 
 **When to change:**
 - **Custom port**: Avoid conflicts with other services
 - **Remote Qdrant**: Using Qdrant Cloud or shared instance
-- **Docker network**: Using custom Docker network
-
-**Related:**
-- `QDRANT_API_KEY` - For Qdrant Cloud authentication
 
 ---
 
@@ -251,80 +277,91 @@ export QDRANT_API_KEY=your-api-key-here
 
 ---
 
-#### QDRANT_COLLECTION_PREFIX
-**Purpose:** Prefix for collection names (multi-tenancy)
+#### QDRANT_USE_HTTPS
+**Purpose:** Use HTTPS instead of HTTP for Qdrant connections
 
-**Default:** `ai_memory_` (results in `ai_memory_code-patterns`, `ai_memory_discussions`, etc.)
+**Default:** `false`
 
-**Format:** String (alphanumeric + underscore)
+**Options:** `true`, `false`
+
+**Format:** Boolean (`true`/`false`)
 
 **Example:**
 ```bash
-# Default
-export QDRANT_COLLECTION_PREFIX=ai_memory_
+# Required for Qdrant Cloud or secured remote instances
+export QDRANT_USE_HTTPS=true
 
-# Testing
-export QDRANT_COLLECTION_PREFIX=test_
-
-# Per-user
-export QDRANT_COLLECTION_PREFIX=user_alice_
+# Local development (default — Docker services use plain HTTP)
+export QDRANT_USE_HTTPS=false
 ```
 
 **When to change:**
-- **Testing**: Isolate test data from production
-- **Multi-user**: Separate collections per user
-- **Multi-environment**: dev/staging/prod isolation
+- **Qdrant Cloud**: Always set to `true` (Qdrant Cloud requires HTTPS)
+- **Remote production**: Enable when connecting to a secured Qdrant instance with TLS
+- **Local development**: Leave `false` (local Docker services use plain HTTP)
 
-**Impact:**
-- Collections created: `{prefix}code-patterns`, `{prefix}discussions`, `{prefix}conventions`
+**Related:**
+- `QDRANT_HOST` - Qdrant server hostname
+- `QDRANT_API_KEY` - Authentication key
 
 ---
 
 ### Embedding Configuration
 
-#### EMBEDDING_URL
-**Purpose:** Embedding service endpoint
+#### EMBEDDING_HOST
+**Purpose:** Embedding service hostname
 
-**Default:** `http://localhost:28080/embed`
+**Default:** `localhost`
 
-**Format:** `http://HOST:PORT/PATH`
+**Format:** Hostname or IP address
 
 **Example:**
 ```bash
-# Local development
-export EMBEDDING_URL=http://localhost:28080/embed
+# Local development (default)
+export EMBEDDING_HOST=localhost
 
-# Custom port
-export EMBEDDING_URL=http://localhost:18080/embed
-
-# External service (Jina AI API)
-export EMBEDDING_URL=https://api.jina.ai/v1/embeddings
+# Docker network
+export EMBEDDING_HOST=ai-memory-embedding
 ```
 
-**When to change:**
-- **Custom port**: Avoid conflicts
-- **External service**: Using Jina AI API instead of self-hosted
-- **Load balancer**: Multiple embedding service instances
+**Related:**
+- `EMBEDDING_PORT` - Embedding service port
 
 ---
 
-#### EMBEDDING_MODEL
-**Purpose:** Embedding model identifier
+#### EMBEDDING_PORT
+**Purpose:** Embedding service port
 
-**Default:** `jinaai/jina-embeddings-v2-base-en` (768 dimensions)
+**Default:** `28080`
 
-**Options:**
-- `jinaai/jina-embeddings-v2-base-en` - General purpose with code support (768d) ✅ Recommended
-- `jinaai/jina-embeddings-v2-base-code` - Code-specific variant (768d)
+**Format:** Integer (port number)
 
 **Example:**
 ```bash
-export EMBEDDING_MODEL=jinaai/jina-embeddings-v2-base-en
+# Default
+export EMBEDDING_PORT=28080
+
+# Custom port
+export EMBEDDING_PORT=18080
 ```
 
 **When to change:**
-- **Specialized needs**: Use code-specific variant for pure code embeddings
-- **Testing**: Compare model performance
+- **Custom port**: Avoid conflicts with other services
+
+---
+
+#### EMBEDDING_MODEL_DENSE_EN
+**Purpose:** Prose embedding model identifier (used for non-code content)
+
+**Default:** `jinaai/jina-embeddings-v2-base-en` (768 dimensions)
+
+**Example:**
+```bash
+export EMBEDDING_MODEL_DENSE_EN=jinaai/jina-embeddings-v2-base-en
+```
+
+**When to change:**
+- Upgrading to a new Jina embedding model release
 
 ⚠️ **Warning:** Changing models invalidates existing embeddings. You must:
 1. Stop services
@@ -333,56 +370,43 @@ export EMBEDDING_MODEL=jinaai/jina-embeddings-v2-base-en
 
 ---
 
-#### EMBEDDING_TIMEOUT
-**Purpose:** Maximum time to wait for embedding generation
+#### EMBEDDING_MODEL_DENSE_CODE
+**Purpose:** Code embedding model identifier (used for code content)
 
-**Default:** `30` seconds
-
-**Format:** Integer (seconds)
+**Default:** `jinaai/jina-embeddings-v2-base-code` (768 dimensions)
 
 **Example:**
 ```bash
-# Default
-export EMBEDDING_TIMEOUT=30
-
-# Faster timeout (aggressive)
-export EMBEDDING_TIMEOUT=10
-
-# Slower connection
-export EMBEDDING_TIMEOUT=60
+export EMBEDDING_MODEL_DENSE_CODE=jinaai/jina-embeddings-v2-base-code
 ```
 
 **When to change:**
-- **Slow network**: Increase timeout
-- **Production**: Lower timeout to fail fast (use graceful degradation)
-
-**Graceful Degradation:**
-If embedding fails, system stores memory with zero vector and `embedding_status=pending`
+- Upgrading to a new Jina code embedding model release
 
 ---
 
 ### Search & Retrieval
 
-#### MEMORY_MAX_RETRIEVALS
+#### MAX_RETRIEVALS
 **Purpose:** Maximum memories to retrieve in search/SessionStart
 
 **Default:** `5`
 
-**Format:** Integer (1-20)
+**Format:** Integer (1-50)
 
 **Example:**
 ```bash
 # Conservative (faster, less context)
-export MEMORY_MAX_RETRIEVALS=3
+export MAX_RETRIEVALS=3
 
 # Default
-export MEMORY_MAX_RETRIEVALS=5
+export MAX_RETRIEVALS=5
 
 # Comprehensive (slower, more context)
-export MEMORY_MAX_RETRIEVALS=10
+export MAX_RETRIEVALS=10
 
 # Maximum
-export MEMORY_MAX_RETRIEVALS=20
+export MAX_RETRIEVALS=50
 ```
 
 **When to change:**
@@ -396,23 +420,23 @@ export MEMORY_MAX_RETRIEVALS=20
 
 ---
 
-#### MEMORY_SIMILARITY_THRESHOLD
+#### SIMILARITY_THRESHOLD
 **Purpose:** Minimum similarity score for search results (0-1)
 
-**Default:** `0.5` (50%)
+**Default:** `0.7` (70%)
 
 **Format:** Float (0.0 to 1.0)
 
 **Example:**
 ```bash
 # Strict (only high relevance)
-export MEMORY_SIMILARITY_THRESHOLD=0.8
+export SIMILARITY_THRESHOLD=0.8
 
 # Default (medium relevance)
-export MEMORY_SIMILARITY_THRESHOLD=0.5
+export SIMILARITY_THRESHOLD=0.7
 
 # Permissive (include low relevance)
-export MEMORY_SIMILARITY_THRESHOLD=0.3
+export SIMILARITY_THRESHOLD=0.3
 ```
 
 **When to change:**
@@ -429,111 +453,10 @@ export MEMORY_SIMILARITY_THRESHOLD=0.3
 
 ---
 
-#### MEMORY_SESSION_WINDOW_HOURS
-**Purpose:** SessionStart retrieval time window (hours)
-
-**Default:** `48` (2 days)
-
-**Format:** Integer (hours)
-
-**Example:**
-```bash
-# Short window (recent sessions only)
-export MEMORY_SESSION_WINDOW_HOURS=24
-
-# Default
-export MEMORY_SESSION_WINDOW_HOURS=48
-
-# Long window (full history)
-export MEMORY_SESSION_WINDOW_HOURS=168  # 1 week
-```
-
-**When to change:**
-- **Recent focus**: Short window for active projects
-- **Long-term recall**: Longer window for dormant projects
-- **Performance**: Shorter window = faster searches
-
-**Impact:**
-- SessionStart only retrieves memories with `created_at` within this window
-- Older memories still exist but won't appear in automatic context
-
----
-
-### Performance Tuning
-
-#### MEMORY_BATCH_SIZE
-**Purpose:** Batch size for bulk operations
-
-**Default:** `100`
-
-**Format:** Integer (1-1000)
-
-**Example:**
-```bash
-export MEMORY_BATCH_SIZE=100
-```
-
-**When to change:**
-- **Large imports**: Increase for better throughput
-- **Memory constraints**: Decrease if hitting RAM limits
-
-**Impact:**
-- Embedding generation: Processes N items at once
-- Qdrant upsert: Batches N points per request
-
----
-
-#### MEMORY_CACHE_TTL
-**Purpose:** Cache time-to-live for embeddings and search results
-
-**Default:** `1800` (30 minutes)
-
-**Format:** Integer (seconds)
-
-**Example:**
-```bash
-# No caching
-export MEMORY_CACHE_TTL=0
-
-# Default (30 minutes)
-export MEMORY_CACHE_TTL=1800
-
-# Long cache (1 hour)
-export MEMORY_CACHE_TTL=3600
-```
-
-**When to change:**
-- **Development**: Set to 0 to disable caching
-- **Production**: Increase for better performance
-
-**What's cached:**
-- Query embeddings (same query = reuse embedding)
-- Search results (for identical queries)
-
----
-
-#### MEMORY_FORK_TIMEOUT
-**Purpose:** PostToolUse fork timeout (background process spawn)
-
-**Default:** `1000` (1 second)
-
-**Format:** Integer (milliseconds)
-
-**Example:**
-```bash
-export MEMORY_FORK_TIMEOUT=1000
-```
-
-**When to change:**
-- Slow disk I/O (increase timeout)
-- Should rarely need adjustment (fork is fast)
-
----
-
 ### Logging & Monitoring
 
-#### MEMORY_PROMETHEUS_PORT
-**Purpose:** Prometheus metrics exporter port
+#### MONITORING_PORT
+**Purpose:** Monitoring API port (health checks and metrics endpoint)
 
 **Default:** `28000`
 
@@ -541,7 +464,7 @@ export MEMORY_FORK_TIMEOUT=1000
 
 **Example:**
 ```bash
-export MEMORY_PROMETHEUS_PORT=28000
+export MONITORING_PORT=28000
 ```
 
 **When to change:**
@@ -552,8 +475,170 @@ export MEMORY_PROMETHEUS_PORT=28000
 
 ---
 
-#### MEMORY_STRUCTURED_LOGGING
-**Purpose:** Enable structured JSON logging
+#### LOG_FORMAT
+**Purpose:** Log output format
+
+**Default:** `json`
+
+**Options:** `json`, `text`
+
+**Example:**
+```bash
+# Structured logging (JSON) — default, recommended for production
+export LOG_FORMAT=json
+
+# Human-readable logging
+export LOG_FORMAT=text
+```
+
+**When to change:**
+- **Production**: Keep `json` for log aggregation (ELK, Splunk)
+- **Development**: Use `text` for human readability
+
+**Output Example:**
+
+```json
+// Structured (LOG_FORMAT=json)
+{"timestamp": "2026-01-17T10:30:00Z", "level": "INFO", "event": "memory_stored", "memory_id": "abc123", "type": "implementation"}
+
+// Human-readable (LOG_FORMAT=text)
+2026-01-17 10:30:00 INFO memory_stored memory_id=abc123 type=implementation
+```
+
+---
+
+## ⏱️ Temporal Configuration
+
+### Decay & Freshness
+
+Controls how memories are scored and ranked over time using a combined semantic + temporal decay model.
+
+**Scoring formula:**
+```
+final_score = DECAY_SEMANTIC_WEIGHT * semantic + (1 - DECAY_SEMANTIC_WEIGHT) * temporal
+temporal    = 0.5 ^ (age_days / half_life_days)
+```
+
+The temporal weight is implicitly `1 - DECAY_SEMANTIC_WEIGHT`. At the half-life age, the temporal component is exactly 0.5, meaning memories age naturally without disappearing.
+
+---
+
+#### DECAY_SEMANTIC_WEIGHT
+**Purpose:** Semantic score weight in the final decay-ranked retrieval score
+
+**Default:** `0.7`
+
+**Format:** Float (0.0 to 1.0)
+
+**Example:**
+```bash
+# Default (semantic-heavy — relevance matters more than recency)
+export DECAY_SEMANTIC_WEIGHT=0.7
+
+# Balanced
+export DECAY_SEMANTIC_WEIGHT=0.5
+
+# Recency-heavy (temporal matters more)
+export DECAY_SEMANTIC_WEIGHT=0.3
+```
+
+**When to change:**
+- **Relevance-first**: Keep at 0.7 (default) when correctness matters more than freshness
+- **Recency-first**: Lower (0.3–0.5) for fast-moving projects where stale patterns are harmful
+- The temporal weight is automatically computed as `1 - DECAY_SEMANTIC_WEIGHT`
+
+---
+
+#### DECAY_HALF_LIFE_CODE_PATTERNS
+**Purpose:** Half-life in days for memories in the `code-patterns` collection
+
+**Default:** `14`
+
+**Format:** Integer (days)
+
+**Example:**
+```bash
+# Default (14 days)
+export DECAY_HALF_LIFE_CODE_PATTERNS=14
+
+# Slow decay (stable library/framework)
+export DECAY_HALF_LIFE_CODE_PATTERNS=30
+
+# Very slow decay
+export DECAY_HALF_LIFE_CODE_PATTERNS=90
+```
+
+**When to change:**
+- **Lower**: Projects with frequent refactors where old patterns quickly become outdated
+- **Higher**: Mature codebases with stable conventions that evolve slowly
+
+---
+
+#### DECAY_HALF_LIFE_DISCUSSIONS
+**Purpose:** Half-life in days for memories in the `discussions` collection
+
+**Default:** `21`
+
+**Format:** Integer (days)
+
+**Example:**
+```bash
+export DECAY_HALF_LIFE_DISCUSSIONS=21
+```
+
+**When to change:**
+- **Lower**: High-velocity teams where decisions are revisited frequently
+- **Higher**: Slow-moving projects where architectural discussions remain relevant for months
+
+---
+
+#### DECAY_HALF_LIFE_CONVENTIONS
+**Purpose:** Half-life in days for memories in the `conventions` collection
+
+**Default:** `60`
+
+**Format:** Integer (days)
+
+**Example:**
+```bash
+# Default (60 days — conventions change slowly)
+export DECAY_HALF_LIFE_CONVENTIONS=60
+
+# Fast-evolving style guide
+export DECAY_HALF_LIFE_CONVENTIONS=30
+```
+
+**When to change:**
+- Conventions typically evolve more slowly than implementation patterns — the higher default reflects this
+- **Lower**: Teams that actively revise coding standards sprint-over-sprint
+
+---
+
+#### DECAY_TYPE_OVERRIDES
+**Purpose:** Per memory-type half-life overrides, applied on top of collection defaults
+
+**Default:** `"github_ci_result:7,agent_task:14,github_code_blob:14,github_commit:14,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,guideline:60,rule:60,agent_handoff:180,agent_insight:180"` (12 type:days pairs)
+
+**Format:** Comma-separated `type:days` pairs
+
+**Example:**
+```bash
+# Override specific memory types (REPLACES all built-in defaults)
+export DECAY_TYPE_OVERRIDES="github_ci_result:7,agent_task:14,guideline:60"
+```
+
+**When to change:**
+- When certain memory types should have different half-lives than the built-in defaults
+- When adding custom memory types that need specific decay rates
+
+**Type override precedence:** `DECAY_TYPE_OVERRIDES` > collection-level half-life defaults
+
+> **Warning:** Setting this env var **replaces** all built-in type overrides, it does not append. If you set `DECAY_TYPE_OVERRIDES=agent_task:14`, only `agent_task` will have a type override — all other types fall back to their collection defaults.
+
+---
+
+#### FRESHNESS_ENABLED
+**Purpose:** Enable freshness detection for code-patterns memories using commit-count thresholds
 
 **Default:** `true`
 
@@ -561,26 +646,541 @@ export MEMORY_PROMETHEUS_PORT=28000
 
 **Example:**
 ```bash
-# Structured logging (JSON)
-export MEMORY_STRUCTURED_LOGGING=true
+# Enable (default) — commit-count freshness tiers used during /freshness-report
+export FRESHNESS_ENABLED=true
 
-# Human-readable logging
-export MEMORY_STRUCTURED_LOGGING=false
+# Disable — skip freshness checks (faster scans, no git dependency)
+export FRESHNESS_ENABLED=false
 ```
 
 **When to change:**
-- **Production**: Enable for log aggregation (ELK, Splunk)
-- **Development**: Disable for human readability
+- **Disable**: Environments without git access (CI containers, non-git directories)
+- **Disable**: When freshness scans are too slow and git history lookups are the bottleneck
 
-**Output Example:**
+**Impact:**
+- When disabled, freshness scoring relies solely on timestamp-based decay; commit-count tier classification is skipped
 
-```json
-// Structured (MEMORY_STRUCTURED_LOGGING=true)
-{"timestamp": "2026-01-17T10:30:00Z", "level": "INFO", "event": "memory_stored", "memory_id": "abc123", "type": "implementation"}
+---
 
-// Human-readable (MEMORY_STRUCTURED_LOGGING=false)
-2026-01-17 10:30:00 INFO memory_stored memory_id=abc123 type=implementation
+### GitHub Sync
+
+Controls synchronisation of GitHub issues, pull requests, and CI results into the AI Memory collections.
+
+---
+
+#### GITHUB_SYNC_ENABLED
+**Purpose:** Enable the GitHub sync background service
+
+**Default:** `false`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+export GITHUB_SYNC_ENABLED=true
 ```
+
+**When to change:**
+- Set to `true` when you want GitHub issues, PRs, and CI results automatically indexed as memories
+- Requires `GITHUB_TOKEN` and `GITHUB_REPO` to be set
+
+---
+
+#### GITHUB_TOKEN
+**Purpose:** GitHub Personal Access Token (fine-grained) for API authentication
+
+**Default:** `""` (no token — sync disabled)
+
+**Format:** String (GitHub PAT)
+
+**Required scopes:** `repo:read`, `issues:read`, `pull_requests:read`
+
+**Example:**
+```bash
+export GITHUB_TOKEN=github_pat_xxxxxxxxxxxxxxxxxxxx
+```
+
+**When to use:**
+- Required when `GITHUB_SYNC_ENABLED=true`
+- Use fine-grained tokens scoped to the specific repository for least privilege
+
+**Security:**
+⚠️ **Never commit tokens to git!**
+- Use `~/.ai-memory/.env` (gitignored)
+- Use your OS keychain or secrets manager
+- Rotate tokens regularly and set expiry dates in GitHub settings
+
+---
+
+#### GITHUB_REPO
+**Purpose:** GitHub repository to sync, in `owner/name` format
+
+**Default:** `""` (no repository)
+
+**Format:** `owner/repo` string
+
+**Example:**
+```bash
+# Public or private repository
+export GITHUB_REPO=Hidden-History/ai-memory
+
+# Personal project
+export GITHUB_REPO=myusername/my-project
+```
+
+**When to change:**
+- Set to your project's repository when enabling GitHub sync
+- Each project's `.env` should specify its own repository
+
+---
+
+#### GITHUB_SYNC_INTERVAL
+**Purpose:** How often (in seconds) the GitHub sync service polls for new data
+
+**Default:** `1800` (30 minutes)
+
+**Format:** Integer (seconds); set to `0` to disable automatic sync
+
+**Example:**
+```bash
+# Default (30 minutes)
+export GITHUB_SYNC_INTERVAL=1800
+
+# Hourly
+export GITHUB_SYNC_INTERVAL=3600
+
+# Disable automatic sync (manual only via /github-sync skill)
+export GITHUB_SYNC_INTERVAL=0
+```
+
+**When to change:**
+- **Lower**: High-velocity projects where you want PR/issue context refreshed more often
+- **Higher**: Cost-sensitive setups or low-activity repositories
+- **0**: When you prefer on-demand sync via the `/github-sync` skill
+
+---
+
+#### GITHUB_CODE_BLOB_ENABLED
+**Purpose:** Enable code blob synchronisation — fetches source files from the repository and stores them as memories in the `code-patterns` collection (separate from PR/issue/commit sync)
+
+**Default:** `true` (when `GITHUB_SYNC_ENABLED=true`)
+
+**Options:** `true`, `false`
+
+**Format:** Boolean (`true`/`false`)
+
+**Example:**
+```bash
+# Enable code blob sync (default)
+export GITHUB_CODE_BLOB_ENABLED=true
+
+# Disable — only sync PRs, issues, and commits; skip source files
+export GITHUB_CODE_BLOB_ENABLED=false
+```
+
+**When to change:**
+- **Disable**: To reduce GitHub API calls and storage when code context is not needed
+- **Disable**: For repositories with very large codebases where blob sync is slow
+- **Enable**: When you want Claude to have access to current source file content as memories
+
+**Related:**
+- `GITHUB_SYNC_ENABLED` — master switch for all GitHub sync
+- `GITHUB_SYNC_INTERVAL` — polling frequency
+
+---
+
+## 🤖 Feature Configuration
+
+### Parzival Session Agent
+
+Controls the Parzival session continuity agent, which manages handoffs between sessions, project oversight, and PM-style tracking.
+
+---
+
+#### PARZIVAL_ENABLED
+**Purpose:** Enable the Parzival session agent and session continuity features
+
+**Default:** `false`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+export PARZIVAL_ENABLED=true
+```
+
+**When to change:**
+- Set to `true` to enable session-to-session continuity, handoff documents, and oversight tracking
+- Requires the oversight folder to be present (see `PARZIVAL_OVERSIGHT_FOLDER`)
+
+---
+
+#### PARZIVAL_USER_NAME
+**Purpose:** Display name used by Parzival when addressing the user in handoffs and status reports
+
+**Default:** `"Developer"`
+
+**Format:** String
+
+**Example:**
+```bash
+export PARZIVAL_USER_NAME="Alice"
+export PARZIVAL_USER_NAME="Team Lead"
+```
+
+**When to change:**
+- Personalise Parzival's communications to use your name or role
+
+---
+
+#### PARZIVAL_LANGUAGE
+**Purpose:** Language Parzival uses for all interactions and spoken output
+
+**Default:** `"English"`
+
+**Format:** Language name string
+
+**Example:**
+```bash
+export PARZIVAL_LANGUAGE="English"
+export PARZIVAL_LANGUAGE="French"
+```
+
+**When to change:**
+- Set to your preferred language for Parzival's verbal communication during sessions
+
+---
+
+#### PARZIVAL_DOC_LANGUAGE
+**Purpose:** Language used in generated documents (handoffs, status reports, oversight files)
+
+**Default:** `"English"`
+
+**Format:** Language name string
+
+**Example:**
+```bash
+export PARZIVAL_DOC_LANGUAGE="English"
+export PARZIVAL_DOC_LANGUAGE="German"
+```
+
+**When to change:**
+- When documentation must be in a different language than verbal interactions (e.g., English communication, German docs)
+
+---
+
+#### PARZIVAL_OVERSIGHT_FOLDER
+**Purpose:** Relative path from the project root to the oversight directory used by Parzival
+
+**Default:** `"oversight"`
+
+**Format:** Relative path string
+
+**Example:**
+```bash
+# Default
+export PARZIVAL_OVERSIGHT_FOLDER=oversight
+
+# Custom location
+export PARZIVAL_OVERSIGHT_FOLDER=docs/oversight
+export PARZIVAL_OVERSIGHT_FOLDER=.parzival
+```
+
+**When to change:**
+- When your project uses a non-standard directory layout
+- When oversight files should be co-located with other documentation
+
+---
+
+#### PARZIVAL_HANDOFF_RETENTION
+**Purpose:** Maximum number of handoff files loaded at session start (older handoffs are not deleted, just skipped)
+
+**Default:** `10`
+
+**Format:** Integer (count)
+
+**Example:**
+```bash
+# Default (last 10 handoffs loaded at startup)
+export PARZIVAL_HANDOFF_RETENTION=10
+
+# Minimal (last 3 handoffs)
+export PARZIVAL_HANDOFF_RETENTION=3
+
+# Extended (last 20 handoffs)
+export PARZIVAL_HANDOFF_RETENTION=20
+```
+
+**When to change:**
+- **Lower**: Reduce SessionStart token usage when handoff history is long
+- **Higher**: Long-running projects where deeper history is needed for continuity
+
+**Note:** Older handoffs beyond the retention count are **not deleted** — they remain in the oversight folder and can be read manually.
+
+---
+
+### Security Scanning
+
+Controls the 3-layer content security scanning pipeline applied before any content is stored in memory.
+
+**Pipeline layers:**
+1. **Layer 1 — Regex patterns**: Fast detection of common secret patterns (API keys, tokens, connection strings)
+2. **Layer 2 — detect-secrets**: Baseline-aware secret scanning
+3. **Layer 3 — SpaCy NER**: Named entity recognition for PII and sensitive data classification
+
+---
+
+#### SECURITY_SCANNING_ENABLED
+**Purpose:** Enable the full 3-layer security scanning pipeline for all incoming content
+
+**Default:** `true`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+# Enable (default — recommended for all environments)
+export SECURITY_SCANNING_ENABLED=true
+
+# Disable (testing only — never in production)
+export SECURITY_SCANNING_ENABLED=false
+```
+
+**When to change:**
+- **Disable only for local testing** where you are deliberately storing test content that would otherwise be flagged
+- ⚠️ Never disable in production or shared environments
+
+---
+
+#### SECURITY_SCANNING_NER_ENABLED
+**Purpose:** Enable Layer 3 SpaCy NER scanning (can be disabled independently if SpaCy is not installed)
+
+**Default:** `true`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+# Enable NER (default)
+export SECURITY_SCANNING_NER_ENABLED=true
+
+# Disable NER (SpaCy not installed or performance concerns)
+export SECURITY_SCANNING_NER_ENABLED=false
+```
+
+**When to change:**
+- **Disable**: SpaCy is not installed in the environment
+- **Disable**: NER scanning adds unacceptable latency in high-throughput hooks
+- Layers 1 and 2 remain active even when NER is disabled
+
+---
+
+#### SECURITY_BLOCK_ON_SECRETS
+**Purpose:** When secrets are detected, block content from being stored (rather than warn-only)
+
+**Default:** `true`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+# Block mode (default — secrets prevent storage)
+export SECURITY_BLOCK_ON_SECRETS=true
+
+# Warn-only mode (secrets logged but content stored anyway)
+export SECURITY_BLOCK_ON_SECRETS=false
+```
+
+**When to change:**
+- **Warn-only mode**: Only during debugging of false-positive detection rules
+- ⚠️ Never set to `false` in production — secrets stored in vector databases are difficult to audit and purge
+
+---
+
+#### SECURITY_SCAN_SESSION_MODE
+**Purpose:** Controls scanning intensity for session content (user prompts, agent responses captured by hooks)
+
+**Default:** `"relaxed"`
+
+**Options:**
+- `relaxed` — Layer 1 regex patterns only (catches real secrets like API keys, tokens). Layer 2 detect-secrets entropy scanning is skipped for session content. This is the recommended default because session discussions about API keys/tokens would otherwise be false-positive blocked.
+- `strict` — Full Layer 1 + Layer 2 scanning for session content (same as non-session content). May cause false positives when discussing security topics.
+- `off` — No security scanning for session content. Not recommended.
+
+**When to change:**
+- Keep `relaxed` (default) for most workflows
+- Use `strict` only if your sessions never discuss API keys, tokens, or security configuration
+- Use `off` only for testing
+
+**Example:**
+```bash
+export SECURITY_SCAN_SESSION_MODE=relaxed
+```
+
+**Background:** Added in v2.0.6 to fix BUG-110, where session content discussing API keys was being blocked by Layer 2 entropy scanning, preventing any session data from being stored.
+
+---
+
+### `AUTO_UPDATE_ENABLED`
+
+Controls whether the memory system automatically updates stale memories when changes are detected.
+
+| Property | Value |
+|----------|-------|
+| **Type** | Boolean |
+| **Default** | `true` |
+| **Required** | No |
+| **Tier** | 2 (Has default, user can override) |
+
+**Usage:**
+- Set to `false` to pause all automatic memory updates (kill switch)
+- Can be toggled via the `/pause-updates` skill
+- When disabled, manual operations (`/github-sync`, `/memory-refresh`) still work
+- Status visible in `/memory-status` output
+
+**Example:**
+```env
+AUTO_UPDATE_ENABLED=true    # Default: automatic updates active
+AUTO_UPDATE_ENABLED=false   # Pause all automatic updates
+```
+
+---
+
+### Context Injection
+
+Controls the two-tier token budget system for injecting memories into Claude's context.
+
+**Tier overview:**
+- **Tier 1 (Bootstrap):** Runs at session start — injects high-priority context: conventions, architectural decisions, Parzival handoffs
+- **Tier 2 (Dynamic):** Runs per-turn — injects decay-ranked memories relevant to the current tool use or query
+
+Budgets are measured in **tokens** (approximately 4 characters per token).
+
+---
+
+#### INJECTION_ENABLED
+**Purpose:** Master switch for the progressive context injection system (both Tier 1 bootstrap and Tier 2 per-turn)
+
+**Default:** `true`
+
+**Options:** `true`, `false`
+
+**Format:** Boolean (`true`/`false`)
+
+**Example:**
+```bash
+# Enable (default)
+export INJECTION_ENABLED=true
+
+# Disable — no memories injected into Claude's context
+export INJECTION_ENABLED=false
+```
+
+**When to change:**
+- **Disable**: When testing or debugging and you want to verify Claude's response without memory context
+- **Disable**: In minimal setups where context injection overhead is not desired
+- Disabling overrides all other injection settings (budget, confidence threshold, etc.)
+
+---
+
+#### BOOTSTRAP_TOKEN_BUDGET
+**Purpose:** Token budget for Tier 1 bootstrap context injection at session start
+
+**Default:** `2500`
+
+**Format:** Integer (tokens, range 500–5000)
+
+**Example:**
+```bash
+# Default
+export BOOTSTRAP_TOKEN_BUDGET=2500
+
+# Reduced (faster SessionStart, less bootstrap context)
+export BOOTSTRAP_TOKEN_BUDGET=1500
+
+# Expanded (richer session bootstrap)
+export BOOTSTRAP_TOKEN_BUDGET=5000
+```
+
+**When to change:**
+- **Lower**: When SessionStart is slow and you want to reduce initial context load
+- **Higher**: On projects with many critical conventions and decisions that must all be visible at session start
+- **Impact**: ~200–400 tokens per memory injected; budget controls how many fit
+
+---
+
+#### INJECTION_CONFIDENCE_THRESHOLD
+**Purpose:** Minimum retrieval confidence score for Tier 2 per-turn injection — if the best match is below this threshold, injection is skipped entirely for that turn
+
+**Default:** `0.6`
+
+**Format:** Float (0.0 to 1.0)
+
+**Example:**
+```bash
+# Default (skip injection when best match is below 60% confidence)
+export INJECTION_CONFIDENCE_THRESHOLD=0.6
+
+# Strict (only inject when highly confident)
+export INJECTION_CONFIDENCE_THRESHOLD=0.8
+
+# Permissive (always attempt injection)
+export INJECTION_CONFIDENCE_THRESHOLD=0.3
+```
+
+**When to change:**
+- **Raise**: Reduce irrelevant per-turn injections (fewer but higher-quality injections)
+- **Lower**: Ensure more injection attempts, even for loosely related queries
+- **Impact**: Directly controls whether Tier 2 fires per turn; Tier 1 bootstrap is unaffected
+
+---
+
+#### INJECTION_BUDGET_FLOOR
+**Purpose:** Minimum token budget for Tier 2 per-turn dynamic context injection
+
+**Default:** `500`
+
+**Format:** Integer (tokens, range 100–2000)
+
+**Example:**
+```bash
+# Default
+export INJECTION_BUDGET_FLOOR=500
+
+# Lower minimum (minimal per-turn overhead)
+export INJECTION_BUDGET_FLOOR=200
+```
+
+**When to change:**
+- **Lower**: Reduce minimum per-turn context when memory overhead is a concern
+- Must be ≤ `INJECTION_BUDGET_CEILING` (validated at startup)
+
+---
+
+#### INJECTION_BUDGET_CEILING
+**Purpose:** Maximum token budget for Tier 2 per-turn dynamic context injection
+
+**Default:** `1500`
+
+**Format:** Integer (tokens, range 500–5000)
+
+**Example:**
+```bash
+# Default
+export INJECTION_BUDGET_CEILING=1500
+
+# Rich per-turn context
+export INJECTION_BUDGET_CEILING=2500
+
+# Minimal ceiling
+export INJECTION_BUDGET_CEILING=800
+```
+
+**When to change:**
+- **Lower**: Reduce per-turn latency in fast-paced interactive sessions
+- **Higher**: When per-turn memory recall frequently misses important context
+- Must be ≥ `INJECTION_BUDGET_FLOOR` (validated at startup)
+- Per-turn injection uses decay-ranked scores, so the highest-relevance memories fill the budget first
 
 ---
 
@@ -640,25 +1240,50 @@ Complete hook configuration example:
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|compact",
+        "matcher": "resume|compact",
         "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/scripts/session_start.py",
-            "timeout": 5000
-          }
+          {"type": "command", "command": ".claude/hooks/scripts/session_start.py", "timeout": 30000}
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/user_prompt_capture.py"}
+        ]
+      },
+      {
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/context_injection_tier2.py", "timeout": 5000}
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/new_file_trigger.py", "timeout": 2000}
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/first_edit_trigger.py", "timeout": 2000}
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|NotebookEdit",
+        "matcher": "Bash",
         "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/scripts/post_tool_capture.py",
-            "timeout": 1000
-          }
+          {"type": "command", "command": ".claude/hooks/scripts/error_detection.py", "timeout": 2000},
+          {"type": "command", "command": ".claude/hooks/scripts/error_pattern_capture.py"}
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/post_tool_capture.py"}
         ]
       }
     ],
@@ -666,11 +1291,14 @@ Complete hook configuration example:
       {
         "matcher": "auto|manual",
         "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/scripts/pre_compact_save.py",
-            "timeout": 10000
-          }
+          {"type": "command", "command": ".claude/hooks/scripts/pre_compact_save.py", "timeout": 10000}
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/scripts/agent_response_capture.py"}
         ]
       }
     ]
@@ -682,9 +1310,12 @@ Complete hook configuration example:
 
 | Hook | Recommended Timeout | Maximum |
 |------|-------------------|---------|
-| SessionStart | 5000ms (5s) | 10000ms |
-| PostToolUse | 1000ms (1s) | 2000ms |
+| SessionStart | 30000ms (30s) | 30000ms |
+| UserPromptSubmit | none / 5000ms (5s) | — |
+| PreToolUse | 2000ms (2s) | 2000ms |
+| PostToolUse | 2000ms (2s) / none | — |
 | PreCompact | 10000ms (10s) | 30000ms |
+| Stop | none | — |
 
 ---
 
@@ -697,13 +1328,23 @@ Configure different token budgets for BMAD agents:
 **File:** `src/memory/config.py`
 
 ```python
-AGENT_TOKEN_BUDGETS = {
-    "default": 2000,        # General sessions
-    "architect": 3000,      # Architecture planning (more context)
-    "pm": 1500,            # PM sessions (less technical)
-    "dev": 2500,           # Development (code-heavy)
-    "tea": 2000,           # Testing (balanced)
-    "sm": 1000,            # Scrum Master (minimal)
+AGENTS = {
+    "architect": {"budget": 1500},       # Architecture planning
+    "analyst": {"budget": 1200},         # Analysis sessions
+    "pm": {"budget": 1200},              # PM sessions
+    "developer": {"budget": 1200},       # Development
+    "dev": {"budget": 1200},             # Development (alias)
+    "solo-dev": {"budget": 1500},        # Solo development
+    "quick-flow-solo-dev": {"budget": 1500},
+    "ux-designer": {"budget": 1000},     # UX design
+    "qa": {"budget": 1000},              # QA testing
+    "tea": {"budget": 1000},             # TEA agent
+    "code-review": {"budget": 1200},     # Code review
+    "code-reviewer": {"budget": 1200},   # Code reviewer (alias)
+    "scrum-master": {"budget": 800},     # Scrum Master (minimal)
+    "sm": {"budget": 800},               # Scrum Master (alias)
+    "tech-writer": {"budget": 800},      # Technical writing
+    "default": {"budget": 1000},         # General sessions
 }
 ```
 
@@ -726,16 +1367,13 @@ AGENT_TOKEN_BUDGETS = {
 # ~/.ai-memory/.env
 
 # Verbose logging
-MEMORY_LOG_LEVEL=DEBUG
+LOG_LEVEL=DEBUG
 
 # Lower threshold (see more results)
-MEMORY_SIMILARITY_THRESHOLD=0.3
+SIMILARITY_THRESHOLD=0.3
 
 # More retrievals (comprehensive context)
-MEMORY_MAX_RETRIEVALS=10
-
-# No caching (always fresh)
-MEMORY_CACHE_TTL=0
+MAX_RETRIEVALS=10
 ```
 
 ### Production Configuration
@@ -744,19 +1382,16 @@ MEMORY_CACHE_TTL=0
 # ~/.ai-memory/.env
 
 # Standard logging
-MEMORY_LOG_LEVEL=INFO
+LOG_LEVEL=INFO
 
 # Strict relevance
-MEMORY_SIMILARITY_THRESHOLD=0.7
+SIMILARITY_THRESHOLD=0.7
 
 # Balanced retrievals
-MEMORY_MAX_RETRIEVALS=5
-
-# Long cache (performance)
-MEMORY_CACHE_TTL=3600
+MAX_RETRIEVALS=5
 
 # Structured logging for aggregation
-MEMORY_STRUCTURED_LOGGING=true
+LOG_FORMAT=json
 ```
 
 ### Testing Configuration
@@ -764,17 +1399,11 @@ MEMORY_STRUCTURED_LOGGING=true
 ```bash
 # ~/.ai-memory/.env
 
-# Test collection prefix
-QDRANT_COLLECTION_PREFIX=test_
-
 # Debug logging
-MEMORY_LOG_LEVEL=DEBUG
+LOG_LEVEL=DEBUG
 
 # Permissive threshold
-MEMORY_SIMILARITY_THRESHOLD=0.2
-
-# Fast timeout (fail fast)
-EMBEDDING_TIMEOUT=5
+SIMILARITY_THRESHOLD=0.2
 ```
 
 ### Remote Qdrant Cloud
@@ -782,15 +1411,12 @@ EMBEDDING_TIMEOUT=5
 ```bash
 # ~/.ai-memory/.env
 
-# Qdrant Cloud URL
-QDRANT_URL=https://xyz-abc.qdrant.io
+# Qdrant Cloud host and HTTPS
+QDRANT_HOST=xyz-abc.qdrant.io
+QDRANT_USE_HTTPS=true
 
 # API key (from Qdrant Cloud console)
 QDRANT_API_KEY=your-api-key-here
-
-# Use external embedding service
-EMBEDDING_URL=https://api.jina.ai/v1/embeddings
-JINA_API_KEY=your-jina-key
 ```
 
 ---
@@ -808,7 +1434,7 @@ JINA_API_KEY=your-jina-key
 ls -la ~/.ai-memory/.env
 
 # Verify variable is set
-python3 -c "from memory.config import get_config; print(get_config().qdrant_url)"
+python3 -c "from memory.config import get_config; c = get_config(); print(c.get_qdrant_url())"
 ```
 
 **Solutions:**
@@ -816,10 +1442,11 @@ python3 -c "from memory.config import get_config; print(get_config().qdrant_url)
 2. **Format**: No quotes around values
    ```bash
    # Correct
-   QDRANT_URL=http://localhost:26350
+   QDRANT_HOST=localhost
+   QDRANT_PORT=26350
 
    # Wrong
-   QDRANT_URL="http://localhost:26350"
+   QDRANT_HOST="localhost"
    ```
 3. **Restart**: Restart hooks/services after changing
 </details>
@@ -852,13 +1479,10 @@ docker compose -f docker/docker-compose.yml up -d
 **Optimizations:**
 ```bash
 # Reduce retrievals
-export MEMORY_MAX_RETRIEVALS=3
+export MAX_RETRIEVALS=3
 
 # Increase threshold (fewer results)
-export MEMORY_SIMILARITY_THRESHOLD=0.7
-
-# Shorter time window
-export MEMORY_SESSION_WINDOW_HOURS=24
+export SIMILARITY_THRESHOLD=0.7
 ```
 </details>
 
@@ -870,6 +1494,9 @@ export MEMORY_SESSION_WINDOW_HOURS=24
 - [INSTALL.md](../INSTALL.md) - Installation and setup
 - [TROUBLESHOOTING.md](../TROUBLESHOOTING.md) - Common issues
 - [prometheus-queries.md](prometheus-queries.md) - Metrics and monitoring
+- [TEMPORAL-FEATURES.md](TEMPORAL-FEATURES.md) - Decay scoring and freshness detection
+- [GITHUB-INTEGRATION.md](GITHUB-INTEGRATION.md) - GitHub sync setup and usage
+- [PARZIVAL-SESSION-GUIDE.md](PARZIVAL-SESSION-GUIDE.md) - Parzival session agent
 
 ---
 

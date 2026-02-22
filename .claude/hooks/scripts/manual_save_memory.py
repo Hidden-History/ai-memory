@@ -6,6 +6,8 @@ to manually save a session summary at any time, not just at compaction.
 
 Usage:
   /save-memory [optional description]
+  /save-memory "description" --type agent_memory
+  /save-memory "description" --type agent_insight
 
 Exit Codes:
 - 0: Success
@@ -198,14 +200,50 @@ This session summary was manually saved by the user using /save-memory command.
         return False
 
 
+def parse_args(argv: list[str]) -> tuple[str, str | None]:
+    """Parse command line arguments.
+
+    Args:
+        argv: Arguments (sys.argv[1:])
+
+    Returns:
+        Tuple of (description, type_override)
+
+    Raises:
+        ValueError: If --type is provided without a value
+    """
+    description_parts = []
+    type_override = None
+
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--type":
+            if i + 1 < len(argv):
+                type_override = argv[i + 1]
+                i += 2
+            else:
+                raise ValueError(
+                    "--type requires a value (agent_memory or agent_insight)"
+                )
+        else:
+            description_parts.append(argv[i])
+            i += 1
+
+    return " ".join(description_parts), type_override
+
+
 def main() -> int:
     """Manual save entry point.
 
     Returns:
         Exit code: 0 (success) or 1 (error)
     """
-    # Get user description from args
-    description = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else ""
+    # Parse arguments: support --type agent_memory|agent_insight
+    try:
+        description, type_override = parse_args(sys.argv[1:])
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
 
     # Get current working directory
     cwd = os.getcwd()
@@ -214,7 +252,75 @@ def main() -> int:
     # Get session ID from environment (set by Claude Code)
     session_id = os.environ.get("CLAUDE_SESSION_ID", "unknown")
 
-    # Store summary
+    # Agent memory storage path (SPEC-017 S4)
+    if type_override in ("agent_memory", "agent_insight"):
+        # Check if parzival is enabled
+        try:
+            from memory.config import get_config
+
+            config = get_config()
+            if not config.parzival_enabled:
+                print(
+                    "Error: Agent memory types require Parzival to be enabled (parzival_enabled=true)",
+                    file=sys.stderr,
+                )
+                return 1
+        except Exception:
+            print(
+                "Error: Could not load config to check parzival_enabled",
+                file=sys.stderr,
+            )
+            return 1
+
+        # Use store_agent_memory() from SPEC-015
+        try:
+            from memory.storage import MemoryStorage
+
+            storage = MemoryStorage()
+            result = storage.store_agent_memory(
+                content=description or "Manual save",
+                memory_type=type_override,
+                agent_id="parzival",
+                group_id=project_name,
+                cwd=cwd,
+            )
+
+            if result["status"] == "stored":
+                print(
+                    f"✅ Saved {type_override} to Parzival namespace for {project_name}"
+                )
+                if description:
+                    print(f"   Note: {description}")
+                log_manual_save(project_name, description, True)
+                return 0
+            elif result["status"] == "blocked":
+                print(
+                    "Content blocked by security scanner (secrets detected)",
+                    file=sys.stderr,
+                )
+                log_manual_save(project_name, description, False)
+                return 1
+            elif result["status"] == "duplicate":
+                print("Content already exists (duplicate)")
+                log_manual_save(project_name, description, True)
+                return 0
+            else:
+                print(f"Unexpected storage result: {result['status']}", file=sys.stderr)
+                log_manual_save(project_name, description, False)
+                return 1
+        except Exception as e:
+            logger.error("agent_memory_save_failed", extra={"error": str(e)})
+            print(f"Error saving agent memory: {e}", file=sys.stderr)
+            log_manual_save(project_name, description, False)
+            return 1
+    elif type_override is not None:
+        print(
+            f"Error: Invalid type '{type_override}'. Must be 'agent_memory' or 'agent_insight'",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Default path: store session summary (existing behavior unchanged)
     success = store_manual_summary(project_name, description, session_id)
 
     # TECH-DEBT-014: Comprehensive activity logging

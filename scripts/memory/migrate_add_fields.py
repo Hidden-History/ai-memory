@@ -36,7 +36,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Add project src to path for local imports
 for path in [
@@ -74,7 +74,7 @@ VALID_AGENTS = [
 ]
 
 
-def infer_agent_from_source(source_hook: str, content: str) -> Optional[str]:
+def infer_agent_from_source(source_hook: str, content: str) -> str | None:
     """Infer agent from source_hook or content if possible.
 
     Heuristics:
@@ -113,7 +113,7 @@ def infer_agent_from_source(source_hook: str, content: str) -> Optional[str]:
     return None
 
 
-def infer_component_from_content(content: str) -> Optional[str]:
+def infer_component_from_content(content: str) -> str | None:
     """Infer component from file paths or content patterns.
 
     Looks for common file path patterns and component keywords.
@@ -150,7 +150,7 @@ def infer_component_from_content(content: str) -> Optional[str]:
     return None
 
 
-def infer_story_id_from_content(content: str) -> Optional[str]:
+def infer_story_id_from_content(content: str) -> str | None:
     """Infer story_id from content patterns.
 
     Looks for story ID patterns like:
@@ -196,17 +196,18 @@ def get_default_importance(memory_type: str) -> str:
     if memory_type in ["architecture_decision", "error_pattern", "database_schema"]:
         return "high"
     # Normal types
-    elif memory_type in ["implementation", "config_pattern", "integration_example"]:
-        return "medium"
-    # Best practices and sessions
-    elif memory_type in ["best_practice", "session_summary"]:
+    elif memory_type in [
+        "implementation",
+        "config_pattern",
+        "integration_example",
+    ] or memory_type in ["best_practice", "session_summary"]:
         return "medium"
     # Everything else
     else:
         return "medium"
 
 
-def process_point(point: Any, dry_run: bool = False) -> Dict[str, Any]:
+def process_point(point: Any, dry_run: bool = False) -> dict[str, Any]:
     """Process a single point and determine updates needed.
 
     Args:
@@ -259,7 +260,7 @@ def process_point(point: Any, dry_run: bool = False) -> Dict[str, Any]:
 
 def migrate_collection(
     collection: str, dry_run: bool = False, qdrant_client: Any = None
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """Migrate a single collection.
 
     Args:

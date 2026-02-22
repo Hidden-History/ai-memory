@@ -22,10 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
@@ -58,10 +58,10 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -77,7 +77,7 @@ jobs:
           pytest tests/ -v --tb=short \
             --ignore=tests/e2e \
             --ignore=tests/integration \
-            --cov=src/memory --cov-report=xml --cov-fail-under=60
+            --cov=src/memory --cov-report=xml --cov-fail-under=70
         env:
           CI: "true"
 
@@ -101,7 +101,7 @@ jobs:
 
     services:
       qdrant:
-        image: qdrant/qdrant:v1.12.1  # Pin version for reproducibility
+        image: qdrant/qdrant:v1.16.3  # Pin version matching docker-compose.yml (SPEC-001: FormulaQuery API)
         ports:
           - 6333:6333
           - 6334:6334
@@ -109,10 +109,10 @@ jobs:
         # Health check performed via Python step below
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
@@ -171,7 +171,7 @@ jobs:
     if: github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[e2e]')
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       # Create .env file with dummy credentials for CI
       - name: Create Docker environment file
@@ -181,22 +181,22 @@ jobs:
           TIMESTAMP=$(date +%s%N)
           PROM_AUTH=$(echo -n "admin:ci-test-prometheus-password" | base64)
 
-          cat > .env << EOF
-# Dummy credentials for CI - security not required for ephemeral test environment
-QDRANT_API_KEY=ci-test-key-${TIMESTAMP}
-GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PASSWORD=ci-test-password
-GRAFANA_SECRET_KEY=ci-test-secret-key-32-characters-long
-PROMETHEUS_ADMIN_PASSWORD=ci-test-prometheus-password
-PROMETHEUS_BASIC_AUTH_HEADER=Basic ${PROM_AUTH}
-QDRANT_PORT=26350
-QDRANT_GRPC_PORT=26351
-EMBEDDING_PORT=28080
-AI_MEMORY_CONTAINER_PREFIX=ci-ai-memory
-QDRANT_LOG_LEVEL=INFO
-AI_MEMORY_LOG_LEVEL=INFO
-BMAD_LOG_LEVEL=INFO
-EOF
+          cat > .env << ENVEOF
+          # Dummy credentials for CI - security not required for ephemeral test environment
+          QDRANT_API_KEY=ci-test-key-${TIMESTAMP}
+          GRAFANA_ADMIN_USER=admin
+          GRAFANA_ADMIN_PASSWORD=ci-test-password
+          GRAFANA_SECRET_KEY=ci-test-secret-key-32-characters-long
+          PROMETHEUS_ADMIN_PASSWORD=ci-test-prometheus-password
+          PROMETHEUS_BASIC_AUTH_HEADER=Basic ${PROM_AUTH}
+          QDRANT_PORT=26350
+          QDRANT_GRPC_PORT=26351
+          EMBEDDING_PORT=28080
+          AI_MEMORY_CONTAINER_PREFIX=ci-ai-memory
+          QDRANT_LOG_LEVEL=INFO
+          AI_MEMORY_LOG_LEVEL=INFO
+          BMAD_LOG_LEVEL=INFO
+          ENVEOF
 
       # Generate Prometheus web.yml with matching bcrypt hash for CI
       - name: Generate Prometheus auth for CI
@@ -367,7 +367,7 @@ EOF
           HEALTH_CHECK
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip

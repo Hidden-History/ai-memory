@@ -36,7 +36,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Add project src to path for local imports
 # CRITICAL: Check development location FIRST for testing unreleased changes
@@ -87,7 +87,7 @@ VECTOR_SIZE = 768
 DISTANCE_METRIC = Distance.COSINE
 
 
-def infer_type_for_agent_memory(payload: Dict[str, Any]) -> str:
+def infer_type_for_agent_memory(payload: dict[str, Any]) -> str:
     """Infer type for agent-memory records based on content and existing fields.
 
     Logic (from MEMORY-SYSTEM-REDESIGN-v2.md Section 5.2):
@@ -170,8 +170,8 @@ def create_collection_if_not_exists(
 
 
 def migrate_point(
-    point: Any, target_collection: str, default_type: Optional[str] = None
-) -> Dict[str, Any]:
+    point: Any, target_collection: str, default_type: str | None = None
+) -> dict[str, Any]:
     """Migrate a single point to the new schema.
 
     Adds `type` field to payload, preserving all other fields.
@@ -215,10 +215,10 @@ def migrate_point(
 def migrate_collection(
     old_collection: str,
     new_collection: str,
-    default_type: Optional[str],
+    default_type: str | None,
     dry_run: bool = False,
     qdrant_client: Any = None,
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """Migrate points from old collection to new collection.
 
     Args:

@@ -1,22 +1,21 @@
 """
 AI Memory Module - Embedding Service
-FastAPI application for generating embeddings using Jina v2 Base EN (768d)
+FastAPI application for dual embedding model support (Jina v2 Base EN + Base Code, 768d)
 
 Configuration via environment variables:
-- MODEL_NAME: Model identifier (default: jinaai/jina-embeddings-v2-base-en)
+- MODEL_NAME_EN: Prose model (default: jinaai/jina-embeddings-v2-base-en)
+- MODEL_NAME_CODE: Code model (default: jinaai/jina-embeddings-v2-base-code)
+- MODEL_NAME: Legacy fallback for MODEL_NAME_EN (backward compatibility)
 - VECTOR_DIMENSIONS: Expected dimensions (default: 768)
 - LOG_LEVEL: Logging verbosity (default: INFO)
 
-Note: EN model chosen over code model for better natural language query support.
-Memory content is primarily English text describing code, not raw code.
-See TECH-DEBT-002 for rationale.
+SPEC-010: Dual Embedding Routing - Both models loaded at startup for immediate availability.
 """
 
 import logging
 import os
 import sys
 import time
-from typing import List
 
 from fastapi import FastAPI, HTTPException
 from fastembed import TextEmbedding
@@ -43,8 +42,15 @@ except ImportError:
     embedding_requests_total = None
     embedding_duration_seconds = None
 
-# Configuration
-MODEL_NAME = os.getenv("MODEL_NAME", "jinaai/jina-embeddings-v2-base-en")
+# Model configuration with backward-compatible fallback chain (SPEC-010 Section 3.2)
+MODEL_NAMES = {
+    "en": os.getenv("MODEL_NAME_EN",
+                    os.getenv("MODEL_NAME",
+                              "jinaai/jina-embeddings-v2-base-en")),
+    "code": os.getenv("MODEL_NAME_CODE",
+                      "jinaai/jina-embeddings-v2-base-code"),
+}
+
 VECTOR_DIMENSIONS = int(os.getenv("VECTOR_DIMENSIONS", "768"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
@@ -57,7 +63,7 @@ logger = logging.getLogger("ai_memory.embedding")
 
 app = FastAPI(
     title="AI Memory Embedding Service",
-    description="Text embedding generation using Jina v2 Base EN (768d)",
+    description="Dual embedding generation using Jina v2 Base EN (prose) + Base Code (code) - 768d",
     version="2.1.0",
 )
 
@@ -66,113 +72,135 @@ app = FastAPI(
 metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
 
-# Load model at startup
-logger.info("model_loading", extra={"model": MODEL_NAME, "status": "starting"})
-start_load = time.time()
-model = TextEmbedding(MODEL_NAME)
-model_loaded_at = time.time()
-load_duration = model_loaded_at - start_load
-logger.info(
-    "model_loaded",
-    extra={
-        "model": MODEL_NAME,
-        "dimensions": VECTOR_DIMENSIONS,
-        "load_time_seconds": round(load_duration, 2),
-    },
-)
+# Both models loaded at startup (SPEC-010 Section 3.2)
+MODEL_REGISTRY: dict[str, TextEmbedding] = {}
+models_ready_time: float = 0.0
+
+def load_models():
+    """Load both embedding models at startup with graceful fallback.
+
+    The 'en' model is required — if it fails, the service cannot start.
+    The 'code' model is optional — if it fails, 'en' is used as fallback.
+    """
+    global models_ready_time
+
+    # Load the required 'en' model first
+    en_name = MODEL_NAMES["en"]
+    logger.info("model_loading", extra={"model": en_name, "key": "en"})
+    start_load = time.time()
+    MODEL_REGISTRY["en"] = TextEmbedding(en_name)
+    load_duration = time.time() - start_load
+    logger.info("model_loaded", extra={"model": en_name, "key": "en", "load_time_seconds": round(load_duration, 2)})
+
+    # Load optional 'code' model with fallback to 'en'
+    code_name = MODEL_NAMES["code"]
+    try:
+        logger.info("model_loading", extra={"model": code_name, "key": "code"})
+        start_load = time.time()
+        MODEL_REGISTRY["code"] = TextEmbedding(code_name)
+        load_duration = time.time() - start_load
+        logger.info("model_loaded", extra={"model": code_name, "key": "code", "load_time_seconds": round(load_duration, 2)})
+    except Exception as e:
+        logger.warning(
+            "model_load_fallback",
+            extra={
+                "model": code_name,
+                "key": "code",
+                "error": str(e),
+                "fallback": "Using 'en' model for code embeddings",
+            },
+        )
+        MODEL_REGISTRY["code"] = MODEL_REGISTRY["en"]
+
+    models_ready_time = time.time()
+
+load_models()  # Called at module init
 
 
 class EmbedRequest(BaseModel):
-    texts: List[str]
+    texts: list[str]
+
+
+class EmbedDenseRequest(BaseModel):
+    texts: list[str]
+    model: str = "en"  # "en" or "code"
 
 
 class EmbedResponse(BaseModel):
-    embeddings: List[List[float]]
+    embeddings: list[list[float]]
     model: str = "jina-embeddings-v2-base-en"
     dimensions: int = VECTOR_DIMENSIONS
+
+
+class EmbedDenseResponse(BaseModel):
+    embeddings: list[list[float]]
+    model: str  # Full model name used
+    dimensions: int  # 768
 
 
 class HealthResponse(BaseModel):
     status: str
     model_loaded: bool
-    model: str
+    model: str  # Backward compat - returns first loaded model
+    models: list[str]  # NEW: list both models
     dimensions: int
     uptime_seconds: int
 
 
 @app.get("/health", response_model=HealthResponse)
 def health():
+    """Health check endpoint with backward-compatible model field + new models list."""
     return HealthResponse(
         status="healthy",
-        model_loaded=True,
-        model=MODEL_NAME,
+        model_loaded=all(m is not None for m in MODEL_REGISTRY.values()),
+        model=MODEL_NAMES["en"],  # KEPT: backward compat for existing monitors
+        models=list(MODEL_NAMES.values()),  # NEW: list both models
         dimensions=VECTOR_DIMENSIONS,
-        uptime_seconds=int(time.time() - model_loaded_at),
+        uptime_seconds=int(time.time() - models_ready_time),
+    )
+
+
+@app.post("/embed/dense", response_model=EmbedDenseResponse)
+def embed_dense(request: EmbedDenseRequest) -> EmbedDenseResponse:
+    """New dual-model embedding endpoint (SPEC-010)."""
+    if not request.texts:
+        raise HTTPException(status_code=400, detail="No texts provided")
+    if request.model not in MODEL_REGISTRY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown model: {request.model}. Available: {list(MODEL_REGISTRY.keys())}"
+        )
+
+    model = MODEL_REGISTRY[request.model]
+    embeddings = list(model.embed(request.texts))
+    return EmbedDenseResponse(
+        embeddings=[e.tolist() for e in embeddings],
+        model=MODEL_NAMES[request.model],
+        dimensions=VECTOR_DIMENSIONS,
     )
 
 
 @app.post("/embed", response_model=EmbedResponse)
 def embed(request: EmbedRequest):
-    if not request.texts:
-        raise HTTPException(status_code=400, detail="No texts provided")
-
-    # Start timing for metrics
-    start_time = time.perf_counter()
-
-    try:
-        # Generate embeddings (FastEmbed returns generator, convert to list)
-        embeddings_list = list(model.embed(request.texts))
-        # Convert numpy arrays to lists
-        embeddings = [emb.tolist() for emb in embeddings_list]
-
-        # Record successful embedding generation
-        duration = time.perf_counter() - start_time
-
-        # Increment metrics
-        if metrics_available and embedding_requests_total:
-            embedding_requests_total.labels(status="success").inc()
-        if metrics_available and embedding_duration_seconds:
-            embedding_duration_seconds.observe(duration)
-
-        logger.info(
-            "embeddings_generated",
-            extra={
-                "text_count": len(request.texts),
-                "dimensions": VECTOR_DIMENSIONS,
-                "duration_seconds": round(duration, 3),
-            },
-        )
-
-        return EmbedResponse(embeddings=embeddings)
-
-    except Exception as e:
-        duration = time.perf_counter() - start_time
-
-        # Increment failure metrics
-        if metrics_available and embedding_requests_total:
-            embedding_requests_total.labels(status="failed").inc()
-        if metrics_available and embedding_duration_seconds:
-            embedding_duration_seconds.observe(duration)
-
-        logger.error(
-            "embedding_generation_failed",
-            extra={
-                "error": str(e),
-                "error_code": "EMBEDDING_ERROR",
-                "text_count": len(request.texts),
-                "duration_seconds": round(duration, 3),
-            },
-        )
-        raise HTTPException(
-            status_code=500, detail=f"Embedding generation failed: {str(e)}"
-        )
+    """Backward-compatible alias. Routes to /embed/dense with model=en."""
+    dense_request = EmbedDenseRequest(texts=request.texts, model="en")
+    result = embed_dense(dense_request)
+    return EmbedResponse(
+        embeddings=result.embeddings,
+        model=result.model,
+        dimensions=result.dimensions,
+    )
 
 
 @app.get("/")
 def root():
     return {
         "service": "AI Memory Embedding Service",
-        "model": MODEL_NAME,
+        "models": MODEL_NAMES,
         "dimensions": VECTOR_DIMENSIONS,
-        "endpoints": {"health": "/health", "embed": "/embed (POST)"},
+        "endpoints": {
+            "health": "/health",
+            "embed": "/embed (POST) - backward compatible, uses model=en",
+            "embed_dense": "/embed/dense (POST) - new dual-model endpoint"
+        },
     }

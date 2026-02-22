@@ -183,7 +183,7 @@ def create_collection_for_restore(collection_name: str) -> bool:
         headers=get_headers(),
         json={
             "vectors": {
-                "size": 1536,  # AI Memory default (OpenAI text-embedding-ada-002)
+                "size": 768,  # DEC-010: Jina Embeddings v2 Base Code
                 "distance": "Cosine",
             }
         },

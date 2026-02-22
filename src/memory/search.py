@@ -28,6 +28,7 @@ from .config import (
     MemoryConfig,
     get_config,
 )
+from .decay import build_decay_formula
 from .embeddings import EmbeddingClient, EmbeddingError
 from .qdrant_client import QdrantUnavailable, get_qdrant_client
 
@@ -143,6 +144,8 @@ class MemorySearch:
         score_threshold: float | None = None,
         memory_type: str | list[str] | None = None,
         fast_mode: bool = False,  # NEW: Use hnsw_ef=64 for triggers
+        source: str | None = None,  # SPEC-005: Namespace filter (e.g., "github")
+        agent_id: str | None = None,  # SPEC-015: Agent-scoped filter
     ) -> list[dict]:
         """Search for relevant memories using semantic similarity with project scoping.
 
@@ -165,6 +168,8 @@ class MemorySearch:
                         (e.g., "implementation" or ["implementation", "error_fix"])
             fast_mode: If True, use hnsw_ef=64 for faster search (triggers).
                       If False (default), use hnsw_ef=128 for accuracy (user searches).
+            source: Optional namespace filter (e.g., "github"). When set to "github",
+                   also applies is_current=True filter to exclude superseded points (BP-074).
 
         Returns:
             List of memory dicts with score, id, and all payload fields.
@@ -226,8 +231,12 @@ class MemorySearch:
                 )
                 group_id = None
         # Use config defaults if not provided
-        limit = limit or self.config.max_retrievals
-        score_threshold = score_threshold or self.config.similarity_threshold
+        limit = limit if limit is not None else self.config.max_retrievals
+        score_threshold = (
+            score_threshold
+            if score_threshold is not None
+            else self.config.similarity_threshold
+        )
 
         # Generate query embedding
         # Propagates EmbeddingError for graceful degradation
@@ -253,6 +262,28 @@ class MemorySearch:
         if memory_types:
             filter_conditions.append(
                 FieldCondition(key="type", match=MatchAny(any=memory_types))
+            )
+
+        # SPEC-005: Namespace filter (e.g., source="github")
+        if source is not None:
+            filter_conditions.append(
+                FieldCondition(key="source", match=MatchValue(value=source))
+            )
+            # BP-074: When searching GitHub namespace, exclude superseded points.
+            # Only applied when source="github" to avoid breaking existing
+            # non-GitHub discussions searches (Option A — backward compatible).
+            if source == "github":
+                filter_conditions.append(
+                    FieldCondition(key="is_current", match=MatchValue(value=True))
+                )
+
+        # SPEC-015: Agent-scoped filter (e.g., agent_id="parzival")
+        if agent_id is not None:
+            filter_conditions.append(
+                FieldCondition(
+                    key="agent_id",
+                    match=MatchValue(value=agent_id),
+                )
             )
 
         query_filter = Filter(must=filter_conditions) if filter_conditions else None
@@ -286,15 +317,36 @@ class MemorySearch:
 
         start_time = time.perf_counter()
         try:
-            response = self.client.query_points(
-                collection_name=collection,
-                query=query_embedding,
-                query_filter=query_filter,
-                limit=limit,
-                score_threshold=score_threshold,
-                with_payload=True,
-                search_params=search_params,
-            )
+            # SPEC-001: Decay scoring integration
+            if self.config.decay_enabled:
+                prefetch_limit = max(50, limit * 5)
+                formula, prefetch = build_decay_formula(
+                    query_embedding=query_embedding,
+                    collection=collection,
+                    config=self.config,
+                    extra_filter=query_filter,
+                    prefetch_limit=prefetch_limit,
+                    score_threshold=score_threshold,
+                    search_params=search_params,
+                )
+                # formula is guaranteed non-None when decay_enabled=True
+                response = self.client.query_points(
+                    collection_name=collection,
+                    prefetch=prefetch,
+                    query=formula,
+                    limit=limit,
+                    with_payload=True,
+                )
+            else:
+                response = self.client.query_points(
+                    collection_name=collection,
+                    query=query_embedding,
+                    query_filter=query_filter,
+                    limit=limit,
+                    score_threshold=score_threshold,
+                    with_payload=True,
+                    search_params=search_params,
+                )
             results = response.points
 
             # Metrics: Record retrieval duration (Story 6.1, AC 6.1.3)
@@ -500,6 +552,7 @@ class MemorySearch:
         min_relevance: float = 0.5,
         memory_type: str | list[str] | None = None,
         fast_mode: bool = False,  # NEW: Pass through to search() for hnsw_ef tuning
+        source: str | None = None,  # SPEC-005: Namespace filter (e.g., "github")
     ) -> list[dict]:
         """Search primary collection first, expand to secondary if results insufficient.
 
@@ -521,6 +574,8 @@ class MemorySearch:
                         or list of strings. If None, no type filtering is applied.
             fast_mode: If True, use hnsw_ef=64 for faster search (triggers).
                       If False (default), use hnsw_ef=128 for accuracy (user searches).
+            source: Optional source namespace filter (e.g., "github"). When set,
+                   adds source and is_current filters per SPEC-005.
 
         Returns:
             List of search results with collection attribution. Each result dict
@@ -546,6 +601,7 @@ class MemorySearch:
             limit=limit,
             memory_type=memory_type,
             fast_mode=fast_mode,
+            source=source,
         )
 
         # Step 2: Check if results are sufficient
@@ -596,6 +652,7 @@ class MemorySearch:
                 limit=limit,
                 memory_type=memory_type,
                 fast_mode=fast_mode,
+                source=source,
             )
             all_results.extend(secondary_results)
 
@@ -875,6 +932,7 @@ def search_memories(
     use_cascading: bool = False,
     intent: str | None = None,
     fast_mode: bool = False,
+    source: str | None = None,
     config: MemoryConfig | None = None,
 ) -> list[dict]:
     """Search memories with optional intent-based cascading.
@@ -900,6 +958,7 @@ def search_memories(
                If not provided, will be auto-detected from query.
         fast_mode: If True, use hnsw_ef_fast for faster search (triggers).
                   If False (default), use hnsw_ef_accurate for accuracy.
+        source: Optional source filter (e.g., "github" for GitHub namespace isolation)
         config: Optional MemoryConfig instance
 
     Returns:
@@ -960,6 +1019,7 @@ def search_memories(
                 limit=limit,
                 memory_type=memory_type,
                 fast_mode=fast_mode,
+                source=source,
             )
             _log_search(results)
             return results
@@ -981,6 +1041,7 @@ def search_memories(
                 limit=limit,
                 memory_type=memory_type,
                 fast_mode=fast_mode,
+                source=source,
             )
             _log_search(results)
             return results
@@ -1037,6 +1098,7 @@ def search_memories(
             limit=limit,
             memory_type=effective_types,
             fast_mode=fast_mode,
+            source=source,
         )
         _log_search(results)
         return results

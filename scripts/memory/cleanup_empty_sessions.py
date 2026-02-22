@@ -15,12 +15,10 @@ Usage:
 import argparse
 import os
 import sys
-from typing import Dict, List
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
-from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from memory.config import get_config
 from memory.qdrant_client import get_qdrant_client
@@ -56,7 +54,7 @@ def is_empty_session_summary(content: str) -> bool:
     return False
 
 
-def find_empty_sessions(client, collection_name: str = "discussions") -> List[Dict]:
+def find_empty_sessions(client, collection_name: str = "discussions") -> list[dict]:
     """Find all empty session summaries in collection.
 
     Args:
@@ -104,7 +102,7 @@ def find_empty_sessions(client, collection_name: str = "discussions") -> List[Di
     return empty_sessions
 
 
-def delete_points(client, collection_name: str, point_ids: List[str]) -> None:
+def delete_points(client, collection_name: str, point_ids: list[str]) -> None:
     """Delete points from collection.
 
     Args:

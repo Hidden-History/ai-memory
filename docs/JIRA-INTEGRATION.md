@@ -25,7 +25,7 @@ During `install.sh`, the installer prompts for optional Jira setup:
 2. **Jira instance URL** (e.g., `https://company.atlassian.net`)
 3. **Jira email**
 4. **Jira API token** (hidden input)
-5. **Project keys** (comma-separated, e.g., `PROJ,DEV`)
+5. **Project keys** (JSON array, e.g., `["PROJ","DEV"]`)
 
 The installer validates credentials via the Jira API before proceeding. On success, it offers an initial full sync and optional run-at-install.
 
@@ -38,7 +38,7 @@ Set these in your `.env` file:
 JIRA_INSTANCE_URL=https://company.atlassian.net
 JIRA_EMAIL=user@company.com
 JIRA_API_TOKEN=your_api_token_here
-JIRA_PROJECTS=PROJ,DEV,OPS
+JIRA_PROJECTS=["PROJ","DEV","OPS"]
 JIRA_SYNC_ENABLED=true
 JIRA_SYNC_DELAY_MS=100
 ```
@@ -48,7 +48,7 @@ JIRA_SYNC_DELAY_MS=100
 | `JIRA_INSTANCE_URL` | Yes | *(empty)* | Jira Cloud URL (e.g., `https://company.atlassian.net`) |
 | `JIRA_EMAIL` | Yes | *(empty)* | Jira account email for Basic Auth |
 | `JIRA_API_TOKEN` | Yes | *(empty)* | API token (stored as SecretStr) |
-| `JIRA_PROJECTS` | Yes | *(empty)* | Comma-separated project keys |
+| `JIRA_PROJECTS` | Yes | *(empty)* | JSON array of project keys (e.g., `["PROJ","DEV","OPS"]`) |
 | `JIRA_SYNC_ENABLED` | No | `false` | Enable Jira synchronization |
 | `JIRA_SYNC_DELAY_MS` | No | `100` | Delay between API requests (ms, 0-5000) |
 

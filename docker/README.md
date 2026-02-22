@@ -12,7 +12,7 @@ cp .env.example .env
 docker compose up -d
 
 # Verify Qdrant is healthy
-curl http://localhost:26350/health
+curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health
 
 # Verify Embedding service is healthy
 curl http://localhost:28080/health
@@ -192,7 +192,7 @@ docker compose up -d
 docker compose logs qdrant
 
 # Test health endpoint from host (Qdrant images exclude curl for security)
-curl -f http://localhost:26350/healthz
+curl -f -H "api-key: $QDRANT_API_KEY" http://localhost:26350/healthz
 
 # Or check Docker's view of container health
 docker inspect --format='{{.State.Health.Status}}' memory-qdrant

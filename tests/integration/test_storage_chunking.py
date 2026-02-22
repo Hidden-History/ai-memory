@@ -37,7 +37,7 @@ class TestStorageTruncation:
             content=content,
             cwd="/test",
             memory_type=MemoryType.USER_MESSAGE,
-            source_hook="test",
+            source_hook="manual",
             session_id="test-session",
             collection="discussions",
         )
@@ -60,7 +60,7 @@ class TestStorageTruncation:
             content=content,
             cwd="/test",
             memory_type=MemoryType.USER_MESSAGE,
-            source_hook="test",
+            source_hook="manual",
             session_id="test-session",
             collection="discussions",
         )
@@ -88,7 +88,7 @@ class TestStorageTruncation:
             content=content,
             cwd="/test",
             memory_type=MemoryType.AGENT_RESPONSE,
-            source_hook="test",
+            source_hook="manual",
             session_id="test-session",
             collection="discussions",
         )
@@ -131,7 +131,7 @@ class TestStorageTruncation:
             content=guideline,
             cwd="/test",
             memory_type=MemoryType.GUIDELINE,
-            source_hook="test",
+            source_hook="manual",
             session_id="test-session",
             collection="conventions",
         )
@@ -171,7 +171,7 @@ class TestStorageTruncation:
             content=summary,
             cwd="/test",
             memory_type=MemoryType.SESSION,
-            source_hook="test",
+            source_hook="manual",
             session_id="test-session",
             collection="discussions",
         )
@@ -284,14 +284,14 @@ class TestBatchStorageTruncation:
                 "content": "Short message.",
                 "group_id": "test-project",
                 "type": "user_message",
-                "source_hook": "test",
+                "source_hook": "manual",
                 "session_id": "test-session",
             },
             {
                 "content": "This is a very long message. " * 300,  # ~3000 tokens
                 "group_id": "test-project",
                 "type": "user_message",
-                "source_hook": "test",
+                "source_hook": "manual",
                 "session_id": "test-session",
             },
         ]
@@ -326,7 +326,7 @@ class TestSmartTruncationMarkers:
             content=content,
             cwd="/test",
             memory_type=MemoryType.USER_MESSAGE,
-            source_hook="test",
+            source_hook="manual",
             session_id="test-session",
             collection="discussions",
         )
@@ -348,7 +348,7 @@ class TestSmartTruncationMarkers:
             content=content,
             cwd="/test",
             memory_type=MemoryType.USER_MESSAGE,
-            source_hook="test",
+            source_hook="manual",
             session_id="test-session",
             collection="discussions",
         )

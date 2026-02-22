@@ -70,7 +70,7 @@ def run_hook_script(
     args: list | None = None,
     stdin_data: str | None = None,
     env: dict[str, str] | None = None,
-    timeout: int = 5,
+    timeout: int = 30,
 ) -> dict[str, Any]:
     """Execute a hook script and return results.
 
@@ -79,7 +79,7 @@ def run_hook_script(
         args: Command-line arguments
         stdin_data: Data to send to stdin
         env: Environment variables (merged with current env)
-        timeout: Timeout in seconds
+        timeout: Timeout in seconds (30s default: hooks import heavy modules like spacy)
 
     Returns:
         Dict with 'exit_code', 'stdout', 'stderr', and 'json_output' (if stdout is JSON)

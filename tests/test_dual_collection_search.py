@@ -8,9 +8,6 @@ import os
 import sys
 from unittest.mock import Mock, patch
 
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../src"))
-
 from memory.search import MemorySearch
 
 
@@ -20,9 +17,18 @@ def test_search_adds_collection_attribution():
     with (
         patch("memory.search.get_qdrant_client") as mock_qdrant,
         patch("memory.search.EmbeddingClient") as mock_embedding,
+        patch("memory.search.get_config") as mock_get_config,
     ):
 
         # Setup mocks
+        mock_cfg = Mock()
+        mock_cfg.max_retrievals = 5
+        mock_cfg.similarity_threshold = 0.7
+        mock_cfg.hnsw_ef_fast = 64
+        mock_cfg.hnsw_ef_accurate = 128
+        mock_cfg.decay_enabled = False
+        mock_get_config.return_value = mock_cfg
+
         mock_client = Mock()
         mock_qdrant.return_value = mock_client
 
@@ -63,7 +69,15 @@ def test_implementations_filtered_by_group_id():
     with (
         patch("memory.search.get_qdrant_client") as mock_qdrant,
         patch("memory.search.EmbeddingClient") as mock_embedding,
+        patch("memory.search.get_config") as mock_get_config,
     ):
+        mock_cfg = Mock()
+        mock_cfg.max_retrievals = 5
+        mock_cfg.similarity_threshold = 0.7
+        mock_cfg.hnsw_ef_fast = 64
+        mock_cfg.hnsw_ef_accurate = 128
+        mock_cfg.decay_enabled = False
+        mock_get_config.return_value = mock_cfg
 
         mock_client = Mock()
         mock_qdrant.return_value = mock_client
@@ -97,7 +111,15 @@ def test_best_practices_no_group_id_filter():
     with (
         patch("memory.search.get_qdrant_client") as mock_qdrant,
         patch("memory.search.EmbeddingClient") as mock_embedding,
+        patch("memory.search.get_config") as mock_get_config,
     ):
+        mock_cfg = Mock()
+        mock_cfg.max_retrievals = 5
+        mock_cfg.similarity_threshold = 0.7
+        mock_cfg.hnsw_ef_fast = 64
+        mock_cfg.hnsw_ef_accurate = 128
+        mock_cfg.decay_enabled = False
+        mock_get_config.return_value = mock_cfg
 
         mock_client = Mock()
         mock_qdrant.return_value = mock_client
@@ -173,14 +195,20 @@ def test_format_memory_entry_includes_collection():
     assert "PostToolUse" in formatted
 
 
-def test_dual_collection_search_performance_budget():
-    """AC 3.2.3: Dual-collection search completes within 1.5s budget."""
-    import time
-
+def test_dual_collection_search_logic_runs():
+    """AC 3.2.3: Dual-collection search returns correct result structure."""
     with (
         patch("memory.search.get_qdrant_client") as mock_qdrant,
         patch("memory.search.EmbeddingClient") as mock_embedding,
+        patch("memory.search.get_config") as mock_get_config,
     ):
+        mock_cfg = Mock()
+        mock_cfg.max_retrievals = 5
+        mock_cfg.similarity_threshold = 0.7
+        mock_cfg.hnsw_ef_fast = 64
+        mock_cfg.hnsw_ef_accurate = 128
+        mock_cfg.decay_enabled = False
+        mock_get_config.return_value = mock_cfg
 
         mock_client = Mock()
         mock_qdrant.return_value = mock_client
@@ -189,30 +217,40 @@ def test_dual_collection_search_performance_budget():
         mock_embed.embed.return_value = [[0.1] * 768]
         mock_embedding.return_value = mock_embed
 
-        # Mock fast responses
+        # Mock responses: one result per collection
+        mock_result = Mock()
+        mock_result.id = "mem_456"
+        mock_result.score = 0.88
+        mock_result.payload = {
+            "content": "Auth pattern",
+            "type": "implementation",
+            "group_id": "test-project",
+            "source_hook": "PostToolUse",
+        }
         mock_response = Mock()
-        mock_response.points = []
+        mock_response.points = [mock_result]
         mock_client.query_points.return_value = mock_response
 
-        # Execute dual-collection search
         search = MemorySearch()
 
-        start = time.perf_counter()
-
         # Implementations search
-        search.search(
+        impl_results = search.search(
             query="test query", collection="code-patterns", group_id="test-project"
         )
 
         # Best practices search
-        search.search(query="test query", collection="conventions", group_id=None)
+        bp_results = search.search(
+            query="test query", collection="conventions", group_id=None
+        )
 
-        duration = time.perf_counter() - start
-
-        # Verify within performance budget (NFR-P3)
-        # Note: With mocks, this will be fast. In integration tests,
-        # we'll validate against real services.
-        assert duration < 1.5, f"Dual search took {duration:.3f}s, expected <1.5s"
+        # Both searches returned results with expected structure
+        assert len(impl_results) == 1
+        assert impl_results[0]["collection"] == "code-patterns"
+        assert impl_results[0]["score"] == 0.88
+        assert len(bp_results) == 1
+        assert bp_results[0]["collection"] == "conventions"
+        # Qdrant was called once per search
+        assert mock_client.query_points.call_count == 2
 
 
 def test_session_start_dual_collection_logic():

@@ -25,9 +25,6 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import HnswConfigDiff
 
 from memory.config import (
-    COLLECTION_CODE_PATTERNS,
-    COLLECTION_CONVENTIONS,
-    COLLECTION_DISCUSSIONS,
     COLLECTION_NAMES,
 )
 

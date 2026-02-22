@@ -42,7 +42,6 @@ import random
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 # Tenacity retry for BP-006 compliance (Issue #2)
 from tenacity import (
@@ -73,7 +72,7 @@ from memory.config import (
     EMBEDDING_MODEL,
     get_config,
 )
-from memory.embeddings import EmbeddingClient, EmbeddingError
+from memory.embeddings import EmbeddingClient
 
 # Configure structured logging
 logging.basicConfig(
@@ -86,7 +85,7 @@ BATCH_DELAY = 0.5  # seconds between batches
 
 
 def get_pending_records(
-    client: QdrantClient, collection: str, limit: Optional[int] = None
+    client: QdrantClient, collection: str, limit: int | None = None
 ) -> list:
     """Query records with embedding_status='pending'.
 
@@ -593,7 +592,7 @@ Examples:
                     time.sleep(BATCH_DELAY)
 
         except KeyboardInterrupt:
-            print(f"\n\n⚠️  Interrupted by user!")
+            print("\n\n⚠️  Interrupted by user!")
             print(f"\n{'=' * 70}")
             print("  Progress Summary")
             print(f"{'=' * 70}\n")

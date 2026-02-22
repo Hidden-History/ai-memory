@@ -126,9 +126,33 @@ def test_collection_names_match():
         MemoryType.JIRA_ISSUE,
         MemoryType.JIRA_COMMENT,
     }
+    # GitHub namespace types stored in discussions collection (AD-1, SPEC-005)
+    github_types = {
+        MemoryType.GITHUB_ISSUE,
+        MemoryType.GITHUB_ISSUE_COMMENT,
+        MemoryType.GITHUB_PR,
+        MemoryType.GITHUB_PR_DIFF,
+        MemoryType.GITHUB_PR_REVIEW,
+        MemoryType.GITHUB_COMMIT,
+        MemoryType.GITHUB_CODE_BLOB,
+        MemoryType.GITHUB_CI_RESULT,
+        MemoryType.GITHUB_RELEASE,
+    }
+    # Agent types stored in discussions collection (SPEC-014)
+    agent_types = {
+        MemoryType.AGENT_HANDOFF,
+        MemoryType.AGENT_INSIGHT,
+        MemoryType.AGENT_MEMORY,
+        MemoryType.AGENT_TASK,
+    }
 
     all_types = (
-        code_pattern_types | convention_types | discussion_types | jira_data_types
+        code_pattern_types
+        | convention_types
+        | discussion_types
+        | jira_data_types
+        | github_types
+        | agent_types
     )
 
     # Verify all MemoryType enum values are accounted for

@@ -39,10 +39,8 @@ except ImportError:
     # Running from dev repo
     sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
     from memory.config import get_config
-    from memory.models import EmbeddingStatus, MemoryPayload, MemoryType
+    from memory.models import MemoryPayload, MemoryType
     from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
-    from memory.search import MemorySearch
-    from memory.storage import MemoryStorage
 
 # Import validation scripts
 sys.path.insert(0, str(Path(__file__).parent))
@@ -287,7 +285,7 @@ def test_memory_types():
         MemoryType.IMPLEMENTATION,
         MemoryType.SESSION,
         MemoryType.DECISION,
-        MemoryType.PATTERN,
+        MemoryType.FILE_PATTERN,
     ]
 
     all_passed = True
@@ -415,7 +413,7 @@ def test_config_loading():
     try:
         config = get_config()
 
-        print(f"[PASS] Configuration loaded successfully")
+        print("[PASS] Configuration loaded successfully")
         print(f"   - Qdrant Host: {config.qdrant_host}")
         print(f"   - Qdrant Port: {config.qdrant_port}")
         print(f"   - Embedding Host: {config.embedding_host}")

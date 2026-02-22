@@ -361,7 +361,7 @@ grep "duplicate_memory_skipped" ~/.ai-memory/logs/hooks.log
 **Solution:**
 ```bash
 # Verify Qdrant is running
-curl http://localhost:26350/health
+curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health
 
 # Check Qdrant for duplicate hash
 curl http://localhost:26350/collections/code-patterns/points/scroll \

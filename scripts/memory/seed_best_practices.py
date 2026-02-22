@@ -24,7 +24,6 @@ import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import httpx
 from qdrant_client import QdrantClient
@@ -35,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from memory.config import get_config
 from memory.deduplication import compute_content_hash
+from memory.qdrant_client import get_qdrant_client
 from memory.template_models import BestPracticeTemplate, load_templates_from_file
 
 # Configure structured logging
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 def generate_embedding(
     text: str, embedding_url: str, timeout: float = 30.0
-) -> Optional[list[float]]:
+) -> list[float] | None:
     """Generate embedding for text using embedding service.
 
     2026 Pattern: Explicit timeouts per httpx best practices
@@ -166,12 +166,19 @@ def create_point_from_template(
         "timestamp": datetime.now(
             timezone.utc
         ).isoformat(),  # Existing field (backwards compatible)
+        "stored_at": datetime.now(timezone.utc).isoformat(),
         "source_date": (
             template.source_date.isoformat() if template.source_date else None
         ),  # TECH-DEBT-028: NEW optional field
         "last_verified": (
             template.last_verified.isoformat() if template.last_verified else None
         ),  # TECH-DEBT-028: NEW optional field
+        # v2.0.6 freshness fields (schema parity with migrate_v205_to_v206.py)
+        "decay_score": 1.0,
+        "freshness_status": "unverified",
+        "source_authority": 1.0 if template.type in ("rule", "guideline") else 0.4,
+        "is_current": True,
+        "version": 1,
     }
 
     # Add optional source if present
@@ -266,15 +273,9 @@ def seed_templates(
 
     embedding_url = config.get_embedding_url()
 
-    # Connect to Qdrant
+    # Connect to Qdrant (BUG-102: use shared client for warning suppression)
     try:
-        client = QdrantClient(
-            host=config.qdrant_host,
-            port=config.qdrant_port,
-            api_key=config.qdrant_api_key,
-            https=config.qdrant_use_https,  # BP-040
-            timeout=10.0,
-        )
+        client = get_qdrant_client(config)
 
         # Verify collection exists
         collections = client.get_collections()
@@ -524,7 +525,7 @@ Examples:
             return 1
 
     print(f"\n{'=' * 70}")
-    print("  BMAD Best Practices Seeding")
+    print("  Best Practices Seeding")
     print(f"{'=' * 70}\n")
     print(f"  Loaded {len(all_templates)} templates from {len(json_files)} files")
 

@@ -268,3 +268,82 @@ def test_main_success_message(tmp_path, capsys):
     assert "SessionStart" in captured.out
     assert "PostToolUse" in captured.out
     assert "Stop" in captured.out
+
+
+class TestRemoveDeadHooks:
+    """Test _remove_dead_hooks() cleanup logic (FAIL-001 fix)."""
+
+    def test_removes_hook_with_missing_script(self, tmp_path):
+        """Hook entries whose scripts don't exist should be removed."""
+        from merge_settings import _remove_dead_hooks
+
+        # Create a fake install dir with one live script
+        scripts_dir = tmp_path / ".claude" / "hooks" / "scripts"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "live_script.py").touch()
+
+        settings = {
+            "hooks": {
+                "PostToolUse": [
+                    {
+                        "hooks": [
+                            {
+                                "command": f'[ -f "{scripts_dir}/live_script.py" ] && python "{scripts_dir}/live_script.py" || true',
+                                "type": "command",
+                            }
+                        ]
+                    },
+                    {
+                        "hooks": [
+                            {
+                                "command": f'[ -f "{scripts_dir}/dead_script.py" ] && python "{scripts_dir}/dead_script.py" || true',
+                                "type": "command",
+                            }
+                        ]
+                    },
+                ]
+            }
+        }
+
+        result = _remove_dead_hooks(settings, install_dir=str(tmp_path))
+
+        # Live script should remain, dead script should be removed
+        assert len(result["hooks"]["PostToolUse"]) == 1
+
+    def test_preserves_non_bmad_hooks(self, tmp_path):
+        """Non-BMAD hook commands should never be removed."""
+        from merge_settings import _remove_dead_hooks
+
+        scripts_dir = tmp_path / ".claude" / "hooks" / "scripts"
+        scripts_dir.mkdir(parents=True)
+
+        settings = {
+            "hooks": {
+                "PostToolUse": [
+                    {"command": "echo 'custom hook'", "type": "command"},
+                ]
+            }
+        }
+
+        result = _remove_dead_hooks(settings, install_dir=str(tmp_path))
+        assert len(result["hooks"]["PostToolUse"]) == 1
+
+    def test_skips_when_scripts_dir_missing(self, tmp_path):
+        """Should skip cleanup if scripts directory doesn't exist yet."""
+        from merge_settings import _remove_dead_hooks
+
+        settings = {"hooks": {"PostToolUse": [{"command": "something"}]}}
+        result = _remove_dead_hooks(settings, install_dir=str(tmp_path))
+
+        # Should return settings unchanged
+        assert len(result["hooks"]["PostToolUse"]) == 1
+
+    def test_handles_empty_hooks(self, tmp_path):
+        """Should handle settings with no hooks gracefully."""
+        from merge_settings import _remove_dead_hooks
+
+        scripts_dir = tmp_path / ".claude" / "hooks" / "scripts"
+        scripts_dir.mkdir(parents=True)
+
+        result = _remove_dead_hooks({}, install_dir=str(tmp_path))
+        assert result == {}

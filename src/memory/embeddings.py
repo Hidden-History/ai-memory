@@ -10,6 +10,7 @@ Best Practices: https://medium.com/@sparknp1/8-httpx-asyncio-patterns-for-safer-
 import contextlib
 import logging
 import os
+import random
 import time
 
 import httpx
@@ -99,25 +100,77 @@ class EmbeddingClient:
 
         self.client = httpx.Client(timeout=timeout_config, limits=limits)
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for texts.
+        # BUG-113: Retry configuration for transient timeout failures
+        self._max_retries = int(os.getenv("EMBEDDING_MAX_RETRIES", "2"))
+        self._backoff_base = float(os.getenv("EMBEDDING_BACKOFF_BASE", "1.0"))
+        self._backoff_cap = float(os.getenv("EMBEDDING_BACKOFF_CAP", "15.0"))
+
+    def embed(
+        self, texts: list[str], model: str = "en", project: str = "unknown"
+    ) -> list[list[float]]:
+        """Generate embeddings with retry on timeout errors.
+
+        Wraps _embed_once() with exponential backoff + full jitter (AWS formula,
+        BP-091). Only retries on timeout errors; non-timeout errors raise immediately.
+
+        Args:
+            texts: List of text strings to embed.
+            model: "en" for prose, "code" for code content.
+            project: Project identifier for metrics.
+
+        Returns:
+            List of embedding vectors (768 dimensions each).
+
+        Raises:
+            EmbeddingError: If all retries exhausted or non-timeout error occurs.
+        """
+        last_error: EmbeddingError | None = None
+        for attempt in range(1 + self._max_retries):
+            try:
+                return self._embed_once(texts, model=model, project=project)
+            except EmbeddingError as e:
+                if "timeout" not in str(e).lower():
+                    raise  # Non-timeout errors: no retry
+                last_error = e
+                if attempt < self._max_retries:
+                    sleep_time = random.uniform(
+                        0, min(self._backoff_cap, self._backoff_base * (2**attempt))
+                    )
+                    logger.warning(
+                        "embedding_retry",
+                        extra={
+                            "attempt": attempt + 1,
+                            "max_retries": self._max_retries,
+                            "sleep_seconds": round(sleep_time, 2),
+                            "texts_count": len(texts),
+                            "model": model,
+                        },
+                    )
+                    time.sleep(sleep_time)
+        raise last_error  # type: ignore[misc]
+
+    def _embed_once(
+        self, texts: list[str], model: str = "en", project: str = "unknown"
+    ) -> list[list[float]]:
+        """Generate embeddings for texts using specified model.
 
         Sends batch request to embedding service and returns vector embeddings.
         Uses connection pooling for optimal performance.
 
         Args:
             texts: List of text strings to embed (supports batch operations).
+            model: "en" for prose, "code" for code content. Default: "en".
 
         Returns:
             List of embedding vectors, one per input text. Each vector has
-            768 dimensions (DEC-010: Jina Embeddings v2 Base Code).
+            768 dimensions (SPEC-010: Jina Embeddings v2 dual model support).
 
         Raises:
             EmbeddingError: If request times out or HTTP error occurs.
 
         Example:
             >>> client = EmbeddingClient()
-            >>> embeddings = client.embed(["text1", "text2"])
+            >>> embeddings = client.embed(["text1", "text2"], model="en")
             >>> len(embeddings)
             2
             >>> len(embeddings[0])
@@ -127,8 +180,8 @@ class EmbeddingClient:
 
         try:
             response = self.client.post(
-                f"{self.base_url}/embed",
-                json={"texts": texts},
+                f"{self.base_url}/embed/dense",
+                json={"texts": texts, "model": model},
             )
             response.raise_for_status()
             embeddings = response.json()["embeddings"]
@@ -141,12 +194,13 @@ class EmbeddingClient:
                     status="success",
                     embedding_type="dense",
                     context="realtime",
-                    project="unknown",
+                    project=project,
+                    model=model,
                 ).inc()
             if embedding_duration_seconds:
-                embedding_duration_seconds.labels(embedding_type="dense").observe(
-                    duration_seconds
-                )
+                embedding_duration_seconds.labels(
+                    embedding_type="dense", model=model
+                ).observe(duration_seconds)
 
             # Push to Pushgateway for hook subprocess visibility
             push_embedding_metrics_async(
@@ -154,6 +208,7 @@ class EmbeddingClient:
                 embedding_type="dense",
                 duration_seconds=duration_seconds,
                 context="realtime",
+                model=model,
             )
 
             return embeddings
@@ -164,6 +219,7 @@ class EmbeddingClient:
                 extra={
                     "texts_count": len(texts),
                     "base_url": self.base_url,
+                    "model": model,
                     "error": str(e),
                 },
             )
@@ -176,19 +232,20 @@ class EmbeddingClient:
                     status="timeout",
                     embedding_type="dense",
                     context="realtime",
-                    project="unknown",
+                    project=project,
+                    model=model,
                 ).inc()
             if embedding_duration_seconds:
-                embedding_duration_seconds.labels(embedding_type="dense").observe(
-                    duration_seconds
-                )
+                embedding_duration_seconds.labels(
+                    embedding_type="dense", model=model
+                ).observe(duration_seconds)
 
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
                 failure_events_total.labels(
                     component="embedding",
                     error_code="EMBEDDING_TIMEOUT",
-                    project="unknown",
+                    project=project,
                 ).inc()
 
             # Push to Pushgateway for hook subprocess visibility
@@ -197,11 +254,12 @@ class EmbeddingClient:
                 embedding_type="dense",
                 duration_seconds=duration_seconds,
                 context="realtime",
+                model=model,
             )
             push_failure_metrics_async(
                 component="embedding",
                 error_code="EMBEDDING_TIMEOUT",
-                project="unknown",
+                project=project,
             )
 
             raise EmbeddingError("EMBEDDING_TIMEOUT") from e
@@ -212,6 +270,7 @@ class EmbeddingClient:
                 extra={
                     "texts_count": len(texts),
                     "base_url": self.base_url,
+                    "model": model,
                     "error": str(e),
                 },
             )
@@ -224,19 +283,20 @@ class EmbeddingClient:
                     status="failed",
                     embedding_type="dense",
                     context="realtime",
-                    project="unknown",
+                    project=project,
+                    model=model,
                 ).inc()
             if embedding_duration_seconds:
-                embedding_duration_seconds.labels(embedding_type="dense").observe(
-                    duration_seconds
-                )
+                embedding_duration_seconds.labels(
+                    embedding_type="dense", model=model
+                ).observe(duration_seconds)
 
             # Metrics: Failure event for alerting (Story 6.1, AC 6.1.4)
             if failure_events_total:
                 failure_events_total.labels(
                     component="embedding",
                     error_code="EMBEDDING_ERROR",
-                    project="unknown",
+                    project=project,
                 ).inc()
 
             # Push to Pushgateway for hook subprocess visibility
@@ -245,11 +305,12 @@ class EmbeddingClient:
                 embedding_type="dense",
                 duration_seconds=duration_seconds,
                 context="realtime",
+                model=model,
             )
             push_failure_metrics_async(
                 component="embedding",
                 error_code="EMBEDDING_ERROR",
-                project="unknown",
+                project=project,
             )
 
             raise EmbeddingError(f"EMBEDDING_ERROR: {e}") from e

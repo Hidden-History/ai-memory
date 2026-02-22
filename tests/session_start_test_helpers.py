@@ -18,13 +18,15 @@ sys.path.insert(
 # Import actual V2 functions from session_start.py
 try:
     from session_start import (
-        estimate_tokens,
         get_conversation_context,
         inject_with_priority,
         log_empty_session,
         parse_hook_input,
         retrieve_session_summaries,
     )
+
+    # TD-167: estimate_tokens removed, replaced by count_tokens from memory.chunking.truncation
+    from memory.chunking.truncation import count_tokens as estimate_tokens
 
     # Create adapter functions for old test API
     def build_session_query(project_name, cwd):

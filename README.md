@@ -5,11 +5,12 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.5-green?style=flat-square" alt="Version 2.0.5">
+  <img src="https://img.shields.io/badge/version-2.0.6-green?style=flat-square" alt="Version 2.0.6">
   <a href="https://github.com/Hidden-History/ai-memory/stargazers"><img src="https://img.shields.io/github/stars/Hidden-History/ai-memory?color=blue&style=flat-square" alt="Stars"></a>
   <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
   <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome">
+  <img src="https://img.shields.io/badge/GitHub-Sync-2088FF?style=flat-square&logo=github" alt="GitHub Sync">  <img src="https://img.shields.io/badge/Jira-Cloud-0052CC?style=flat-square&logo=jira" alt="Jira Cloud">  <img src="https://img.shields.io/badge/Qdrant-Vector_DB-DC382D?style=flat-square&logo=qdrant" alt="Qdrant">  <img src="https://img.shields.io/badge/Parzival-Project_Manager-8B5CF6?style=flat-square" alt="Parzival">
 </p>
 
 ---
@@ -23,10 +24,11 @@
 
 ## 🚀 Key Features
 
-* **💾 Long-Term Persistence:** Stop re-explaining your codebase. Agents retrieve past context automatically at session start.
-* **📂 Structured BMAD Integration:** Purpose-built for BMAD workflows and multi-agent "Party Mode."
-* **🔍 Semantic Retrieval:** Uses vector embeddings to find relevant memories based on intent, not just keywords.
-* **⚖️ Decision Tracking:** Automatically captures "lessons learned" and integration rules during the dev cycle.
+* **🧠 Cross-Session Memory:** Claude remembers your last session automatically — no re-explaining needed.
+* **⏳ Semantic Decay:** Memories age naturally — recent patterns rank higher than stale ones.
+* **🛡️ 3-Layer Security:** PII and secrets caught before storage via regex + detect-secrets + SpaCy NER.
+* **🐙 GitHub History Sync:** PRs, issues, commits, CI results searchable by meaning.
+* **🎯 Progressive Context Injection:** Right memories, right time, within token budgets.
 
 ---
 
@@ -63,10 +65,57 @@ Traditional knowledge bases require upfront schema design and manual curation. A
 
 ---
 
+## 🛡️ Parzival: Technical PM & Quality Gatekeeper
+
+Parzival is your AI project manager embedded in Claude Code. Describe what needs doing, and Parzival orchestrates the work with verified precision — reading your architecture, PRD, and standards before creating prompts, never after.
+
+**Core capabilities:**
+
+- **Agent team orchestration**: `/parzival-team` builds 3-tier parallel team prompts (lead → workers → reviewers) with exact file paths, line numbers, acceptance criteria, and project-specific context — derived from your actual project files, not assumptions
+- **Quality gate enforcement**: Mandatory review→fix→review cycles that continue until zero issues are found. Parzival never accepts "looks good enough"
+- **Verified instructions**: Every recommendation is checked against project files first and rated with a confidence level (Verified/Informed/Inferred/Uncertain/Unknown), with source citations included
+- **False positive catching**: When review agents flag issues, Parzival verifies findings against actual source code before acting — preventing wasted cycles on non-issues
+- **Decision support**: Presents options with pros/cons, tradeoffs, source citations, and confidence levels, then waits for your approval before proceeding
+- **Risk and blocker tracking**: Identifies risks proactively with severity levels and escalation paths; surfaces critical issues immediately
+- **Session continuity**: Handoffs are dual-written to local oversight files and the Qdrant `discussions` collection, enabling automatic cross-session resume at every `SessionStart`
+- **Sprint and task management**: Tracks sprints, tasks, blockers, and decisions across sessions via structured oversight files (`task-tracker.md`, `decisions-log.md`, `SESSION_WORK_INDEX.md`)
+
+**How the workflow works:**
+
+1. You describe the work to Parzival
+2. Parzival reads your architecture, PRD, and standards before making any recommendation
+3. Parzival builds a precise agent team prompt — or individual dev prompt — with exact file paths and acceptance criteria
+4. You run the agents; Parzival reviews the results
+5. Review→fix→review continues until zero issues are found, then you approve
+
+**The core principle: Parzival recommends. You decide.** Parzival is the radar operator on the ship — you are the captain who steers. It monitors, navigates, and verifies. It never writes code, makes final decisions, or executes agents autonomously. A 5-layer constraint system prevents the behavioral drift that causes AI agents to forget their role over long conversations.
+
+Parzival is optional — AI Memory's core features (semantic decay, GitHub sync, search skills, freshness detection) work independently without it. For teams managing complex projects across many sessions, Parzival is the orchestration layer that keeps everything on track.
+
+See [docs/PARZIVAL-SESSION-GUIDE.md](docs/PARZIVAL-SESSION-GUIDE.md) for setup, commands, and the full skills reference.
+
+---
+
+## 🏆 What No Other Tool Has
+
+AI-Memory combines capabilities that exist nowhere else as a single integrated system:
+
+| Capability | What It Does |
+|------------|-------------|
+| **Semantic Decay Scoring** | Memories age naturally via exponential decay — recent patterns rank higher than stale ones, automatically |
+| **Cross-Session Memory** | Qdrant vector search resurfaces exactly the right context at session start, without you asking |
+| **3-Layer Security Pipeline** | PII and secrets screened via regex + detect-secrets + SpaCy NER before any content is stored |
+| **GitHub History → Semantic Search** | PRs, issues, commits, CI results, code blobs, diffs, reviews, and releases searchable by meaning |
+| **Freshness Detection** | Stale code-pattern memories flagged automatically by comparing stored patterns against current git state (3/10/25 commit thresholds) |
+| **Dual Embedding Routing** | Code uses `jina-v2-base-code`; prose uses `jina-v2-base-en` — 10-30% better retrieval accuracy |
+| **Progressive Context Injection** | Token-budget-aware 3-tier delivery: session bootstrap, per-turn injection, confidence-filtered retrieval |
+
+---
+
 ## ✨ V2.0 Memory System
 
-- 🗂️ **Three Specialized Collections**: code-patterns (HOW), conventions (WHAT), discussions (WHY)
-- 🎯 **17 Memory Types**: Precise categorization for implementation, errors, decisions, Jira issues, and more
+- 🗂️ **Four Specialized Collections**: code-patterns (HOW), conventions (WHAT), discussions (WHY), jira-data (JIRA)
+- 🎯 **30 Memory Types**: Precise categorization for implementation, errors, decisions, Jira issues, GitHub data, agent memory, and more
 - ⚡ **6 Automatic Triggers**: Smart context injection when you need it most
 - 🔍 **Intent Detection**: Automatically routes queries to the right collection
 - 💬 **Conversation Memory**: Turn-by-turn capture with post-compaction context continuity
@@ -78,6 +127,22 @@ Traditional knowledge bases require upfront schema design and manual curation. A
 ---
 
 > **New here?** Jump to [Quick Start](#-quick-start-1) to get running in 5 minutes.
+
+---
+
+## 🕰️ V2.0.6 — Temporal Memory
+
+v2.0.6 adds the **WHEN dimension** — your memories now understand time, freshness, and relevance decay.
+
+- ⏳ **Semantic Decay Scoring**: Older memories naturally lose relevance via exponential decay with type-specific half-lives (code: 14d, discussions: 21d, conventions: 60d)
+- 🔄 **GitHub History Sync**: Ingest PRs, issues, commits, CI results, and code blobs from your GitHub repo into the memory system
+- 🛡️ **Security Scanning Pipeline**: 3-layer PII and secrets detection (regex + detect-secrets + SpaCy NER) runs before any content is stored
+- 🎯 **Progressive Context Injection**: Smart 3-tier context delivery — session bootstrap, per-turn injection, and confidence-filtered retrieval
+- 🔍 **Freshness Detection**: Automatically identifies stale memories by comparing against current git state
+- 🔐 **SOPS+age Encryption**: Encrypt sensitive configuration with modern age encryption
+- 🧭 **Dual Embedding Routing**: Code content uses `jina-v2-base-code`, prose uses `jina-v2-base-en` for 10-30% better retrieval
+- 🤖 **Parzival Oversight Agent**: Technical PM, quality gatekeeper, and agent team orchestrator with cross-session memory backed by Qdrant
+- 🧰 **8 New Skills**: `/memory-purge`, `/search-github`, `/github-sync`, `/pause-updates`, `/memory-refresh`, `/parzival-save-handoff`, `/parzival-save-insight`, `/freshness-report`
 
 ---
 
@@ -95,6 +160,22 @@ Bring your work context into semantic memory with built-in Jira Cloud support:
 - **Two Skills**: `/jira-sync` for synchronization, `/search-jira` for semantic search
 
 See [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for setup and usage guide.
+
+---
+
+## 🐙 GitHub Integration
+
+Bring your repository history into semantic memory with built-in GitHub support:
+
+- **Semantic Search**: Search PRs, issues, commits, CI results, and code blobs by meaning, not keywords
+- **9 Content Types**: `github_pr`, `github_issue`, `github_commit`, `github_ci_result`, `github_code_blob`, `github_pr_diff`, `github_pr_review`, `github_issue_comment`, `github_release`
+- **Full & Incremental Sync**: First run backfills full history; subsequent runs fetch only new or updated items
+- **AST-Aware Code Chunking**: Code blobs are split at AST boundaries (functions, classes), not arbitrary character offsets
+- **Freshness Feedback Loop**: Merged PRs automatically flag stale code-pattern memories for review
+- **Adaptive Rate Limiting**: Reads `X-RateLimit-Remaining` response headers and backs off automatically
+- **Two Skills**: `/github-sync` for synchronization, `/search-github` for semantic search
+
+See [docs/GITHUB-INTEGRATION.md](docs/GITHUB-INTEGRATION.md) for setup and usage guide.
 
 ---
 
@@ -126,49 +207,6 @@ User: "Research best practices for writing commit messages"
 
 ---
 
-## 🛡️ Complete Your AI Stack: Parzival Oversight Agent
-
-<table>
-<tr>
-<td width="55%">
-
-**Memory is only half the equation. Quality is the other half.**
-
-AI-Memory gives your agents institutional knowledge. **Parzival** ensures they use it wisely.
-
-> 🎯 **Quality Gatekeeper** — Never ship bugs, always verify before approval
-> 🔄 **Review Cycles** — Automated review → fix → verify loops
-> 🚫 **Drift Prevention** — Behavioral constraints keep agents on track
-> 📋 **Structured Oversight** — Templates for bugs, decisions, specs, tracking
-> 📊 **Observability Built-In** — Metrics, logging, Grafana dashboards from day one
-
-**Parzival recommends. You decide.**
-
-</td>
-<td width="45%">
-
-| Component | Purpose |
-|-----------|---------|
-| 🧠 **AI-Memory** | *Remembers* — Context persistence |
-| 🛡️ **Parzival** | *Validates* — Quality assurance |
-| 🔗 **Together** | Agents that learn AND verify |
-
-<br>
-
-```
-Memory + Oversight = Reliable AI
-```
-
-**[→ Get Parzival](https://github.com/Hidden-History/pov-oversight-agent)**
-
-</td>
-</tr>
-</table>
-
-> **Works with [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD)** — Enhances BMAD workflows with persistent memory, but works standalone with any Claude Code project.
-
----
-
 ## 🏗️ Architecture
 
 ### V2.0 Memory System
@@ -188,7 +226,7 @@ Python Core (src/memory/)
     ├── search.py         → Semantic search + cascading
     ├── intent.py         → Intent detection + routing
     ├── triggers.py       → Automatic trigger configuration
-    ├── embeddings.py     → Jina AI embeddings (768d)
+    ├── embeddings.py     → Jina AI embeddings — jina-v2-base-en (prose) + jina-v2-base-code (code)
     └── deduplication.py  → Hash + similarity dedup
 
 Docker Services
@@ -202,13 +240,15 @@ Docker Services
         └── Grafana (port 23000)
 ```
 
+**v2.0.6 additions**: GitHub sync service ingests repository data (PRs, issues, commits, code blobs) into the discussions collection. A 3-layer security scanning pipeline (regex + detect-secrets + SpaCy NER) screens all content before storage. Semantic decay scoring applies time-weighted relevance to all search queries. The Parzival session agent stores cross-session memory in the discussions collection for project continuity.
+
 ### Collection Structure
 
 | Collection | Purpose | Example Types |
 |------------|---------|---------------|
 | **code-patterns** | HOW things are built | implementation, error_fix, refactor |
 | **conventions** | WHAT rules to follow | rule, guideline, naming, structure |
-| **discussions** | WHY things were decided | decision, session, preference |
+| **discussions** | WHY things were decided | decision, session, preference, user_message, agent_response, blocker |
 | **jira-data** | External work items from Jira Cloud | jira_issue, jira_comment |
 
 > **Note:** The `jira-data` collection is conditional — it is only created when Jira sync is enabled (`JIRA_SYNC_ENABLED=true`).
@@ -308,13 +348,13 @@ docker compose -f docker/docker-compose.yml --profile monitoring up -d
 
 ```bash
 # Check Qdrant (port 26350)
-curl http://localhost:26350/health
+curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health
 
 # Check Embedding Service (port 28080)
 curl http://localhost:28080/health
 
 # Check Grafana (port 23000) - if monitoring enabled
-open http://localhost:23000  # admin/admin
+open http://localhost:23000  # credentials from installation
 ```
 
 ### 3. Install to Project
@@ -400,7 +440,7 @@ All services use `2XXXX` prefix to avoid conflicts:
 | `JIRA_INSTANCE_URL`    | *(empty)*            | Jira Cloud URL (e.g., `https://company.atlassian.net`) |
 | `JIRA_EMAIL`           | *(empty)*            | Jira account email for Basic Auth |
 | `JIRA_API_TOKEN`       | *(empty)*            | API token from [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens) |
-| `JIRA_PROJECTS`        | *(empty)*            | Comma-separated project keys (e.g., `PROJ,DEV,OPS`) |
+| `JIRA_PROJECTS`        | *(empty)*            | JSON array of project keys (e.g., `["PROJ","DEV","OPS"]`). Comma-separated also accepted for backwards compatibility. |
 | `JIRA_SYNC_ENABLED`    | `false`              | Enable Jira synchronization       |
 | `JIRA_SYNC_DELAY_MS`   | `100`                | Delay between API requests (ms)   |
 
@@ -448,6 +488,27 @@ Use slash commands for manual control:
 /search-jira "query"    # Semantic search across Jira content
 /search-jira --issue PROJ-42  # Lookup issue + all comments
 ```
+
+#### v2.0.6 Skills
+
+| Command | Description |
+|---------|-------------|
+| `/memory-purge` | Purge old memories with dry-run safety (e.g., `--older-than 90d`) |
+| `/search-github` | Semantic search of GitHub data (PRs, issues, commits, code) |
+| `/github-sync` | Manually trigger GitHub repository sync |
+| `/pause-updates` | Toggle automatic memory updates on/off (kill switch) |
+| `/memory-refresh` | Trigger freshness scan on changed files |
+| `/parzival-save-handoff` | Save Parzival session handoff to Qdrant memory |
+| `/parzival-save-insight` | Save a Parzival insight for cross-session recall |
+| `/freshness-report` | Scan code-patterns for stale memories by comparing against current git state |
+
+#### Upgraded Skills (v2.0.6)
+
+| Command | What Changed |
+|---------|-------------|
+| `/memory-status` | 4 new sections: decay stats, GitHub sync status, security scan summary, Parzival session info |
+| `/search-memory` | Now displays decay scores alongside relevance scores |
+| `/save-memory` | Supports agent memory types (handoff, insight, task) |
 
 See [docs/HOOKS.md](docs/HOOKS.md) for hook documentation, [docs/COMMANDS.md](docs/COMMANDS.md) for commands, [docs/llm-classifier.md](docs/llm-classifier.md) for LLM classifier setup, and [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for Jira integration guide.
 
@@ -664,7 +725,7 @@ lsof -i :28000  # Monitoring API
 
 2. Verify ports are accessible:
    ```bash
-   curl http://localhost:26350/health  # Qdrant
+   curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health  # Qdrant
    curl http://localhost:28080/health  # Embedding
    ```
 
@@ -709,7 +770,7 @@ For more detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ### Grafana Dashboards (V3)
 
-Access Grafana at `http://localhost:23000` (admin/admin):
+Access Grafana at `http://localhost:23000` (credentials set during installation):
 
 | Dashboard | Purpose |
 |-----------|---------|
@@ -800,16 +861,6 @@ See [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) for complete instructions i
 1. **Enable monitoring profile** for production use:
    ```bash
    docker compose -f docker/docker-compose.yml --profile monitoring up -d
-   ```
-
-2. **Adjust batch size** for large projects:
-   ```bash
-   export MEMORY_BATCH_SIZE=100  # Default: 50
-   ```
-
-3. **Increase cache TTL** for stable projects:
-   ```bash
-   export MEMORY_CACHE_TTL=3600  # Default: 1800 seconds
    ```
 
 ## 🛠️ Development

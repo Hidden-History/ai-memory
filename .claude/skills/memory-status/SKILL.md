@@ -1,230 +1,429 @@
 ---
 name: memory-status
-description: 'Show memory system health and statistics'
-allowed-tools: Read, Bash
+description: 'Check BMAD memory system status'
+trigger: "/memory-status"
 ---
 
-# Memory Status - Health and Statistics
+```python
+"""Memory status skill: /memory-status
 
-Display real-time health status and statistics for the AI Memory Module, including service availability, collection metrics, and recent activity.
+Check AI Memory Module health, statistics, and system state.
+
+Usage:
+    /memory-status                     # Full status report
+    /memory-status --section sync      # Sync status only
+    /memory-status --section freshness # Freshness summary only
+    /memory-status --section decay     # Decay distribution only
+    /memory-status --section flags     # System flags only
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Skill scripts run from .claude/skills/memory-status/ as subprocesses.
+# The ai-memory source is at ai-memory/src/memory/.
+# Resolve project root from skill location:
+#   parents[0] = .claude/skills/memory-status/
+#   parents[1] = .claude/skills/
+#   parents[2] = .claude/
+#   parents[3] = project root
+_project_root = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(_project_root / "ai-memory" / "src"))
+
+from memory.config import (
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+    COLLECTION_DISCUSSIONS,
+    get_config,
+)
+from memory.qdrant_client import get_qdrant_client
+from memory.metrics_push import push_skill_metrics_async
+
+
+def _time_ago(iso_ts: str) -> str:
+    """Return human-readable relative time from ISO 8601 timestamp."""
+    try:
+        ts = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
+        delta = datetime.now(timezone.utc) - ts
+        hours = int(delta.total_seconds() / 3600)
+        if hours < 1:
+            minutes = int(delta.total_seconds() / 60)
+            return f"{minutes}m ago"
+        elif hours < 48:
+            return f"{hours}h ago"
+        else:
+            return f"{delta.days}d ago"
+    except Exception:
+        return ""
+
+
+def _bar(count: int, max_count: int, width: int = 12) -> str:
+    """Build ASCII bar proportional to count/max_count."""
+    if max_count == 0:
+        return ""
+    filled = int(round(width * count / max_count))
+    return "█" * filled
+
+
+def section_health(config, client) -> list[str]:
+    """Health: service availability."""
+    lines = ["Health"]
+    services = [
+        ("Qdrant", f"{config.qdrant_host}:{config.qdrant_port}"),
+        ("Embedding", f"{config.embedding_host}:{config.embedding_port}"),
+        ("Monitoring", f"{config.monitoring_host}:{config.monitoring_port}"),
+    ]
+    for name, endpoint in services:
+        try:
+            if name == "Qdrant":
+                client.get_collections()
+                status = "ok"
+            else:
+                import urllib.request
+                urllib.request.urlopen(f"http://{endpoint}/health", timeout=2)
+                status = "ok"
+        except Exception:
+            status = "unavailable"
+        lines.append(f"  {name}: {status} ({endpoint})")
+    return lines
+
+
+def section_collections(config, client) -> list[str]:
+    """Collections: point counts and disk size."""
+    lines = ["Collections"]
+    collections = [
+        COLLECTION_CODE_PATTERNS,
+        COLLECTION_CONVENTIONS,
+        COLLECTION_DISCUSSIONS,
+    ]
+    for coll in collections:
+        try:
+            info = client.get_collection(coll)
+            count = info.points_count or 0
+            # Disk size not directly available — estimate from vectors_count
+            lines.append(f"  {coll}: {count} points")
+        except Exception:
+            lines.append(f"  {coll}: unavailable")
+    return lines
+
+
+def section_services(config, client) -> list[str]:
+    """Services: detailed service status."""
+    lines = ["Services"]
+    try:
+        health = client.get_collection(COLLECTION_CODE_PATTERNS)
+        lines.append(f"  Qdrant:      running | port {config.qdrant_port}")
+    except Exception:
+        lines.append(f"  Qdrant:      down    | port {config.qdrant_port}")
+
+    lines.append(f"  Embedding:   port {config.embedding_port}")
+    lines.append(f"  Monitoring:  port {config.monitoring_port}")
+    lines.append(f"  Grafana:     port 23000")
+    lines.append(f"  Pushgateway: port 29091")
+    return lines
+
+
+def section_sync(config) -> list[str]:
+    """Sync Status: last sync time, items, errors."""
+    lines = ["Sync Status"]
+    sync_state_path = Path(config.audit_dir) / "state" / "github_sync_state.json"
+
+    if not config.github_sync_enabled:
+        lines.append("  GitHub Sync: disabled")
+        return lines
+
+    if not sync_state_path.exists():
+        lines.append("  No sync history found")
+        lines.append("  GitHub Sync: enabled")
+        return lines
+
+    try:
+        with open(sync_state_path) as f:
+            state = json.load(f)
+
+        # State schema: {type_key: {last_synced: ISO, last_count: int}}
+        # e.g. {"pull_requests": {"last_synced": "...", "last_count": 5}, ...}
+        type_entries = {k: v for k, v in state.items() if isinstance(v, dict)}
+
+        # Most recent last_synced across all types
+        last_synced_times = [v.get("last_synced", "") for v in type_entries.values() if v.get("last_synced")]
+        last_sync = max(last_synced_times) if last_synced_times else ""
+
+        # Total items and per-type breakdown
+        total = sum(v.get("last_count", 0) for v in type_entries.values())
+        parts = [f"{v.get('last_count', 0)} {k}" for k, v in type_entries.items() if v.get("last_count")]
+        breakdown = f" ({', '.join(parts)})" if parts else ""
+
+        ago = _time_ago(last_sync) if last_sync else ""
+        ago_str = f" ({ago})" if ago else ""
+        lines.append(f"  Last Sync: {last_sync}{ago_str}")
+        lines.append(f"  Items Synced: {total}{breakdown}")
+        lines.append(f"  GitHub Sync: enabled")
+    except Exception as e:
+        lines.append(f"  Sync state unreadable: {e}")
+
+    return lines
+
+
+def section_freshness(config) -> list[str]:
+    """Freshness Summary: fresh/aging/stale/expired counts."""
+    lines = ["Freshness Summary"]
+
+    if not config.freshness_enabled:
+        lines.append("  Freshness: disabled")
+        return lines
+
+    try:
+        from memory.freshness import run_freshness_scan
+        report = run_freshness_scan(config=config, cwd=str(_project_root))
+        lines.append(
+            f"  Fresh: {report.fresh_count} | "
+            f"Aging: {report.aging_count} | "
+            f"Stale: {report.stale_count} | "
+            f"Expired: {report.expired_count}"
+        )
+        lines.append("  Coverage: code-patterns only (conventions/discussions exempt)")
+    except Exception as e:
+        lines.append(f"  Freshness scan unavailable ({e})")
+
+    return lines
+
+
+def section_decay(config, client) -> list[str]:
+    """Decay Distribution: sample 50 vectors per collection, bucket by 0.2."""
+    lines = ["Decay Distribution"]
+    collections = [
+        (COLLECTION_CODE_PATTERNS, config.decay_half_life_code_patterns),
+        (COLLECTION_CONVENTIONS, config.decay_half_life_conventions),
+        (COLLECTION_DISCUSSIONS, config.decay_half_life_discussions),
+    ]
+
+    # Parse decay_type_overrides for per-type half-lives
+    type_overrides: dict[str, int] = {}
+    for entry in config.decay_type_overrides.split(","):
+        parts = entry.strip().split(":")
+        if len(parts) == 2:
+            try:
+                type_overrides[parts[0]] = int(parts[1])
+            except ValueError:
+                pass
+
+    buckets = [0] * 5  # [0-0.2), [0.2-0.4), [0.4-0.6), [0.6-0.8), [0.8-1.0]
+    total_sampled = 0
+
+    try:
+        for coll, default_half_life in collections:
+            try:
+                points = client.scroll(
+                    collection_name=coll,
+                    limit=50,
+                    with_payload=True,
+                    with_vectors=False,
+                )[0]
+                now = datetime.now(timezone.utc)
+                for point in points:
+                    payload = point.payload or {}
+                    stored_at = payload.get("stored_at") or payload.get("timestamp", "")
+                    memory_type = payload.get("type", "")
+                    half_life = type_overrides.get(memory_type, default_half_life)
+                    if stored_at:
+                        try:
+                            ts = datetime.fromisoformat(stored_at.replace("Z", "+00:00"))
+                            age_days = (now - ts).days
+                            temporal_score = 0.5 ** (age_days / half_life)
+                        except Exception:
+                            temporal_score = 0.5
+                    else:
+                        temporal_score = 0.5
+                    bucket_idx = min(int(temporal_score / 0.2), 4)
+                    buckets[bucket_idx] += 1
+                    total_sampled += 1
+            except Exception:
+                continue
+
+        if total_sampled == 0:
+            lines.append("  No vectors to sample")
+            return lines
+
+        lines.append(f"(sampled {total_sampled} vectors)")
+        max_count = max(buckets) if buckets else 1
+        labels = [
+            ("0.8-1.0 (fresh) ", 4),
+            ("0.6-0.8 (recent)", 3),
+            ("0.4-0.6 (aging) ", 2),
+            ("0.2-0.4 (old)   ", 1),
+            ("0.0-0.2 (stale) ", 0),
+        ]
+        for label, idx in labels:
+            bar = _bar(buckets[idx], max_count)
+            lines.append(f"  {label}: {bar} {buckets[idx]}")
+    except Exception as e:
+        lines.append(f"  Decay distribution unavailable ({e})")
+
+    return lines
+
+
+def section_flags(config) -> list[str]:
+    """System Flags: key feature toggles."""
+    lines = ["System Flags"]
+    flags = [
+        ("Auto-update", config.auto_update_enabled),
+        ("Freshness", config.freshness_enabled),
+        ("GitHub Sync", config.github_sync_enabled),
+        ("Parzival", config.parzival_enabled),
+    ]
+    for name, enabled in flags:
+        status = "enabled" if enabled else "disabled"
+        lines.append(f"  {name}: {status}")
+    return lines
+
+
+def main() -> None:
+    """Entry point for /memory-status skill."""
+    import argparse
+
+    start_time = time.perf_counter()
+    parser = argparse.ArgumentParser(description="Memory system status")
+    parser.add_argument(
+        "--section",
+        choices=["sync", "freshness", "decay", "flags"],
+        help="Show only a specific section",
+    )
+    args = parser.parse_args()
+
+    config = get_config()
+
+    try:
+        client = get_qdrant_client(config)
+        qdrant_ok = True
+    except Exception:
+        client = None
+        qdrant_ok = False
+
+    sections_to_show = args.section
+
+    output_lines: list[str] = []
+
+    # Always show header
+    output_lines.append("## Memory System Status")
+    output_lines.append("")
+
+    if sections_to_show is None or sections_to_show not in ("sync", "freshness", "decay", "flags"):
+        # Full report: show all sections
+        if qdrant_ok:
+            output_lines.extend(section_health(config, client))
+            output_lines.append("")
+            output_lines.extend(section_collections(config, client))
+            output_lines.append("")
+            output_lines.extend(section_services(config, client))
+            output_lines.append("")
+        else:
+            output_lines.append("Health")
+            output_lines.append("  Qdrant: unavailable")
+            output_lines.append("")
+
+    if sections_to_show is None or sections_to_show == "sync":
+        output_lines.extend(section_sync(config))
+        output_lines.append("")
+
+    if sections_to_show is None or sections_to_show == "freshness":
+        output_lines.extend(section_freshness(config))
+        output_lines.append("")
+
+    if sections_to_show is None or sections_to_show == "decay":
+        if qdrant_ok:
+            output_lines.extend(section_decay(config, client))
+        else:
+            output_lines.append("Decay Distribution")
+            output_lines.append("  Decay distribution unavailable (Qdrant offline)")
+        output_lines.append("")
+
+    if sections_to_show is None or sections_to_show == "flags":
+        output_lines.extend(section_flags(config))
+        output_lines.append("")
+
+    # Output budget note
+    output_lines.append("─" * 40)
+    output_lines.append("Output budget: < 2K tokens")
+
+    print("\n".join(output_lines))
+
+    duration = time.perf_counter() - start_time
+    push_skill_metrics_async("memory-status", "success", duration)
+
+
+if __name__ == "__main__":
+    main()
+```
 
 ## Usage
 
 ```bash
-# Show complete system status
+# Full status report
 /memory-status
 
-# Show specific section
-/memory-status --section health
-/memory-status --section collections
-/memory-status --section activity
-/memory-status --section services
+# Show specific sections only
+/memory-status --section sync
+/memory-status --section freshness
+/memory-status --section decay
+/memory-status --section flags
 ```
 
-## Status Sections
+## Output Sections
 
 ### Health
-Service availability and operational mode:
-- **Qdrant** - Vector database health (healthy/degraded/down)
-- **Embedding Service** - Embedding generation availability
-- **Operational Mode** - Current degradation mode:
-  - `normal` - All services healthy
-  - `queue_to_file` - Qdrant unavailable, queuing operations
-  - `pending_embedding` - Embedding service unavailable
-  - `passthrough` - Both services unavailable, graceful degradation
+Shows service availability for Qdrant, Embedding service, and Monitoring API.
 
 ### Collections
-Statistics for each collection (code-patterns, conventions, discussions):
-- **Total Points** - Number of stored memories
-- **Indexed Points** - Number of indexed vectors
-- **Segments** - Number of storage segments
-- **Disk Size** - Total storage used (MB)
-- **Last Updated** - Most recent memory timestamp
-- **Projects** - Number of unique projects
-- **Points by Project** - Per-project breakdown
-
-### Activity
-Recent memory system activity:
-- **Last Session Start** - Most recent SessionStart hook
-- **Last Capture** - Most recent PostToolUse capture
-- **Last Search** - Most recent memory search
-- **Total Searches Today** - Count of searches in last 24h
-- **Total Captures Today** - Count of captures in last 24h
+Point counts per collection:
+- **code-patterns** - Project-specific implementation patterns
+- **conventions** - Cross-project shared conventions
+- **discussions** - Decision context and session summaries
 
 ### Services
-Detailed service status:
-- **Qdrant** - URL, status, response time
-- **Embedding Service** - URL, status, response time
-- **Monitoring API** - URL, health endpoint status
-- **Streamlit Dashboard** - URL, accessibility
-- **Prometheus** - URL, metrics scraping status
-- **Grafana** - URL, dashboard availability
-- **Pushgateway** - URL, metrics push status
+Detailed service status with port numbers.
 
-## Examples
+### Sync Status
+GitHub synchronization state from `.audit/state/github_sync_state.json`:
+- Last sync time (with relative time)
+- Items synced (with breakdown by type)
+- Error count
+- GitHub Sync enabled/disabled
 
-```bash
-# Quick health check
-/memory-status --section health
+Fallback: "No sync history found" if state file doesn't exist.
 
-# View collection statistics
-/memory-status --section collections
+### Freshness Summary
+Code-patterns freshness classification from `run_freshness_scan()`:
+- **Fresh** - Content matches, low commit activity
+- **Aging** - Some commit activity since stored
+- **Stale** - Significant commit activity
+- **Expired** - High activity or content changed
 
-# Check service status
-/memory-status --section services
+Fallback: "Freshness scan unavailable" if no git context.
 
-# View recent activity
-/memory-status --section activity
+### Decay Distribution
+Temporal decay score distribution from a 50-vector sample per collection.
+Decay formula: `temporal_score = 0.5 ^ (age_days / half_life)`
+Bucketed into 5 bands: 0.8-1.0 (fresh), 0.6-0.8 (recent), 0.4-0.6 (aging),
+0.2-0.4 (old), 0.0-0.2 (stale).
 
-# Complete status report
-/memory-status
-```
+Fallback: "Decay distribution unavailable" if sampling fails.
 
-## Python Health Check Reference
-
-Health checks are implemented in `src/memory/health.py`:
-
-```python
-from src.memory.health import check_services
-
-# Fast health check (<2s)
-health = check_services()
-
-if health["all_healthy"]:
-    print("✓ All services operational")
-elif not health["qdrant"]:
-    print("⚠ Qdrant unavailable - queuing to file")
-elif not health["embedding"]:
-    print("⚠ Embedding service unavailable - storing with pending status")
-else:
-    print("✗ Both services unavailable - passthrough mode")
-```
-
-## Collection Statistics Reference
-
-Statistics are provided by `src/memory/stats.py`:
-
-```python
-from src.memory.stats import get_collection_stats
-from src.memory.qdrant_client import get_qdrant_client
-
-client = get_qdrant_client()
-stats = get_collection_stats(client, "code-patterns")
-
-print(f"Total memories: {stats.total_points}")
-print(f"Disk size: {stats.disk_size_bytes / 1024 / 1024:.2f} MB")
-print(f"Projects: {len(stats.projects)}")
-print(f"Last updated: {stats.last_updated}")
-```
-
-## Output Format
-
-### Health Status Display
-```
-🟢 All services healthy
-  ✓ Qdrant: healthy (localhost:26350)
-  ✓ Embedding: healthy (localhost:28080)
-  ✓ Monitoring: healthy (localhost:28000)
-```
-
-### Collection Statistics
-```
-code-patterns (Project-specific implementations)
-  Total Points: 1,234
-  Indexed Points: 1,234
-  Segments: 3
-  Disk Size: 12.5 MB
-  Last Updated: 2026-01-19T10:30:00Z
-  Projects: 5 (bmad-memory-module, project-a, project-b, ...)
-
-conventions (Cross-project shared rules)
-  Total Points: 87
-  Indexed Points: 87
-  Segments: 1
-  Disk Size: 2.1 MB
-  Last Updated: 2026-01-19T09:15:00Z
-  Projects: 1 (shared)
-```
-
-## Health Check Thresholds
-
-Collection size warnings (configurable):
-- **Warning** - 10,000 points (85% of optimal performance)
-- **Critical** - 50,000 points (performance degradation likely)
-
-Service response time thresholds:
-- **Healthy** - < 100ms
-- **Degraded** - 100ms - 2000ms
-- **Down** - > 2000ms or no response
-
-## Performance Metrics
-
-All health checks comply with NFR-P1:
-- Total check time: < 2 seconds
-- No retries (fail-fast)
-- Graceful degradation (never blocks Claude)
-
-## Operational Modes
-
-### Normal Mode
-- All services healthy
-- Full memory capture and retrieval
-- Real-time embedding generation
-
-### Queue to File
-- Qdrant unavailable
-- Operations queued to `~/.claude-memory/pending_queue.jsonl`
-- Automatic replay when Qdrant recovers
-- Hook exits immediately (no blocking)
-
-### Pending Embedding
-- Embedding service unavailable
-- Memories stored with `embedding_status: pending`
-- Background job generates embeddings later
-- Search falls back to metadata filtering
-
-### Passthrough Mode
-- Both services unavailable
-- Hook logs warning and exits gracefully
-- Claude continues without memory
-- No error propagation to user
-
-## Troubleshooting
-
-If any services show as unhealthy:
-
-1. Check Docker containers:
-   ```bash
-   docker compose -f docker/docker-compose.yml ps
-   ```
-
-2. Check service logs:
-   ```bash
-   docker compose -f docker/docker-compose.yml logs qdrant
-   docker compose -f docker/docker-compose.yml logs embedding
-   ```
-
-3. Restart services:
-   ```bash
-   docker compose -f docker/docker-compose.yml restart
-   ```
-
-4. Check connectivity:
-   ```bash
-   curl http://localhost:26350/health    # Qdrant
-   curl http://localhost:28080/health    # Embedding
-   curl http://localhost:28000/health    # Monitoring
-   ```
-
-## Related Skills
-
-- `/memory-settings` - View configuration and thresholds
-- `/search-memory` - Search the memory system
+### System Flags
+Key feature toggles from configuration:
+- **Auto-update**: `auto_update_enabled`
+- **Freshness**: `freshness_enabled`
+- **GitHub Sync**: `github_sync_enabled`
+- **Parzival**: `parzival_enabled`
 
 ## Notes
 
-- Health checks use 2s socket timeout (NFR-P1)
-- Statistics queries are O(1) or O(log n) (NFR-M4: <100ms)
-- All checks are non-blocking (graceful degradation)
-- Queue file location: `~/.claude-memory/pending_queue.jsonl`
-- Session logs: `~/.claude-memory/sessions.jsonl`
+- Output budget: < 2K tokens total
+- Each section handles graceful fallback when data unavailable
+- Qdrant connection uses port 26350 with API key authentication
+- Metrics pushed via `push_skill_metrics_async` on completion

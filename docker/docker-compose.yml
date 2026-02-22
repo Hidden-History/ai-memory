@@ -33,7 +33,9 @@ services:
       # fastembed stores models in ~/.cache/fastembed, mount entire cache dir
       - embedding_cache:/home/embedding/.cache
     environment:
-      - MODEL_NAME=jinaai/jina-embeddings-v2-base-en
+      # SPEC-010: Dual embedding model configuration
+      - MODEL_NAME_EN=${MODEL_NAME_EN:-jinaai/jina-embeddings-v2-base-en}
+      - MODEL_NAME_CODE=${MODEL_NAME_CODE:-jinaai/jina-embeddings-v2-base-code}
       - VECTOR_DIMENSIONS=768
       - LOG_LEVEL=${BMAD_LOG_LEVEL:-INFO}
       # Set fastembed cache to persistent volume location
@@ -44,11 +46,12 @@ services:
       interval: 30s
       timeout: 10s
       retries: 15
-      start_period: 300s  # BUG-040: Increased for first-time model download (~500MB). Total wait: 300s + 30s*15 = 750s (12.5 min)
+      start_period: 300s  # BUG-040: Increased for first-time model download (~500MB per model). Total wait: 300s + 30s*15 = 750s (12.5 min)
     deploy:
       resources:
         limits:
-          memory: 4G
+          # SPEC-010: Increased from 2G to 4G for dual model support (two ONNX models ~3GB)
+          memory: ${EMBEDDING_MEMORY_LIMIT:-4G}
 
   monitoring-api:
     build:
@@ -62,6 +65,7 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
       - VECTOR_DIMENSIONS=768
     depends_on:
       qdrant:
@@ -109,7 +113,7 @@ services:
     # Then set PROMETHEUS_BASIC_AUTH_HEADER in .env (format: "Basic <base64>")
     # Note: For production, use external monitoring (Grafana checks, monitoring-api)
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "--header=Authorization: ${PROMETHEUS_BASIC_AUTH_HEADER:-Basic REPLACE_WITH_BASE64_CREDENTIALS}", "http://localhost:9090/-/healthy"]
+      test: ["CMD-SHELL", "if [ -n \"$PROMETHEUS_BASIC_AUTH_HEADER\" ]; then wget --quiet --tries=1 --spider --header=\"Authorization: $PROMETHEUS_BASIC_AUTH_HEADER\" http://localhost:9090/-/healthy; else wget --quiet --tries=1 --spider http://localhost:9090/-/healthy; fi"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -184,7 +188,7 @@ services:
       - ALL
     depends_on:
       prometheus:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - default
@@ -193,7 +197,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 120s
 
   # NOTE: grafana-datasource-init removed - credentials now injected via
   # environment variable substitution in provisioning file (BP-040, Grafana 10+)
@@ -221,6 +225,7 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
       - QDRANT_USE_HTTPS=${QDRANT_USE_HTTPS:-false}
       - QDRANT_EXTERNAL_PORT=26350
       - EMBEDDING_SERVICE_URL=http://embedding:8080
@@ -275,6 +280,7 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
       - PUSHGATEWAY_URL=pushgateway:9091
       - AI_MEMORY_QUEUE_DIR=/app/queue
       # Classifier configuration
@@ -335,6 +341,84 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s  # F2/F9: Allow time for Python startup, logger init, and first health file creation (typically <5s, buffer for slow systems)
+
+  github-sync:
+    build:
+      context: ..
+      dockerfile: docker/github-sync/Dockerfile
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-github-sync
+    profiles: ["github"]
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
+      - EMBEDDING_HOST=embedding
+      - EMBEDDING_PORT=8080
+      - PUSHGATEWAY_URL=pushgateway:9091
+      - GITHUB_SYNC_ENABLED=${GITHUB_SYNC_ENABLED:-false}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_REPO=${GITHUB_REPO}
+      - GITHUB_SYNC_INTERVAL=${GITHUB_SYNC_INTERVAL:-1800}
+      - GITHUB_SYNC_ON_START=${GITHUB_SYNC_ON_START:-true}
+      - GITHUB_BRANCH=${GITHUB_BRANCH:-main}
+      - GITHUB_CODE_BLOB_ENABLED=${GITHUB_CODE_BLOB_ENABLED:-true}
+      - GITHUB_CODE_BLOB_MAX_SIZE=${GITHUB_CODE_BLOB_MAX_SIZE:-102400}
+      - GITHUB_CODE_BLOB_EXCLUDE=${GITHUB_CODE_BLOB_EXCLUDE:-node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info}
+      # BUG-112: GitHub sync resilience settings
+      - GITHUB_SYNC_TOTAL_TIMEOUT=${GITHUB_SYNC_TOTAL_TIMEOUT:-1800}
+      - GITHUB_SYNC_INSTALL_TIMEOUT=${GITHUB_SYNC_INSTALL_TIMEOUT:-600}
+      - GITHUB_SYNC_PER_FILE_TIMEOUT=${GITHUB_SYNC_PER_FILE_TIMEOUT:-60}
+      - GITHUB_SYNC_CIRCUIT_BREAKER_THRESHOLD=${GITHUB_SYNC_CIRCUIT_BREAKER_THRESHOLD:-5}
+      - GITHUB_SYNC_CIRCUIT_BREAKER_RESET=${GITHUB_SYNC_CIRCUIT_BREAKER_RESET:-60}
+      # BUG-113: Embedding retry settings
+      - EMBEDDING_MAX_RETRIES=${EMBEDDING_MAX_RETRIES:-2}
+      - EMBEDDING_BACKOFF_BASE=${EMBEDDING_BACKOFF_BASE:-1.0}
+      - EMBEDDING_BACKOFF_CAP=${EMBEDDING_BACKOFF_CAP:-15.0}
+      - AI_MEMORY_PROJECT_ID=${AI_MEMORY_PROJECT_ID}
+      - SECURITY_SCAN_GITHUB_MODE=${SECURITY_SCAN_GITHUB_MODE:-relaxed}
+      - SECURITY_SCAN_SESSION_MODE=${SECURITY_SCAN_SESSION_MODE:-relaxed}
+      - LOG_LEVEL=${BMAD_LOG_LEVEL:-INFO}
+    volumes:
+      # Persist sync state across container restarts
+      # Engine writes to Path.cwd()/.audit/state/ = /app/.audit/state/
+      - ${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/github-state:/app/.audit/state
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      embedding:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 30s
+    # Run as host user for bind mount permissions (matches classifier-worker pattern)
+    user: "${UID:-1000}:${GID:-1000}"
+    # Security hardening (2026 best practices)
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=50m
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M  # SPEC-009: Increased for security scanning (detect-secrets + SpaCy)
+    # Log rotation
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "from pathlib import Path; import time; p = Path('/tmp/sync.health'); exit(0 if p.exists() and (time.time() - p.stat().st_mtime) < 3600 else 1)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
 
 volumes:
   qdrant_storage:

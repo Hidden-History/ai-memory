@@ -18,13 +18,11 @@ Exit Codes:
 """
 
 import argparse
-import json
 import logging
 import os
 import sys
 import time
-from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 # Add src to path for imports
 INSTALL_DIR = os.environ.get(
@@ -33,8 +31,6 @@ INSTALL_DIR = os.environ.get(
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.activity_log import log_memory_search
-from memory.config import get_config
-from memory.intent import detect_intent, get_target_collection
 from memory.logging_config import StructuredFormatter
 from memory.metrics_push import push_skill_metrics_async
 from memory.project import detect_project
@@ -140,7 +136,7 @@ Examples:
     return parser.parse_args()
 
 
-def format_search_results(results: List[Dict[str, Any]], collection: str) -> str:
+def format_search_results(results: list[dict[str, Any]], collection: str) -> str:
     """Format search results for display.
 
     Args:

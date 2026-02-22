@@ -37,10 +37,13 @@ try:
     import tiktoken
     from memory.chunking.prose_chunker import ProseChunker, ProseChunkerConfig
     from memory.validation import compute_content_hash as _compute_chunk_hash
+
     CHUNKING_AVAILABLE = True
 except ImportError:
     CHUNKING_AVAILABLE = False
-    logger.warning("chunking_module_unavailable", extra={"module": "memory.chunking.prose_chunker"})
+    logger.warning(
+        "chunking_module_unavailable", extra={"module": "memory.chunking.prose_chunker"}
+    )
 
 from memory.config import (
     COLLECTION_DISCUSSIONS,
@@ -112,8 +115,15 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
             "timestamp": now,
             "turn_number": turn_number,
             "created_at": now,
+            "stored_at": now,
             "embedding_status": "pending",
             "embedding_model": EMBEDDING_MODEL,
+            # v2.0.6: Semantic Decay fields
+            "decay_score": 1.0,
+            "freshness_status": "unverified",
+            "source_authority": 0.4,
+            "is_current": True,
+            "version": 1,
         }
 
         # Check for duplicate message before storing (CRITICAL FIX: deduplication)
@@ -161,9 +171,10 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 ).inc()
             return True
 
-        # Generate deterministic UUID from content_hash (Fix #2: makes upsert idempotent)
-        # Using uuid5 prevents TOCTOU race - same hash = same ID = no duplicate
-        memory_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, content_hash))
+        # Generate deterministic UUID scoped to session (Fix #2: makes upsert idempotent)
+        # Session-scoped: same session + same content = same ID (prevents TOCTOU race)
+        # Different sessions with same content get different IDs (prevents cross-session overwrite)
+        memory_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{session_id}:{content_hash}"))
 
         # CR-1.5: Use config constant instead of magic number
         config = get_config()
@@ -172,6 +183,66 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
         if not prompt or not prompt.strip():
             logger.info("empty_content_skipped", extra={"session_id": session_id})
             return True
+
+        # SPEC-009: Security scanning (Layers 1+2 only for hooks, ~10ms overhead)
+        if config.security_scanning_enabled:
+            try:
+                from memory.security_scanner import SecurityScanner, ScanAction
+
+                scanner = SecurityScanner(enable_ner=False)
+                scan_result = scanner.scan(prompt, source_type="user_session")
+
+                if scan_result.action == ScanAction.BLOCKED:
+                    # Secrets detected - block storage entirely
+                    log_to_activity(
+                        f"🚫 UserPrompt blocked: Secrets detected [{group_id}]",
+                        INSTALL_DIR,
+                    )
+                    logger.warning(
+                        "user_prompt_blocked_secrets",
+                        extra={
+                            "session_id": session_id,
+                            "findings": len(scan_result.findings),
+                            "scan_duration_ms": scan_result.scan_duration_ms,
+                        },
+                    )
+                    if memory_captures_total:
+                        memory_captures_total.labels(
+                            hook_type="UserPromptSubmit",
+                            status="blocked",
+                            project=group_id or "unknown",
+                            collection="discussions",
+                        ).inc()
+                    return True  # Exit early, do not store
+
+                elif scan_result.action == ScanAction.MASKED:
+                    # PII detected and masked
+                    prompt = scan_result.content
+                    logger.info(
+                        "user_prompt_pii_masked",
+                        extra={
+                            "session_id": session_id,
+                            "findings": len(scan_result.findings),
+                            "scan_duration_ms": scan_result.scan_duration_ms,
+                        },
+                    )
+
+                # PASSED: No sensitive data, continue with original content
+
+            except ImportError:
+                logger.warning(
+                    "security_scanner_unavailable", extra={"hook": "UserPromptSubmit"}
+                )
+            except Exception as e:
+                logger.error(
+                    "security_scan_failed",
+                    extra={
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "hook": "UserPromptSubmit",
+                    },
+                )
+                # Continue with original content if scanner fails
 
         # TECH-DEBT-151 Phase 3: Zero-truncation — chunk if over 2000 tokens
         # Per Chunking-Strategy-V2.md V2.1 Section 2.4
@@ -185,21 +256,28 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
 
                 if original_token_count > 2000:
                     # Topical chunking: 512 tokens, 15% overlap
-                    chunker_config = ProseChunkerConfig(max_chunk_size=2048, overlap_ratio=0.15)
+                    chunker_config = ProseChunkerConfig(
+                        max_chunk_size=512, overlap_ratio=0.15
+                    )
                     prose_chunker = ProseChunker(chunker_config)
                     chunk_results = prose_chunker.chunk(prompt, source="user_prompt")
 
                     if chunk_results:
                         for i, cr in enumerate(chunk_results):
                             chunk_tokens = len(enc.encode(cr.content))
-                            chunks_to_store.append((cr.content, {
-                                "chunk_type": "topical",
-                                "chunk_index": i,
-                                "total_chunks": len(chunk_results),
-                                "chunk_size_tokens": chunk_tokens,
-                                "overlap_tokens": cr.metadata.overlap_tokens,
-                                "original_size_tokens": original_token_count,
-                            }))
+                            chunks_to_store.append(
+                                (
+                                    cr.content,
+                                    {
+                                        "chunk_type": "topical",
+                                        "chunk_index": i,
+                                        "total_chunks": len(chunk_results),
+                                        "chunk_size_tokens": chunk_tokens,
+                                        "overlap_tokens": cr.metadata.overlap_tokens,
+                                        "original_size_tokens": original_token_count,
+                                    },
+                                )
+                            )
                         logger.info(
                             "user_prompt_chunked",
                             extra={
@@ -210,45 +288,65 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                         )
                     else:
                         # ProseChunker returned empty — store whole as fallback
-                        chunks_to_store.append((prompt, {
+                        chunks_to_store.append(
+                            (
+                                prompt,
+                                {
+                                    "chunk_type": "whole",
+                                    "chunk_index": 0,
+                                    "total_chunks": 1,
+                                    "chunk_size_tokens": original_token_count,
+                                    "overlap_tokens": 0,
+                                    "original_size_tokens": original_token_count,
+                                },
+                            )
+                        )
+                else:
+                    # Under threshold — store whole
+                    chunks_to_store.append(
+                        (
+                            prompt,
+                            {
+                                "chunk_type": "whole",
+                                "chunk_index": 0,
+                                "total_chunks": 1,
+                                "chunk_size_tokens": original_token_count,
+                                "overlap_tokens": 0,
+                                "original_size_tokens": original_token_count,
+                            },
+                        )
+                    )
+            except Exception as e:
+                logger.warning("chunking_failed_storing_whole", extra={"error": str(e)})
+                chunks_to_store.append(
+                    (
+                        prompt,
+                        {
                             "chunk_type": "whole",
                             "chunk_index": 0,
                             "total_chunks": 1,
-                            "chunk_size_tokens": original_token_count,
+                            "chunk_size_tokens": (len(prompt) + 2) // 3,
                             "overlap_tokens": 0,
-                            "original_size_tokens": original_token_count,
-                        }))
-                else:
-                    # Under threshold — store whole
-                    chunks_to_store.append((prompt, {
+                            "original_size_tokens": (len(prompt) + 2) // 3,
+                        },
+                    )
+                )
+        else:
+            # Chunking not available — store whole
+            est_tokens = (len(prompt) + 2) // 3
+            chunks_to_store.append(
+                (
+                    prompt,
+                    {
                         "chunk_type": "whole",
                         "chunk_index": 0,
                         "total_chunks": 1,
-                        "chunk_size_tokens": original_token_count,
+                        "chunk_size_tokens": est_tokens,
                         "overlap_tokens": 0,
-                        "original_size_tokens": original_token_count,
-                    }))
-            except Exception as e:
-                logger.warning("chunking_failed_storing_whole", extra={"error": str(e)})
-                chunks_to_store.append((prompt, {
-                    "chunk_type": "whole",
-                    "chunk_index": 0,
-                    "total_chunks": 1,
-                    "chunk_size_tokens": len(prompt) // 4,
-                    "overlap_tokens": 0,
-                    "original_size_tokens": len(prompt) // 4,
-                }))
-        else:
-            # Chunking not available — store whole
-            est_tokens = len(prompt) // 4
-            chunks_to_store.append((prompt, {
-                "chunk_type": "whole",
-                "chunk_index": 0,
-                "total_chunks": 1,
-                "chunk_size_tokens": est_tokens,
-                "overlap_tokens": 0,
-                "original_size_tokens": est_tokens,
-            }))
+                        "original_size_tokens": est_tokens,
+                    },
+                )
+            )
 
         # Embed and store all chunks
         from memory.embeddings import EmbeddingClient
@@ -270,30 +368,51 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
             vectors = _embed_batch_with_retry(chunk_contents)
             embedding_status = "complete"
         except Exception as e:
-            logger.warning("embedding_failed_using_zero_vectors", extra={"error": str(e)})
+            logger.warning(
+                "embedding_failed_using_zero_vectors", extra={"error": str(e)}
+            )
             vectors = [[0.0] * config.embedding_dimension for _ in chunks_to_store]
             embedding_status = "pending"
 
         # Build points for all chunks
         points = []
-        for i, ((chunk_content, chunk_meta), vector) in enumerate(zip(chunks_to_store, vectors)):
-            chunk_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{content_hash}:chunk:{i}")) if len(chunks_to_store) > 1 else memory_id
+        for i, ((chunk_content, chunk_meta), vector) in enumerate(
+            zip(chunks_to_store, vectors)
+        ):
+            chunk_id = (
+                str(
+                    uuid.uuid5(
+                        uuid.NAMESPACE_DNS, f"{session_id}:{content_hash}:chunk:{i}"
+                    )
+                )
+                if len(chunks_to_store) > 1
+                else memory_id
+            )
             chunk_payload = {
                 **payload,
                 "content": chunk_content,
-                "content_hash": _compute_chunk_hash(chunk_content) if len(chunks_to_store) > 1 else content_hash,
-                "parent_content_hash": content_hash if len(chunks_to_store) > 1 else None,
+                "content_hash": (
+                    _compute_chunk_hash(chunk_content)
+                    if len(chunks_to_store) > 1
+                    else content_hash
+                ),
+                "parent_content_hash": (
+                    content_hash if len(chunks_to_store) > 1 else None
+                ),
                 "embedding_status": embedding_status,
                 "chunking_metadata": chunk_meta,
             }
-            points.append(PointStruct(id=chunk_id, vector=vector, payload=chunk_payload))
+            points.append(
+                PointStruct(id=chunk_id, vector=vector, payload=chunk_payload)
+            )
 
         # Store all chunks to Qdrant
         client.upsert(collection_name=COLLECTION_DISCUSSIONS, points=points)
 
         # BUG-036: Include project name for multi-project visibility
         log_to_activity(
-            f"✅ UserPrompt stored: Turn {turn_number} [{group_id}] ({len(points)} chunks)", INSTALL_DIR
+            f"✅ UserPrompt stored: Turn {turn_number} [{group_id}] ({len(points)} chunks)",
+            INSTALL_DIR,
         )
         logger.info(
             "user_message_stored",
@@ -373,8 +492,8 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
             )
 
             token_count = (
-                len(prompt) // 4
-            )  # Fast estimation, consider tiktoken if accuracy critical
+                len(prompt) + 2
+            ) // 3  # Fast estimation, consider tiktoken if accuracy critical
             if token_count > 0:
                 push_token_metrics_async(
                     operation="capture",

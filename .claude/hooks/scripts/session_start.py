@@ -31,6 +31,7 @@ sys.path.insert(0, local_src)
 from memory.activity_log import (
     log_conversation_context_injection,
 )
+from memory.chunking.truncation import count_tokens
 from memory.config import (
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
@@ -62,26 +63,6 @@ logger.propagate = False
 
 # Note: Inline metrics removed - using push_* functions from metrics_push module instead
 # See TECH-DEBT-070 for push-based metrics architecture
-
-
-def estimate_tokens(content: str) -> int:
-    """Estimate token count from content.
-
-    Uses ~3 chars per token (conservative estimate for 2026).
-    Previous 4 chars/token was optimistic and caused budget overruns.
-    This accounts for markdown syntax, technical terms, and formatting overhead.
-
-    Args:
-        content: Text content to estimate tokens for
-
-    Returns:
-        Estimated token count (conservative ceiling estimate)
-    """
-    if not content:
-        return 0
-    # Conservative estimate: 3 chars per token (2026 best practice)
-    # Prevents budget overruns with technical/markdown content
-    return (len(content) + 2) // 3  # +2 for ceiling behavior
 
 
 def inject_with_priority(
@@ -137,7 +118,7 @@ def inject_with_priority(
     if session_summaries:
         header = "## Session Summaries\n"
         result.append(header)
-        tokens_used += estimate_tokens(header)  # Account for header tokens
+        tokens_used += count_tokens(header)  # Account for header tokens
         summaries_added = 0
 
         for summary in session_summaries:
@@ -178,7 +159,7 @@ def inject_with_priority(
             formatted_summary = f"{prefix} {filtered_content}\n"
 
             # Estimate tokens for full formatted summary (includes markdown overhead)
-            summary_tokens = estimate_tokens(formatted_summary)
+            summary_tokens = count_tokens(formatted_summary)
 
             # Check if adding this summary would exceed summary budget
             if tokens_used + summary_tokens > summary_budget:
@@ -220,7 +201,7 @@ def inject_with_priority(
             if last_user_prompts and tokens_used < summary_budget:
                 user_header = "\n## Recent User Messages\n"
                 result.append(user_header)
-                tokens_used += estimate_tokens(user_header)
+                tokens_used += count_tokens(user_header)
 
                 for prompt_data in last_user_prompts:
                     if tokens_used >= summary_budget:
@@ -247,7 +228,7 @@ def inject_with_priority(
                             filtered_content = filtered_content[:1000] + "..."
 
                     formatted_prompt = f"**User:** {filtered_content}\n"
-                    prompt_tokens = estimate_tokens(formatted_prompt)
+                    prompt_tokens = count_tokens(formatted_prompt)
                     if tokens_used + prompt_tokens <= summary_budget:
                         result.append(formatted_prompt)
                         tokens_used += prompt_tokens
@@ -257,7 +238,7 @@ def inject_with_priority(
             if last_agent_responses and tokens_used < summary_budget:
                 agent_header = "\n## Agent Context Summary\n"
                 result.append(agent_header)
-                tokens_used += estimate_tokens(agent_header)
+                tokens_used += count_tokens(agent_header)
 
                 for response_data in last_agent_responses:
                     if tokens_used >= summary_budget:
@@ -284,7 +265,7 @@ def inject_with_priority(
                             filtered_content = filtered_content[:500] + "..."
 
                     formatted_response = f"**Agent:** {filtered_content}\n"
-                    response_tokens = estimate_tokens(formatted_response)
+                    response_tokens = count_tokens(formatted_response)
                     if tokens_used + response_tokens <= summary_budget:
                         result.append(formatted_response)
                         tokens_used += response_tokens
@@ -319,7 +300,7 @@ def inject_with_priority(
     if other_memories and other_budget > 0:
         header = "\n## Related Memories\n"
         result.append(header)
-        tokens_used += estimate_tokens(header)  # Account for header tokens
+        tokens_used += count_tokens(header)  # Account for header tokens
         memories_added = 0
 
         for memory in other_memories:
@@ -353,7 +334,7 @@ def inject_with_priority(
             formatted_memory = f"\n**{memory_type}{score_str}:** {filtered_content}\n"
 
             # Estimate tokens for full formatted memory (includes markdown overhead)
-            memory_tokens = estimate_tokens(formatted_memory)
+            memory_tokens = count_tokens(formatted_memory)
 
             # Check if adding this memory would exceed total budget
             if tokens_used + memory_tokens > token_budget:
@@ -577,6 +558,18 @@ def get_conversation_context(
         return ""
 
 
+def cleanup_dedup_lock(lock_path: str) -> None:
+    """Clean up session dedup lock file (BUG-020).
+
+    Best-effort removal — silently ignores missing files or permission errors.
+    """
+    try:
+        if os.path.exists(lock_path):
+            os.remove(lock_path)
+    except OSError:
+        pass
+
+
 def main():
     """Retrieve and output relevant memories for Claude context.
 
@@ -674,37 +667,40 @@ def main():
                     )
                 )
 
-                # BUG-020: Clean up dedup lock
-                try:
-                    if os.path.exists(lock_file_path):
-                        os.remove(lock_file_path)
-                except OSError:
-                    pass  # Best effort cleanup
+                cleanup_dedup_lock(lock_file_path)
 
                 sys.exit(0)
 
-            # V2.0 Phase 5: Inject on resume and compact (conversation continuity)
-            # startup/clear: No injection - we don't know context yet or user wants fresh start
-            if trigger in ["startup", "clear"]:
+            # V2.0.6 SPEC-012: Progressive Context Injection (AD-6 override of Core Arch V2)
+            # clear: No injection - user wants fresh start, delete injection state
+            # startup: Tier 1 Bootstrap injection - conventions + guidelines + recent findings (2-3K)
+            # resume/compact: Session restore (existing behavior, 4K)
+
+            if trigger == "clear":
+                # User wants fresh start — delete injection state and skip injection
+                from pathlib import Path
+
+                state_path = Path(f"/tmp/ai-memory-{session_id}-injection-state.json")
+                state_path.unlink(missing_ok=True)
+
                 duration_ms = (time.perf_counter() - start_time) * 1000
                 logger.info(
-                    "v2_no_injection",
+                    "v2_clear_no_injection",
                     extra={
                         "trigger": trigger,
                         "session_id": session_id,
                         "project": project_name,
-                        "reason": "V2.0 injects on resume and compact only",
                         "duration_ms": round(duration_ms, 2),
                     },
                 )
 
-                # User notification - V2.0 behavior
+                # User notification
                 print(
-                    f"🧠 AI Memory V2.0: No injection on {trigger} (fresh start) [{duration_ms:.0f}ms]",
+                    f"🧠 AI Memory V2.0: Fresh start (no injection) [{duration_ms:.0f}ms]",
                     file=sys.stderr,
                 )
 
-                # Empty context JSON - no injection on startup/resume/clear
+                # Empty context JSON
                 print(
                     json.dumps(
                         {
@@ -716,12 +712,133 @@ def main():
                     )
                 )
 
-                # BUG-020: Clean up dedup lock
-                try:
-                    if os.path.exists(lock_file_path):
-                        os.remove(lock_file_path)
-                except OSError:
-                    pass  # Best effort cleanup
+                cleanup_dedup_lock(lock_file_path)
+
+                sys.exit(0)
+
+            if trigger == "startup":
+                # Tier 1 Bootstrap: inject conventions, guidelines, recent findings
+                from memory.injection import (
+                    format_injection_output,
+                    init_session_state,
+                    log_injection_event,
+                    retrieve_bootstrap_context,
+                    select_results_greedy,
+                )
+                from memory.search import MemorySearch
+
+                bootstrap_results = retrieve_bootstrap_context(
+                    search_client=MemorySearch(config),
+                    project_name=project_name,
+                    config=config,
+                )
+
+                if not bootstrap_results:
+                    duration_ms = (time.perf_counter() - start_time) * 1000
+                    logger.info(
+                        "bootstrap_no_results",
+                        extra={
+                            "session_id": session_id,
+                            "project": project_name,
+                            "duration_ms": round(duration_ms, 2),
+                        },
+                    )
+
+                    # User notification
+                    print(
+                        f"🧠 AI Memory V2.0: No bootstrap context available [{duration_ms:.0f}ms]",
+                        file=sys.stderr,
+                    )
+
+                    # Empty context JSON
+                    print(
+                        json.dumps(
+                            {
+                                "hookSpecificOutput": {
+                                    "hookEventName": "SessionStart",
+                                    "additionalContext": "",
+                                }
+                            }
+                        )
+                    )
+
+                    cleanup_dedup_lock(lock_file_path)
+
+                    sys.exit(0)
+
+                # Greedy fill with bootstrap budget
+                selected, tokens_used = select_results_greedy(
+                    results=bootstrap_results,
+                    budget=config.bootstrap_token_budget,
+                )
+
+                # Format and output
+                formatted = format_injection_output(selected, tier=1)
+
+                # Initialize session injection state (for Tier 2 dedup)
+                init_session_state(
+                    session_id=session_id,
+                    injected_ids=[r["id"] for r in selected],
+                )
+
+                # Audit log
+                log_injection_event(
+                    tier=1,
+                    trigger=trigger,
+                    project=project_name,
+                    session_id=session_id,
+                    results_considered=len(bootstrap_results),
+                    results_selected=len(selected),
+                    tokens_used=tokens_used,
+                    budget=config.bootstrap_token_budget,
+                    audit_dir=config.audit_dir,
+                )
+
+                # Calculate duration for logging
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                duration_seconds = duration_ms / 1000.0
+
+                # User notification
+                print(
+                    f"🧠 AI Memory V2.0: Bootstrap context injected ({len(selected)} items, {tokens_used} tokens) [{duration_ms:.0f}ms]",
+                    file=sys.stderr,
+                )
+
+                logger.info(
+                    "bootstrap_injection_complete",
+                    extra={
+                        "session_id": session_id,
+                        "project": project_name,
+                        "results_selected": len(selected),
+                        "tokens_used": tokens_used,
+                        "budget": config.bootstrap_token_budget,
+                        "duration_ms": round(duration_ms, 2),
+                    },
+                )
+
+                # Push metrics
+                from memory.metrics_push import push_hook_metrics_async
+
+                push_hook_metrics_async(
+                    hook_name="SessionStart",
+                    duration_seconds=duration_seconds,
+                    success=True,
+                    project=project_name,
+                )
+
+                # Output to Claude
+                print(
+                    json.dumps(
+                        {
+                            "hookSpecificOutput": {
+                                "hookEventName": "SessionStart",
+                                "additionalContext": formatted,
+                            }
+                        }
+                    )
+                )
+
+                cleanup_dedup_lock(lock_file_path)
 
                 sys.exit(0)
 
@@ -829,13 +946,13 @@ def main():
             if conversation_context:
                 # CR-3.5 HIGH FIX: Validate token budget before injection
                 context_char_count = len(conversation_context)
-                # Rough token estimate: 1 token ≈ 4 chars
-                estimated_tokens = context_char_count // 4
+                # Conservative token estimate: 1 token ≈ 3 chars (matches count_tokens())
+                estimated_tokens = (context_char_count + 2) // 3
                 token_budget = config.token_budget
 
                 if estimated_tokens > token_budget:
                     # Context exceeds budget - truncate to fit
-                    target_chars = token_budget * 4
+                    target_chars = token_budget * 3
                     conversation_context = (
                         conversation_context[:target_chars]
                         + f"\n\n... [truncated - exceeded token budget of {token_budget} tokens]"
@@ -902,7 +1019,7 @@ def main():
                 )
 
                 # TECH-DEBT-070: Push metrics to Pushgateway (async to avoid latency)
-                token_count = estimate_tokens(conversation_context)
+                token_count = count_tokens(conversation_context)
                 from memory.metrics_push import (
                     push_context_injection_metrics_async,
                     push_token_metrics_async,
@@ -970,12 +1087,7 @@ def main():
                 }
                 print(json.dumps(output))
 
-                # BUG-020: Clean up dedup lock
-                try:
-                    if os.path.exists(lock_file_path):
-                        os.remove(lock_file_path)
-                except OSError:
-                    pass  # Best effort cleanup
+                cleanup_dedup_lock(lock_file_path)
 
                 sys.exit(0)
             else:
@@ -1007,12 +1119,7 @@ def main():
                     )
                 )
 
-                # BUG-020: Clean up dedup lock
-                try:
-                    if os.path.exists(lock_file_path):
-                        os.remove(lock_file_path)
-                except OSError:
-                    pass  # Best effort cleanup
+                cleanup_dedup_lock(lock_file_path)
 
                 sys.exit(0)
 

@@ -43,7 +43,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
 
     2026 Best Practice: Complete Claude Code V2.0 hook structure
     - SessionStart: Requires 'matcher' (resume|compact) per Core-Architecture-V2 Section 7.2
-    - UserPromptSubmit: Captures user prompts and triggers keyword detection
+    - UserPromptSubmit: Captures user prompts and triggers context injection
     - PreToolUse: Triggers for new file creation and first edit detection
     - PostToolUse: Wrapper with 'matcher' + nested 'hooks' array (Bash errors, Edit/Write capture)
     - PreCompact: Wrapper with 'matcher' for auto|manual triggers
@@ -71,23 +71,42 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         "AI_MEMORY_INSTALL_DIR": install_dir,
         # Project identification for multi-tenancy
         "AI_MEMORY_PROJECT_ID": project_name,
-        # Service configuration - ports per CLAUDE.md
-        "QDRANT_HOST": "localhost",
-        "QDRANT_PORT": "26350",
-        "EMBEDDING_HOST": "localhost",
-        "EMBEDDING_PORT": "28080",
+        # Service configuration - read from environment, fall back to defaults per CLAUDE.md
+        "QDRANT_HOST": os.environ.get("QDRANT_HOST", "localhost"),
+        "QDRANT_PORT": os.environ.get("QDRANT_PORT", "26350"),
+        "EMBEDDING_HOST": os.environ.get("EMBEDDING_HOST", "localhost"),
+        "EMBEDDING_PORT": os.environ.get("EMBEDDING_PORT", "28080"),
         # TECH-DEBT-002: Lower threshold for NL query → code content matching
-        "SIMILARITY_THRESHOLD": "0.4",
+        "SIMILARITY_THRESHOLD": os.environ.get("SIMILARITY_THRESHOLD", "0.4"),
         "LOG_LEVEL": "INFO",
         # Pushgateway configuration for metrics
-        "PUSHGATEWAY_URL": "localhost:29091",
-        "PUSHGATEWAY_ENABLED": "true",
+        "PUSHGATEWAY_URL": os.environ.get("PUSHGATEWAY_URL", "localhost:29091"),
+        "PUSHGATEWAY_ENABLED": os.environ.get("PUSHGATEWAY_ENABLED", "true"),
     }
 
     # Only include QDRANT_API_KEY if it has a non-empty value
     api_key = os.environ.get("QDRANT_API_KEY", "")
     if api_key:
         env_section["QDRANT_API_KEY"] = api_key
+
+    # Add Parzival env vars if enabled (SPEC-015)
+    if os.environ.get("PARZIVAL_ENABLED", "").lower() == "true":
+        env_section["PARZIVAL_ENABLED"] = "true"
+        env_section["PARZIVAL_USER_NAME"] = os.environ.get(
+            "PARZIVAL_USER_NAME", "Developer"
+        )
+        env_section["PARZIVAL_LANGUAGE"] = os.environ.get(
+            "PARZIVAL_LANGUAGE", "English"
+        )
+        env_section["PARZIVAL_DOC_LANGUAGE"] = os.environ.get(
+            "PARZIVAL_DOC_LANGUAGE", "English"
+        )
+        env_section["PARZIVAL_OVERSIGHT_FOLDER"] = os.environ.get(
+            "PARZIVAL_OVERSIGHT_FOLDER", "oversight"
+        )
+        env_section["PARZIVAL_HANDOFF_RETENTION"] = os.environ.get(
+            "PARZIVAL_HANDOFF_RETENTION", "10"
+        )
 
     return {
         # Schema reference for IDE validation (BUG-029+030 fix)
@@ -96,7 +115,11 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         "hooks": {
             "SessionStart": [
                 {
-                    "matcher": "resume|compact",
+                    "matcher": (
+                        "startup|resume|compact|clear"
+                        if os.environ.get("PARZIVAL_ENABLED", "").lower() == "true"
+                        else "resume|compact"
+                    ),
                     "hooks": [session_start_hook],
                 }
             ],
@@ -106,6 +129,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         {
                             "type": "command",
                             "command": _hook_cmd("user_prompt_capture.py"),
+                            "timeout": 2000,
                         }
                     ]
                 },
@@ -113,7 +137,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": _hook_cmd("unified_keyword_trigger.py"),
+                            "command": _hook_cmd("context_injection_tier2.py"),
                             "timeout": 5000,
                         }
                     ]
@@ -153,6 +177,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         {
                             "type": "command",
                             "command": _hook_cmd("error_pattern_capture.py"),
+                            "timeout": 3000,
                         },
                     ],
                 },
@@ -162,6 +187,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         {
                             "type": "command",
                             "command": _hook_cmd("post_tool_capture.py"),
+                            "timeout": 3000,
                         }
                     ],
                 },
@@ -184,6 +210,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         {
                             "type": "command",
                             "command": _hook_cmd("agent_response_capture.py"),
+                            "timeout": 5000,
                         }
                     ]
                 }

@@ -41,7 +41,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 # Add src to path for imports
 # Try dev repo FIRST, then fall back to installed location
@@ -54,7 +54,6 @@ else:
     )
     sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
-from memory.config import get_config
 from memory.logging_config import StructuredFormatter
 from memory.qdrant_client import QdrantUnavailable
 
@@ -90,7 +89,7 @@ REQUIRED_METADATA_FIELDS = ["type", "group_id", "source_hook"]
 RECOMMENDED_METADATA_FIELDS = ["agent", "component", "story_id", "importance"]
 
 
-def validate_metadata(metadata: Dict[str, Any]) -> Tuple[bool, str]:
+def validate_metadata(metadata: dict[str, Any]) -> tuple[bool, str]:
     """
     Validate metadata structure and required fields.
 
@@ -144,7 +143,7 @@ def validate_metadata(metadata: Dict[str, Any]) -> Tuple[bool, str]:
     return True, ""
 
 
-def fork_background_storage(content: str, metadata: Dict[str, Any]) -> None:
+def fork_background_storage(content: str, metadata: dict[str, Any]) -> None:
     """
     Fork the actual storage operation to a background process.
 
@@ -198,7 +197,7 @@ def fork_background_storage(content: str, metadata: Dict[str, Any]) -> None:
         )
 
 
-def store_synchronous(content: str, metadata: Dict[str, Any]) -> int:
+def store_synchronous(content: str, metadata: dict[str, Any]) -> int:
     """
     Store memory synchronously (for testing or when fork is disabled).
 
@@ -337,7 +336,7 @@ def main() -> int:
         content = args.content
     elif args.content_file:
         try:
-            with open(args.content_file, "r") as f:
+            with open(args.content_file) as f:
                 content = f.read()
         except FileNotFoundError:
             print(
@@ -369,7 +368,7 @@ def main() -> int:
             return 1
     elif args.metadata_file:
         try:
-            with open(args.metadata_file, "r") as f:
+            with open(args.metadata_file) as f:
                 metadata = json.load(f)
         except FileNotFoundError:
             print(
