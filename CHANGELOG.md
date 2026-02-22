@@ -76,7 +76,51 @@ GitHub enrichment, security scanning, and Parzival session agent integration.
 - TECH-DEBT-164: Missing store_memory() return docstring (SPEC-017)
 - TECH-DEBT-165: scan_batch() missing force_ner parameter (SPEC-017)
 
+#### Install #11 Bug Fix (BUG-116) — PM #78, commit `fe8aedb`
+- **BUG-116** (HIGH): `schema.py` passed `is_tenant=True` as direct kwarg to `create_payload_index()` — qdrant-client >=1.14 requires `is_tenant` inside `KeywordIndexParams`, not as top-level kwarg. Caused `AssertionError: Unknown arguments: ['is_tenant']` on first index, all 10 GitHub indexes failed. Fixed by using `KeywordIndexParams(type="keyword", is_tenant=True)` matching existing pattern in `setup-collections.py`. Secondary fix: `install.sh:2417` changed from `|| result="FAILED"` to `local rc=$?` pattern preserving both exit code and error output.
+
+#### Install #12 Bug Sprint (BUG-118-125 + TD-167/168/170) — PM #79, commit `11728ed`
+- **BUG-118** (HIGH): SessionStart matcher hardcoded to `"resume|compact"` in `generate_settings.py` and actively downgraded by `merge_settings.py` — Parzival sessions require `"startup"` in matcher. Fixed: conditional matcher in `generate_settings.py`, bidirectional matcher management in `merge_settings.py`, new `update_parzival_settings.py` called from `install.sh:setup_parzival()`.
+- **BUG-119** (MEDIUM): `write_health_file()` only called after first github-sync cycle (5+ min) — Docker healthcheck marked service unhealthy during startup. Fixed: startup `write_health_file()` before main loop, `start_period: 30s → 120s`, file freshness check (mtime < 3600s).
+- **BUG-120** (HIGH): Parzival env vars (`PARZIVAL_ENABLED` + 5 others) missing from `settings.json` because `configure_project_hooks()` runs before `setup_parzival()`. Host-side hooks read env from `settings.json`, not `docker/.env`. Fixed: `scripts/update_parzival_settings.py` patches `settings.json` env block + SessionStart matcher after `docker/.env` is written.
+- **BUG-121** (MEDIUM): `pre_compact_save.py` stored session summaries directly to Qdrant with no SecurityScanner call — all other hooks DO scan. OWASP LLM08 gap. Fixed: SecurityScanner integration with BLOCKED (returns False + logs + pushes failure metrics) and MASKED (uses masked content) handling.
+- **BUG-122** (MEDIUM): Embedding readiness gate (`verify_embedding_readiness`) fired after Jira sync, causing 44% embedding failure rate on initial GitHub issues. Fixed: moved gate to before `seed_best_practices` (first storage operation).
+- **BUG-124** (LOW): Grafana `start_period: 60s` insufficient for 2GB Docker systems. Fixed: increased to `120s`; installer now detects Docker memory <3GB and reduces wait to 30s with advisory message.
+- **BUG-125** (MEDIUM): `process_retry_queue.py` is standalone manual script with no automatic trigger — 76 items queued during install startup never retried. Fixed: `drain_pending_queue()` function in `install.sh` runs after all sync phases complete.
+- **TD-167**: Replaced `estimate_tokens()` (rough 4-chars-per-token) with `count_tokens()` (tiktoken-based) in `session_start.py` — 9 call sites updated.
+- **TD-168**: BUG-020 lock cleanup copy-pasted 6x in `session_start.py` — refactored into `cleanup_dedup_lock()` helper.
+- **TD-170**: CHANGELOG.md not deployed to install directory — added copy in `install.sh:copy_files()`.
+
+#### CI Fix Sprint — PM #80
+- SpaCy NER skip guard added to CI (no model loaded in CI environment)
+- Ruff `noqa` annotations added for intentional patterns flagged by linter
+- Black formatting applied to 7 hook scripts
+
+#### Install #14 Bug Sprint (BUG-126) — PM #83, commit `cccc318`
+- **BUG-126** (HIGH): `settings.local.json` overrides `settings.json` in Claude Code settings hierarchy — stale `QDRANT_API_KEY` persists after reinstall, causing all hook storage to fail silently. Fixed: `configure_project_hooks()` now syncs `QDRANT_API_KEY` to `settings.local.json` if it exists.
+- Fixed unbound `$LOG_FILE` variable at 2 locations in `install.sh` (replaced with `$INSTALL_LOG`).
+- Added `SECURITY_SCAN_SESSION_MODE=relaxed` to `docker/.env` during install.
+- Fixed 2 stale test assertions in `test_generate_settings.py` + added Parzival path coverage.
+- Fixed `test_parzival_config_defaults` env isolation (6 `delenv` guards).
+- Added 5 v2.0.6 payload fields to `seed_best_practices.py` with type-aware `source_authority`.
+
+#### BUG-127 Field Gap Fix — PM #84, commit `1c64227`
+- **BUG-127** (HIGH): v2.0.6 payload fields (`decay_score`, `freshness_status`, `source_authority`, `is_current`, `version`, `stored_at`) only populated in migration script, seed data, and GitHub sync — not in 6 runtime storage paths. Semantic Decay formula fell back to `stored_at=2020-01-01`, giving hook-captured data artificially low temporal scores. Fixed across all 8 storage paths: `store_async.py`, `error_store_async.py`, `agent_response_store_async.py`, `user_prompt_store_async.py`, `MemoryPayload.to_dict()`, `seed_best_practices.py`, `sync.py`, `code_sync.py`. GitHub `authority_tier` (int) renamed to `source_authority` (float 0.4/0.6/1.0 via `SOURCE_AUTHORITY_MAP`).
+
+#### Documentation Accuracy Sprint — PM #85, commit `e6b3358`
+- 51 documentation accuracy fixes across 6 files: README, INSTALL, CONFIGURATION, GITHUB-INTEGRATION, TEMPORAL-FEATURES, PARZIVAL-SESSION-GUIDE. Source-code-verified by 2 parallel review agents (6 FAILs + 6 WARNs found; all FAILs + 5 WARNs resolved).
+
+#### Install #16 Fixes — PM #87
+- Fixed stale test assertion in decay integration latency threshold
+- `docs/` directory now deployed to install directory
+- TESTING-SOURCE-OF-TRUTH.md corrections for accuracy
+- Installer UX cleanup (output formatting improvements)
+
 ### Changed
+
+#### Documentation — PM #86, commit `823dbdc`
+- **README**: Parzival section rewritten — new badge, 28-line section with accurate PM framing (not "session agent")
+- **PARZIVAL-SESSION-GUIDE.md**: Full rewrite (254 → 365 lines, 11 sections) — accurate role description, startup protocol, cross-session memory patterns, Gate 10 live round-trip
 - Decay half-lives: agent_handoff 30→180d, added agent_insight 180d, agent_task 14d (SPEC-018)
 - CONFIGURATION.md updated with all v2.0.6 variables (SPEC-018)
 - Installer: `shopt -s nullglob` for safe glob expansion in all deployment functions

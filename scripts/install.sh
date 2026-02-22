@@ -102,6 +102,24 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Debug logging (only shown when LOG_LEVEL=debug)
+LOG_LEVEL="${LOG_LEVEL:-info}"
+log_debug() {
+    if [[ "$LOG_LEVEL" == "debug" ]]; then
+        echo -e "${BLUE}[DEBUG]${NC} $1"
+    fi
+}
+
+# Step counter for major installation phases
+CURRENT_STEP=0
+TOTAL_STEPS=8
+
+step() {
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    echo ""
+    echo -e "${BLUE}━━━ [Step ${CURRENT_STEP}/${TOTAL_STEPS}] $1 ━━━${NC}"
+}
+
 # Convert comma-separated Jira project keys to JSON array for .env file
 # Required because Pydantic Settings v2.12 calls json.loads() on list[str]
 # fields from DotEnvSettingsSource BEFORE @field_validator runs (BUG-069)
@@ -600,6 +618,7 @@ main() {
     # Prompt for project name (allows custom group_id for Qdrant isolation)
     configure_project_name
 
+    step "Prerequisites & Validation"
     check_prerequisites
     detect_platform
 
@@ -608,9 +627,13 @@ main() {
         # Interactive configuration (unless non-interactive mode)
         configure_options
 
+        step "Directory Structure"
         create_directories
+        step "File Deployment"
         copy_files
+        step "Python Environment"
         install_python_dependencies
+        step "Environment Configuration"
         configure_environment
         validate_external_services
         configure_secrets_backend
@@ -620,9 +643,11 @@ main() {
             log_info "Skipping Docker services (SKIP_DOCKER_CHECKS=true)"
             copy_env_template
         else
+            step "Starting Docker Services"
             start_services
             wait_for_services
             copy_env_template
+            step "Health Verification"
             run_health_check
             verify_embedding_readiness
             seed_best_practices
@@ -643,6 +668,7 @@ main() {
     fi
 
     # Project-level setup - runs for both modes
+    step "Project Configuration"
     create_project_symlinks
     configure_project_hooks
     verify_project_hooks
@@ -828,7 +854,7 @@ check_prerequisites() {
 
     # SKIP_DOCKER_CHECKS: For CI environments without Docker (e.g., macOS GitHub Actions)
     if [[ "${SKIP_DOCKER_CHECKS:-}" == "true" ]]; then
-        log_info "Skipping Docker checks (SKIP_DOCKER_CHECKS=true)"
+        log_debug "Skipping Docker checks (SKIP_DOCKER_CHECKS=true)"
     else
         # Check Docker installation
         if ! command -v docker &> /dev/null; then
@@ -908,14 +934,14 @@ check_prerequisites() {
     # SKIP in add-project mode - ports are expected to be in use by existing services
     # SKIP when SKIP_DOCKER_CHECKS is set (no services to bind ports)
     if [[ "${SKIP_DOCKER_CHECKS:-}" == "true" ]]; then
-        log_info "Skipping port checks (SKIP_DOCKER_CHECKS=true)"
+        log_debug "Skipping port checks (SKIP_DOCKER_CHECKS=true)"
     elif [[ "${INSTALL_MODE:-full}" == "full" ]]; then
         check_port_available "$QDRANT_PORT" "Qdrant"
         check_port_available "$EMBEDDING_PORT" "Embedding Service"
         check_port_available "$MONITORING_PORT" "Monitoring API"
         check_port_available "$STREAMLIT_PORT" "Streamlit Dashboard"
     else
-        log_info "Skipping port checks (add-project mode - reusing existing services)"
+        log_debug "Skipping port checks (add-project mode - reusing existing services)"
     fi
 
     # Check disk space (requires ~10GB: Qdrant 1GB, Nomic model 7GB, Docker images 2GB)
@@ -992,7 +1018,7 @@ check_disk_space() {
 
 # Platform detection (AC 7.1.4)
 detect_platform() {
-    log_info "Detecting platform..."
+    log_debug "Detecting platform..."
 
     PLATFORM="unknown"
     ARCH=$(uname -m)
@@ -1091,11 +1117,11 @@ install_python_dependencies() {
     # Copy pyproject.toml and requirements.txt to install directory if not already there
     if [[ ! -f "$INSTALL_DIR/pyproject.toml" ]]; then
         cp "$source_dir/pyproject.toml" "$INSTALL_DIR/"
-        log_info "Copied pyproject.toml to $INSTALL_DIR"
+        log_debug "Copied pyproject.toml to $INSTALL_DIR"
     fi
     if [[ -f "$source_dir/requirements.txt" && ! -f "$INSTALL_DIR/requirements.txt" ]]; then
         cp "$source_dir/requirements.txt" "$INSTALL_DIR/"
-        log_info "Copied requirements.txt to $INSTALL_DIR"
+        log_debug "Copied requirements.txt to $INSTALL_DIR"
     fi
 
     # ============================================
@@ -1106,12 +1132,12 @@ install_python_dependencies() {
 
     # Check for existing user venv (informational only)
     if [[ -n "${VIRTUAL_ENV:-}" ]]; then
-        log_info "User venv detected at $VIRTUAL_ENV (will create isolated venv for hooks)"
+        log_debug "User venv detected at $VIRTUAL_ENV (will create isolated venv for hooks)"
     fi
 
     # Create or reuse installation venv
     if [[ -d "$venv_dir" ]]; then
-        log_info "Using existing venv at $venv_dir"
+        log_debug "Using existing venv at $venv_dir"
     else
         log_info "Creating virtual environment at $venv_dir..."
         if ! python3 -m venv "$venv_dir"; then
@@ -1128,14 +1154,14 @@ install_python_dependencies() {
 
     # Install in the installation venv (not user's venv)
     log_info "Installing with pip install -e \".[dev]\"..."
-    if "$venv_dir/bin/pip" install --retries 3 --timeout 120 -e "$INSTALL_DIR[dev]" 2>&1 | tail -5; then
+    if "$venv_dir/bin/pip" install --retries 3 --timeout 120 -e "$INSTALL_DIR[dev]"; then
         log_success "Python dependencies installed successfully"
         log_info "Hooks will use: $venv_dir/bin/python"
     fi
 
     # Download SpaCy NER model (SPEC-009 Layer 3 PII detection)
     log_info "Downloading SpaCy en_core_web_sm model..."
-    if "$venv_dir/bin/python" -m spacy download en_core_web_sm 2>&1 | tail -3; then
+    if "$venv_dir/bin/python" -m spacy download en_core_web_sm; then
         log_success "SpaCy NER model ready"
     else
         log_warning "SpaCy model download failed — Layer 3 NER will fall back to L1+L2"
@@ -1145,7 +1171,7 @@ install_python_dependencies() {
     # Venv Verification (TECH-DEBT-136)
     # ============================================
     echo ""
-    log_info "Verifying venv installation..."
+    log_debug "Verifying venv installation..."
 
     VENV_PYTHON="$venv_dir/bin/python"
 
@@ -1157,7 +1183,7 @@ install_python_dependencies() {
     fi
 
     # Verify critical packages are importable
-    log_info "Checking critical dependencies..."
+    log_debug "Checking critical dependencies..."
 
     CRITICAL_PACKAGES=(
         "qdrant_client:Qdrant client for memory storage"
@@ -1192,7 +1218,7 @@ install_python_dependencies() {
     fi
 
     # Check optional packages (warn but don't fail)
-    log_info "Checking optional dependencies..."
+    log_debug "Checking optional dependencies..."
 
     OPTIONAL_PACKAGES=(
         "tree_sitter:AST-based code chunking"
@@ -1225,11 +1251,11 @@ copy_files() {
     # Try script directory first (for installed scripts)
     if [[ -f "$SCRIPT_DIR/../docker/docker-compose.yml" ]]; then
         SOURCE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-        log_info "Using source directory: $SOURCE_DIR"
+        log_debug "Using source directory: $SOURCE_DIR"
     # Fall back to current directory (for in-repo execution)
     elif [[ -f "./docker/docker-compose.yml" ]]; then
         SOURCE_DIR="$(pwd)"
-        log_info "Using current directory as source: $SOURCE_DIR"
+        log_debug "Using current directory as source: $SOURCE_DIR"
     else
         log_error "Cannot find source files (docker-compose.yml)."
         echo ""
@@ -1244,56 +1270,56 @@ copy_files() {
     fi
 
     # Copy core files (preserve directory structure)
-    log_info "Copying docker configuration..."
+    log_debug "Copying docker configuration..."
     cp -r "$SOURCE_DIR/docker/"* "$INSTALL_DIR/docker/" || { log_error "Failed to copy docker files"; exit 1; }
     # BUG-040: Explicitly copy dotfiles - glob .* matches . and .. causing failures
     # Copy .env if it exists in source (contains credentials)
     if [[ -f "$SOURCE_DIR/docker/.env" ]]; then
         cp "$SOURCE_DIR/docker/.env" "$INSTALL_DIR/docker/"
-        log_info "Copied docker/.env with credentials from source"
+        log_debug "Copied docker/.env with credentials from source"
     fi
     # Copy .env.example if it exists
     if [[ -f "$SOURCE_DIR/docker/.env.example" ]]; then
         cp "$SOURCE_DIR/docker/.env.example" "$INSTALL_DIR/docker/"
     fi
 
-    log_info "Copying Python memory modules..."
+    log_debug "Copying Python memory modules..."
     cp -r "$SOURCE_DIR/src/memory/"* "$INSTALL_DIR/src/memory/" || { log_error "Failed to copy Python memory modules"; exit 1; }
 
-    log_info "Copying scripts..."
+    log_debug "Copying scripts..."
     cp -r "$SOURCE_DIR/scripts/"* "$INSTALL_DIR/scripts/" || { log_error "Failed to copy scripts"; exit 1; }
 
-    log_info "Copying monitoring module..."
+    log_debug "Copying monitoring module..."
     if [[ -d "$SOURCE_DIR/monitoring" ]]; then
         mkdir -p "$INSTALL_DIR/monitoring"
         cp -r "$SOURCE_DIR/monitoring/"* "$INSTALL_DIR/monitoring/"
     fi
 
-    log_info "Copying Claude Code hooks..."
+    log_debug "Copying Claude Code hooks..."
     cp -r "$SOURCE_DIR/.claude/hooks/"* "$INSTALL_DIR/.claude/hooks/" || { log_error "Failed to copy Claude Code hooks"; exit 1; }
 
     # Copy Claude Code skills (core ai-memory functionality)
     if [[ -d "$SOURCE_DIR/.claude/skills" ]]; then
-        log_info "Copying Claude Code skills..."
+        log_debug "Copying Claude Code skills..."
         cp -r "$SOURCE_DIR/.claude/skills/"* "$INSTALL_DIR/.claude/skills/" 2>/dev/null || true
     fi
 
     # Copy Claude Code agents (core ai-memory functionality)
     if [[ -d "$SOURCE_DIR/.claude/agents" ]]; then
-        log_info "Copying Claude Code agents..."
+        log_debug "Copying Claude Code agents..."
         cp -r "$SOURCE_DIR/.claude/agents/"* "$INSTALL_DIR/.claude/agents/" 2>/dev/null || true
     fi
 
     # BUG-107: Copy Claude Code commands (Parzival session commands)
     if [[ -d "$SOURCE_DIR/.claude/commands" ]]; then
-        log_info "Copying Claude Code commands..."
+        log_debug "Copying Claude Code commands..."
         mkdir -p "$INSTALL_DIR/.claude/commands"
         cp -r "$SOURCE_DIR/.claude/commands/"* "$INSTALL_DIR/.claude/commands/" 2>/dev/null || true
     fi
 
     # Copy templates for best practices seeding
     if [[ -d "$SOURCE_DIR/templates" ]]; then
-        log_info "Copying templates..."
+        log_debug "Copying templates..."
         mkdir -p "$INSTALL_DIR/templates"
         cp -r "$SOURCE_DIR/templates/"* "$INSTALL_DIR/templates/"
     fi
@@ -1303,8 +1329,15 @@ copy_files() {
         cp "$SOURCE_DIR/CHANGELOG.md" "$INSTALL_DIR/" || log_warning "Failed to copy CHANGELOG.md"
     fi
 
+    # Copy documentation
+    if [[ -d "$SOURCE_DIR/docs" ]]; then
+        log_debug "Copying documentation..."
+        mkdir -p "$INSTALL_DIR/docs"
+        cp -r "$SOURCE_DIR/docs/"* "$INSTALL_DIR/docs/"
+    fi
+
     # Make scripts executable (both .py and .sh files)
-    log_info "Making scripts executable..."
+    log_debug "Making scripts executable..."
     chmod +x "$INSTALL_DIR/scripts/"*.{py,sh} 2>/dev/null || true
     chmod +x "$INSTALL_DIR/.claude/hooks/scripts/"*.py 2>/dev/null || true
 
@@ -1320,7 +1353,7 @@ configure_environment() {
 
     # Check if .env was copied from source (has credentials)
     if [[ -f "$docker_env" ]]; then
-        log_info "Found existing docker/.env with credentials - updating paths..."
+        log_debug "Found existing docker/.env with credentials - updating paths..."
 
         # BUG-069: Migrate existing JIRA_PROJECTS from comma-separated to JSON array
         # On reinstall, the Jira config block is skipped (already present), so the
@@ -1335,7 +1368,7 @@ configure_environment() {
                 local migrated_jp
                 migrated_jp=$(format_jira_projects_json "$existing_jp")
                 sed -i.bak "s|^JIRA_PROJECTS=.*|JIRA_PROJECTS='$migrated_jp'|" "$docker_env" && rm -f "$docker_env.bak"
-                log_info "Migrated JIRA_PROJECTS to JSON format (BUG-069)"
+                log_debug "Migrated JIRA_PROJECTS to JSON format (BUG-069)"
             fi
         fi
 
@@ -1343,7 +1376,7 @@ configure_environment() {
         # This handles the case where source .env has dev repo path
         if grep -q "^AI_MEMORY_INSTALL_DIR=" "$docker_env"; then
             sed -i.bak "s|^AI_MEMORY_INSTALL_DIR=.*|AI_MEMORY_INSTALL_DIR=$INSTALL_DIR|" "$docker_env" && rm -f "$docker_env.bak"
-            log_info "Updated AI_MEMORY_INSTALL_DIR to $INSTALL_DIR"
+            log_debug "Updated AI_MEMORY_INSTALL_DIR to $INSTALL_DIR"
         else
             echo "" >> "$docker_env"
             echo "# Installation path (added by installer)" >> "$docker_env"
@@ -1360,7 +1393,7 @@ configure_environment() {
             echo "JIRA_API_TOKEN=$JIRA_API_TOKEN" >> "$docker_env"
             echo "JIRA_PROJECTS='$(format_jira_projects_json "${JIRA_PROJECTS:-}")'" >> "$docker_env"
             echo "JIRA_SYNC_DELAY_MS=100" >> "$docker_env"
-            log_info "Added Jira configuration to .env"
+            log_debug "Added Jira configuration to .env"
         fi
 
         # Add GitHub config if not present and GitHub is enabled
@@ -1376,7 +1409,7 @@ configure_environment() {
             echo "GITHUB_CODE_BLOB_MAX_SIZE=${GITHUB_CODE_BLOB_MAX_SIZE:-102400}" >> "$docker_env"
             echo "GITHUB_CODE_BLOB_EXCLUDE=${GITHUB_CODE_BLOB_EXCLUDE:-node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info}" >> "$docker_env"
             echo "GITHUB_SYNC_ON_START=${GITHUB_SYNC_ON_START:-true}" >> "$docker_env"
-            log_info "Added GitHub configuration to .env"
+            log_debug "Added GitHub configuration to .env"
         fi
 
         # BUG-092: Ensure AI_MEMORY_PROJECT_ID is set
@@ -1384,7 +1417,7 @@ configure_environment() {
             echo "" >> "$docker_env"
             echo "# Project Identification (used by github-sync for multi-tenancy)" >> "$docker_env"
             echo "AI_MEMORY_PROJECT_ID=$PROJECT_NAME" >> "$docker_env"
-            log_info "Added AI_MEMORY_PROJECT_ID=$PROJECT_NAME to .env"
+            log_debug "Added AI_MEMORY_PROJECT_ID=$PROJECT_NAME to .env"
         fi
 
         log_success "Environment configured at $docker_env"
@@ -1457,7 +1490,7 @@ GITHUB_SYNC_ON_START=${GITHUB_SYNC_ON_START:-true}
 EOF
         # If QDRANT_API_KEY was provided via environment, note it in the log
         if [[ -n "${QDRANT_API_KEY:-}" ]]; then
-            log_info "Using QDRANT_API_KEY from environment"
+            log_debug "Using QDRANT_API_KEY from environment"
         else
             log_warning "Please configure credentials in $docker_env"
         fi
@@ -1497,7 +1530,7 @@ EOF
     # BUG-110: Ensure SECURITY_SCAN_SESSION_MODE is explicit in .env
     if ! grep -q "^SECURITY_SCAN_SESSION_MODE=" "$docker_env" 2>/dev/null; then
         echo "SECURITY_SCAN_SESSION_MODE=relaxed" >> "$docker_env"
-        log_info "Added SECURITY_SCAN_SESSION_MODE=relaxed to .env"
+        log_debug "Added SECURITY_SCAN_SESSION_MODE=relaxed to .env"
     fi
 
     if ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null; then
@@ -1618,12 +1651,12 @@ print(hash_val.decode('utf-8'))
 
     # Step 2: Fallback to htpasswd if bcrypt failed
     if [[ -z "$bcrypt_hash" ]]; then
-        log_info "Trying htpasswd as bcrypt fallback..."
+        log_debug "Trying htpasswd as bcrypt fallback..."
         local htpasswd_output=""
         htpasswd_output=$(htpasswd -nbBC 10 admin "$prometheus_password" 2>/dev/null) || true
         if [[ -n "$htpasswd_output" ]]; then
             bcrypt_hash=$(echo "$htpasswd_output" | cut -d: -f2)
-            log_info "bcrypt hash generated via htpasswd fallback"
+            log_debug "bcrypt hash generated via htpasswd fallback"
         fi
     fi
 
@@ -1663,15 +1696,15 @@ print(hash_val.decode('utf-8'))
         echo "# Prometheus healthcheck auth (auto-generated by install.sh)" >> "$docker_env"
         echo "PROMETHEUS_BASIC_AUTH_HEADER='$auth_header'" >> "$docker_env"
     fi
-    log_info "Generated Prometheus healthcheck auth header"
+    log_debug "Generated Prometheus healthcheck auth header"
 }
 
 # Log Docker container state for debugging (P1: container disappearance diagnosis)
 _log_docker_state() {
     local label="${1:-}"
-    log_info "Docker state snapshot [$label]:"
+    log_debug "Docker state snapshot [$label]:"
     docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>&1 | while IFS= read -r line; do
-        log_info "  $line"
+        log_debug "  $line"
     done
 }
 
@@ -1707,7 +1740,7 @@ start_services() {
     local docker_mem_bytes
     docker_mem_bytes=$(docker info --format '{{.MemTotal}}' 2>/dev/null || echo "0")
     local docker_mem_gb=$((docker_mem_bytes / 1073741824))
-    log_info "Docker memory available: ${docker_mem_gb}GB ($((docker_mem_bytes / 1048576))MB)"
+    log_debug "Docker memory available: ${docker_mem_gb}GB ($((docker_mem_bytes / 1048576))MB)"
     if [[ $docker_mem_gb -lt 3 ]]; then
         log_warning "Docker has only ${docker_mem_gb}GB RAM (minimum 3GB, recommended 4GB+)"
         log_warning "  Docker Desktop: Settings → Resources → Memory → set to 4GB+"
@@ -1773,7 +1806,7 @@ start_services() {
         _log_docker_state "qdrant disappeared"
         exit 1
     fi
-    log_info "Qdrant verified running: $qdrant_status"
+    log_debug "Qdrant verified running: $qdrant_status"
 
     # Collections must exist before profile services start (github-sync uses them immediately)
     setup_collections || {
@@ -1803,9 +1836,9 @@ start_services() {
             _log_docker_state "embedding gone after profiles"
             exit 1
         fi
-        log_info "Core services survived profile startup: qdrant=$qdrant_status, embedding=$embedding_status"
+        log_debug "Core services survived profile startup: qdrant=$qdrant_status, embedding=$embedding_status"
     else
-        log_info "No profile services to start"
+        log_debug "No profile services to start"
     fi
 
     log_success "Docker services started"
@@ -1991,7 +2024,7 @@ setup_collections() {
 }
 
 copy_env_template() {
-    log_info "Copying environment template..."
+    log_debug "Copying environment template..."
 
     # Copy .env.example to installation directory
     if [ -f "$SCRIPT_DIR/../.env.example" ]; then
@@ -2000,10 +2033,10 @@ copy_env_template() {
 
         # Check if .env already exists
         if [ ! -f "$INSTALL_DIR/.env" ]; then
-            log_info "No .env file found - using defaults"
-            log_info "To customize: cp $INSTALL_DIR/.env.example $INSTALL_DIR/.env"
+            log_debug "No .env file found - using defaults"
+            log_debug "To customize: cp $INSTALL_DIR/.env.example $INSTALL_DIR/.env"
         else
-            log_info "Existing .env file detected - keeping current configuration"
+            log_debug "Existing .env file detected - keeping current configuration"
         fi
     else
         log_warning "Template .env.example not found - skipping"
@@ -2139,7 +2172,7 @@ create_project_symlinks() {
             fi
         done
         if [[ $archived_count -gt 0 ]]; then
-            log_info "Archived $archived_count stale project hooks to .archived/"
+            log_debug "Archived $archived_count stale project hooks to .archived/"
         fi
     fi
 
@@ -2241,7 +2274,7 @@ configure_project_hooks() {
         QDRANT_API_KEY=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
         export QDRANT_API_KEY
         if [[ -n "$QDRANT_API_KEY" ]]; then
-            log_info "Loaded QDRANT_API_KEY from docker/.env (${#QDRANT_API_KEY} chars)"
+            log_debug "Loaded QDRANT_API_KEY from docker/.env (${#QDRANT_API_KEY} chars)"
         else
             log_warning "QDRANT_API_KEY not found or empty in docker/.env"
         fi
@@ -2251,11 +2284,11 @@ configure_project_hooks() {
 
     # Check if project already has settings.json
     if [[ -f "$PROJECT_SETTINGS" ]]; then
-        log_info "Existing project settings found - merging hooks..."
+        log_debug "Existing project settings found - merging hooks..."
         python3 "$INSTALL_DIR/scripts/merge_settings.py" "$PROJECT_SETTINGS" "$HOOKS_DIR" "$PROJECT_NAME"
     else
         # Generate new project-level settings.json
-        log_info "Creating new project settings at $PROJECT_SETTINGS..."
+        log_debug "Creating new project settings at $PROJECT_SETTINGS..."
         python3 "$INSTALL_DIR/scripts/generate_settings.py" "$PROJECT_SETTINGS" "$HOOKS_DIR" "$PROJECT_NAME"
     fi
 
@@ -2287,7 +2320,7 @@ if old_key and old_key != new_key:
 
 # Verify project hooks configuration
 verify_project_hooks() {
-    log_info "Verifying project hook configuration..."
+    log_debug "Verifying project hook configuration..."
 
     PROJECT_SETTINGS="$PROJECT_PATH/.claude/settings.json"
 
@@ -2438,7 +2471,7 @@ setup_jira_cron() {
         # Add new entry
         if printf '%s\n%s\n' "$filtered_crontab" "$cron_entry" | crontab - 2>/dev/null; then
             log_success "Cron job configured (6am/6pm daily incremental sync)"
-            log_info "To view: crontab -l | grep ai-memory-jira-sync"
+            log_debug "To view: crontab -l | grep ai-memory-jira-sync"
         else
             log_warning "Failed to configure cron job - set up manually if needed"
             log_info "Add to crontab: $cron_entry"
@@ -2452,7 +2485,7 @@ verify_embedding_readiness() {
         return
     fi
 
-    log_info "Verifying embedding service readiness..."
+    log_debug "Verifying embedding service readiness..."
     local embed_attempts=0
     while [[ $embed_attempts -lt 30 ]]; do
         if curl -sf --max-time 10 -X POST "http://127.0.0.1:$EMBEDDING_PORT/embed" \
@@ -2470,13 +2503,13 @@ verify_embedding_readiness() {
 drain_pending_queue() {
     local queue_file="$INSTALL_DIR/queue/pending_queue.jsonl"
     if [[ ! -f "$queue_file" ]] || [[ ! -s "$queue_file" ]]; then
-        log_info "No queued events to process"
+        log_debug "No queued events to process"
         return 0
     fi
 
     local count
     count=$(wc -l < "$queue_file" 2>/dev/null || echo "0")
-    log_info "Processing $count queued events..."
+    log_debug "Processing $count queued events..."
 
     # Run in subshell to contain venv activation and env sourcing
     (
@@ -2514,7 +2547,7 @@ setup_github_indexes() {
         return
     fi
 
-    log_info "Creating GitHub payload indexes on discussions collection..."
+    log_debug "Creating GitHub payload indexes on discussions collection..."
 
     local result
     # BUG-098: Source .env so pydantic MemoryConfig reads env vars even when
@@ -2548,7 +2581,7 @@ print(f'OK: {created} created, {existing} already existed')
 run_initial_github_sync() {
     if [[ "$GITHUB_SYNC_ENABLED" == "true" && "$GITHUB_INITIAL_SYNC" == "true" ]]; then
         log_info "Running initial GitHub sync — issues, PRs, commits (code blobs handled by service)..."
-        log_info "Repo: $GITHUB_REPO"
+        log_debug "Repo: $GITHUB_REPO"
 
         # CWD must be $INSTALL_DIR (not docker/) so engine's Path.cwd()/.audit/state/
         # writes to the correct location that the container volume also maps to
@@ -2581,7 +2614,7 @@ run_initial_github_sync() {
 #   Tier 2: oversight/ (committed) — decisions, plans, session handoffs, specs
 # See: SPEC-003-audit-directory.md
 setup_audit_directory() {
-    log_info "Setting up .audit/ directory structure..."
+    log_debug "Setting up .audit/ directory structure..."
 
     # Track whether .audit/ already exists (for idempotent migration logging)
     local audit_existed=false
@@ -2594,7 +2627,7 @@ setup_audit_directory() {
     # Note: On WSL with NTFS-mounted drives, chmod is silently ignored by the
     # filesystem. Permissions are effective in native Linux and Docker contexts.
     chmod 700 "$PROJECT_PATH/.audit" 2>/dev/null || log_warning "Could not set .audit/ permissions to 700 (filesystem limitation)"
-    log_info "Private audit directory: $PROJECT_PATH/.audit (chmod 700)"
+    log_debug "Private audit directory: $PROJECT_PATH/.audit (chmod 700)"
 
     # Add .audit/ to project .gitignore (idempotent — check before adding)
     if [[ -f "$PROJECT_PATH/.gitignore" ]]; then
@@ -2602,13 +2635,13 @@ setup_audit_directory() {
             echo "" >> "$PROJECT_PATH/.gitignore"
             echo "# AI Memory audit trail (ephemeral/sensitive data)" >> "$PROJECT_PATH/.gitignore"
             echo ".audit/" >> "$PROJECT_PATH/.gitignore"
-            log_info "Added .audit/ to .gitignore"
+            log_debug "Added .audit/ to .gitignore"
         fi
     else
         # Create .gitignore if it doesn't exist
         echo "# AI Memory audit trail (ephemeral/sensitive data)" > "$PROJECT_PATH/.gitignore"
         echo ".audit/" >> "$PROJECT_PATH/.gitignore"
-        log_info "Created .gitignore with .audit/ entry"
+        log_debug "Created .gitignore with .audit/ entry"
     fi
 
     # Generate README (overwritten on re-install to pick up latest content)
@@ -2642,7 +2675,7 @@ It is gitignored and should NOT be committed.
 
 Generated by ai-memory install script.
 AUDIT_README
-    log_info "Created .audit/README.md"
+    log_debug "Created .audit/README.md"
 
     # Upgrade path: detect v2.0.5 → v2.0.6 migration
     # v2.0.5 has ~/.ai-memory/ but no .audit/ directory. If we just created it
@@ -2655,7 +2688,7 @@ AUDIT_README
         local safe_project_name="${PROJECT_NAME//\\/\\\\}"
         safe_project_name="${safe_project_name//\"/\\\"}"
         echo "{\"event\": \"audit_dir_created\", \"version\": \"2.0.6\", \"timestamp\": \"$timestamp\", \"project\": \"$safe_project_name\"}" >> "$migration_log"
-        log_info "Logged migration event to .audit/state/migration-log.jsonl"
+        log_debug "Logged migration event to .audit/state/migration-log.jsonl"
     fi
 
     log_success ".audit/ directory structure ready"
@@ -2855,7 +2888,7 @@ setup_parzival() {
 
         # BUG-118 + BUG-120: Sync Parzival env vars and matcher to settings.json
         if [[ -f "$PROJECT_SETTINGS" ]]; then
-            log_info "Updating project settings with Parzival configuration..."
+            log_debug "Updating project settings with Parzival configuration..."
             python3 "$INSTALL_DIR/scripts/update_parzival_settings.py" \
                 "$PROJECT_SETTINGS" \
                 "$INSTALL_DIR/docker/.env" 2>&1 | tee -a "$INSTALL_LOG" || {
@@ -2865,7 +2898,7 @@ setup_parzival() {
 
         log_success "Parzival enabled"
     else
-        log_info "Skipping Parzival setup (PARZIVAL_ENABLED=false)"
+        log_debug "Skipping Parzival setup (PARZIVAL_ENABLED=false)"
         # Ensure disabled in .env
         append_env_if_missing "PARZIVAL_ENABLED" "false"
     fi
@@ -2887,7 +2920,7 @@ deploy_parzival_commands() {
             fi
         done
         cp -r "$cmd_source/"* "$cmd_dest/" 2>/dev/null || true
-        log_info "Parzival commands deployed to $cmd_dest"
+        log_debug "Parzival commands deployed to $cmd_dest"
     else
         log_warning "Parzival command source not found at $cmd_source"
     fi
@@ -2905,7 +2938,7 @@ deploy_parzival_commands() {
         if [[ -f "$INSTALL_DIR/.claude/agents/$agent_file" ]]; then
             # BUG-108: Skip if already installed (symlink or copy from create_project_symlinks)
             if [[ -e "$agent_dest/$agent_file" ]]; then
-                log_info "Agent $agent_file already installed — skipping"
+                log_debug "Agent $agent_file already installed — skipping"
             else
                 cp "$INSTALL_DIR/.claude/agents/$agent_file" "$agent_dest/$agent_file"
                 agents_deployed=$((agents_deployed + 1))
@@ -2916,14 +2949,14 @@ deploy_parzival_commands() {
     if [[ -d "$INSTALL_DIR/.claude/agents/parzival" ]]; then
         # BUG-108: Skip if already installed
         if [[ -e "$agent_dest/parzival" ]]; then
-            log_info "Parzival agent directory already installed — skipping"
+            log_debug "Parzival agent directory already installed — skipping"
         else
             cp -r "$INSTALL_DIR/.claude/agents/parzival" "$agent_dest/"
             agents_deployed=$((agents_deployed + 1))
         fi
     fi
 
-    log_info "Parzival agent files deployed ($agents_deployed) to $agent_dest"
+    log_debug "Parzival agent files deployed ($agents_deployed) to $agent_dest"
 }
 
 deploy_oversight_templates() {
@@ -2951,7 +2984,7 @@ deploy_oversight_templates() {
         fi
     done < <(find "$tmpl_source" -type f)
 
-    log_info "Oversight templates deployed to $oversight_dest (existing files preserved)"
+    log_debug "Oversight templates deployed to $oversight_dest (existing files preserved)"
 }
 
 configure_parzival_env() {
@@ -2991,7 +3024,7 @@ create_agent_id_index() {
         api_key=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2-) || true
     fi
 
-    log_info "Creating agent_id payload index on discussions collection..."
+    log_debug "Creating agent_id payload index on discussions collection..."
 
     curl -s -X PUT \
         -H "Api-Key: $api_key" \
@@ -3037,7 +3070,7 @@ with open(sys.argv[1], 'w') as f:
     f.write('\n')
 " "$manifest"
     fi
-    log_info "Recorded project in manifest: $PROJECT_PATH"
+    log_debug "Recorded project in manifest: $PROJECT_PATH"
 }
 
 # Execute main function with all arguments

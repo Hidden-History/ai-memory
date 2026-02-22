@@ -285,7 +285,7 @@ def test_memory_types():
         MemoryType.IMPLEMENTATION,
         MemoryType.SESSION,
         MemoryType.DECISION,
-        MemoryType.PATTERN,
+        MemoryType.FILE_PATTERN,
     ]
 
     all_passed = True
