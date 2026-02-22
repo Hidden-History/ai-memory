@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 from typing import Any
 
 # CR-1.7: Setup path inline (must happen BEFORE any memory.* imports)
@@ -276,6 +277,7 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             content_tokens = len(content) // 4
 
         # Build Qdrant payload
+        now = datetime.now(timezone.utc).isoformat()
         payload = {
             "content": content,
             "content_hash": content_hash,
@@ -283,6 +285,9 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             "type": "error_fix",
             "source_hook": "PostToolUse_ErrorCapture",
             "session_id": error_context.get("session_id", ""),
+            "timestamp": now,
+            "created_at": now,
+            "stored_at": now,
             "embedding_status": "pending",
             "command": error_context.get("command", ""),
             "error_message": error_context.get("error_message", ""),
@@ -299,6 +304,12 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 "chunk_size_tokens": content_tokens,
                 "overlap_tokens": 0,
             },
+            # v2.0.6: Semantic Decay fields
+            "decay_score": 1.0,
+            "freshness_status": "unverified",
+            "source_authority": 0.4,
+            "is_current": True,
+            "version": 1,
         }
 
         logger.info(

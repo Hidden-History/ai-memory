@@ -23,8 +23,8 @@ from qdrant_client import models
 from memory.config import MemoryConfig, get_config
 from memory.connectors.github.client import GitHubClient, GitHubClientError
 from memory.connectors.github.schema import (
-    AUTHORITY_TIER_MAP,
     DISCUSSIONS_COLLECTION,
+    SOURCE_AUTHORITY_MAP,
     compute_content_hash,
 )
 from memory.models import MemoryType
@@ -943,7 +943,7 @@ class CodeBlobSync:
 
         for chunk in chunks:
             content_hash = compute_content_hash(chunk.content)
-            authority_tier = AUTHORITY_TIER_MAP.get("github_code_blob", 3)
+            source_authority = SOURCE_AUTHORITY_MAP.get("github_code_blob", 1.0)
 
             payload = {
                 "source": "github",
@@ -958,7 +958,9 @@ class CodeBlobSync:
                 "is_current": True,
                 "supersedes": None,
                 "update_batch_id": batch_id,
-                "authority_tier": authority_tier,
+                "source_authority": source_authority,
+                "decay_score": 1.0,
+                "freshness_status": "unverified",
                 "file_path": file_path,
                 "language": language,
                 "last_commit_sha": blob_sha,

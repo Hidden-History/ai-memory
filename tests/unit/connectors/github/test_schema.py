@@ -1,7 +1,7 @@
 """Tests for GitHub data schema and collection setup (SPEC-005).
 
 Tests MemoryType enum additions, content hash computation, index definitions,
-authority tier mapping, and collection constants.
+source authority mapping, and collection constants.
 """
 
 from unittest.mock import MagicMock
@@ -12,9 +12,11 @@ from memory.connectors.github.schema import (
     AUTHORITY_TIER_MAP,
     DISCUSSIONS_COLLECTION,
     GITHUB_INDEXES,
+    SOURCE_AUTHORITY_MAP,
     compute_content_hash,
     create_github_indexes,
     get_authority_tier,
+    get_source_authority,
 )
 from memory.models import MemoryType
 
@@ -158,7 +160,7 @@ def test_all_required_indexes_defined():
         "last_synced",
         "content_hash",
         "is_current",
-        "authority_tier",
+        "source_authority",
         "update_batch_id",
     }
     assert field_names == required
@@ -182,12 +184,12 @@ def test_no_duplicate_index_fields():
     assert len(field_names) == len(set(field_names))
 
 
-# -- Authority Tier Tests ------------------------------------------------------
+# -- Source Authority Tests -----------------------------------------------------
 
 
-def test_authority_tier_human_types():
-    """Human-written types get authority_tier=1."""
-    human_types = [
+def test_source_authority_descriptive_types():
+    """Descriptive (human-written) types get source_authority=0.4."""
+    descriptive_types = [
         "github_issue",
         "github_issue_comment",
         "github_pr",
@@ -195,19 +197,19 @@ def test_authority_tier_human_types():
         "github_commit",
         "github_release",
     ]
-    for t in human_types:
-        assert get_authority_tier(t) == 1, f"{t} should be tier 1 (human)"
+    for t in descriptive_types:
+        assert get_source_authority(t) == 0.4, f"{t} should be 0.4 (descriptive)"
 
 
-def test_authority_tier_automated_types():
-    """Automated types get authority_tier=3."""
-    automated_types = ["github_pr_diff", "github_code_blob", "github_ci_result"]
-    for t in automated_types:
-        assert get_authority_tier(t) == 3, f"{t} should be tier 3 (automated)"
+def test_source_authority_factual_types():
+    """Factual/verifiable (machine-generated) types get source_authority=1.0."""
+    factual_types = ["github_pr_diff", "github_code_blob", "github_ci_result"]
+    for t in factual_types:
+        assert get_source_authority(t) == 1.0, f"{t} should be 1.0 (factual)"
 
 
-def test_authority_tier_all_github_types_mapped():
-    """All 9 GitHub types have authority tier mapping."""
+def test_source_authority_all_github_types_mapped():
+    """All 9 GitHub types have source authority mapping."""
     github_type_values = [
         "github_issue",
         "github_issue_comment",
@@ -220,13 +222,23 @@ def test_authority_tier_all_github_types_mapped():
         "github_release",
     ]
     for t in github_type_values:
-        assert t in AUTHORITY_TIER_MAP, f"{t} missing from AUTHORITY_TIER_MAP"
+        assert t in SOURCE_AUTHORITY_MAP, f"{t} missing from SOURCE_AUTHORITY_MAP"
 
 
-def test_authority_tier_unknown_type_raises():
+def test_source_authority_unknown_type_raises():
     """Unknown type raises KeyError."""
     with pytest.raises(KeyError):
-        get_authority_tier("unknown_type")
+        get_source_authority("unknown_type")
+
+
+def test_backward_compat_authority_tier_map_alias():
+    """AUTHORITY_TIER_MAP is a backward-compatible alias for SOURCE_AUTHORITY_MAP."""
+    assert AUTHORITY_TIER_MAP is SOURCE_AUTHORITY_MAP
+
+
+def test_backward_compat_get_authority_tier_alias():
+    """get_authority_tier is a backward-compatible alias for get_source_authority."""
+    assert get_authority_tier is get_source_authority
 
 
 # -- Index Schema Type Tests ---------------------------------------------------
@@ -258,15 +270,19 @@ def test_last_synced_index_is_datetime():
 
 
 def test_integer_indexes():
-    """github_id and authority_tier use INTEGER schema type."""
+    """github_id uses INTEGER schema type."""
     from qdrant_client.models import PayloadSchemaType
 
-    int_fields = {"github_id", "authority_tier"}
-    for idx in GITHUB_INDEXES:
-        if idx["field_name"] in int_fields:
-            assert (
-                idx["schema"] == PayloadSchemaType.INTEGER
-            ), f"{idx['field_name']} should be INTEGER"
+    idx = next(i for i in GITHUB_INDEXES if i["field_name"] == "github_id")
+    assert idx["schema"] == PayloadSchemaType.INTEGER
+
+
+def test_source_authority_index_is_float():
+    """source_authority uses FLOAT schema type (canonical v2.0.6 field)."""
+    from qdrant_client.models import PayloadSchemaType
+
+    idx = next(i for i in GITHUB_INDEXES if i["field_name"] == "source_authority")
+    assert idx["schema"] == PayloadSchemaType.FLOAT
 
 
 # -- create_github_indexes() Function Tests -----------------------------------

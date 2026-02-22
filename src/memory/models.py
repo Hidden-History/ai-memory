@@ -170,6 +170,13 @@ class MemoryPayload:
     source_date: str | None = None  # ISO 8601 date when source was published/updated
     auto_seeded: bool = False  # True = auto-captured by agent, False = manually seeded
 
+    # Decay & freshness fields (v2.0.6)
+    decay_score: float = 1.0
+    freshness_status: str = "unverified"
+    source_authority: float = 0.4
+    is_current: bool = True
+    version: int = 1
+
     def to_dict(self) -> dict:
         """Convert to dictionary for Qdrant storage.
 
@@ -218,6 +225,13 @@ class MemoryPayload:
         if self.source_date is not None:
             result["source_date"] = self.source_date
         result["auto_seeded"] = self.auto_seeded  # Always include (bool has default)
+
+        # Decay & freshness fields (v2.0.6)
+        result["decay_score"] = self.decay_score
+        result["freshness_status"] = self.freshness_status
+        result["source_authority"] = self.source_authority
+        result["is_current"] = self.is_current
+        result["version"] = self.version
 
         # Include created_at if set (TECH-DEBT-012 Round 3)
         if self.created_at is not None:

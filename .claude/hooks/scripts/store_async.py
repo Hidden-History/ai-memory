@@ -298,6 +298,7 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
 
             # Build Qdrant payload with chunk metadata (AC 2.1.2: ALL fields snake_case)
             # FIX 1: Add created_at timestamp
+            now = datetime.now(timezone.utc).isoformat()
             payload = {
                 "content": chunk.content,
                 "content_hash": content_hash,
@@ -305,7 +306,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 "type": "implementation",
                 "source_hook": "PostToolUse",
                 "session_id": session_id,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": now,
+                "stored_at": now,
                 "embedding_status": "pending",
                 "tool_name": tool_name,
                 "file_path": patterns["file_path"],
@@ -321,6 +323,13 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 "chunk_size_tokens": chunk.metadata.chunk_size_tokens,
                 # TECH-DEBT-069: Mark as not yet classified
                 "is_classified": False,
+                # v2.0.6: Semantic Decay fields
+                "timestamp": now,
+                "decay_score": 1.0,
+                "freshness_status": "unverified",
+                "source_authority": 0.4,
+                "is_current": True,
+                "version": 1,
             }
 
             # Generate embedding synchronously for immediate searchability

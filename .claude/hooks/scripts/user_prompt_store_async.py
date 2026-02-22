@@ -115,8 +115,15 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
             "timestamp": now,
             "turn_number": turn_number,
             "created_at": now,
+            "stored_at": now,
             "embedding_status": "pending",
             "embedding_model": EMBEDDING_MODEL,
+            # v2.0.6: Semantic Decay fields
+            "decay_score": 1.0,
+            "freshness_status": "unverified",
+            "source_authority": 0.4,
+            "is_current": True,
+            "version": 1,
         }
 
         # Check for duplicate message before storing (CRITICAL FIX: deduplication)

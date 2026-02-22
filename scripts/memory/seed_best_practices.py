@@ -166,6 +166,7 @@ def create_point_from_template(
         "timestamp": datetime.now(
             timezone.utc
         ).isoformat(),  # Existing field (backwards compatible)
+        "stored_at": datetime.now(timezone.utc).isoformat(),
         "source_date": (
             template.source_date.isoformat() if template.source_date else None
         ),  # TECH-DEBT-028: NEW optional field

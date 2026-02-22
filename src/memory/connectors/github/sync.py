@@ -31,8 +31,8 @@ from memory.connectors.github.composer import (
     compose_pr_review,
 )
 from memory.connectors.github.schema import (
-    AUTHORITY_TIER_MAP,
     DISCUSSIONS_COLLECTION,
+    SOURCE_AUTHORITY_MAP,
     compute_content_hash,
 )
 from memory.models import MemoryType
@@ -848,7 +848,7 @@ class GitHubSyncEngine:
                 )  # W4C-003: rehash post-scan
 
         # Step 4: Store via store_memory() pipeline
-        authority_tier = AUTHORITY_TIER_MAP.get(type_value, 1)
+        source_authority = SOURCE_AUTHORITY_MAP.get(type_value, 0.4)
 
         github_payload = {
             "source": "github",
@@ -863,7 +863,9 @@ class GitHubSyncEngine:
             "is_current": True,
             "supersedes": supersedes,
             "update_batch_id": batch_id,
-            "authority_tier": authority_tier,
+            "source_authority": source_authority,
+            "decay_score": 1.0,
+            "freshness_status": "unverified",
         }
         if extra_payload:
             github_payload.update(extra_payload)

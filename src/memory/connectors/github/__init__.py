@@ -13,9 +13,11 @@ from .schema import (
     AUTHORITY_TIER_MAP,
     DISCUSSIONS_COLLECTION,
     GITHUB_INDEXES,
+    SOURCE_AUTHORITY_MAP,
     compute_content_hash,
     create_github_indexes,
     get_authority_tier,
+    get_source_authority,
 )
 from .sync import GitHubSyncEngine, SyncResult
 
@@ -23,6 +25,7 @@ __all__ = [
     "AUTHORITY_TIER_MAP",
     "DISCUSSIONS_COLLECTION",
     "GITHUB_INDEXES",
+    "SOURCE_AUTHORITY_MAP",
     "CodeBlobSync",
     "CodeSyncResult",
     "GitHubClient",
@@ -33,4 +36,5 @@ __all__ = [
     "compute_content_hash",
     "create_github_indexes",
     "get_authority_tier",
+    "get_source_authority",
 ]
