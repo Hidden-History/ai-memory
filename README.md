@@ -10,7 +10,7 @@
   <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
   <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome">
-  <img src="https://img.shields.io/badge/GitHub-Sync-2088FF?style=flat-square&logo=github" alt="GitHub Sync">  <img src="https://img.shields.io/badge/Jira-Cloud-0052CC?style=flat-square&logo=jira" alt="Jira Cloud">  <img src="https://img.shields.io/badge/Qdrant-Vector_DB-DC382D?style=flat-square&logo=qdrant" alt="Qdrant">  <img src="https://img.shields.io/badge/Parzival-Session_Agent-8B5CF6?style=flat-square" alt="Parzival">
+  <img src="https://img.shields.io/badge/GitHub-Sync-2088FF?style=flat-square&logo=github" alt="GitHub Sync">  <img src="https://img.shields.io/badge/Jira-Cloud-0052CC?style=flat-square&logo=jira" alt="Jira Cloud">  <img src="https://img.shields.io/badge/Qdrant-Vector_DB-DC382D?style=flat-square&logo=qdrant" alt="Qdrant">  <img src="https://img.shields.io/badge/Parzival-Project_Manager-8B5CF6?style=flat-square" alt="Parzival">
 </p>
 
 ---
@@ -65,21 +65,32 @@ Traditional knowledge bases require upfront schema design and manual curation. A
 
 ---
 
-## 🧭 Parzival: Cross-Session Memory
+## 🛡️ Parzival: Technical PM & Quality Gatekeeper
 
-**Claude picks up exactly where you left off — no re-explaining needed.**
+Parzival is your AI project manager embedded in Claude Code. Describe what needs doing, and Parzival orchestrates the work with verified precision — reading your architecture, PRD, and standards before creating prompts, never after.
 
-Parzival is the cross-session memory layer included with AI-Memory. At the start of every session, the automatic `SessionStart` hook queries Qdrant for your latest handoff, decay-ranked insights, and recent GitHub activity — before you type a single word.
+**Core capabilities:**
 
-- **Automatic Session Resume**: The `SessionStart` hook queries Qdrant at startup, injecting your last handoff, active insights, and recent GitHub activity automatically — no manual trigger needed
-- **Manual Context Load**: `/parzival-start` reads LOCAL oversight files (specs, plans, tracking) to orient Parzival within your project structure — separate from the automatic Qdrant queries
-- **Session Closeout**: `/parzival-closeout` saves a structured handoff to `oversight/session-logs/` and dual-writes it to the `discussions` Qdrant collection for future retrieval
-- **Persistent Insights**: `/parzival-save-insight` captures learned knowledge with 180-day decay, surfaced automatically in future sessions
-- **GitHub Enrichment**: Surfaces merged PRs, new issues, and CI failures since your last session (requires `GITHUB_SYNC_ENABLED=true`)
-- **Oversight Directory**: Structured templates for specs, plans, session logs, tracking, and knowledge files deployed to `oversight/`
-- **Enabled at Install**: The installer prompts `Enable Parzival session agent? [y/N]` — or enable later with `bash install.sh --component parzival`
+- **Agent team orchestration**: `/parzival-team` builds 3-tier parallel team prompts (lead → workers → reviewers) with exact file paths, line numbers, acceptance criteria, and project-specific context — derived from your actual project files, not assumptions
+- **Quality gate enforcement**: Mandatory review→fix→review cycles that continue until zero issues are found. Parzival never accepts "looks good enough"
+- **Verified instructions**: Every recommendation is checked against project files first and rated with a confidence level (Verified/Informed/Inferred/Uncertain/Unknown), with source citations included
+- **False positive catching**: When review agents flag issues, Parzival verifies findings against actual source code before acting — preventing wasted cycles on non-issues
+- **Decision support**: Presents options with pros/cons, tradeoffs, source citations, and confidence levels, then waits for your approval before proceeding
+- **Risk and blocker tracking**: Identifies risks proactively with severity levels and escalation paths; surfaces critical issues immediately
+- **Session continuity**: Handoffs are dual-written to local oversight files and the Qdrant `discussions` collection, enabling automatic cross-session resume at every `SessionStart`
+- **Sprint and task management**: Tracks sprints, tasks, blockers, and decisions across sessions via structured oversight files (`task-tracker.md`, `decisions-log.md`, `SESSION_WORK_INDEX.md`)
 
-Parzival is optional — all other AI Memory features (decay scoring, GitHub sync, search skills, freshness detection) work independently without it.
+**How the workflow works:**
+
+1. You describe the work to Parzival
+2. Parzival reads your architecture, PRD, and standards before making any recommendation
+3. Parzival builds a precise agent team prompt — or individual dev prompt — with exact file paths and acceptance criteria
+4. You run the agents; Parzival reviews the results
+5. Review→fix→review continues until zero issues are found, then you approve
+
+**The core principle: Parzival recommends. You decide.** Parzival is the radar operator on the ship — you are the captain who steers. It monitors, navigates, and verifies. It never writes code, makes final decisions, or executes agents autonomously. A 5-layer constraint system prevents the behavioral drift that causes AI agents to forget their role over long conversations.
+
+Parzival is optional — AI Memory's core features (semantic decay, GitHub sync, search skills, freshness detection) work independently without it. For teams managing complex projects across many sessions, Parzival is the orchestration layer that keeps everything on track.
 
 See [docs/PARZIVAL-SESSION-GUIDE.md](docs/PARZIVAL-SESSION-GUIDE.md) for setup, commands, and the full skills reference.
 
@@ -130,7 +141,7 @@ v2.0.6 adds the **WHEN dimension** — your memories now understand time, freshn
 - 🔍 **Freshness Detection**: Automatically identifies stale memories by comparing against current git state
 - 🔐 **SOPS+age Encryption**: Encrypt sensitive configuration with modern age encryption
 - 🧭 **Dual Embedding Routing**: Code content uses `jina-v2-base-code`, prose uses `jina-v2-base-en` for 10-30% better retrieval
-- 🤖 **Parzival Session Agent**: Cross-session memory for the Parzival oversight agent, backed by Qdrant vector search
+- 🤖 **Parzival Oversight Agent**: Technical PM, quality gatekeeper, and agent team orchestrator with cross-session memory backed by Qdrant
 - 🧰 **8 New Skills**: `/memory-purge`, `/search-github`, `/github-sync`, `/pause-updates`, `/memory-refresh`, `/parzival-save-handoff`, `/parzival-save-insight`, `/freshness-report`
 
 ---
