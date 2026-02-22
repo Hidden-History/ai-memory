@@ -55,9 +55,17 @@ class TestMemoryTypeEnum:
 class TestParzivalConfig:
     """Test 6 parzival_* config fields."""
 
-    def test_parzival_config_defaults(self):
+    def test_parzival_config_defaults(self, monkeypatch):
         """All parzival fields have correct defaults."""
         from memory.config import MemoryConfig, reset_config
+
+        # Clear env vars to test pure Python defaults (not installed system values)
+        monkeypatch.delenv("PARZIVAL_ENABLED", raising=False)
+        monkeypatch.delenv("PARZIVAL_USER_NAME", raising=False)
+        monkeypatch.delenv("PARZIVAL_LANGUAGE", raising=False)
+        monkeypatch.delenv("PARZIVAL_DOC_LANGUAGE", raising=False)
+        monkeypatch.delenv("PARZIVAL_OVERSIGHT_FOLDER", raising=False)
+        monkeypatch.delenv("PARZIVAL_HANDOFF_RETENTION", raising=False)
 
         reset_config()
         config = MemoryConfig()

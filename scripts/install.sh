@@ -1494,6 +1494,12 @@ EOF
         fi
     fi
 
+    # BUG-110: Ensure SECURITY_SCAN_SESSION_MODE is explicit in .env
+    if ! grep -q "^SECURITY_SCAN_SESSION_MODE=" "$docker_env" 2>/dev/null; then
+        echo "SECURITY_SCAN_SESSION_MODE=relaxed" >> "$docker_env"
+        log_info "Added SECURITY_SCAN_SESSION_MODE=relaxed to .env"
+    fi
+
     if ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null; then
         local gen_prom
         gen_prom=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
@@ -2253,6 +2259,29 @@ configure_project_hooks() {
         python3 "$INSTALL_DIR/scripts/generate_settings.py" "$PROJECT_SETTINGS" "$HOOKS_DIR" "$PROJECT_NAME"
     fi
 
+    # BUG-126: Sync QDRANT_API_KEY to settings.local.json if it exists
+    # Claude Code's settings hierarchy: settings.local.json overrides settings.json
+    # A stale key in settings.local.json causes all hook→Qdrant storage to fail
+    local local_settings="$PROJECT_PATH/.claude/settings.local.json"
+    if [[ -f "$local_settings" ]] && [[ -n "${QDRANT_API_KEY:-}" ]]; then
+        python3 -c "
+import json, os, sys
+path = sys.argv[1]
+new_key = os.environ.get('QDRANT_API_KEY', '')
+if not new_key:
+    sys.exit(0)
+with open(path, 'r') as f:
+    s = json.load(f)
+old_key = s.get('env', {}).get('QDRANT_API_KEY', '')
+if old_key and old_key != new_key:
+    s.setdefault('env', {})['QDRANT_API_KEY'] = new_key
+    with open(path, 'w') as f:
+        json.dump(s, f, indent=2)
+        f.write('\n')
+    print(f'Synced QDRANT_API_KEY to settings.local.json')
+" "$local_settings" 2>&1 || true
+    fi
+
     log_success "Project hooks configured in $PROJECT_SETTINGS"
 }
 
@@ -2465,7 +2494,7 @@ drain_pending_queue() {
         fi
 
         python3 "$INSTALL_DIR/scripts/memory/process_retry_queue.py"
-    ) 2>&1 | tee -a "$LOG_FILE" || {
+    ) 2>&1 | tee -a "$INSTALL_LOG" || {
         log_warning "Queue drain completed with errors (non-fatal)"
     }
 
@@ -2829,7 +2858,7 @@ setup_parzival() {
             log_info "Updating project settings with Parzival configuration..."
             python3 "$INSTALL_DIR/scripts/update_parzival_settings.py" \
                 "$PROJECT_SETTINGS" \
-                "$INSTALL_DIR/docker/.env" 2>&1 | tee -a "$LOG_FILE" || {
+                "$INSTALL_DIR/docker/.env" 2>&1 | tee -a "$INSTALL_LOG" || {
                 log_warning "Failed to update Parzival settings in settings.json"
             }
         fi

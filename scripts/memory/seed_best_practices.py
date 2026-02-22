@@ -172,6 +172,12 @@ def create_point_from_template(
         "last_verified": (
             template.last_verified.isoformat() if template.last_verified else None
         ),  # TECH-DEBT-028: NEW optional field
+        # v2.0.6 freshness fields (schema parity with migrate_v205_to_v206.py)
+        "decay_score": 1.0,
+        "freshness_status": "unverified",
+        "source_authority": 1.0 if template.type in ("rule", "guideline") else 0.4,
+        "is_current": True,
+        "version": 1,
     }
 
     # Add optional source if present
