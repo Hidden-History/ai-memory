@@ -329,10 +329,30 @@ except Exception:
 " 2>/dev/null || echo "no"
     }
 
+    # Langfuse INIT creates user with email_verified=NULL and admin=false.
+    # The NULL email_verified can block browser login. Fix both after bootstrap.
+    _fixup_init_user() {
+        local init_email pg_container prefix
+        init_email=$(env_get "LANGFUSE_INIT_USER_EMAIL")
+        prefix=$(env_get "COMPOSE_PROJECT_NAME")
+        prefix="${prefix:-ai-memory}"
+        pg_container="${prefix}-langfuse-postgres"
+
+        if [[ -z "$init_email" ]]; then
+            return 0
+        fi
+
+        log_info "Fixing up init user: email_verified + admin flag..."
+        docker exec "$pg_container" psql -U langfuse -d langfuse -c \
+            "UPDATE users SET email_verified = NOW(), admin = true WHERE email = '${init_email}' AND email_verified IS NULL;" \
+            2>/dev/null || log_warning "Could not fix up init user (non-critical)"
+    }
+
     log_info "Checking Langfuse bootstrap (org, project, user)..."
 
     if [[ "$(_bootstrap_ok)" == "yes" ]]; then
         log_success "Langfuse bootstrap verified — org and project exist."
+        _fixup_init_user
         return 0
     fi
 
@@ -349,17 +369,21 @@ except Exception:
             langfuse-web langfuse-worker langfuse-postgres langfuse-clickhouse langfuse-redis langfuse-minio
     )
 
+    local prefix
+    prefix=$(env_get "COMPOSE_PROJECT_NAME")
+    prefix="${prefix:-ai-memory}"
     docker volume rm \
-        ai-memory-langfuse-postgres-data \
-        ai-memory-langfuse-clickhouse-data \
-        ai-memory-langfuse-redis-data \
-        ai-memory-langfuse-minio-data 2>/dev/null || true
+        "${prefix}_langfuse-postgres-data" \
+        "${prefix}_langfuse-clickhouse-data" \
+        "${prefix}_langfuse-redis-data" \
+        "${prefix}_langfuse-minio-data" 2>/dev/null || true
 
     start_services
     run_health_check
 
     if [[ "$(_bootstrap_ok)" == "yes" ]]; then
         log_success "Langfuse bootstrap verified after restart — org and project exist."
+        _fixup_init_user
         return 0
     fi
 
