@@ -233,7 +233,8 @@ services:
     networks:
       - ai-memory_default
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:9000/minio/health/live || exit 1"]
+      # Chainguard distroless image has no wget/curl — use bash TCP probe (BUG-139)
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/9000'"]
       interval: 10s
       timeout: 5s
       retries: 3
