@@ -244,6 +244,7 @@ services:
   trace-flush-worker:
     build:
       context: ../
+      dockerfile: docker/Dockerfile.worker
     container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-langfuse-trace-flush-worker
     profiles: ["langfuse"]
     command: python -m memory.trace_flush_worker
