@@ -19,6 +19,8 @@ services:
     ports:
       - "127.0.0.1:${LANGFUSE_WEB_PORT:-23100}:3000"
     environment:
+      # Next.js must bind to all interfaces for healthcheck and port forwarding (BUG-136)
+      - HOSTNAME=0.0.0.0
       # Database
       - DATABASE_URL=postgresql://langfuse:${LANGFUSE_DB_PASSWORD}@langfuse-postgres:5432/langfuse
       # NextAuth
