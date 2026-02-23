@@ -2,7 +2,7 @@
 # langfuse_setup.sh — Initialize Langfuse for AI Memory
 # Usage: ./langfuse_setup.sh [--generate-secrets] [--start] [--health-check]
 #        No args = run all steps (generate-secrets + start + health-check)
-# PLAN-008 / SPEC-019 §6
+# Part of the AI Memory installation pipeline.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -394,7 +394,7 @@ print_summary() {
 
     echo ""
     echo -e "${GREEN}════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}  Langfuse Setup Complete — PLAN-008 / SPEC-019  ${NC}"
+    echo -e "${GREEN}  Langfuse Setup Complete  ${NC}"
     echo -e "${GREEN}════════════════════════════════════════════════${NC}"
     echo ""
     echo -e "  ${BLUE}Langfuse UI:${NC}      http://localhost:${web_port}"
@@ -418,7 +418,7 @@ print_summary() {
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 main() {
-    log_info "Langfuse Setup Script — PLAN-008 / SPEC-019 §6"
+    log_info "Langfuse Setup Script"
     log_info "ENV file: ${ENV_FILE}"
 
     # --generate-secrets: steps 1–3 (secrets, project init vars, MinIO bucket)

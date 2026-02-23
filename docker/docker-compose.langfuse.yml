@@ -1,8 +1,5 @@
 # docker-compose.langfuse.yml — Langfuse LLM Observability Stack
 #
-# SPEC-019: Langfuse Infrastructure (Phase 1)
-# Decision: DEC-PLAN008-001 — 90-day trace retention, self-hosted Langfuse v3
-#
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse up -d
 #
@@ -255,6 +252,7 @@ services:
     volumes:
       - ${AI_MEMORY_INSTALL_DIR:-~/.ai-memory}/trace_buffer:/app/trace_buffer
     environment:
+      - LANGFUSE_ENABLED=true
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:?Run langfuse_setup.sh first to generate API keys}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:?Run langfuse_setup.sh first to generate API keys}
       # Use internal service name for container-to-container communication

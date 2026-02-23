@@ -161,7 +161,7 @@ GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 GITHUB_REPO="${GITHUB_REPO:-}"
 GITHUB_INITIAL_SYNC="${GITHUB_INITIAL_SYNC:-}"
 
-# Langfuse observability configuration (PLAN-008)
+# Langfuse observability configuration
 LANGFUSE_ENABLED="${LANGFUSE_ENABLED:-}"
 
 # Prompt for project name (group_id for Qdrant isolation)
@@ -480,7 +480,7 @@ print(','.join(keys))
         echo ""
     fi
 
-    # Langfuse LLM Observability (PLAN-008, v2.0.7)
+    # Langfuse LLM Observability (optional)
     if [[ -z "$LANGFUSE_ENABLED" ]]; then
         echo ""
         echo "📊 Langfuse LLM Observability (Optional)"
