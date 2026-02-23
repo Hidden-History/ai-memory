@@ -6,6 +6,7 @@ Flushes the on-disk trace buffer to Langfuse on a configurable interval.
 SPEC-020 §5 / PLAN-008 / DEC-PLAN008-004
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -17,13 +18,18 @@ from datetime import datetime
 from pathlib import Path
 
 # Bootstrap: allow running as `python -m memory.trace_flush_worker` from src/
-INSTALL_DIR = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.langfuse_config import get_langfuse_client  # noqa: E402
 
 try:
-    from memory.metrics_push import push_langfuse_buffer_metrics_async as _push_metrics_fn
+    from memory.metrics_push import (
+        push_langfuse_buffer_metrics_async as _push_metrics_fn,
+    )
+
     push_metrics_fn = _push_metrics_fn
 except ImportError:
     push_metrics_fn = None
@@ -78,7 +84,7 @@ def evict_oldest_traces() -> int:
     entries.sort(key=lambda x: x[0])
 
     evicted = 0
-    for mtime, size, path in entries:
+    for _mtime, size, path in entries:
         if total_bytes <= max_bytes:
             break
         try:
@@ -91,7 +97,8 @@ def evict_oldest_traces() -> int:
     if evicted > 0:
         logger.warning(
             "Langfuse trace buffer exceeded %sMB, evicting %s oldest traces. Is Langfuse running?",
-            MAX_BUFFER_MB, evicted,
+            MAX_BUFFER_MB,
+            evicted,
         )
 
     return evicted
@@ -111,14 +118,14 @@ def process_buffer_files(langfuse) -> tuple[int, int]:
 
     for json_file in list(BUFFER_DIR.glob("*.json")):
         try:
-            with open(json_file, "r") as f:
+            with open(json_file) as f:
                 event = json.load(f)
         except (json.JSONDecodeError, OSError) as e:
-            logger.warning("Malformed or unreadable buffer file %s: %s", json_file.name, e)
-            try:
+            logger.warning(
+                "Malformed or unreadable buffer file %s: %s", json_file.name, e
+            )
+            with contextlib.suppress(OSError):
                 json_file.unlink()
-            except OSError:
-                pass
             errors += 1
             continue
 
@@ -137,8 +144,16 @@ def process_buffer_files(langfuse) -> tuple[int, int]:
                 id=event.get("span_id"),
                 name=event.get("event_type", "unknown"),
                 parent_observation_id=event.get("parent_span_id"),
-                start_time=datetime.fromisoformat(data["start_time"]) if data.get("start_time") else None,
-                end_time=datetime.fromisoformat(data["end_time"]) if data.get("end_time") else None,
+                start_time=(
+                    datetime.fromisoformat(data["start_time"])
+                    if data.get("start_time")
+                    else None
+                ),
+                end_time=(
+                    datetime.fromisoformat(data["end_time"])
+                    if data.get("end_time")
+                    else None
+                ),
                 input=data.get("input"),
                 output=data.get("output"),
                 metadata=data.get("metadata", {}),
@@ -164,7 +179,9 @@ def main():
     BUFFER_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(
         "Trace flush worker started (buffer=%s, interval=%ss, max_buffer=%sMB)",
-        BUFFER_DIR, FLUSH_INTERVAL, MAX_BUFFER_MB,
+        BUFFER_DIR,
+        FLUSH_INTERVAL,
+        MAX_BUFFER_MB,
     )
 
     total_processed = 0
@@ -200,7 +217,10 @@ def main():
         time.sleep(FLUSH_INTERVAL)
 
     # Graceful shutdown — flush remaining buffer
-    logger.info("Shutdown requested — flushing remaining buffer (%s total processed)", total_processed)
+    logger.info(
+        "Shutdown requested — flushing remaining buffer (%s total processed)",
+        total_processed,
+    )
     evict_oldest_traces()
     processed, errors = process_buffer_files(langfuse)
     total_errors += errors
@@ -213,7 +233,8 @@ def main():
 
     logger.info(
         "Trace flush worker stopped (total_processed=%s, total_errors=%s)",
-        total_processed, total_errors,
+        total_processed,
+        total_errors,
     )
     try:
         langfuse.shutdown()

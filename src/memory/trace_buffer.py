@@ -15,9 +15,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-TRACE_BUFFER_DIR = Path(
-    os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
-) / "trace_buffer"
+TRACE_BUFFER_DIR = (
+    Path(os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")))
+    / "trace_buffer"
+)
 
 # Max buffer size guard (MB-based, per DEC-PLAN008-004)
 BUFFER_MAX_MB = int(os.environ.get("LANGFUSE_TRACE_BUFFER_MAX_MB", "100"))

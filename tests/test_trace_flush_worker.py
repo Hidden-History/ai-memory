@@ -1,15 +1,12 @@
 """Unit tests for memory.trace_flush_worker — SPEC-020 §9.1 (9 test cases)."""
 
-import importlib
 import json
 import os
 import signal
 import sys
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 # Ensure src/ is on path for direct imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -63,6 +60,7 @@ def _write_event(buffer_dir: Path, name: str, **extra) -> Path:
 # Test 1 — valid buffer files create Langfuse trace + span
 # ---------------------------------------------------------------------------
 
+
 def test_processes_valid_buffer_files(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
     _write_event(buffer_dir, "evt1")
@@ -83,6 +81,7 @@ def test_processes_valid_buffer_files(tmp_path, monkeypatch):
 # Test 2 — processed files are deleted
 # ---------------------------------------------------------------------------
 
+
 def test_removes_processed_files(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
     path = _write_event(buffer_dir, "evt_del")
@@ -98,6 +97,7 @@ def test_removes_processed_files(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # Test 3 — malformed JSON is removed, errors counter incremented, no crash
 # ---------------------------------------------------------------------------
+
 
 def test_handles_malformed_json(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
@@ -116,6 +116,7 @@ def test_handles_malformed_json(tmp_path, monkeypatch):
 # Test 4 — SIGTERM sets shutdown_requested flag
 # ---------------------------------------------------------------------------
 
+
 def test_graceful_shutdown(tmp_path, monkeypatch):
     mod, _ = _load_module(tmp_path, monkeypatch)
     monkeypatch.setattr(mod, "shutdown_requested", False)
@@ -130,6 +131,7 @@ def test_graceful_shutdown(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # Test 5 — metrics push function called with correct args
 # ---------------------------------------------------------------------------
+
 
 def test_pushes_prometheus_metrics(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
@@ -147,8 +149,12 @@ def test_pushes_prometheus_metrics(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mod, "shutdown_requested", False)
 
-    with patch("memory.trace_flush_worker.get_langfuse_client", return_value=mock_langfuse), \
-         patch("time.sleep", side_effect=stop_after_one):
+    with (
+        patch(
+            "memory.trace_flush_worker.get_langfuse_client", return_value=mock_langfuse
+        ),
+        patch("time.sleep", side_effect=stop_after_one),
+    ):
         mod.main()
 
     # Verify push_metrics_fn was called BY main() (not by us)
@@ -163,6 +169,7 @@ def test_pushes_prometheus_metrics(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # Test 6 — eviction triggers when buffer exceeds max MB
 # ---------------------------------------------------------------------------
+
 
 def test_eviction_triggers_when_buffer_exceeds_max_mb(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
@@ -179,12 +186,13 @@ def test_eviction_triggers_when_buffer_exceeds_max_mb(tmp_path, monkeypatch):
 # Test 7 — oldest traces by mtime are evicted first
 # ---------------------------------------------------------------------------
 
+
 def test_eviction_removes_oldest_by_mtime(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
     monkeypatch.setattr(mod, "MAX_BUFFER_MB", 0.000001)
 
     older = _write_event(buffer_dir, "older_evt")
-    newer = _write_event(buffer_dir, "newer_evt")
+    _write_event(buffer_dir, "newer_evt")
 
     # Force mtime difference — older file gets an earlier mtime
     old_time = time.time() - 100
@@ -206,6 +214,7 @@ def test_eviction_removes_oldest_by_mtime(tmp_path, monkeypatch):
 # Test 8 — eviction count returned correctly
 # ---------------------------------------------------------------------------
 
+
 def test_eviction_counter_metric_increments(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
     monkeypatch.setattr(mod, "MAX_BUFFER_MB", 0.000001)
@@ -220,6 +229,7 @@ def test_eviction_counter_metric_increments(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # Test 9 — buffer size changes after eviction
 # ---------------------------------------------------------------------------
+
 
 def test_buffer_size_metric_reflects_post_eviction_size(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)

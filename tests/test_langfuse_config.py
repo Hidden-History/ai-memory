@@ -4,8 +4,6 @@ import os
 import sys
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from memory.langfuse_config import (
@@ -44,7 +42,9 @@ class TestGetLangfuseClient:
         mock_instance = MagicMock()
         mock_langfuse_cls.return_value = mock_instance
 
-        with patch.dict("sys.modules", {"langfuse": MagicMock(Langfuse=mock_langfuse_cls)}):
+        with patch.dict(
+            "sys.modules", {"langfuse": MagicMock(Langfuse=mock_langfuse_cls)}
+        ):
             reset_langfuse_client()
             client = get_langfuse_client()
 
@@ -65,8 +65,17 @@ class TestGetLangfuseClient:
         monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
 
         mock_langfuse = MagicMock()
-        with patch("memory.langfuse_config.Langfuse", return_value=mock_langfuse, create=True), \
-             patch.dict("sys.modules", {"langfuse": MagicMock(Langfuse=MagicMock(return_value=mock_langfuse))}):
+        with (
+            patch(
+                "memory.langfuse_config.Langfuse",
+                return_value=mock_langfuse,
+                create=True,
+            ),
+            patch.dict(
+                "sys.modules",
+                {"langfuse": MagicMock(Langfuse=MagicMock(return_value=mock_langfuse))},
+            ),
+        ):
             reset_langfuse_client()
             client1 = get_langfuse_client()
             client2 = get_langfuse_client()

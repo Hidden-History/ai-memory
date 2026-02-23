@@ -55,13 +55,16 @@ def get_langfuse_client():
 
         try:
             from langfuse import Langfuse
+
             client = Langfuse(
                 public_key=public_key,
                 secret_key=secret_key,
                 host=os.environ.get("LANGFUSE_BASE_URL", "http://localhost:23100"),
             )
-            logger.info("Langfuse client initialized (host=%s)",
-                        os.environ.get("LANGFUSE_BASE_URL", "http://localhost:23100"))
+            logger.info(
+                "Langfuse client initialized (host=%s)",
+                os.environ.get("LANGFUSE_BASE_URL", "http://localhost:23100"),
+            )
             _client = client
             _initialized = True
             return client
