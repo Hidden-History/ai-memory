@@ -27,6 +27,8 @@ import re
 import subprocess
 import sys
 import time
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -52,9 +54,11 @@ logger.propagate = False
 try:
     from memory.metrics_push import track_hook_duration
     from memory.project import detect_project
+    from memory.trace_buffer import emit_trace_event  # SPEC-021
 except ImportError:
     track_hook_duration = None
     detect_project = None
+    emit_trace_event = None
 
 
 def detect_error_indicators(output: str, exit_code: int | None) -> bool:
@@ -275,7 +279,7 @@ def extract_error_context(hook_input: dict[str, Any]) -> dict[str, Any] | None:
     return context
 
 
-def fork_to_background(error_context: dict[str, Any]) -> None:
+def fork_to_background(error_context: dict[str, Any], trace_id: str | None = None) -> None:
     """Fork error storage to background process.
 
     Args:
@@ -289,6 +293,11 @@ def fork_to_background(error_context: dict[str, Any]) -> None:
         # Serialize error context
         input_json = json.dumps(error_context)
 
+        # SPEC-021: Propagate trace_id to store-async subprocess
+        subprocess_env = os.environ.copy()
+        if trace_id:
+            subprocess_env["LANGFUSE_TRACE_ID"] = trace_id
+
         # Fork to background
         process = subprocess.Popen(
             [sys.executable, str(error_store_script)],
@@ -296,6 +305,7 @@ def fork_to_background(error_context: dict[str, Any]) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
+            env=subprocess_env,
         )
 
         # Write input and close stdin
@@ -386,8 +396,35 @@ def main() -> int:
                 # No error detected - normal completion
                 return 0
 
+            # SPEC-021: Generate trace_id for pipeline trace linking
+            trace_id = None
+            if emit_trace_event:
+                trace_id = str(uuid.uuid4())
+                capture_start = datetime.utcnow()
+                cwd = hook_input.get("cwd", os.getcwd())
+                try:
+                    emit_trace_event(
+                        event_type="1_capture",
+                        data={
+                            "input": {"hook_type": "error_pattern", "raw_length": len(error_context.get("output", ""))},
+                            "output": {"content_length": len(error_context.get("output", "")), "content_extracted": True},
+                            "metadata": {
+                                "hook_type": "error_pattern",
+                                "source": "bash_tool_output",
+                                "content_length": len(error_context.get("output", "")),
+                            },
+                        },
+                        trace_id=trace_id,
+                        session_id=hook_input.get("session_id"),
+                        project_id=detect_project_func(cwd) if detect_project_func else None,
+                        start_time=capture_start,
+                        end_time=datetime.utcnow(),
+                    )
+                except Exception:
+                    pass  # Never crash the hook for tracing
+
             # Fork to background
-            fork_to_background(error_context)
+            fork_to_background(error_context, trace_id)
 
             # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
             error_msg = error_context.get("error_message", "Unknown error")

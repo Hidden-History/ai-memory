@@ -9,6 +9,7 @@ import os
 import sys
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import httpx  # For specific exception types
@@ -56,6 +57,12 @@ from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 from memory.queue import queue_operation
 from memory.validation import compute_content_hash
 
+# SPEC-021: Trace buffer for pipeline instrumentation
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
 # Import metrics for Prometheus instrumentation
 try:
     from memory.metrics import memory_captures_total
@@ -96,6 +103,9 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
         response_text = store_data["response_text"]
         turn_number = store_data.get("turn_number", 0)
 
+        # SPEC-021: Read trace_id from capture hook env propagation
+        trace_id = os.environ.get("LANGFUSE_TRACE_ID")
+
         cwd = os.getcwd()  # Detect project from current directory
 
         # Detect project name
@@ -103,6 +113,36 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
 
         # Compute content hash
         content_hash = compute_content_hash(response_text)
+
+        # SPEC-021: 2_log span
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="2_log",
+                    data={
+                        "input": {"content_length": len(response_text)},
+                        "output": {"log_path": str(Path(INSTALL_DIR) / "logs" / "activity.log")},
+                        "metadata": {"log_path": str(Path(INSTALL_DIR) / "logs" / "activity.log")},
+                    },
+                    trace_id=trace_id, session_id=session_id, project_id=group_id,
+                )
+            except Exception:
+                pass
+
+        # SPEC-021: 3_detect span
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="3_detect",
+                    data={
+                        "input": {"content_length": len(response_text)},
+                        "output": {"detected_type": TYPE_AGENT_RESPONSE},
+                        "metadata": {"detected_type": TYPE_AGENT_RESPONSE, "confidence": 1.0},
+                    },
+                    trace_id=trace_id, session_id=session_id, project_id=group_id,
+                )
+            except Exception:
+                pass
 
         # Build payload (Issue #6: single timestamp for consistency)
         now = datetime.now(timezone.utc).isoformat()
@@ -185,6 +225,11 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
             logger.info("empty_content_skipped", extra={"session_id": session_id})
             return True
 
+        scan_action = "skipped"  # Default if scanning disabled/unavailable
+        scan_findings = []
+        scan_actually_ran = False
+        scan_input_length = len(response_text)  # Capture BEFORE potential masking
+
         # SPEC-009: Security scanning (Layers 1+2 only for hooks, ~10ms overhead)
         if config.security_scanning_enabled:
             try:
@@ -192,6 +237,9 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
 
                 scanner = SecurityScanner(enable_ner=False)
                 scan_result = scanner.scan(response_text, source_type="user_session")
+                scan_actually_ran = True
+                scan_action = scan_result.action.value if hasattr(scan_result.action, 'value') else str(scan_result.action)
+                scan_findings = scan_result.findings
 
                 if scan_result.action == ScanAction.BLOCKED:
                     # Secrets detected - block storage entirely
@@ -214,6 +262,32 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                             project=group_id or "unknown",
                             collection="discussions",
                         ).inc()
+                    # SPEC-021: 4_scan span (BLOCKED) + pipeline_terminated
+                    if emit_trace_event:
+                        try:
+                            emit_trace_event(
+                                event_type="4_scan",
+                                data={
+                                    "input": {"content_length": len(response_text)},
+                                    "output": {"scan_result": "blocked"},
+                                    "metadata": {"scan_result": "blocked", "pii_found": False, "secrets_found": True},
+                                },
+                                trace_id=trace_id,
+                                session_id=session_id,
+                                project_id=group_id,
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            emit_trace_event(
+                                event_type="pipeline_terminated",
+                                data={"metadata": {"reason": "scan_blocked", "scan_blocked": True}},
+                                trace_id=trace_id,
+                                session_id=session_id,
+                                project_id=group_id,
+                            )
+                        except Exception:
+                            pass
                     return True  # Exit early, do not store
 
                 elif scan_result.action == ScanAction.MASKED:
@@ -242,6 +316,35 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                     },
                 )
                 # Continue with original content if scanner fails
+
+        # SPEC-021: 4_scan span (non-blocked paths) — only emit if scan actually ran
+        if emit_trace_event and scan_actually_ran:
+            try:
+                pii_found = any(
+                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("PII_")
+                    for f in scan_findings
+                )
+                secrets_found = any(
+                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("SECRET_")
+                    for f in scan_findings
+                )
+                emit_trace_event(
+                    event_type="4_scan",
+                    data={
+                        "input": {"content_length": scan_input_length},
+                        "output": {"scan_result": scan_action},
+                        "metadata": {
+                            "scan_result": scan_action,
+                            "pii_found": pii_found,
+                            "secrets_found": secrets_found,
+                        },
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
 
         # TECH-DEBT-151 Phase 3: Zero-truncation — chunk if over 3000 tokens
         # Per Chunking-Strategy-V2.md V2.1 Section 2.4
@@ -349,6 +452,23 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                 )
             )
 
+        # SPEC-021: 5_chunk span — chunking decision made
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="5_chunk",
+                    data={
+                        "input": {"content_length": len(response_text)},
+                        "output": {"num_chunks": len(chunks_to_store), "chunk_type": chunks_to_store[0][1]["chunk_type"] if chunks_to_store else "unknown"},
+                        "metadata": {"num_chunks": len(chunks_to_store), "chunk_type": chunks_to_store[0][1]["chunk_type"] if chunks_to_store else "unknown"},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
+
         # Embed and store all chunks
         from memory.embeddings import EmbeddingClient
 
@@ -374,6 +494,23 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
             )
             vectors = [[0.0] * config.embedding_dimension for _ in chunks_to_store]
             embedding_status = "pending"
+
+        # SPEC-021: 6_embed span — embedding generation
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="6_embed",
+                    data={
+                        "input": {"num_chunks": len(chunks_to_store)},
+                        "output": {"embedding_status": embedding_status, "dimensions": len(vectors[0]) if vectors else 0},
+                        "metadata": {"embedding_status": embedding_status, "num_vectors": len(vectors)},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
 
         # Build points for all chunks
         points = []
@@ -410,6 +547,23 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
         # Store all chunks to Qdrant
         client.upsert(collection_name=COLLECTION_DISCUSSIONS, points=points)
 
+        # SPEC-021: 7_store span — data persisted to Qdrant
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="7_store",
+                    data={
+                        "input": {"num_points": len(points)},
+                        "output": {"collection": COLLECTION_DISCUSSIONS, "points_stored": len(points)},
+                        "metadata": {"collection": COLLECTION_DISCUSSIONS, "points_stored": len(points)},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
+
         # BUG-036: Include project name for multi-project visibility
         log_to_activity(
             f"✅ AgentResponse stored: Turn {turn_number} [{group_id}] ({len(points)} chunks)",
@@ -427,6 +581,7 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
         )
 
         # BUG-024: Enqueue for LLM classification (first chunk only)
+        classification_enqueued = False
         try:
             from memory.classifier.config import CLASSIFIER_ENABLED
             from memory.classifier.queue import (
@@ -445,6 +600,7 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                     created_at=now,  # Matches stored memory timestamp for traceability
                 )
                 enqueue_for_classification(task)
+                classification_enqueued = True
                 logger.debug(
                     "classification_enqueued",
                     extra={
@@ -464,6 +620,23 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                     "point_id": memory_id,
                 },
             )
+
+        # SPEC-021: 8_enqueue span — reports actual enqueue outcome
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="8_enqueue",
+                    data={
+                        "input": {"point_id": points[0].id if points else memory_id},
+                        "output": {"enqueued": classification_enqueued, "collection": COLLECTION_DISCUSSIONS},
+                        "metadata": {"collection": COLLECTION_DISCUSSIONS, "current_type": "agent_response"},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
 
         # Metrics
         if memory_captures_total:

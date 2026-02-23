@@ -25,6 +25,8 @@ import os
 import subprocess
 import sys
 import time
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -46,9 +48,11 @@ logger = setup_hook_logging()
 try:
     from memory.metrics_push import push_hook_metrics_async
     from memory.project import detect_project
+    from memory.trace_buffer import emit_trace_event  # SPEC-021
 except ImportError:
     push_hook_metrics_async = None
     detect_project = None
+    emit_trace_event = None
 
 
 def validate_hook_input(data: dict[str, Any]) -> str | None:
@@ -124,7 +128,7 @@ def extract_last_assistant_message(
 
 
 def fork_to_background(
-    hook_input: dict[str, Any], response_text: str, turn_number: int
+    hook_input: dict[str, Any], response_text: str, turn_number: int, trace_id: str | None = None
 ) -> None:
     """Fork storage operation to background process.
 
@@ -152,6 +156,11 @@ def fork_to_background(
         # Serialize data for background process
         input_json = json.dumps(store_data)
 
+        # SPEC-021: Propagate trace_id to store-async subprocess
+        subprocess_env = os.environ.copy()
+        if trace_id:
+            subprocess_env["LANGFUSE_TRACE_ID"] = trace_id
+
         # Fork to background using subprocess.Popen + start_new_session=True
         process = subprocess.Popen(
             [sys.executable, str(store_script)],
@@ -159,6 +168,7 @@ def fork_to_background(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,  # Full detachment from parent
+            env=subprocess_env,
         )
 
         # Write input and close stdin (non-blocking, CRITICAL FIX: error handling)
@@ -272,6 +282,9 @@ def main() -> int:
         # Validate turn number (Fix #3: bounds checking prevents corruption)
         turn_number = max(1, min(assistant_count, 10000))  # Bounds: 1 to 10000
 
+        # SPEC-021: Capture raw length before any truncation
+        raw_response_length = len(response_text)
+
         # Truncate large responses to prevent memory issues in background process
         if len(response_text) > MAX_RESPONSE_SIZE:
             logger.warning(
@@ -284,8 +297,35 @@ def main() -> int:
             )
             response_text = response_text[:MAX_RESPONSE_SIZE] + "\n... [truncated]"
 
+        # SPEC-021: Generate trace_id for pipeline trace linking
+        trace_id = None
+        if emit_trace_event:
+            trace_id = str(uuid.uuid4())
+            capture_start = datetime.utcnow()
+            cwd = os.getcwd()
+            try:
+                emit_trace_event(
+                    event_type="1_capture",
+                    data={
+                        "input": {"hook_type": "agent_response", "raw_length": raw_response_length},
+                        "output": {"content_length": len(response_text), "content_extracted": True},
+                        "metadata": {
+                            "hook_type": "agent_response",
+                            "source": "transcript",
+                            "content_length": len(response_text),
+                        },
+                    },
+                    trace_id=trace_id,
+                    session_id=hook_input.get("session_id"),
+                    project_id=detect_project(cwd) if detect_project else None,
+                    start_time=capture_start,
+                    end_time=datetime.utcnow(),
+                )
+            except Exception:
+                pass  # Never crash the hook for tracing
+
         # Fork to background
-        fork_to_background(hook_input, response_text, turn_number)
+        fork_to_background(hook_input, response_text, turn_number, trace_id)
 
         # TECH-DEBT-142: Push hook duration to Pushgateway
         if push_hook_metrics_async:
