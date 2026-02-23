@@ -73,7 +73,9 @@ services:
     networks:
       - ai-memory_default
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/public/health || exit 1"]
+      # Use 127.0.0.1 not localhost — Alpine BusyBox wget resolves localhost to
+      # IPv6 ::1 first, but Node.js only listens on IPv4 0.0.0.0 (BUG-136)
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:3000/api/public/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -134,7 +136,8 @@ services:
     networks:
       - ai-memory_default
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:3030/api/health || exit 1"]
+      # Use 127.0.0.1 not localhost — same IPv6 issue as langfuse-web (BUG-136)
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3030/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -184,7 +187,7 @@ services:
     networks:
       - ai-memory_default
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8123/ping || exit 1"]
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:8123/ping || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -233,7 +236,7 @@ services:
     networks:
       - ai-memory_default
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:9000/minio/health/live || exit 1"]
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:9000/minio/health/live || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
