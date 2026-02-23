@@ -14,6 +14,15 @@
 | **RAM**     | 4GB            | 8GB+        | For Docker services |
 | **Disk**    | 5GB free       | 10GB+       | Docker images alone are ~3GB; allow extra space for data |
 
+### Resource Tiers
+
+AI Memory runs on 16 GiB RAM (4 cores minimum). Adding the optional Langfuse LLM observability module increases the requirement to 32 GiB RAM (8 cores recommended).
+
+| Tier | Services | Minimum RAM | Recommended CPU |
+|------|----------|-------------|-----------------|
+| **Core** (default) | 8 services | 16 GiB | 4 cores |
+| **Core + Langfuse** (opt-in) | 14 services | 32 GiB | 8 cores |
+
 ## 🐍 Python Dependencies
 
 The module requires Python packages for core functionality. These are automatically installed by the Docker services, but if you're developing or debugging locally:
@@ -670,6 +679,19 @@ docker compose -f docker/docker-compose.yml --profile monitoring up -d
 - Hook execution metrics pushed from session_start, post_tool_capture, and other hooks
 - Collection size warnings and threshold alerts
 - Embedding service performance tracking
+
+### Optional: Langfuse LLM Observability Ports
+
+When Langfuse is enabled (opt-in), the following additional ports are used:
+
+| Port | Service | Notes |
+|------|---------|-------|
+| 23100 | Langfuse Web UI | Optional (Langfuse) |
+| 23130 | Langfuse Worker | Optional (Langfuse) |
+| 25432 | Langfuse PostgreSQL | Optional (Langfuse) |
+| 26379 | Langfuse Redis | Optional (Langfuse) |
+| 28123 | Langfuse ClickHouse | Optional (Langfuse) |
+| 29000 | Langfuse MinIO | Optional (Langfuse) |
 
 ## Monitoring Setup (Optional)
 

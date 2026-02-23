@@ -108,6 +108,20 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
             "PARZIVAL_HANDOFF_RETENTION", "10"
         )
 
+    # Add Langfuse env vars if enabled (SPEC-019, SPEC-022)
+    if os.environ.get("LANGFUSE_ENABLED", "").lower() == "true":
+        env_section["TRACE_TO_LANGFUSE"] = "true"  # Stop hook primary kill-switch (SPEC-022 §2.2, AC-6)
+        env_section["LANGFUSE_ENABLED"] = "true"
+        env_section["LANGFUSE_PUBLIC_KEY"] = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
+        env_section["LANGFUSE_SECRET_KEY"] = os.environ.get("LANGFUSE_SECRET_KEY", "")
+        env_section["LANGFUSE_BASE_URL"] = os.environ.get(
+            "LANGFUSE_BASE_URL", "http://localhost:23100"
+        )
+        env_section["LANGFUSE_TRACE_HOOKS"] = os.environ.get("LANGFUSE_TRACE_HOOKS", "true")
+        env_section["LANGFUSE_TRACE_SESSIONS"] = os.environ.get(
+            "LANGFUSE_TRACE_SESSIONS", "true"
+        )
+
     return {
         # Schema reference for IDE validation (BUG-029+030 fix)
         "$schema": "https://json.schemastore.org/claude-code-settings.json",
@@ -214,7 +228,22 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                         }
                     ]
                 }
-            ],
+            ] + (
+                [
+                    {
+                        "matcher": ".*",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": _hook_cmd("langfuse_stop_hook.py"),
+                                "timeout": 10000,
+                            }
+                        ],
+                    }
+                ]
+                if os.environ.get("LANGFUSE_ENABLED", "").lower() == "true"
+                else []
+            ),
         },
     }
 

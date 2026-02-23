@@ -395,6 +395,15 @@ SEED_BEST_PRACTICES=true ./scripts/install.sh /path/to/your-project
 - **Docker 20.10+** (for Qdrant + embedding service)
 - **Claude Code** (target project where memory will be installed)
 
+### Resource Requirements
+
+AI Memory runs on 16 GiB RAM (4 cores minimum). Adding the optional Langfuse LLM observability module increases the requirement to 32 GiB RAM (8 cores recommended).
+
+| Tier | Services | Minimum RAM | Recommended CPU |
+|------|----------|-------------|-----------------|
+| **Core** (default) | 8 services | 16 GiB | 4 cores |
+| **Core + Langfuse** (opt-in) | 14 services | 32 GiB | 8 cores |
+
 ### Installation Steps
 
 See [INSTALL.md](INSTALL.md) for detailed installation instructions including:
@@ -421,6 +430,17 @@ All services use `2XXXX` prefix to avoid conflicts:
 | Grafana          | 23000    | 3000     | `localhost:23000`           |
 | Prometheus       | 29090    | 9090     | `localhost:29090` (--profile monitoring) |
 | Pushgateway      | 29091    | 9091     | `localhost:29091` (--profile monitoring) |
+
+**Optional: Langfuse LLM Observability Ports (opt-in):**
+
+| Port | Service | Notes |
+|------|---------|-------|
+| 23100 | Langfuse Web UI | Optional (Langfuse) |
+| 23130 | Langfuse Worker | Optional (Langfuse) |
+| 25432 | Langfuse PostgreSQL | Optional (Langfuse) |
+| 26379 | Langfuse Redis | Optional (Langfuse) |
+| 28123 | Langfuse ClickHouse | Optional (Langfuse) |
+| 29000 | Langfuse MinIO | Optional (Langfuse) |
 
 ### Environment Variables
 

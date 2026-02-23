@@ -627,6 +627,62 @@ class MemoryConfig(BaseSettings):
         description="Number of recent handoff files to keep in oversight/session-logs/.",
     )
 
+    # =========================================================================
+    # v2.0.7 — Langfuse LLM Observability (SPEC-019, PLAN-008)
+    # =========================================================================
+
+    langfuse_enabled: bool = Field(
+        default=False,
+        env="LANGFUSE_ENABLED",
+        description="Enable Langfuse LLM observability integration",
+    )
+
+    langfuse_public_key: str = Field(
+        default="",
+        env="LANGFUSE_PUBLIC_KEY",
+        description="Langfuse project public key",
+    )
+
+    langfuse_secret_key: SecretStr = Field(
+        default=SecretStr(""),
+        env="LANGFUSE_SECRET_KEY",
+        description="Langfuse project secret key",
+    )
+
+    langfuse_base_url: str = Field(
+        default="http://localhost:23100",
+        env="LANGFUSE_BASE_URL",
+        description="Langfuse self-hosted instance URL",
+    )
+
+    langfuse_flush_interval: int = Field(
+        default=5,
+        ge=1,
+        le=300,
+        env="LANGFUSE_FLUSH_INTERVAL",
+        description="Flush worker interval in seconds",
+    )
+
+    langfuse_trace_hooks: bool = Field(
+        default=True,
+        env="LANGFUSE_TRACE_HOOKS",
+        description="Enable Tier 2 hook-level tracing",
+    )
+
+    langfuse_trace_sessions: bool = Field(
+        default=True,
+        env="LANGFUSE_TRACE_SESSIONS",
+        description="Enable Tier 1 session-level tracing",
+    )
+
+    langfuse_retention_days: int = Field(
+        default=90,
+        ge=7,
+        le=365,
+        env="LANGFUSE_RETENTION_DAYS",
+        description="ClickHouse trace retention in days (DEC-PLAN008-001)",
+    )
+
     @field_validator("decay_type_overrides", mode="before")
     @classmethod
     def parse_type_overrides(cls, v: str) -> str:
@@ -721,6 +777,16 @@ class MemoryConfig(BaseSettings):
                 f"stale ({self.freshness_commit_threshold_stale}) < "
                 f"expired ({self.freshness_commit_threshold_expired})"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_langfuse_config(self) -> "MemoryConfig":
+        """Validate Langfuse config is complete when enabled."""
+        if self.langfuse_enabled:
+            if not self.langfuse_public_key:
+                raise ValueError("LANGFUSE_PUBLIC_KEY required when LANGFUSE_ENABLED=true")
+            if not self.langfuse_secret_key.get_secret_value():
+                raise ValueError("LANGFUSE_SECRET_KEY required when LANGFUSE_ENABLED=true")
         return self
 
     def get_qdrant_url(self) -> str:

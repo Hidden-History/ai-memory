@@ -1,0 +1,280 @@
+# docker-compose.langfuse.yml — Langfuse LLM Observability Stack
+#
+# SPEC-019: Langfuse Infrastructure (Phase 1)
+# Decision: DEC-PLAN008-001 — 90-day trace retention, self-hosted Langfuse v3
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse up -d
+#
+# All services use profile "langfuse" — opt-in, not started by default.
+# Joins the existing ai-memory_default network (external: true).
+
+services:
+
+  # ─── Langfuse Web UI ───────────────────────────────────────────────────────
+  langfuse-web:
+    image: docker.io/langfuse/langfuse:3
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-langfuse-web
+    profiles: ["langfuse"]
+    ports:
+      - "127.0.0.1:${LANGFUSE_WEB_PORT:-23100}:3000"
+    environment:
+      # Database
+      - DATABASE_URL=postgresql://langfuse:${LANGFUSE_DB_PASSWORD}@langfuse-postgres:5432/langfuse
+      # NextAuth
+      - NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=http://localhost:${LANGFUSE_WEB_PORT:-23100}
+      - SALT=${LANGFUSE_SALT}
+      - ENCRYPTION_KEY=${LANGFUSE_ENCRYPTION_KEY}
+      # ClickHouse (internal service names for container-to-container communication)
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://default:${LANGFUSE_CLICKHOUSE_PASSWORD}@langfuse-clickhouse:9000
+      - CLICKHOUSE_URL=http://langfuse-clickhouse:8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD}
+      # Redis
+      - REDIS_CONNECTION_STRING=redis://langfuse-redis:6379
+      # MinIO / S3 event upload
+      - LANGFUSE_S3_EVENT_UPLOAD_ENABLED=true
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=${LANGFUSE_S3_ACCESS_KEY}
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=${LANGFUSE_S3_SECRET_KEY}
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=us-east-1
+      # Langfuse v3 headless auto-initialization (first-start bootstrap)
+      - LANGFUSE_INIT_ORG_ID=${LANGFUSE_INIT_ORG_ID:-}
+      - LANGFUSE_INIT_ORG_NAME=${LANGFUSE_INIT_ORG_NAME:-}
+      - LANGFUSE_INIT_PROJECT_ID=${LANGFUSE_INIT_PROJECT_ID:-}
+      - LANGFUSE_INIT_PROJECT_NAME=${LANGFUSE_INIT_PROJECT_NAME:-}
+      - LANGFUSE_INIT_PROJECT_PUBLIC_KEY=${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-}
+      - LANGFUSE_INIT_PROJECT_SECRET_KEY=${LANGFUSE_INIT_PROJECT_SECRET_KEY:-}
+      - LANGFUSE_INIT_USER_EMAIL=${LANGFUSE_INIT_USER_EMAIL:-}
+      - LANGFUSE_INIT_USER_NAME=${LANGFUSE_INIT_USER_NAME:-}
+      - LANGFUSE_INIT_USER_PASSWORD=${LANGFUSE_INIT_USER_PASSWORD:-}
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_started
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - ai-memory_default
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/public/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s  # Migrations run on first start — allow extra time
+
+  # ─── Langfuse Worker ───────────────────────────────────────────────────────
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker:3
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-langfuse-worker
+    profiles: ["langfuse"]
+    ports:
+      - "127.0.0.1:${LANGFUSE_WORKER_PORT:-23130}:3030"
+    environment:
+      # Shared config with langfuse-web
+      - DATABASE_URL=postgresql://langfuse:${LANGFUSE_DB_PASSWORD}@langfuse-postgres:5432/langfuse
+      - NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=http://localhost:${LANGFUSE_WEB_PORT:-23100}
+      - SALT=${LANGFUSE_SALT}
+      - ENCRYPTION_KEY=${LANGFUSE_ENCRYPTION_KEY}
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://default:${LANGFUSE_CLICKHOUSE_PASSWORD}@langfuse-clickhouse:9000
+      - CLICKHOUSE_URL=http://langfuse-clickhouse:8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD}
+      - REDIS_CONNECTION_STRING=redis://langfuse-redis:6379
+      - LANGFUSE_S3_EVENT_UPLOAD_ENABLED=true
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=${LANGFUSE_S3_ACCESS_KEY}
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=${LANGFUSE_S3_SECRET_KEY}
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=us-east-1
+      # Langfuse v3 headless auto-initialization (first-start bootstrap)
+      - LANGFUSE_INIT_ORG_ID=${LANGFUSE_INIT_ORG_ID:-}
+      - LANGFUSE_INIT_ORG_NAME=${LANGFUSE_INIT_ORG_NAME:-}
+      - LANGFUSE_INIT_PROJECT_ID=${LANGFUSE_INIT_PROJECT_ID:-}
+      - LANGFUSE_INIT_PROJECT_NAME=${LANGFUSE_INIT_PROJECT_NAME:-}
+      - LANGFUSE_INIT_PROJECT_PUBLIC_KEY=${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-}
+      - LANGFUSE_INIT_PROJECT_SECRET_KEY=${LANGFUSE_INIT_PROJECT_SECRET_KEY:-}
+      - LANGFUSE_INIT_USER_EMAIL=${LANGFUSE_INIT_USER_EMAIL:-}
+      - LANGFUSE_INIT_USER_NAME=${LANGFUSE_INIT_USER_NAME:-}
+      - LANGFUSE_INIT_USER_PASSWORD=${LANGFUSE_INIT_USER_PASSWORD:-}
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_started
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - ai-memory_default
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3030/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ─── PostgreSQL (Langfuse metadata store) ──────────────────────────────────
+  langfuse-postgres:
+    image: docker.io/postgres:17
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-langfuse-postgres
+    profiles: ["langfuse"]
+    ports:
+      - "127.0.0.1:${LANGFUSE_POSTGRES_PORT:-25432}:5432"
+    volumes:
+      - langfuse-postgres-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=langfuse
+      - POSTGRES_PASSWORD=${LANGFUSE_DB_PASSWORD}
+      - POSTGRES_DB=langfuse
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - ai-memory_default
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ─── ClickHouse (trace + observation storage) ──────────────────────────────
+  langfuse-clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:24
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-langfuse-clickhouse
+    profiles: ["langfuse"]
+    ports:
+      - "127.0.0.1:${LANGFUSE_CLICKHOUSE_PORT:-28123}:8123"
+    volumes:
+      - langfuse-clickhouse-data:/var/lib/clickhouse
+      - ./langfuse/clickhouse-config.xml:/etc/clickhouse-server/config.d/retention.xml:ro
+    environment:
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - ai-memory_default
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8123/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ─── Redis (queue / ephemeral cache) ───────────────────────────────────────
+  # No persistent volume — queue durability is provided by ClickHouse
+  langfuse-redis:
+    image: docker.io/redis:7
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-langfuse-redis
+    profiles: ["langfuse"]
+    ports:
+      - "127.0.0.1:${LANGFUSE_REDIS_PORT:-26379}:6379"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - ai-memory_default
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ─── MinIO (S3-compatible blob storage for event upload) ───────────────────
+  # Image: Chainguard hardened distroless — no mc CLI available.
+  # Health check uses wget HTTP against the MinIO liveness endpoint.
+  langfuse-minio:
+    image: cgr.dev/chainguard/minio
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-langfuse-minio
+    profiles: ["langfuse"]
+    ports:
+      - "127.0.0.1:${LANGFUSE_MINIO_PORT:-29000}:9000"
+    volumes:
+      - langfuse-minio-data:/data
+    command: server /data
+    environment:
+      - MINIO_ROOT_USER=${LANGFUSE_S3_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${LANGFUSE_S3_SECRET_KEY}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - ai-memory_default
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ─── Trace Flush Worker (AI Memory component) ──────────────────────────────
+  # Reads buffered traces from host trace_buffer/ and flushes them to Langfuse.
+  # Runs inside the Langfuse compose because it requires Langfuse to be healthy.
+  trace-flush-worker:
+    build:
+      context: ../
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-langfuse-trace-flush-worker
+    profiles: ["langfuse"]
+    command: python -m memory.trace_flush_worker
+    volumes:
+      - ${AI_MEMORY_INSTALL_DIR:-~/.ai-memory}/trace_buffer:/app/trace_buffer
+    environment:
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:?Run langfuse_setup.sh first to generate API keys}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:?Run langfuse_setup.sh first to generate API keys}
+      # Use internal service name for container-to-container communication
+      - LANGFUSE_BASE_URL=http://langfuse-web:3000
+      - LANGFUSE_FLUSH_INTERVAL=${LANGFUSE_FLUSH_INTERVAL:-5}
+    depends_on:
+      langfuse-web:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - ai-memory_default
+
+# ─── Network ─────────────────────────────────────────────────────────────────
+# Join the existing ai-memory stack network so Langfuse services can communicate
+# with the classifier-worker, embedding service, and other AI Memory components.
+networks:
+  ai-memory_default:
+    external: true
+
+# ─── Volumes ─────────────────────────────────────────────────────────────────
+volumes:
+  langfuse-postgres-data:
+  langfuse-clickhouse-data:
+  langfuse-minio-data:
