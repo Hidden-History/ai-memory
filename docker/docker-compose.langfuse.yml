@@ -147,10 +147,8 @@ services:
       - POSTGRES_PASSWORD=${LANGFUSE_DB_PASSWORD}
       - POSTGRES_DB=langfuse
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    # NOTE: No cap_drop/no-new-privileges — Postgres requires CHOWN/SETUID/SETGID
+    # to switch from root to postgres user on startup (BUG-134).
     networks:
       - ai-memory_default
     healthcheck:
@@ -174,10 +172,8 @@ services:
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD}
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    # NOTE: No cap_drop/no-new-privileges — ClickHouse requires privilege
+    # escalation for user switching and data directory ownership (BUG-134).
     networks:
       - ai-memory_default
     healthcheck:
@@ -196,10 +192,8 @@ services:
     ports:
       - "127.0.0.1:${LANGFUSE_REDIS_PORT:-26379}:6379"
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+    # NOTE: No cap_drop/no-new-privileges — Redis needs SETUID/SETGID
+    # to switch to redis user on startup (BUG-134).
     networks:
       - ai-memory_default
     healthcheck:
