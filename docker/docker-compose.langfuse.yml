@@ -31,6 +31,9 @@ services:
       - CLICKHOUSE_URL=http://langfuse-clickhouse:8123
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD}
+      # Single-node ClickHouse — disable clustering to avoid ReplicatedMergeTree
+      # requiring Zookeeper/Keeper (BUG-135, per Langfuse self-hosting docs)
+      - CLICKHOUSE_CLUSTER_ENABLED=false
       # Redis
       - REDIS_CONNECTION_STRING=redis://langfuse-redis:6379
       # MinIO / S3 event upload
@@ -92,6 +95,8 @@ services:
       - CLICKHOUSE_URL=http://langfuse-clickhouse:8123
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD}
+      # Single-node ClickHouse — disable clustering (BUG-135)
+      - CLICKHOUSE_CLUSTER_ENABLED=false
       - REDIS_CONNECTION_STRING=redis://langfuse-redis:6379
       - LANGFUSE_S3_EVENT_UPLOAD_ENABLED=true
       - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
