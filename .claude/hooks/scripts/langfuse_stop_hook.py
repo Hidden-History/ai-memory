@@ -46,6 +46,8 @@ def main():
         if install_dir:
             sys.path.insert(0, os.path.join(install_dir, "src"))
 
+        from langfuse import Langfuse
+
         from memory.langfuse_config import get_langfuse_client
 
         client = get_langfuse_client()
@@ -67,19 +69,27 @@ def main():
         session_id = transcript.get("session_id", str(uuid.uuid4()))
         messages = transcript.get("messages", transcript.get("turns", []))
 
-        # Create trace (SPEC-022 §2.6)
-        trace = client.trace(
+        # Create trace with v3 API (SPEC-022 §2.6)
+        trace_id = Langfuse.create_trace_id(seed=session_id)
+        root_span = client.start_span(
+            trace_context={"trace_id": trace_id},
             name="claude_code_session",
-            session_id=session_id,
             metadata={
                 **trace_metadata,
-                "start_time": transcript.get("start_time", datetime.utcnow().isoformat()),
+                "start_time": transcript.get(
+                    "start_time", datetime.utcnow().isoformat()
+                ),
                 "end_time": transcript.get("end_time", datetime.utcnow().isoformat()),
                 "turn_count": len(messages),
             },
         )
+        root_span.update_trace(
+            name="claude_code_session",
+            session_id=session_id,
+            metadata={**trace_metadata, "turn_count": len(messages)},
+        )
 
-        # Add observations for each turn (SPEC-022 §2.6)
+        # Add child spans for each turn (SPEC-022 §2.6)
         for i, msg in enumerate(messages, 1):
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
@@ -89,15 +99,20 @@ def main():
             if "token_count" in msg:
                 span_metadata["token_count"] = msg["token_count"]
 
-            trace.span(
+            turn_span = client.start_span(
+                trace_context={"trace_id": trace_id, "parent_span_id": root_span.id},
                 name=f"turn_{i}",
                 metadata=span_metadata,
                 input=content[:500] if isinstance(content, str) else str(content)[:500],
             )
+            turn_span.end()
+
+        root_span.end()
 
         # Synchronous flush — acceptable for Stop hook (SPEC-022 §2.1)
         # 2-second timeout per SPEC-022 §8 risk mitigation
         try:
+
             def _flush_timeout_handler(signum, frame):
                 raise TimeoutError("Langfuse flush exceeded 2s timeout")
 
@@ -114,7 +129,9 @@ def main():
             # SIGALRM not available on Windows — flush without timeout
             client.flush()
 
-        logger.debug("Langfuse trace created: session=%s, turns=%d", session_id, len(messages))
+        logger.debug(
+            "Langfuse trace created: session=%s, turns=%d", session_id, len(messages)
+        )
 
     except Exception as e:
         # CRITICAL: Never block Claude Code (SPEC-022 AC-11)

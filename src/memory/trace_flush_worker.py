@@ -23,6 +23,8 @@ INSTALL_DIR = os.environ.get(
 )
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
+from langfuse import Langfuse  # noqa: E402
+
 from memory.langfuse_config import get_langfuse_client  # noqa: E402
 
 try:
@@ -130,8 +132,24 @@ def process_buffer_files(langfuse) -> tuple[int, int]:
             continue
 
         try:
-            trace = langfuse.trace(
-                id=event.get("trace_id"),
+            trace_id = Langfuse.create_trace_id(seed=event.get("trace_id"))
+            data = event.get("data", {})
+            event_type = event.get("event_type", "unknown")
+
+            span_metadata = dict(data.get("metadata", {}))
+            if data.get("start_time"):
+                span_metadata["original_start_time"] = data["start_time"]
+            if event.get("parent_span_id"):
+                span_metadata["parent_span_id"] = event.get("parent_span_id")
+
+            span = langfuse.start_span(
+                trace_context={"trace_id": trace_id},
+                name=event_type,
+                input=data.get("input"),
+                output=data.get("output"),
+                metadata=span_metadata,
+            )
+            span.update_trace(
                 name=f"hook_pipeline_{event.get('project_id', 'unknown')}",
                 session_id=event.get("session_id"),
                 metadata={
@@ -139,25 +157,11 @@ def process_buffer_files(langfuse) -> tuple[int, int]:
                     "source": "trace_buffer",
                 },
             )
-            data = event.get("data", {})
-            trace.span(
-                id=event.get("span_id"),
-                name=event.get("event_type", "unknown"),
-                parent_observation_id=event.get("parent_span_id"),
-                start_time=(
-                    datetime.fromisoformat(data["start_time"])
-                    if data.get("start_time")
-                    else None
-                ),
-                end_time=(
-                    datetime.fromisoformat(data["end_time"])
-                    if data.get("end_time")
-                    else None
-                ),
-                input=data.get("input"),
-                output=data.get("output"),
-                metadata=data.get("metadata", {}),
-            )
+            if data.get("end_time"):
+                end_dt = datetime.fromisoformat(data["end_time"])
+                span.end(end_time=int(end_dt.timestamp() * 1e9))
+            else:
+                span.end()
             json_file.unlink()
             processed += 1
         except Exception as e:
