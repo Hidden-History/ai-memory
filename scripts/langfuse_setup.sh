@@ -141,8 +141,9 @@ setup_project_keys() {
 
     local public_key="pk-lf-$(openssl rand -hex 20)"
     local secret_key="sk-lf-$(openssl rand -hex 20)"
+    # Password must meet Langfuse complexity: 8+ chars, uppercase, special char
     local admin_password
-    admin_password="$(openssl rand -hex 16)"
+    admin_password="Lf$(openssl rand -hex 6)!$(openssl rand -hex 4)"
 
     # Write Langfuse v3 bootstrap env vars — picked up by langfuse-web on first start
     env_set "LANGFUSE_INIT_ORG_ID"                "ai-memory-org"
@@ -151,7 +152,7 @@ setup_project_keys() {
     env_set "LANGFUSE_INIT_PROJECT_NAME"          "ai-memory"
     env_set "LANGFUSE_INIT_PROJECT_PUBLIC_KEY"    "$public_key"
     env_set "LANGFUSE_INIT_PROJECT_SECRET_KEY"    "$secret_key"
-    env_set "LANGFUSE_INIT_USER_EMAIL"            "admin@ai-memory.local"
+    env_set "LANGFUSE_INIT_USER_EMAIL"            "admin@example.com"
     env_set "LANGFUSE_INIT_USER_NAME"             "admin"
     env_set "LANGFUSE_INIT_USER_PASSWORD"         "$admin_password"
 
@@ -161,7 +162,7 @@ setup_project_keys() {
     env_set "LANGFUSE_ENABLED"    "true"
 
     log_success "API keys generated and written to .env"
-    log_info "  Admin email:    admin@ai-memory.local"
+    log_info "  Admin email:    admin@example.com"
     log_info "  Admin password: ${admin_password} (stored as LANGFUSE_INIT_USER_PASSWORD)"
     log_info "  Public key:     ${public_key}"
     log_warning "Protect ${ENV_FILE} — it contains secrets."
