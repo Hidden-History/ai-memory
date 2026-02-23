@@ -235,6 +235,9 @@ start_services() {
         log_warning "Run with --generate-secrets first, or run all steps (no args)."
     fi
 
+    # BUG-143: Pre-create trace_buffer dir so Docker doesn't create it as root:root
+    mkdir -p "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/trace_buffer"
+
     log_info "Running: docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse up -d"
     (
         cd "$DOCKER_DIR"
