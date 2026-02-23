@@ -1,0 +1,62 @@
+# AI Memory Alerting Rules
+# PLAN-008 / SPEC-022 §3.3 — Classifier latency alert with Langfuse deeplink
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: ai-memory-alerts
+    folder: AI Memory
+    interval: 5m
+    rules:
+      - uid: classifier-latency-high
+        title: "Classifier p99 Latency > 5s"
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: histogram_quantile(0.99, sum by (le) (rate(aimemory_classifier_latency_seconds_bucket[5m])))
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              expression: A
+              reducer: last
+              type: reduce
+              refId: B
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 5
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+              expression: B
+              type: threshold
+              refId: C
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: >-
+            Classifier p99 latency > 5s.
+            Investigate in Langfuse: http://localhost:23100/traces?filter=metadata.span_name%3D9_classify
+          description: >-
+            The LLM classifier p99 latency has exceeded 5 seconds for 5 minutes.
+            This may indicate a stalled or failing LLM call.
+        labels:
+          severity: warning
