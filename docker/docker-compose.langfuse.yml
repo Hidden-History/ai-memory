@@ -86,6 +86,8 @@ services:
     ports:
       - "127.0.0.1:${LANGFUSE_WORKER_PORT:-23130}:3030"
     environment:
+      # Node.js must bind to all interfaces for healthcheck (BUG-136)
+      - HOSTNAME=0.0.0.0
       # Shared config with langfuse-web
       - DATABASE_URL=postgresql://langfuse:${LANGFUSE_DB_PASSWORD}@langfuse-postgres:5432/langfuse
       - NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET}
