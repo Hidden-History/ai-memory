@@ -293,6 +293,83 @@ run_health_check() {
     fi
 }
 
+# ── Step 5b: Verify bootstrap (org/project/user were created) ────────────────
+verify_bootstrap() {
+    step "Verify Langfuse Bootstrap"
+
+    local public_key secret_key web_port
+    public_key=$(env_get "LANGFUSE_PUBLIC_KEY")
+    secret_key=$(env_get "LANGFUSE_SECRET_KEY")
+    web_port=$(env_get "LANGFUSE_WEB_PORT")
+    web_port="${web_port:-23100}"
+
+    if [[ -z "$public_key" || -z "$secret_key" ]]; then
+        log_warning "LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY not set — skipping bootstrap verification."
+        return 0
+    fi
+
+    local base_url="http://localhost:${web_port}"
+
+    # Returns "yes" if auth succeeds and at least one project exists, else "no"
+    _bootstrap_ok() {
+        local resp
+        resp=$(curl -sf \
+            -u "${public_key}:${secret_key}" \
+            "${base_url}/api/public/projects" 2>/dev/null || echo "")
+        [[ -z "$resp" ]] && { echo "no"; return; }
+        echo "$resp" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    items = d if isinstance(d, list) else d.get('data', [])
+    print('yes' if items else 'no')
+except Exception:
+    print('no')
+" 2>/dev/null || echo "no"
+    }
+
+    log_info "Checking Langfuse bootstrap (org, project, user)..."
+
+    if [[ "$(_bootstrap_ok)" == "yes" ]]; then
+        log_success "Langfuse bootstrap verified — org and project exist."
+        return 0
+    fi
+
+    # Bootstrap did not take effect — wipe volumes and retry once
+    log_warning "Langfuse bootstrap did not take effect — cleaning volumes and restarting..."
+
+    (
+        cd "$DOCKER_DIR"
+        docker compose -f docker-compose.yml -f docker-compose.langfuse.yml \
+            --profile langfuse stop \
+            langfuse-web langfuse-worker langfuse-postgres langfuse-clickhouse langfuse-redis langfuse-minio
+        docker compose -f docker-compose.yml -f docker-compose.langfuse.yml \
+            --profile langfuse rm -f \
+            langfuse-web langfuse-worker langfuse-postgres langfuse-clickhouse langfuse-redis langfuse-minio
+    )
+
+    docker volume rm \
+        ai-memory-langfuse-postgres-data \
+        ai-memory-langfuse-clickhouse-data \
+        ai-memory-langfuse-redis-data \
+        ai-memory-langfuse-minio-data 2>/dev/null || true
+
+    start_services
+    run_health_check
+
+    if [[ "$(_bootstrap_ok)" == "yes" ]]; then
+        log_success "Langfuse bootstrap verified after restart — org and project exist."
+        return 0
+    fi
+
+    log_error "Langfuse bootstrap failed even after volume reset and restart."
+    log_error "Manual recovery steps:"
+    log_error "  1. cd ${DOCKER_DIR}"
+    log_error "  2. docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse down -v"
+    log_error "  3. Re-run the installer: scripts/install.sh"
+    exit 1
+}
+
 # ── Step 6: Register custom models ───────────────────────────────────────────
 register_custom_models() {
     step "Register Custom Model Patterns"
@@ -436,6 +513,7 @@ main() {
     # --health-check: steps 5–7 (health, model registration, summary)
     if [[ "$DO_HEALTH" == true ]]; then
         run_health_check
+        verify_bootstrap
         register_custom_models
         print_summary
     elif [[ "$DO_SECRETS" == true || "$DO_START" == true ]]; then
