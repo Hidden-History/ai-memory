@@ -252,6 +252,8 @@ services:
     volumes:
       - ${AI_MEMORY_INSTALL_DIR:-~/.ai-memory}/trace_buffer:/app/trace_buffer
     environment:
+      # Match volume mount path so BUFFER_DIR resolves to /app/trace_buffer (BUG-138)
+      - AI_MEMORY_INSTALL_DIR=/app
       - LANGFUSE_ENABLED=true
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:?Run langfuse_setup.sh first to generate API keys}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:?Run langfuse_setup.sh first to generate API keys}
