@@ -13,12 +13,15 @@ References:
 - Environment Variable Security: https://securityboulevard.com/2025/12/are-environment-variables-still-safe-for-secrets-in-2026/
 """
 
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "AGENTS",
@@ -789,12 +792,20 @@ class MemoryConfig(BaseSettings):
 
     @model_validator(mode="after")
     def validate_langfuse_config(self) -> "MemoryConfig":
-        """Validate Langfuse config is complete when enabled."""
-        if self.langfuse_enabled:
-            if not self.langfuse_public_key:
-                raise ValueError("LANGFUSE_PUBLIC_KEY required when LANGFUSE_ENABLED=true")
-            if not self.langfuse_secret_key.get_secret_value():
-                raise ValueError("LANGFUSE_SECRET_KEY required when LANGFUSE_ENABLED=true")
+        """Warn if Langfuse config is incomplete when enabled.
+
+        Does NOT raise — keys may not be available at install time
+        (Langfuse container starts after setup-collections runs).
+        Runtime: langfuse_config.py handles missing keys gracefully (BUG-132).
+        """
+        if self.langfuse_enabled and (
+            not self.langfuse_public_key
+            or not self.langfuse_secret_key.get_secret_value()
+        ):
+            logger.warning(
+                "LANGFUSE_ENABLED=true but API keys not configured — "
+                "Langfuse features will be unavailable until keys are set"
+            )
         return self
 
     def get_qdrant_url(self) -> str:

@@ -7,6 +7,8 @@ Uses _env_file=None to avoid loading .env during tests.
 Uses monkeypatch for env var management.
 """
 
+import logging
+
 import pytest
 from pydantic import SecretStr, ValidationError
 
@@ -43,35 +45,41 @@ class TestLangfuseDefaults:
 class TestLangfuseValidation:
     """Test validator logic for Langfuse configuration."""
 
-    def test_langfuse_enabled_requires_keys(self):
-        """When LANGFUSE_ENABLED=true but keys empty, ValidationError raised."""
-        with pytest.raises(ValidationError, match="LANGFUSE_PUBLIC_KEY"):
-            MemoryConfig(
+    def test_langfuse_enabled_missing_keys_warns(self, caplog):
+        """When LANGFUSE_ENABLED=true but keys empty, config loads with warning (BUG-132)."""
+        with caplog.at_level(logging.WARNING):
+            config = MemoryConfig(
                 _env_file=None,
                 langfuse_enabled=True,
                 langfuse_public_key="",
                 langfuse_secret_key=SecretStr(""),
             )
+        assert config.langfuse_enabled is True
+        assert "API keys not configured" in caplog.text
 
-    def test_langfuse_enabled_missing_public_key(self):
-        """When enabled=true and only secret key provided, ValidationError raised."""
-        with pytest.raises(ValidationError, match="LANGFUSE_PUBLIC_KEY"):
-            MemoryConfig(
+    def test_langfuse_enabled_missing_public_key_warns(self, caplog):
+        """When enabled=true and only secret key provided, warning logged (BUG-132)."""
+        with caplog.at_level(logging.WARNING):
+            config = MemoryConfig(
                 _env_file=None,
                 langfuse_enabled=True,
                 langfuse_public_key="",
                 langfuse_secret_key=SecretStr("sk-lf-test"),
             )
+        assert config.langfuse_enabled is True
+        assert "API keys not configured" in caplog.text
 
-    def test_langfuse_enabled_missing_secret_key(self):
-        """When enabled=true and only public key provided, ValidationError raised."""
-        with pytest.raises(ValidationError, match="LANGFUSE_SECRET_KEY"):
-            MemoryConfig(
+    def test_langfuse_enabled_missing_secret_key_warns(self, caplog):
+        """When enabled=true and only public key provided, warning logged (BUG-132)."""
+        with caplog.at_level(logging.WARNING):
+            config = MemoryConfig(
                 _env_file=None,
                 langfuse_enabled=True,
                 langfuse_public_key="pk-lf-test",
                 langfuse_secret_key=SecretStr(""),
             )
+        assert config.langfuse_enabled is True
+        assert "API keys not configured" in caplog.text
 
     def test_langfuse_enabled_with_keys(self):
         """When enabled=true and both keys provided, config loads successfully."""
@@ -102,9 +110,24 @@ class TestLangfuseBounds:
     def test_langfuse_retention_days_bounds(self):
         """Test ge=7, le=365 validation on retention_days."""
         # Valid boundaries
-        assert MemoryConfig(_env_file=None, langfuse_retention_days=7).langfuse_retention_days == 7
-        assert MemoryConfig(_env_file=None, langfuse_retention_days=365).langfuse_retention_days == 365
-        assert MemoryConfig(_env_file=None, langfuse_retention_days=90).langfuse_retention_days == 90
+        assert (
+            MemoryConfig(
+                _env_file=None, langfuse_retention_days=7
+            ).langfuse_retention_days
+            == 7
+        )
+        assert (
+            MemoryConfig(
+                _env_file=None, langfuse_retention_days=365
+            ).langfuse_retention_days
+            == 365
+        )
+        assert (
+            MemoryConfig(
+                _env_file=None, langfuse_retention_days=90
+            ).langfuse_retention_days
+            == 90
+        )
 
         # Below minimum
         with pytest.raises(ValidationError):
@@ -117,9 +140,24 @@ class TestLangfuseBounds:
     def test_langfuse_flush_interval_bounds(self):
         """Test ge=1, le=300 validation on flush_interval."""
         # Valid boundaries
-        assert MemoryConfig(_env_file=None, langfuse_flush_interval=1).langfuse_flush_interval == 1
-        assert MemoryConfig(_env_file=None, langfuse_flush_interval=300).langfuse_flush_interval == 300
-        assert MemoryConfig(_env_file=None, langfuse_flush_interval=5).langfuse_flush_interval == 5
+        assert (
+            MemoryConfig(
+                _env_file=None, langfuse_flush_interval=1
+            ).langfuse_flush_interval
+            == 1
+        )
+        assert (
+            MemoryConfig(
+                _env_file=None, langfuse_flush_interval=300
+            ).langfuse_flush_interval
+            == 300
+        )
+        assert (
+            MemoryConfig(
+                _env_file=None, langfuse_flush_interval=5
+            ).langfuse_flush_interval
+            == 5
+        )
 
         # Below minimum
         with pytest.raises(ValidationError):
@@ -136,9 +174,24 @@ class TestLangfuseBufferMaxMbBounds:
     def test_langfuse_buffer_max_mb_bounds(self):
         """Test ge=10, le=1000 validation on langfuse_trace_buffer_max_mb."""
         # Valid boundaries
-        assert MemoryConfig(_env_file=None, langfuse_trace_buffer_max_mb=10).langfuse_trace_buffer_max_mb == 10
-        assert MemoryConfig(_env_file=None, langfuse_trace_buffer_max_mb=1000).langfuse_trace_buffer_max_mb == 1000
-        assert MemoryConfig(_env_file=None, langfuse_trace_buffer_max_mb=100).langfuse_trace_buffer_max_mb == 100
+        assert (
+            MemoryConfig(
+                _env_file=None, langfuse_trace_buffer_max_mb=10
+            ).langfuse_trace_buffer_max_mb
+            == 10
+        )
+        assert (
+            MemoryConfig(
+                _env_file=None, langfuse_trace_buffer_max_mb=1000
+            ).langfuse_trace_buffer_max_mb
+            == 1000
+        )
+        assert (
+            MemoryConfig(
+                _env_file=None, langfuse_trace_buffer_max_mb=100
+            ).langfuse_trace_buffer_max_mb
+            == 100
+        )
 
         # Below minimum
         with pytest.raises(ValidationError):
@@ -216,8 +269,12 @@ class TestLangfuseFieldDescriptions:
         ]
         for field_name in langfuse_fields:
             field_info = MemoryConfig.model_fields[field_name]
-            assert field_info.description is not None, f"Field '{field_name}' missing description"
-            assert len(field_info.description) > 0, f"Field '{field_name}' has empty description"
+            assert (
+                field_info.description is not None
+            ), f"Field '{field_name}' missing description"
+            assert (
+                len(field_info.description) > 0
+            ), f"Field '{field_name}' has empty description"
 
 
 class TestLangfuseNonRegression:
