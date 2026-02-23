@@ -1,8 +1,7 @@
 """Langfuse client configuration for AI Memory Module.
 
 Provides a thread-safe Langfuse client factory with kill-switch support.
-Phase 1 minimal implementation — Phase 2 (SPEC-020) will extend with
-trace buffer, flush worker, and AnthropicInstrumentor.
+Phase 1+2 implementation — client factory with kill-switch helpers.
 
 PLAN-008 / SPEC-019 / SPEC-022
 """
@@ -80,3 +79,16 @@ def reset_langfuse_client():
     with _client_lock:
         _client = None
         _initialized = False
+
+
+def is_langfuse_enabled() -> bool:
+    """Check if Langfuse is enabled without creating client."""
+    return os.environ.get("LANGFUSE_ENABLED", "false").lower() == "true"
+
+
+def is_hook_tracing_enabled() -> bool:
+    """Check if Tier 2 hook tracing is enabled."""
+    return (
+        is_langfuse_enabled()
+        and os.environ.get("LANGFUSE_TRACE_HOOKS", "true").lower() == "true"
+    )

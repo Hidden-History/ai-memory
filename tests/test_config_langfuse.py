@@ -130,6 +130,25 @@ class TestLangfuseBounds:
             MemoryConfig(_env_file=None, langfuse_flush_interval=301)
 
 
+class TestLangfuseBufferMaxMbBounds:
+    """Test ge/le bounds on langfuse_trace_buffer_max_mb field."""
+
+    def test_langfuse_buffer_max_mb_bounds(self):
+        """Test ge=10, le=1000 validation on langfuse_trace_buffer_max_mb."""
+        # Valid boundaries
+        assert MemoryConfig(_env_file=None, langfuse_trace_buffer_max_mb=10).langfuse_trace_buffer_max_mb == 10
+        assert MemoryConfig(_env_file=None, langfuse_trace_buffer_max_mb=1000).langfuse_trace_buffer_max_mb == 1000
+        assert MemoryConfig(_env_file=None, langfuse_trace_buffer_max_mb=100).langfuse_trace_buffer_max_mb == 100
+
+        # Below minimum
+        with pytest.raises(ValidationError):
+            MemoryConfig(_env_file=None, langfuse_trace_buffer_max_mb=9)
+
+        # Above maximum
+        with pytest.raises(ValidationError):
+            MemoryConfig(_env_file=None, langfuse_trace_buffer_max_mb=1001)
+
+
 class TestLangfuseEnvOverrides:
     """Test Langfuse fields can be overridden via environment variables."""
 
@@ -193,6 +212,7 @@ class TestLangfuseFieldDescriptions:
             "langfuse_trace_hooks",
             "langfuse_trace_sessions",
             "langfuse_retention_days",
+            "langfuse_trace_buffer_max_mb",
         ]
         for field_name in langfuse_fields:
             field_info = MemoryConfig.model_fields[field_name]

@@ -53,7 +53,7 @@ def main():
             sys.exit(0)
 
         # Build trace metadata (SPEC-022 §2.3, §2.4)
-        project_id = os.environ.get("AI_MEMORY_PROJECT_ID", "unknown")
+        project_id = os.environ.get("AI_MEMORY_PROJECT_ID", "")
         trace_metadata = {
             "project_id": project_id,
             "source": "claude_code_stop_hook",
@@ -88,9 +88,6 @@ def main():
             # Include token_count if available
             if "token_count" in msg:
                 span_metadata["token_count"] = msg["token_count"]
-            elif isinstance(content, str):
-                # Rough estimate: ~4 chars per token
-                span_metadata["token_count"] = len(content) // 4
 
             trace.span(
                 name=f"turn_{i}",

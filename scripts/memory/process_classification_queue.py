@@ -74,6 +74,19 @@ DLQ_FILE = QUEUE_DIR / "classification_queue_dlq.jsonl"  # Dead letter queue
 # Setup logging
 logger = setup_hook_logging("ai_memory.classifier.processor")
 
+# SPEC-020 §6: Enable Langfuse auto-instrumentation for Anthropic calls
+try:
+    from memory.langfuse_config import is_langfuse_enabled
+    if is_langfuse_enabled():
+        try:
+            from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
+            AnthropicInstrumentor().instrument()
+            logger.info("langfuse_anthropic_instrumentor_enabled")
+        except ImportError:
+            logger.warning("opentelemetry-instrumentation-anthropic not installed — Anthropic SDK calls will not be traced")
+except ImportError:
+    pass  # memory.langfuse_config not available
+
 # =============================================================================
 # PROMETHEUS METRICS
 # =============================================================================

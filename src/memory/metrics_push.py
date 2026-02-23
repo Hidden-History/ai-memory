@@ -10,6 +10,7 @@ Provides async push functions for hooks aligned with NFR performance requirement
 - push_token_metrics_async() - Token consumption
 - push_context_injection_metrics_async() - Context injection
 - push_capture_metrics_async() - Memory captures
+- push_langfuse_buffer_metrics_async() - Langfuse trace buffer health (SPEC-020)
 
 Metric naming follows BP-045: aimemory_{component}_{metric}_{unit}
 
@@ -1558,4 +1559,102 @@ except Exception as e:
         logger.warning(
             "metrics_fork_failed",
             extra={"error": str(e), "metric": "freshness"},
+        )
+
+
+def push_langfuse_buffer_metrics_async(
+    evictions: int = 0,
+    buffer_size_bytes: int = 0,
+    events_processed: int = 0,
+    flush_errors: int = 0,
+):
+    """Push Langfuse trace buffer metrics asynchronously (fire-and-forget).
+
+    Uses subprocess fork pattern to avoid blocking flush worker.
+    Tracks buffer health for Grafana dashboards.
+
+    SPEC-020 §5.3 / PLAN-008 / DEC-PLAN008-004
+
+    Args:
+        evictions: Number of oldest traces evicted this cycle
+        buffer_size_bytes: Current buffer directory size in bytes
+        events_processed: Number of events flushed this cycle
+        flush_errors: Number of flush errors this cycle
+    """
+    if not PUSHGATEWAY_ENABLED:
+        return
+
+    try:
+        metrics_data = {
+            "evictions": evictions,
+            "buffer_size_bytes": buffer_size_bytes,
+            "events_processed": events_processed,
+            "flush_errors": flush_errors,
+        }
+
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                f"""
+import json, os
+from prometheus_client import CollectorRegistry, Counter, Gauge, pushadd_to_gateway
+
+data = json.loads({json.dumps(metrics_data)!r})
+registry = CollectorRegistry()
+
+if data["events_processed"] > 0:
+    events = Counter(
+        "aimemory_langfuse_flush_events_total",
+        "Total trace events flushed to Langfuse",
+        registry=registry
+    )
+    events.inc(data["events_processed"])
+
+if data["flush_errors"] > 0:
+    errors = Counter(
+        "aimemory_langfuse_flush_errors_total",
+        "Total Langfuse flush errors",
+        registry=registry
+    )
+    errors.inc(data["flush_errors"])
+
+buffer_gauge = Gauge(
+    "aimemory_langfuse_buffer_size_bytes",
+    "Current trace buffer directory size in bytes",
+    registry=registry
+)
+buffer_gauge.set(data["buffer_size_bytes"])
+
+if data["evictions"] > 0:
+    eviction_counter = Counter(
+        "aimemory_langfuse_buffer_evictions_total",
+        "Total trace buffer evictions (oldest-first)",
+        registry=registry
+    )
+    eviction_counter.inc(data["evictions"])
+
+try:
+    pushadd_to_gateway(
+        os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
+        job="ai_memory_hooks",
+        grouping_key={{"instance": "langfuse_buffer"}},
+        registry=registry,
+        timeout=0.5
+    )
+except Exception as e:
+    import logging
+    logging.getLogger("ai_memory.metrics").warning(
+        "pushgateway_async_failed",
+        extra={{"error": str(e), "metric": "langfuse_buffer"}}
+    )
+""",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "metrics_fork_failed", extra={"error": str(e), "metric": "langfuse_buffer"}
         )

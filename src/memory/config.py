@@ -683,6 +683,14 @@ class MemoryConfig(BaseSettings):
         description="ClickHouse trace retention in days (DEC-PLAN008-001)",
     )
 
+    langfuse_trace_buffer_max_mb: int = Field(
+        default=100,
+        ge=10,
+        le=1000,
+        env="LANGFUSE_TRACE_BUFFER_MAX_MB",
+        description="Maximum trace buffer size in MB before oldest-first eviction (DEC-PLAN008-004)",
+    )
+
     @field_validator("decay_type_overrides", mode="before")
     @classmethod
     def parse_type_overrides(cls, v: str) -> str:
