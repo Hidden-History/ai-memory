@@ -2339,7 +2339,8 @@ configure_project_hooks() {
             for _lf_var in LANGFUSE_ENABLED LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_BASE_URL LANGFUSE_TRACE_HOOKS LANGFUSE_TRACE_SESSIONS; do
                 local _lf_val
                 _lf_val=$(grep "^${_lf_var}=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
-                export "${_lf_var}=${_lf_val}"
+                # Only export if value is non-empty; let generate_settings.py defaults apply otherwise
+                [[ -n "$_lf_val" ]] && export "${_lf_var}=${_lf_val}"
             done
             log_debug "Exported LANGFUSE_* env vars for settings generation"
         fi

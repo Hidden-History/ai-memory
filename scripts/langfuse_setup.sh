@@ -157,9 +157,13 @@ setup_project_keys() {
     env_set "LANGFUSE_INIT_USER_PASSWORD"         "$admin_password"
 
     # Runtime API keys used by Python SDK and model registration
-    env_set "LANGFUSE_PUBLIC_KEY" "$public_key"
-    env_set "LANGFUSE_SECRET_KEY" "$secret_key"
-    env_set "LANGFUSE_ENABLED"    "true"
+    env_set "LANGFUSE_PUBLIC_KEY"      "$public_key"
+    env_set "LANGFUSE_SECRET_KEY"      "$secret_key"
+    env_set "LANGFUSE_ENABLED"         "true"
+    # Hook tracing config — install.sh reads these to inject into project settings
+    env_set "LANGFUSE_BASE_URL"        "http://localhost:23100"
+    env_set "LANGFUSE_TRACE_HOOKS"     "true"
+    env_set "LANGFUSE_TRACE_SESSIONS"  "true"
 
     log_success "API keys generated and written to .env"
     log_info "  Admin email:    admin@example.com"
