@@ -555,6 +555,7 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                         group_id=group_id,
                         source_hook="PostToolUse",
                         created_at=point["payload"]["created_at"],
+                        trace_id=trace_id,
                     )
                     enqueue_for_classification(task)
                     enqueue_count += 1

@@ -25,6 +25,12 @@ from memory.classifier.config import CLASSIFIER_ENABLED
 from memory.classifier.queue import ClassificationTask, dequeue_batch, get_queue_size
 from memory.storage import update_point_payload
 
+# SPEC-021: Trace buffer for 9_classify span emission
+try:
+    from memory.trace_buffer import emit_trace_event as append_event
+except ImportError:
+    append_event = None
+
 logger = logging.getLogger("ai_memory.classifier.worker")
 
 # Resource limits
@@ -95,6 +101,30 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                         "provider": result.provider_used,
                     },
                 )
+                if append_event:
+                    try:  # noqa: SIM105
+                        append_event(
+                            event_type="9_classify",
+                            data={
+                                "input": {
+                                    "point_id": task.point_id,
+                                    "collection": task.collection,
+                                },
+                                "output": {
+                                    "classified_type": result.classified_type,
+                                    "confidence": result.confidence,
+                                    "provider": result.provider_used,
+                                },
+                                "metadata": {
+                                    "classified_type": result.classified_type,
+                                    "confidence": result.confidence,
+                                    "was_reclassified": result.was_reclassified,
+                                },
+                            },
+                            trace_id=task.trace_id,
+                        )
+                    except Exception:
+                        pass
                 return True
             else:
                 logger.error(
@@ -114,6 +144,36 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                     "reason": "low_confidence" if result else "no_result",
                 },
             )
+            if append_event:
+                try:  # noqa: SIM105
+                    append_event(
+                        event_type="9_classify",
+                        data={
+                            "input": {
+                                "point_id": task.point_id,
+                                "collection": task.collection,
+                            },
+                            "output": {
+                                "classified_type": (
+                                    result.classified_type if result else None
+                                ),
+                                "confidence": result.confidence if result else None,
+                                "provider": result.provider_used if result else None,
+                            },
+                            "metadata": {
+                                "classified_type": (
+                                    result.classified_type if result else None
+                                ),
+                                "confidence": result.confidence if result else None,
+                                "was_reclassified": (
+                                    result.was_reclassified if result else None
+                                ),
+                            },
+                        },
+                        trace_id=task.trace_id,
+                    )
+                except Exception:
+                    pass
             return True  # Still counts as processed
 
     except Exception as e:

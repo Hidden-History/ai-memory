@@ -263,6 +263,7 @@ services:
       # Use internal service name for container-to-container communication
       - LANGFUSE_BASE_URL=http://langfuse-web:3000
       - LANGFUSE_FLUSH_INTERVAL=${LANGFUSE_FLUSH_INTERVAL:-5}
+      - PUSHGATEWAY_URL=pushgateway:9091
     depends_on:
       langfuse-web:
         condition: service_healthy

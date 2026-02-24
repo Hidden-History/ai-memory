@@ -53,6 +53,7 @@ class ClassificationTask:
     created_at: str
     retry_count: int = 0
     last_error: str | None = None
+    trace_id: str | None = None
 
 
 def _acquire_lock(file_handle, timeout: float = LOCK_TIMEOUT_SECONDS) -> bool:
