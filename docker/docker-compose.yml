@@ -282,6 +282,8 @@ services:
       - QDRANT_API_KEY=${QDRANT_API_KEY}
       - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
       - PUSHGATEWAY_URL=pushgateway:9091
+      # Langfuse trace emission kill-switch (BUG-150)
+      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
       - AI_MEMORY_QUEUE_DIR=/app/queue
       # Classifier configuration
       - MEMORY_CLASSIFIER_ENABLED=${MEMORY_CLASSIFIER_ENABLED:-true}
