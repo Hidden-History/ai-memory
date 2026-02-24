@@ -212,13 +212,16 @@ create_minio_bucket() {
     # Uses --network host so localhost resolves to the host's MinIO port.
     # Chainguard MinIO (our service image) is distroless and has no mc CLI,
     # so we spin up the standard minio/mc image for this one operation.
+    # BUG-151: Must use --entrypoint sh because minio/mc image sets mc as
+    # its entrypoint — passing `sh -c "..."` as arguments to mc fails silently.
     log_info "Creating 'langfuse' bucket..."
     docker run --rm \
         --network host \
+        --entrypoint sh \
         "minio/mc" \
-        sh -c "mc alias set myminio http://localhost:${minio_port} ${access_key} ${secret_key} --quiet \
-               && mc mb myminio/langfuse --ignore-existing --quiet" \
-        2>&1 | grep -v '^$' || {
+        -c "mc alias set myminio http://localhost:${minio_port} ${access_key} ${secret_key} --quiet \
+            && mc mb myminio/langfuse --ignore-existing --quiet" \
+        2>&1 || {
             log_warning "mc bucket creation returned non-zero — bucket may already exist."
         }
 
