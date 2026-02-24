@@ -3010,8 +3010,8 @@ deploy_parzival_commands() {
 
     for agent_file in code-reviewer.md verify-implementation.md; do
         if [[ -f "$INSTALL_DIR/.claude/agents/$agent_file" ]]; then
-            # BUG-108: Skip if already installed (symlink or copy from create_project_symlinks)
-            if [[ -e "$agent_dest/$agent_file" ]]; then
+            # BUG-108: Skip if already installed (symlink, broken symlink, or copy from create_project_symlinks)
+            if [[ -e "$agent_dest/$agent_file" || -L "$agent_dest/$agent_file" ]]; then
                 log_debug "Agent $agent_file already installed — skipping"
             else
                 cp "$INSTALL_DIR/.claude/agents/$agent_file" "$agent_dest/$agent_file"
@@ -3021,8 +3021,8 @@ deploy_parzival_commands() {
     done
 
     if [[ -d "$INSTALL_DIR/.claude/agents/parzival" ]]; then
-        # BUG-108: Skip if already installed
-        if [[ -e "$agent_dest/parzival" ]]; then
+        # BUG-108: Skip if already installed (including broken symlinks)
+        if [[ -e "$agent_dest/parzival" || -L "$agent_dest/parzival" ]]; then
             log_debug "Parzival agent directory already installed — skipping"
         else
             cp -r "$INSTALL_DIR/.claude/agents/parzival" "$agent_dest/"
@@ -3030,7 +3030,11 @@ deploy_parzival_commands() {
         fi
     fi
 
-    log_debug "Parzival agent files deployed ($agents_deployed) to $agent_dest"
+    if [[ $agents_deployed -gt 0 ]]; then
+        log_debug "Parzival agent files deployed ($agents_deployed) to $agent_dest"
+    else
+        log_debug "Parzival agent files already present (skipped) in $agent_dest"
+    fi
 }
 
 deploy_oversight_templates() {
