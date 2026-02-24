@@ -152,12 +152,7 @@ jobs:
               ? 'Release validation passed! All tests and checks successful.'
               : 'Release validation failed. Please review the workflow logs.';
 
-            await github.rest.repos.createReleaseDiscussion({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: releaseId,
-              body: `${emoji} **Release Validation**\n\n${message}\n\nWorkflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-            }).catch(err => {
-              // If discussions not enabled, just log
-              console.log('Could not create discussion:', err.message);
-            });
+            // Note: GitHub REST API does not have createReleaseDiscussion.
+            // Log validation result as a workflow annotation instead.
+            console.log(`${emoji} Release Validation: ${message}`);
+            console.log(`Workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`);

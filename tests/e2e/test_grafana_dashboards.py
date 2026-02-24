@@ -24,10 +24,10 @@ from playwright.sync_api import ConsoleMessage, Page, expect
 
 
 class TestGrafanaDashboards:
-    """Comprehensive E2E tests for BMAD Memory Module Grafana dashboards."""
+    """Comprehensive E2E tests for AI Memory Module Grafana dashboards."""
 
     GRAFANA_BASE_URL = "http://localhost:23000"
-    FOLDER_NAME = "BMAD Memory Module"
+    FOLDER_NAME = "AI Memory Module"
     OVERVIEW_DASHBOARD_UID = "ai-memory-overview"
     PERFORMANCE_DASHBOARD_UID = "ai-memory-performance"
 
@@ -57,7 +57,7 @@ class TestGrafanaDashboards:
         expect(login_form).not_to_be_visible()
 
     def test_ai_memory_module_folder_exists(self, grafana_page: Page):
-        """Verify 'BMAD Memory Module' folder exists in dashboard list."""
+        """Verify 'AI Memory Module' folder exists in dashboard list."""
         # Navigate to dashboards page
         grafana_page.goto(f"{self.GRAFANA_BASE_URL}/dashboards")
         grafana_page.wait_for_load_state("networkidle")
@@ -72,10 +72,10 @@ class TestGrafanaDashboards:
         folder_locator = grafana_page.locator(f'text="{self.FOLDER_NAME}"').first
         expect(folder_locator).to_be_visible(timeout=5000)
 
-    # ==================== BMAD Memory Overview Dashboard Tests ====================
+    # ==================== AI Memory Overview Dashboard Tests ====================
 
     def test_overview_dashboard_accessible(self, grafana_page: Page):
-        """Verify BMAD Memory Overview dashboard can be accessed."""
+        """Verify AI Memory System - Overview dashboard can be accessed."""
         grafana_page.goto(
             f"{self.GRAFANA_BASE_URL}/d/{self.OVERVIEW_DASHBOARD_UID}",
             wait_until="networkidle",
@@ -85,10 +85,10 @@ class TestGrafanaDashboards:
         dashboard_title = grafana_page.locator(
             '[data-testid="data-testid Dashboard header title"]'
         )
-        expect(dashboard_title).to_contain_text("BMAD Memory Overview", timeout=10000)
+        expect(dashboard_title).to_contain_text("AI Memory System - Overview", timeout=10000)
 
     def test_overview_dashboard_panel_count(self, grafana_page: Page):
-        """Verify BMAD Memory Overview dashboard has 6 panels."""
+        """Verify AI Memory System - Overview dashboard has 6 panels."""
         grafana_page.goto(
             f"{self.GRAFANA_BASE_URL}/d/{self.OVERVIEW_DASHBOARD_UID}",
             wait_until="networkidle",
@@ -104,10 +104,10 @@ class TestGrafanaDashboards:
 
         assert (
             panel_count == 6
-        ), f"Expected 6 panels in BMAD Memory Overview dashboard, found {panel_count}"
+        ), f"Expected 6 panels in AI Memory System - Overview dashboard, found {panel_count}"
 
     def test_overview_dashboard_panels_no_data_errors(self, grafana_page: Page):
-        """Check if BMAD Memory Overview panels show 'No data' messages."""
+        """Check if AI Memory System - Overview panels show 'No data' messages."""
         grafana_page.goto(
             f"{self.GRAFANA_BASE_URL}/d/{self.OVERVIEW_DASHBOARD_UID}",
             wait_until="networkidle",
@@ -129,11 +129,11 @@ class TestGrafanaDashboards:
                 [f"  - {err['panel']}: {err['error']}" for err in panel_errors]
             )
             pytest.fail(
-                f"BMAD Memory Overview dashboard has {len(panel_errors)} panel(s) with errors:\n{error_summary}"
+                f"AI Memory System - Overview dashboard has {len(panel_errors)} panel(s) with errors:\n{error_summary}"
             )
 
     def test_overview_dashboard_template_variables(self, grafana_page: Page):
-        """Verify template variables are properly configured in BMAD Memory Overview."""
+        """Verify template variables are properly configured in AI Memory System - Overview."""
         grafana_page.goto(
             f"{self.GRAFANA_BASE_URL}/d/{self.OVERVIEW_DASHBOARD_UID}",
             wait_until="networkidle",
@@ -160,7 +160,7 @@ class TestGrafanaDashboards:
             )
 
     def test_overview_dashboard_prometheus_queries(self, grafana_page: Page):
-        """Check for Prometheus query errors in BMAD Memory Overview panels."""
+        """Check for Prometheus query errors in AI Memory System - Overview panels."""
         grafana_page.goto(
             f"{self.GRAFANA_BASE_URL}/d/{self.OVERVIEW_DASHBOARD_UID}",
             wait_until="networkidle",
@@ -193,10 +193,10 @@ class TestGrafanaDashboards:
                 f"Prometheus query errors detected: {', '.join(found_prometheus_errors)}"
             )
 
-    # ==================== BMAD Memory Performance Dashboard Tests ====================
+    # ==================== AI Memory Performance Dashboard Tests ====================
 
     def test_performance_dashboard_accessible(self, grafana_page: Page):
-        """Verify BMAD Memory Performance dashboard can be accessed."""
+        """Verify AI Memory Performance dashboard can be accessed."""
         grafana_page.goto(
             f"{self.GRAFANA_BASE_URL}/d/{self.PERFORMANCE_DASHBOARD_UID}",
             wait_until="networkidle",
@@ -206,11 +206,11 @@ class TestGrafanaDashboards:
             '[data-testid="data-testid Dashboard header title"]'
         )
         expect(dashboard_title).to_contain_text(
-            "BMAD Memory Performance", timeout=10000
+            "AI Memory Performance", timeout=10000
         )
 
     def test_performance_dashboard_panel_count(self, grafana_page: Page):
-        """Verify BMAD Memory Performance dashboard has 4 panels."""
+        """Verify AI Memory Performance dashboard has 4 panels."""
         grafana_page.goto(
             f"{self.GRAFANA_BASE_URL}/d/{self.PERFORMANCE_DASHBOARD_UID}",
             wait_until="networkidle",
@@ -224,10 +224,10 @@ class TestGrafanaDashboards:
 
         assert (
             panel_count == 4
-        ), f"Expected 4 panels in BMAD Memory Performance dashboard, found {panel_count}"
+        ), f"Expected 4 panels in AI Memory Performance dashboard, found {panel_count}"
 
     def test_performance_dashboard_panels_no_data_errors(self, grafana_page: Page):
-        """Check if BMAD Memory Performance panels show 'No data' messages."""
+        """Check if AI Memory Performance panels show 'No data' messages."""
         grafana_page.goto(
             f"{self.GRAFANA_BASE_URL}/d/{self.PERFORMANCE_DASHBOARD_UID}",
             wait_until="networkidle",
@@ -248,11 +248,11 @@ class TestGrafanaDashboards:
                 [f"  - {err['panel']}: {err['error']}" for err in panel_errors]
             )
             pytest.fail(
-                f"BMAD Memory Performance dashboard has {len(panel_errors)} panel(s) with errors:\n{error_summary}"
+                f"AI Memory Performance dashboard has {len(panel_errors)} panel(s) with errors:\n{error_summary}"
             )
 
     def test_performance_dashboard_prometheus_queries(self, grafana_page: Page):
-        """Check for Prometheus query errors in BMAD Memory Performance panels."""
+        """Check for Prometheus query errors in AI Memory Performance panels."""
         grafana_page.goto(
             f"{self.GRAFANA_BASE_URL}/d/{self.PERFORMANCE_DASHBOARD_UID}",
             wait_until="networkidle",
@@ -287,7 +287,7 @@ class TestGrafanaDashboards:
     # ==================== Browser Console Tests ====================
 
     def test_overview_dashboard_console_errors(self, grafana_page: Page):
-        """Verify no JavaScript console errors in BMAD Memory Overview dashboard."""
+        """Verify no JavaScript console errors in AI Memory System - Overview dashboard."""
         grafana_page.goto(
             f"{self.GRAFANA_BASE_URL}/d/{self.OVERVIEW_DASHBOARD_UID}",
             wait_until="networkidle",
@@ -308,7 +308,7 @@ class TestGrafanaDashboards:
             )
 
     def test_performance_dashboard_console_errors(self, grafana_page: Page):
-        """Verify no JavaScript console errors in BMAD Memory Performance dashboard."""
+        """Verify no JavaScript console errors in AI Memory Performance dashboard."""
         grafana_page.goto(
             f"{self.GRAFANA_BASE_URL}/d/{self.PERFORMANCE_DASHBOARD_UID}",
             wait_until="networkidle",
@@ -332,7 +332,7 @@ class TestGrafanaDashboards:
 
     def test_overview_dashboard_visual_baseline(self, grafana_page: Page):
         """
-        Capture visual baseline for BMAD Memory Overview dashboard.
+        Capture visual baseline for AI Memory System - Overview dashboard.
 
         This test captures a screenshot for manual inspection and future visual regression testing.
         """
@@ -352,7 +352,7 @@ class TestGrafanaDashboards:
 
     def test_performance_dashboard_visual_baseline(self, grafana_page: Page):
         """
-        Capture visual baseline for BMAD Memory Performance dashboard.
+        Capture visual baseline for AI Memory Performance dashboard.
 
         This test captures a screenshot for manual inspection and future visual regression testing.
         """

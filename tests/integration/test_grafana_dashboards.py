@@ -84,7 +84,7 @@ def test_memory_overview_dashboard_provisioned(grafana_url, wait_for_grafana):
     dashboard = result["dashboard"]
 
     # Verify dashboard metadata
-    assert dashboard["title"] == "BMAD Memory Overview"
+    assert dashboard["title"] == "AI Memory System - Overview"
     assert dashboard["uid"] == "ai-memory-overview"
     assert dashboard["editable"] is False
 
@@ -160,7 +160,7 @@ def test_performance_dashboard_provisioned(grafana_url, wait_for_grafana):
     dashboard = result["dashboard"]
 
     # Verify dashboard metadata
-    assert dashboard["title"] == "BMAD Memory Performance"
+    assert dashboard["title"] == "AI Memory Performance"
     assert dashboard["uid"] == "ai-memory-performance"
     assert dashboard["editable"] is False
 
@@ -200,7 +200,7 @@ def test_performance_dashboard_nfr_thresholds(grafana_url, wait_for_grafana):
 
 
 def test_dashboard_folder_organization(grafana_url, wait_for_grafana):
-    """Verify dashboards are organized in 'BMAD Memory Module' folder."""
+    """Verify dashboards are organized in 'AI Memory Module' folder."""
     # Search for dashboards
     response = httpx.get(f"{grafana_url}/api/search?type=dash-db", timeout=5)
     assert response.status_code == 200
@@ -214,7 +214,7 @@ def test_dashboard_folder_organization(grafana_url, wait_for_grafana):
     # Verify folder organization per AC 6.3.3
     for dashboard in ai_memory_dashboards:
         assert (
-            dashboard.get("folderTitle") == "BMAD Memory Module"
+            dashboard.get("folderTitle") == "AI Memory Module"
         ), f"Dashboard {dashboard['uid']} not in correct folder"
 
 

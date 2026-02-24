@@ -1,1 +1,1 @@
-# BMAD Memory Module - Integration Tests
+# AI Memory Module - Integration Tests

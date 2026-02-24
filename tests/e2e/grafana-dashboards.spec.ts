@@ -5,18 +5,18 @@ import * as path from 'path';
 /**
  * Grafana Dashboard E2E Tests
  *
- * Tests the BMAD Memory Module Grafana dashboards for proper rendering,
+ * Tests the AI Memory Module Grafana dashboards for proper rendering,
  * panel visibility, and data display.
  *
  * Test Coverage:
  * - Login authentication
- * - BMAD Memory Overview dashboard
- * - BMAD Memory Performance dashboard
+ * - AI Memory System - Overview dashboard
+ * - AI Memory Performance dashboard
  * - Panel visibility and types
  * - Data display verification
  */
 
-test.describe('Grafana Dashboards: BMAD Memory Module', () => {
+test.describe('Grafana Dashboards: AI Memory Module', () => {
   let screenshotDir: string;
 
   test.beforeAll(() => {
@@ -108,8 +108,8 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
     console.log('Login successful');
   });
 
-  test('should load BMAD Memory Overview dashboard', async ({ page }) => {
-    console.log('Test: BMAD Memory Overview Dashboard');
+  test('should load AI Memory System - Overview dashboard', async ({ page }) => {
+    console.log('Test: AI Memory System - Overview Dashboard');
 
     // Login first
     await page.goto('http://localhost:23000/login');
@@ -176,8 +176,8 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
     }
   });
 
-  test('should load BMAD Memory Performance dashboard', async ({ page }) => {
-    console.log('Test: BMAD Memory Performance Dashboard');
+  test('should load AI Memory Performance dashboard', async ({ page }) => {
+    console.log('Test: AI Memory Performance Dashboard');
 
     // Login first
     await page.goto('http://localhost:23000/login');
@@ -252,7 +252,7 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
     } catch (e) {}
 
     // Check Overview dashboard panels
-    console.log('\n=== BMAD Memory Overview Dashboard ===');
+    console.log('\n=== AI Memory System - Overview Dashboard ===');
     await page.goto('http://localhost:23000/d/ai-memory-overview/ai-memory-overview');
     await waitForDashboardLoad(page);
 
@@ -265,7 +265,7 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
     expect(menuCount, 'Overview dashboard should have at least 6 panels').toBeGreaterThanOrEqual(6);
 
     // Check Performance dashboard panels
-    console.log('\n=== BMAD Memory Performance Dashboard ===');
+    console.log('\n=== AI Memory Performance Dashboard ===');
     await page.goto('http://localhost:23000/d/ai-memory-performance/ai-memory-performance');
     await waitForDashboardLoad(page);
 
@@ -346,7 +346,7 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
     };
 
     // Test Overview Dashboard
-    console.log('\n=== Testing BMAD Memory Overview Dashboard ===');
+    console.log('\n=== Testing AI Memory System - Overview Dashboard ===');
     await page.goto('http://localhost:23000/d/ai-memory-overview/ai-memory-overview');
     await waitForDashboardLoad(page);
 
@@ -378,7 +378,7 @@ test.describe('Grafana Dashboards: BMAD Memory Module', () => {
     }
 
     // Test Performance Dashboard
-    console.log('\n=== Testing BMAD Memory Performance Dashboard ===');
+    console.log('\n=== Testing AI Memory Performance Dashboard ===');
     await page.goto('http://localhost:23000/d/ai-memory-performance/ai-memory-performance');
     await waitForDashboardLoad(page);
 
