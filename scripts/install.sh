@@ -39,7 +39,7 @@ else
     # Try git remote origin URL first (fixes #39 — avoids folder-name collisions)
     _git_remote_url=$(git -C "$PROJECT_PATH" config --get remote.origin.url 2>/dev/null || true)
     if [[ -n "$_git_remote_url" ]]; then
-        _git_project_name=$(echo "$_git_remote_url" | sed -E 's|.*[:/]([^/]+/[^/]+?)(\.git)?$|\1|' | tr '[:upper:]' '[:lower:]')
+        _git_project_name=$(echo "$_git_remote_url" | sed -E 's|.*[:/]([^/]+/[^/]+)(\.git)?$|\1|' | tr '[:upper:]' '[:lower:]')
     fi
     if [[ -n "${_git_project_name:-}" ]] && [[ "$_git_project_name" == */* ]]; then
         PROJECT_NAME="$_git_project_name"

@@ -85,7 +85,9 @@ class TestGrafanaDashboards:
         dashboard_title = grafana_page.locator(
             '[data-testid="data-testid Dashboard header title"]'
         )
-        expect(dashboard_title).to_contain_text("AI Memory System - Overview", timeout=10000)
+        expect(dashboard_title).to_contain_text(
+            "AI Memory System - Overview", timeout=10000
+        )
 
     def test_overview_dashboard_panel_count(self, grafana_page: Page):
         """Verify AI Memory System - Overview dashboard has 6 panels."""
@@ -205,9 +207,7 @@ class TestGrafanaDashboards:
         dashboard_title = grafana_page.locator(
             '[data-testid="data-testid Dashboard header title"]'
         )
-        expect(dashboard_title).to_contain_text(
-            "AI Memory Performance", timeout=10000
-        )
+        expect(dashboard_title).to_contain_text("AI Memory Performance", timeout=10000)
 
     def test_performance_dashboard_panel_count(self, grafana_page: Page):
         """Verify AI Memory Performance dashboard has 4 panels."""
