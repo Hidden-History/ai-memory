@@ -149,7 +149,7 @@ v2.0.6 adds the **WHEN dimension** — your memories now understand time, freshn
 
 ## 🔭 V2.0.7 — LLM Observability
 
-v2.0.7 adds **Langfuse LLM observability** — full pipeline tracing so you can see exactly what your memory system is doing.
+v2.0.7 adds **Langfuse LLM observability** (opt-in, entirely optional) — full pipeline tracing so you can see exactly what your memory system is doing.
 
 - **🔭 9-Step Pipeline Tracing**: Every hook span (`1_capture` through `9_classify`) is traced and visible in Langfuse with latency, inputs, and outputs
 - **📊 Session Grouping**: Traces are grouped by Claude Code session ID, so you can follow an entire conversation's memory operations as a single thread
@@ -158,7 +158,7 @@ v2.0.7 adds **Langfuse LLM observability** — full pipeline tracing so you can 
 - **🏷️ Custom Model Registration**: Ollama, OpenRouter, and other LLM providers registered as custom models for cost tracking
 - **👥 Multi-Project Isolation**: Each project's traces are tagged with `project_id` (from `group_id`), keeping observability data separated
 - **📈 Grafana Integration**: Langfuse-specific Grafana panels for buffer depth, flush latency, and trace throughput alongside existing memory metrics
-- **🐳 6 New Services**: Langfuse Web UI, Worker, PostgreSQL, ClickHouse, Redis, and MinIO — all opt-in via `--profile langfuse`
+- **🐳 7 New Services**: Langfuse Web UI, Worker, PostgreSQL, ClickHouse, Redis, MinIO, and Trace Flush Worker — all opt-in via `--profile langfuse`
 
 See [docs/LANGFUSE-INTEGRATION.md](docs/LANGFUSE-INTEGRATION.md) for setup and architecture guide.
 
@@ -197,7 +197,9 @@ See [docs/GITHUB-INTEGRATION.md](docs/GITHUB-INTEGRATION.md) for setup and usage
 
 ---
 
-## 🔭 Langfuse LLM Observability
+## 🔭 Langfuse LLM Observability (Optional)
+
+> **Note**: Langfuse is entirely optional. AI Memory works fully without it. Enable only if you want LLM pipeline tracing. See [docs/LANGFUSE-INTEGRATION.md](docs/LANGFUSE-INTEGRATION.md) for setup.
 
 Opt-in LLM observability powered by [Langfuse](https://langfuse.com/) — trace every memory operation from hook execution through classification:
 
@@ -217,8 +219,8 @@ Opt-in LLM observability powered by [Langfuse](https://langfuse.com/) — trace 
 # Enable tracing in your .env
 echo "LANGFUSE_ENABLED=true" >> docker/.env
 
-# Start Langfuse services alongside core stack
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.langfuse.yml --profile langfuse up -d
+# Start all services (including Langfuse, since LANGFUSE_ENABLED=true)
+./scripts/stack.sh start
 
 # Open Langfuse UI
 open http://localhost:23100
@@ -396,6 +398,15 @@ See [docs/llm-classifier.md](docs/llm-classifier.md) for complete setup guide, p
 ### 1. Start Services
 
 ```bash
+# Recommended: use the unified stack manager
+./scripts/stack.sh start    # Start all services (reads .env for profile selection)
+./scripts/stack.sh status   # Check health
+./scripts/stack.sh stop     # Graceful shutdown
+```
+
+Alternatively, using Docker Compose directly:
+
+```bash
 # Core services (Qdrant + Embedding)
 docker compose -f docker/docker-compose.yml up -d
 
@@ -461,7 +472,7 @@ AI Memory runs on 16 GiB RAM (4 cores minimum). Adding the optional Langfuse LLM
 | Tier | Services | Minimum RAM | Recommended CPU |
 |------|----------|-------------|-----------------|
 | **Core** (default) | 8 services | 16 GiB | 4 cores |
-| **Core + Langfuse** (opt-in) | 14 services | 32 GiB | 8 cores |
+| **Core + Langfuse** (opt-in) | 15 services | 32 GiB | 8 cores |
 
 ### Installation Steps
 

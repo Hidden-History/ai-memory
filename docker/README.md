@@ -4,10 +4,25 @@ This directory contains the Docker Compose configuration for the AI Memory Modul
 
 ## Quick Start
 
+### Recommended: Use the Stack Manager
+
 ```bash
-# Copy environment template
+# Copy environment template (first time only)
 cp .env.example .env
 
+# Start all services (reads .env to determine which profiles to activate)
+./scripts/stack.sh start
+
+# Check status of all containers
+./scripts/stack.sh status
+
+# Stop all services (correct shutdown order)
+./scripts/stack.sh stop
+```
+
+### Direct Docker Compose
+
+```bash
 # Start the stack (Qdrant + Embedding only)
 docker compose up -d
 
@@ -133,6 +148,55 @@ curl -X POST http://localhost:28080/embed \
   -H "Content-Type: application/json" \
   -d '{"texts": ["def hello(): return '\''world'\''"]}'
 ```
+
+## Langfuse Services (Optional — only when LANGFUSE_ENABLED=true)
+
+> **Note**: Langfuse is entirely optional. AI Memory works fully without it. These services are only started when `LANGFUSE_ENABLED=true` in your `.env` file. Skip this section if you did not enable Langfuse during installation.
+
+The Langfuse observability stack is defined in `docker-compose.langfuse.yml` and provides 7 additional services for LLM pipeline tracing:
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| **langfuse-web** | 23100 | Web UI — dashboard for traces, sessions, and metrics |
+| **langfuse-worker** | 23130 | Background processing — ingests and indexes trace events |
+| **langfuse-postgres** | 25432 | Metadata storage — projects, users, trace index |
+| **langfuse-clickhouse** | 28123 | Analytics storage — trace event data and aggregations |
+| **langfuse-redis** | 26379 | Cache and queue — event buffering between web and worker |
+| **langfuse-minio** | 29000 | Blob storage — large payloads and media |
+| **trace-flush-worker** | — | Flushes file-based trace buffer to Langfuse asynchronously |
+
+**Enable Langfuse:**
+
+```bash
+# 1. Run the setup script (generates secrets, registers models)
+./scripts/langfuse_setup.sh
+
+# 2. Set LANGFUSE_ENABLED=true in docker/.env
+echo "LANGFUSE_ENABLED=true" >> .env
+
+# 3. Start all services (stack.sh reads .env and starts Langfuse automatically)
+./scripts/stack.sh start
+
+# 4. Open the Langfuse Web UI
+open http://localhost:23100
+```
+
+See [../docs/LANGFUSE-INTEGRATION.md](../docs/LANGFUSE-INTEGRATION.md) for complete setup guide and architecture documentation.
+
+## Compose Files
+
+The AI Memory stack uses two Docker Compose files:
+
+| File | Purpose |
+|------|---------|
+| `docker-compose.yml` | Core services (Qdrant, embedding) + optional monitoring and GitHub profiles |
+| `docker-compose.langfuse.yml` | Langfuse observability services — **optional**, only loaded when `LANGFUSE_ENABLED=true` |
+
+Both files share the `ai-memory_default` Docker network. The correct order matters:
+- **Start**: core first (creates the network), then Langfuse (joins it)
+- **Stop**: Langfuse first (leaves the network), then core (removes it)
+
+`stack.sh` handles this ordering automatically. When using Docker Compose directly, both files must be passed together to ensure correct project naming and network resolution.
 
 ## Environment Variables
 
@@ -327,9 +391,13 @@ docker compose -f docker/docker-compose.yml logs embedding | grep "device_name"
 
 Docker Compose profiles allow optional services to be started only when needed (2026 best practice).
 
-**Available Profiles:**
+**Available Profiles (`docker-compose.yml`):**
 - `testing` - Includes monitoring API for integration testing and development verification
 - `monitoring` - Alias for testing profile (same services)
+- `github` - GitHub sync service (requires `GITHUB_TOKEN` and `GITHUB_SYNC_ENABLED=true`)
+
+**Available Profiles (`docker-compose.langfuse.yml` — Optional):**
+- `langfuse` - All 7 Langfuse observability services (started automatically by `stack.sh` when `LANGFUSE_ENABLED=true`)
 
 **Usage:**
 ```bash
@@ -353,12 +421,15 @@ docker compose --profile testing ps  # Shows core + monitoring-api
 - No port conflicts (8000 only bound when profile active)
 - Single docker-compose.yml for all environments
 
-## Monitoring (Future)
+## Monitoring
 
-Future stories will add:
-- Prometheus metrics exporter (Story 6.1)
-- Grafana dashboards (Story 6.3)
-- Use `docker compose --profile monitoring up -d` to enable additional observability services
+Monitoring is included via Docker Compose profiles. When `MONITORING_ENABLED=true`:
+
+- **Prometheus** (port 29090) — Metrics collection and alerting
+- **Grafana** (port 23000) — Dashboards and visualization
+- **Pushgateway** (port 29091) — Push-based metrics from hook scripts
+
+See [Monitoring Guide](../docs/MONITORING.md) for configuration details.
 
 ## References
 
