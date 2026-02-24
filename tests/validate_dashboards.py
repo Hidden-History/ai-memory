@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Validation script for BMAD Memory Module dashboards.
+Validation script for AI Memory Module dashboards.
 Tests Streamlit and Grafana accessibility.
 """
 
@@ -171,7 +171,7 @@ def test_grafana_dashboards() -> dict[str, Any]:
 def main():
     """Run all dashboard validation tests"""
     print("╔" + "=" * 68 + "╗")
-    print("║" + " BMAD Memory Module - Dashboard Validation ".center(68) + "║")
+    print("║" + " AI Memory Module - Dashboard Validation ".center(68) + "║")
     print("╚" + "=" * 68 + "╝")
 
     streamlit_result = test_streamlit_dashboard()

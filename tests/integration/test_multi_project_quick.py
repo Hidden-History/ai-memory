@@ -1,4 +1,4 @@
-"""Multi-Project Integration Tests for BMAD Memory Module.
+"""Multi-Project Integration Tests for AI Memory Module.
 
 Validates multi-project memory isolation and cross-project sharing per Epic 4.
 

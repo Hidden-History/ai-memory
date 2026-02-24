@@ -1,6 +1,6 @@
 # Grafana Dashboard E2E Tests
 
-Comprehensive Playwright tests for BMAD Memory Module Grafana dashboards.
+Comprehensive Playwright tests for AI Memory Module Grafana dashboards.
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ npm run test:ui
 
 ### Debug specific test
 ```bash
-npm run test:debug -- --grep "should load BMAD Memory Overview"
+npm run test:debug -- --grep "should load AI Memory System - Overview"
 ```
 
 ### View test report
@@ -49,7 +49,7 @@ npm run test:report
 - ✅ Handle password change skip dialog
 - ✅ Verify successful authentication
 
-### BMAD Memory Overview Dashboard
+### AI Memory System - Overview Dashboard
 - ✅ Navigate to dashboard
 - ✅ Verify 6 panels are visible:
   - Embedding Rate (last 1h)
@@ -61,7 +61,7 @@ npm run test:report
 - ✅ Check data status for each panel
 - ✅ Take full-page screenshot
 
-### BMAD Memory Performance Dashboard
+### AI Memory Performance Dashboard
 - ✅ Navigate to dashboard
 - ✅ Verify 4 panels are visible:
   - Hook Duration (p50, p95, p99)
@@ -201,4 +201,4 @@ test.describe('Feature: [Feature Name]', () => {
 
 - [Playwright Documentation](https://playwright.dev/)
 - [Grafana Dashboard API](https://grafana.com/docs/grafana/latest/developers/http_api/dashboard/)
-- [BMAD Memory Module Documentation](../../README.md)
+- [AI Memory Module Documentation](../../README.md)

@@ -1,4 +1,4 @@
-"""Integration test fixtures for BMAD Memory Module.
+"""Integration test fixtures for AI Memory Module.
 
 Sets up environment for integration tests that require real Docker services.
 

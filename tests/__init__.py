@@ -1,1 +1,1 @@
-# BMAD Memory Module - Test Suite
+# AI Memory Module - Test Suite
