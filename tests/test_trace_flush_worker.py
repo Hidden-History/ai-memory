@@ -66,15 +66,16 @@ def test_processes_valid_buffer_files(tmp_path, monkeypatch):
     _write_event(buffer_dir, "evt1")
 
     mock_langfuse = MagicMock()
-    mock_trace = MagicMock()
-    mock_langfuse.trace.return_value = mock_trace
+    mock_span = MagicMock()
+    mock_langfuse.start_span.return_value = mock_span
 
     processed, errors = mod.process_buffer_files(mock_langfuse)
 
     assert processed == 1
     assert errors == 0
-    mock_langfuse.trace.assert_called_once()
-    mock_trace.span.assert_called_once()
+    mock_langfuse.start_span.assert_called_once()
+    mock_span.update_trace.assert_called_once()
+    mock_span.end.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +88,7 @@ def test_removes_processed_files(tmp_path, monkeypatch):
     path = _write_event(buffer_dir, "evt_del")
 
     mock_langfuse = MagicMock()
-    mock_langfuse.trace.return_value = MagicMock()
+    mock_langfuse.start_span.return_value = MagicMock()
 
     mod.process_buffer_files(mock_langfuse)
 
@@ -138,7 +139,7 @@ def test_pushes_prometheus_metrics(tmp_path, monkeypatch):
     _write_event(buffer_dir, "evt_metrics")
 
     mock_langfuse = MagicMock()
-    mock_langfuse.trace.return_value = MagicMock()
+    mock_langfuse.start_span.return_value = MagicMock()
 
     mock_push = MagicMock()
     monkeypatch.setattr(mod, "push_metrics_fn", mock_push)
