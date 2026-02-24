@@ -422,23 +422,29 @@ register_custom_models() {
 
     local base_url="http://localhost:${web_port}"
 
-    # Fetch existing model names (idempotency check)
+    # Fetch existing model names across all pages (idempotency check)
     log_info "Checking existing model registrations..."
     local existing=""
-    existing=$(curl -sf \
-        -u "${public_key}:${secret_key}" \
-        "${base_url}/api/public/models" 2>/dev/null \
-        | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    items = data if isinstance(data, list) else data.get('data', data.get('models', []))
-    for m in items:
-        name = m.get('modelName', '')
-        if name:
-            print(name)
-except Exception:
-    pass
+    existing=$(python3 -c "
+import json, urllib.request, base64, sys
+creds = base64.b64encode(b'${public_key}:${secret_key}').decode()
+page, names = 1, []
+while True:
+    req = urllib.request.Request('${base_url}/api/public/models?page=' + str(page))
+    req.add_header('Authorization', 'Basic ' + creds)
+    try:
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+        items = data.get('data', [])
+        if not items:
+            break
+        names.extend(m.get('modelName','') for m in items if not m.get('isLangfuseManaged'))
+        page += 1
+    except Exception:
+        break
+for n in names:
+    if n:
+        print(n)
 " 2>/dev/null || echo "")
 
     # Registration helper

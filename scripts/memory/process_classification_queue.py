@@ -39,6 +39,12 @@ sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 import json
 from dataclasses import asdict
 
+# Langfuse trace emission (BUG-150: 9_classify span)
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
 from prometheus_client import (
     REGISTRY,
     CollectorRegistry,
@@ -437,6 +443,24 @@ class ClassificationWorker:
                 },
             )
             classifier_queue_processed_total.labels(status="skipped").inc()
+            if emit_trace_event:
+                try:
+                    emit_trace_event(
+                        event_type="9_classify",
+                        data={
+                            "input": {"point_id": task.point_id, "collection": task.collection},
+                            "output": {
+                                "classified_type": result.classified_type,
+                                "confidence": result.confidence,
+                                "provider": result.provider_used,
+                                "was_reclassified": False,
+                            },
+                        },
+                        trace_id=task.trace_id,
+                        project_id=task.group_id,
+                    )
+                except Exception:
+                    pass
             return None  # Signal task was skipped
 
         # Update Qdrant payload with new classification
@@ -467,6 +491,23 @@ class ClassificationWorker:
                     "classified_type": result.classified_type,
                 },
             )
+            if emit_trace_event:
+                try:
+                    emit_trace_event(
+                        event_type="9_classify",
+                        data={
+                            "input": {"point_id": task.point_id, "collection": task.collection},
+                            "output": {
+                                "status": "qdrant_update_failed",
+                                "classified_type": result.classified_type,
+                                "confidence": result.confidence,
+                            },
+                        },
+                        trace_id=task.trace_id,
+                        project_id=task.group_id,
+                    )
+                except Exception:
+                    pass
             raise ValueError(f"Failed to update payload for point {task.point_id}")
 
         logger.info(
@@ -481,6 +522,24 @@ class ClassificationWorker:
         )
 
         classifier_queue_processed_total.labels(status="success").inc()
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="9_classify",
+                    data={
+                        "input": {"point_id": task.point_id, "collection": task.collection},
+                        "output": {
+                            "classified_type": result.classified_type,
+                            "confidence": result.confidence,
+                            "provider": result.provider_used,
+                            "was_reclassified": True,
+                        },
+                    },
+                    trace_id=task.trace_id,
+                    project_id=task.group_id,
+                )
+            except Exception:
+                pass
         return True
 
     def _handle_shutdown(self) -> None:
