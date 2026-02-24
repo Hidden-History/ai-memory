@@ -1,11 +1,40 @@
+# .github/dependabot.yml
+# Updated per BP-098: Dependabot Dependency Management Best Practices (2026)
+# - Added cooldowns for supply chain protection
+# - Added labels and commit-message prefixes
+# - Added schedule times and timezone
+# - Kept existing grouping strategy (pip-minor-patch, actions-all)
 version: 2
+
 updates:
-  # Python dependencies
+  # GitHub Actions -- group all, auto-merge via workflow
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/New_York"
+    reviewers:
+      - "Hidden-History"
+    groups:
+      actions-all:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"
+      - "github_actions"
+    commit-message:
+      prefix: "ci"
+
+  # Python pip -- group minor/patch, isolate majors
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
+      time: "06:00"
+      timezone: "America/New_York"
     reviewers:
       - "Hidden-History"
     groups:
@@ -15,16 +44,14 @@ updates:
         update-types:
           - "minor"
           - "patch"
-
-  # GitHub Actions
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    reviewers:
-      - "Hidden-History"
-    groups:
-      actions-all:
-        patterns:
-          - "*"
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps"
+    open-pull-requests-limit: 10

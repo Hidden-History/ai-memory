@@ -1,0 +1,42 @@
+# Auto-merge Dependabot PRs that pass CI
+# - GitHub Actions: auto-merge ALL updates (including major)
+# - Python pip: auto-merge minor and patch ONLY
+# - Major pip bumps require manual review
+# Per BP-098: Dependabot Dependency Management Best Practices (2026)
+name: Dependabot Auto-Merge
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      # Auto-merge ALL GitHub Actions updates (including major)
+      - name: Auto-merge GitHub Actions
+        if: steps.meta.outputs.package-ecosystem == 'github-actions'
+        run: gh pr merge --auto --merge "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Auto-merge pip minor and patch updates only
+      - name: Auto-merge pip minor/patch
+        if: >
+          steps.meta.outputs.package-ecosystem == 'pip' &&
+          (steps.meta.outputs.update-type == 'version-update:semver-minor' ||
+           steps.meta.outputs.update-type == 'version-update:semver-patch')
+        run: gh pr merge --auto --merge "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
