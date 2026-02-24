@@ -32,7 +32,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Usage: ./install.sh [PROJECT_PATH] [PROJECT_NAME]
 PROJECT_PATH="${1:-.}"
 PROJECT_PATH=$(cd "$PROJECT_PATH" 2>/dev/null && pwd || pwd)
-PROJECT_NAME="${2:-$(basename "$PROJECT_PATH")}"  # Optional second arg or derived from path
+# Derive project name: explicit arg > git remote org/repo > folder name
+if [[ -n "${2:-}" ]]; then
+    PROJECT_NAME="$2"
+else
+    # Try git remote origin URL first (fixes #39 — avoids folder-name collisions)
+    _git_remote_url=$(git -C "$PROJECT_PATH" config --get remote.origin.url 2>/dev/null || true)
+    if [[ -n "$_git_remote_url" ]]; then
+        _git_project_name=$(echo "$_git_remote_url" | sed -E 's|.*[:/]([^/]+/[^/]+?)(\.git)?$|\1|' | tr '[:upper:]' '[:lower:]')
+    fi
+    if [[ -n "${_git_project_name:-}" ]] && [[ "$_git_project_name" == */* ]]; then
+        PROJECT_NAME="$_git_project_name"
+    else
+        PROJECT_NAME=$(basename "$PROJECT_PATH" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+    fi
+    unset _git_remote_url _git_project_name
+fi
 
 # Cleanup handler for interrupts (SIGINT/SIGTERM)
 # Per https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
@@ -1460,11 +1475,17 @@ configure_environment() {
             log_debug "Added Langfuse configuration to .env"
         fi
 
-        # BUG-092: Ensure AI_MEMORY_PROJECT_ID is set
+        # BUG-092 / #39: Ensure AI_MEMORY_PROJECT_ID is set
+        # PROJECT_NAME is org/repo when git remote was detected, otherwise folder name
         if ! grep -q "^AI_MEMORY_PROJECT_ID=" "$docker_env" 2>/dev/null; then
             echo "" >> "$docker_env"
             echo "# Project Identification (used by github-sync for multi-tenancy)" >> "$docker_env"
             echo "AI_MEMORY_PROJECT_ID=$PROJECT_NAME" >> "$docker_env"
+            if [[ "$PROJECT_NAME" == */* ]]; then
+                log_debug "Detected project ID from git remote: $PROJECT_NAME"
+            else
+                log_debug "Using folder name as project ID: $PROJECT_NAME"
+            fi
             log_debug "Added AI_MEMORY_PROJECT_ID=$PROJECT_NAME to .env"
         fi
 

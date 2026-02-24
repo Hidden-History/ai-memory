@@ -74,6 +74,8 @@ pov/
 
 # Claude Code local settings (user-specific)
 .claude/settings.json
+# Local settings contain secrets (e.g. QDRANT_API_KEY) — never commit (fixes #38)
+.claude/settings.local.json
 
 # Secrets — NEVER commit plaintext secrets
 # docker/.env is already ignored above under "# Environment files"
