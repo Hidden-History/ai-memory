@@ -27,9 +27,9 @@ from memory.storage import update_point_payload
 
 # SPEC-021: Trace buffer for 9_classify span emission
 try:
-    from memory.trace_buffer import emit_trace_event as append_event
+    from memory.trace_buffer import emit_trace_event
 except ImportError:
-    append_event = None
+    emit_trace_event = None
 
 logger = logging.getLogger("ai_memory.classifier.worker")
 
@@ -101,9 +101,9 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                         "provider": result.provider_used,
                     },
                 )
-                if append_event:
+                if emit_trace_event:
                     try:  # noqa: SIM105
-                        append_event(
+                        emit_trace_event(
                             event_type="9_classify",
                             data={
                                 "input": {
@@ -122,6 +122,7 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                                 },
                             },
                             trace_id=task.trace_id,
+                            project_id=task.group_id,
                         )
                     except Exception:
                         pass
@@ -135,6 +136,31 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                         "classified_type": result.classified_type,
                     },
                 )
+                if emit_trace_event:
+                    try:  # noqa: SIM105
+                        emit_trace_event(
+                            event_type="9_classify",
+                            data={
+                                "input": {
+                                    "point_id": task.point_id,
+                                    "collection": task.collection,
+                                },
+                                "output": {
+                                    "status": "qdrant_update_failed",
+                                    "classified_type": result.classified_type,
+                                    "confidence": result.confidence,
+                                },
+                                "metadata": {
+                                    "classified_type": result.classified_type,
+                                    "confidence": result.confidence,
+                                    "status": "qdrant_update_failed",
+                                },
+                            },
+                            trace_id=task.trace_id,
+                            project_id=task.group_id,
+                        )
+                    except Exception:
+                        pass
                 return False
         else:
             logger.debug(
@@ -144,9 +170,9 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                     "reason": "low_confidence" if result else "no_result",
                 },
             )
-            if append_event:
+            if emit_trace_event:
                 try:  # noqa: SIM105
-                    append_event(
+                    emit_trace_event(
                         event_type="9_classify",
                         data={
                             "input": {
@@ -171,6 +197,7 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                             },
                         },
                         trace_id=task.trace_id,
+                        project_id=task.group_id,
                     )
                 except Exception:
                     pass
