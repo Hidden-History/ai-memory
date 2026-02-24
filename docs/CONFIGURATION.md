@@ -20,6 +20,7 @@
   - [Parzival Session Agent](#parzival-session-agent)
   - [Security Scanning](#security-scanning)
   - [Context Injection](#context-injection)
+- [Langfuse Configuration](#langfuse-configuration)
 - [Docker Configuration](#docker-configuration)
 - [Hook Configuration](#hook-configuration)
 - [Agent-Specific Configuration](#agent-specific-configuration)
@@ -1184,6 +1185,203 @@ export INJECTION_BUDGET_CEILING=800
 
 ---
 
+## 🔭 Langfuse Configuration
+
+AI Memory runs on 16 GiB RAM (4 cores minimum). Adding the optional Langfuse LLM observability module increases the requirement to 32 GiB RAM (8 cores recommended).
+
+| Tier | Services | Minimum RAM | Recommended CPU |
+|------|----------|-------------|-----------------|
+| **Core** (default) | 8 services | 16 GiB | 4 cores |
+| **Core + Langfuse** (opt-in) | 14 services | 32 GiB | 8 cores |
+
+Langfuse is an optional LLM observability layer. Enable it via the installer menu or by running `scripts/langfuse_setup.sh`. All `LANGFUSE_*` variables are set automatically by the setup script; only `LANGFUSE_ENABLED`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_BASE_URL` need to be referenced at runtime.
+
+---
+
+#### LANGFUSE_ENABLED
+**Purpose:** Enable or disable the Langfuse LLM observability integration
+
+**Default:** `false`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+export LANGFUSE_ENABLED=true
+```
+
+**When to change:**
+- Set to `true` after running `scripts/langfuse_setup.sh` to activate tracing
+- Set to `false` to disable tracing without stopping the Langfuse Docker stack
+
+---
+
+#### LANGFUSE_PUBLIC_KEY
+**Purpose:** Langfuse project public API key (used by the Python SDK for authentication)
+
+**Default:** `""` (empty — set by `langfuse_setup.sh`)
+
+**Format:** String (`pk-lf-...`)
+
+**Example:**
+```bash
+export LANGFUSE_PUBLIC_KEY=pk-lf-xxxxxxxxxxxxxxxxxxxx
+```
+
+**When to use:**
+- Required when `LANGFUSE_ENABLED=true`
+- Generated automatically by `langfuse_setup.sh` — do not set manually
+
+**Security:** ⚠️ Do not commit to git. Store in `~/.ai-memory/docker/.env` (gitignored).
+
+---
+
+#### LANGFUSE_SECRET_KEY
+**Purpose:** Langfuse project secret API key (used by the Python SDK for authentication)
+
+**Default:** `""` (empty — set by `langfuse_setup.sh`)
+
+**Format:** String (`sk-lf-...`)
+
+**Example:**
+```bash
+export LANGFUSE_SECRET_KEY=sk-lf-xxxxxxxxxxxxxxxxxxxx
+```
+
+**When to use:**
+- Required when `LANGFUSE_ENABLED=true`
+- Generated automatically by `langfuse_setup.sh` — do not set manually
+
+**Security:** ⚠️ Do not commit to git. Store in `~/.ai-memory/docker/.env` (gitignored).
+
+---
+
+#### LANGFUSE_BASE_URL
+**Purpose:** Base URL of the self-hosted Langfuse Web UI (used by the Python SDK)
+
+**Default:** `http://localhost:23100`
+
+**Format:** URL string
+
+**Example:**
+```bash
+# Default (local self-hosted)
+export LANGFUSE_BASE_URL=http://localhost:23100
+```
+
+**When to change:**
+- If you changed `LANGFUSE_WEB_PORT` from the default `23100`
+- If running Langfuse on a different host
+
+---
+
+#### LANGFUSE_TRACE_HOOKS
+**Purpose:** Enable tracing of Claude Code hook executions (UserPromptSubmit, PostToolUse, etc.)
+
+**Default:** `true`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+export LANGFUSE_TRACE_HOOKS=true
+```
+
+**When to change:**
+- Set to `false` to stop hook-level traces while keeping session-level tracing active
+
+---
+
+#### LANGFUSE_TRACE_SESSIONS
+**Purpose:** Enable tracing of full Claude Code sessions (session start, compaction, stop)
+
+**Default:** `true`
+
+**Options:** `true`, `false`
+
+**Example:**
+```bash
+export LANGFUSE_TRACE_SESSIONS=true
+```
+
+**When to change:**
+- Set to `false` to disable session-level traces (session start/stop events)
+
+---
+
+#### LANGFUSE_RETENTION_DAYS
+**Purpose:** Trace data retention period in days (applied to ClickHouse TTL)
+
+**Default:** `90`
+
+**Format:** Integer (days)
+
+**Example:**
+```bash
+# Default (90 days)
+export LANGFUSE_RETENTION_DAYS=90
+
+# Shorter retention (resource-constrained environments)
+export LANGFUSE_RETENTION_DAYS=30
+```
+
+**When to change:**
+- **Lower**: Reduce disk usage on ClickHouse in resource-constrained environments
+- **Higher**: Keep longer trace history for compliance or auditing
+
+---
+
+#### LANGFUSE_FLUSH_INTERVAL
+**Purpose:** How often (in seconds) the trace-flush-worker sends buffered traces to Langfuse
+
+**Default:** `5`
+
+**Format:** Integer (seconds)
+
+**Example:**
+```bash
+# Default (flush every 5 seconds)
+export LANGFUSE_FLUSH_INTERVAL=5
+
+# Less frequent flushing (lower API load)
+export LANGFUSE_FLUSH_INTERVAL=30
+```
+
+**When to change:**
+- **Lower**: For near-real-time observability in debugging sessions
+- **Higher**: To reduce Langfuse API call frequency in production
+
+---
+
+#### Langfuse Docker Port Variables
+
+The following variables configure the host ports for each Langfuse Docker service. They are set by `langfuse_setup.sh` and used only by Docker Compose (not by the Python runtime).
+
+| Variable | Default | Service |
+|----------|---------|---------|
+| `LANGFUSE_WEB_PORT` | `23100` | Langfuse Web UI |
+| `LANGFUSE_WORKER_PORT` | `23130` | Langfuse Worker |
+| `LANGFUSE_POSTGRES_PORT` | `25432` | Langfuse PostgreSQL |
+| `LANGFUSE_CLICKHOUSE_PORT` | `28123` | Langfuse ClickHouse HTTP |
+| `LANGFUSE_REDIS_PORT` | `26379` | Langfuse Redis |
+| `LANGFUSE_MINIO_PORT` | `29000` | Langfuse MinIO |
+
+#### Langfuse Secret Variables
+
+The following secrets are generated by `langfuse_setup.sh` using `openssl rand -hex 32`. Do not set them manually.
+
+| Variable | Description |
+|----------|-------------|
+| `LANGFUSE_DB_PASSWORD` | PostgreSQL database password |
+| `LANGFUSE_CLICKHOUSE_PASSWORD` | ClickHouse database password |
+| `LANGFUSE_NEXTAUTH_SECRET` | NextAuth.js session secret |
+| `LANGFUSE_SALT` | Password hashing salt |
+| `LANGFUSE_ENCRYPTION_KEY` | Encryption key (64 hex chars) |
+| `LANGFUSE_S3_ACCESS_KEY` | MinIO root user (S3 access key) |
+| `LANGFUSE_S3_SECRET_KEY` | MinIO root password (S3 secret key) |
+
+---
+
 ## 🐳 Docker Configuration
 
 ### docker-compose.yml Environment
@@ -1219,6 +1417,17 @@ services:
 | Prometheus | 29090 | `PROMETHEUS_EXTERNAL_PORT` |
 | Grafana | 23000 | `GRAFANA_EXTERNAL_PORT` |
 | Monitoring API | 28000 | `MONITORING_API_EXTERNAL_PORT` |
+
+**Optional: Langfuse Ports (opt-in):**
+
+| Port | Service | Notes |
+|------|---------|-------|
+| 23100 | Langfuse Web UI | Optional (Langfuse) |
+| 23130 | Langfuse Worker | Optional (Langfuse) |
+| 25432 | Langfuse PostgreSQL | Optional (Langfuse) |
+| 26379 | Langfuse Redis | Optional (Langfuse) |
+| 28123 | Langfuse ClickHouse | Optional (Langfuse) |
+| 29000 | Langfuse MinIO | Optional (Langfuse) |
 
 **Example Override:**
 ```bash

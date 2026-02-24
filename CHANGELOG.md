@@ -5,6 +5,94 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.7] - 2026-02-24
+
+LLM Observability via Langfuse (optional): Full pipeline tracing, cost tracking, session grouping, and Grafana integration.
+
+### Added
+
+#### LLM Observability — Langfuse (Optional)
+
+##### Phase 1: Infrastructure (SPEC-019)
+- Docker Compose extension (`docker-compose.langfuse.yml`) with 7 services: Langfuse Web, Worker, PostgreSQL, ClickHouse, Redis, MinIO, Trace Flush Worker
+- `langfuse_setup.sh` bootstrap script with admin user creation, MinIO bucket init, and verification
+- Kill-switch control via `LANGFUSE_ENABLED=true|false` environment variable
+- Health checks for all 7 Langfuse services
+
+##### Phase 2: SDK Integration (SPEC-020)
+- `trace_buffer.py` — File-based trace buffer (~5ms overhead per event)
+- `trace_flush_worker.py` — Docker service that flushes buffered traces to Langfuse
+- `langfuse_config.py` — Configuration with validation and Langfuse client factory
+- `AnthropicInstrumentor` — Custom model registration for cost tracking (`ollama/*`, `openrouter/*`)
+- Buffer overflow protection (100 MB default, oldest-first eviction, Prometheus alerting)
+
+##### Phase 3: Pipeline Instrumentation (SPEC-021)
+- 9-step trace spans across 10 hook scripts (`1_capture` → `2_log` → `3_detect` → `4_scan` → `5_chunk` → `6_embed` → `7_store` → `8_enqueue` → `9_classify` + `context_retrieval`)
+- Each span includes: duration, token counts, collection, status, error details
+
+##### Phase 4: Session Tracing (SPEC-022 §1-2)
+- Session-based trace grouping using Claude Code session ID
+- Stop hook (`pre_compact_save.py`) creates session-level trace with summary
+
+##### Phase 5: Grafana Integration (SPEC-022 §3)
+- "LLM Observability" collapsed row in main Grafana dashboard with 3 Langfuse link panels
+- `$project_id` template variable for Langfuse dashboard filtering
+- Classifier latency >5s alert rule with Langfuse deeplink for investigation
+
+#### Stack Management
+- `scripts/stack.sh` v1.1.0 — Unified Docker Compose manager for the full stack (core + Langfuse)
+  - Commands: `start`, `stop`, `restart`, `status`, `nuke`, `help`
+  - Correct startup order: core first (creates network) → Langfuse joins
+  - Correct shutdown order: Langfuse first (leaves network) → core removes
+  - Profile-aware: respects `LANGFUSE_ENABLED`, `MONITORING_ENABLED`, `GITHUB_SYNC_ENABLED`
+  - Token masking, Docker Compose V2 best practices, non-interactive safety checks
+
+#### Documentation
+- `docs/LANGFUSE-INTEGRATION.md` — Comprehensive guide (440 lines): setup, architecture, pipeline spans, troubleshooting
+- README.md updated with v2.0.7 badge, Langfuse feature section, and service ports
+
+### Fixed
+
+#### Langfuse Install Bugs (BUG-132 through BUG-139) — PM #97
+- **BUG-132** (HIGH): Langfuse config validation blocks install on missing optional fields — Changed to warning
+- **BUG-133** (HIGH): Missing Dockerfile reference for trace-flush-worker service
+- **BUG-134** (HIGH): `cap_drop: ALL` + `no-new-privileges` breaks Postgres/ClickHouse/Redis containers
+- **BUG-135** (MEDIUM): `CLICKHOUSE_CLUSTER_ENABLED` not set — ClickHouse queries fail on single-node deployment
+- **BUG-136** (MEDIUM): Langfuse web/worker healthchecks use `localhost` which resolves to IPv6 — Changed to `127.0.0.1` + `HOSTNAME=0.0.0.0`
+- **BUG-137** (HIGH): `LANGFUSE_ENABLED` env var missing from trace-flush-worker container
+- **BUG-138** (HIGH): `AI_MEMORY_INSTALL_DIR` not set in trace-flush-worker — import paths fail
+- **BUG-139** (MEDIUM): MinIO healthcheck uses `curl` but Chainguard distroless image has no `curl` — bash TCP probe
+
+#### Langfuse Auth/Config Bugs (BUG-140 through BUG-142) — PM #98
+- **BUG-140** (HIGH): Langfuse bootstrap not resilient to repeated installs — Added `verify_bootstrap()` + dynamic volume names + `email_verified=true` SQL fix
+- **BUG-141** (MEDIUM): `.local` TLD rejected by Langfuse frontend — Changed to `admin@example.com`
+- **BUG-142** (HIGH): Missing 3 of 6 Langfuse env vars in `.env` — hooks receive empty settings
+
+#### Langfuse Runtime Bugs (BUG-143 through BUG-145) — PM #99
+- **BUG-143** (HIGH): `trace_buffer/` directory owned by root — hooks can't write trace files. Fix: `mkdir -p` before docker compose up
+- **BUG-144** (HIGH): `langfuse` package missing from `pyproject.toml` — pip install from source fails
+- **BUG-145** (HIGH): Langfuse SDK v3 removed v2 methods (`client.trace()`) — Migrated to v3 API (`start_span()`, `update_trace()`)
+
+#### Langfuse Pipeline Bugs (BUG-146 through BUG-147) — PM #99
+- **BUG-146** (HIGH): Missing `9_classify` Langfuse span — Added 3 emission points to classification worker (success, failure, low-confidence)
+- **BUG-147** (MEDIUM): Trace flush worker missing `PUSHGATEWAY_URL` env var — metrics push to wrong endpoint inside Docker
+
+#### Stack Management (BUG-148) — PM #100
+- **BUG-148** (MEDIUM): No unified stack management command — Two compose files, `docker compose down` on Langfuse produced no output, 7 containers left running. Fix: `scripts/stack.sh` with correct ordering
+
+#### Deployment Bugs (BUG-149 through BUG-151) — PM #100-101
+- **BUG-149** (HIGH): Trace flush worker runs as UID 1001 (Dockerfile `USER classifier`) but buffer files written by host hooks as UID 1000 — Permission denied on read. Fix: `user: "${UID:-1000}:${GID:-1000}"` in compose
+- **BUG-150** (MEDIUM): Classifier-worker Docker container missing `LANGFUSE_ENABLED` env var — `emit_trace_event()` kill-switch check silently returns False. Fix: added env var
+- **BUG-151** (MEDIUM): MinIO bucket creation command fails — `--entrypoint sh` needed for `minio/mc` image
+
+#### Other Fixes
+- **BUG-131** (MEDIUM): Installer stash conflicts — 9 conflict markers across 2 files, applied `-L` symlink guard for `deploy_parzival_commands`
+
+### Changed
+- Langfuse SDK dependency: `langfuse>=3.0` added to both `requirements.txt` and `pyproject.toml`
+- Docker stack now managed via `stack.sh` (recommended) or direct `docker compose` (still supported)
+- Classifier-worker now participates in Langfuse trace pipeline (receives `LANGFUSE_ENABLED` env var)
+
 ## [2.0.6] - 2026-02-17
 
 LLM-Native Temporal Memory: Decay scoring, freshness detection, progressive injection,
@@ -476,7 +564,8 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.6...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.7...HEAD
+[2.0.7]: https://github.com/Hidden-History/ai-memory/compare/v2.0.6...v2.0.7
 [2.0.6]: https://github.com/Hidden-History/ai-memory/compare/v2.0.5...v2.0.6
 [2.0.5]: https://github.com/Hidden-History/ai-memory/compare/v2.0.4...v2.0.5
 [2.0.4]: https://github.com/Hidden-History/ai-memory/compare/v2.0.3...v2.0.4

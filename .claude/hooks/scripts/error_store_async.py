@@ -14,6 +14,7 @@ import logging
 import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 # CR-1.7: Setup path inline (must happen BEFORE any memory.* imports)
@@ -70,6 +71,12 @@ except ImportError:
 # CR-1.2, CR-1.3, CR-1.4: Use consolidated utility functions
 from memory.hooks_common import get_hook_timeout, log_to_activity
 from memory.queue import queue_operation
+
+# SPEC-021: Trace buffer for pipeline instrumentation
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
 
 # TECH-DEBT-151: Structured truncation for error output (max 800 tokens)
 try:
@@ -161,6 +168,10 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
     client = None
 
     try:
+        # SPEC-021: Read trace_id from capture hook env propagation
+        trace_id = os.environ.get("LANGFUSE_TRACE_ID")
+        session_id = error_context.get("session_id", "")
+
         # Get Qdrant configuration (BP-040)
         qdrant_host = os.getenv("QDRANT_HOST", "localhost")
         qdrant_port = int(os.getenv("QDRANT_PORT", "26350"))
@@ -200,7 +211,49 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
         # Format content for embedding
         content = format_error_content(error_context)
 
+        # Group ID from cwd (moved up for trace spans)
+        cwd = error_context.get("cwd", "")
+        group_id = detect_project(cwd)
+
+        # SPEC-021: 2_log span — content captured for processing
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="2_log",
+                    data={
+                        "input": {"content_length": len(content)},
+                        "output": {"log_path": str(Path(INSTALL_DIR) / "logs" / "activity.log")},
+                        "metadata": {"log_path": str(Path(INSTALL_DIR) / "logs" / "activity.log")},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
+
+        # SPEC-021: 3_detect span — content type is predetermined
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="3_detect",
+                    data={
+                        "input": {"content_length": len(content)},
+                        "output": {"detected_type": "error_fix"},
+                        "metadata": {"detected_type": "error_fix", "confidence": 1.0},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
+
         # SPEC-009: Security scanning (Layers 1+2 only for hooks, ~10ms overhead)
+        scan_action = "skipped"  # Default if scanning disabled/unavailable
+        scan_findings = []
+        scan_actually_ran = False
+        scan_input_length = len(content)  # Capture BEFORE potential masking
         config = get_config()
         if config.security_scanning_enabled:
             try:
@@ -208,6 +261,9 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
 
                 scanner = SecurityScanner(enable_ner=False)
                 scan_result = scanner.scan(content)
+                scan_actually_ran = True
+                scan_action = scan_result.action.value if hasattr(scan_result.action, 'value') else str(scan_result.action)
+                scan_findings = scan_result.findings
 
                 if scan_result.action == ScanAction.BLOCKED:
                     # Secrets detected - block storage entirely
@@ -222,6 +278,28 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                             "scan_duration_ms": scan_result.scan_duration_ms,
                         },
                     )
+                    # SPEC-021: 4_scan (BLOCKED) + pipeline_terminated
+                    if emit_trace_event:
+                        try:
+                            emit_trace_event(
+                                event_type="4_scan",
+                                data={
+                                    "input": {"content_length": len(content)},
+                                    "output": {"scan_result": "blocked"},
+                                    "metadata": {"scan_result": "blocked", "pii_found": False, "secrets_found": True},
+                                },
+                                trace_id=trace_id, session_id=session_id, project_id=group_id,
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            emit_trace_event(
+                                event_type="pipeline_terminated",
+                                data={"metadata": {"reason": "scan_blocked", "scan_blocked": True}},
+                                trace_id=trace_id, session_id=session_id, project_id=group_id,
+                            )
+                        except Exception:
+                            pass
                     return  # Exit early, do not store
 
                 elif scan_result.action == ScanAction.MASKED:
@@ -253,14 +331,39 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 )
                 # Continue with original content if scanner fails
 
+        # SPEC-021: 4_scan span (non-blocked paths) — only emit if scan actually ran
+        if emit_trace_event and scan_actually_ran:
+            try:
+                pii_found = any(
+                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("PII_")
+                    for f in scan_findings
+                )
+                secrets_found = any(
+                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("SECRET_")
+                    for f in scan_findings
+                )
+                emit_trace_event(
+                    event_type="4_scan",
+                    data={
+                        "input": {"content_length": scan_input_length},
+                        "output": {"scan_result": scan_action},
+                        "metadata": {
+                            "scan_result": scan_action,
+                            "pii_found": pii_found,
+                            "secrets_found": secrets_found,
+                        },
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
+
         # Use pre-computed content hash if available, otherwise compute it
         content_hash = error_context.get("content_hash")
         if not content_hash:
             content_hash = compute_content_hash(content)
-
-        # Group ID from cwd
-        cwd = error_context.get("cwd", "")
-        group_id = detect_project(cwd)
 
         # Extract primary file reference if available
         file_refs = error_context.get("file_references", [])
@@ -312,6 +415,23 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             "version": 1,
         }
 
+        # SPEC-021: 5_chunk span — error patterns use structured truncation (single chunk)
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="5_chunk",
+                    data={
+                        "input": {"content_length": len(content)},
+                        "output": {"num_chunks": 1, "chunk_type": "structured_smart_truncate"},
+                        "metadata": {"num_chunks": 1, "chunk_type": "structured_smart_truncate"},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
+
         logger.info(
             "storing_error_pattern",
             extra={
@@ -351,11 +471,60 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             vector = [0.0] * config.embedding_dimension
             payload["embedding_status"] = "pending"
 
+        # SPEC-021: 6_embed span — embedding generation
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="6_embed",
+                    data={
+                        "input": {"num_chunks": 1},
+                        "output": {"embedding_status": payload["embedding_status"], "dimensions": len(vector)},
+                        "metadata": {"embedding_status": payload["embedding_status"], "num_vectors": 1},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
+
         # Store to Qdrant
         await client.upsert(
             collection_name=collection_name,
             points=[{"id": memory_id, "payload": payload, "vector": vector}],
         )
+
+        # SPEC-021: 7_store span — data persisted to Qdrant
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="7_store",
+                    data={
+                        "input": {"num_points": 1},
+                        "output": {"collection": collection_name, "points_stored": 1},
+                        "metadata": {"collection": collection_name, "points_stored": 1},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
+
+        # SPEC-021: 8_enqueue span — error patterns do not use classifier
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="8_enqueue",
+                    data={
+                        "input": {"point_id": memory_id},
+                        "output": {"enqueued": False, "collection": collection_name},
+                        "metadata": {"collection": collection_name, "current_type": "error_fix", "reason": "classifier_not_integrated"},
+                    },
+                    trace_id=trace_id, session_id=session_id, project_id=group_id,
+                )
+            except Exception:
+                pass
 
         # CR-1.2: Use consolidated log function
         log_to_activity(

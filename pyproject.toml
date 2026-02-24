@@ -58,6 +58,10 @@ dependencies = [
     "detect-secrets>=1.4.0",
     # Security scanning - Layer 3 NER-based PII detection (SPEC-009)
     "spacy>=3.8.0,<4.0.0",
+    # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
+    "langfuse>=3.0,<4.0.0",
+    # Auto-instrumentation for Anthropic SDK calls (SPEC-020 §6)
+    "opentelemetry-instrumentation-anthropic>=0.1,<1.0.0",
 ]
 
 [project.optional-dependencies]

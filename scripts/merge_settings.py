@@ -387,6 +387,25 @@ def merge_settings(
 
     # Deep merge
     merged = deep_merge(existing, new_config)
+
+    # Add Langfuse env vars if enabled (SPEC-019, SPEC-022)
+    if os.environ.get("LANGFUSE_ENABLED", "").lower() == "true":
+        if "env" not in merged:
+            merged["env"] = {}
+        merged["env"]["TRACE_TO_LANGFUSE"] = "true"
+        merged["env"]["LANGFUSE_ENABLED"] = "true"
+        merged["env"]["LANGFUSE_PUBLIC_KEY"] = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
+        merged["env"]["LANGFUSE_SECRET_KEY"] = os.environ.get("LANGFUSE_SECRET_KEY", "")
+        merged["env"]["LANGFUSE_BASE_URL"] = os.environ.get(
+            "LANGFUSE_BASE_URL", "http://localhost:23100"
+        )
+        merged["env"]["LANGFUSE_TRACE_HOOKS"] = os.environ.get(
+            "LANGFUSE_TRACE_HOOKS", "true"
+        )
+        merged["env"]["LANGFUSE_TRACE_SESSIONS"] = os.environ.get(
+            "LANGFUSE_TRACE_SESSIONS", "true"
+        )
+
     # BUG-066: upgrade old unguarded hooks to guarded format.
     # Note: _upgrade_hook_commands mutates in-place. Safe because
     # merged is the only reference used after this point.

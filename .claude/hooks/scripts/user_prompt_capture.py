@@ -27,6 +27,8 @@ import os
 import subprocess
 import sys
 import time
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,9 +52,11 @@ logger.propagate = False
 try:
     from memory.metrics_push import push_hook_metrics_async
     from memory.project import detect_project
+    from memory.trace_buffer import emit_trace_event  # SPEC-021: Langfuse pipeline instrumentation
 except ImportError:
     push_hook_metrics_async = None
     detect_project = None
+    emit_trace_event = None  # Langfuse not available
 
 # Maximum content length for user prompts (prevents payload bloat)
 # V2.0 Fix: Truncate extremely long prompts to avoid Qdrant payload issues
@@ -104,7 +108,7 @@ def count_turns_from_transcript(transcript_path: str) -> int:
         return 0
 
 
-def fork_to_background(hook_input: dict[str, Any], turn_number: int) -> None:
+def fork_to_background(hook_input: dict[str, Any], turn_number: int, trace_id: str | None = None) -> None:
     """Fork storage operation to background process.
 
     Args:
@@ -141,13 +145,18 @@ def fork_to_background(hook_input: dict[str, Any], turn_number: int) -> None:
         # Serialize hook input for background process
         input_json = json.dumps(hook_input)
 
-        # Fork to background using subprocess.Popen + start_new_session=True
+        # SPEC-021: Propagate trace_id to store-async subprocess
+        subprocess_env = os.environ.copy()
+        if trace_id:
+            subprocess_env["LANGFUSE_TRACE_ID"] = trace_id
+
         process = subprocess.Popen(
             [sys.executable, str(store_script)],
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,  # Full detachment from parent
+            env=subprocess_env,
         )
 
         # Write input and close stdin (non-blocking, CRITICAL FIX: error handling)
@@ -218,8 +227,36 @@ def main() -> int:
         # Validate turn number (Fix #3: bounds checking prevents corruption)
         turn_number = max(1, min(raw_count + 1, 10000))  # Bounds: 1 to 10000
 
+        # SPEC-021: Generate trace_id for pipeline trace linking
+        trace_id = None
+        if emit_trace_event:
+            trace_id = str(uuid.uuid4())
+            capture_start = datetime.utcnow()
+            content = hook_input.get("prompt", "")
+            cwd = os.getcwd()
+            try:
+                emit_trace_event(
+                    event_type="1_capture",
+                    data={
+                        "input": {"hook_type": "user_prompt", "raw_length": len(content)},
+                        "output": {"content_length": len(content), "content_extracted": True},
+                        "metadata": {
+                            "hook_type": "user_prompt",
+                            "source": "stdin",
+                            "content_length": len(content),
+                        },
+                    },
+                    trace_id=trace_id,
+                    session_id=hook_input.get("session_id"),
+                    project_id=detect_project(cwd) if detect_project else None,
+                    start_time=capture_start,
+                    end_time=datetime.utcnow(),
+                )
+            except Exception:
+                pass  # Never crash the hook for tracing
+
         # Fork to background immediately for <50ms performance
-        fork_to_background(hook_input, turn_number)
+        fork_to_background(hook_input, turn_number, trace_id)
 
         # TECH-DEBT-142: Push hook duration to Pushgateway
         if push_hook_metrics_async:

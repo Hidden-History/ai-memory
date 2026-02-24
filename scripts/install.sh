@@ -161,6 +161,9 @@ GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 GITHUB_REPO="${GITHUB_REPO:-}"
 GITHUB_INITIAL_SYNC="${GITHUB_INITIAL_SYNC:-}"
 
+# Langfuse observability configuration
+LANGFUSE_ENABLED="${LANGFUSE_ENABLED:-}"
+
 # Prompt for project name (group_id for Qdrant isolation)
 configure_project_name() {
     # Skip if non-interactive or already set via command line arg
@@ -194,6 +197,7 @@ configure_options() {
         log_info "Non-interactive mode - using defaults/environment variables"
         INSTALL_MONITORING="${INSTALL_MONITORING:-false}"
         SEED_BEST_PRACTICES="${SEED_BEST_PRACTICES:-true}"
+        LANGFUSE_ENABLED="${LANGFUSE_ENABLED:-false}"
         return 0
     fi
 
@@ -476,6 +480,38 @@ print(','.join(keys))
         echo ""
     fi
 
+    # Langfuse LLM Observability (optional)
+    if [[ -z "$LANGFUSE_ENABLED" ]]; then
+        echo ""
+        echo "📊 Langfuse LLM Observability (Optional)"
+        echo "   AI Memory runs on 16 GiB RAM (4 cores minimum)."
+        echo "   Adding the optional Langfuse LLM observability module increases"
+        echo "   the requirement to 32 GiB RAM (8 cores recommended)."
+        echo ""
+        read -r -p "   Enable Langfuse LLM observability? [y/N]: " langfuse_choice
+
+        if [[ "$langfuse_choice" =~ ^[Yy]$ ]]; then
+            LANGFUSE_ENABLED="true"
+        else
+            LANGFUSE_ENABLED="false"
+        fi
+    fi
+
+    # RAM check when Langfuse is selected
+    if [[ "$LANGFUSE_ENABLED" == "true" ]]; then
+        TOTAL_RAM_GIB=$(awk '/MemTotal/ { printf "%d", $2/1024/1024 }' /proc/meminfo)
+        if [[ "$TOTAL_RAM_GIB" -lt 32 ]]; then
+            echo ""
+            log_warning "Langfuse recommends 32 GiB RAM. Detected: ${TOTAL_RAM_GIB} GiB total."
+            echo "   Langfuse may perform poorly or fail to start."
+            read -r -p "   Continue with Langfuse installation anyway? [y/N]: " ram_confirm
+            if [[ ! "$ram_confirm" =~ ^[Yy]$ ]]; then
+                log_info "Skipping Langfuse installation. Can be added later with: ./scripts/langfuse_setup.sh"
+                LANGFUSE_ENABLED="false"
+            fi
+        fi
+    fi
+
     # Summary
     echo "┌─────────────────────────────────────────────────────────────┐"
     echo "│  Installation Summary                                       │"
@@ -497,6 +533,9 @@ print(','.join(keys))
     fi
     if [[ "$GITHUB_SYNC_ENABLED" == "true" ]]; then
         echo "│    ✓ GitHub sync (${GITHUB_REPO})                     │"
+    fi
+    if [[ "$LANGFUSE_ENABLED" == "true" ]]; then
+        echo "│    ✓ Langfuse LLM Observability                            │"
     fi
     echo "└─────────────────────────────────────────────────────────────┘"
     echo ""
@@ -655,6 +694,7 @@ main() {
             setup_jira_cron
             setup_github_indexes
             run_initial_github_sync
+            setup_langfuse
 
             # BUG-125: Drain queued events that failed during service startup
             drain_pending_queue
@@ -1410,6 +1450,14 @@ configure_environment() {
             echo "GITHUB_CODE_BLOB_EXCLUDE=${GITHUB_CODE_BLOB_EXCLUDE:-node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info}" >> "$docker_env"
             echo "GITHUB_SYNC_ON_START=${GITHUB_SYNC_ON_START:-true}" >> "$docker_env"
             log_debug "Added GitHub configuration to .env"
+        fi
+
+        # Add Langfuse config if enabled
+        if [[ "$LANGFUSE_ENABLED" == "true" ]] && ! grep -q "^LANGFUSE_ENABLED=" "$docker_env"; then
+            echo "" >> "$docker_env"
+            echo "# Langfuse LLM Observability (added by installer)" >> "$docker_env"
+            echo "LANGFUSE_ENABLED=$LANGFUSE_ENABLED" >> "$docker_env"
+            log_debug "Added Langfuse configuration to .env"
         fi
 
         # BUG-092: Ensure AI_MEMORY_PROJECT_ID is set
@@ -2282,6 +2330,22 @@ configure_project_hooks() {
         log_warning "docker/.env not found - QDRANT_API_KEY will be empty"
     fi
 
+    # Export Langfuse vars if enabled, so generate_settings.py/merge_settings.py can inject them
+    # Reads from shared docker/.env (needed in both full and add-project mode)
+    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
+        local langfuse_enabled_in_env
+        langfuse_enabled_in_env=$(grep "^LANGFUSE_ENABLED=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
+        if [[ "$langfuse_enabled_in_env" == "true" ]]; then
+            for _lf_var in LANGFUSE_ENABLED LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_BASE_URL LANGFUSE_TRACE_HOOKS LANGFUSE_TRACE_SESSIONS; do
+                local _lf_val
+                _lf_val=$(grep "^${_lf_var}=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
+                # Only export if value is non-empty; let generate_settings.py defaults apply otherwise
+                [[ -n "$_lf_val" ]] && export "${_lf_var}=${_lf_val}"
+            done
+            log_debug "Exported LANGFUSE_* env vars for settings generation"
+        fi
+    fi
+
     # Check if project already has settings.json
     if [[ -f "$PROJECT_SETTINGS" ]]; then
         log_debug "Existing project settings found - merging hooks..."
@@ -2607,6 +2671,13 @@ run_initial_github_sync() {
     fi
 }
 
+setup_langfuse() {
+    if [[ "$LANGFUSE_ENABLED" == "true" ]]; then
+        log_info "Setting up Langfuse LLM observability..."
+        bash "$INSTALL_DIR/scripts/langfuse_setup.sh" --generate-secrets --start --health-check
+    fi
+}
+
 # === .audit/ Directory Setup (v2.0.6 — AD-2 two-tier audit trail) ===
 # Creates project-local .audit/ directory for ephemeral/sensitive audit data.
 # This is Tier 1 of the two-tier hybrid audit trail (AD-2):
@@ -2721,6 +2792,9 @@ show_success_message() {
         success)  echo "│       Initial sync: completed (code blobs via service)    │" ;;
         error)    echo "│       Initial sync: had errors (check logs)               │" ;;
     esac
+    fi
+    if [[ "$LANGFUSE_ENABLED" == "true" ]]; then
+    echo "│     ✓ Langfuse LLM Observability (http://localhost:23100)  │"
     fi
     echo "│                                                             │"
     echo "├─────────────────────────────────────────────────────────────┤"
@@ -2936,8 +3010,8 @@ deploy_parzival_commands() {
 
     for agent_file in code-reviewer.md verify-implementation.md; do
         if [[ -f "$INSTALL_DIR/.claude/agents/$agent_file" ]]; then
-            # BUG-108: Skip if already installed (symlink or copy from create_project_symlinks)
-            if [[ -e "$agent_dest/$agent_file" ]]; then
+            # BUG-108: Skip if already installed (symlink, broken symlink, or copy from create_project_symlinks)
+            if [[ -e "$agent_dest/$agent_file" || -L "$agent_dest/$agent_file" ]]; then
                 log_debug "Agent $agent_file already installed — skipping"
             else
                 cp "$INSTALL_DIR/.claude/agents/$agent_file" "$agent_dest/$agent_file"
@@ -2947,8 +3021,8 @@ deploy_parzival_commands() {
     done
 
     if [[ -d "$INSTALL_DIR/.claude/agents/parzival" ]]; then
-        # BUG-108: Skip if already installed
-        if [[ -e "$agent_dest/parzival" ]]; then
+        # BUG-108: Skip if already installed (including broken symlinks)
+        if [[ -e "$agent_dest/parzival" || -L "$agent_dest/parzival" ]]; then
             log_debug "Parzival agent directory already installed — skipping"
         else
             cp -r "$INSTALL_DIR/.claude/agents/parzival" "$agent_dest/"
@@ -2956,7 +3030,11 @@ deploy_parzival_commands() {
         fi
     fi
 
-    log_debug "Parzival agent files deployed ($agents_deployed) to $agent_dest"
+    if [[ $agents_deployed -gt 0 ]]; then
+        log_debug "Parzival agent files deployed ($agents_deployed) to $agent_dest"
+    else
+        log_debug "Parzival agent files already present (skipped) in $agent_dest"
+    fi
 }
 
 deploy_oversight_templates() {

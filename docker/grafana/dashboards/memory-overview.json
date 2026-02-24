@@ -84,6 +84,34 @@
           ]
         },
         "allValue": ".*"
+      },
+      {
+        "name": "project_id",
+        "type": "custom",
+        "label": "Langfuse Project",
+        "description": "Filter Langfuse deeplinks by project ID",
+        "query": "All,dev-ai-memory",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "All"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": "All"
+          },
+          {
+            "selected": false,
+            "text": "dev-ai-memory",
+            "value": "dev-ai-memory"
+          }
+        ],
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "skipUrlSync": false
       }
     ]
   },
@@ -987,6 +1015,45 @@
         "type": "prometheus",
         "uid": "prometheus"
       }
+    },
+    {
+      "type": "row",
+      "title": "LLM Observability",
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 56 },
+      "id": 101,
+      "panels": [
+        {
+          "type": "text",
+          "title": "Langfuse Traces",
+          "id": 102,
+          "gridPos": { "h": 4, "w": 8, "x": 0, "y": 57 },
+          "options": {
+            "mode": "markdown",
+            "content": "### [Open Langfuse Traces](http://localhost:23100/traces)\n\nView all LLM traces captured by the AI Memory pipeline.\n\n- Session-level traces from Claude Code Stop hook\n- Pipeline step spans (capture → embed → store → classify)"
+          }
+        },
+        {
+          "type": "text",
+          "title": "Langfuse Sessions",
+          "id": 103,
+          "gridPos": { "h": 4, "w": 8, "x": 8, "y": 57 },
+          "options": {
+            "mode": "markdown",
+            "content": "### [Open Langfuse Sessions](http://localhost:23100/sessions)\n\nView conversation sessions grouped by Claude Code session ID.\n\n- Parzival sessions tagged with `agent_id=parzival`\n- Developer sessions without agent tag"
+          }
+        },
+        {
+          "type": "text",
+          "title": "Langfuse — Filter by Project",
+          "id": 104,
+          "gridPos": { "h": 4, "w": 8, "x": 16, "y": 57 },
+          "options": {
+            "mode": "markdown",
+            "content": "### Filter Traces by Project\n\nSelect a specific project from the **Langfuse Project** dropdown above, then use this link:\n\n[View Project Traces](http://localhost:23100/traces?filter=metadata.project_id%3D${project_id})\n\n> **Note:** The link above filters by the selected project. \"All\" is not a valid Langfuse filter — select a specific project name.\n\n**Quick filters:**\n- [Parzival Sessions](http://localhost:23100/traces?filter=metadata.agent_id%3Dparzival)\n- [Classifier Traces](http://localhost:23100/traces?filter=metadata.span_name%3D9_classify)"
+          }
+        }
+      ]
     }
   ],
   "editable": false,

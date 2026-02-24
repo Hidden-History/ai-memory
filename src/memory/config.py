@@ -13,12 +13,15 @@ References:
 - Environment Variable Security: https://securityboulevard.com/2025/12/are-environment-variables-still-safe-for-secrets-in-2026/
 """
 
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "AGENTS",
@@ -627,6 +630,70 @@ class MemoryConfig(BaseSettings):
         description="Number of recent handoff files to keep in oversight/session-logs/.",
     )
 
+    # =========================================================================
+    # v2.0.7 — Langfuse LLM Observability (SPEC-019, PLAN-008)
+    # =========================================================================
+
+    langfuse_enabled: bool = Field(
+        default=False,
+        env="LANGFUSE_ENABLED",
+        description="Enable Langfuse LLM observability integration",
+    )
+
+    langfuse_public_key: str = Field(
+        default="",
+        env="LANGFUSE_PUBLIC_KEY",
+        description="Langfuse project public key",
+    )
+
+    langfuse_secret_key: SecretStr = Field(
+        default=SecretStr(""),
+        env="LANGFUSE_SECRET_KEY",
+        description="Langfuse project secret key",
+    )
+
+    langfuse_base_url: str = Field(
+        default="http://localhost:23100",
+        env="LANGFUSE_BASE_URL",
+        description="Langfuse self-hosted instance URL",
+    )
+
+    langfuse_flush_interval: int = Field(
+        default=5,
+        ge=1,
+        le=300,
+        env="LANGFUSE_FLUSH_INTERVAL",
+        description="Flush worker interval in seconds",
+    )
+
+    langfuse_trace_hooks: bool = Field(
+        default=True,
+        env="LANGFUSE_TRACE_HOOKS",
+        description="Enable Tier 2 hook-level tracing",
+    )
+
+    langfuse_trace_sessions: bool = Field(
+        default=True,
+        env="LANGFUSE_TRACE_SESSIONS",
+        description="Enable Tier 1 session-level tracing",
+    )
+
+    langfuse_retention_days: int = Field(
+        default=90,
+        ge=7,
+        le=365,
+        env="LANGFUSE_RETENTION_DAYS",
+        description="ClickHouse trace retention in days (DEC-PLAN008-001)",
+    )
+
+    langfuse_trace_buffer_max_mb: int = Field(
+        default=100,
+        ge=10,
+        le=1000,
+        env="LANGFUSE_TRACE_BUFFER_MAX_MB",
+        description="Maximum trace buffer size in MB before oldest-first eviction (DEC-PLAN008-004)",
+    )
+
     @field_validator("decay_type_overrides", mode="before")
     @classmethod
     def parse_type_overrides(cls, v: str) -> str:
@@ -720,6 +787,24 @@ class MemoryConfig(BaseSettings):
                 f"aging ({self.freshness_commit_threshold_aging}) < "
                 f"stale ({self.freshness_commit_threshold_stale}) < "
                 f"expired ({self.freshness_commit_threshold_expired})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_langfuse_config(self) -> "MemoryConfig":
+        """Warn if Langfuse config is incomplete when enabled.
+
+        Does NOT raise — keys may not be available at install time
+        (Langfuse container starts after setup-collections runs).
+        Runtime: langfuse_config.py handles missing keys gracefully (BUG-132).
+        """
+        if self.langfuse_enabled and (
+            not self.langfuse_public_key
+            or not self.langfuse_secret_key.get_secret_value()
+        ):
+            logger.warning(
+                "LANGFUSE_ENABLED=true but API keys not configured — "
+                "Langfuse features will be unavailable until keys are set"
             )
         return self
 

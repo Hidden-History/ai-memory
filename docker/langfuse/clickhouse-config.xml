@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<!--
+  ClickHouse server configuration overlay for Langfuse AI Memory integration.
+
+  File path (in container): /etc/clickhouse-server/config.d/retention.xml
+  Mount source:             ./langfuse/clickhouse-config.xml
+
+  Purpose:
+    1. Cap server memory usage to prevent OOM under load (SPEC-019 §10 risk mitigation)
+    2. Optimise MergeTree TTL merge behaviour for 90-day trace retention
+       (DEC-PLAN008-001: default retention period = LANGFUSE_RETENTION_DAYS = 90)
+
+  Affected Langfuse tables (created by Langfuse migrations, not by this file):
+    - traces        — trace metadata
+    - observations  — spans and generations
+    - scores        — evaluation scores
+
+  NOTE: Table-level TTL is applied by langfuse_setup.sh after migrations complete.
+  The DDL commands run post-migration are:
+    ALTER TABLE langfuse.traces       MODIFY TTL event_time     + INTERVAL 90 DAY;
+    ALTER TABLE langfuse.observations MODIFY TTL start_time     + INTERVAL 90 DAY;
+    ALTER TABLE langfuse.scores       MODIFY TTL created_at     + INTERVAL 90 DAY;
+
+  This config file controls the server-side MergeTree engine behaviour that
+  makes TTL enforcement efficient (drop whole parts instead of rewriting rows).
+-->
+<clickhouse>
+
+  <!-- ── Memory limit ─────────────────────────────────────────────────────── -->
+  <!--
+    Cap total server memory at 4 GiB (4294967296 bytes).
+    Risk: SPEC-019 §10 — "ClickHouse uses 4 GiB RAM under load".
+    Without this cap, ClickHouse can consume all available host RAM when
+    processing large trace ingestion bursts.
+  -->
+  <max_server_memory_usage>4294967296</max_server_memory_usage>
+
+  <!-- ── MergeTree TTL settings ────────────────────────────────────────────── -->
+  <merge_tree>
+    <!--
+      Drop entire data parts when all rows in the part have expired TTL,
+      instead of rewriting the part with expired rows removed.
+      Dramatically more efficient for time-series trace data where parts
+      are naturally ordered by insertion time.
+      0 = rewrite (default), 1 = drop whole part (preferred for traces).
+    -->
+    <ttl_only_drop_parts>1</ttl_only_drop_parts>
+
+    <!--
+      Minimum time (seconds) between TTL-triggered merges on the same part.
+      86400 = 24 hours. TTL expiry is checked daily rather than on every merge,
+      reducing background I/O overhead for a high-ingestion trace workload.
+    -->
+    <merge_with_ttl_timeout>86400</merge_with_ttl_timeout>
+
+  </merge_tree>
+
+</clickhouse>

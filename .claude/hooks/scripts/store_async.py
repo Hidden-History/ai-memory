@@ -19,6 +19,7 @@ import asyncio
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 # CR-1.7: Setup path inline (must happen BEFORE any memory.* imports)
@@ -73,6 +74,12 @@ logger = setup_hook_logging()
 # CR-1.3: Use consolidated queue operation
 from memory.queue import queue_operation
 
+# SPEC-021: Trace buffer for pipeline instrumentation
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
 # Import metrics for Prometheus instrumentation (Story 6.1)
 try:
     from memory.metrics import deduplication_events_total, memory_captures_total
@@ -99,6 +106,9 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
     client = None
 
     try:
+        # SPEC-021: Read trace_id from capture hook env propagation
+        trace_id = os.environ.get("LANGFUSE_TRACE_ID")
+
         # Get Qdrant configuration (BP-040)
         qdrant_host = os.getenv("QDRANT_HOST", "localhost")
         qdrant_port = int(os.getenv("QDRANT_PORT", "26350"))
@@ -158,6 +168,21 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
         # Group ID: Project name from cwd (FR13)
         group_id = detect_project(cwd)
 
+        # SPEC-021: 2_log span
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="2_log",
+                    data={
+                        "input": {"content_length": len(code_content)},
+                        "output": {"log_path": str(Path(INSTALL_DIR) / "logs" / "activity.log")},
+                        "metadata": {"log_path": str(Path(INSTALL_DIR) / "logs" / "activity.log")},
+                    },
+                    trace_id=trace_id, session_id=session_id, project_id=group_id,
+                )
+            except Exception:
+                pass
+
         # Story 2.2: Check for duplicates before storing
         try:
             dedup_result = await is_duplicate(
@@ -215,6 +240,23 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
         # Extract patterns using Story 2.3 module (code_content already extracted above)
         patterns = extract_patterns(code_content, file_path)
 
+        # SPEC-021: 3_detect span — content type detected via extract_patterns
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="3_detect",
+                    data={
+                        "input": {"content_length": len(code_content)},
+                        "output": {"detected_type": "implementation"},
+                        "metadata": {"detected_type": "implementation", "confidence": 1.0, "language": patterns.get("language", "unknown") if patterns else "unknown"},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
+
         if not patterns:
             # Skip storage if no patterns extracted (invalid content)
             logger.info(
@@ -227,6 +269,12 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
             )
             return
 
+        # SPEC-021: Default scan tracking vars (used by 4_scan span)
+        scan_action = "skipped"  # Default if scanning disabled/unavailable
+        scan_findings = []
+        scan_actually_ran = False
+        scan_input_length = len(patterns["content"])  # Capture BEFORE potential masking
+
         # SPEC-009: Security scanning before storage (match other 3 hooks)
         try:
             from memory.config import get_config as _get_sec_config
@@ -238,6 +286,11 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
 
                     scanner = SecurityScanner(enable_ner=False)
                     scan_result = scanner.scan(patterns["content"])
+                    scan_actually_ran = True
+                    # SPEC-021: Capture scan outcome for 4_scan span
+                    scan_action = scan_result.action.value if hasattr(scan_result.action, 'value') else str(scan_result.action)
+                    scan_findings = scan_result.findings
+
                     if scan_result.action == ScanAction.BLOCKED:
                         logger.warning(
                             "code_pattern_blocked_secrets",
@@ -247,6 +300,32 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                                 "findings_count": len(scan_result.findings),
                             },
                         )
+                        # SPEC-021: 4_scan span (BLOCKED) + pipeline_terminated
+                        if emit_trace_event:
+                            try:
+                                emit_trace_event(
+                                    event_type="4_scan",
+                                    data={
+                                        "input": {"content_length": len(patterns["content"])},
+                                        "output": {"scan_result": "blocked"},
+                                        "metadata": {"scan_result": "blocked", "pii_found": False, "secrets_found": True},
+                                    },
+                                    trace_id=trace_id,
+                                    session_id=session_id,
+                                    project_id=group_id,
+                                )
+                            except Exception:
+                                pass
+                            try:
+                                emit_trace_event(
+                                    event_type="pipeline_terminated",
+                                    data={"metadata": {"reason": "scan_blocked", "scan_blocked": True}},
+                                    trace_id=trace_id,
+                                    session_id=session_id,
+                                    project_id=group_id,
+                                )
+                            except Exception:
+                                pass
                         return
                     elif scan_result.action == ScanAction.MASKED:
                         patterns["content"] = scan_result.content
@@ -260,6 +339,35 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 "security_scan_failed",
                 extra={"hook": "PostToolUse", "error": str(e)},
             )
+
+        # SPEC-021: 4_scan span (non-blocked paths) — only emit if scan actually ran
+        if emit_trace_event and scan_actually_ran:
+            try:
+                pii_found = any(
+                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("PII_")
+                    for f in scan_findings
+                )
+                secrets_found = any(
+                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("SECRET_")
+                    for f in scan_findings
+                )
+                emit_trace_event(
+                    event_type="4_scan",
+                    data={
+                        "input": {"content_length": scan_input_length},
+                        "output": {"scan_result": scan_action},
+                        "metadata": {
+                            "scan_result": scan_action,
+                            "pii_found": pii_found,
+                            "secrets_found": secrets_found,
+                        },
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
 
         # TECH-DEBT-051: Use IntelligentChunker for content chunking
         # MVP returns whole content as single chunk; TECH-DEBT-052 adds Tree-sitter AST chunking
@@ -281,6 +389,23 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 "total_tokens": sum(c.metadata.chunk_size_tokens for c in chunks),
             },
         )
+
+        # SPEC-021: 5_chunk span — chunking complete
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="5_chunk",
+                    data={
+                        "input": {"content_length": len(patterns["content"])},
+                        "output": {"num_chunks": len(chunks), "chunk_type": chunks[0].metadata.chunk_type if chunks else "unknown"},
+                        "metadata": {"num_chunks": len(chunks), "total_tokens": sum(c.metadata.chunk_size_tokens for c in chunks)},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
 
         # CR-1.5: Use config constant instead of env var with magic number
         from memory.config import get_config
@@ -356,12 +481,47 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 {"id": memory_id, "payload": payload, "vector": vector}
             )
 
+        # SPEC-021: 6_embed span — embedding generation
+        if emit_trace_event:
+            try:
+                embed_statuses = [p["payload"]["embedding_status"] for p in points_to_store]
+                emit_trace_event(
+                    event_type="6_embed",
+                    data={
+                        "input": {"num_chunks": len(points_to_store)},
+                        "output": {"embedding_status": embed_statuses[0] if embed_statuses else "unknown", "dimensions": len(points_to_store[0]["vector"]) if points_to_store else 0},
+                        "metadata": {"embedding_status": embed_statuses[0] if embed_statuses else "unknown", "num_vectors": len(points_to_store)},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
+
         # HIGH-4: Calculate token count BEFORE upsert for atomicity
         # (Prevents underreporting if storage succeeds but metrics fail)
         total_tokens = sum(len(p["payload"]["content"]) // 4 for p in points_to_store)
 
         # Store all chunks to Qdrant
         await client.upsert(collection_name=collection_name, points=points_to_store)
+
+        # SPEC-021: 7_store span — data persisted to Qdrant
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="7_store",
+                    data={
+                        "input": {"num_points": len(points_to_store)},
+                        "output": {"collection": collection_name, "points_stored": len(points_to_store)},
+                        "metadata": {"collection": collection_name, "points_stored": len(points_to_store)},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
 
         logger.info(
             "memory_stored",
@@ -374,6 +534,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
         )
 
         # TECH-DEBT-069: Enqueue for async classification
+        classification_enqueued = False
+        enqueue_count = 0
         try:
             from memory.classifier.config import CLASSIFIER_ENABLED
             from memory.classifier.queue import (
@@ -393,12 +555,32 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                         group_id=group_id,
                         source_hook="PostToolUse",
                         created_at=point["payload"]["created_at"],
+                        trace_id=trace_id,
                     )
                     enqueue_for_classification(task)
+                    enqueue_count += 1
+                classification_enqueued = True
         except ImportError:
             pass  # Classifier module not installed
         except Exception as e:
             logger.warning("classification_enqueue_failed", extra={"error": str(e)})
+
+        # SPEC-021: 8_enqueue span — reports actual enqueue outcome
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="8_enqueue",
+                    data={
+                        "input": {"num_points": len(points_to_store)},
+                        "output": {"enqueued": classification_enqueued, "enqueue_count": enqueue_count, "collection": collection_name},
+                        "metadata": {"collection": collection_name, "current_type": "implementation"},
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
+                )
+            except Exception:
+                pass
 
         # Metrics: Increment capture counter on success (Story 6.1)
         if memory_captures_total:

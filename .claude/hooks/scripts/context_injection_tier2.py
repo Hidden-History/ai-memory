@@ -29,6 +29,12 @@ sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.config import get_config
 from memory.health import check_qdrant_health
+
+# SPEC-021: Trace buffer for retrieval instrumentation
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
 from memory.injection import (
     InjectionSessionState,
     compute_adaptive_budget,
@@ -143,6 +149,28 @@ def main() -> int:
                 current_embedding = search_client.embedding_client.embed([prompt])[0]
             except Exception:
                 logger.warning("tier2_drift_embed_failed")
+        except Exception as search_err:
+            # SPEC-021: context_retrieval span on failure path
+            if emit_trace_event:
+                try:
+                    emit_trace_event(
+                        event_type="context_retrieval",
+                        data={
+                            "input": {"query_length": len(prompt), "collections_searched": collection_names},
+                            "output": {"error": str(search_err), "results_considered": 0, "results_selected": 0},
+                            "metadata": {
+                                "collections_searched": collection_names,
+                                "error": type(search_err).__name__,
+                                "results_considered": 0,
+                                "results_selected": 0,
+                            },
+                        },
+                        session_id=session_id,
+                        project_id=project_name,
+                    )
+                except Exception:
+                    pass
+            raise
         finally:
             search_client.close()
 
@@ -255,6 +283,30 @@ def main() -> int:
             collections_searched=collection_names,
         )
 
+        # SPEC-021: context_retrieval span — retrieval pipeline complete
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="context_retrieval",
+                    data={
+                        "input": {"query_length": len(prompt), "collections_searched": collection_names},
+                        "output": {"results_considered": len(all_results), "results_selected": len(selected), "tokens_used": tokens_used},
+                        "metadata": {
+                            "collections_searched": collection_names,
+                            "results_considered": len(all_results),
+                            "results_selected": len(selected),
+                            "tokens_used": tokens_used,
+                            "budget": budget,
+                            "best_score": round(best_score, 4),
+                            "topic_drift": round(drift, 4),
+                        },
+                    },
+                    session_id=session_id,
+                    project_id=project_name,
+                )
+            except Exception:
+                pass
+
         # Metrics
         duration_seconds = time.perf_counter() - start_time
         push_hook_metrics_async(
@@ -299,6 +351,22 @@ def main() -> int:
                 "error_type": type(e).__name__,
             },
         )
+
+        # SPEC-021: context_retrieval span on outer failure path
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="context_retrieval",
+                    data={
+                        "input": {"query_length": len(prompt) if "prompt" in dir() else 0},
+                        "output": {"error": str(e), "results_considered": 0, "results_selected": 0},
+                        "metadata": {"error": type(e).__name__, "results_considered": 0, "results_selected": 0},
+                    },
+                    session_id=session_id if "session_id" in dir() else "unknown",
+                    project_id=project_name,
+                )
+            except Exception:
+                pass
 
         # Push failure metrics
         try:

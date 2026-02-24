@@ -5,12 +5,12 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.6-green?style=flat-square" alt="Version 2.0.6">
+  <img src="https://img.shields.io/badge/version-2.0.7-green?style=flat-square" alt="Version 2.0.7">
   <a href="https://github.com/Hidden-History/ai-memory/stargazers"><img src="https://img.shields.io/github/stars/Hidden-History/ai-memory?color=blue&style=flat-square" alt="Stars"></a>
   <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
   <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome">
-  <img src="https://img.shields.io/badge/GitHub-Sync-2088FF?style=flat-square&logo=github" alt="GitHub Sync">  <img src="https://img.shields.io/badge/Jira-Cloud-0052CC?style=flat-square&logo=jira" alt="Jira Cloud">  <img src="https://img.shields.io/badge/Qdrant-Vector_DB-DC382D?style=flat-square&logo=qdrant" alt="Qdrant">  <img src="https://img.shields.io/badge/Parzival-Project_Manager-8B5CF6?style=flat-square" alt="Parzival">
+  <img src="https://img.shields.io/badge/GitHub-Sync-2088FF?style=flat-square&logo=github" alt="GitHub Sync">  <img src="https://img.shields.io/badge/Jira-Cloud-0052CC?style=flat-square&logo=jira" alt="Jira Cloud">  <img src="https://img.shields.io/badge/Langfuse-Observability-FF6B35?style=flat-square&logo=langfuse" alt="Langfuse">  <img src="https://img.shields.io/badge/Qdrant-Vector_DB-DC382D?style=flat-square&logo=qdrant" alt="Qdrant">  <img src="https://img.shields.io/badge/Parzival-Project_Manager-8B5CF6?style=flat-square" alt="Parzival">
 </p>
 
 ---
@@ -28,6 +28,7 @@
 * **⏳ Semantic Decay:** Memories age naturally — recent patterns rank higher than stale ones.
 * **🛡️ 3-Layer Security:** PII and secrets caught before storage via regex + detect-secrets + SpaCy NER.
 * **🐙 GitHub History Sync:** PRs, issues, commits, CI results searchable by meaning.
+* **🔭 LLM Observability:** Full pipeline tracing via Langfuse — every hook, span, and classification visible.
 * **🎯 Progressive Context Injection:** Right memories, right time, within token budgets.
 
 ---
@@ -146,6 +147,23 @@ v2.0.6 adds the **WHEN dimension** — your memories now understand time, freshn
 
 ---
 
+## 🔭 V2.0.7 — LLM Observability
+
+v2.0.7 adds **Langfuse LLM observability** (opt-in, entirely optional) — full pipeline tracing so you can see exactly what your memory system is doing.
+
+- **🔭 9-Step Pipeline Tracing**: Every hook span (`1_capture` through `9_classify`) is traced and visible in Langfuse with latency, inputs, and outputs
+- **📊 Session Grouping**: Traces are grouped by Claude Code session ID, so you can follow an entire conversation's memory operations as a single thread
+- **🛡️ Kill-Switch Control**: `LANGFUSE_ENABLED=true|false` turns all tracing on/off with zero code changes — hooks remain <500ms even when tracing is active
+- **💾 File-Based Buffer**: Trace events are written to disk (~5ms overhead) and flushed to Langfuse asynchronously by a dedicated worker — no SDK dependency in hook scripts
+- **🏷️ Custom Model Registration**: Ollama, OpenRouter, and other LLM providers registered as custom models for cost tracking
+- **👥 Multi-Project Isolation**: Each project's traces are tagged with `project_id` (from `group_id`), keeping observability data separated
+- **📈 Grafana Integration**: Langfuse-specific Grafana panels for buffer depth, flush latency, and trace throughput alongside existing memory metrics
+- **🐳 7 New Services**: Langfuse Web UI, Worker, PostgreSQL, ClickHouse, Redis, MinIO, and Trace Flush Worker — all opt-in via `--profile langfuse`
+
+See [docs/LANGFUSE-INTEGRATION.md](docs/LANGFUSE-INTEGRATION.md) for setup and architecture guide.
+
+---
+
 ## 🔗 Jira Cloud Integration
 
 Bring your work context into semantic memory with built-in Jira Cloud support:
@@ -176,6 +194,39 @@ Bring your repository history into semantic memory with built-in GitHub support:
 - **Two Skills**: `/github-sync` for synchronization, `/search-github` for semantic search
 
 See [docs/GITHUB-INTEGRATION.md](docs/GITHUB-INTEGRATION.md) for setup and usage guide.
+
+---
+
+## 🔭 Langfuse LLM Observability (Optional)
+
+> **Note**: Langfuse is entirely optional. AI Memory works fully without it. Enable only if you want LLM pipeline tracing. See [docs/LANGFUSE-INTEGRATION.md](docs/LANGFUSE-INTEGRATION.md) for setup.
+
+Opt-in LLM observability powered by [Langfuse](https://langfuse.com/) — trace every memory operation from hook execution through classification:
+
+- **9-Step Pipeline Spans**: `1_capture`, `2_log`, `3_detect`, `4_scan`, `5_chunk`, `6_embed`, `7_store`, `8_enqueue`, `9_classify` — each emitted as a Langfuse span with timing and payload data
+- **Session-Based Traces**: Traces are grouped by Claude Code session ID via Langfuse sessions, so you can follow all memory operations for a single conversation
+- **File Buffer Architecture**: Hook scripts write JSON events to `trace_buffer/` (~5ms per event). A dedicated `trace-flush-worker` container reads and batches events to Langfuse every 5 seconds
+- **Kill-Switch**: `LANGFUSE_ENABLED=false` disables all trace emission globally. Per-hook control via `LANGFUSE_TRACE_HOOKS=false`
+- **Buffer Eviction**: Oldest trace files are automatically evicted when the buffer exceeds `LANGFUSE_TRACE_BUFFER_MAX_MB` (default: 100 MB)
+- **Custom Model Tracking**: `ollama/*`, `openrouter/*`, and `openrouter/*:free` registered as custom models for provider-aware cost analysis
+
+**Quick Start:**
+
+```bash
+# Run Langfuse setup (generates secrets, starts services, registers models)
+./scripts/langfuse_setup.sh
+
+# Enable tracing in your .env
+echo "LANGFUSE_ENABLED=true" >> docker/.env
+
+# Start all services (including Langfuse, since LANGFUSE_ENABLED=true)
+./scripts/stack.sh start
+
+# Open Langfuse UI
+open http://localhost:23100
+```
+
+See [docs/LANGFUSE-INTEGRATION.md](docs/LANGFUSE-INTEGRATION.md) for complete setup, architecture, and troubleshooting guide.
 
 ---
 
@@ -234,13 +285,23 @@ Docker Services
     ├── Embedding Service (port 28080)
     ├── Classifier Worker (LLM reclassification)
     ├── Streamlit Dashboard (port 28501)
-    └── Monitoring Stack (--profile monitoring)
-        ├── Prometheus (port 29090)
-        ├── Pushgateway (port 29091)
-        └── Grafana (port 23000)
+    ├── Monitoring Stack (--profile monitoring)
+    │   ├── Prometheus (port 29090)
+    │   ├── Pushgateway (port 29091)
+    │   └── Grafana (port 23000)
+    └── Langfuse Stack (--profile langfuse)
+        ├── Langfuse Web UI (port 23100)
+        ├── Langfuse Worker (port 23130)
+        ├── PostgreSQL (port 25432)
+        ├── ClickHouse (port 28123)
+        ├── Redis (port 26379)
+        ├── MinIO (port 29000)
+        └── Trace Flush Worker
 ```
 
 **v2.0.6 additions**: GitHub sync service ingests repository data (PRs, issues, commits, code blobs) into the discussions collection. A 3-layer security scanning pipeline (regex + detect-secrets + SpaCy NER) screens all content before storage. Semantic decay scoring applies time-weighted relevance to all search queries. The Parzival session agent stores cross-session memory in the discussions collection for project continuity.
+
+**v2.0.7 additions**: Langfuse LLM observability stack provides full pipeline tracing. Hook scripts emit trace events to a file-based buffer (`trace_buffer.py`), and a dedicated flush worker (`trace_flush_worker.py`) batches events to Langfuse via the SDK. All 9 pipeline steps are instrumented as spans, grouped by session ID. The classifier worker emits `9_classify` spans with provider, confidence, and reclassification outcome.
 
 ### Collection Structure
 
@@ -337,6 +398,15 @@ See [docs/llm-classifier.md](docs/llm-classifier.md) for complete setup guide, p
 ### 1. Start Services
 
 ```bash
+# Recommended: use the unified stack manager
+./scripts/stack.sh start    # Start all services (reads .env for profile selection)
+./scripts/stack.sh status   # Check health
+./scripts/stack.sh stop     # Graceful shutdown
+```
+
+Alternatively, using Docker Compose directly:
+
+```bash
 # Core services (Qdrant + Embedding)
 docker compose -f docker/docker-compose.yml up -d
 
@@ -395,6 +465,15 @@ SEED_BEST_PRACTICES=true ./scripts/install.sh /path/to/your-project
 - **Docker 20.10+** (for Qdrant + embedding service)
 - **Claude Code** (target project where memory will be installed)
 
+### Resource Requirements
+
+AI Memory runs on 16 GiB RAM (4 cores minimum). Adding the optional Langfuse LLM observability module increases the requirement to 32 GiB RAM (8 cores recommended).
+
+| Tier | Services | Minimum RAM | Recommended CPU |
+|------|----------|-------------|-----------------|
+| **Core** (default) | 8 services | 16 GiB | 4 cores |
+| **Core + Langfuse** (opt-in) | 15 services | 32 GiB | 8 cores |
+
 ### Installation Steps
 
 See [INSTALL.md](INSTALL.md) for detailed installation instructions including:
@@ -421,6 +500,17 @@ All services use `2XXXX` prefix to avoid conflicts:
 | Grafana          | 23000    | 3000     | `localhost:23000`           |
 | Prometheus       | 29090    | 9090     | `localhost:29090` (--profile monitoring) |
 | Pushgateway      | 29091    | 9091     | `localhost:29091` (--profile monitoring) |
+
+**Optional: Langfuse LLM Observability Ports (opt-in):**
+
+| Port | Service | Notes |
+|------|---------|-------|
+| 23100 | Langfuse Web UI | Optional (Langfuse) |
+| 23130 | Langfuse Worker | Optional (Langfuse) |
+| 25432 | Langfuse PostgreSQL | Optional (Langfuse) |
+| 26379 | Langfuse Redis | Optional (Langfuse) |
+| 28123 | Langfuse ClickHouse | Optional (Langfuse) |
+| 29000 | Langfuse MinIO | Optional (Langfuse) |
 
 ### Environment Variables
 
@@ -510,7 +600,7 @@ Use slash commands for manual control:
 | `/search-memory` | Now displays decay scores alongside relevance scores |
 | `/save-memory` | Supports agent memory types (handoff, insight, task) |
 
-See [docs/HOOKS.md](docs/HOOKS.md) for hook documentation, [docs/COMMANDS.md](docs/COMMANDS.md) for commands, [docs/llm-classifier.md](docs/llm-classifier.md) for LLM classifier setup, and [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for Jira integration guide.
+See [docs/HOOKS.md](docs/HOOKS.md) for hook documentation, [docs/COMMANDS.md](docs/COMMANDS.md) for commands, [docs/llm-classifier.md](docs/llm-classifier.md) for LLM classifier setup, [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for Jira integration guide, and [docs/LANGFUSE-INTEGRATION.md](docs/LANGFUSE-INTEGRATION.md) for LLM observability setup.
 
 ### 🤖 AsyncSDKWrapper (Agent SDK Integration)
 

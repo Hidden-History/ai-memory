@@ -282,6 +282,10 @@ services:
       - QDRANT_API_KEY=${QDRANT_API_KEY}
       - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
       - PUSHGATEWAY_URL=pushgateway:9091
+      # Langfuse trace emission kill-switch (BUG-150)
+      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
+      # Match volume mount path so trace_buffer.py resolves to /app/trace_buffer
+      - AI_MEMORY_INSTALL_DIR=/app
       - AI_MEMORY_QUEUE_DIR=/app/queue
       # Classifier configuration
       - MEMORY_CLASSIFIER_ENABLED=${MEMORY_CLASSIFIER_ENABLED:-true}
@@ -305,6 +309,8 @@ services:
       - ../src:/app/src:ro
       - ../scripts:/app/scripts:ro
       - ${AI_MEMORY_QUEUE_DIR:-~/.ai-memory/queue}:/app/queue
+      # Shared trace buffer for 9_classify span emission (BUG-150)
+      - ${AI_MEMORY_INSTALL_DIR:-~/.ai-memory}/trace_buffer:/app/trace_buffer
     depends_on:
       qdrant:
         condition: service_healthy

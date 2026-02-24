@@ -23,6 +23,8 @@ import os
 import subprocess
 import sys
 import time
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -47,9 +49,11 @@ logger.propagate = False
 try:
     from memory.metrics_push import track_hook_duration
     from memory.project import detect_project
+    from memory.trace_buffer import emit_trace_event  # SPEC-021
 except ImportError:
     track_hook_duration = None
     detect_project = None
+    emit_trace_event = None
 
 
 def _log_to_activity(message: str) -> None:
@@ -161,7 +165,7 @@ def validate_hook_input(data: dict[str, Any]) -> str | None:
     return None
 
 
-def fork_to_background(hook_input: dict[str, Any]) -> None:
+def fork_to_background(hook_input: dict[str, Any], trace_id: str | None = None) -> None:
     """Fork storage operation to background process.
 
     AC 2.1.1: Modern Python fork pattern using subprocess.Popen
@@ -186,12 +190,18 @@ def fork_to_background(hook_input: dict[str, Any]) -> None:
 
         # Fork to background using subprocess.Popen + start_new_session=True
         # This is Python 3.14+ compliant (avoids fork with active event loops)
+        # SPEC-021: Propagate trace_id to store-async subprocess
+        subprocess_env = os.environ.copy()
+        if trace_id:
+            subprocess_env["LANGFUSE_TRACE_ID"] = trace_id
+
         process = subprocess.Popen(
             [sys.executable, str(store_async_script)],
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,  # Full detachment from parent
+            env=subprocess_env,
         )
 
         # Write input and close stdin (non-blocking)
@@ -326,8 +336,35 @@ def main() -> int:
 
                 _log_to_activity(log_message)
 
+            # SPEC-021: Generate trace_id for pipeline trace linking
+            trace_id = None
+            if emit_trace_event:
+                trace_id = str(uuid.uuid4())
+                capture_start = datetime.utcnow()
+                cwd_path = hook_input.get("cwd", os.getcwd())
+                try:
+                    emit_trace_event(
+                        event_type="1_capture",
+                        data={
+                            "input": {"hook_type": "post_tool", "raw_length": len(content) if content else 0},
+                            "output": {"content_length": len(content) if content else 0, "content_extracted": bool(content)},
+                            "metadata": {
+                                "hook_type": "post_tool",
+                                "source": tool_name,
+                                "content_length": len(content) if content else 0,
+                            },
+                        },
+                        trace_id=trace_id,
+                        session_id=hook_input.get("session_id"),
+                        project_id=detect_project_func(cwd_path) if detect_project_func else None,
+                        start_time=capture_start,
+                        end_time=datetime.utcnow(),
+                    )
+                except Exception:
+                    pass  # Never crash the hook for tracing
+
             # AC 2.1.1: Fork to background for <500ms performance
-            fork_to_background(hook_input)
+            fork_to_background(hook_input, trace_id)
 
             # User notification via JSON systemMessage (visible in Claude Code UI per issue #4084)
             file_path = hook_input.get("tool_response", {}).get("filePath", "")

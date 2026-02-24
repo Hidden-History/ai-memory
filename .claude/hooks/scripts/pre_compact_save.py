@@ -72,6 +72,15 @@ except ImportError:
     push_hook_metrics_async = None
     push_capture_metrics_async = None
 
+# SPEC-021: Trace buffer for pipeline instrumentation
+# NOTE: SPEC-021 §3.2 designates pre_compact_save for @observe() + flush()
+# (long-lived process pattern). Phase 3 uses emit_trace_event consistently;
+# migration to @observe() is deferred to Phase 4 (Langfuse SDK integration).
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
 # Import Qdrant-specific exceptions for proper error handling
 try:
     from qdrant_client.http.exceptions import (
@@ -364,6 +373,49 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
         content_hash = compute_content_hash(summary_data["content"])
         memory_id = str(uuid.uuid4())
 
+        # SPEC-021: Pipeline trace context for pre_compact
+        trace_id = None  # PreCompact doesn't receive trace_id from capture hook
+        pc_session_id = summary_data.get("session_id", "")
+        pc_project_id = summary_data.get("group_id", "")
+
+        # SPEC-021: 2_log span — content captured for processing
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="2_log",
+                    data={
+                        "input": {"content_length": len(summary_data["content"])},
+                        "output": {"log_path": str(os.path.join(INSTALL_DIR, "logs", "activity.log"))},
+                        "metadata": {"log_path": str(os.path.join(INSTALL_DIR, "logs", "activity.log"))},
+                    },
+                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                )
+            except Exception:
+                pass
+
+        # SPEC-021: 3_detect span — content type is predetermined (session summary)
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="3_detect",
+                    data={
+                        "input": {"content_length": len(summary_data["content"])},
+                        "output": {"detected_type": "session"},
+                        "metadata": {"detected_type": "session", "confidence": 1.0},
+                    },
+                    trace_id=trace_id,
+                    session_id=pc_session_id,
+                    project_id=pc_project_id,
+                )
+            except Exception:
+                pass
+
+        # SPEC-021: Default scan tracking vars
+        scan_action = "skipped"
+        scan_findings = []
+        scan_actually_ran = False
+        scan_input_length = len(summary_data["content"])
+
         # SPEC-009: Security scanning before storage
         try:
             from memory.config import get_config as _get_sec_config
@@ -375,6 +427,10 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
 
                     scanner = SecurityScanner(enable_ner=False)
                     scan_result = scanner.scan(summary_data["content"])
+                    scan_actually_ran = True
+                    scan_action = scan_result.action.value if hasattr(scan_result.action, 'value') else str(scan_result.action)
+                    scan_findings = scan_result.findings
+
                     if scan_result.action == ScanAction.BLOCKED:
                         logger.warning(
                             "session_summary_blocked_secrets",
@@ -384,6 +440,28 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                                 "findings_count": len(scan_result.findings),
                             },
                         )
+                        # SPEC-021: 4_scan (BLOCKED) + pipeline_terminated
+                        if emit_trace_event:
+                            try:
+                                emit_trace_event(
+                                    event_type="4_scan",
+                                    data={
+                                        "input": {"content_length": scan_input_length},
+                                        "output": {"scan_result": "blocked"},
+                                        "metadata": {"scan_result": "blocked", "pii_found": False, "secrets_found": True},
+                                    },
+                                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                                )
+                            except Exception:
+                                pass
+                            try:
+                                emit_trace_event(
+                                    event_type="pipeline_terminated",
+                                    data={"metadata": {"reason": "scan_blocked", "scan_blocked": True}},
+                                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                                )
+                            except Exception:
+                                pass
                         return False
                     elif scan_result.action == ScanAction.MASKED:
                         summary_data["content"] = scan_result.content
@@ -395,6 +473,44 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
             logger.error(
                 "security_scan_failed", extra={"hook": "PreCompact", "error": str(e)}
             )
+
+        # SPEC-021: 4_scan span (non-blocked paths) — only emit if scan actually ran
+        if emit_trace_event and scan_actually_ran:
+            try:
+                pii_found = any(
+                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("PII_")
+                    for f in scan_findings
+                )
+                secrets_found = any(
+                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("SECRET_")
+                    for f in scan_findings
+                )
+                emit_trace_event(
+                    event_type="4_scan",
+                    data={
+                        "input": {"content_length": scan_input_length},
+                        "output": {"scan_result": scan_action},
+                        "metadata": {"scan_result": scan_action, "pii_found": pii_found, "secrets_found": secrets_found},
+                    },
+                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                )
+            except Exception:
+                pass
+
+        # SPEC-021: 5_chunk span — session summaries stored as single whole chunk
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="5_chunk",
+                    data={
+                        "input": {"content_length": len(summary_data["content"])},
+                        "output": {"num_chunks": 1, "chunk_type": "whole"},
+                        "metadata": {"num_chunks": 1, "chunk_type": "whole"},
+                    },
+                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                )
+            except Exception:
+                pass
 
         # Generate embedding
         embedding_status = EmbeddingStatus.PENDING.value
@@ -415,6 +531,21 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 extra={"error": str(e), "memory_id": memory_id},
             )
             # Continue with zero vector - will be backfilled later
+
+        # SPEC-021: 6_embed span — embedding generation
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="6_embed",
+                    data={
+                        "input": {"num_chunks": 1},
+                        "output": {"embedding_status": embedding_status, "dimensions": len(vector)},
+                        "metadata": {"embedding_status": embedding_status, "num_vectors": 1},
+                    },
+                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                )
+            except Exception:
+                pass
 
         payload = {
             "content": summary_data["content"],
@@ -443,6 +574,36 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
             collection_name=COLLECTION_DISCUSSIONS,
             points=[PointStruct(id=memory_id, vector=vector, payload=payload)],
         )
+
+        # SPEC-021: 7_store span — data persisted to Qdrant
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="7_store",
+                    data={
+                        "input": {"num_points": 1},
+                        "output": {"collection": COLLECTION_DISCUSSIONS, "points_stored": 1},
+                        "metadata": {"collection": COLLECTION_DISCUSSIONS, "points_stored": 1},
+                    },
+                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                )
+            except Exception:
+                pass
+
+        # SPEC-021: 8_enqueue span — PreCompact does not use classifier
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="8_enqueue",
+                    data={
+                        "input": {"point_id": memory_id},
+                        "output": {"enqueued": False, "collection": COLLECTION_DISCUSSIONS},
+                        "metadata": {"collection": COLLECTION_DISCUSSIONS, "current_type": "session", "reason": "classifier_not_integrated"},
+                    },
+                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                )
+            except Exception:
+                pass
 
         # Structured logging
         logger.info(

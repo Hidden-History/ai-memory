@@ -14,6 +14,15 @@
 | **RAM**     | 4GB            | 8GB+        | For Docker services |
 | **Disk**    | 5GB free       | 10GB+       | Docker images alone are ~3GB; allow extra space for data |
 
+### Resource Tiers
+
+AI Memory runs on 16 GiB RAM (4 cores minimum). Adding the optional Langfuse LLM observability module increases the requirement to 32 GiB RAM (8 cores recommended).
+
+| Tier | Services | Minimum RAM | Recommended CPU |
+|------|----------|-------------|-----------------|
+| **Core** (default) | 8 services | 16 GiB | 4 cores |
+| **Core + Langfuse** (opt-in) | 15 services | 32 GiB | 8 cores |
+
 ## 🐍 Python Dependencies
 
 The module requires Python packages for core functionality. These are automatically installed by the Docker services, but if you're developing or debugging locally:
@@ -572,6 +581,10 @@ cat CHANGELOG.md | head -20
 ### 1. 🐳 Check Docker Services
 
 ```bash
+# Recommended: use the unified stack manager
+./scripts/stack.sh status
+
+# Or use docker compose directly
 docker compose -f docker/docker-compose.yml ps
 ```
 
@@ -671,6 +684,21 @@ docker compose -f docker/docker-compose.yml --profile monitoring up -d
 - Collection size warnings and threshold alerts
 - Embedding service performance tracking
 
+### Optional: Langfuse LLM Observability Ports
+
+> **Note**: Langfuse is entirely optional. AI Memory works fully without it. Skip this section if you did not enable Langfuse during installation.
+
+When Langfuse is enabled (opt-in), the following additional ports are used:
+
+| Port | Service | Notes |
+|------|---------|-------|
+| 23100 | Langfuse Web UI | Optional (Langfuse) |
+| 23130 | Langfuse Worker | Optional (Langfuse) |
+| 25432 | Langfuse PostgreSQL | Optional (Langfuse) |
+| 26379 | Langfuse Redis | Optional (Langfuse) |
+| 28123 | Langfuse ClickHouse | Optional (Langfuse) |
+| 29000 | Langfuse MinIO | Optional (Langfuse) |
+
 ## Monitoring Setup (Optional)
 
 ### Enable Monitoring Profile
@@ -723,62 +751,31 @@ SEED_BEST_PRACTICES=true ./scripts/install.sh /path/to/project
 
 ## 🔄 Managing the Stack
 
-### Starting Services
+### Quick Reference (Recommended)
+
+Use `stack.sh` — the unified stack manager — for all day-to-day operations. It handles the correct startup/shutdown order automatically (core first on start; Langfuse first on stop).
 
 ```bash
-# Start core services (Qdrant, Embedding, Monitoring API)
-docker compose -f docker/docker-compose.yml up -d
+# Start all services (reads docker/.env to determine which profiles to activate)
+./scripts/stack.sh start
 
-# Start with full monitoring (adds Prometheus, Grafana, Pushgateway)
-docker compose -f docker/docker-compose.yml --profile monitoring up -d
+# Check status of all containers
+./scripts/stack.sh status
+
+# Stop all services (correct shutdown order: Langfuse first, then core)
+./scripts/stack.sh stop
+
+# Full restart
+./scripts/stack.sh restart
+
+# Nuclear option — removes all containers, volumes, and network (requires confirmation)
+./scripts/stack.sh nuke
+
+# Non-interactive nuke (CI/scripts)
+./scripts/stack.sh nuke --yes
 ```
 
-### Stopping Services
-
-```bash
-# Stop core services (preserves data)
-docker compose -f docker/docker-compose.yml down
-
-# Stop core + monitoring services (if started with --profile monitoring)
-docker compose -f docker/docker-compose.yml --profile monitoring down
-
-# Stop services AND delete data volumes (DESTRUCTIVE)
-docker compose -f docker/docker-compose.yml down -v
-
-# Stop ALL including monitoring AND delete volumes (DESTRUCTIVE)
-docker compose -f docker/docker-compose.yml --profile monitoring down -v
-```
-
-> **Important:** If you started with `--profile monitoring`, you must stop with the same flag to properly shut down Prometheus, Grafana, and Pushgateway.
-
-### Restarting Services
-
-```bash
-# Restart core services
-docker compose -f docker/docker-compose.yml restart
-
-# Restart core + monitoring services
-docker compose -f docker/docker-compose.yml --profile monitoring restart
-
-# Restart a specific service
-docker compose -f docker/docker-compose.yml restart ai-memory-qdrant
-docker compose -f docker/docker-compose.yml restart ai-memory-embedding
-docker compose -f docker/docker-compose.yml restart ai-memory-prometheus  # monitoring profile only
-```
-
-### Checking Status
-
-```bash
-# View running services
-docker compose -f docker/docker-compose.yml ps
-
-# Quick health check
-curl -s -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health | head -1  # Qdrant
-curl -s http://localhost:28080/health             # Embedding
-
-# Full health check
-python scripts/health-check.py
-```
+> **Note:** `stack.sh` reads `docker/.env` to determine which services to start. Set `LANGFUSE_ENABLED=true` before running `stack.sh start` if you want Langfuse started automatically. If `LANGFUSE_ENABLED` is `false` (the default), only core services are started.
 
 ### Viewing Logs
 
@@ -800,10 +797,71 @@ If your computer restarts, the Docker services need to be started manually:
 
 ```bash
 cd /path/to/ai-memory  # or wherever you cloned the repo
-docker compose -f docker/docker-compose.yml up -d
+./scripts/stack.sh start
 ```
 
 To enable auto-start on boot, configure Docker Desktop (macOS/Windows) or systemd (Linux) to start the Docker daemon automatically.
+
+### Advanced: Direct Docker Compose Commands
+
+For users who prefer to manage services manually without `stack.sh`:
+
+#### Starting Services
+
+```bash
+# Start core services (Qdrant, Embedding, Monitoring API)
+docker compose -f docker/docker-compose.yml up -d
+
+# Start with full monitoring (adds Prometheus, Grafana, Pushgateway)
+docker compose -f docker/docker-compose.yml --profile monitoring up -d
+```
+
+#### Stopping Services
+
+```bash
+# Stop core services (preserves data)
+docker compose -f docker/docker-compose.yml down
+
+# Stop core + monitoring services (if started with --profile monitoring)
+docker compose -f docker/docker-compose.yml --profile monitoring down
+
+# Stop services AND delete data volumes (DESTRUCTIVE)
+docker compose -f docker/docker-compose.yml down -v
+
+# Stop ALL including monitoring AND delete volumes (DESTRUCTIVE)
+docker compose -f docker/docker-compose.yml --profile monitoring down -v
+```
+
+> **Important:** If you started with `--profile monitoring`, you must stop with the same flag to properly shut down Prometheus, Grafana, and Pushgateway.
+
+#### Restarting Services
+
+```bash
+# Restart core services
+docker compose -f docker/docker-compose.yml restart
+
+# Restart core + monitoring services
+docker compose -f docker/docker-compose.yml --profile monitoring restart
+
+# Restart a specific service
+docker compose -f docker/docker-compose.yml restart ai-memory-qdrant
+docker compose -f docker/docker-compose.yml restart ai-memory-embedding
+docker compose -f docker/docker-compose.yml restart ai-memory-prometheus  # monitoring profile only
+```
+
+#### Checking Status
+
+```bash
+# View running services
+docker compose -f docker/docker-compose.yml ps
+
+# Quick health check
+curl -s -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health | head -1  # Qdrant
+curl -s http://localhost:28080/health             # Embedding
+
+# Full health check
+python scripts/health-check.py
+```
 
 ## ⚙️ Configuration
 
@@ -922,6 +980,13 @@ See [docs/HOOKS.md](docs/HOOKS.md) for comprehensive hook documentation.
 # 1. Stop Docker services
 docker compose -f docker/docker-compose.yml down -v
 
+# Or use the stack manager to remove everything (recommended):
+./scripts/stack.sh nuke --yes
+```
+
+> **Note:** `stack.sh nuke` handles both core and Langfuse containers and volumes in the correct shutdown order.
+
+```bash
 # 2. Remove installation directory
 rm -rf ~/.ai-memory
 
