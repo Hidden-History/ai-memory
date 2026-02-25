@@ -38,11 +38,11 @@ dependencies = [
     # Monitoring
     "prometheus-client>=0.21.0,<1.0.0",
     # Auth (for Prometheus bcrypt hash generation)
-    "bcrypt>=4.0.0,<5.0.0",
+    "bcrypt>=4.0.0,<6.0.0",
     # Anthropic SDK for conversation capture
     "anthropic>=0.61.0,<1.0.0",
     # Retry logic with exponential backoff
-    "tenacity>=8.0.0,<9.0.0",
+    "tenacity>=8.0.0,<10.0.0",
     # AST-based code chunking
     "tree-sitter>=0.21.0,<1.0.0",
     "tree-sitter-python>=0.21.0,<1.0.0",
