@@ -2,9 +2,14 @@
 """Langfuse Stop Hook — Session-Level Tier 1 Tracing.
 
 Captures Claude Code conversation transcripts as Langfuse traces.
-Fires after every Claude Code response (Stop hook).
+Fires when a Claude Code session ends (Stop hook).
 
-PLAN-008 / SPEC-022 §2
+Input (stdin JSON): {session_id, transcript_path, cwd}
+Transcript (.jsonl at transcript_path): Each line is {role, content, token_count}
+  - content may be a string or a list of content blocks
+
+Fixes: BUG-151, BUG-152, BUG-154, BUG-155, BUG-156, BUG-157
+PLAN-008 / SPEC-022 S2
 """
 
 import json
@@ -13,31 +18,166 @@ import os
 import signal
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 
-# Configure logging
-logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+# Configure logging — INFO when DEBUG_HOOKS set, else WARNING
+_log_level = logging.INFO if os.environ.get("DEBUG_HOOKS") else logging.WARNING
+logging.basicConfig(level=_log_level, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
+
+# Self-termination timeout — prevents hook from hanging Claude Code
+HOOK_TIMEOUT_SECONDS = 30
+FLUSH_TIMEOUT_SECONDS = 5
+LANGFUSE_PAYLOAD_MAX_CHARS = 2000
+
+
+def _timeout_handler(signum, frame):
+    """Self-terminate if hook exceeds global timeout (signal.alarm)."""
+    logger.warning(
+        "Langfuse stop hook exceeded %ds timeout — self-terminating",
+        HOOK_TIMEOUT_SECONDS,
+    )
+    sys.exit(0)
+
+
+def _extract_text(content) -> str:
+    """Extract text from a message content field.
+
+    Content may be:
+    - A plain string
+    - A list of content blocks [{type, text, ...}, ...]
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                if block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+                elif block.get("type") == "tool_use":
+                    parts.append(f"[Tool: {block.get('name', 'unknown')}]")
+                elif block.get("type") == "tool_result":
+                    parts.append("[Tool Result]")
+        return "\n".join(parts)
+    return str(content)
+
+
+def _read_transcript(transcript_path: str) -> list[dict]:
+    """Read and parse a .jsonl transcript file.
+
+    Each line: {role, content, token_count}
+    Returns list of parsed message dicts.
+    """
+    messages = []
+    path = Path(transcript_path)
+    if not path.exists():
+        logger.warning("Transcript file not found: %s", transcript_path)
+        return messages
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    msg = json.loads(line)
+                    messages.append(msg)
+                except json.JSONDecodeError:
+                    logger.debug("Skipping malformed JSONL line %d", line_num)
+    except OSError as e:
+        logger.warning("Failed to read transcript file: %s", e)
+
+    return messages
+
+
+def _pair_turns(messages: list[dict]) -> list[dict]:
+    """Pair user messages with their assistant responses.
+
+    Returns list of turn dicts with keys:
+      user_input, assistant_output, user_tokens, assistant_tokens
+    """
+    turns = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        role = msg.get("role", "unknown")
+
+        if role == "user":
+            turn = {
+                "user_input": _extract_text(msg.get("content", "")),
+                "user_tokens": msg.get("token_count"),
+            }
+            # Look ahead for assistant response
+            if (
+                i + 1 < len(messages)
+                and messages[i + 1].get("role") == "assistant"
+            ):
+                next_msg = messages[i + 1]
+                turn["assistant_output"] = _extract_text(
+                    next_msg.get("content", "")
+                )
+                turn["assistant_tokens"] = next_msg.get("token_count")
+                i += 2
+            else:
+                turn["assistant_output"] = None
+                turn["assistant_tokens"] = None
+                i += 1
+            turns.append(turn)
+        elif role == "assistant" and not turns:
+            # Orphan assistant message at start — still capture it
+            turns.append(
+                {
+                    "user_input": None,
+                    "user_tokens": None,
+                    "assistant_output": _extract_text(
+                        msg.get("content", "")
+                    ),
+                    "assistant_tokens": msg.get("token_count"),
+                }
+            )
+            i += 1
+        else:
+            # System messages or already-paired assistant messages
+            i += 1
+
+    return turns
+
+
+def _deterministic_trace_id(session_id: str) -> str:
+    """Generate a deterministic trace ID from session_id for deduplication."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"langfuse-session:{session_id}"))
 
 
 def main():
     """Main entry point for Stop hook."""
-    # Kill-switches — exit immediately if tracing disabled
-    if os.environ.get("TRACE_TO_LANGFUSE", "false").lower() != "true":
+    # Install global self-termination timeout (BUG-155 / signal.alarm best practice)
+    try:
+        signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(HOOK_TIMEOUT_SECONDS)
+    except (AttributeError, OSError):
+        pass  # SIGALRM not available on Windows
+
+    # ── Kill-switches (BUG-156: use LANGFUSE_ENABLED, not TRACE_TO_LANGFUSE) ──
+    if os.environ.get("LANGFUSE_ENABLED", "false").lower() != "true":
         sys.exit(0)
     if os.environ.get("LANGFUSE_TRACE_SESSIONS", "true").lower() != "true":
         sys.exit(0)
 
     try:
-        # Read transcript from stdin (Claude Code passes JSON)
+        # ── BUG-151: Parse stdin JSON → {session_id, transcript_path, cwd} ──
         input_data = sys.stdin.read()
         if not input_data.strip():
             logger.debug("No input data — skipping trace")
             sys.exit(0)
 
-        transcript = json.loads(input_data)
-    except (json.JSONDecodeError, Exception) as e:
-        logger.warning("Failed to parse transcript: %s", e)
+        stdin_payload = json.loads(input_data)
+    except Exception as e:
+        logger.warning("Failed to parse stdin JSON: %s", e)
         sys.exit(0)  # Never block Claude Code
 
     try:
@@ -46,91 +186,144 @@ def main():
         if install_dir:
             sys.path.insert(0, os.path.join(install_dir, "src"))
 
-        from langfuse import Langfuse
-
         from memory.langfuse_config import get_langfuse_client
 
         client = get_langfuse_client()
         if client is None:
+            logger.debug("Langfuse client unavailable — skipping trace")
             sys.exit(0)
 
-        # Build trace metadata (SPEC-022 §2.3, §2.4)
+        # ── BUG-151: Extract fields from stdin, read .jsonl transcript ──
+        session_id = stdin_payload.get("session_id", "")
+        transcript_path = stdin_payload.get("transcript_path", "")
+        cwd = stdin_payload.get("cwd", "")
+
+        if not transcript_path:
+            logger.debug("No transcript_path in stdin payload — skipping trace")
+            sys.exit(0)
+
+        messages = _read_transcript(transcript_path)
+        if not messages:
+            logger.debug("Empty or missing transcript — skipping trace")
+            sys.exit(0)
+
+        # Pair user/assistant turns (BUG-154)
+        turns = _pair_turns(messages)
+
+        # Build trace metadata
+        now = datetime.now(tz=timezone.utc)  # BUG-157: timezone-aware
         project_id = os.environ.get("AI_MEMORY_PROJECT_ID", "")
+
         trace_metadata = {
             "project_id": project_id,
             "source": "claude_code_stop_hook",
+            "cwd": cwd,
+            "transcript_path": transcript_path,
         }
-
-        # Parzival session tagging (SPEC-022 §2.3)
         if os.environ.get("PARZIVAL_ENABLED", "false").lower() == "true":
             trace_metadata["agent_id"] = "parzival"
 
-        # Extract session info from transcript
-        session_id = transcript.get("session_id", str(uuid.uuid4()))
-        messages = transcript.get("messages", transcript.get("turns", []))
+        # ── BUG-152: Derive root span input/output from conversation ──
+        first_user_text = ""
+        last_assistant_text = ""
+        for msg in messages:
+            if msg.get("role") == "user" and not first_user_text:
+                first_user_text = _extract_text(msg.get("content", ""))
+            if msg.get("role") == "assistant":
+                last_assistant_text = _extract_text(msg.get("content", ""))
 
-        # Create trace with v3 API (SPEC-022 §2.6)
-        trace_id = Langfuse.create_trace_id(seed=session_id)
-        root_span = client.start_span(
-            trace_context={"trace_id": trace_id},
-            name="claude_code_session",
-            metadata={
+        # Deterministic trace ID for dedup (replaces Langfuse.create_trace_id)
+        trace_id = _deterministic_trace_id(session_id) if session_id else None
+
+        # Create root span WITH input/output (BUG-152)
+        span_kwargs = {
+            "name": "claude_code_session",
+            "input": (first_user_text[:LANGFUSE_PAYLOAD_MAX_CHARS] if first_user_text else None),
+            "output": (last_assistant_text[:LANGFUSE_PAYLOAD_MAX_CHARS] if last_assistant_text else None),
+            "metadata": {
                 **trace_metadata,
-                "start_time": transcript.get(
-                    "start_time", datetime.utcnow().isoformat()
-                ),
-                "end_time": transcript.get("end_time", datetime.utcnow().isoformat()),
-                "turn_count": len(messages),
+                "turn_count": len(turns),
+                "message_count": len(messages),
+                "start_time": now.isoformat(),
             },
-        )
+        }
+        if trace_id:
+            span_kwargs["trace_id"] = trace_id
+        root_span = client.start_span(**span_kwargs)
+
+        # Update the auto-created trace with session metadata
         root_span.update_trace(
             name="claude_code_session",
-            session_id=session_id,
-            metadata={**trace_metadata, "turn_count": len(messages)},
+            session_id=session_id or None,
+            metadata={**trace_metadata, "turn_count": len(turns)},
+            tags=["session_trace", "tier1"],
         )
 
-        # Add child spans for each turn (SPEC-022 §2.6)
-        for i, msg in enumerate(messages, 1):
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
+        # ── BUG-154: Child spans with BOTH input and output ──
+        for i, turn in enumerate(turns, 1):
+            token_meta = {}
+            if turn.get("user_tokens") is not None:
+                token_meta["user_tokens"] = turn["user_tokens"]
+            if turn.get("assistant_tokens") is not None:
+                token_meta["assistant_tokens"] = turn["assistant_tokens"]
 
-            span_metadata = {"role": role}
-            # Include token_count if available
-            if "token_count" in msg:
-                span_metadata["token_count"] = msg["token_count"]
+            turn_input = turn.get("user_input") or ""
+            turn_output = turn.get("assistant_output") or ""
 
-            turn_span = client.start_span(
-                trace_context={"trace_id": trace_id, "parent_span_id": root_span.id},
-                name=f"turn_{i}",
-                metadata=span_metadata,
-                input=content[:500] if isinstance(content, str) else str(content)[:500],
-            )
+            child_kwargs = {
+                "name": f"turn_{i}",
+                "input": turn_input[:LANGFUSE_PAYLOAD_MAX_CHARS] if turn_input else None,
+                "metadata": token_meta,
+            }
+            if hasattr(root_span, "trace_id"):
+                child_kwargs["trace_id"] = root_span.trace_id
+            if hasattr(root_span, "id"):
+                child_kwargs["parent_observation_id"] = root_span.id
+
+            turn_span = client.start_span(**child_kwargs)
+            # BUG-154: Set output before ending span
+            turn_span.update(output=turn_output[:LANGFUSE_PAYLOAD_MAX_CHARS] if turn_output else None)
             turn_span.end()
 
         root_span.end()
 
-        # Synchronous flush — acceptable for Stop hook (SPEC-022 §2.1)
-        # 2-second timeout per SPEC-022 §8 risk mitigation
+        # ── BUG-155: flush() with timeout guard + logging ──
+        logger.info(
+            "Flushing Langfuse trace: session=%s turns=%d messages=%d",
+            session_id,
+            len(turns),
+            len(messages),
+        )
         try:
+            remaining = signal.alarm(0)  # Save remaining global timeout
 
             def _flush_timeout_handler(signum, frame):
-                raise TimeoutError("Langfuse flush exceeded 2s timeout")
+                raise TimeoutError(
+                    f"Langfuse flush exceeded {FLUSH_TIMEOUT_SECONDS}s timeout"
+                )
 
             old_handler = signal.signal(signal.SIGALRM, _flush_timeout_handler)
-            signal.alarm(2)
+            signal.alarm(FLUSH_TIMEOUT_SECONDS)
             try:
                 client.flush()
+                logger.info("Langfuse flush completed successfully")
             except TimeoutError:
-                logger.warning("Langfuse flush timed out after 2s — traces may be lost")
+                logger.warning(
+                    "Langfuse flush timed out after %ds — traces may be lost",
+                    FLUSH_TIMEOUT_SECONDS,
+                )
             finally:
-                signal.alarm(0)
+                signal.alarm(0)  # Cancel flush timeout
                 signal.signal(signal.SIGALRM, old_handler)
-        except AttributeError:
+                signal.alarm(remaining)  # Restore global safety timeout
+        except (AttributeError, OSError):
             # SIGALRM not available on Windows — flush without timeout
             client.flush()
 
-        logger.debug(
-            "Langfuse trace created: session=%s, turns=%d", session_id, len(messages)
+        logger.info(
+            "Langfuse trace created: session=%s turns=%d",
+            session_id,
+            len(turns),
         )
 
     except Exception as e:

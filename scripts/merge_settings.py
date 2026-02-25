@@ -402,7 +402,6 @@ def merge_settings(
     if os.environ.get("LANGFUSE_ENABLED", "").lower() == "true":
         if "env" not in merged:
             merged["env"] = {}
-        merged["env"]["TRACE_TO_LANGFUSE"] = "true"
         merged["env"]["LANGFUSE_ENABLED"] = "true"
         merged["env"]["LANGFUSE_PUBLIC_KEY"] = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
         merged["env"]["LANGFUSE_SECRET_KEY"] = os.environ.get("LANGFUSE_SECRET_KEY", "")

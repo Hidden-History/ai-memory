@@ -108,10 +108,9 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
 
     # Add Langfuse env vars if enabled (SPEC-019, SPEC-022)
     if os.environ.get("LANGFUSE_ENABLED", "").lower() == "true":
-        env_section["TRACE_TO_LANGFUSE"] = (
-            "true"  # Stop hook primary kill-switch (SPEC-022 §2.2, AC-6)
+        env_section["LANGFUSE_ENABLED"] = (
+            "true"  # Kill-switch (SPEC-022 §2.2, AC-6)
         )
-        env_section["LANGFUSE_ENABLED"] = "true"
         env_section["LANGFUSE_PUBLIC_KEY"] = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
         env_section["LANGFUSE_SECRET_KEY"] = os.environ.get("LANGFUSE_SECRET_KEY", "")
         env_section["LANGFUSE_BASE_URL"] = os.environ.get(

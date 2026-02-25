@@ -12,6 +12,7 @@ import os
 import httpx
 
 from ..config import MAX_OUTPUT_TOKENS, OPENROUTER_BASE_URL, OPENROUTER_MODEL
+from ..langfuse_instrument import langfuse_generation
 from .base import BaseProvider, ProviderResponse
 
 logger = logging.getLogger("ai_memory.classifier.providers.openrouter")
@@ -94,64 +95,80 @@ class OpenRouterProvider(BaseProvider):
 
         prompt = build_classification_prompt(content, collection, current_type)
 
-        try:
-            response = self._client.post(
-                f"{self.base_url}/chat/completions",
-                json={
-                    "model": self.model,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": prompt,
-                        }
-                    ],
-                    "max_tokens": MAX_OUTPUT_TOKENS,
-                    "temperature": 0.1,
-                },
-            )
-            response.raise_for_status()
+        with langfuse_generation("openrouter", self.model) as gen:
+            gen.update(input_text=prompt)
 
-            result = response.json()
+            try:
+                response = self._client.post(
+                    f"{self.base_url}/chat/completions",
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": prompt,
+                            }
+                        ],
+                        "max_tokens": MAX_OUTPUT_TOKENS,
+                        "temperature": 0.1,
+                    },
+                )
+                response.raise_for_status()
 
-            # Extract response text
-            response_text = result["choices"][0]["message"]["content"]
+                result = response.json()
 
-            # Parse JSON response from LLM
-            classification = self._parse_response(response_text)
+                # Extract response text
+                response_text = result["choices"][0]["message"]["content"]
 
-            # Extract token usage
-            usage = result.get("usage", {})
-            input_tokens = usage.get("prompt_tokens", 0)
-            output_tokens = usage.get("completion_tokens", 0)
+                # Parse JSON response from LLM
+                classification = self._parse_response(response_text)
 
-            logger.info(
-                "openrouter_classification_success",
-                extra={
-                    "type": classification["classified_type"],
-                    "confidence": classification["confidence"],
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                },
-            )
+                # Extract token usage
+                usage = result.get("usage", {})
+                input_tokens = usage.get("prompt_tokens", 0)
+                output_tokens = usage.get("completion_tokens", 0)
 
-            return ProviderResponse(
-                classified_type=classification["classified_type"],
-                confidence=classification["confidence"],
-                reasoning=classification.get("reasoning", ""),
-                tags=classification.get("tags", []),
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-            )
+                gen.update(
+                    output_text=response_text,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    metadata={
+                        "classified_type": classification["classified_type"],
+                        "confidence": classification["confidence"],
+                    },
+                )
 
-        except httpx.TimeoutException as e:
-            logger.error("openrouter_timeout", extra={"error": str(e)})
-            raise TimeoutError(f"OpenRouter request timed out: {e}") from e
-        except httpx.HTTPError as e:
-            logger.error("openrouter_http_error", extra={"error": str(e)})
-            raise ConnectionError(f"OpenRouter HTTP error: {e}") from e
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
-            logger.error("openrouter_parse_error", extra={"error": str(e)})
-            raise ValueError(f"Invalid OpenRouter response: {e}") from e
+                logger.info(
+                    "openrouter_classification_success",
+                    extra={
+                        "type": classification["classified_type"],
+                        "confidence": classification["confidence"],
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                    },
+                )
+
+                return ProviderResponse(
+                    classified_type=classification["classified_type"],
+                    confidence=classification["confidence"],
+                    reasoning=classification.get("reasoning", ""),
+                    tags=classification.get("tags", []),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
+
+            except httpx.TimeoutException as e:
+                gen.update(level="ERROR", metadata={"error": str(e)})
+                logger.error("openrouter_timeout", extra={"error": str(e)})
+                raise TimeoutError(f"OpenRouter request timed out: {e}") from e
+            except httpx.HTTPError as e:
+                gen.update(level="ERROR", metadata={"error": str(e)})
+                logger.error("openrouter_http_error", extra={"error": str(e)})
+                raise ConnectionError(f"OpenRouter HTTP error: {e}") from e
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                gen.update(level="ERROR", metadata={"error": str(e)})
+                logger.error("openrouter_parse_error", extra={"error": str(e)})
+                raise ValueError(f"Invalid OpenRouter response: {e}") from e
 
     def close(self):
         """Clean up HTTP client."""

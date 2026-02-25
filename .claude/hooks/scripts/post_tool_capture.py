@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -65,12 +65,10 @@ def _log_to_activity(message: str) -> None:
     Args:
         message: Message to log (can be multi-line)
     """
-    from datetime import datetime
-
     log_dir = Path(INSTALL_DIR) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "activity.log"
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     # Escape newlines for single-line output (Streamlit parses line-by-line)
     safe_message = message.replace("\n", "\\n")
     try:
@@ -340,7 +338,7 @@ def main() -> int:
             trace_id = None
             if emit_trace_event:
                 trace_id = str(uuid.uuid4())
-                capture_start = datetime.utcnow()
+                capture_start = datetime.now(tz=timezone.utc)
                 cwd_path = hook_input.get("cwd", os.getcwd())
                 try:
                     emit_trace_event(
@@ -358,7 +356,7 @@ def main() -> int:
                         session_id=hook_input.get("session_id"),
                         project_id=detect_project_func(cwd_path) if detect_project_func else None,
                         start_time=capture_start,
-                        end_time=datetime.utcnow(),
+                        end_time=datetime.now(tz=timezone.utc),
                     )
                 except Exception:
                     pass  # Never crash the hook for tracing

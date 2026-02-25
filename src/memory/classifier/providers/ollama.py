@@ -11,6 +11,7 @@ import logging
 import httpx
 
 from ..config import MAX_OUTPUT_TOKENS, OLLAMA_BASE_URL, OLLAMA_MODEL
+from ..langfuse_instrument import langfuse_generation
 from .base import BaseProvider, ProviderResponse
 
 logger = logging.getLogger("ai_memory.classifier.providers.ollama")
@@ -79,53 +80,72 @@ class OllamaProvider(BaseProvider):
 
         prompt = build_classification_prompt(content, collection, current_type)
 
-        try:
-            response = self._client.post(
-                f"{self.base_url}/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "num_predict": MAX_OUTPUT_TOKENS,
-                        "temperature": 0.1,  # Low temperature for consistency
+        with langfuse_generation("ollama", self.model) as gen:
+            gen.update(input_text=prompt)
+
+            try:
+                response = self._client.post(
+                    f"{self.base_url}/api/generate",
+                    json={
+                        "model": self.model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {
+                            "num_predict": MAX_OUTPUT_TOKENS,
+                            "temperature": 0.1,
+                        },
                     },
-                },
-            )
-            response.raise_for_status()
+                )
+                response.raise_for_status()
 
-            result = response.json()
-            response_text = result.get("response", "")
+                result = response.json()
+                response_text = result.get("response", "")
 
-            # Parse JSON response from LLM
-            classification = self._parse_response(response_text)
+                # Parse JSON response from LLM
+                classification = self._parse_response(response_text)
 
-            logger.info(
-                "ollama_classification_success",
-                extra={
-                    "type": classification["classified_type"],
-                    "confidence": classification["confidence"],
-                },
-            )
+                input_tokens = result.get("prompt_eval_count", 0)
+                output_tokens = result.get("eval_count", 0)
 
-            return ProviderResponse(
-                classified_type=classification["classified_type"],
-                confidence=classification["confidence"],
-                reasoning=classification.get("reasoning", ""),
-                tags=classification.get("tags", []),
-                input_tokens=result.get("prompt_eval_count", 0),
-                output_tokens=result.get("eval_count", 0),
-            )
+                gen.update(
+                    output_text=response_text,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    metadata={
+                        "classified_type": classification["classified_type"],
+                        "confidence": classification["confidence"],
+                    },
+                )
 
-        except httpx.TimeoutException as e:
-            logger.error("ollama_timeout", extra={"error": str(e)})
-            raise TimeoutError(f"Ollama request timed out: {e}") from e
-        except httpx.HTTPError as e:
-            logger.error("ollama_http_error", extra={"error": str(e)})
-            raise ConnectionError(f"Ollama HTTP error: {e}") from e
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
-            logger.error("ollama_parse_error", extra={"error": str(e)})
-            raise ValueError(f"Invalid Ollama response: {e}") from e
+                logger.info(
+                    "ollama_classification_success",
+                    extra={
+                        "type": classification["classified_type"],
+                        "confidence": classification["confidence"],
+                    },
+                )
+
+                return ProviderResponse(
+                    classified_type=classification["classified_type"],
+                    confidence=classification["confidence"],
+                    reasoning=classification.get("reasoning", ""),
+                    tags=classification.get("tags", []),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
+
+            except httpx.TimeoutException as e:
+                gen.update(level="ERROR", metadata={"error": str(e)})
+                logger.error("ollama_timeout", extra={"error": str(e)})
+                raise TimeoutError(f"Ollama request timed out: {e}") from e
+            except httpx.HTTPError as e:
+                gen.update(level="ERROR", metadata={"error": str(e)})
+                logger.error("ollama_http_error", extra={"error": str(e)})
+                raise ConnectionError(f"Ollama HTTP error: {e}") from e
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                gen.update(level="ERROR", metadata={"error": str(e)})
+                logger.error("ollama_parse_error", extra={"error": str(e)})
+                raise ValueError(f"Invalid Ollama response: {e}") from e
 
     def close(self):
         """Clean up HTTP client."""

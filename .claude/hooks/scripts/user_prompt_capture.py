@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -231,7 +231,7 @@ def main() -> int:
         trace_id = None
         if emit_trace_event:
             trace_id = str(uuid.uuid4())
-            capture_start = datetime.utcnow()
+            capture_start = datetime.now(tz=timezone.utc)
             content = hook_input.get("prompt", "")
             cwd = os.getcwd()
             try:
@@ -250,7 +250,7 @@ def main() -> int:
                     session_id=hook_input.get("session_id"),
                     project_id=detect_project(cwd) if detect_project else None,
                     start_time=capture_start,
-                    end_time=datetime.utcnow(),
+                    end_time=datetime.now(tz=timezone.utc),
                 )
             except Exception:
                 pass  # Never crash the hook for tracing

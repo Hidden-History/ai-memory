@@ -14,7 +14,7 @@ import signal
 import stat
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Bootstrap: allow running as `python -m memory.trace_flush_worker` from src/
@@ -22,8 +22,6 @@ INSTALL_DIR = os.environ.get(
     "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
 )
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
-
-from langfuse import Langfuse  # noqa: E402
 
 from memory.langfuse_config import get_langfuse_client  # noqa: E402
 
@@ -132,11 +130,11 @@ def process_buffer_files(langfuse) -> tuple[int, int]:
             continue
 
         try:
-            trace_id = Langfuse.create_trace_id(seed=event.get("trace_id"))
+            trace_id = event.get("trace_id")
             data = event.get("data", {})
             event_type = event.get("event_type", "unknown")
 
-            span_metadata = dict(data.get("metadata", {}))
+            span_metadata = data.get("metadata", {})
             if data.get("start_time"):
                 span_metadata["original_start_time"] = data["start_time"]
             if event.get("parent_span_id"):
@@ -146,20 +144,32 @@ def process_buffer_files(langfuse) -> tuple[int, int]:
                 trace_context={"trace_id": trace_id},
                 name=event_type,
                 input=data.get("input"),
-                output=data.get("output"),
                 metadata=span_metadata,
             )
-            span.update_trace(
-                name=f"hook_pipeline_{event.get('project_id', 'unknown')}",
-                session_id=event.get("session_id"),
-                metadata={
+
+            # BUG-152: Root spans (no parent_span_id) must set input/output
+            # on update_trace() so Langfuse v3 derives trace-level I/O.
+            trace_kwargs = {
+                "name": f"hook_pipeline_{event.get('project_id', 'unknown')}",
+                "session_id": event.get("session_id"),
+                "metadata": {
                     "project_id": event.get("project_id"),
                     "source": "trace_buffer",
                 },
-            )
+            }
+            if not event.get("parent_span_id"):
+                trace_kwargs["input"] = data.get("input")
+                trace_kwargs["output"] = data.get("output")
+            span.update_trace(**trace_kwargs)
+
+            # BUG-154: Set output on span before ending — start_span()
+            # does not persist output, must use span.update().
+            if data.get("output") is not None:
+                span.update(output=data.get("output"))
+
             if data.get("end_time"):
                 end_dt = datetime.fromisoformat(data["end_time"])
-                span.end(end_time=int(end_dt.timestamp() * 1e9))
+                span.end(end_time=end_dt)
             else:
                 span.end()
             json_file.unlink()

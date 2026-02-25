@@ -31,6 +31,21 @@ try:
 except ImportError:
     emit_trace_event = None
 
+# Phase 2: Initialize Langfuse instrumentation for classifier LLM calls
+try:
+    from memory.langfuse_config import is_langfuse_enabled
+
+    if is_langfuse_enabled():
+        # Pre-warm Langfuse client singleton (side effect: initializes connection)
+        from memory.langfuse_config import get_langfuse_client
+
+        if get_langfuse_client():
+            logging.getLogger("ai_memory.classifier.worker").info(
+                "langfuse_classifier_tracing_enabled"
+            )
+except ImportError:
+    pass
+
 logger = logging.getLogger("ai_memory.classifier.worker")
 
 # Resource limits
