@@ -114,9 +114,7 @@ class JiraSyncEngine:
         # Per verified contract: group_id = Jira instance URL hostname
         self.group_id = urlparse(self._instance_url).hostname
         if not self.group_id:
-            raise ValueError(
-                f"Invalid JIRA_INSTANCE_URL: {self._instance_url}"
-            )
+            raise ValueError(f"Invalid JIRA_INSTANCE_URL: {self._instance_url}")
 
         # Initialize clients
         self.jira_client = JiraClient(
@@ -132,7 +130,9 @@ class JiraSyncEngine:
         # Per-instance state file path
         # Only replace dots — dashes stay to avoid collisions
         hostname_safe = self.group_id.replace(".", "_")
-        self._state_file = self.config.install_dir / f"jira_sync_state_{hostname_safe}.json"
+        self._state_file = (
+            self.config.install_dir / f"jira_sync_state_{hostname_safe}.json"
+        )
         self.state_path = self._state_file  # backward-compat alias
 
     async def sync_project(

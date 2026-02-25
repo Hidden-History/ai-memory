@@ -214,7 +214,10 @@ def test_code_blob_sync_group_id_used_for_qdrant_filters():
     client = MagicMock()
     with (
         patch("memory.connectors.github.code_sync.MemoryStorage"),
-        patch("memory.connectors.github.code_sync.get_qdrant_client", return_value=mock_qdrant),
+        patch(
+            "memory.connectors.github.code_sync.get_qdrant_client",
+            return_value=mock_qdrant,
+        ),
         patch("memory.classifier.circuit_breaker.CircuitBreaker"),
     ):
         sync = CodeBlobSync(client, config, repo="override/repo")
@@ -354,7 +357,9 @@ async def test_run_sync_cycle_code_blobs_per_project():
     with (
         patch("memory.config.discover_projects", return_value=projects),
         patch.object(github_sync_service, "GitHubSyncEngine", return_value=mock_engine),
-        patch.object(github_sync_service, "GitHubClient", side_effect=make_client) as mock_client_cls,
+        patch.object(
+            github_sync_service, "GitHubClient", side_effect=make_client
+        ) as mock_client_cls,
         patch.object(github_sync_service, "CodeBlobSync", side_effect=make_code_sync),
     ):
         mock_client_cls.generate_batch_id.return_value = "batch-xyz"
@@ -383,7 +388,11 @@ async def test_run_sync_cycle_partial_failure_continues():
         if call_count[0] == 1:
             raise RuntimeError("First project sync failed")
         return MagicMock(
-            issues_synced=5, prs_synced=0, commits_synced=0, ci_results_synced=0, errors=0
+            issues_synced=5,
+            prs_synced=0,
+            commits_synced=0,
+            ci_results_synced=0,
+            errors=0,
         )
 
     mock_engine = AsyncMock()

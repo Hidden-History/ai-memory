@@ -94,7 +94,9 @@ def _make_project(
 
 def test_engine_instance_url_param_overrides_config(tmp_path):
     """JiraSyncEngine(config, instance_url=...) uses provided URL."""
-    config = _make_config(instance_url="https://default.atlassian.net", tmp_path=tmp_path)
+    config = _make_config(
+        instance_url="https://default.atlassian.net", tmp_path=tmp_path
+    )
 
     engine = _make_sync_engine_with_override(
         config, instance_url="https://override.atlassian.net"
@@ -106,7 +108,9 @@ def test_engine_instance_url_param_overrides_config(tmp_path):
 
 def test_engine_backward_compat_uses_config_instance_url(tmp_path):
     """JiraSyncEngine(config) falls back to config.jira_instance_url."""
-    config = _make_config(instance_url="https://company.atlassian.net", tmp_path=tmp_path)
+    config = _make_config(
+        instance_url="https://company.atlassian.net", tmp_path=tmp_path
+    )
 
     engine = _make_sync_engine(config)
 
@@ -220,6 +224,7 @@ async def test_sync_all_projects_uses_override_list(tmp_path):
     async def mock_sync_project(key, mode="incremental"):
         synced_keys.append(key)
         from memory.connectors.jira.sync import SyncResult
+
         return SyncResult(issues_synced=1)
 
     engine.sync_project = mock_sync_project
@@ -261,9 +266,7 @@ def test_project_id_argument_parsed():
     parser.add_argument("--full", action="store_true")
     parser.add_argument("--incremental", action="store_true")
     parser.add_argument("--project", type=str)
-    parser.add_argument(
-        "--project-id", type=str, dest="project_id"
-    )
+    parser.add_argument("--project-id", type=str, dest="project_id")
     parser.add_argument("--status", action="store_true")
 
     args = parser.parse_args(["--project-id", "my-project"])
@@ -339,7 +342,9 @@ async def test_run_sync_project_id_creates_engine_with_override():
     engine_calls: list[dict] = []
 
     def make_engine(cfg, instance_url=None, jira_projects=None):
-        engine_calls.append({"instance_url": instance_url, "jira_projects": jira_projects})
+        engine_calls.append(
+            {"instance_url": instance_url, "jira_projects": jira_projects}
+        )
         return mock_engine
 
     with (
@@ -390,7 +395,10 @@ async def test_run_sync_iterates_all_jira_projects_from_projects_d():
         await jira_sync.run_sync(args, config)
 
     # Should sync proj-a and proj-b but not proj-disabled
-    assert sorted(instance_urls) == ["https://a.atlassian.net", "https://b.atlassian.net"]
+    assert sorted(instance_urls) == [
+        "https://a.atlassian.net",
+        "https://b.atlassian.net",
+    ]
     mock_engine.close.assert_called()
 
 

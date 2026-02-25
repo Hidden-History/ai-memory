@@ -599,7 +599,9 @@ class TestStatePersistence:
             engine._save_project_state("PROJ", 5, 10)
 
         # Verify state file exists (per-instance filename: hostname dots → underscores)
-        state_file = mock_config.install_dir / "jira_sync_state_company_atlassian_net.json"
+        state_file = (
+            mock_config.install_dir / "jira_sync_state_company_atlassian_net.json"
+        )
         assert state_file.exists()
 
         # Verify content

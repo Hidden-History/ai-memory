@@ -60,7 +60,11 @@ async def test_run_sync_cycle_both_engines():
     project.github_repo = "owner/repo"
 
     with (
-        patch("memory.config.discover_projects", create=True, return_value={"proj": project}),
+        patch(
+            "memory.config.discover_projects",
+            create=True,
+            return_value={"proj": project},
+        ),
         patch.object(
             github_sync_service, "GitHubSyncEngine", return_value=mock_engine
         ) as mock_eng_cls,
@@ -74,9 +78,13 @@ async def test_run_sync_cycle_both_engines():
         result = await run_sync_cycle(config)
 
     assert result is True
-    mock_eng_cls.assert_called_once_with(config, repo="owner/repo")
+    mock_eng_cls.assert_called_once_with(
+        config, repo="owner/repo", branch=project.github_branch
+    )
     mock_engine.sync.assert_awaited_once()
-    mock_cs_cls.assert_called_once_with(mock_client, config, repo="owner/repo")
+    mock_cs_cls.assert_called_once_with(
+        mock_client, config, repo="owner/repo", branch=project.github_branch
+    )
     mock_code_sync.sync_code_blobs.assert_awaited_once_with(
         "batch-1", total_timeout=config.github_sync_total_timeout
     )
@@ -102,7 +110,11 @@ async def test_run_sync_cycle_code_disabled():
     project.github_repo = "owner/repo"
 
     with (
-        patch("memory.config.discover_projects", create=True, return_value={"proj": project}),
+        patch(
+            "memory.config.discover_projects",
+            create=True,
+            return_value={"proj": project},
+        ),
         patch.object(github_sync_service, "GitHubSyncEngine", return_value=mock_engine),
         patch.object(github_sync_service, "GitHubClient") as mock_client_cls,
         patch.object(github_sync_service, "CodeBlobSync") as mock_cs_cls,
@@ -144,7 +156,11 @@ async def test_run_sync_cycle_engine_failure_continues():
     project.github_repo = "owner/repo"
 
     with (
-        patch("memory.config.discover_projects", create=True, return_value={"proj": project}),
+        patch(
+            "memory.config.discover_projects",
+            create=True,
+            return_value={"proj": project},
+        ),
         patch.object(github_sync_service, "GitHubSyncEngine", return_value=mock_engine),
         patch.object(github_sync_service, "GitHubClient") as mock_client_cls,
         patch.object(github_sync_service, "CodeBlobSync", return_value=mock_code_sync),
