@@ -524,7 +524,7 @@ print(','.join(keys))
                 log_success "GitHub connection verified (HTTP 200) — repo: $GITHUB_REPO"
 
                 # Register project in projects.d/ for multi-project support (PLAN-009)
-                register_project_sync "$GITHUB_REPO" "$GITHUB_REPO" "$(pwd)" "$GITHUB_BRANCH"
+                register_project_sync "$GITHUB_REPO" "$GITHUB_REPO" "$(pwd)" "${GITHUB_BRANCH:-main}"
 
                 # Prompt for initial sync
                 echo ""
