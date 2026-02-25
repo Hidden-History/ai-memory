@@ -5,6 +5,54 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.8] - 2026-02-25
+
+Multi-project sync (PLAN-009): Prometheus-style `projects.d/` discovery, per-repo/per-Jira-instance state files, and parameterized sync engines. AI issue triage via multi-model Ollama consensus. Housekeeping: CI fixes, security credential hardening, Dependabot updates.
+
+### Added
+
+#### Multi-Project Sync (PLAN-009)
+- `projects.d/` directory-based project discovery (Prometheus-style pattern) with per-project YAML config
+- `ProjectSyncConfig` dataclass and `discover_projects()` function in config.py
+- `register_project_sync()` in installer — writes per-project YAML to `~/.ai-memory/config/projects.d/`
+- `projects.d/` volume mount in Docker Compose for github-sync container
+- `list_projects.py` CLI tool for listing registered projects
+- `docs/multi-project.md` setup guide for multi-project configuration
+- Per-repo GitHub sync state files with collision-safe naming (`__` separator for `/`)
+- Per-instance Jira sync state files for multi-Jira-instance support
+- Branch parameter propagated through all GitHub sync engines (sync.py + code_sync.py)
+- Legacy `GITHUB_REPO` env var fallback for backward compatibility
+- `--project-id` flag on `jira_sync.py` for targeted per-project sync
+- 52 new tests (20 discovery + 15 GitHub multi-project + 17 Jira alignment)
+
+#### AI Issue Triage (GitHub Actions)
+- `auto-triage-issue` job in `claude-assistant.yml` — multi-model Ollama consensus (3 analysis + 3 classification, 2/3 majority vote)
+- Bot filter (endsWith '[bot]', dependabot, github-actions) prevents cost amplification
+- Graceful degradation: `has_key=false` when OLLAMA_API_KEY missing (no crash, just no triage)
+
+### Changed
+- `GitHubSyncEngine.__init__()` now takes `repo: str` parameter (was hardcoded from config)
+- `CodeBlobSync.__init__()` now takes `repo: str` and `branch: str` parameters
+- `JiraSyncEngine.__init__()` accepts optional `instance_url` and `jira_projects` overrides
+- `github_sync_service.py` now iterates all registered projects from `discover_projects()`
+
+### Fixed
+- **BUG-128** (HIGH): Grafana E2E selectors broken by AI Memory branding — updated selectors
+- **BUG-129** (MEDIUM): Qdrant API key missing from CI test environment — added to workflow
+- **BUG-130** (HIGH): Release workflow broken — fixed artifact path and permissions
+
+### Security
+- QDRANT_API_KEY moved from `settings.json` (committed to git) to `settings.local.json` (gitignored) — Fixes GitHub issue #38
+- Project ID detection from git remote (org/repo slug) instead of folder name — Fixes GitHub issue #39
+
+### Dependencies
+- `bcrypt` upper bound widened `<5.0.0` → `<6.0.0` (Dependabot #30 — passwords >72 bytes now raise ValueError instead of silent truncation)
+- `pydantic-settings` 2.12→2.13, `anthropic` 0.77→0.80, `tenacity` 9.1.2→9.1.4, `ruff` 0.14→0.15, `pyyaml` 6.0.2→6.0.3, `fastapi` 0.128→0.129, `uvicorn` 0.40→0.41 (Dependabot #43)
+- `tenacity` upper bound widened `<9.0.0` → `<10.0.0`
+- GitHub Actions group updated (Dependabot #41)
+
+---
+
 ## [2.0.7] - 2026-02-24
 
 LLM Observability via Langfuse (optional): Full pipeline tracing, cost tracking, session grouping, and Grafana integration.
@@ -564,7 +612,8 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.7...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.8...HEAD
+[2.0.8]: https://github.com/Hidden-History/ai-memory/compare/v2.0.7...v2.0.8
 [2.0.7]: https://github.com/Hidden-History/ai-memory/compare/v2.0.6...v2.0.7
 [2.0.6]: https://github.com/Hidden-History/ai-memory/compare/v2.0.5...v2.0.6
 [2.0.5]: https://github.com/Hidden-History/ai-memory/compare/v2.0.4...v2.0.5
