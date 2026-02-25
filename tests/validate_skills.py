@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Validation script for BMAD Memory Module skills.
+Validation script for AI Memory Module skills.
 Tests underlying Python functions that skills depend on.
 """
 
@@ -171,7 +171,7 @@ def test_memory_settings():
 def main():
     """Run all skill validation tests"""
     print("╔" + "=" * 68 + "╗")
-    print("║" + " BMAD Memory Module - Skills Validation ".center(68) + "║")
+    print("║" + " AI Memory Module - Skills Validation ".center(68) + "║")
     print("╚" + "=" * 68 + "╝")
 
     results = {

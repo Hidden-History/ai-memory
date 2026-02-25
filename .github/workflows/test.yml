@@ -105,6 +105,8 @@ jobs:
         ports:
           - 6333:6333
           - 6334:6334
+        env:
+          QDRANT__SERVICE__API_KEY: ci-integration-test-key
         # No health-cmd - Qdrant image lacks curl/wget (security hardening)
         # Health check performed via Python step below
 
@@ -158,6 +160,7 @@ jobs:
           CI: "true"
           QDRANT_HOST: localhost
           QDRANT_PORT: "6333"
+          QDRANT_API_KEY: ci-integration-test-key
 
   # ============================================================================
   # E2E TESTS - Playwright browser tests (optional, runs after integration)
@@ -178,12 +181,11 @@ jobs:
         working-directory: docker
         run: |
           # Pre-compute shell expansions
-          TIMESTAMP=$(date +%s%N)
           PROM_AUTH=$(echo -n "admin:ci-test-prometheus-password" | base64)
 
           cat > .env << ENVEOF
           # Dummy credentials for CI - security not required for ephemeral test environment
-          QDRANT_API_KEY=ci-test-key-${TIMESTAMP}
+          QDRANT_API_KEY=ci-e2e-test-key
           GRAFANA_ADMIN_USER=admin
           GRAFANA_ADMIN_PASSWORD=ci-test-password
           GRAFANA_SECRET_KEY=ci-test-secret-key-32-characters-long
@@ -405,6 +407,9 @@ jobs:
             --browser chromium
         env:
           CI: "true"
+          QDRANT_HOST: localhost
+          QDRANT_PORT: "26350"
+          QDRANT_API_KEY: ci-e2e-test-key
 
       - name: Cleanup Docker services
         if: always()

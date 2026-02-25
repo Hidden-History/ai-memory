@@ -56,9 +56,7 @@ class TestCollectionStatsScript:
 
         # Output should contain expected sections
         output = result.stdout + result.stderr
-        assert (
-            "BMAD Memory Collection Statistics" in output or "error" in output.lower()
-        )
+        assert "AI Memory Collection Statistics" in output or "error" in output.lower()
 
 
 class TestStatisticsPerformance:

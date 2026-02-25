@@ -41,7 +41,7 @@ def sample_commits():
 def sample_yaml_content():
     """Sample sprint-status.yaml structure."""
     return """# Sprint Status Tracking
-# Project: BMAD Memory Module
+# Project: AI Memory Module
 # Generated: 2026-01-10
 
 epics:
@@ -236,7 +236,7 @@ def test_update_yaml_preserves_comments(temp_yaml_file):
 
     # Check that header comments are preserved
     assert "# Sprint Status Tracking" in updated_content
-    assert "# Project: BMAD Memory Module" in updated_content
+    assert "# Project: AI Memory Module" in updated_content
     assert "# Generated: 2026-01-10" in updated_content
 
 

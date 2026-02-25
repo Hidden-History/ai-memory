@@ -38,7 +38,8 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
 
     Returns:
         Dict with complete V2.0 hook configuration:
-        - 'env' section with AI_MEMORY_INSTALL_DIR, AI_MEMORY_PROJECT_ID, service ports, API keys
+        - 'env' section with AI_MEMORY_INSTALL_DIR, AI_MEMORY_PROJECT_ID, service ports
+          (QDRANT_API_KEY is excluded — written to settings.local.json instead, see #38)
         - 'hooks' section with all 6 hook types
 
     2026 Best Practice: Complete Claude Code V2.0 hook structure
@@ -64,8 +65,10 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         "timeout": 30000,
     }
 
-    # Build env section - only include QDRANT_API_KEY if it has a value
-    # (empty string vs omitted key matters for some consumers)
+    # Build env section — QDRANT_API_KEY is intentionally excluded here.
+    # Security: settings.json may be committed to project git repos in team deployments.
+    # QDRANT_API_KEY is written to settings.local.json instead (see write_local_settings()),
+    # which is gitignored. Claude Code merges both files at runtime. (fixes #38)
     env_section = {
         # AI Memory Module installation directory (dynamic)
         "AI_MEMORY_INSTALL_DIR": install_dir,
@@ -83,11 +86,6 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         "PUSHGATEWAY_URL": os.environ.get("PUSHGATEWAY_URL", "localhost:29091"),
         "PUSHGATEWAY_ENABLED": os.environ.get("PUSHGATEWAY_ENABLED", "true"),
     }
-
-    # Only include QDRANT_API_KEY if it has a non-empty value
-    api_key = os.environ.get("QDRANT_API_KEY", "")
-    if api_key:
-        env_section["QDRANT_API_KEY"] = api_key
 
     # Add Parzival env vars if enabled (SPEC-015)
     if os.environ.get("PARZIVAL_ENABLED", "").lower() == "true":
@@ -253,6 +251,42 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
     }
 
 
+def write_local_settings(settings_path: Path, api_key: str) -> None:
+    """Write QDRANT_API_KEY to settings.local.json alongside settings.json.
+
+    Security: QDRANT_API_KEY must NOT be stored in settings.json because that
+    file may be committed to project git repos in team deployments. Instead,
+    the key is stored in settings.local.json which is gitignored. Claude Code
+    merges settings.json + settings.local.json at runtime, so hooks receive
+    the key transparently. (fixes #38)
+
+    Args:
+        settings_path: Path to settings.json (settings.local.json is written
+                       in the same directory).
+        api_key: The QDRANT_API_KEY value. If empty, this function is a no-op.
+    """
+    if not api_key:
+        return
+
+    local_path = settings_path.parent / "settings.local.json"
+
+    # Load existing local settings if present (preserve other user customisations)
+    if local_path.exists():
+        with open(local_path) as f:
+            local_config: dict = json.load(f)
+    else:
+        local_config = {}
+
+    local_config.setdefault("env", {})["QDRANT_API_KEY"] = api_key
+
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(local_path, "w") as f:
+        json.dump(local_config, f, indent=2)
+        f.write("\n")
+
+    print(f"Wrote QDRANT_API_KEY to {local_path} (gitignored — not in settings.json)")
+
+
 def main():
     """Main entry point for CLI invocation."""
     if len(sys.argv) != 4:
@@ -263,7 +297,7 @@ def main():
     hooks_dir = sys.argv[2]
     project_name = sys.argv[3]
 
-    # Generate configuration
+    # Generate configuration (QDRANT_API_KEY is not included — see write_local_settings)
     config = generate_hook_config(hooks_dir, project_name)
 
     # Write to file
@@ -273,6 +307,10 @@ def main():
 
     print(f"Generated settings.json at {output_path}")
     print(f"Project ID: {project_name}")
+
+    # Write QDRANT_API_KEY to settings.local.json (gitignored) instead of settings.json
+    api_key = os.environ.get("QDRANT_API_KEY", "")
+    write_local_settings(output_path, api_key)
 
 
 if __name__ == "__main__":

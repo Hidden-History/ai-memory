@@ -1,4 +1,4 @@
-# BMAD Memory Module - Core Dependencies
+# AI Memory Module - Core Dependencies
 # Python 3.10+
 
 # Vector Database

@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for BMAD Memory Module tests.
+"""Shared pytest fixtures for AI Memory Module tests.
 
 This module provides common fixtures for test setup and teardown,
 following project-context.md testing conventions and 2026 pytest best practices.

@@ -10,6 +10,7 @@ Example:
     >>> print(project)  # Output: "my-app"
 """
 
+import configparser
 import hashlib
 import logging
 import os
@@ -118,15 +119,113 @@ def get_project_hash(cwd: str) -> str:
         return fallback
 
 
+def _extract_org_repo_from_remote_url(remote_url: str) -> str | None:
+    """Extract org/repo slug from a git remote URL.
+
+    Handles both HTTPS and SSH remote URL formats:
+    - https://github.com/org/repo.git  -> "org/repo"
+    - https://github.com/org/repo      -> "org/repo"
+    - git@github.com:org/repo.git      -> "org/repo"
+    - git@gitlab.com:org/repo.git      -> "org/repo"
+    - https://gitlab.com/org/repo.git  -> "org/repo"
+
+    Args:
+        remote_url: The raw git remote URL string
+
+    Returns:
+        Lowercase "org/repo" slug, or None if the URL cannot be parsed
+    """
+    remote_url = remote_url.strip()
+    if not remote_url:
+        return None
+
+    # SSH format: git@host:org/repo.git or git@host:org/repo
+    ssh_match = re.match(r"^git@[^:]+:([^/]+/[^/]+?)(?:\.git)?$", remote_url)
+    if ssh_match:
+        return ssh_match.group(1).lower()
+
+    # HTTPS format: https://host/org/repo.git or https://host/org/repo
+    https_match = re.match(r"^https?://[^/]+/([^/]+/[^/]+?)(?:\.git)?$", remote_url)
+    if https_match:
+        return https_match.group(1).lower()
+
+    return None
+
+
+def _detect_project_from_git_remote(cwd_path: Path) -> str | None:
+    """Detect project identifier from the git remote origin URL.
+
+    Walks up from the given directory to find a .git directory, then reads
+    the remote.origin.url from .git/config and extracts the org/repo slug.
+
+    Args:
+        cwd_path: Resolved Path object for the working directory
+
+    Returns:
+        Normalized "org/repo" project ID (e.g. "hidden-history/ai-memory"),
+        or None if no git remote is available or parseable.
+    """
+    # Walk up the directory tree to find the git root
+    search_path = cwd_path
+    git_config_path: Path | None = None
+    for _ in range(20):  # limit traversal depth
+        candidate = search_path / ".git" / "config"
+        if candidate.is_file():
+            git_config_path = candidate
+            break
+        parent = search_path.parent
+        if parent == search_path:
+            break
+        search_path = parent
+
+    if git_config_path is None:
+        return None
+
+    try:
+        config = configparser.ConfigParser()
+        config.read(str(git_config_path))
+        remote_url = config.get('remote "origin"', "url", fallback=None)
+        if not remote_url:
+            return None
+
+        org_repo = _extract_org_repo_from_remote_url(remote_url)
+        if org_repo is None:
+            logger.debug(
+                "git_remote_url_not_parseable",
+                extra={"remote_url": remote_url},
+            )
+            return None
+
+        # Normalize each component separately, keeping "/" as separator
+        parts = org_repo.split("/", 1)
+        if len(parts) != 2:
+            return None
+        org_norm = normalize_project_name(parts[0])
+        repo_norm = normalize_project_name(parts[1])
+        if not org_norm or not repo_norm:
+            return None
+
+        return f"{org_norm}/{repo_norm}"
+
+    except (configparser.Error, OSError, ValueError) as e:
+        logger.debug(
+            "git_remote_detection_failed",
+            extra={"git_config": str(git_config_path), "error": str(e)},
+        )
+        return None
+
+
 def detect_project(cwd: str | None = None) -> str:
     """Detect project identifier from environment variable or working directory.
 
     Detection priority:
     1. AI_MEMORY_PROJECT_ID environment variable (highest priority)
-    2. Directory-based detection (fallback)
+    2. Git remote org/repo slug (auto-detected from .git/config)
+    3. Directory-based detection (fallback)
 
     Implements project detection strategy with special handling for edge cases:
     - Uses AI_MEMORY_PROJECT_ID env var if set (prevents pollution)
+    - Detects org/repo from git remote origin URL when available
     - Falls back to directory name as project identifier
     - Handles root, home, and temp directories specially
     - Normalizes name for consistent group_id
@@ -158,7 +257,7 @@ def detect_project(cwd: str | None = None) -> str:
         )
         return project_name
 
-    # 2. Fall back to directory-based detection
+    # 2. Directory-based detection (git remote then folder name)
     # Use current working directory if not provided
     if cwd is None:
         cwd = os.getcwd()
@@ -221,7 +320,16 @@ def detect_project(cwd: str | None = None) -> str:
             )
             return "temp-project"
 
-        # Normal case: Extract directory name
+        # 2a. Try git remote origin URL (org/repo slug) — more stable than folder name
+        git_project = _detect_project_from_git_remote(cwd_path)
+        if git_project:
+            logger.debug(
+                "project_detected_from_git_remote",
+                extra={"cwd": abs_path, "project": git_project},
+            )
+            return git_project
+
+        # 2b. Normal case: Extract directory name (fallback)
         dir_name = cwd_path.name
 
         if not dir_name:

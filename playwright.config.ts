@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Playwright configuration for BMAD Memory Module Grafana dashboard tests
+ * Playwright configuration for AI Memory Module Grafana dashboard tests
  */
 export default defineConfig({
   testDir: './tests/e2e',

@@ -374,7 +374,7 @@ def merge_settings(
 
     # Generate new hook config with error handling (Issue 5: graceful degradation)
     try:
-        from generate_settings import generate_hook_config
+        from generate_settings import generate_hook_config, write_local_settings
 
         new_config = generate_hook_config(hooks_dir, project_name)
     except ImportError as e:
@@ -405,6 +405,18 @@ def merge_settings(
         merged["env"]["LANGFUSE_TRACE_SESSIONS"] = os.environ.get(
             "LANGFUSE_TRACE_SESSIONS", "true"
         )
+
+    # Security (fixes #38): ensure QDRANT_API_KEY is never present in settings.json.
+    # It may have been written there by older installer versions. Strip it now so
+    # that the committed file stays secret-free. The key is kept in
+    # settings.local.json (gitignored) via write_local_settings() below.
+    merged_env = merged.get("env", {})
+    api_key_from_merged = merged_env.pop("QDRANT_API_KEY", None)
+    # Prefer the live environment value (set by install.sh before invoking this
+    # script); fall back to whatever was already in settings.local.json so that
+    # re-running the installer without QDRANT_API_KEY in env doesn't wipe the key.
+    api_key = os.environ.get("QDRANT_API_KEY", "") or api_key_from_merged or ""
+    write_local_settings(Path(settings_path), api_key)
 
     # BUG-066: upgrade old unguarded hooks to guarded format.
     # Note: _upgrade_hook_commands mutates in-place. Safe because

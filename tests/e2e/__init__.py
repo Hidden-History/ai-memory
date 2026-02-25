@@ -1,1 +1,1 @@
-"""E2E tests for BMAD Memory Module."""
+"""E2E tests for AI Memory Module."""
