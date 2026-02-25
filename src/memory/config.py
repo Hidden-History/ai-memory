@@ -15,6 +15,8 @@ References:
 
 import logging
 import os
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from functools import lru_cache
 from pathlib import Path
 
@@ -38,6 +40,8 @@ __all__ = [
     "TYPE_USER_MESSAGE",
     "VALID_AGENTS",
     "MemoryConfig",
+    "ProjectSyncConfig",
+    "discover_projects",
     "get_agent_token_budget",
     "get_config",
     "reset_config",
@@ -866,6 +870,87 @@ VALID_AGENTS = [k for k in AGENTS if k != "default"]
 
 # Backward compatibility - deprecated, use AGENTS dict directly
 AGENT_TOKEN_BUDGETS = {k: v["budget"] for k, v in AGENTS.items()}
+
+
+@dataclass
+class ProjectSyncConfig:
+    """Per-project sync configuration loaded from projects.d/ YAML."""
+
+    project_id: str
+    source_directory: str | None = None
+    github_repo: str | None = None
+    github_branch: str = "main"
+    github_enabled: bool = True
+    jira_enabled: bool = False
+    jira_instance_url: str | None = None
+    jira_projects: list[str] = dataclass_field(default_factory=list)
+
+
+def discover_projects(config_dir: Path | None = None) -> dict[str, ProjectSyncConfig]:
+    """Scan projects.d/ for per-project YAML configs.
+
+    Resolution order for config_dir:
+    1. Explicit ``config_dir`` argument (used in tests and CLI).
+    2. ``AI_MEMORY_PROJECTS_DIR`` environment variable (set by Docker so the
+       container-mounted path ``/config/projects.d`` is found correctly, since
+       ``Path.home()`` inside the container is NOT ``/config``).
+    3. ``~/.ai-memory/config/projects.d`` — host default.
+
+    Falls back to legacy GITHUB_REPO env var if the resolved directory yields
+    no valid configs.
+    """
+    import yaml
+
+    if config_dir is None:
+        env_dir = os.environ.get("AI_MEMORY_PROJECTS_DIR")
+        if env_dir:
+            config_dir = Path(env_dir)
+        else:
+            config_dir = Path.home() / ".ai-memory" / "config" / "projects.d"
+
+    projects: dict[str, ProjectSyncConfig] = {}
+
+    if config_dir.is_dir():
+        for path in sorted(config_dir.glob("*.yaml")):
+            try:
+                raw = yaml.safe_load(path.read_text())
+                if not raw or not raw.get("project_id"):
+                    logger.warning("Skipping %s: missing project_id", path.name)
+                    continue
+                github = raw.get("github", {})
+                jira = raw.get("jira", {})
+                # Coerce jira.projects to list — a scalar YAML string
+                # ("projects: PROJ") arrives as str, not list.
+                jira_proj_raw = jira.get("projects", [])
+                if isinstance(jira_proj_raw, str):
+                    jira_proj_raw = [jira_proj_raw] if jira_proj_raw else []
+                projects[raw["project_id"]] = ProjectSyncConfig(
+                    project_id=raw["project_id"],
+                    source_directory=raw.get("source_directory"),
+                    github_repo=github.get("repo"),
+                    github_branch=github.get("branch", "main"),
+                    github_enabled=github.get("enabled", True),
+                    jira_enabled=jira.get("enabled", False),
+                    jira_instance_url=jira.get("instance_url"),
+                    jira_projects=jira_proj_raw,
+                )
+            except (yaml.YAMLError, KeyError, TypeError, ValueError) as e:
+                logger.warning("Skipping malformed config %s: %s", path.name, e)
+            except OSError as e:
+                logger.error("Cannot read config %s: %s", path.name, e)
+
+    if not projects:
+        legacy_repo = os.environ.get("GITHUB_REPO")
+        if legacy_repo:
+            logger.warning(
+                "Using legacy GITHUB_REPO env var. Migrate to projects.d/. See: docs/multi-project.md"
+            )
+            projects[legacy_repo] = ProjectSyncConfig(
+                project_id=legacy_repo,
+                github_repo=legacy_repo,
+            )
+
+    return projects
 
 
 def get_agent_token_budget(agent_name: str) -> int:

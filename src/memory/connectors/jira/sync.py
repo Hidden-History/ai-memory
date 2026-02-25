@@ -77,11 +77,18 @@ class JiraSyncEngine:
         state_path: Path to jira_sync_state.json
     """
 
-    def __init__(self, config: MemoryConfig | None = None):
+    def __init__(
+        self,
+        config: MemoryConfig | None = None,
+        instance_url: str | None = None,
+        jira_projects: list[str] | None = None,
+    ):
         """Initialize sync engine with all required clients.
 
         Args:
             config: MemoryConfig instance (defaults to get_config())
+            instance_url: Jira instance URL. Overrides config.jira_instance_url.
+            jira_projects: List of project keys to sync. Overrides config.jira_projects.
         """
         self.config = config or get_config()
 
@@ -89,8 +96,14 @@ class JiraSyncEngine:
         if not self.config.jira_sync_enabled:
             raise ValueError("Jira sync is not enabled (JIRA_SYNC_ENABLED=false)")
 
+        # Per-instance overrides (PLAN-009 Phase 3)
+        self._instance_url = instance_url or self.config.jira_instance_url
+        self._jira_projects = (
+            jira_projects if jira_projects is not None else self.config.jira_projects
+        )
+
         # Validate credentials
-        if not self.config.jira_instance_url:
+        if not self._instance_url:
             raise ValueError("JIRA_INSTANCE_URL not configured")
         if not self.config.jira_email:
             raise ValueError("JIRA_EMAIL not configured")
@@ -99,15 +112,15 @@ class JiraSyncEngine:
 
         # Extract group_id from Jira instance URL hostname
         # Per verified contract: group_id = Jira instance URL hostname
-        self.group_id = urlparse(self.config.jira_instance_url).hostname
+        self.group_id = urlparse(self._instance_url).hostname
         if not self.group_id:
             raise ValueError(
-                f"Invalid JIRA_INSTANCE_URL: {self.config.jira_instance_url}"
+                f"Invalid JIRA_INSTANCE_URL: {self._instance_url}"
             )
 
         # Initialize clients
         self.jira_client = JiraClient(
-            instance_url=self.config.jira_instance_url,
+            instance_url=self._instance_url,
             email=self.config.jira_email,
             api_token=self.config.jira_api_token.get_secret_value(),
             delay_ms=self.config.jira_sync_delay_ms,
@@ -116,8 +129,11 @@ class JiraSyncEngine:
         self.embedding_client = EmbeddingClient(self.config)
         self.qdrant_client = get_qdrant_client(self.config)
 
-        # State file path
-        self.state_path = self.config.install_dir / "jira_sync_state.json"
+        # Per-instance state file path
+        # Only replace dots — dashes stay to avoid collisions
+        hostname_safe = self.group_id.replace(".", "_")
+        self._state_file = self.config.install_dir / f"jira_sync_state_{hostname_safe}.json"
+        self.state_path = self._state_file  # backward-compat alias
 
     async def sync_project(
         self, project_key: str, mode: str = "incremental"
@@ -217,12 +233,12 @@ class JiraSyncEngine:
         Returns:
             Dict mapping project_key -> SyncResult
         """
-        if not self.config.jira_projects:
+        if not self._jira_projects:
             logger.warning("no_projects_configured")
             return {}
 
         results = {}
-        for project_key in self.config.jira_projects:
+        for project_key in self._jira_projects:
             result = await self.sync_project(project_key, mode)
             results[project_key] = result
 
@@ -271,7 +287,7 @@ class JiraSyncEngine:
                 jira_reporter=reporter_name,
                 jira_labels=issue["fields"].get("labels", []),
                 jira_updated=issue["fields"]["updated"],
-                jira_url=f"{self.config.jira_instance_url}/browse/{issue['key']}",
+                jira_url=f"{self._instance_url}/browse/{issue['key']}",
             )
 
             # Sync comments (delete old + insert new)
@@ -377,7 +393,7 @@ class JiraSyncEngine:
                 jira_comment_id=comment["id"],
                 jira_author=comment["author"]["displayName"],
                 jira_updated=comment.get("updated", comment["created"]),
-                jira_url=f"{self.config.jira_instance_url}/browse/{issue['key']}?focusedCommentId={comment['id']}",
+                jira_url=f"{self._instance_url}/browse/{issue['key']}?focusedCommentId={comment['id']}",
                 # Parent issue context
                 jira_issue_type=issue["fields"]["issuetype"]["name"],
                 jira_status=issue["fields"]["status"]["name"],

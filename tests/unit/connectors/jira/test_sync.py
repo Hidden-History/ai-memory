@@ -159,8 +159,8 @@ class TestSyncModes:
     @pytest.mark.asyncio
     async def test_incremental_mode_with_last_synced(self, mock_config, tmp_path):
         """Incremental mode uses last_synced timestamp."""
-        # Create state file with last_synced
-        state_file = tmp_path / "jira_sync_state.json"
+        # Create state file with last_synced (per-instance filename: hostname dots → underscores)
+        state_file = tmp_path / "jira_sync_state_company_atlassian_net.json"
         state_file.write_text(
             json.dumps(
                 {
@@ -598,8 +598,8 @@ class TestStatePersistence:
             engine = JiraSyncEngine(config=mock_config)
             engine._save_project_state("PROJ", 5, 10)
 
-        # Verify state file exists
-        state_file = mock_config.install_dir / "jira_sync_state.json"
+        # Verify state file exists (per-instance filename: hostname dots → underscores)
+        state_file = mock_config.install_dir / "jira_sync_state_company_atlassian_net.json"
         assert state_file.exists()
 
         # Verify content
@@ -611,8 +611,8 @@ class TestStatePersistence:
 
     def test_state_file_update(self, mock_config, tmp_path):
         """State file updated with new sync data."""
-        # Create initial state
-        state_file = tmp_path / "jira_sync_state.json"
+        # Create initial state (per-instance filename: hostname dots → underscores)
+        state_file = tmp_path / "jira_sync_state_company_atlassian_net.json"
         state_file.write_text(
             json.dumps(
                 {

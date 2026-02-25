@@ -18,6 +18,8 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
+  issues:
+    types: [opened]
 
 permissions:
   contents: read
@@ -378,3 +380,277 @@ jobs:
               }
             }
 
+  auto-triage-issue:
+    name: Auto-Triage New Issue
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'issues' && github.event.action == 'opened'
+      && !endsWith(github.actor, '[bot]')
+      && github.actor != 'dependabot[bot]'
+      && github.actor != 'github-actions[bot]'
+    steps:
+      - name: Validate API credentials
+        id: validate-key
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        run: |
+          if [ -z "$OLLAMA_API_KEY" ]; then
+            echo "::warning::OLLAMA_API_KEY not configured — skipping auto-triage"
+            echo "has_key=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_key=true" >> $GITHUB_OUTPUT
+            echo "✓ API key validation passed"
+          fi
+
+      - name: Gather issue context
+        if: steps.validate-key.outputs.has_key == 'true'
+        id: issue-context
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          echo "$ISSUE_TITLE" > /tmp/triage_title.txt
+          printf '%s' "$ISSUE_BODY" | head -c 4000 > /tmp/triage_body.txt
+          printf '%s' "$ISSUE_BODY" | head -c 200 > /tmp/triage_body_short.txt
+          echo "Issue context saved"
+
+      - name: Multi-model analysis (kimi-k2.5:cloud, deepseek-v3.1:671b-cloud, qwen3-coder-next:cloud)
+        if: steps.validate-key.outputs.has_key == 'true'
+        id: analysis
+        continue-on-error: true
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        run: |
+          ISSUE_TITLE=$(cat /tmp/triage_title.txt)
+          ISSUE_BODY=$(cat /tmp/triage_body.txt)
+
+          call_ollama() {
+            local model="$1"
+            local prompt="$2"
+            local result=""
+            for attempt in 1 2 3; do
+              RESPONSE=$(curl -s --max-time 120 \
+                -w "\n%{http_code}" \
+                https://ollama.com/api/chat \
+                -H "Authorization: Bearer $OLLAMA_API_KEY" \
+                -H "Content-Type: application/json" \
+                -d "$(jq -n --arg m "$model" --arg p "$prompt" \
+                  '{"model":$m,"messages":[{"role":"user","content":$p}],"stream":false}')" \
+                2>&1) || true
+              HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+              BODY=$(echo "$RESPONSE" | sed '$d')
+              if echo "$HTTP_CODE" | grep -qE '^[0-9]+$' && [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ] 2>/dev/null; then
+                result=$(echo "$BODY" | jq -r '.message.content // empty')
+                if [ -n "$result" ]; then echo "$result"; return 0; fi
+              fi
+              if echo "$HTTP_CODE" | grep -qE '^[0-9]+$' && [ "$HTTP_CODE" -ge 400 ] && [ "$HTTP_CODE" -lt 500 ] 2>/dev/null; then break; fi
+              if [ $attempt -lt 3 ]; then sleep $((5 * (2 ** (attempt - 1)))); fi
+            done
+            echo "Analysis unavailable for this model"
+            return 1
+          }
+
+          ANALYSIS_PROMPT=$(jq -n \
+            --arg title "$ISSUE_TITLE" \
+            --arg body "$ISSUE_BODY" \
+            '"You are an AI assistant triaging a new GitHub issue for the AI Memory Module project. Analyze: 1) Issue type (bug/feature/question/docs) 2) Severity (critical/high/medium/low) 3) Affected components 4) Suggested next steps. Issue Title: " + $title + ". Issue Body: " + $body + ". Respond in concise markdown."'
+          )
+
+          echo "Running analysis with kimi-k2.5:cloud..."
+          ANALYSIS_1=$(call_ollama "kimi-k2.5:cloud" "$ANALYSIS_PROMPT" || echo "Analysis unavailable for this model")
+          echo "$ANALYSIS_1" > /tmp/analysis_kimi.txt
+
+          echo "Running analysis with deepseek-v3.1:671b-cloud..."
+          ANALYSIS_2=$(call_ollama "deepseek-v3.1:671b-cloud" "$ANALYSIS_PROMPT" || echo "Analysis unavailable for this model")
+          echo "$ANALYSIS_2" > /tmp/analysis_deepseek.txt
+
+          echo "Running analysis with qwen3-coder-next:cloud..."
+          ANALYSIS_3=$(call_ollama "qwen3-coder-next:cloud" "$ANALYSIS_PROMPT" || echo "Analysis unavailable for this model")
+          echo "$ANALYSIS_3" > /tmp/analysis_qwen.txt
+
+          echo "Analysis complete for all 3 models"
+
+      - name: Multi-model classification (llama3.3:70b, glm-5:cloud, qwen3.5:cloud)
+        if: steps.validate-key.outputs.has_key == 'true'
+        id: classify
+        continue-on-error: true
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        run: |
+          ISSUE_TITLE=$(cat /tmp/triage_title.txt)
+          ISSUE_BODY_SHORT=$(cat /tmp/triage_body_short.txt)
+
+          call_ollama() {
+            local model="$1"
+            local prompt="$2"
+            local result=""
+            for attempt in 1 2 3; do
+              RESPONSE=$(curl -s --max-time 120 \
+                -w "\n%{http_code}" \
+                https://ollama.com/api/chat \
+                -H "Authorization: Bearer $OLLAMA_API_KEY" \
+                -H "Content-Type: application/json" \
+                -d "$(jq -n --arg m "$model" --arg p "$prompt" \
+                  '{"model":$m,"messages":[{"role":"user","content":$p}],"stream":false}')" \
+                2>&1) || true
+              HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+              BODY=$(echo "$RESPONSE" | sed '$d')
+              if echo "$HTTP_CODE" | grep -qE '^[0-9]+$' && [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ] 2>/dev/null; then
+                result=$(echo "$BODY" | jq -r '.message.content // empty')
+                if [ -n "$result" ]; then echo "$result"; return 0; fi
+              fi
+              if echo "$HTTP_CODE" | grep -qE '^[0-9]+$' && [ "$HTTP_CODE" -ge 400 ] && [ "$HTTP_CODE" -lt 500 ] 2>/dev/null; then break; fi
+              if [ $attempt -lt 3 ]; then sleep $((5 * (2 ** (attempt - 1)))); fi
+            done
+            echo "Analysis unavailable for this model"
+            return 1
+          }
+
+          CLASSIFICATION_PROMPT=$(jq -n \
+            --arg title "$ISSUE_TITLE" \
+            --arg body "$ISSUE_BODY_SHORT" \
+            '"Classify this GitHub issue as ONE of: bug, feature, question, enhancement, documentation. Title: " + $title + ". Body (first 200 chars): " + $body + ". Return ONLY the single word."'
+          )
+
+          echo "Classifying with llama3.3:70b..."
+          LABEL_1=$(call_ollama "llama3.3:70b" "$CLASSIFICATION_PROMPT" || echo "")
+          LABEL_1=$(echo "$LABEL_1" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]' | head -c 20)
+
+          echo "Classifying with glm-5:cloud..."
+          LABEL_2=$(call_ollama "glm-5:cloud" "$CLASSIFICATION_PROMPT" || echo "")
+          LABEL_2=$(echo "$LABEL_2" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]' | head -c 20)
+
+          echo "Classifying with qwen3.5:cloud..."
+          LABEL_3=$(call_ollama "qwen3.5:cloud" "$CLASSIFICATION_PROMPT" || echo "")
+          LABEL_3=$(echo "$LABEL_3" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]' | head -c 20)
+
+          echo "Raw classifications: '$LABEL_1', '$LABEL_2', '$LABEL_3'"
+
+          VALID_LABELS="bug feature question enhancement documentation"
+          CONSENSUS_LABEL=""
+
+          # Validate each label against allowed values
+          validate_label() {
+            local lbl="$1"
+            for v in $VALID_LABELS; do
+              if [ "$lbl" = "$v" ]; then echo "$lbl"; return 0; fi
+            done
+            echo ""
+          }
+
+          V1=$(validate_label "$LABEL_1")
+          V2=$(validate_label "$LABEL_2")
+          V3=$(validate_label "$LABEL_3")
+
+          echo "Validated classifications: '$V1', '$V2', '$V3'"
+
+          # Consensus: 2+ out of 3 models must agree
+          if [ -n "$V1" ] && [ -n "$V2" ] && [ "$V1" = "$V2" ]; then
+            CONSENSUS_LABEL="$V1"
+          elif [ -n "$V1" ] && [ -n "$V3" ] && [ "$V1" = "$V3" ]; then
+            CONSENSUS_LABEL="$V1"
+          elif [ -n "$V2" ] && [ -n "$V3" ] && [ "$V2" = "$V3" ]; then
+            CONSENSUS_LABEL="$V2"
+          fi
+
+          if [ -n "$CONSENSUS_LABEL" ]; then
+            echo "Consensus label: $CONSENSUS_LABEL"
+            echo "consensus_label=$CONSENSUS_LABEL" >> $GITHUB_OUTPUT
+          else
+            echo "No consensus reached among classifiers"
+            echo "consensus_label=" >> $GITHUB_OUTPUT
+          fi
+
+          echo "label_1=$V1" >> $GITHUB_OUTPUT
+          echo "label_2=$V2" >> $GITHUB_OUTPUT
+          echo "label_3=$V3" >> $GITHUB_OUTPUT
+
+      - name: Post combined analysis comment
+        if: steps.validate-key.outputs.has_key == 'true' && (steps.analysis.outcome == 'success' || steps.classify.outcome == 'success')
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+
+            function safeRead(path) {
+              try { return fs.readFileSync(path, 'utf8').trim() || 'Analysis unavailable for this model'; }
+              catch (e) { return 'Analysis unavailable for this model'; }
+            }
+
+            const kimiAnalysis = safeRead('/tmp/analysis_kimi.txt');
+            const deepseekAnalysis = safeRead('/tmp/analysis_deepseek.txt');
+            const qwenAnalysis = safeRead('/tmp/analysis_qwen.txt');
+
+            const consensusLabel = '${{ steps.classify.outputs.consensus_label }}';
+            const label1 = '${{ steps.classify.outputs.label_1 }}';
+            const label2 = '${{ steps.classify.outputs.label_2 }}';
+            const label3 = '${{ steps.classify.outputs.label_3 }}';
+
+            let classificationSummary = '';
+            if (consensusLabel) {
+              classificationSummary = `\n\n**Consensus Classification**: \`type:${consensusLabel}\` (2+/3 models agreed)\n` +
+                `| Model | Classification |\n|-------|----------------|\n` +
+                `| llama3.3:70b | ${label1 || 'n/a'} |\n` +
+                `| glm-5:cloud | ${label2 || 'n/a'} |\n` +
+                `| qwen3.5:cloud | ${label3 || 'n/a'} |`;
+            } else {
+              classificationSummary = `\n\n**Classification**: No consensus reached among models.\n` +
+                `| Model | Classification |\n|-------|----------------|\n` +
+                `| llama3.3:70b | ${label1 || 'n/a'} |\n` +
+                `| glm-5:cloud | ${label2 || 'n/a'} |\n` +
+                `| qwen3.5:cloud | ${label3 || 'n/a'} |`;
+            }
+
+            const body = `## 👋 Thanks for opening this issue!\n\n` +
+              `We've received your report and our AI triage system has analyzed it below. A maintainer will review shortly.\n\n` +
+              `---\n\n` +
+              `## AI Triage Analysis\n\n` +
+              `Our multi-model AI triage system has analyzed this issue.\n` +
+              classificationSummary + `\n\n` +
+              `<details>\n<summary>Analysis from kimi-k2.5:cloud</summary>\n\n${kimiAnalysis}\n\n</details>\n\n` +
+              `<details>\n<summary>Analysis from deepseek-v3.1:671b-cloud</summary>\n\n${deepseekAnalysis}\n\n</details>\n\n` +
+              `<details>\n<summary>Analysis from qwen3-coder-next:cloud</summary>\n\n${qwenAnalysis}\n\n</details>\n\n` +
+              `---\n*Automated triage from AI Memory Module*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+
+      - name: Post triage unavailable comment
+        if: steps.validate-key.outputs.has_key == 'true' && steps.analysis.outcome != 'success' && steps.classify.outcome != 'success'
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '## 👋 Thanks for opening this issue!\n\nOur AI triage system is temporarily unavailable. A maintainer will review your issue shortly.\n\n---\n*Automated response from AI Memory Module*'
+            });
+
+      - name: Apply consensus label
+        if: steps.classify.outputs.consensus_label != ''
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const label = '${{ steps.classify.outputs.consensus_label }}'.trim().toLowerCase();
+            const validLabels = ['bug', 'feature', 'question', 'enhancement', 'documentation'];
+            if (validLabels.includes(label)) {
+              try {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  labels: ['type:' + label]
+                });
+                console.log('Applied consensus label: type:' + label);
+              } catch (e) {
+                console.log('Could not apply label: ' + e.message);
+              }
+            }

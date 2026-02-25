@@ -630,18 +630,25 @@ class CodeBlobSync:
         self,
         client: GitHubClient,
         config: MemoryConfig | None = None,
+        repo: str | None = None,
+        branch: str | None = None,
     ) -> None:
         """Initialize code blob sync.
 
         Args:
             client: Active GitHubClient instance (caller manages lifecycle)
             config: Memory configuration. Uses get_config() if None.
+            repo: Repository in "owner/repo" format. Overrides config.github_repo.
+            branch: Git branch to sync. Overrides config.github_branch.
         """
         self.client = client
         self.config = config or get_config()
         self.storage = MemoryStorage(self.config)
         self.qdrant = get_qdrant_client(self.config)
-        self._group_id = self.config.github_repo
+        self._group_id = repo or self.config.github_repo
+        if not self._group_id:
+            raise ValueError("No repo specified and GITHUB_REPO not configured")
+        self._branch = branch or self.config.github_branch
         self._exclude_patterns = [
             p.strip()
             for p in self.config.github_code_blob_exclude.split(",")
@@ -698,7 +705,7 @@ class CodeBlobSync:
 
         logger.info(
             "Starting code blob sync: branch=%s, batch=%s, total_timeout=%ds, per_file_timeout=%ds",
-            self.config.github_branch,
+            self._branch,
             batch_id,
             total_timeout,
             per_file_timeout,
@@ -837,7 +844,7 @@ class CodeBlobSync:
             List of tree entry dicts (blobs only, filtered)
         """
         entries = await self.client.get_tree(
-            tree_sha=self.config.github_branch,
+            tree_sha=self._branch,
             recursive=True,
         )
         # Only blobs (files), not trees (directories)
@@ -948,12 +955,12 @@ class CodeBlobSync:
             payload = {
                 "source": "github",
                 "github_id": 0,  # Code blobs don't have issue/PR numbers
-                "repo": self.config.github_repo,
+                "repo": self._group_id,
                 "timestamp": now_iso,
                 "content_hash": content_hash,
                 "last_synced": now_iso,
-                "url": f"https://github.com/{self.config.github_repo}/blob/"
-                f"{self.config.github_branch}/{file_path}",
+                "url": f"https://github.com/{self._group_id}/blob/"
+                f"{self._branch}/{file_path}",
                 "version": 1,
                 "is_current": True,
                 "supersedes": None,
@@ -1294,7 +1301,7 @@ class CodeBlobSync:
                 os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
                 job="github_code_sync",
                 registry=registry,
-                grouping_key={"instance": self.config.github_repo},
+                grouping_key={"instance": self._group_id},
             )
         except Exception as e:
             logger.warning("Failed to push code sync metrics: %s", e)

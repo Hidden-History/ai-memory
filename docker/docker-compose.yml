@@ -385,10 +385,15 @@ services:
       - SECURITY_SCAN_GITHUB_MODE=${SECURITY_SCAN_GITHUB_MODE:-relaxed}
       - SECURITY_SCAN_SESSION_MODE=${SECURITY_SCAN_SESSION_MODE:-relaxed}
       - LOG_LEVEL=${BMAD_LOG_LEVEL:-INFO}
+      # PLAN-009: Tell discover_projects() where the mounted projects.d lives.
+      # Path.home() inside the container is not /config, so we must be explicit.
+      - AI_MEMORY_PROJECTS_DIR=/config/projects.d
     volumes:
       # Persist sync state across container restarts
       # Engine writes to Path.cwd()/.audit/state/ = /app/.audit/state/
       - ${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/github-state:/app/.audit/state
+      # Multi-project config directory (PLAN-009)
+      - ${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/config/projects.d:/config/projects.d:ro
     depends_on:
       qdrant:
         condition: service_healthy

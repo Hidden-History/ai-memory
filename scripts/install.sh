@@ -156,6 +156,54 @@ print(json.dumps(keys))
     echo "$result"
 }
 
+register_project_sync() {
+    local project_id="$1"
+    local github_repo="$2"
+    local source_dir="$3"
+    # 4th arg overrides; falls back to GITHUB_BRANCH variable already in scope,
+    # then to "main" as last resort.
+    local branch="${4:-${GITHUB_BRANCH:-main}}"
+    local config_dir="${HOME}/.ai-memory/config/projects.d"
+    local safe_name
+    safe_name=$(echo "$project_id" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
+    local config_file="${config_dir}/${safe_name}.yaml"
+    mkdir -p "$config_dir"
+    if [[ -f "$config_file" ]]; then
+        echo "  Project already registered: ${config_file}"
+        return 0
+    fi
+    # Write via python so arbitrary paths/repo names are safe YAML regardless
+    # of special characters (colons, quotes, backslashes, etc.).
+    # Use venv python if available (has PyYAML guaranteed); fall back to system.
+    local py_bin="${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/venv/bin/python3"
+    if [[ ! -x "$py_bin" ]]; then
+        py_bin="python3"
+    fi
+    # Write to temp file first — avoids empty file if python fails (PyYAML missing)
+    local tmp_file="${config_file}.tmp"
+    if ! "$py_bin" -c "
+import yaml, sys
+data = {
+    'project_id': sys.argv[1],
+    'source_directory': sys.argv[2],
+    'registered_at': sys.argv[3],
+    'github': {
+        'enabled': True,
+        'repo': sys.argv[4],
+        'branch': sys.argv[5],
+    },
+    'jira': {'enabled': False},
+}
+print(yaml.dump(data, default_flow_style=False, allow_unicode=True), end='')
+" "$project_id" "$source_dir" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$github_repo" "$branch" > "$tmp_file"; then
+        echo "  ✗ Failed to register project (python/PyYAML error)" >&2
+        rm -f "$tmp_file"
+        return 1
+    fi
+    mv "$tmp_file" "$config_file"
+    echo "  ✓ Project registered: ${config_file}"
+}
+
 # Configuration flags (set by interactive prompts or environment)
 INSTALL_MONITORING="${INSTALL_MONITORING:-}"
 SEED_BEST_PRACTICES="${SEED_BEST_PRACTICES:-}"
@@ -474,6 +522,9 @@ print(','.join(keys))
 
             if [[ "$http_code" == "200" ]]; then
                 log_success "GitHub connection verified (HTTP 200) — repo: $GITHUB_REPO"
+
+                # Register project in projects.d/ for multi-project support (PLAN-009)
+                register_project_sync "$GITHUB_REPO" "$GITHUB_REPO" "$(pwd)" "$GITHUB_BRANCH"
 
                 # Prompt for initial sync
                 echo ""

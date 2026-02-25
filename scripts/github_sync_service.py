@@ -48,55 +48,82 @@ def handle_signal(signum, frame):
 
 
 async def run_sync_cycle(config) -> bool:
-    """Run a single sync cycle (issues + PRs + commits + CI + code blobs).
+    """Run a single sync cycle across all registered projects.
+
+    Iterates over all projects from projects.d/ that have GitHub enabled.
+    Falls back to a no-op if no projects are configured.
 
     Returns:
-        True if sync completed without fatal errors, False otherwise.
+        True if all syncs completed without fatal errors, False otherwise.
     """
+    # Lazy import — discover_projects added by PLAN-009 Phase 1
+    from memory.config import discover_projects
+
+    projects = discover_projects()
+
+    if not projects:
+        logger.warning("No projects configured — skipping sync")
+        return True
+
     sync_ok = True
+    for pid, project in projects.items():
+        if not project.github_enabled or not project.github_repo:
+            logger.info("Skipping project %s (GitHub disabled or no repo)", pid)
+            continue
 
-    # Phase 1: Issues, PRs, commits, CI results
-    # GitHubSyncEngine creates its own GitHubClient internally
-    try:
-        engine = GitHubSyncEngine(config)
-        result = await engine.sync()
-        logger.info(
-            "Sync cycle complete: issues=%d, prs=%d, commits=%d, ci=%d, errors=%d",
-            result.issues_synced,
-            result.prs_synced,
-            result.commits_synced,
-            result.ci_results_synced,
-            result.errors,
-        )
-    except Exception as e:
-        logger.error("Sync engine failed: %s", e)
-        sync_ok = False
+        logger.info("Syncing project: %s (repo: %s)", pid, project.github_repo)
 
-    # Phase 2: Code blobs (if enabled)
-    # CodeBlobSync requires an external GitHubClient (caller manages lifecycle)
-    if config.github_code_blob_enabled:
+        # Phase 1: Issues, PRs, commits, CI results
         try:
-            client = GitHubClient(
-                token=config.github_token.get_secret_value(),
-                repo=config.github_repo,
+            engine = GitHubSyncEngine(
+                config, repo=project.github_repo, branch=project.github_branch
             )
-            async with client:
-                code_sync = CodeBlobSync(client, config)
-                batch_id = GitHubClient.generate_batch_id()
-                code_result = await code_sync.sync_code_blobs(
-                    batch_id,
-                    total_timeout=config.github_sync_total_timeout,
-                )
+            result = await engine.sync()
             logger.info(
-                "Code sync complete: synced=%d, skipped=%d, deleted=%d, errors=%d",
-                code_result.files_synced,
-                code_result.files_skipped,
-                code_result.files_deleted,
-                code_result.errors,
+                "Sync complete: repo=%s issues=%d prs=%d commits=%d ci=%d errors=%d",
+                project.github_repo,
+                result.issues_synced,
+                result.prs_synced,
+                result.commits_synced,
+                result.ci_results_synced,
+                result.errors,
             )
         except Exception as e:
-            logger.error("Code blob sync failed: %s", e)
+            logger.error("Sync failed: repo=%s error=%s", project.github_repo, e)
             sync_ok = False
+
+        # Phase 2: Code blobs (if enabled)
+        if config.github_code_blob_enabled:
+            try:
+                client = GitHubClient(
+                    token=config.github_token.get_secret_value(),
+                    repo=project.github_repo,
+                )
+                async with client:
+                    code_sync = CodeBlobSync(
+                        client,
+                        config,
+                        repo=project.github_repo,
+                        branch=project.github_branch,
+                    )
+                    batch_id = GitHubClient.generate_batch_id()
+                    code_result = await code_sync.sync_code_blobs(
+                        batch_id,
+                        total_timeout=config.github_sync_total_timeout,
+                    )
+                logger.info(
+                    "Code sync: repo=%s synced=%d skipped=%d deleted=%d errors=%d",
+                    project.github_repo,
+                    code_result.files_synced,
+                    code_result.files_skipped,
+                    code_result.files_deleted,
+                    code_result.errors,
+                )
+            except Exception as e:
+                logger.error(
+                    "Code sync failed: repo=%s error=%s", project.github_repo, e
+                )
+                sync_ok = False
 
     return sync_ok
 
@@ -140,7 +167,7 @@ def main():
         "GitHub sync service starting (interval=%ds, sync_on_start=%s, repo=%s)",
         interval,
         sync_on_start,
-        config.github_repo,
+        config.github_repo or "multi-project",
     )
 
     # BUG-119: Write health file at startup so Docker healthcheck passes

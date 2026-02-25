@@ -70,6 +70,15 @@ Configuration:
         help="Sync specific project only (e.g., PROJ)",
     )
 
+    # Project ID from projects.d/ (PLAN-009 Phase 3)
+    parser.add_argument(
+        "--project-id",
+        type=str,
+        metavar="ID",
+        dest="project_id",
+        help="Sync only specified project from projects.d/ (e.g., my-project)",
+    )
+
     # Status display
     parser.add_argument(
         "--status",
@@ -116,56 +125,115 @@ async def run_sync(args, config):
         args: Parsed command-line arguments
         config: MemoryConfig instance
     """
-    # Initialize sync engine
-    try:
-        engine = JiraSyncEngine(config)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+    mode = "full" if args.full else "incremental"
 
-    try:
-        if args.status:
-            # Display status only (no sync)
-            display_status(engine)
-            return
+    # Lazy import — discover_projects added by PLAN-009 Phase 1
+    from memory.config import discover_projects
 
-        # Determine sync mode
-        mode = "full" if args.full else "incremental"
+    projects = discover_projects()
+    jira_projects = {pid: p for pid, p in projects.items() if p.jira_enabled}
 
-        print("=" * 70)
-        print("  Jira Sync")
-        print("=" * 70)
-        print(f"Mode: {mode}")
-        print("")
+    if args.status:
+        # Display status — use legacy engine for backward compat
+        try:
+            engine = JiraSyncEngine(config)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        display_status(engine)
+        await engine.close()
+        return
 
-        if args.project:
-            # Sync single project
-            print(f"Project: {args.project}")
-            print("")
-            result = await engine.sync_project(args.project, mode)
-            print_result(args.project, result)
-        else:
-            # Sync all configured projects
-            if not config.jira_projects:
-                print(
-                    "Error: No projects configured (JIRA_PROJECTS is empty)",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
+    print("=" * 70)
+    print("  Jira Sync")
+    print("=" * 70)
+    print(f"Mode: {mode}")
+    print("")
 
-            print(f"Projects: {', '.join(config.jira_projects)}")
+    if args.project_id:
+        # --project-id: sync a specific project from projects.d/
+        if args.project_id not in jira_projects:
+            print(
+                f"Error: Project '{args.project_id}' not found or Jira not enabled",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        p = jira_projects[args.project_id]
+        try:
+            engine = JiraSyncEngine(
+                config,
+                instance_url=p.jira_instance_url,
+                jira_projects=p.jira_projects,
+            )
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        try:
+            print(f"Project ID: {args.project_id} (instance: {p.jira_instance_url})")
             print("")
             results = await engine.sync_all_projects(mode)
-
-            # Print results for each project
             for project_key, result in results.items():
                 print_result(project_key, result)
                 print("")
+        finally:
+            await engine.close()
 
-        print("=" * 70)
+    elif jira_projects:
+        # Iterate over all jira-enabled projects from projects.d/
+        for pid, p in jira_projects.items():
+            try:
+                engine = JiraSyncEngine(
+                    config,
+                    instance_url=p.jira_instance_url,
+                    jira_projects=p.jira_projects,
+                )
+            except ValueError as e:
+                print(f"Error initialising project '{pid}': {e}", file=sys.stderr)
+                continue
+            try:
+                print(f"Project ID: {pid} (instance: {p.jira_instance_url})")
+                print("")
+                if args.project:
+                    result = await engine.sync_project(args.project, mode)
+                    print_result(args.project, result)
+                else:
+                    results = await engine.sync_all_projects(mode)
+                    for project_key, result in results.items():
+                        print_result(project_key, result)
+                        print("")
+            finally:
+                await engine.close()
 
-    finally:
-        await engine.close()
+    else:
+        # Legacy fallback: use config directly (no projects.d/ entries)
+        try:
+            engine = JiraSyncEngine(config)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        try:
+            if args.project:
+                print(f"Project: {args.project}")
+                print("")
+                result = await engine.sync_project(args.project, mode)
+                print_result(args.project, result)
+            else:
+                if not config.jira_projects:
+                    print(
+                        "Error: No projects configured (JIRA_PROJECTS is empty)",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                print(f"Projects: {', '.join(config.jira_projects)}")
+                print("")
+                results = await engine.sync_all_projects(mode)
+                for project_key, result in results.items():
+                    print_result(project_key, result)
+                    print("")
+        finally:
+            await engine.close()
+
+    print("=" * 70)
 
 
 def display_status(engine: JiraSyncEngine):
