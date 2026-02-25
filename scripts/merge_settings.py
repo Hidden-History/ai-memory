@@ -388,6 +388,16 @@ def merge_settings(
     # Deep merge
     merged = deep_merge(existing, new_config)
 
+    # Force-update system-managed env vars that must always match the current
+    # install state.  deep_merge preserves existing scalars ("base wins") which
+    # is correct for user customisations (SIMILARITY_THRESHOLD, LOG_LEVEL) but
+    # wrong for values the installer controls.  PLAN-009 lowercases project IDs;
+    # reinstalls must update old mixed-case values so verification passes and
+    # Qdrant group_id / projects.d/ lookups stay consistent.
+    if "env" not in merged:
+        merged["env"] = {}
+    merged["env"]["AI_MEMORY_PROJECT_ID"] = project_name
+
     # Add Langfuse env vars if enabled (SPEC-019, SPEC-022)
     if os.environ.get("LANGFUSE_ENABLED", "").lower() == "true":
         if "env" not in merged:
