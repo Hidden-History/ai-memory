@@ -150,7 +150,9 @@ class ClaudeProvider(BaseProvider):
             except Exception as e:
                 # Handle various Anthropic SDK exceptions
                 error_type = type(e).__name__
-                gen.update(level="ERROR", metadata={"error": str(e), "error_type": error_type})
+                gen.update(
+                    level="ERROR", metadata={"error": str(e), "error_type": error_type}
+                )
                 if "timeout" in str(e).lower():
                     logger.error("claude_timeout", extra={"error": str(e)})
                     raise TimeoutError(f"Claude request timed out: {e}") from e

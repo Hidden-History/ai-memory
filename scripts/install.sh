@@ -2172,7 +2172,7 @@ verify_services_running() {
         log_error "Qdrant is not running at port $QDRANT_PORT"
         echo ""
         echo "Start services from shared installation:"
-        echo "  cd $INSTALL_DIR/docker && docker compose up -d"
+        echo "  cd $INSTALL_DIR/docker && docker compose up -d --build"
         exit 1
     fi
 
@@ -2181,7 +2181,7 @@ verify_services_running() {
         log_error "Embedding service is not running at port $EMBEDDING_PORT"
         echo ""
         echo "Start services from shared installation:"
-        echo "  cd $INSTALL_DIR/docker && docker compose up -d"
+        echo "  cd $INSTALL_DIR/docker && docker compose up -d --build"
         exit 1
     fi
 
@@ -2900,7 +2900,7 @@ show_success_message() {
     else
     echo "│   Add monitoring later:                                     │"
     echo "│     cd $INSTALL_DIR/docker                                  │"
-    echo "│     docker compose --profile monitoring up -d               │"
+    echo "│     docker compose --profile monitoring up -d --build       │"
     echo "│                                                             │"
     fi
     echo "└─────────────────────────────────────────────────────────────┘"

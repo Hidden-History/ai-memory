@@ -7,8 +7,8 @@ Kill switch: LANGFUSE_ENABLED=true required. Zero overhead when disabled.
 Graceful fallback: If langfuse package not installed, all functions are no-ops.
 """
 
+import contextlib
 import logging
-from contextlib import contextmanager
 from datetime import datetime, timezone
 
 logger = logging.getLogger("ai_memory.classifier.langfuse_instrument")
@@ -59,7 +59,7 @@ def reset_client():
     _langfuse_checked = False
 
 
-@contextmanager
+@contextlib.contextmanager
 def langfuse_generation(
     provider_name: str,
     model: str,
@@ -144,13 +144,11 @@ def langfuse_generation(
             extra={"provider": provider_name, "error": str(e)},
         )
         if generation:
-            try:
+            with contextlib.suppress(Exception):
                 generation.end(
                     level="ERROR",
                     status_message=str(e),
                 )
-            except Exception:
-                pass
         raise
 
 

@@ -14,7 +14,7 @@ import signal
 import stat
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 # Bootstrap: allow running as `python -m memory.trace_flush_worker` from src/
@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 BUFFER_DIR = Path(INSTALL_DIR) / "trace_buffer"
 FLUSH_INTERVAL = int(os.environ.get("LANGFUSE_FLUSH_INTERVAL", "5"))
 MAX_BUFFER_MB = int(os.environ.get("LANGFUSE_TRACE_BUFFER_MAX_MB", "100"))
+HEARTBEAT_FILE = BUFFER_DIR / ".heartbeat"
 
 shutdown_requested = False
 
@@ -227,6 +228,10 @@ def main():
                 events_processed=processed,
                 flush_errors=errors,
             )
+
+        # TD-182: Touch heartbeat file for Docker healthcheck (file-based liveness probe)
+        with contextlib.suppress(OSError):
+            HEARTBEAT_FILE.touch()
 
         time.sleep(FLUSH_INTERVAL)
 

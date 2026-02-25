@@ -260,7 +260,7 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 from memory.security_scanner import SecurityScanner, ScanAction
 
                 scanner = SecurityScanner(enable_ner=False)
-                scan_result = scanner.scan(content)
+                scan_result = scanner.scan(content, source_type="user_session")
                 scan_actually_ran = True
                 scan_action = scan_result.action.value if hasattr(scan_result.action, 'value') else str(scan_result.action)
                 scan_findings = scan_result.findings

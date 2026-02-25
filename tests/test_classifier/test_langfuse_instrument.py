@@ -28,15 +28,19 @@ class TestKillSwitch:
 
     def test_disabled_when_env_not_set(self):
         """When LANGFUSE_ENABLED is not set, generation yields NoOp."""
-        with patch.dict(os.environ, {}, clear=True):
-            with langfuse_generation("ollama", "test-model") as gen:
-                assert isinstance(gen, _NoOpGeneration)
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            langfuse_generation("ollama", "test-model") as gen,
+        ):
+            assert isinstance(gen, _NoOpGeneration)
 
     def test_disabled_when_env_false(self):
         """When LANGFUSE_ENABLED=false, generation yields NoOp."""
-        with patch.dict(os.environ, {"LANGFUSE_ENABLED": "false"}):
-            with langfuse_generation("ollama", "test-model") as gen:
-                assert isinstance(gen, _NoOpGeneration)
+        with (
+            patch.dict(os.environ, {"LANGFUSE_ENABLED": "false"}),
+            langfuse_generation("ollama", "test-model") as gen,
+        ):
+            assert isinstance(gen, _NoOpGeneration)
 
     def test_noop_update_does_nothing(self):
         """NoOp generation silently ignores update calls."""
@@ -70,12 +74,14 @@ class TestGracefulFallback:
 
     def test_client_returns_none_yields_noop(self):
         """When get_langfuse_client returns None, generation yields NoOp."""
-        with patch(
-            "src.memory.classifier.langfuse_instrument._get_client",
-            return_value=None,
+        with (
+            patch(
+                "src.memory.classifier.langfuse_instrument._get_client",
+                return_value=None,
+            ),
+            langfuse_generation("openrouter", "test-model") as gen,
         ):
-            with langfuse_generation("openrouter", "test-model") as gen:
-                assert isinstance(gen, _NoOpGeneration)
+            assert isinstance(gen, _NoOpGeneration)
 
 
 class TestGenerationSpanCreation:
@@ -89,17 +95,19 @@ class TestGenerationSpanCreation:
         mock_client.trace.return_value = mock_trace
         mock_trace.generation.return_value = mock_generation
 
-        with patch(
-            "src.memory.classifier.langfuse_instrument._get_client",
-            return_value=mock_client,
+        with (
+            patch(
+                "src.memory.classifier.langfuse_instrument._get_client",
+                return_value=mock_client,
+            ),
+            langfuse_generation("ollama", "llama3.2") as gen,
         ):
-            with langfuse_generation("ollama", "llama3.2") as gen:
-                gen.update(
-                    input_text="prompt text",
-                    output_text="response text",
-                    input_tokens=100,
-                    output_tokens=50,
-                )
+            gen.update(
+                input_text="prompt text",
+                output_text="response text",
+                input_tokens=100,
+                output_tokens=50,
+            )
 
         # Verify trace created with 9_classify name
         mock_client.trace.assert_called_once()
@@ -128,14 +136,16 @@ class TestGenerationSpanCreation:
         mock_client.trace.return_value = mock_trace
         mock_trace.generation.return_value = mock_generation
 
-        with patch(
-            "src.memory.classifier.langfuse_instrument._get_client",
-            return_value=mock_client,
-        ):
-            with langfuse_generation(
+        with (
+            patch(
+                "src.memory.classifier.langfuse_instrument._get_client",
+                return_value=mock_client,
+            ),
+            langfuse_generation(
                 "claude", "claude-3-haiku", trace_id="test-trace-123"
-            ) as gen:
-                gen.update(output_text="response")
+            ) as gen,
+        ):
+            gen.update(output_text="response")
 
         trace_kwargs = mock_client.trace.call_args.kwargs
         assert trace_kwargs["id"] == "test-trace-123"
@@ -148,12 +158,14 @@ class TestGenerationSpanCreation:
         mock_client.trace.return_value = mock_trace
         mock_trace.generation.return_value = mock_generation
 
-        with patch(
-            "src.memory.classifier.langfuse_instrument._get_client",
-            return_value=mock_client,
+        with (
+            patch(
+                "src.memory.classifier.langfuse_instrument._get_client",
+                return_value=mock_client,
+            ),
+            langfuse_generation("openai", "gpt-4o-mini") as gen,
         ):
-            with langfuse_generation("openai", "gpt-4o-mini") as gen:
-                gen.update(level="ERROR", metadata={"error": "timeout"})
+            gen.update(level="ERROR", metadata={"error": "timeout"})
 
         end_kwargs = mock_generation.end.call_args.kwargs
         assert end_kwargs["level"] == "ERROR"
@@ -184,8 +196,10 @@ class TestZeroOverhead:
 
     def test_no_langfuse_imports_when_disabled(self):
         """When disabled, no Langfuse package imports happen inside the context."""
-        with patch.dict(os.environ, {"LANGFUSE_ENABLED": "false"}):
+        with (
+            patch.dict(os.environ, {"LANGFUSE_ENABLED": "false"}),
+            langfuse_generation("ollama", "test-model") as gen,
+        ):
             # Should complete instantly with no Langfuse SDK interaction
-            with langfuse_generation("ollama", "test-model") as gen:
-                gen.update(input_tokens=100, output_tokens=50)
-                # If we got here, no exception was raised and no real import happened
+            gen.update(input_tokens=100, output_tokens=50)
+            # If we got here, no exception was raised and no real import happened

@@ -156,11 +156,13 @@ def _deterministic_trace_id(session_id: str) -> str:
 def main():
     """Main entry point for Stop hook."""
     # Install global self-termination timeout (BUG-155 / signal.alarm best practice)
-    try:
-        signal.signal(signal.SIGALRM, _timeout_handler)
-        signal.alarm(HOOK_TIMEOUT_SECONDS)
-    except (AttributeError, OSError):
-        pass  # SIGALRM not available on Windows
+    # BUG-158: Skip signal registration in test environments to prevent SIGALRM leaks
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        try:
+            signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(HOOK_TIMEOUT_SECONDS)
+        except (AttributeError, OSError):
+            pass  # SIGALRM not available on Windows
 
     # ── Kill-switches (BUG-156: use LANGFUSE_ENABLED, not TRACE_TO_LANGFUSE) ──
     if os.environ.get("LANGFUSE_ENABLED", "false").lower() != "true":

@@ -11,9 +11,9 @@ Tests BUG-151 through BUG-157 fixes:
 
 import json
 import os
+import signal
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -24,6 +24,15 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT / ".claude" / "hooks" / "scripts"))
 
 HOOK_SCRIPT = _PROJECT_ROOT / ".claude" / "hooks" / "scripts" / "langfuse_stop_hook.py"
+
+
+@pytest.fixture(autouse=True)
+def cleanup_sigalrm():
+    """BUG-158: Cancel any pending SIGALRM and restore default handler after every test."""
+    yield
+    if hasattr(signal, "SIGALRM"):
+        signal.alarm(0)  # Cancel any pending alarm
+        signal.signal(signal.SIGALRM, signal.SIG_DFL)  # Restore default handler
 
 
 def _write_jsonl(path: Path, messages: list[dict]) -> None:
@@ -313,7 +322,9 @@ class TestDeterministicTraceId:
 class TestKillSwitches:
     """Tests for BUG-156: kill-switch env var correctness."""
 
-    def _run_hook(self, env_overrides: dict, stdin_data: str = "") -> subprocess.CompletedProcess:
+    def _run_hook(
+        self, env_overrides: dict, stdin_data: str = ""
+    ) -> subprocess.CompletedProcess:
         """Run the hook script with env overrides."""
         env = os.environ.copy()
         env.update(env_overrides)
@@ -503,9 +514,9 @@ class TestLangfuseTraceCreation:
                     "sys.stdin",
                     MagicMock(read=MagicMock(return_value=stdin_payload)),
                 ),
+                pytest.raises(SystemExit),
             ):
-                with pytest.raises(SystemExit):
-                    langfuse_stop_hook.main()
+                langfuse_stop_hook.main()
         finally:
             # Restore original modules
             for mod_name, original in saved_modules.items():
@@ -514,9 +525,7 @@ class TestLangfuseTraceCreation:
                 else:
                     sys.modules[mod_name] = original
 
-    def test_root_span_has_input_output(
-        self, transcript_file, mock_langfuse_client
-    ):
+    def test_root_span_has_input_output(self, transcript_file, mock_langfuse_client):
         """BUG-152: Root span must have input= and output= set."""
         self._run_main_with_mock(
             mock_langfuse_client,
@@ -526,20 +535,16 @@ class TestLangfuseTraceCreation:
         # Verify root span (first span created) has input and output
         root_call = mock_langfuse_client.start_span.call_args_list[0]
         root_kwargs = root_call.kwargs
-        assert root_kwargs.get("input") is not None, (
-            "Root span missing input (BUG-152)"
-        )
-        assert root_kwargs.get("output") is not None, (
-            "Root span missing output (BUG-152)"
-        )
+        assert root_kwargs.get("input") is not None, "Root span missing input (BUG-152)"
+        assert (
+            root_kwargs.get("output") is not None
+        ), "Root span missing output (BUG-152)"
         # Input should be first user message
         assert "Python" in root_kwargs["input"]
         # Output should be last assistant message
         assert "fibonacci" in root_kwargs["output"]
 
-    def test_child_spans_have_output(
-        self, transcript_file, mock_langfuse_client
-    ):
+    def test_child_spans_have_output(self, transcript_file, mock_langfuse_client):
         """BUG-154: Child turn spans must have output set via .update()."""
         self._run_main_with_mock(
             mock_langfuse_client,
@@ -552,13 +557,13 @@ class TestLangfuseTraceCreation:
 
         # Child spans (index 1+) should have .update(output=...) called
         for child_span in spans[1:]:
-            assert len(child_span._updates) > 0, (
-                "Child span never had .update() called (BUG-154)"
-            )
+            assert (
+                len(child_span._updates) > 0
+            ), "Child span never had .update() called (BUG-154)"
             update_kwargs = child_span._updates[0]
-            assert "output" in update_kwargs, (
-                "Child span .update() missing output key (BUG-154)"
-            )
+            assert (
+                "output" in update_kwargs
+            ), "Child span .update() missing output key (BUG-154)"
 
     def test_content_blocks_extraction(
         self, content_blocks_transcript, mock_langfuse_client
@@ -610,9 +615,9 @@ class TestDatetimeFix:
     def test_no_utcnow_calls(self):
         """BUG-157: Source code must not contain datetime.utcnow()."""
         source = HOOK_SCRIPT.read_text()
-        assert "utcnow()" not in source, (
-            "BUG-157: datetime.utcnow() still present in source"
-        )
+        assert (
+            "utcnow()" not in source
+        ), "BUG-157: datetime.utcnow() still present in source"
 
     def test_uses_timezone_aware(self):
         """BUG-157: Source must use datetime.now(tz=timezone.utc)."""
@@ -624,7 +629,9 @@ class TestDatetimeFix:
 class TestNeverBlocksClaudeCode:
     """Integration-level tests: hook must ALWAYS exit 0, never crash."""
 
-    def _run_hook(self, stdin_data: str, env_overrides: dict | None = None) -> subprocess.CompletedProcess:
+    def _run_hook(
+        self, stdin_data: str, env_overrides: dict | None = None
+    ) -> subprocess.CompletedProcess:
         env = os.environ.copy()
         env["LANGFUSE_ENABLED"] = "true"
         env["LANGFUSE_TRACE_SESSIONS"] = "true"

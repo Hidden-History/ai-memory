@@ -426,7 +426,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                     from memory.security_scanner import ScanAction, SecurityScanner
 
                     scanner = SecurityScanner(enable_ner=False)
-                    scan_result = scanner.scan(summary_data["content"])
+                    scan_result = scanner.scan(summary_data["content"], source_type="user_session")
                     scan_actually_ran = True
                     scan_action = scan_result.action.value if hasattr(scan_result.action, 'value') else str(scan_result.action)
                     scan_findings = scan_result.findings

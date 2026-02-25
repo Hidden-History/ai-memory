@@ -274,6 +274,14 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    healthcheck:
+      # File-based heartbeat — worker touches .heartbeat on each flush loop iteration
+      # Python check: exit 0 if file modified within last 60s, exit 1 otherwise
+      test: ["CMD-SHELL", "python3 -c \"import os,sys,time; f='/app/trace_buffer/.heartbeat'; sys.exit(0 if os.path.exists(f) and time.time()-os.path.getmtime(f)<60 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     networks:
       - ai-memory_default
 
