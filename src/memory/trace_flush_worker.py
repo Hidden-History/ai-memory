@@ -37,6 +37,7 @@ def _dt_to_ns(iso_str: str) -> int:
         dt = dt.replace(tzinfo=timezone.utc)
     return int(dt.timestamp() * 1e9)
 
+
 try:
     from memory.metrics_push import (
         push_langfuse_buffer_metrics_async as _push_metrics_fn,
@@ -149,7 +150,9 @@ def process_buffer_files(langfuse) -> tuple[int, int]:
             trace_id = raw_trace_id.replace("-", "") if raw_trace_id else None
             data = event.get("data", {})
             event_type = event.get("event_type", "unknown")
-            as_type = event.get("as_type")  # Wave 1H: "generation" or None (default = span)
+            as_type = event.get(
+                "as_type"
+            )  # Wave 1H: "generation" or None (default = span)
 
             span_metadata = data.get("metadata", {})
             if data.get("start_time"):

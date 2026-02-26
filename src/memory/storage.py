@@ -1320,7 +1320,9 @@ class MemoryStorage:
                     "status": str(info.status.value) if info.status else "unknown",
                 }
             except Exception as e:
-                logger.warning("Failed to get stats for collection %s: %s", collection, e)
+                logger.warning(
+                    "Failed to get stats for collection %s: %s", collection, e
+                )
                 stats[collection] = {
                     "points_count": 0,
                     "vectors_count": 0,
@@ -1348,9 +1350,13 @@ class MemoryStorage:
             ['proj-a', 'proj-b']
         """
         try:
-            return _get_unique_field_values(self.qdrant_client, collection, field)[:limit]
+            return _get_unique_field_values(self.qdrant_client, collection, field)[
+                :limit
+            ]
         except Exception:
-            logger.warning("Failed to get unique field values for %s.%s", collection, field)
+            logger.warning(
+                "Failed to get unique field values for %s.%s", collection, field
+            )
             return []
 
     def get_last_updated(self, collection: str) -> str | None:

@@ -522,6 +522,7 @@ class TestMemoryStorageStats:
         self, mock_config, mock_qdrant_client
     ):
         """A Qdrant failure for a core collection yields status='error'."""
+
         def _get_collection_side_effect(name):
             if name == "jira-data":
                 raise Exception("not found")
@@ -588,6 +589,7 @@ class TestMemoryStorageStats:
         self, mock_config, mock_qdrant_client, monkeypatch
     ):
         """Should return empty list when the underlying function raises."""
+
         def _raise(*args, **kwargs):
             raise Exception("Qdrant scroll failed")
 

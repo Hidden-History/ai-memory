@@ -90,7 +90,9 @@ def emit_trace_event(
     event = {
         "timestamp": time.time(),
         "event_type": event_type,
-        "trace_id": (trace_id or os.environ.get("LANGFUSE_TRACE_ID", uuid4().hex)).replace("-", ""),
+        "trace_id": (
+            trace_id or os.environ.get("LANGFUSE_TRACE_ID", uuid4().hex)
+        ).replace("-", ""),
         "span_id": span_id or uuid4().hex,
         "parent_span_id": parent_span_id,
         "session_id": session_id,
