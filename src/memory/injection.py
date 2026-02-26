@@ -20,6 +20,7 @@ References:
 - BP-089: Adaptive budgets improve accuracy 5-15%
 """
 
+import hashlib
 import json
 import logging
 import re
@@ -505,6 +506,13 @@ def compute_topic_drift(
     return max(0.0, min(1.0, 1.0 - similarity))
 
 
+# BUG-173: Per-result score gap filter threshold. Results scoring below
+# best_score * this value are filtered as low-relevance noise.
+# 0.7 (30% gap) chosen based on BUG-173 Langfuse trace analysis:
+# best=99%, noise=82% → 82/99=0.83 passes at 0.7 but fails at 0.85.
+_SCORE_GAP_THRESHOLD = 0.7
+
+
 def select_results_greedy(
     results: list[dict],
     budget: int,
@@ -527,6 +535,12 @@ def select_results_greedy(
     selected = []
     tokens_used = 0
 
+    # BUG-172: Content-hash deduplication for cross-type duplicates
+    seen_hashes: set[str] = set()
+
+    # BUG-173: Score gap filter — skip results >30% below best
+    best_score = results[0].get("score", 0) if results else 0.0
+
     for result in results:
         point_id = str(result.get("id", ""))
 
@@ -536,6 +550,17 @@ def select_results_greedy(
 
         content = result.get("content", "")
         if not content.strip():
+            continue
+
+        # BUG-172: Skip duplicate content (same text stored under different types)
+        content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
+        if content_hash in seen_hashes:
+            continue
+        seen_hashes.add(content_hash)
+
+        # BUG-173: Skip results with >30% score gap from best
+        result_score = result.get("score", 0)
+        if best_score > 0 and result_score < best_score * _SCORE_GAP_THRESHOLD:
             continue
 
         # Count tokens accurately

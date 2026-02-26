@@ -19,6 +19,7 @@ Performance: <500ms total (NFR-P1, NFR-P5)
 import json
 import logging
 import os
+import re
 import sys
 import time
 
@@ -107,6 +108,24 @@ def main() -> int:
         client = get_qdrant_client(config)
         if not check_qdrant_health(client):
             logger.warning("tier2_qdrant_unavailable")
+            print(
+                json.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "UserPromptSubmit",
+                            "additionalContext": "",
+                        }
+                    }
+                )
+            )
+            return 0
+
+        # BUG-171: Skip injection for slash commands (invocations, not queries)
+        if re.match(r"^/[\w:./-]+", prompt.strip()):
+            logger.info(
+                "tier2_skip_command",
+                extra={"prompt": prompt[:80], "session_id": session_id},
+            )
             print(
                 json.dumps(
                     {
