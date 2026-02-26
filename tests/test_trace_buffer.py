@@ -47,7 +47,7 @@ def test_emit_writes_valid_json(monkeypatch, tmp_path):
 
     event = json.loads(files[0].read_text())
     assert event["event_type"] == "1_capture"
-    assert event["trace_id"] == "trace-abc"
+    assert event["trace_id"] == "traceabc"  # hyphens stripped for OTel compat
     assert event["span_id"] == "span-xyz"
     assert "start_time" in event["data"]
     assert "end_time" in event["data"]

@@ -19,7 +19,13 @@ from datetime import datetime, timezone
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from .chunking import ContentType, IntelligentChunker
-from .config import COLLECTION_DISCUSSIONS, COLLECTION_JIRA_DATA, COLLECTION_NAMES, MemoryConfig, get_config
+from .config import (
+    COLLECTION_DISCUSSIONS,
+    COLLECTION_JIRA_DATA,
+    COLLECTION_NAMES,
+    MemoryConfig,
+    get_config,
+)
 from .embeddings import EmbeddingClient, EmbeddingError
 from .models import EmbeddingStatus, MemoryPayload, MemoryType
 from .qdrant_client import QdrantUnavailable, get_qdrant_client
