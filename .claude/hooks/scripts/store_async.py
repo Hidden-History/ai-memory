@@ -80,6 +80,8 @@ try:
 except ImportError:
     emit_trace_event = None
 
+TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+
 # Import metrics for Prometheus instrumentation (Story 6.1)
 try:
     from memory.metrics import deduplication_events_total, memory_captures_total
@@ -171,12 +173,13 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
         # SPEC-021: 2_log span
         if emit_trace_event:
             try:
+                log_path = str(Path(INSTALL_DIR) / "logs" / "activity.log")
                 emit_trace_event(
                     event_type="2_log",
                     data={
-                        "input": {"content_length": len(code_content)},
-                        "output": {"log_path": str(Path(INSTALL_DIR) / "logs" / "activity.log")},
-                        "metadata": {"log_path": str(Path(INSTALL_DIR) / "logs" / "activity.log")},
+                        "input": code_content[:TRACE_CONTENT_MAX],
+                        "output": f"Logged to {log_path}",
+                        "metadata": {"content_length": len(code_content), "log_path": log_path},
                     },
                     trace_id=trace_id, session_id=session_id, project_id=group_id,
                 )
@@ -243,12 +246,13 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
         # SPEC-021: 3_detect span — content type detected via extract_patterns
         if emit_trace_event:
             try:
+                language = patterns.get("language", "unknown") if patterns else "unknown"
                 emit_trace_event(
                     event_type="3_detect",
                     data={
-                        "input": {"content_length": len(code_content)},
-                        "output": {"detected_type": "implementation"},
-                        "metadata": {"detected_type": "implementation", "confidence": 1.0, "language": patterns.get("language", "unknown") if patterns else "unknown"},
+                        "input": code_content[:300],
+                        "output": f"Detected type: implementation (confidence: 1.0)",
+                        "metadata": {"detected_type": "implementation", "confidence": 1.0, "language": language},
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -267,6 +271,19 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                     "file_path": file_path,
                 },
             )
+            if emit_trace_event:
+                try:
+                    emit_trace_event(
+                        event_type="pipeline_terminated",
+                        data={
+                            "input": "no_patterns_extracted",
+                            "output": "Pipeline terminated: no patterns extracted from tool output",
+                            "metadata": {"reason": "no_patterns_extracted"},
+                        },
+                        trace_id=trace_id, session_id=session_id, project_id=group_id,
+                    )
+                except Exception:
+                    pass
             return
 
         # SPEC-021: Default scan tracking vars (used by 4_scan span)
@@ -306,8 +323,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                                 emit_trace_event(
                                     event_type="4_scan",
                                     data={
-                                        "input": {"content_length": len(patterns["content"])},
-                                        "output": {"scan_result": "blocked"},
+                                        "input": patterns["content"][:300],
+                                        "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
                                         "metadata": {"scan_result": "blocked", "pii_found": False, "secrets_found": True},
                                     },
                                     trace_id=trace_id,
@@ -319,7 +336,11 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                             try:
                                 emit_trace_event(
                                     event_type="pipeline_terminated",
-                                    data={"metadata": {"reason": "scan_blocked", "scan_blocked": True}},
+                                    data={
+                                        "input": "scan_blocked",
+                                        "output": "Pipeline terminated: scan_blocked",
+                                        "metadata": {"reason": "scan_blocked", "scan_blocked": True},
+                                    },
                                     trace_id=trace_id,
                                     session_id=session_id,
                                     project_id=group_id,
@@ -354,10 +375,11 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 emit_trace_event(
                     event_type="4_scan",
                     data={
-                        "input": {"content_length": scan_input_length},
-                        "output": {"scan_result": scan_action},
+                        "input": patterns["content"][:300],
+                        "output": f"Scan result: {scan_action} (findings: {len(scan_findings)})",
                         "metadata": {
                             "scan_result": scan_action,
+                            "content_length": scan_input_length,
                             "pii_found": pii_found,
                             "secrets_found": secrets_found,
                         },
@@ -396,9 +418,14 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 emit_trace_event(
                     event_type="5_chunk",
                     data={
-                        "input": {"content_length": len(patterns["content"])},
-                        "output": {"num_chunks": len(chunks), "chunk_type": chunks[0].metadata.chunk_type if chunks else "unknown"},
-                        "metadata": {"num_chunks": len(chunks), "total_tokens": sum(c.metadata.chunk_size_tokens for c in chunks)},
+                        "input": patterns["content"][:TRACE_CONTENT_MAX],
+                        "output": f"Produced {len(chunks)} chunks",
+                        "metadata": {
+                            "num_chunks": len(chunks),
+                            "chunk_type": chunks[0].metadata.chunk_type if chunks else "unknown",
+                            "total_tokens": sum(c.metadata.chunk_size_tokens for c in chunks),
+                            "content_length": len(patterns["content"]),
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -485,12 +512,13 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
         if emit_trace_event:
             try:
                 embed_statuses = [p["payload"]["embedding_status"] for p in points_to_store]
+                dim = len(points_to_store[0]["vector"]) if points_to_store else 0
                 emit_trace_event(
                     event_type="6_embed",
                     data={
-                        "input": {"num_chunks": len(points_to_store)},
-                        "output": {"embedding_status": embed_statuses[0] if embed_statuses else "unknown", "dimensions": len(points_to_store[0]["vector"]) if points_to_store else 0},
-                        "metadata": {"embedding_status": embed_statuses[0] if embed_statuses else "unknown", "num_vectors": len(points_to_store)},
+                        "input": f"Embedding {len(points_to_store)} chunks",
+                        "output": f"Generated {len(points_to_store)} vectors ({dim}-dim)",
+                        "metadata": {"embedding_status": embed_statuses[0] if embed_statuses else "unknown", "num_vectors": len(points_to_store), "dimensions": dim},
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -512,8 +540,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 emit_trace_event(
                     event_type="7_store",
                     data={
-                        "input": {"num_points": len(points_to_store)},
-                        "output": {"collection": collection_name, "points_stored": len(points_to_store)},
+                        "input": f"Storing {len(points_to_store)} points to {collection_name}",
+                        "output": f"Stored {len(points_to_store)} points (IDs: {[p['id'] for p in points_to_store][:5]})",
                         "metadata": {"collection": collection_name, "points_stored": len(points_to_store)},
                     },
                     trace_id=trace_id,
@@ -556,6 +584,7 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                         source_hook="PostToolUse",
                         created_at=point["payload"]["created_at"],
                         trace_id=trace_id,
+                        session_id=session_id,  # Wave 1H: Propagate session_id for 9_classify trace
                     )
                     enqueue_for_classification(task)
                     enqueue_count += 1
@@ -568,12 +597,13 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
         # SPEC-021: 8_enqueue span — reports actual enqueue outcome
         if emit_trace_event:
             try:
+                first_point_id = points_to_store[0]["id"] if points_to_store else "unknown"
                 emit_trace_event(
                     event_type="8_enqueue",
                     data={
-                        "input": {"num_points": len(points_to_store)},
-                        "output": {"enqueued": classification_enqueued, "enqueue_count": enqueue_count, "collection": collection_name},
-                        "metadata": {"collection": collection_name, "current_type": "implementation"},
+                        "input": f"Enqueuing point {first_point_id} for classification",
+                        "output": f"Enqueued: {classification_enqueued} (collection: {collection_name})",
+                        "metadata": {"collection": collection_name, "current_type": "implementation", "enqueue_count": enqueue_count},
                     },
                     trace_id=trace_id,
                     session_id=session_id,

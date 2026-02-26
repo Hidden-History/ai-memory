@@ -55,6 +55,8 @@ except ImportError:
     detect_project = None
     emit_trace_event = None
 
+TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+
 
 def _log_to_activity(message: str) -> None:
     """Log to activity file for Streamlit visibility.
@@ -337,19 +339,21 @@ def main() -> int:
             # SPEC-021: Generate trace_id for pipeline trace linking
             trace_id = None
             if emit_trace_event:
-                trace_id = str(uuid.uuid4())
+                trace_id = uuid.uuid4().hex
                 capture_start = datetime.now(tz=timezone.utc)
                 cwd_path = hook_input.get("cwd", os.getcwd())
                 try:
                     emit_trace_event(
                         event_type="1_capture",
                         data={
-                            "input": {"hook_type": "post_tool", "raw_length": len(content) if content else 0},
-                            "output": {"content_length": len(content) if content else 0, "content_extracted": bool(content)},
+                            "input": content[:TRACE_CONTENT_MAX] if content else "",
+                            "output": f"Captured {len(content) if content else 0} chars from post_tool hook",
                             "metadata": {
                                 "hook_type": "post_tool",
                                 "source": tool_name,
+                                "raw_length": len(content) if content else 0,
                                 "content_length": len(content) if content else 0,
+                                "content_extracted": bool(content),
                             },
                         },
                         trace_id=trace_id,

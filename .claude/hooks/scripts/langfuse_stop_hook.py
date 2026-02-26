@@ -148,9 +148,11 @@ def _pair_turns(messages: list[dict]) -> list[dict]:
     return turns
 
 
-def _deterministic_trace_id(session_id: str) -> str:
+def _deterministic_trace_id(session_id: str) -> str | None:
     """Generate a deterministic trace ID from session_id for deduplication."""
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"langfuse-session:{session_id}"))
+    if not session_id:
+        return None
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"langfuse-session:{session_id}").hex
 
 
 def main():
@@ -164,10 +166,16 @@ def main():
         except (AttributeError, OSError):
             pass  # SIGALRM not available on Windows
 
-    # ── Kill-switches (BUG-156: use LANGFUSE_ENABLED, not TRACE_TO_LANGFUSE) ──
-    if os.environ.get("LANGFUSE_ENABLED", "false").lower() != "true":
+    # ── Early kill-switch: only exit if EXPLICITLY disabled ──
+    # Wave 1F: The LANGFUSE_ENABLED env var may not be in the subprocess environment
+    # if it comes from docker/.env rather than settings.json. We therefore only do
+    # a fast-exit here when LANGFUSE_ENABLED is explicitly set to a non-true value.
+    # The full kill-switch check (including after env-file load) runs inside the try block.
+    _early_enabled = os.environ.get("LANGFUSE_ENABLED")
+    if _early_enabled is not None and _early_enabled.lower() != "true":
         sys.exit(0)
-    if os.environ.get("LANGFUSE_TRACE_SESSIONS", "true").lower() != "true":
+    _early_sessions = os.environ.get("LANGFUSE_TRACE_SESSIONS")
+    if _early_sessions is not None and _early_sessions.lower() != "true":
         sys.exit(0)
 
     try:
@@ -184,15 +192,67 @@ def main():
 
     try:
         # Add src to path for imports
-        install_dir = os.environ.get("AI_MEMORY_INSTALL_DIR", "")
-        if install_dir:
-            sys.path.insert(0, os.path.join(install_dir, "src"))
+        install_dir = os.environ.get(
+            "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+        )
+        sys.path.insert(0, os.path.join(install_dir, "src"))
+
+        # Wave 1F: Load Langfuse env vars from docker/.env if not already set in environment.
+        # Claude Code propagates env vars from settings.json, but when the Stop hook runs in
+        # certain contexts (e.g., subagents, non-project-dir sessions), those vars may be absent.
+        # Loading docker/.env as a fallback ensures credentials are always available.
+        _env_file = os.path.join(install_dir, "docker", ".env")
+        if os.path.isfile(_env_file):
+            _langfuse_keys = (
+                "LANGFUSE_ENABLED",
+                "LANGFUSE_PUBLIC_KEY",
+                "LANGFUSE_SECRET_KEY",
+                "LANGFUSE_BASE_URL",
+                "LANGFUSE_TRACE_SESSIONS",
+            )
+            _missing = [k for k in _langfuse_keys if not os.environ.get(k)]
+            if _missing:
+                try:
+                    with open(_env_file, encoding="utf-8") as _ef:
+                        for _line in _ef:
+                            _line = _line.strip()
+                            if not _line or _line.startswith("#") or "=" not in _line:
+                                continue
+                            _key, _, _val = _line.partition("=")
+                            _key = _key.strip()
+                            if _key in _missing and _key not in os.environ:
+                                os.environ[_key] = _val.strip().strip('"').strip("'")
+                    logger.info(
+                        "Loaded Langfuse env vars from docker/.env: %s",
+                        [k for k in _missing if os.environ.get(k)],
+                    )
+                except OSError as _e:
+                    logger.warning("Failed to read docker/.env: %s", _e)
+
+        # Wave 1F: Re-check kill-switch AFTER env file load (in case it was missing before)
+        if os.environ.get("LANGFUSE_ENABLED", "false").lower() != "true":
+            logger.info("Langfuse disabled (LANGFUSE_ENABLED != true) — skipping session trace")
+            sys.exit(0)
+        if os.environ.get("LANGFUSE_TRACE_SESSIONS", "true").lower() != "true":
+            logger.info("Session tracing disabled (LANGFUSE_TRACE_SESSIONS != true) — skipping")
+            sys.exit(0)
+
+        # Wave 1F: Debug log env var state to diagnose missing credentials.
+        logger.info(
+            "Langfuse env: PUBLIC_KEY=%s, SECRET_KEY=%s, BASE_URL=%s",
+            "set" if os.environ.get("LANGFUSE_PUBLIC_KEY") else "MISSING",
+            "set" if os.environ.get("LANGFUSE_SECRET_KEY") else "MISSING",
+            os.environ.get("LANGFUSE_BASE_URL", "NOT SET"),
+        )
 
         from memory.langfuse_config import get_langfuse_client
 
         client = get_langfuse_client()
         if client is None:
-            logger.debug("Langfuse client unavailable — skipping trace")
+            logger.warning(
+                "Langfuse client unavailable — session trace skipped "
+                "(check LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY)"
+            )
             sys.exit(0)
 
         # ── BUG-151: Extract fields from stdin, read .jsonl transcript ──

@@ -62,6 +62,8 @@ try:
 except ImportError:
     emit_trace_event = None
 
+TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+
 # Import metrics for Prometheus instrumentation
 try:
     from memory.metrics import memory_captures_total
@@ -119,9 +121,9 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="2_log",
                     data={
-                        "input": {"content_length": len(prompt)},
-                        "output": {"log_path": log_path},
-                        "metadata": {"log_path": log_path},
+                        "input": prompt[:TRACE_CONTENT_MAX],
+                        "output": f"Logged to {log_path}",
+                        "metadata": {"content_length": len(prompt), "log_path": log_path},
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -136,8 +138,8 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="3_detect",
                     data={
-                        "input": {"content_length": len(prompt)},
-                        "output": {"detected_type": TYPE_USER_MESSAGE},
+                        "input": prompt[:300],
+                        "output": f"Detected type: {TYPE_USER_MESSAGE} (confidence: 1.0)",
                         "metadata": {"detected_type": TYPE_USER_MESSAGE, "confidence": 1.0},
                     },
                     trace_id=trace_id,
@@ -273,8 +275,8 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                             emit_trace_event(
                                 event_type="4_scan",
                                 data={
-                                    "input": {"content_length": len(prompt)},
-                                    "output": {"scan_result": "blocked"},
+                                    "input": prompt[:300],
+                                    "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
                                     "metadata": {"scan_result": "blocked", "pii_found": False, "secrets_found": True},
                                 },
                                 trace_id=trace_id,
@@ -286,7 +288,11 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                         try:
                             emit_trace_event(
                                 event_type="pipeline_terminated",
-                                data={"metadata": {"reason": "scan_blocked", "scan_blocked": True}},
+                                data={
+                                    "input": "scan_blocked",
+                                    "output": "Pipeline terminated: scan_blocked",
+                                    "metadata": {"reason": "scan_blocked", "scan_blocked": True},
+                                },
                                 trace_id=trace_id,
                                 session_id=session_id,
                                 project_id=group_id,
@@ -338,10 +344,11 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="4_scan",
                     data={
-                        "input": {"content_length": scan_input_length},
-                        "output": {"scan_result": scan_action},
+                        "input": prompt[:300],
+                        "output": f"Scan result: {scan_action} (findings: {len(scan_findings)})",
                         "metadata": {
                             "scan_result": scan_action,
+                            "content_length": scan_input_length,
                             "pii_found": pii_found,
                             "secrets_found": secrets_found,
                         },
@@ -463,9 +470,13 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="5_chunk",
                     data={
-                        "input": {"content_length": len(prompt)},
-                        "output": {"num_chunks": len(chunks_to_store), "chunk_type": chunks_to_store[0][1]["chunk_type"] if chunks_to_store else "unknown"},
-                        "metadata": {"num_chunks": len(chunks_to_store), "chunk_type": chunks_to_store[0][1]["chunk_type"] if chunks_to_store else "unknown"},
+                        "input": prompt[:TRACE_CONTENT_MAX],
+                        "output": f"Produced {len(chunks_to_store)} chunks",
+                        "metadata": {
+                            "num_chunks": len(chunks_to_store),
+                            "chunk_type": chunks_to_store[0][1]["chunk_type"] if chunks_to_store else "unknown",
+                            "content_length": len(prompt),
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -503,12 +514,13 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
         # SPEC-021: 6_embed span — embedding generation
         if emit_trace_event:
             try:
+                dim = len(vectors[0]) if vectors else 0
                 emit_trace_event(
                     event_type="6_embed",
                     data={
-                        "input": {"num_chunks": len(chunks_to_store)},
-                        "output": {"embedding_status": embedding_status, "dimensions": len(vectors[0]) if vectors else 0},
-                        "metadata": {"embedding_status": embedding_status, "num_vectors": len(vectors)},
+                        "input": f"Embedding {len(chunks_to_store)} chunks",
+                        "output": f"Generated {len(vectors)} vectors ({dim}-dim)",
+                        "metadata": {"embedding_status": embedding_status, "num_vectors": len(vectors), "dimensions": dim},
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -558,8 +570,8 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="7_store",
                     data={
-                        "input": {"num_points": len(points)},
-                        "output": {"collection": COLLECTION_DISCUSSIONS, "points_stored": len(points)},
+                        "input": f"Storing {len(points)} points to {COLLECTION_DISCUSSIONS}",
+                        "output": f"Stored {len(points)} points (IDs: {[p.id for p in points][:5]})",
                         "metadata": {"collection": COLLECTION_DISCUSSIONS, "points_stored": len(points)},
                     },
                     trace_id=trace_id,
@@ -603,6 +615,8 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                     group_id=group_id,
                     source_hook="UserPromptSubmit",
                     created_at=now,  # Matches stored memory timestamp for traceability
+                    trace_id=trace_id,  # Wave 1H: Propagate pipeline trace_id to classifier
+                    session_id=session_id,  # Wave 1H: Propagate session_id for 9_classify trace
                 )
                 enqueue_for_classification(task)
                 classification_enqueued = True
@@ -629,12 +643,13 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
         # SPEC-021: 8_enqueue span — reports actual enqueue outcome
         if emit_trace_event:
             try:
+                point_id = points[0].id if points else memory_id
                 emit_trace_event(
                     event_type="8_enqueue",
                     data={
-                        "input": {"point_id": points[0].id if points else memory_id},
-                        "output": {"enqueued": classification_enqueued, "collection": COLLECTION_DISCUSSIONS},
-                        "metadata": {"collection": COLLECTION_DISCUSSIONS, "current_type": "user_message"},
+                        "input": f"Enqueuing point {point_id} for classification",
+                        "output": f"Enqueued: {classification_enqueued} (collection: {COLLECTION_DISCUSSIONS})",
+                        "metadata": {"collection": COLLECTION_DISCUSSIONS, "current_type": "user_message", "point_id": point_id},
                     },
                     trace_id=trace_id,
                     session_id=session_id,

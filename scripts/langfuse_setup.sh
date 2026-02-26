@@ -247,14 +247,14 @@ start_services() {
     fi
     chmod 0755 "${_install_dir}/trace_buffer"
 
-    log_info "Running: docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse up -d"
+    log_info "Running: docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse up -d --build"
     (
         cd "$DOCKER_DIR"
         docker compose \
             -f docker-compose.yml \
             -f docker-compose.langfuse.yml \
             --profile langfuse \
-            up -d
+            up -d --build
     )
     log_success "Langfuse services started."
 }

@@ -62,6 +62,8 @@ except ImportError:
 # V2.0 Fix: Truncate extremely long prompts to avoid Qdrant payload issues
 MAX_CONTENT_LENGTH = 100000  # Embeddings handle large text well
 
+TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+
 
 def validate_hook_input(data: dict[str, Any]) -> str | None:
     """Validate hook input against expected schema.
@@ -230,7 +232,7 @@ def main() -> int:
         # SPEC-021: Generate trace_id for pipeline trace linking
         trace_id = None
         if emit_trace_event:
-            trace_id = str(uuid.uuid4())
+            trace_id = uuid.uuid4().hex
             capture_start = datetime.now(tz=timezone.utc)
             content = hook_input.get("prompt", "")
             cwd = os.getcwd()
@@ -238,12 +240,14 @@ def main() -> int:
                 emit_trace_event(
                     event_type="1_capture",
                     data={
-                        "input": {"hook_type": "user_prompt", "raw_length": len(content)},
-                        "output": {"content_length": len(content), "content_extracted": True},
+                        "input": content[:TRACE_CONTENT_MAX],
+                        "output": f"Captured {len(content)} chars from user_prompt hook",
                         "metadata": {
                             "hook_type": "user_prompt",
                             "source": "stdin",
+                            "raw_length": len(content),
                             "content_length": len(content),
+                            "content_extracted": True,
                         },
                     },
                     trace_id=trace_id,

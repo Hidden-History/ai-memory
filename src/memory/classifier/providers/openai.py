@@ -153,6 +153,7 @@ class OpenAIProvider(BaseProvider):
                     tags=classification.get("tags", []),
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
+                    model_name=self.model,
                 )
 
             except httpx.TimeoutException as e:

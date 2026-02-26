@@ -27,6 +27,7 @@ class ProviderResponse:
         tags: List of relevant tags extracted from content
         input_tokens: Number of input tokens used
         output_tokens: Number of output tokens used
+        model_name: Specific model used (e.g., "llama3.2:3b", "claude-3-5-haiku-20241022")
     """
 
     classified_type: str
@@ -35,6 +36,7 @@ class ProviderResponse:
     tags: list[str]
     input_tokens: int
     output_tokens: int
+    model_name: str = ""
 
 
 class BaseProvider(ABC):

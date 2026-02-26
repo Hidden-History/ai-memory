@@ -78,6 +78,8 @@ try:
 except ImportError:
     emit_trace_event = None
 
+TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+
 # TECH-DEBT-151: Structured truncation for error output (max 800 tokens)
 try:
     import tiktoken
@@ -218,12 +220,13 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
         # SPEC-021: 2_log span — content captured for processing
         if emit_trace_event:
             try:
+                log_path = str(Path(INSTALL_DIR) / "logs" / "activity.log")
                 emit_trace_event(
                     event_type="2_log",
                     data={
-                        "input": {"content_length": len(content)},
-                        "output": {"log_path": str(Path(INSTALL_DIR) / "logs" / "activity.log")},
-                        "metadata": {"log_path": str(Path(INSTALL_DIR) / "logs" / "activity.log")},
+                        "input": content[:TRACE_CONTENT_MAX],
+                        "output": f"Logged to {log_path}",
+                        "metadata": {"content_length": len(content), "log_path": log_path},
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -238,8 +241,8 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 emit_trace_event(
                     event_type="3_detect",
                     data={
-                        "input": {"content_length": len(content)},
-                        "output": {"detected_type": "error_fix"},
+                        "input": content[:300],
+                        "output": "Detected type: error_fix (confidence: 1.0)",
                         "metadata": {"detected_type": "error_fix", "confidence": 1.0},
                     },
                     trace_id=trace_id,
@@ -284,8 +287,8 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                             emit_trace_event(
                                 event_type="4_scan",
                                 data={
-                                    "input": {"content_length": len(content)},
-                                    "output": {"scan_result": "blocked"},
+                                    "input": content[:300],
+                                    "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
                                     "metadata": {"scan_result": "blocked", "pii_found": False, "secrets_found": True},
                                 },
                                 trace_id=trace_id, session_id=session_id, project_id=group_id,
@@ -295,7 +298,11 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                         try:
                             emit_trace_event(
                                 event_type="pipeline_terminated",
-                                data={"metadata": {"reason": "scan_blocked", "scan_blocked": True}},
+                                data={
+                                    "input": "scan_blocked",
+                                    "output": "Pipeline terminated: scan_blocked",
+                                    "metadata": {"reason": "scan_blocked", "scan_blocked": True},
+                                },
                                 trace_id=trace_id, session_id=session_id, project_id=group_id,
                             )
                         except Exception:
@@ -345,10 +352,11 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 emit_trace_event(
                     event_type="4_scan",
                     data={
-                        "input": {"content_length": scan_input_length},
-                        "output": {"scan_result": scan_action},
+                        "input": content[:300],
+                        "output": f"Scan result: {scan_action} (findings: {len(scan_findings)})",
                         "metadata": {
                             "scan_result": scan_action,
+                            "content_length": scan_input_length,
                             "pii_found": pii_found,
                             "secrets_found": secrets_found,
                         },
@@ -421,9 +429,9 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 emit_trace_event(
                     event_type="5_chunk",
                     data={
-                        "input": {"content_length": len(content)},
-                        "output": {"num_chunks": 1, "chunk_type": "structured_smart_truncate"},
-                        "metadata": {"num_chunks": 1, "chunk_type": "structured_smart_truncate"},
+                        "input": content[:TRACE_CONTENT_MAX],
+                        "output": "Produced 1 chunk",
+                        "metadata": {"num_chunks": 1, "chunk_type": "structured_smart_truncate", "content_length": len(content)},
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -474,12 +482,13 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
         # SPEC-021: 6_embed span — embedding generation
         if emit_trace_event:
             try:
+                dim = len(vector)
                 emit_trace_event(
                     event_type="6_embed",
                     data={
-                        "input": {"num_chunks": 1},
-                        "output": {"embedding_status": payload["embedding_status"], "dimensions": len(vector)},
-                        "metadata": {"embedding_status": payload["embedding_status"], "num_vectors": 1},
+                        "input": "Embedding 1 chunk",
+                        "output": f"Generated 1 vector ({dim}-dim)",
+                        "metadata": {"embedding_status": payload["embedding_status"], "num_vectors": 1, "dimensions": dim},
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -500,8 +509,8 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 emit_trace_event(
                     event_type="7_store",
                     data={
-                        "input": {"num_points": 1},
-                        "output": {"collection": collection_name, "points_stored": 1},
+                        "input": f"Storing 1 point to {collection_name}",
+                        "output": f"Stored 1 point (ID: {memory_id})",
                         "metadata": {"collection": collection_name, "points_stored": 1},
                     },
                     trace_id=trace_id,
@@ -517,8 +526,8 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 emit_trace_event(
                     event_type="8_enqueue",
                     data={
-                        "input": {"point_id": memory_id},
-                        "output": {"enqueued": False, "collection": collection_name},
+                        "input": f"Enqueuing point {memory_id} for classification",
+                        "output": f"Enqueued: False (collection: {collection_name})",
                         "metadata": {"collection": collection_name, "current_type": "error_fix", "reason": "classifier_not_integrated"},
                     },
                     trace_id=trace_id, session_id=session_id, project_id=group_id,

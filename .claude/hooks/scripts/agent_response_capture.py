@@ -33,6 +33,8 @@ from typing import Any
 # Maximum response size to prevent memory issues in background process (100KB)
 MAX_RESPONSE_SIZE = 100 * 1024
 
+TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+
 # Add src to path for imports (must be inline before importing from memory)
 INSTALL_DIR = os.environ.get(
     "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
@@ -300,19 +302,21 @@ def main() -> int:
         # SPEC-021: Generate trace_id for pipeline trace linking
         trace_id = None
         if emit_trace_event:
-            trace_id = str(uuid.uuid4())
+            trace_id = uuid.uuid4().hex
             capture_start = datetime.now(tz=timezone.utc)
             cwd = os.getcwd()
             try:
                 emit_trace_event(
                     event_type="1_capture",
                     data={
-                        "input": {"hook_type": "agent_response", "raw_length": raw_response_length},
-                        "output": {"content_length": len(response_text), "content_extracted": True},
+                        "input": response_text[:TRACE_CONTENT_MAX],
+                        "output": f"Captured {len(response_text)} chars from agent_response hook",
                         "metadata": {
                             "hook_type": "agent_response",
                             "source": "transcript",
+                            "raw_length": raw_response_length,
                             "content_length": len(response_text),
+                            "content_extracted": True,
                         },
                     },
                     trace_id=trace_id,

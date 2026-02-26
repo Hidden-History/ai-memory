@@ -14,7 +14,7 @@ import signal
 import stat
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Bootstrap: allow running as `python -m memory.trace_flush_worker` from src/
@@ -24,6 +24,18 @@ INSTALL_DIR = os.environ.get(
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.langfuse_config import get_langfuse_client  # noqa: E402
+
+
+def _dt_to_ns(iso_str: str) -> int:
+    """Convert ISO datetime string to nanoseconds since epoch.
+
+    Langfuse SDK v3 uses OpenTelemetry internally, which requires
+    end_time/start_time as nanoseconds (int), not datetime objects.
+    """
+    dt = datetime.fromisoformat(iso_str)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return int(dt.timestamp() * 1e9)
 
 try:
     from memory.metrics_push import (
@@ -131,9 +143,13 @@ def process_buffer_files(langfuse) -> tuple[int, int]:
             continue
 
         try:
-            trace_id = event.get("trace_id")
+            raw_trace_id = event.get("trace_id", "")
+            # Langfuse requires 32 lowercase hex chars (no hyphens).
+            # Our trace IDs are UUID4 format — strip hyphens to comply.
+            trace_id = raw_trace_id.replace("-", "") if raw_trace_id else None
             data = event.get("data", {})
             event_type = event.get("event_type", "unknown")
+            as_type = event.get("as_type")  # Wave 1H: "generation" or None (default = span)
 
             span_metadata = data.get("metadata", {})
             if data.get("start_time"):
@@ -141,12 +157,33 @@ def process_buffer_files(langfuse) -> tuple[int, int]:
             if event.get("parent_span_id"):
                 span_metadata["parent_span_id"] = event.get("parent_span_id")
 
-            span = langfuse.start_span(
-                trace_context={"trace_id": trace_id},
-                name=event_type,
-                input=data.get("input"),
-                metadata=span_metadata,
-            )
+            # Wave 1H: Create GENERATION observation for LLM calls (e.g., 9_classify),
+            # plain SPAN for all other pipeline steps.
+            if as_type == "generation":
+                # Build generation kwargs — model and usage are in data payload
+                gen_kwargs = {
+                    "trace_context": {"trace_id": trace_id},
+                    "name": event_type,
+                    "input": data.get("input"),
+                    "metadata": span_metadata,
+                }
+                if data.get("model"):
+                    gen_kwargs["model"] = data["model"]
+                if data.get("usage"):
+                    gen_kwargs["usage"] = data["usage"]
+                if data.get("start_time"):
+                    gen_kwargs["start_time"] = _dt_to_ns(data["start_time"])
+                observation = langfuse.start_generation(**gen_kwargs)
+            else:
+                span_kwargs = {
+                    "trace_context": {"trace_id": trace_id},
+                    "name": event_type,
+                    "input": data.get("input"),
+                    "metadata": span_metadata,
+                }
+                if data.get("start_time"):
+                    span_kwargs["start_time"] = _dt_to_ns(data["start_time"])
+                observation = langfuse.start_span(**span_kwargs)
 
             # BUG-152: Root spans (no parent_span_id) must set input/output
             # on update_trace() so Langfuse v3 derives trace-level I/O.
@@ -161,18 +198,17 @@ def process_buffer_files(langfuse) -> tuple[int, int]:
             if not event.get("parent_span_id"):
                 trace_kwargs["input"] = data.get("input")
                 trace_kwargs["output"] = data.get("output")
-            span.update_trace(**trace_kwargs)
+            observation.update_trace(**trace_kwargs)
 
-            # BUG-154: Set output on span before ending — start_span()
-            # does not persist output, must use span.update().
+            # BUG-154: Set output on observation before ending — start_span/start_generation()
+            # does not persist output, must use observation.update().
             if data.get("output") is not None:
-                span.update(output=data.get("output"))
+                observation.update(output=data.get("output"))
 
             if data.get("end_time"):
-                end_dt = datetime.fromisoformat(data["end_time"])
-                span.end(end_time=end_dt)
+                observation.end(end_time=_dt_to_ns(data["end_time"]))
             else:
-                span.end()
+                observation.end()
             json_file.unlink()
             processed += 1
         except Exception as e:
