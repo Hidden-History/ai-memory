@@ -179,9 +179,14 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                     data={
                         "input": code_content[:TRACE_CONTENT_MAX],
                         "output": f"Logged to {log_path}",
-                        "metadata": {"content_length": len(code_content), "log_path": log_path},
+                        "metadata": {
+                            "content_length": len(code_content),
+                            "log_path": log_path,
+                        },
                     },
-                    trace_id=trace_id, session_id=session_id, project_id=group_id,
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
                 )
             except Exception:
                 pass
@@ -205,6 +210,31 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                         ),
                     },
                 )
+                # SPEC-021: 0_dedup span — duplicate detected, pipeline exits early
+                if emit_trace_event:
+                    try:
+                        matched_id = (
+                            str(dedup_result.existing_id)
+                            if hasattr(dedup_result, "existing_id")
+                            else "unknown"
+                        )
+                        emit_trace_event(
+                            event_type="0_dedup",
+                            data={
+                                "input": f"Content hash: {content_hash}",
+                                "output": f"Duplicate detected — skipping pipeline (matched point {matched_id})",
+                                "metadata": {
+                                    "content_hash": content_hash,
+                                    "matched_point_id": matched_id,
+                                    "collection": collection_name,
+                                },
+                            },
+                            trace_id=trace_id,
+                            session_id=session_id,
+                            project_id=group_id,
+                        )
+                    except Exception:
+                        pass
                 # Metrics: Increment deduplication counter (Story 6.1)
                 if deduplication_events_total:
                     deduplication_events_total.labels(
@@ -246,13 +276,19 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
         # SPEC-021: 3_detect span — content type detected via extract_patterns
         if emit_trace_event:
             try:
-                language = patterns.get("language", "unknown") if patterns else "unknown"
+                language = (
+                    patterns.get("language", "unknown") if patterns else "unknown"
+                )
                 emit_trace_event(
                     event_type="3_detect",
                     data={
                         "input": code_content[:300],
-                        "output": f"Detected type: implementation (confidence: 1.0)",
-                        "metadata": {"detected_type": "implementation", "confidence": 1.0, "language": language},
+                        "output": "Detected type: implementation (confidence: 1.0)",
+                        "metadata": {
+                            "detected_type": "implementation",
+                            "confidence": 1.0,
+                            "language": language,
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -280,7 +316,9 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                             "output": "Pipeline terminated: no patterns extracted from tool output",
                             "metadata": {"reason": "no_patterns_extracted"},
                         },
-                        trace_id=trace_id, session_id=session_id, project_id=group_id,
+                        trace_id=trace_id,
+                        session_id=session_id,
+                        project_id=group_id,
                     )
                 except Exception:
                     pass
@@ -299,13 +337,17 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
             sec_config = _get_sec_config()
             if sec_config.security_scanning_enabled:
                 try:
-                    from memory.security_scanner import SecurityScanner, ScanAction
+                    from memory.security_scanner import ScanAction, SecurityScanner
 
                     scanner = SecurityScanner(enable_ner=False)
                     scan_result = scanner.scan(patterns["content"])
                     scan_actually_ran = True
                     # SPEC-021: Capture scan outcome for 4_scan span
-                    scan_action = scan_result.action.value if hasattr(scan_result.action, 'value') else str(scan_result.action)
+                    scan_action = (
+                        scan_result.action.value
+                        if hasattr(scan_result.action, "value")
+                        else str(scan_result.action)
+                    )
                     scan_findings = scan_result.findings
 
                     if scan_result.action == ScanAction.BLOCKED:
@@ -325,7 +367,11 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                                     data={
                                         "input": patterns["content"][:300],
                                         "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
-                                        "metadata": {"scan_result": "blocked", "pii_found": False, "secrets_found": True},
+                                        "metadata": {
+                                            "scan_result": "blocked",
+                                            "pii_found": False,
+                                            "secrets_found": True,
+                                        },
                                     },
                                     trace_id=trace_id,
                                     session_id=session_id,
@@ -339,7 +385,10 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                                     data={
                                         "input": "scan_blocked",
                                         "output": "Pipeline terminated: scan_blocked",
-                                        "metadata": {"reason": "scan_blocked", "scan_blocked": True},
+                                        "metadata": {
+                                            "reason": "scan_blocked",
+                                            "scan_blocked": True,
+                                        },
                                     },
                                     trace_id=trace_id,
                                     session_id=session_id,
@@ -365,11 +414,13 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
         if emit_trace_event and scan_actually_ran:
             try:
                 pii_found = any(
-                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("PII_")
+                    hasattr(f, "finding_type")
+                    and f.finding_type.name.startswith("PII_")
                     for f in scan_findings
                 )
                 secrets_found = any(
-                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("SECRET_")
+                    hasattr(f, "finding_type")
+                    and f.finding_type.name.startswith("SECRET_")
                     for f in scan_findings
                 )
                 emit_trace_event(
@@ -422,8 +473,12 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                         "output": f"Produced {len(chunks)} chunks",
                         "metadata": {
                             "num_chunks": len(chunks),
-                            "chunk_type": chunks[0].metadata.chunk_type if chunks else "unknown",
-                            "total_tokens": sum(c.metadata.chunk_size_tokens for c in chunks),
+                            "chunk_type": (
+                                chunks[0].metadata.chunk_type if chunks else "unknown"
+                            ),
+                            "total_tokens": sum(
+                                c.metadata.chunk_size_tokens for c in chunks
+                            ),
                             "content_length": len(patterns["content"]),
                         },
                     },
@@ -511,14 +566,22 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
         # SPEC-021: 6_embed span — embedding generation
         if emit_trace_event:
             try:
-                embed_statuses = [p["payload"]["embedding_status"] for p in points_to_store]
+                embed_statuses = [
+                    p["payload"]["embedding_status"] for p in points_to_store
+                ]
                 dim = len(points_to_store[0]["vector"]) if points_to_store else 0
                 emit_trace_event(
                     event_type="6_embed",
                     data={
                         "input": f"Embedding {len(points_to_store)} chunks",
                         "output": f"Generated {len(points_to_store)} vectors ({dim}-dim)",
-                        "metadata": {"embedding_status": embed_statuses[0] if embed_statuses else "unknown", "num_vectors": len(points_to_store), "dimensions": dim},
+                        "metadata": {
+                            "embedding_status": (
+                                embed_statuses[0] if embed_statuses else "unknown"
+                            ),
+                            "num_vectors": len(points_to_store),
+                            "dimensions": dim,
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -542,7 +605,10 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                     data={
                         "input": f"Storing {len(points_to_store)} points to {collection_name}",
                         "output": f"Stored {len(points_to_store)} points (IDs: {[p['id'] for p in points_to_store][:5]})",
-                        "metadata": {"collection": collection_name, "points_stored": len(points_to_store)},
+                        "metadata": {
+                            "collection": collection_name,
+                            "points_stored": len(points_to_store),
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -597,13 +663,19 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
         # SPEC-021: 8_enqueue span — reports actual enqueue outcome
         if emit_trace_event:
             try:
-                first_point_id = points_to_store[0]["id"] if points_to_store else "unknown"
+                first_point_id = (
+                    points_to_store[0]["id"] if points_to_store else "unknown"
+                )
                 emit_trace_event(
                     event_type="8_enqueue",
                     data={
                         "input": f"Enqueuing point {first_point_id} for classification",
                         "output": f"Enqueued: {classification_enqueued} (collection: {collection_name})",
-                        "metadata": {"collection": collection_name, "current_type": "implementation", "enqueue_count": enqueue_count},
+                        "metadata": {
+                            "collection": collection_name,
+                            "current_type": "implementation",
+                            "enqueue_count": enqueue_count,
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,

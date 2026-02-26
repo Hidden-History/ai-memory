@@ -163,30 +163,29 @@ def process_buffer_files(langfuse) -> tuple[int, int]:
             # Wave 1H: Create GENERATION observation for LLM calls (e.g., 9_classify),
             # plain SPAN for all other pipeline steps.
             if as_type == "generation":
-                # Build generation kwargs — model and usage are in data payload
-                gen_kwargs = {
-                    "trace_context": {"trace_id": trace_id},
-                    "name": event_type,
-                    "input": data.get("input"),
-                    "metadata": span_metadata,
-                }
-                if data.get("model"):
-                    gen_kwargs["model"] = data["model"]
-                if data.get("usage"):
-                    gen_kwargs["usage"] = data["usage"]
-                if data.get("start_time"):
-                    gen_kwargs["start_time"] = _dt_to_ns(data["start_time"])
-                observation = langfuse.start_generation(**gen_kwargs)
+                # BUG-169: SDK v3 constructor args are NOT persisted — use .update()
+                observation = langfuse.start_generation(
+                    trace_context={"trace_id": trace_id},
+                    name=event_type,
+                )
+                observation.update(
+                    input=data.get("input"),
+                    output=data.get("output"),
+                    metadata=span_metadata,
+                    model=data.get("model"),
+                    usage_details=data.get("usage"),
+                )
             else:
-                span_kwargs = {
-                    "trace_context": {"trace_id": trace_id},
-                    "name": event_type,
-                    "input": data.get("input"),
-                    "metadata": span_metadata,
-                }
-                if data.get("start_time"):
-                    span_kwargs["start_time"] = _dt_to_ns(data["start_time"])
-                observation = langfuse.start_span(**span_kwargs)
+                # BUG-169: SDK v3 constructor args are NOT persisted — use .update()
+                observation = langfuse.start_span(
+                    trace_context={"trace_id": trace_id},
+                    name=event_type,
+                )
+                observation.update(
+                    input=data.get("input"),
+                    output=data.get("output"),
+                    metadata=span_metadata,
+                )
 
             # BUG-152: Root spans (no parent_span_id) must set input/output
             # on update_trace() so Langfuse v3 derives trace-level I/O.
@@ -203,10 +202,7 @@ def process_buffer_files(langfuse) -> tuple[int, int]:
                 trace_kwargs["output"] = data.get("output")
             observation.update_trace(**trace_kwargs)
 
-            # BUG-154: Set output on observation before ending — start_span/start_generation()
-            # does not persist output, must use observation.update().
-            if data.get("output") is not None:
-                observation.update(output=data.get("output"))
+            # BUG-154 output fix now consolidated into BUG-169 .update() above
 
             if data.get("end_time"):
                 observation.end(end_time=_dt_to_ns(data["end_time"]))

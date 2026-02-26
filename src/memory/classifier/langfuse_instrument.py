@@ -1,10 +1,16 @@
 """Langfuse instrumentation for classifier LLM calls.
 
-Provides generation-span wrappers for all classifier LLM providers.
-Phase 2: LLM tracing (SPEC-021, pipeline step 9_classify).
+Pure data-capture wrapper for classifier providers. Does NOT send data to
+Langfuse directly. The classification_worker emits 9_classify via the
+standard trace buffer path (emit_trace_event), which links to the pipeline
+trace and carries session_id.
 
-Kill switch: LANGFUSE_ENABLED=true required. Zero overhead when disabled.
-Graceful fallback: If langfuse package not installed, all functions are no-ops.
+History: Phase 2 introduced direct SDK calls here, but Phase 3/Wave 1
+consolidated all tracing through the trace buffer. Direct SDK calls caused
+duplicate observations (TD-190) and missing session_id (BUG-170).
+
+Kill switch: No longer relevant here (tracing controlled by trace buffer).
+Graceful fallback: Always yields a data-capture wrapper.
 """
 
 import contextlib
@@ -13,50 +19,10 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger("ai_memory.classifier.langfuse_instrument")
 
-# Lazy-loaded Langfuse client (None = not yet attempted, False = disabled/unavailable)
-_langfuse_client = None
-_langfuse_checked = False
-
-
-def _get_client():
-    """Get Langfuse client singleton, respecting kill switch.
-
-    Returns None if disabled, unavailable, or package not installed.
-    Uses langfuse_config.is_langfuse_enabled() for kill switch.
-    """
-    global _langfuse_client, _langfuse_checked
-
-    if _langfuse_checked:
-        return _langfuse_client
-
-    _langfuse_checked = True
-
-    try:
-        from memory.langfuse_config import get_langfuse_client, is_langfuse_enabled
-
-        if not is_langfuse_enabled():
-            _langfuse_client = None
-            return None
-
-        _langfuse_client = get_langfuse_client()
-        if _langfuse_client:
-            logger.info("langfuse_classifier_instrumentation_enabled")
-        return _langfuse_client
-    except ImportError:
-        logger.debug("langfuse_config_not_available")
-        _langfuse_client = None
-        return None
-    except Exception as e:
-        logger.debug("langfuse_client_init_failed", extra={"error": str(e)})
-        _langfuse_client = None
-        return None
-
 
 def reset_client():
-    """Reset client for testing."""
-    global _langfuse_client, _langfuse_checked
-    _langfuse_client = None
-    _langfuse_checked = False
+    """No-op. Retained for test compatibility."""
+    pass
 
 
 @contextlib.contextmanager
@@ -65,91 +31,23 @@ def langfuse_generation(
     model: str,
     trace_id: str | None = None,
 ):
-    """Context manager that creates a Langfuse generation span for an LLM call.
+    """Context manager that captures LLM call data from classifier providers.
+
+    Providers call gen.update() to record input/output/tokens. The captured
+    data is NOT sent to Langfuse from here — classification_worker.py emits
+    the 9_classify event through the standard trace buffer instead.
 
     Usage:
         with langfuse_generation("ollama", "llama3.2") as gen:
             # ... make LLM call ...
             gen.update(input_tokens=100, output_tokens=50, response_text="...")
 
-    When Langfuse is disabled or unavailable, yields a no-op object.
-
     Args:
         provider_name: Provider name (ollama, openrouter, claude, openai)
         model: Model name/ID used for the call
-        trace_id: Optional trace ID for linking to existing trace
+        trace_id: Unused (retained for interface compatibility)
     """
-    client = _get_client()
-
-    if client is None:
-        # No-op path: yield a dummy that silently ignores updates
-        yield _NoOpGeneration()
-        return
-
-    start_time = datetime.now(tz=timezone.utc)
-    generation = None
-
-    try:
-        # Create a trace for this classification call
-        trace_kwargs = {
-            "name": "9_classify",
-            "metadata": {"provider": provider_name},
-        }
-        if trace_id:
-            trace_kwargs["id"] = trace_id
-
-        trace = client.trace(**trace_kwargs)
-
-        # Create generation span within the trace
-        generation = trace.generation(
-            name=f"9_classify.{provider_name}",
-            model=model,
-            metadata={
-                "provider": provider_name,
-            },
-        )
-
-        wrapper = _GenerationWrapper(generation, start_time)
-        yield wrapper
-
-        # End the generation with captured data
-        end_kwargs = {
-            "end_time": datetime.now(tz=timezone.utc),
-        }
-        if wrapper.input_text is not None:
-            end_kwargs["input"] = wrapper.input_text
-        if wrapper.output_text is not None:
-            end_kwargs["output"] = wrapper.output_text
-        if wrapper.input_tokens is not None or wrapper.output_tokens is not None:
-            usage = {}
-            if wrapper.input_tokens is not None:
-                usage["input"] = wrapper.input_tokens
-            if wrapper.output_tokens is not None:
-                usage["output"] = wrapper.output_tokens
-            end_kwargs["usage"] = usage
-        if wrapper.metadata:
-            end_kwargs["metadata"] = {
-                "provider": provider_name,
-                **wrapper.metadata,
-            }
-        if wrapper.level is not None:
-            end_kwargs["level"] = wrapper.level
-
-        generation.end(**end_kwargs)
-
-    except Exception as e:
-        # Langfuse errors must never break classification — re-raise original
-        logger.debug(
-            "langfuse_generation_error",
-            extra={"provider": provider_name, "error": str(e)},
-        )
-        if generation:
-            with contextlib.suppress(Exception):
-                generation.end(
-                    level="ERROR",
-                    status_message=str(e),
-                )
-        raise
+    yield _GenerationWrapper(None, datetime.now(tz=timezone.utc))
 
 
 class _GenerationWrapper:

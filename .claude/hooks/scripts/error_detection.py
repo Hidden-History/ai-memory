@@ -46,6 +46,14 @@ from memory.hooks_common import (
 from memory.project import detect_project
 from memory.search import MemorySearch
 
+# SPEC-021: Trace buffer for retrieval instrumentation
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
+TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+
 logger = setup_hook_logging()
 
 # CR-2 FIX: Use consolidated metrics import (TECH-DEBT-142: Remove local hook_duration_seconds)
@@ -218,6 +226,35 @@ def main() -> int:
             output_parts.append("=" * 70 + "\n")
 
             print("\n".join(output_parts))
+
+            # SPEC-021: Langfuse trace for error retrieval
+            if emit_trace_event:
+                try:
+                    from uuid import uuid4
+
+                    best_score = max((r.get("score", 0) for r in results), default=0)
+                    emit_trace_event(
+                        event_type="error_retrieval",
+                        data={
+                            "input": error_signature[:TRACE_CONTENT_MAX],
+                            "output": f"Retrieved {len(results)} similar fixes"
+                            + (
+                                f": {results[0].get('content', '')[:500]}"
+                                if results
+                                else ""
+                            ),
+                            "metadata": {
+                                "collection": COLLECTION_CODE_PATTERNS,
+                                "result_count": len(results),
+                                "best_score": best_score,
+                            },
+                        },
+                        trace_id=uuid4().hex,
+                        session_id=hook_input.get("session_id"),
+                        project_id=project_name,
+                    )
+                except Exception:
+                    logger.debug("trace_event_failed_error_retrieval")
 
             duration_ms = (time.perf_counter() - start_time) * 1000
             log_to_activity(

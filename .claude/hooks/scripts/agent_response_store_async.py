@@ -36,6 +36,7 @@ logger = setup_hook_logging()
 # TECH-DEBT-151 Phase 3: Topical chunking for oversized agent responses (V2.1 zero-truncation)
 try:
     import tiktoken
+
     from memory.chunking.prose_chunker import ProseChunker, ProseChunkerConfig
     from memory.validation import compute_content_hash as _compute_chunk_hash
 
@@ -125,9 +126,14 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                     data={
                         "input": response_text[:TRACE_CONTENT_MAX],
                         "output": f"Logged to {log_path}",
-                        "metadata": {"content_length": len(response_text), "log_path": log_path},
+                        "metadata": {
+                            "content_length": len(response_text),
+                            "log_path": log_path,
+                        },
                     },
-                    trace_id=trace_id, session_id=session_id, project_id=group_id,
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
                 )
             except Exception:
                 pass
@@ -140,9 +146,14 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                     data={
                         "input": response_text[:300],
                         "output": f"Detected type: {TYPE_AGENT_RESPONSE} (confidence: 1.0)",
-                        "metadata": {"detected_type": TYPE_AGENT_RESPONSE, "confidence": 1.0},
+                        "metadata": {
+                            "detected_type": TYPE_AGENT_RESPONSE,
+                            "confidence": 1.0,
+                        },
                     },
-                    trace_id=trace_id, session_id=session_id, project_id=group_id,
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
                 )
             except Exception:
                 pass
@@ -206,6 +217,27 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                     "turn_number": turn_number,
                 },
             )
+            # SPEC-021: 0_dedup span — duplicate detected, pipeline exits early
+            if emit_trace_event:
+                try:
+                    matched_id = str(existing[0][0].id) if existing[0] else "unknown"
+                    emit_trace_event(
+                        event_type="0_dedup",
+                        data={
+                            "input": f"Content hash: {content_hash}",
+                            "output": f"Duplicate detected — skipping pipeline (matched point {matched_id})",
+                            "metadata": {
+                                "content_hash": content_hash,
+                                "matched_point_id": matched_id,
+                                "collection": COLLECTION_DISCUSSIONS,
+                            },
+                        },
+                        trace_id=trace_id,
+                        session_id=session_id,
+                        project_id=group_id,
+                    )
+                except Exception:
+                    pass
             if memory_captures_total:
                 memory_captures_total.labels(
                     hook_type="Stop",
@@ -236,12 +268,16 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
         # SPEC-009: Security scanning (Layers 1+2 only for hooks, ~10ms overhead)
         if config.security_scanning_enabled:
             try:
-                from memory.security_scanner import SecurityScanner, ScanAction
+                from memory.security_scanner import ScanAction, SecurityScanner
 
                 scanner = SecurityScanner(enable_ner=False)
                 scan_result = scanner.scan(response_text, source_type="user_session")
                 scan_actually_ran = True
-                scan_action = scan_result.action.value if hasattr(scan_result.action, 'value') else str(scan_result.action)
+                scan_action = (
+                    scan_result.action.value
+                    if hasattr(scan_result.action, "value")
+                    else str(scan_result.action)
+                )
                 scan_findings = scan_result.findings
 
                 if scan_result.action == ScanAction.BLOCKED:
@@ -273,7 +309,11 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                                 data={
                                     "input": response_text[:300],
                                     "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
-                                    "metadata": {"scan_result": "blocked", "pii_found": False, "secrets_found": True},
+                                    "metadata": {
+                                        "scan_result": "blocked",
+                                        "pii_found": False,
+                                        "secrets_found": True,
+                                    },
                                 },
                                 trace_id=trace_id,
                                 session_id=session_id,
@@ -287,7 +327,10 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                                 data={
                                     "input": "scan_blocked",
                                     "output": "Pipeline terminated: scan_blocked",
-                                    "metadata": {"reason": "scan_blocked", "scan_blocked": True},
+                                    "metadata": {
+                                        "reason": "scan_blocked",
+                                        "scan_blocked": True,
+                                    },
                                 },
                                 trace_id=trace_id,
                                 session_id=session_id,
@@ -328,11 +371,13 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
         if emit_trace_event and scan_actually_ran:
             try:
                 pii_found = any(
-                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("PII_")
+                    hasattr(f, "finding_type")
+                    and f.finding_type.name.startswith("PII_")
                     for f in scan_findings
                 )
                 secrets_found = any(
-                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("SECRET_")
+                    hasattr(f, "finding_type")
+                    and f.finding_type.name.startswith("SECRET_")
                     for f in scan_findings
                 )
                 emit_trace_event(
@@ -470,7 +515,11 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                         "output": f"Produced {len(chunks_to_store)} chunks",
                         "metadata": {
                             "num_chunks": len(chunks_to_store),
-                            "chunk_type": chunks_to_store[0][1]["chunk_type"] if chunks_to_store else "unknown",
+                            "chunk_type": (
+                                chunks_to_store[0][1]["chunk_type"]
+                                if chunks_to_store
+                                else "unknown"
+                            ),
                             "content_length": len(response_text),
                         },
                     },
@@ -516,7 +565,11 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                     data={
                         "input": f"Embedding {len(chunks_to_store)} chunks",
                         "output": f"Generated {len(vectors)} vectors ({dim}-dim)",
-                        "metadata": {"embedding_status": embedding_status, "num_vectors": len(vectors), "dimensions": dim},
+                        "metadata": {
+                            "embedding_status": embedding_status,
+                            "num_vectors": len(vectors),
+                            "dimensions": dim,
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -568,7 +621,10 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                     data={
                         "input": f"Storing {len(points)} points to {COLLECTION_DISCUSSIONS}",
                         "output": f"Stored {len(points)} points (IDs: {[p.id for p in points][:5]})",
-                        "metadata": {"collection": COLLECTION_DISCUSSIONS, "points_stored": len(points)},
+                        "metadata": {
+                            "collection": COLLECTION_DISCUSSIONS,
+                            "points_stored": len(points),
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -645,7 +701,11 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                     data={
                         "input": f"Enqueuing point {point_id} for classification",
                         "output": f"Enqueued: {classification_enqueued} (collection: {COLLECTION_DISCUSSIONS})",
-                        "metadata": {"collection": COLLECTION_DISCUSSIONS, "current_type": "agent_response", "point_id": point_id},
+                        "metadata": {
+                            "collection": COLLECTION_DISCUSSIONS,
+                            "current_type": "agent_response",
+                            "point_id": point_id,
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,

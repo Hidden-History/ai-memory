@@ -79,6 +79,14 @@ except ImportError:
     push_hook_metrics_async = None
     push_retrieval_metrics_async = None
 
+# SPEC-021: Trace buffer for pipeline instrumentation
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
+TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+
 
 def detect_component_from_path(file_path: str) -> tuple[str, str]:
     """Extract component and domain from file path.
@@ -425,6 +433,35 @@ def main() -> int:
                 ).inc()
             if retrieval_duration_seconds:
                 retrieval_duration_seconds.observe(duration_ms / 1000.0)
+
+            # SPEC-021: best_practices_retrieval trace event
+            if emit_trace_event:
+                try:
+                    trace_id = os.environ.get("LANGFUSE_TRACE_ID")
+                    bp_session_id = os.environ.get("CLAUDE_SESSION_ID", "unknown")
+                    best_score = results[0].get("score", 0) if results else 0
+                    emit_trace_event(
+                        event_type="best_practices_retrieval",
+                        data={
+                            "input": query[:TRACE_CONTENT_MAX],
+                            "output": f"Retrieved {len(results)} best practices"
+                            + (
+                                f": {results[0].get('content', '')[:500]}"
+                                if results
+                                else ""
+                            ),
+                            "metadata": {
+                                "collection": COLLECTION_CONVENTIONS,
+                                "result_count": len(results),
+                                "best_score": best_score,
+                            },
+                        },
+                        trace_id=trace_id,
+                        session_id=bp_session_id,
+                        project_id=project_name,
+                    )
+                except Exception:
+                    pass
 
             # TECH-DEBT-075: Push retrieval metrics to Pushgateway
             if push_retrieval_metrics_async:

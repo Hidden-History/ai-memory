@@ -50,6 +50,14 @@ from memory.metrics_push import (
 from memory.project import detect_project
 from memory.qdrant_client import get_qdrant_client
 
+# SPEC-021: Trace buffer for retrieval instrumentation
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
+TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+
 # Configure structured logging (Story 6.2)
 # Log to stderr since stdout is reserved for context injection
 handler = logging.StreamHandler(sys.stderr)
@@ -826,6 +834,30 @@ def main():
                     project=project_name,
                 )
 
+                # SPEC-021: Langfuse trace for session bootstrap
+                if emit_trace_event:
+                    try:
+                        from uuid import uuid4
+
+                        emit_trace_event(
+                            event_type="session_bootstrap",
+                            data={
+                                "input": f"Session startup: {project_name}",
+                                "output": f"Injected {tokens_used} tokens from {len(selected)} results",
+                                "metadata": {
+                                    "session_type": trigger,
+                                    "result_count": len(selected),
+                                    "tokens_injected": tokens_used,
+                                    "budget": config.bootstrap_token_budget,
+                                },
+                            },
+                            trace_id=uuid4().hex,
+                            session_id=session_id,
+                            project_id=project_name,
+                        )
+                    except Exception:
+                        logger.debug("trace_event_failed_session_bootstrap")
+
                 # Output to Claude
                 print(
                     json.dumps(
@@ -1073,6 +1105,30 @@ def main():
 
                 # TECH-DEBT-089: Push session injection duration for NFR-P3 tracking
                 push_session_injection_metrics_async(project_name, duration_seconds)
+
+                # SPEC-021: Langfuse trace for session restore
+                if emit_trace_event:
+                    try:
+                        from uuid import uuid4
+
+                        emit_trace_event(
+                            event_type="session_bootstrap",
+                            data={
+                                "input": f"Session {trigger}: {project_name}",
+                                "output": f"Injected {token_count} tokens from {total_count} results",
+                                "metadata": {
+                                    "session_type": trigger,
+                                    "result_count": total_count,
+                                    "tokens_injected": token_count,
+                                    "budget": config.token_budget,
+                                },
+                            },
+                            trace_id=uuid4().hex,
+                            session_id=session_id,
+                            project_id=project_name,
+                        )
+                    except Exception:
+                        logger.debug("trace_event_failed_session_restore")
 
                 # Output conversation context to Claude
                 # TECH-DEBT-115: Add <retrieved_context> delimiters per BP-039 §1
