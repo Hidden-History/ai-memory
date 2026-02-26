@@ -21,6 +21,17 @@ from typing import Any
 from qdrant_client import models
 
 from memory.config import MemoryConfig, get_config
+
+# Langfuse @observe() — conditional import (graceful degradation if SDK unavailable)
+try:
+    from langfuse import observe
+except ImportError:
+
+    def observe(**kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
 from memory.connectors.github.client import GitHubClient, GitHubClientError
 from memory.connectors.github.schema import (
     DISCUSSIONS_COLLECTION,
@@ -673,6 +684,7 @@ class CodeBlobSync:
         else:
             self._scanner = None
 
+    @observe(name="github_code_sync")
     async def sync_code_blobs(
         self,
         batch_id: str,

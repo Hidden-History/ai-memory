@@ -28,6 +28,7 @@ if not hasattr(models, "FormulaQuery"):
     )
 
 from .config import MemoryConfig
+from .trace_buffer import emit_trace_event
 
 
 def compute_decay_score(
@@ -165,8 +166,20 @@ def build_decay_formula(
         params=search_params,
     )
 
+    _trace_start = datetime.now(timezone.utc)
+
     # Decay disabled -- return None formula, caller uses simple query path
     if not config.decay_enabled:
+        emit_trace_event(
+            event_type="decay_scoring",
+            data={
+                "input": f"Decay check for {collection}",
+                "output": "Decay disabled — using simple query path",
+                "metadata": {"collection": collection, "decay_enabled": False},
+            },
+            start_time=_trace_start,
+            end_time=datetime.now(timezone.utc),
+        )
         return None, prefetch
 
     if now is None:
@@ -268,6 +281,25 @@ def build_decay_formula(
         ),
         # Fallback for points missing stored_at — arbitrary old date ensures very low temporal score
         defaults={"stored_at": "2020-01-01T00:00:00Z"},
+    )
+
+    # Langfuse trace: decay formula construction
+    emit_trace_event(
+        event_type="decay_scoring",
+        data={
+            "input": f"Building decay formula for {collection} (decay_enabled={config.decay_enabled}, semantic_weight={config.decay_semantic_weight})",
+            "output": f"Formula built: {len(half_life_groups)} type overrides, default_hl={default_hl_days}d, prefetch_limit={prefetch_limit}",
+            "metadata": {
+                "collection": collection,
+                "decay_enabled": config.decay_enabled,
+                "semantic_weight": config.decay_semantic_weight,
+                "type_overrides": len(half_life_groups),
+                "default_half_life_days": default_hl_days,
+                "prefetch_limit": prefetch_limit,
+            },
+        },
+        start_time=_trace_start,
+        end_time=datetime.now(timezone.utc),
     )
 
     return formula, prefetch

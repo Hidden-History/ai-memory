@@ -178,7 +178,7 @@ def main() -> int:
                         event_type="context_retrieval",
                         data={
                             "input": prompt[:TRACE_CONTENT_MAX],
-                            "output": f"Search error: {type(search_err).__name__}: {str(search_err)}",
+                            "output": f"Search error: {type(search_err).__name__}: {search_err!s}",
                             "metadata": {
                                 "query_length": len(prompt),
                                 "collections_searched": collection_names,
@@ -383,7 +383,7 @@ def main() -> int:
                     event_type="context_retrieval",
                     data={
                         "input": _prompt_val[:TRACE_CONTENT_MAX] if _prompt_val else "",
-                        "output": f"Outer exception: {type(e).__name__}: {str(e)}",
+                        "output": f"Outer exception: {type(e).__name__}: {e!s}",
                         "metadata": {
                             "query_length": len(_prompt_val),
                             "error": type(e).__name__,

@@ -385,6 +385,11 @@ services:
       - SECURITY_SCAN_GITHUB_MODE=${SECURITY_SCAN_GITHUB_MODE:-relaxed}
       - SECURITY_SCAN_SESSION_MODE=${SECURITY_SCAN_SESSION_MODE:-relaxed}
       - LOG_LEVEL=${BMAD_LOG_LEVEL:-INFO}
+      # Langfuse observability (Wave 3, PLAN-011)
+      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-http://langfuse:3000}
       # PLAN-009: Tell discover_projects() where the mounted projects.d lives.
       # Path.home() inside the container is not /config, so we must be explicit.
       - AI_MEMORY_PROJECTS_DIR=/config/projects.d

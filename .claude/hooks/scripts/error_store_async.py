@@ -83,6 +83,7 @@ TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
 # TECH-DEBT-151: Structured truncation for error output (max 800 tokens)
 try:
     import tiktoken
+
     from memory.chunking.truncation import structured_truncate
 
     TRUNCATION_AVAILABLE = True
@@ -147,7 +148,7 @@ def format_error_content(error_context: dict[str, Any]) -> str:
                     error_context["output"], max_tokens=800, sections=sections
                 )
                 parts.append(truncated_output)
-            except Exception as e:
+            except Exception:
                 # Fallback to original content if truncation fails
                 parts.append(error_context["output"])
         else:
@@ -260,7 +261,7 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
         config = get_config()
         if config.security_scanning_enabled:
             try:
-                from memory.security_scanner import SecurityScanner, ScanAction
+                from memory.security_scanner import ScanAction, SecurityScanner
 
                 scanner = SecurityScanner(enable_ner=False)
                 scan_result = scanner.scan(content, source_type="user_session")

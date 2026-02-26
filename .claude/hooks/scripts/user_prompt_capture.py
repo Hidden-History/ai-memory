@@ -52,7 +52,9 @@ logger.propagate = False
 try:
     from memory.metrics_push import push_hook_metrics_async
     from memory.project import detect_project
-    from memory.trace_buffer import emit_trace_event  # SPEC-021: Langfuse pipeline instrumentation
+    from memory.trace_buffer import (
+        emit_trace_event,  # SPEC-021: Langfuse pipeline instrumentation
+    )
 except ImportError:
     push_hook_metrics_async = None
     detect_project = None

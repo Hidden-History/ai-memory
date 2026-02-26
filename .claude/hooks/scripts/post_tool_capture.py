@@ -22,7 +22,6 @@ import logging
 import os
 import subprocess
 import sys
-import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path

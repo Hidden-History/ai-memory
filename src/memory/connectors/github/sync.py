@@ -20,6 +20,17 @@ from typing import Any
 from qdrant_client import models
 
 from memory.config import COLLECTION_CODE_PATTERNS, MemoryConfig, get_config
+
+# Langfuse @observe() — conditional import (graceful degradation if SDK unavailable)
+try:
+    from langfuse import observe
+except ImportError:
+
+    def observe(**kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
 from memory.connectors.github.client import GitHubClient, GitHubClientError
 from memory.connectors.github.composer import (
     compose_ci_result,
@@ -165,6 +176,7 @@ class GitHubSyncEngine:
         repo_safe = self.repo.replace("/", "__")
         self._state_file = self._state_dir / f"github_sync_state_{repo_safe}.json"
 
+    @observe(name="github_sync")
     async def sync(self, mode: str = "incremental") -> SyncResult:
         """Run full sync cycle across all document types.
 
@@ -236,6 +248,7 @@ class GitHubSyncEngine:
 
     # -- Per-Type Sync Methods -----------------------------------------
 
+    @observe(name="github_sync_issues")
     async def _sync_issues(
         self,
         since: str | None,
@@ -340,6 +353,7 @@ class GitHubSyncEngine:
 
         return count
 
+    @observe(name="github_sync_pull_requests")
     async def _sync_pull_requests(
         self,
         since: str | None,
@@ -500,6 +514,7 @@ class GitHubSyncEngine:
 
         return count
 
+    @observe(name="github_sync_commits")
     async def _sync_commits(
         self,
         since: str | None,
@@ -570,6 +585,7 @@ class GitHubSyncEngine:
 
         return count
 
+    @observe(name="github_sync_ci_results")
     async def _sync_ci_results(
         self,
         since: str | None,
