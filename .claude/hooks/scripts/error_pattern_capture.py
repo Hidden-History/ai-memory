@@ -280,7 +280,9 @@ def extract_error_context(hook_input: dict[str, Any]) -> dict[str, Any] | None:
     return context
 
 
-def fork_to_background(error_context: dict[str, Any], trace_id: str | None = None) -> None:
+def fork_to_background(
+    error_context: dict[str, Any], trace_id: str | None = None
+) -> None:
     """Fork error storage to background process.
 
     Args:
@@ -406,7 +408,11 @@ def main() -> int:
                 try:
                     _error_output = error_context.get("output", "")
                     _error_cmd = error_context.get("command", "")
-                    _error_content = f"$ {_error_cmd}\n{_error_output}" if _error_cmd else _error_output
+                    _error_content = (
+                        f"$ {_error_cmd}\n{_error_output}"
+                        if _error_cmd
+                        else _error_output
+                    )
                     emit_trace_event(
                         event_type="1_capture",
                         data={
@@ -422,7 +428,9 @@ def main() -> int:
                         },
                         trace_id=trace_id,
                         session_id=hook_input.get("session_id"),
-                        project_id=detect_project_func(cwd) if detect_project_func else None,
+                        project_id=(
+                            detect_project_func(cwd) if detect_project_func else None
+                        ),
                         start_time=capture_start,
                         end_time=datetime.now(tz=timezone.utc),
                     )

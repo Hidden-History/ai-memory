@@ -407,7 +407,10 @@ def run_freshness_scan(
         data={
             "input": f"Freshness scan: {len(ground_truth_map)} ground truth files, group_id={group_id or 'all'}",
             "output": "",
-            "metadata": {"ground_truth_files": len(ground_truth_map), "group_id": group_id},
+            "metadata": {
+                "ground_truth_files": len(ground_truth_map),
+                "group_id": group_id,
+            },
         },
         start_time=_trace_start,
     )

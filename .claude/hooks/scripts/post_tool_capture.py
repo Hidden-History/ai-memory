@@ -357,7 +357,11 @@ def main() -> int:
                         },
                         trace_id=trace_id,
                         session_id=hook_input.get("session_id"),
-                        project_id=detect_project_func(cwd_path) if detect_project_func else None,
+                        project_id=(
+                            detect_project_func(cwd_path)
+                            if detect_project_func
+                            else None
+                        ),
                         start_time=capture_start,
                         end_time=datetime.now(tz=timezone.utc),
                     )

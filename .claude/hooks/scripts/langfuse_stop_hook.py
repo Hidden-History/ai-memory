@@ -113,14 +113,9 @@ def _pair_turns(messages: list[dict]) -> list[dict]:
                 "user_tokens": msg.get("token_count"),
             }
             # Look ahead for assistant response
-            if (
-                i + 1 < len(messages)
-                and messages[i + 1].get("role") == "assistant"
-            ):
+            if i + 1 < len(messages) and messages[i + 1].get("role") == "assistant":
                 next_msg = messages[i + 1]
-                turn["assistant_output"] = _extract_text(
-                    next_msg.get("content", "")
-                )
+                turn["assistant_output"] = _extract_text(next_msg.get("content", ""))
                 turn["assistant_tokens"] = next_msg.get("token_count")
                 i += 2
             else:
@@ -134,9 +129,7 @@ def _pair_turns(messages: list[dict]) -> list[dict]:
                 {
                     "user_input": None,
                     "user_tokens": None,
-                    "assistant_output": _extract_text(
-                        msg.get("content", "")
-                    ),
+                    "assistant_output": _extract_text(msg.get("content", "")),
                     "assistant_tokens": msg.get("token_count"),
                 }
             )
@@ -231,10 +224,14 @@ def main():
 
         # Wave 1F: Re-check kill-switch AFTER env file load (in case it was missing before)
         if os.environ.get("LANGFUSE_ENABLED", "false").lower() != "true":
-            logger.info("Langfuse disabled (LANGFUSE_ENABLED != true) — skipping session trace")
+            logger.info(
+                "Langfuse disabled (LANGFUSE_ENABLED != true) — skipping session trace"
+            )
             sys.exit(0)
         if os.environ.get("LANGFUSE_TRACE_SESSIONS", "true").lower() != "true":
-            logger.info("Session tracing disabled (LANGFUSE_TRACE_SESSIONS != true) — skipping")
+            logger.info(
+                "Session tracing disabled (LANGFUSE_TRACE_SESSIONS != true) — skipping"
+            )
             sys.exit(0)
 
         # Wave 1F: Debug log env var state to diagnose missing credentials.
@@ -300,8 +297,16 @@ def main():
         # Create root span WITH input/output (BUG-152)
         span_kwargs = {
             "name": "claude_code_session",
-            "input": (first_user_text[:LANGFUSE_PAYLOAD_MAX_CHARS] if first_user_text else None),
-            "output": (last_assistant_text[:LANGFUSE_PAYLOAD_MAX_CHARS] if last_assistant_text else None),
+            "input": (
+                first_user_text[:LANGFUSE_PAYLOAD_MAX_CHARS]
+                if first_user_text
+                else None
+            ),
+            "output": (
+                last_assistant_text[:LANGFUSE_PAYLOAD_MAX_CHARS]
+                if last_assistant_text
+                else None
+            ),
             "metadata": {
                 **trace_metadata,
                 "turn_count": len(turns),
@@ -334,7 +339,9 @@ def main():
 
             child_kwargs = {
                 "name": f"turn_{i}",
-                "input": turn_input[:LANGFUSE_PAYLOAD_MAX_CHARS] if turn_input else None,
+                "input": (
+                    turn_input[:LANGFUSE_PAYLOAD_MAX_CHARS] if turn_input else None
+                ),
                 "metadata": token_meta,
             }
             if hasattr(root_span, "trace_id"):
@@ -344,7 +351,9 @@ def main():
 
             turn_span = client.start_span(**child_kwargs)
             # BUG-154: Set output before ending span
-            turn_span.update(output=turn_output[:LANGFUSE_PAYLOAD_MAX_CHARS] if turn_output else None)
+            turn_span.update(
+                output=turn_output[:LANGFUSE_PAYLOAD_MAX_CHARS] if turn_output else None
+            )
             turn_span.end()
 
         root_span.end()

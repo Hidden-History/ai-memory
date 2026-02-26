@@ -227,7 +227,10 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                     data={
                         "input": content[:TRACE_CONTENT_MAX],
                         "output": f"Logged to {log_path}",
-                        "metadata": {"content_length": len(content), "log_path": log_path},
+                        "metadata": {
+                            "content_length": len(content),
+                            "log_path": log_path,
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -266,7 +269,11 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 scanner = SecurityScanner(enable_ner=False)
                 scan_result = scanner.scan(content, source_type="user_session")
                 scan_actually_ran = True
-                scan_action = scan_result.action.value if hasattr(scan_result.action, 'value') else str(scan_result.action)
+                scan_action = (
+                    scan_result.action.value
+                    if hasattr(scan_result.action, "value")
+                    else str(scan_result.action)
+                )
                 scan_findings = scan_result.findings
 
                 if scan_result.action == ScanAction.BLOCKED:
@@ -290,9 +297,15 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                                 data={
                                     "input": content[:300],
                                     "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
-                                    "metadata": {"scan_result": "blocked", "pii_found": False, "secrets_found": True},
+                                    "metadata": {
+                                        "scan_result": "blocked",
+                                        "pii_found": False,
+                                        "secrets_found": True,
+                                    },
                                 },
-                                trace_id=trace_id, session_id=session_id, project_id=group_id,
+                                trace_id=trace_id,
+                                session_id=session_id,
+                                project_id=group_id,
                             )
                         except Exception:
                             pass
@@ -302,9 +315,14 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                                 data={
                                     "input": "scan_blocked",
                                     "output": "Pipeline terminated: scan_blocked",
-                                    "metadata": {"reason": "scan_blocked", "scan_blocked": True},
+                                    "metadata": {
+                                        "reason": "scan_blocked",
+                                        "scan_blocked": True,
+                                    },
                                 },
-                                trace_id=trace_id, session_id=session_id, project_id=group_id,
+                                trace_id=trace_id,
+                                session_id=session_id,
+                                project_id=group_id,
                             )
                         except Exception:
                             pass
@@ -343,11 +361,13 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
         if emit_trace_event and scan_actually_ran:
             try:
                 pii_found = any(
-                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("PII_")
+                    hasattr(f, "finding_type")
+                    and f.finding_type.name.startswith("PII_")
                     for f in scan_findings
                 )
                 secrets_found = any(
-                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("SECRET_")
+                    hasattr(f, "finding_type")
+                    and f.finding_type.name.startswith("SECRET_")
                     for f in scan_findings
                 )
                 emit_trace_event(
@@ -432,7 +452,11 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                     data={
                         "input": content[:TRACE_CONTENT_MAX],
                         "output": "Produced 1 chunk",
-                        "metadata": {"num_chunks": 1, "chunk_type": "structured_smart_truncate", "content_length": len(content)},
+                        "metadata": {
+                            "num_chunks": 1,
+                            "chunk_type": "structured_smart_truncate",
+                            "content_length": len(content),
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -489,7 +513,11 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                     data={
                         "input": "Embedding 1 chunk",
                         "output": f"Generated 1 vector ({dim}-dim)",
-                        "metadata": {"embedding_status": payload["embedding_status"], "num_vectors": 1, "dimensions": dim},
+                        "metadata": {
+                            "embedding_status": payload["embedding_status"],
+                            "num_vectors": 1,
+                            "dimensions": dim,
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -529,9 +557,15 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                     data={
                         "input": f"Enqueuing point {memory_id} for classification",
                         "output": f"Enqueued: False (collection: {collection_name})",
-                        "metadata": {"collection": collection_name, "current_type": "error_fix", "reason": "classifier_not_integrated"},
+                        "metadata": {
+                            "collection": collection_name,
+                            "current_type": "error_fix",
+                            "reason": "classifier_not_integrated",
+                        },
                     },
-                    trace_id=trace_id, session_id=session_id, project_id=group_id,
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=group_id,
                 )
             except Exception:
                 pass

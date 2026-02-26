@@ -112,7 +112,9 @@ def count_turns_from_transcript(transcript_path: str) -> int:
         return 0
 
 
-def fork_to_background(hook_input: dict[str, Any], turn_number: int, trace_id: str | None = None) -> None:
+def fork_to_background(
+    hook_input: dict[str, Any], turn_number: int, trace_id: str | None = None
+) -> None:
     """Fork storage operation to background process.
 
     Args:

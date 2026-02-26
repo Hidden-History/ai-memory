@@ -32,6 +32,8 @@ except ImportError:
             return func
 
         return decorator
+
+
 from memory.connectors.github.client import GitHubClient, GitHubClientError
 from memory.connectors.github.schema import (
     DISCUSSIONS_COLLECTION,

@@ -130,7 +130,10 @@ def extract_last_assistant_message(
 
 
 def fork_to_background(
-    hook_input: dict[str, Any], response_text: str, turn_number: int, trace_id: str | None = None
+    hook_input: dict[str, Any],
+    response_text: str,
+    turn_number: int,
+    trace_id: str | None = None,
 ) -> None:
     """Fork storage operation to background process.
 

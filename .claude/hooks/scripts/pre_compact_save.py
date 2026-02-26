@@ -376,7 +376,9 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
         memory_id = str(uuid.uuid4())
 
         # SPEC-021: Pipeline trace context for pre_compact
-        trace_id = uuid.uuid4().hex  # PreCompact generates own trace_id (no capture hook)
+        trace_id = (
+            uuid.uuid4().hex
+        )  # PreCompact generates own trace_id (no capture hook)
         pc_session_id = summary_data.get("session_id", "")
         pc_project_id = summary_data.get("group_id", "")
 
@@ -394,7 +396,9 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                             "log_path": _log_path,
                         },
                     },
-                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                    trace_id=trace_id,
+                    session_id=pc_session_id,
+                    project_id=pc_project_id,
                 )
             except Exception:
                 pass
@@ -436,9 +440,15 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                     from memory.security_scanner import ScanAction, SecurityScanner
 
                     scanner = SecurityScanner(enable_ner=False)
-                    scan_result = scanner.scan(summary_data["content"], source_type="user_session")
+                    scan_result = scanner.scan(
+                        summary_data["content"], source_type="user_session"
+                    )
                     scan_actually_ran = True
-                    scan_action = scan_result.action.value if hasattr(scan_result.action, 'value') else str(scan_result.action)
+                    scan_action = (
+                        scan_result.action.value
+                        if hasattr(scan_result.action, "value")
+                        else str(scan_result.action)
+                    )
                     scan_findings = scan_result.findings
 
                     if scan_result.action == ScanAction.BLOCKED:
@@ -461,11 +471,25 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                                         "metadata": {
                                             "content_length": scan_input_length,
                                             "scan_result": "blocked",
-                                            "pii_found": any(hasattr(f, 'finding_type') and f.finding_type.name.startswith("PII_") for f in scan_result.findings),
-                                            "secrets_found": any(hasattr(f, 'finding_type') and f.finding_type.name.startswith("SECRET_") for f in scan_result.findings),
+                                            "pii_found": any(
+                                                hasattr(f, "finding_type")
+                                                and f.finding_type.name.startswith(
+                                                    "PII_"
+                                                )
+                                                for f in scan_result.findings
+                                            ),
+                                            "secrets_found": any(
+                                                hasattr(f, "finding_type")
+                                                and f.finding_type.name.startswith(
+                                                    "SECRET_"
+                                                )
+                                                for f in scan_result.findings
+                                            ),
                                         },
                                     },
-                                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                                    trace_id=trace_id,
+                                    session_id=pc_session_id,
+                                    project_id=pc_project_id,
                                 )
                             except Exception:
                                 pass
@@ -475,9 +499,14 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                                     data={
                                         "input": "scan_blocked",
                                         "output": "Pipeline terminated: scan_blocked",
-                                        "metadata": {"reason": "scan_blocked", "scan_blocked": True},
+                                        "metadata": {
+                                            "reason": "scan_blocked",
+                                            "scan_blocked": True,
+                                        },
                                     },
-                                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                                    trace_id=trace_id,
+                                    session_id=pc_session_id,
+                                    project_id=pc_project_id,
                                 )
                             except Exception:
                                 pass
@@ -497,11 +526,13 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
         if emit_trace_event and scan_actually_ran:
             try:
                 pii_found = any(
-                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("PII_")
+                    hasattr(f, "finding_type")
+                    and f.finding_type.name.startswith("PII_")
                     for f in scan_findings
                 )
                 secrets_found = any(
-                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("SECRET_")
+                    hasattr(f, "finding_type")
+                    and f.finding_type.name.startswith("SECRET_")
                     for f in scan_findings
                 )
                 emit_trace_event(
@@ -516,7 +547,9 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                             "secrets_found": secrets_found,
                         },
                     },
-                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                    trace_id=trace_id,
+                    session_id=pc_session_id,
+                    project_id=pc_project_id,
                 )
             except Exception:
                 pass
@@ -535,7 +568,9 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                             "chunk_type": "whole",
                         },
                     },
-                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                    trace_id=trace_id,
+                    session_id=pc_session_id,
+                    project_id=pc_project_id,
                 )
             except Exception:
                 pass
@@ -575,7 +610,9 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                             "dimensions": len(vector),
                         },
                     },
-                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                    trace_id=trace_id,
+                    session_id=pc_session_id,
+                    project_id=pc_project_id,
                 )
             except Exception:
                 pass
@@ -622,7 +659,9 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                             "points_stored": 1,
                         },
                     },
-                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                    trace_id=trace_id,
+                    session_id=pc_session_id,
+                    project_id=pc_project_id,
                 )
             except Exception:
                 pass
@@ -642,7 +681,9 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                             "reason": "classifier_not_integrated",
                         },
                     },
-                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                    trace_id=trace_id,
+                    session_id=pc_session_id,
+                    project_id=pc_project_id,
                 )
             except Exception:
                 pass
