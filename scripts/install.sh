@@ -1193,7 +1193,7 @@ create_directories() {
     fi
 
     # Create main installation directory and subdirectories
-    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,logs,queue,.locks}
+    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,logs,queue,.locks,trace_buffer}
 
     # Create queue directory with restricted permissions (security best practice 2026)
     # Queue is shared across all projects - single classifier worker processes all
