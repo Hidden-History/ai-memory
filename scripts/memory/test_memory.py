@@ -443,7 +443,7 @@ def test_config_loading():
 def run_all_tests(skip_qdrant: bool = False, verbose: bool = False):
     """Run all tests and report results."""
     print("\n" + "=" * 60)
-    print("BMAD MEMORY SYSTEM - COMPREHENSIVE TEST SUITE")
+    print("AI MEMORY SYSTEM - COMPREHENSIVE TEST SUITE")
     print("Testing 3 collections with validation patterns")
     print("=" * 60)
 
@@ -508,7 +508,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Test BMAD memory system (all 3 collections)"
+        description="Test AI Memory system (all 3 collections)"
     )
     parser.add_argument(
         "--offline",

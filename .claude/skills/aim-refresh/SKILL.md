@@ -1,19 +1,19 @@
 ---
-name: memory-refresh
+name: aim-refresh
 description: "Manually re-evaluate freshness for code-patterns memories"
-trigger: "/memory-refresh"
+trigger: "/aim-refresh"
 ---
 
 ```python
-"""Memory refresh skill: /memory-refresh
+"""Memory refresh skill: /aim-refresh
 
 Manually re-evaluate freshness for memories. Reuses the freshness
 scan pipeline from SPEC-013 with optional scope filters.
 
 Usage:
-    /memory-refresh                          # Scan all
-    /memory-refresh --topic "authentication" # Semantic filter (v2.1)
-    /memory-refresh my-project               # Limit to project
+    /aim-refresh                          # Scan all
+    /aim-refresh --topic "authentication" # Semantic filter (v2.1)
+    /aim-refresh my-project               # Limit to project
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def main():
     actionable = report.stale_count + report.expired_count
     if actionable > 0:
         print(f"")
-        print(f"**{actionable} memories need attention.** Run `/freshness-report` for details.")
+        print(f"**{actionable} memories need attention.** Run `/aim-freshness-report` for details.")
     else:
         print(f"")
         print(f"All memories are fresh. No action needed.")

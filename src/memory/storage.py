@@ -1294,7 +1294,7 @@ class MemoryStorage:
         Returns:
             Dict mapping collection name to stats dict with keys:
                 - points_count (int)
-                - vectors_count (int)
+                - segments_count (int)
                 - status (str)
 
         Example:
@@ -1316,7 +1316,7 @@ class MemoryStorage:
                 info = self.qdrant_client.get_collection(collection)
                 stats[collection] = {
                     "points_count": info.points_count,
-                    "vectors_count": info.vectors_count,
+                    "segments_count": info.segments_count,
                     "status": str(info.status.value) if info.status else "unknown",
                 }
             except Exception as e:
@@ -1325,7 +1325,7 @@ class MemoryStorage:
                 )
                 stats[collection] = {
                     "points_count": 0,
-                    "vectors_count": 0,
+                    "segments_count": 0,
                     "status": "error",
                 }
         return stats

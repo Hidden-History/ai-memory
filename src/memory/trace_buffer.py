@@ -86,6 +86,10 @@ def emit_trace_event(
     if buffer_size_mb >= BUFFER_MAX_MB:
         return False
 
+    # ISSUE-184: Fall back to env var for parent_span_id propagation from capture hook
+    if parent_span_id is None:
+        parent_span_id = os.environ.get("LANGFUSE_ROOT_SPAN_ID")
+
     now = datetime.now(tz=timezone.utc)
     event = {
         "timestamp": time.time(),

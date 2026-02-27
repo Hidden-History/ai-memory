@@ -80,7 +80,7 @@ def test_collection_stats(monitoring_api_url):
     assert data["status"] == "success"
     assert data["collection"] == "code-patterns"
     assert "points_count" in data
-    assert "vectors_count" in data
+    assert "segments_count" in data
     assert "indexed_vectors_count" in data
 
 

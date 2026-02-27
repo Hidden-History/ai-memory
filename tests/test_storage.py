@@ -481,7 +481,7 @@ class TestMemoryStorageStats:
         """Stats should include all 3 core collections."""
         mock_info = Mock()
         mock_info.points_count = 100
-        mock_info.vectors_count = 100
+        mock_info.segments_count = 100
         mock_info.status = Mock()
         mock_info.status.value = "green"
 
@@ -506,7 +506,7 @@ class TestMemoryStorageStats:
         """Stats should include jira-data when the collection exists."""
         mock_info = Mock()
         mock_info.points_count = 50
-        mock_info.vectors_count = 50
+        mock_info.segments_count = 50
         mock_info.status = Mock()
         mock_info.status.value = "green"
 
@@ -530,7 +530,7 @@ class TestMemoryStorageStats:
                 raise Exception("Qdrant unreachable")
             mock_info = Mock()
             mock_info.points_count = 10
-            mock_info.vectors_count = 10
+            mock_info.segments_count = 10
             mock_info.status = Mock()
             mock_info.status.value = "green"
             return mock_info
@@ -542,15 +542,15 @@ class TestMemoryStorageStats:
 
         assert stats["code-patterns"]["status"] == "error"
         assert stats["code-patterns"]["points_count"] == 0
-        assert stats["code-patterns"]["vectors_count"] == 0
+        assert stats["code-patterns"]["segments_count"] == 0
 
     def test_get_collection_stats_stat_values_present(
         self, mock_config, mock_qdrant_client
     ):
-        """Each collection entry must contain points_count, vectors_count, and status."""
+        """Each collection entry must contain points_count, segments_count, and status."""
         mock_info = Mock()
         mock_info.points_count = 42
-        mock_info.vectors_count = 42
+        mock_info.segments_count = 42
         mock_info.status = Mock()
         mock_info.status.value = "green"
 
@@ -566,7 +566,7 @@ class TestMemoryStorageStats:
 
         for info in stats.values():
             assert "points_count" in info
-            assert "vectors_count" in info
+            assert "segments_count" in info
             assert "status" in info
 
     def test_get_unique_field_values_with_limit(

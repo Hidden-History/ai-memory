@@ -85,7 +85,7 @@ def parse_args():
         Namespace: Parsed arguments
     """
     parser = argparse.ArgumentParser(
-        description="Search BMAD memory system",
+        description="Search AI Memory system",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

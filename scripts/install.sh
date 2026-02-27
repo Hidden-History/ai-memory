@@ -720,6 +720,13 @@ main() {
     # IMPORTANT: Must run BEFORE check_prerequisites to skip port checks in add-project mode
     check_existing_installation
 
+    # Adjust step counter based on install mode
+    if [[ "$INSTALL_MODE" == "add-project" ]]; then
+        TOTAL_STEPS=2
+    elif [[ "${SKIP_DOCKER_CHECKS:-}" == "true" ]]; then
+        TOTAL_STEPS=6
+    fi
+
     # Prompt for project name (allows custom group_id for Qdrant isolation)
     configure_project_name
 

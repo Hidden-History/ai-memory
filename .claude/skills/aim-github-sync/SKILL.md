@@ -1,5 +1,5 @@
 ---
-name: github-sync
+name: aim-github-sync
 description: 'Synchronize GitHub issues, PRs, commits, and CI results to AI Memory'
 allowed-tools: Bash
 ---
@@ -12,13 +12,13 @@ Synchronize GitHub issues, pull requests, commits, and CI results from the confi
 
 ```bash
 # Incremental sync (default) - only fetch updated items
-/github-sync
+/aim-github-sync
 
 # Full sync - fetch all items from scratch
-/github-sync --full
+/aim-github-sync --full
 
 # Check sync status (last sync time, items synced, errors)
-/github-sync --status
+/aim-github-sync --status
 ```
 
 ## Options
@@ -91,7 +91,7 @@ import json
 from pathlib import Path
 state_file = Path('.audit/state/github_sync_state.json')
 if not state_file.exists():
-    print('No sync state found. Run /github-sync first.')
+    print('No sync state found. Run /aim-github-sync first.')
 else:
     state = json.loads(state_file.read_text())
     print('## GitHub Sync Status')

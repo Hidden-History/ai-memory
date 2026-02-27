@@ -84,7 +84,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 30s
 
   prometheus:
     build:
@@ -284,6 +284,10 @@ services:
       - PUSHGATEWAY_URL=pushgateway:9091
       # Langfuse trace emission kill-switch (BUG-150)
       - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
+      - LANGFUSE_TRACING_ENABLED=${LANGFUSE_ENABLED:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       # Match volume mount path so trace_buffer.py resolves to /app/trace_buffer
       - AI_MEMORY_INSTALL_DIR=/app
       - AI_MEMORY_QUEUE_DIR=/app/queue
@@ -387,9 +391,10 @@ services:
       - LOG_LEVEL=${BMAD_LOG_LEVEL:-INFO}
       # Langfuse observability (Wave 3, PLAN-011)
       - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
+      - LANGFUSE_TRACING_ENABLED=${LANGFUSE_ENABLED:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-http://langfuse:3000}
+      - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-http://langfuse-web:3000}
       # PLAN-009: Tell discover_projects() where the mounted projects.d lives.
       # Path.home() inside the container is not /config, so we must be explicit.
       - AI_MEMORY_PROJECTS_DIR=/config/projects.d

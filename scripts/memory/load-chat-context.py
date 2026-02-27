@@ -174,7 +174,7 @@ def load_chat_context(
 def main():
     """CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="Load previous conversation context for BMAD agent session continuity",
+        description="Load previous conversation context for AI Memory agent session continuity",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

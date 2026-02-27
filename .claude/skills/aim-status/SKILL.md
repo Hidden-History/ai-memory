@@ -1,20 +1,20 @@
 ---
-name: memory-status
-description: 'Check BMAD memory system status'
-trigger: "/memory-status"
+name: aim-status
+description: 'Check AI Memory system status'
+trigger: "/aim-status"
 ---
 
 ```python
-"""Memory status skill: /memory-status
+"""Memory status skill: /aim-status
 
 Check AI Memory Module health, statistics, and system state.
 
 Usage:
-    /memory-status                     # Full status report
-    /memory-status --section sync      # Sync status only
-    /memory-status --section freshness # Freshness summary only
-    /memory-status --section decay     # Decay distribution only
-    /memory-status --section flags     # System flags only
+    /aim-status                     # Full status report
+    /aim-status --section sync      # Sync status only
+    /aim-status --section freshness # Freshness summary only
+    /aim-status --section decay     # Decay distribution only
+    /aim-status --section flags     # System flags only
 """
 
 from __future__ import annotations
@@ -25,10 +25,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Skill scripts run from .claude/skills/memory-status/ as subprocesses.
+# Skill scripts run from .claude/skills/aim-status/ as subprocesses.
 # The ai-memory source is at ai-memory/src/memory/.
 # Resolve project root from skill location:
-#   parents[0] = .claude/skills/memory-status/
+#   parents[0] = .claude/skills/aim-status/
 #   parents[1] = .claude/skills/
 #   parents[2] = .claude/
 #   parents[3] = project root
@@ -284,7 +284,7 @@ def section_flags(config) -> list[str]:
 
 
 def main() -> None:
-    """Entry point for /memory-status skill."""
+    """Entry point for /aim-status skill."""
     import argparse
 
     start_time = time.perf_counter()
@@ -365,13 +365,13 @@ if __name__ == "__main__":
 
 ```bash
 # Full status report
-/memory-status
+/aim-status
 
 # Show specific sections only
-/memory-status --section sync
-/memory-status --section freshness
-/memory-status --section decay
-/memory-status --section flags
+/aim-status --section sync
+/aim-status --section freshness
+/aim-status --section decay
+/aim-status --section flags
 ```
 
 ## Output Sections

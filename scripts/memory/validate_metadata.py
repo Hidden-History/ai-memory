@@ -410,7 +410,7 @@ def format_validation_results(is_valid: bool, details: dict) -> str:
 def main():
     """CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="Validate metadata for BMAD memory system"
+        description="Validate metadata for AI Memory system"
     )
     parser.add_argument(
         "--metadata", required=True, help="Path to metadata JSON file or JSON string"

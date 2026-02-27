@@ -260,6 +260,8 @@ def main() -> int:
                     start_time=capture_start,
                     end_time=datetime.now(tz=timezone.utc),
                 )
+                # ISSUE-184: Expose capture span ID for child spans in store_async hooks
+                os.environ["LANGFUSE_ROOT_SPAN_ID"] = trace_id[:16]
             except Exception:
                 pass  # Never crash the hook for tracing
 

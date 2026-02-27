@@ -5,6 +5,9 @@ Tests cover:
 - Fallback to generic query when parzival_enabled=False
 - GitHub enrichment date filtering, caps, and skip conditions
 - Graceful degradation when Qdrant is unavailable
+
+TD-174: parzival_enabled is read in injection.py (retrieve_bootstrap_context), NOT in
+session_start.py. session_start.py calls injection.py which handles the parzival logic.
 """
 
 from unittest.mock import MagicMock

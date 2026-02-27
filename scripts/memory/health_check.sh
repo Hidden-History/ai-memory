@@ -60,7 +60,7 @@ fi
 
 # Check 3: Qdrant health endpoint
 echo -n "Qdrant health... "
-if curl -sf http://localhost:26350/health > /dev/null 2>&1; then
+if curl -sf http://localhost:26350/healthz > /dev/null 2>&1; then
     echo -e "${GREEN}✓ Healthy${NC}"
 else
     echo -e "${RED}✗ Unhealthy${NC}"

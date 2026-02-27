@@ -1,18 +1,18 @@
 ---
-name: freshness-report
+name: aim-freshness-report
 description: "Scan code-patterns collection for stale memories by comparing against GitHub code blob data"
-trigger: "/freshness-report"
+trigger: "/aim-freshness-report"
 ---
 
 ```python
-"""Freshness report skill: /freshness-report
+"""Freshness report skill: /aim-freshness-report
 
 Scans code-patterns collection and compares against GitHub code blob
 ground truth to detect stale memories.
 
 Usage:
-    /freshness-report              # Scan all projects
-    /freshness-report my-project   # Scan specific project
+    /aim-freshness-report              # Scan all projects
+    /aim-freshness-report my-project   # Scan specific project
 """
 
 from __future__ import annotations
@@ -21,10 +21,10 @@ import sys
 import time
 from pathlib import Path
 
-# Skill scripts run from .claude/skills/freshness-report/ as
+# Skill scripts run from .claude/skills/aim-freshness-report/ as
 # subprocesses. The ai-memory source is at ai-memory/src/memory/.
 # Resolve project root from skill location:
-#   parents[0] = .claude/skills/freshness-report/
+#   parents[0] = .claude/skills/aim-freshness-report/
 #   parents[1] = .claude/skills/
 #   parents[2] = .claude/
 #   parents[3] = project root
@@ -125,7 +125,7 @@ def format_freshness_report(report: FreshnessReport) -> str:
         lines.append(
             f"- **{report.expired_count} expired**: Source files have "
             f"changed. Consider re-capturing these patterns with "
-            f"`/save-memory` or wait for automatic recapture on next "
+            f"`/aim-save` or wait for automatic recapture on next "
             f"code interaction."
         )
     if report.stale_count > 0:
@@ -152,7 +152,7 @@ def format_freshness_report(report: FreshnessReport) -> str:
 
 
 def main() -> None:
-    """Entry point for /freshness-report skill."""
+    """Entry point for /aim-freshness-report skill."""
     start_time = time.perf_counter()
     config = get_config()
 

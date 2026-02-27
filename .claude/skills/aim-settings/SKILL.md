@@ -1,5 +1,5 @@
 ---
-name: memory-settings
+name: aim-settings
 description: 'Display current memory system configuration and settings'
 allowed-tools: Read
 ---
@@ -12,14 +12,14 @@ Display the current configuration of the AI Memory Module, including collections
 
 ```bash
 # Show all memory settings
-/memory-settings
+/aim-settings
 
 # Show specific section
-/memory-settings --section collections
-/memory-settings --section types
-/memory-settings --section thresholds
-/memory-settings --section services
-/memory-settings --section agents
+/aim-settings --section collections
+/aim-settings --section types
+/aim-settings --section thresholds
+/aim-settings --section services
+/aim-settings --section agents
 ```
 
 ## Configuration Sections
@@ -80,19 +80,19 @@ Shows token allocation per BMAD agent:
 
 ```bash
 # View complete configuration
-/memory-settings
+/aim-settings
 
 # Check current thresholds
-/memory-settings --section thresholds
+/aim-settings --section thresholds
 
 # View service endpoints
-/memory-settings --section services
+/aim-settings --section services
 
 # Check agent token budgets
-/memory-settings --section agents
+/aim-settings --section agents
 
 # View all memory types
-/memory-settings --section types
+/aim-settings --section types
 ```
 
 ## Python Configuration Reference
@@ -167,8 +167,8 @@ The skill displays configuration in organized sections with:
 
 ## Related Skills
 
-- `/search-memory` - Use these settings for memory search
-- `/memory-status` - Check system health and statistics
+- `/aim-search` - Use these settings for memory search
+- `/aim-status` - Check system health and statistics
 
 ## Notes
 

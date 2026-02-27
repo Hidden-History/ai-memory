@@ -10,6 +10,13 @@ import logging
 import os
 import threading
 
+try:
+    from langfuse import Langfuse
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    Langfuse = None  # type: ignore[assignment,misc]
+    LANGFUSE_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 _client = None
@@ -41,6 +48,8 @@ def get_langfuse_client():
             return _client
 
         enabled = os.environ.get("LANGFUSE_ENABLED", "false").lower() == "true"
+        # Bridge our kill-switch to the real Langfuse SDK env var so the SDK respects it
+        os.environ["LANGFUSE_TRACING_ENABLED"] = "true" if enabled else "false"
         if not enabled:
             logger.debug("Langfuse disabled (LANGFUSE_ENABLED != true)")
             return None
@@ -49,13 +58,15 @@ def get_langfuse_client():
         public_key = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
         secret_key = os.environ.get("LANGFUSE_SECRET_KEY", "")
 
+        if Langfuse is None:
+            logger.warning("langfuse package not installed — pip install langfuse")
+            return None
+
         if not public_key or not secret_key:
             logger.warning("Langfuse enabled but API keys not configured — skipping")
             return None
 
         try:
-            from langfuse import Langfuse
-
             client = Langfuse(
                 public_key=public_key,
                 secret_key=secret_key,
@@ -68,9 +79,6 @@ def get_langfuse_client():
             _client = client
             _initialized = True
             return client
-        except ImportError:
-            logger.warning("langfuse package not installed — pip install langfuse")
-            return None
         except Exception as e:
             logger.error("Failed to initialize Langfuse client: %s", e)
             return None
