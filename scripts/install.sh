@@ -755,6 +755,7 @@ main() {
             log_info "Skipping Docker services (SKIP_DOCKER_CHECKS=true)"
             copy_env_template
         else
+            setup_langfuse_keys
             step "Starting Docker Services"
             start_services
             wait_for_services
@@ -1900,7 +1901,7 @@ start_services() {
     # multiple images simultaneously on low-RAM systems.
     log_info "Phase 1/2: Starting core services (qdrant + embedding)..."
     docker compose up -d qdrant
-    docker compose up -d --build embedding
+    docker compose up -d --build --no-cache embedding
 
     _log_docker_state "after core startup"
 
@@ -1945,7 +1946,7 @@ start_services() {
     if [[ -n "$profile_flags" ]]; then
         log_info "Phase 2/2: Starting profile services ($profile_flags)..."
         # BUG-079: --build forces rebuild of source-built containers
-        docker compose $profile_flags up -d --build --no-recreate
+        docker compose $profile_flags up -d --build --no-cache --no-recreate
         _log_docker_state "after profile startup"
 
         # Verify core services survived profile startup
@@ -2757,6 +2758,15 @@ setup_langfuse() {
     fi
 }
 
+# Pre-generate Langfuse API keys so core containers get them at startup.
+# Called BEFORE start_services. Does NOT start any containers.
+setup_langfuse_keys() {
+    if [[ "$LANGFUSE_ENABLED" == "true" ]]; then
+        log_info "Pre-generating Langfuse API keys..."
+        bash "$INSTALL_DIR/scripts/langfuse_setup.sh" --keys-only
+    fi
+}
+
 # === .audit/ Directory Setup (v2.0.6 — AD-2 two-tier audit trail) ===
 # Creates project-local .audit/ directory for ephemeral/sensitive audit data.
 # This is Tier 1 of the two-tier hybrid audit trail (AD-2):
@@ -3064,15 +3074,20 @@ deploy_parzival_commands() {
     mkdir -p "$cmd_dest"
 
     if [[ -d "$cmd_source" ]]; then
-        # Backup existing commands before overwrite
+        # Backup existing commands only if content changed (F-9 fix)
         for src_file in "$cmd_source"/*.md; do
             local bn=$(basename "$src_file")
             local dest_file="$cmd_dest/$bn"
             if [[ -f "$dest_file" ]]; then
-                cp "$dest_file" "$dest_file.bak.$(date +%Y%m%d%H%M%S)"
+                if ! diff -q "$src_file" "$dest_file" &>/dev/null; then
+                    cp "$dest_file" "$dest_file.bak"
+                    log_debug "Backed up changed command: $bn"
+                fi
             fi
         done
         cp -r "$cmd_source/"* "$cmd_dest/" 2>/dev/null || true
+        # Cleanup stale timestamped backups from previous installer versions
+        find "$cmd_dest" -name "*.bak.[0-9]*" -delete 2>/dev/null || true
         log_debug "Parzival commands deployed to $cmd_dest"
     else
         log_warning "Parzival command source not found at $cmd_source"

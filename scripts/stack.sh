@@ -431,6 +431,8 @@ cmd_nuke() {
         if [[ -f "${COMPOSE_LANGFUSE}" ]]; then
             echo "        langfuse-postgres-data, langfuse-clickhouse-data, langfuse-minio-data"
         fi
+        echo "    - All locally-built AI Memory Docker images"
+        echo "    - All pulled Langfuse Docker images"
         echo "    - The ai-memory_default Docker network"
         echo "    - Any orphaned resources matching 'ai-memory_*'"
         echo ""
@@ -503,6 +505,38 @@ cmd_nuke() {
         done <<< "${orphaned}"
     else
         log_info "No orphaned volumes found."
+    fi
+
+    # ── Remove AI Memory and Langfuse Docker images ──────────────────────────
+    # Targeted removal: only our built images and pulled langfuse images.
+    step "Removing AI Memory Docker images"
+    local ai_memory_images
+    ai_memory_images="$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^ai-memory-' || true)"
+    local langfuse_images
+    langfuse_images="$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^langfuse/' || true)"
+
+    if [[ -n "${ai_memory_images}" ]]; then
+        echo "${ai_memory_images}" | while IFS= read -r img; do
+            [[ -z "${img}" ]] && continue
+            log_info "  Removing image: ${img}"
+            docker rmi "${img}" 2>/dev/null \
+                && log_success "  Removed: ${img}" \
+                || log_warning "  Could not remove: ${img} (may be in use)"
+        done
+    else
+        log_info "No AI Memory images found."
+    fi
+
+    if [[ -n "${langfuse_images}" ]]; then
+        echo "${langfuse_images}" | while IFS= read -r img; do
+            [[ -z "${img}" ]] && continue
+            log_info "  Removing image: ${img}"
+            docker rmi "${img}" 2>/dev/null \
+                && log_success "  Removed: ${img}" \
+                || log_warning "  Could not remove: ${img} (may be in use)"
+        done
+    else
+        log_info "No Langfuse images found."
     fi
 
     echo ""

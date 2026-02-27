@@ -33,6 +33,7 @@ DO_ALL=false
 DO_SECRETS=false
 DO_START=false
 DO_HEALTH=false
+DO_KEYS_ONLY=false
 
 if [[ $# -eq 0 ]]; then
     DO_ALL=true
@@ -46,12 +47,14 @@ for arg in "$@"; do
         --generate-secrets) DO_SECRETS=true ;;
         --start)            DO_START=true ;;
         --health-check)     DO_HEALTH=true ;;
+        --keys-only)        DO_KEYS_ONLY=true ;;
         --help|-h)
-            echo "Usage: $0 [--generate-secrets] [--start] [--health-check]"
+            echo "Usage: $0 [--generate-secrets] [--start] [--health-check] [--keys-only]"
             echo "  No args: run all steps"
             echo "  --generate-secrets  Generate Langfuse secrets, project init vars, and MinIO bucket"
             echo "  --start             Start Langfuse Docker services"
             echo "  --health-check      Wait for health, register custom models, print summary"
+            echo "  --keys-only         Generate secrets and API keys only (no containers, no MinIO)"
             exit 0
             ;;
         *)
@@ -247,14 +250,14 @@ start_services() {
     fi
     chmod 0755 "${_install_dir}/trace_buffer"
 
-    log_info "Running: docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse up -d --build"
+    log_info "Running: docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse up -d --build --no-cache"
     (
         cd "$DOCKER_DIR"
         docker compose \
             -f docker-compose.yml \
             -f docker-compose.langfuse.yml \
             --profile langfuse \
-            up -d --build
+            up -d --build --no-cache
     )
     log_success "Langfuse services started."
 }
@@ -544,6 +547,13 @@ print_summary() {
 main() {
     log_info "Langfuse Setup Script"
     log_info "ENV file: ${ENV_FILE}"
+
+    # --keys-only: steps 1–2 only (secrets + API keys, no containers, no MinIO)
+    if [[ "$DO_KEYS_ONLY" == true ]]; then
+        generate_secrets
+        setup_project_keys
+        return 0
+    fi
 
     # --generate-secrets: steps 1–3 (secrets, project init vars, MinIO bucket)
     if [[ "$DO_SECRETS" == true ]]; then
