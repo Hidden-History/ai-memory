@@ -1384,8 +1384,24 @@ copy_files() {
     fi
 
     # Copy core files (preserve directory structure)
+    # TD-198: Back up existing docker/.env BEFORE bulk copy to prevent overwrite
+    local _env_backup=""
+    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
+        _env_backup="$(mktemp)"
+        cp "$INSTALL_DIR/docker/.env" "$_env_backup"
+        log_debug "Backed up existing docker/.env before bulk copy"
+    fi
+
     log_debug "Copying docker configuration..."
     cp -r "$SOURCE_DIR/docker/"* "$INSTALL_DIR/docker/" || { log_error "Failed to copy docker files"; exit 1; }
+
+    # Restore docker/.env if it was backed up (bulk cp may have overwritten with template)
+    if [[ -n "$_env_backup" ]]; then
+        cp "$_env_backup" "$INSTALL_DIR/docker/.env"
+        rm -f "$_env_backup"
+        log_debug "Restored docker/.env after bulk copy"
+    fi
+
     # BUG-040: Explicitly copy dotfiles - glob .* matches . and .. causing failures
     # Deploy .env: merge strategy preserves user customizations (TD-198)
     if [[ -f "$SOURCE_DIR/docker/.env.example" ]]; then
