@@ -214,7 +214,8 @@ def _process_event_otel(event: dict, data: dict) -> None:
             f"hook_pipeline_{event.get('project_id', 'unknown')}",
         )
         if event.get("session_id"):
-            otel_span.set_attribute("langfuse.trace.session_id", event["session_id"])
+            # Langfuse SDK v3 expects "session.id" (not "langfuse.trace.session_id")
+            otel_span.set_attribute("session.id", event["session_id"])
         if data.get("input") is not None:
             val = data["input"]
             otel_span.set_attribute(
