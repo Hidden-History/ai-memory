@@ -78,7 +78,7 @@ try:
 except ImportError:
     emit_trace_event = None
 
-TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 # TECH-DEBT-151: Structured truncation for error output (max 800 tokens)
 try:

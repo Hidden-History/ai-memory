@@ -101,7 +101,7 @@ except ImportError:
 # Timeout configuration
 PRECOMPACT_HOOK_TIMEOUT = int(os.getenv("PRECOMPACT_HOOK_TIMEOUT", "10"))  # Default 10s
 
-TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 
 def validate_hook_input(data: dict[str, Any]) -> str | None:

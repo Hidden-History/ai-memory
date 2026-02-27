@@ -58,7 +58,7 @@ logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False
 
-TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 
 def main() -> int:

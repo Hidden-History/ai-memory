@@ -52,7 +52,7 @@ try:
 except ImportError:
     emit_trace_event = None
 
-TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 logger = setup_hook_logging()
 
@@ -237,16 +237,16 @@ def main() -> int:
                         event_type="error_retrieval",
                         data={
                             "input": error_signature[:TRACE_CONTENT_MAX],
-                            "output": f"Retrieved {len(results)} similar fixes"
-                            + (
-                                f": {results[0].get('content', '')[:500]}"
+                            "output": (
+                                results[0].get("content", "")[:TRACE_CONTENT_MAX]
                                 if results
-                                else ""
+                                else "No similar fixes found"
                             ),
                             "metadata": {
                                 "collection": COLLECTION_CODE_PATTERNS,
                                 "result_count": len(results),
                                 "best_score": best_score,
+                                "summary": f"Retrieved {len(results)} similar fixes",
                             },
                         },
                         trace_id=uuid4().hex,

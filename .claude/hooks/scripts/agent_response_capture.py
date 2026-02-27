@@ -33,7 +33,7 @@ from typing import Any
 # Maximum response size to prevent memory issues in background process (100KB)
 MAX_RESPONSE_SIZE = 100 * 1024
 
-TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 # Add src to path for imports (must be inline before importing from memory)
 INSTALL_DIR = os.environ.get(
@@ -313,7 +313,7 @@ def main() -> int:
                     event_type="1_capture",
                     data={
                         "input": response_text[:TRACE_CONTENT_MAX],
-                        "output": f"Captured {len(response_text)} chars from agent_response hook",
+                        "output": response_text[:TRACE_CONTENT_MAX],
                         "metadata": {
                             "hook_type": "agent_response",
                             "source": "transcript",

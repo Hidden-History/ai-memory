@@ -1387,14 +1387,29 @@ copy_files() {
     log_debug "Copying docker configuration..."
     cp -r "$SOURCE_DIR/docker/"* "$INSTALL_DIR/docker/" || { log_error "Failed to copy docker files"; exit 1; }
     # BUG-040: Explicitly copy dotfiles - glob .* matches . and .. causing failures
-    # Copy .env if it exists in source (contains credentials)
-    if [[ -f "$SOURCE_DIR/docker/.env" ]]; then
-        cp "$SOURCE_DIR/docker/.env" "$INSTALL_DIR/docker/"
-        log_debug "Copied docker/.env with credentials from source"
-    fi
-    # Copy .env.example if it exists
+    # Deploy .env: merge strategy preserves user customizations (TD-198)
     if [[ -f "$SOURCE_DIR/docker/.env.example" ]]; then
-        cp "$SOURCE_DIR/docker/.env.example" "$INSTALL_DIR/docker/"
+        cp "$SOURCE_DIR/docker/.env.example" "$INSTALL_DIR/docker/.env.example"
+        if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
+            # Merge: add any new keys from .env.example that don't exist in installed .env
+            while IFS= read -r line; do
+                # Skip comments and empty lines
+                [[ "$line" =~ ^[[:space:]]*# ]] && continue
+                [[ -z "${line// }" ]] && continue
+                # Extract key (everything before first =)
+                key="${line%%=*}"
+                [[ -z "$key" ]] && continue
+                # Only append if key doesn't already exist in installed .env
+                if ! grep -q "^${key}=" "$INSTALL_DIR/docker/.env"; then
+                    echo "$line" >> "$INSTALL_DIR/docker/.env"
+                fi
+            done < "$SOURCE_DIR/docker/.env.example"
+            log_debug "Merged new keys from .env.example into existing docker/.env"
+        else
+            # No existing .env: use .env.example as starting point
+            cp "$SOURCE_DIR/docker/.env.example" "$INSTALL_DIR/docker/.env"
+            log_debug "Created docker/.env from .env.example template"
+        fi
     fi
 
     log_debug "Copying Python memory modules..."
@@ -2156,20 +2171,20 @@ setup_collections() {
 copy_env_template() {
     log_debug "Copying environment template..."
 
-    # Copy .env.example to installation directory
-    if [ -f "$SCRIPT_DIR/../.env.example" ]; then
-        cp "$SCRIPT_DIR/../.env.example" "$INSTALL_DIR/.env.example"
-        log_success "Environment template copied to $INSTALL_DIR/.env.example"
+    # Copy docker/.env.example to installation directory (TD-198: root .env.example removed)
+    if [ -f "$SCRIPT_DIR/../docker/.env.example" ]; then
+        cp "$SCRIPT_DIR/../docker/.env.example" "$INSTALL_DIR/docker/.env.example"
+        log_success "Environment template copied to $INSTALL_DIR/docker/.env.example"
 
         # Check if .env already exists
-        if [ ! -f "$INSTALL_DIR/.env" ]; then
+        if [ ! -f "$INSTALL_DIR/docker/.env" ]; then
             log_debug "No .env file found - using defaults"
-            log_debug "To customize: cp $INSTALL_DIR/.env.example $INSTALL_DIR/.env"
+            log_debug "To customize: cp $INSTALL_DIR/docker/.env.example $INSTALL_DIR/docker/.env"
         else
-            log_debug "Existing .env file detected - keeping current configuration"
+            log_debug "Existing docker/.env file detected - keeping current configuration"
         fi
     else
-        log_warning "Template .env.example not found - skipping"
+        log_warning "Template docker/.env.example not found - skipping"
     fi
 }
 

@@ -451,6 +451,8 @@ register_custom_models() {
     fi
 
     local base_url="http://localhost:${web_port}"
+    local LOG_DIR="${SCRIPT_DIR}/../logs"
+    mkdir -p "$LOG_DIR" 2>/dev/null || true
 
     # Fetch existing model names across all pages (idempotency check)
     log_info "Checking existing model registrations..."
@@ -475,7 +477,7 @@ while True:
 for n in names:
     if n:
         print(n)
-" 2>/dev/null || echo "")
+" 2>>"$LOG_DIR/langfuse_model_registration.log" || echo "")
 
     # Registration helper
     register_model() {

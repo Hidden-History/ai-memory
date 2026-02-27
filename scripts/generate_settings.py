@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Claude Code settings.json with BMAD hooks.
+"""Generate Claude Code settings.json with AI Memory hooks.
 
 2026 Best Practice: Using Python json module + template pattern
 - Python 3.10+ required (project standard)
@@ -130,11 +130,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         "hooks": {
             "SessionStart": [
                 {
-                    "matcher": (
-                        "startup|resume|compact|clear"
-                        if os.environ.get("PARZIVAL_ENABLED", "").lower() == "true"
-                        else "resume|compact"
-                    ),
+                    "matcher": "startup|resume|compact|clear",
                     "hooks": [session_start_hook],
                 }
             ],

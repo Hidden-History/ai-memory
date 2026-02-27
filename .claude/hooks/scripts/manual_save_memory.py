@@ -64,7 +64,7 @@ try:
 except ImportError:
     emit_trace_event = None
 
-TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 # Log successful path setup (F7: telemetry)
 logger.debug(

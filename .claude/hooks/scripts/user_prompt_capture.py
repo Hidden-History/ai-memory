@@ -64,7 +64,7 @@ except ImportError:
 # V2.0 Fix: Truncate extremely long prompts to avoid Qdrant payload issues
 MAX_CONTENT_LENGTH = 100000  # Embeddings handle large text well
 
-TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 
 def validate_hook_input(data: dict[str, Any]) -> str | None:
@@ -245,7 +245,7 @@ def main() -> int:
                     event_type="1_capture",
                     data={
                         "input": content[:TRACE_CONTENT_MAX],
-                        "output": f"Captured {len(content)} chars from user_prompt hook",
+                        "output": content[:TRACE_CONTENT_MAX],
                         "metadata": {
                             "hook_type": "user_prompt",
                             "source": "stdin",

@@ -85,7 +85,7 @@ try:
 except ImportError:
     emit_trace_event = None
 
-TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 
 def detect_component_from_path(file_path: str) -> tuple[str, str]:

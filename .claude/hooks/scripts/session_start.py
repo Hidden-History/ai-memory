@@ -56,7 +56,7 @@ try:
 except ImportError:
     emit_trace_event = None
 
-TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 # Configure structured logging (Story 6.2)
 # Log to stderr since stdout is reserved for context injection
@@ -843,12 +843,19 @@ def main():
                             event_type="session_bootstrap",
                             data={
                                 "input": f"Session startup: {project_name}",
-                                "output": f"Injected {tokens_used} tokens from {len(selected)} results",
+                                "output": (
+                                    "\n".join(
+                                        r.get("content", "")[:500] for r in selected[:5]
+                                    )[:TRACE_CONTENT_MAX]
+                                    if selected
+                                    else f"No results for {project_name}"
+                                ),
                                 "metadata": {
                                     "session_type": trigger,
                                     "result_count": len(selected),
                                     "tokens_injected": tokens_used,
                                     "budget": config.bootstrap_token_budget,
+                                    "summary": f"Injected {tokens_used} tokens from {len(selected)} results",
                                 },
                             },
                             trace_id=uuid4().hex,
@@ -1115,12 +1122,13 @@ def main():
                             event_type="session_bootstrap",
                             data={
                                 "input": f"Session {trigger}: {project_name}",
-                                "output": f"Injected {token_count} tokens from {total_count} results",
+                                "output": conversation_context[:TRACE_CONTENT_MAX],
                                 "metadata": {
                                     "session_type": trigger,
                                     "result_count": total_count,
                                     "tokens_injected": token_count,
                                     "budget": config.token_budget,
+                                    "summary": f"Injected {token_count} tokens from {total_count} results",
                                 },
                             },
                             trace_id=uuid4().hex,
