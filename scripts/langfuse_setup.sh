@@ -250,14 +250,19 @@ start_services() {
     fi
     chmod 0755 "${_install_dir}/trace_buffer"
 
-    log_info "Running: docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse up -d --build --no-cache"
+    log_info "Running: docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse build --no-cache && up -d"
     (
         cd "$DOCKER_DIR"
         docker compose \
             -f docker-compose.yml \
             -f docker-compose.langfuse.yml \
             --profile langfuse \
-            up -d --build --no-cache
+            build --no-cache
+        docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.langfuse.yml \
+            --profile langfuse \
+            up -d
     )
     log_success "Langfuse services started."
 }

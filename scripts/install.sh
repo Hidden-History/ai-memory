@@ -1901,7 +1901,8 @@ start_services() {
     # multiple images simultaneously on low-RAM systems.
     log_info "Phase 1/2: Starting core services (qdrant + embedding)..."
     docker compose up -d qdrant
-    docker compose up -d --build --no-cache embedding
+    docker compose build --no-cache embedding
+    docker compose up -d embedding
 
     _log_docker_state "after core startup"
 
@@ -1946,7 +1947,8 @@ start_services() {
     if [[ -n "$profile_flags" ]]; then
         log_info "Phase 2/2: Starting profile services ($profile_flags)..."
         # BUG-079: --build forces rebuild of source-built containers
-        docker compose $profile_flags up -d --build --no-cache --no-recreate
+        docker compose $profile_flags build --no-cache
+        docker compose $profile_flags up -d --no-recreate
         _log_docker_state "after profile startup"
 
         # Verify core services survived profile startup
