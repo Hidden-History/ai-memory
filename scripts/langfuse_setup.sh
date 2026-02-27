@@ -370,6 +370,22 @@ except Exception:
         docker exec "$pg_container" psql -U langfuse -d langfuse -c \
             "UPDATE users SET email_verified = NOW(), admin = true WHERE email = '${init_email}' AND email_verified IS NULL;" \
             2>/dev/null || log_warning "Could not fix up init user (non-critical)"
+
+        # Langfuse INIT creates org_membership but NOT project_membership.
+        # Without it the UI redirects to the setup/onboarding page.
+        local init_project_id
+        init_project_id=$(env_get "LANGFUSE_INIT_PROJECT_ID")
+        if [[ -n "$init_project_id" ]]; then
+            log_info "Ensuring project membership for init user..."
+            docker exec "$pg_container" psql -U langfuse -d langfuse -c "
+                INSERT INTO project_memberships (project_id, user_id, org_membership_id, role)
+                SELECT '${init_project_id}', u.id, om.id, 'OWNER'
+                FROM users u
+                JOIN organization_memberships om ON om.user_id = u.id
+                WHERE u.email = '${init_email}'
+                ON CONFLICT (project_id, user_id) DO NOTHING;" \
+                2>/dev/null || log_warning "Could not ensure project membership (non-critical)"
+        fi
     }
 
     log_info "Checking Langfuse bootstrap (org, project, user)..."
