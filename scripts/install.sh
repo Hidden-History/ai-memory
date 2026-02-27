@@ -1661,15 +1661,22 @@ EOF
     local _gen_secret="import secrets; print(secrets.token_urlsafe(18))"
 
     if ! grep -q "^QDRANT_API_KEY=.\+" "$docker_env" 2>/dev/null; then
-        local gen_key
-        gen_key=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
+        # Prefer environment variable (e.g., CI sets QDRANT_API_KEY=test-ci-key)
+        local gen_key="${QDRANT_API_KEY:-}"
+        if [[ -z "$gen_key" ]]; then
+            gen_key=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
+        fi
         if [[ -n "$gen_key" ]]; then
             if grep -q "^QDRANT_API_KEY=" "$docker_env" 2>/dev/null; then
                 sed -i.bak "s|^QDRANT_API_KEY=.*|QDRANT_API_KEY=$gen_key|" "$docker_env" && rm -f "$docker_env.bak"
             else
                 echo "QDRANT_API_KEY=$gen_key" >> "$docker_env"
             fi
-            log_success "Auto-generated QDRANT_API_KEY"
+            if [[ -n "${QDRANT_API_KEY:-}" ]]; then
+                log_success "Wrote QDRANT_API_KEY from environment to docker/.env"
+            else
+                log_success "Auto-generated QDRANT_API_KEY"
+            fi
         fi
     fi
 
