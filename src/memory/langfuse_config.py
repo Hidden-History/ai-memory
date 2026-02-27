@@ -12,6 +12,7 @@ import threading
 
 try:
     from langfuse import Langfuse
+
     LANGFUSE_AVAILABLE = True
 except ImportError:
     Langfuse = None  # type: ignore[assignment,misc]

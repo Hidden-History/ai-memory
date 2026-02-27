@@ -20,6 +20,7 @@ from pathlib import Path
 try:
     from opentelemetry import trace as otel_trace_api
     from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
+
     OTEL_AVAILABLE = True
 except ImportError:
     OTEL_AVAILABLE = False
@@ -55,7 +56,9 @@ def _make_parent_context(trace_id_hex: str, parent_span_id_hex: str | None = Non
         parent_span_id_int = int(parent_span_id_hex[:16], 16)
     span_context = SpanContext(
         trace_id=trace_id_int,
-        span_id=parent_span_id_int if parent_span_id_int else otel_trace_api.INVALID_SPAN_ID,
+        span_id=(
+            parent_span_id_int if parent_span_id_int else otel_trace_api.INVALID_SPAN_ID
+        ),
         is_remote=True,
         trace_flags=TraceFlags(TraceFlags.SAMPLED),
     )
@@ -226,7 +229,9 @@ def _process_event_otel(event: dict, data: dict) -> None:
             )
         otel_span.set_attribute(
             "langfuse.trace.metadata",
-            json.dumps({"project_id": event.get("project_id"), "source": "trace_buffer"}),
+            json.dumps(
+                {"project_id": event.get("project_id"), "source": "trace_buffer"}
+            ),
         )
 
     if end_ns is not None:

@@ -1,5 +1,6 @@
 """Unit tests for memory.trace_flush_worker — SPEC-020 §9.1 (9 test cases)."""
 
+import hashlib
 import json
 import os
 import signal
@@ -13,7 +14,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
 def _load_module(tmp_path, monkeypatch):
-    """Import trace_flush_worker with BUFFER_DIR patched to tmp_path."""
+    """Import trace_flush_worker with BUFFER_DIR patched to tmp_path.
+
+    Also patches OTEL_AVAILABLE=False on the freshly imported module so tests
+    exercise the SDK fallback path regardless of whether opentelemetry is
+    installed in the test environment.
+    """
     monkeypatch.setenv("AI_MEMORY_INSTALL_DIR", str(tmp_path))
     monkeypatch.setenv("LANGFUSE_FLUSH_INTERVAL", "0")
     monkeypatch.setenv("LANGFUSE_TRACE_BUFFER_MAX_MB", "100")
@@ -29,18 +35,25 @@ def _load_module(tmp_path, monkeypatch):
     buffer_dir = tmp_path / "trace_buffer"
     buffer_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(mod, "BUFFER_DIR", buffer_dir)
+
+    # Force SDK fallback path — must be after reimport so it targets the
+    # actual module object used by process_buffer_files()
+    monkeypatch.setattr(mod, "OTEL_AVAILABLE", False)
+
     return mod, buffer_dir
 
 
 def _write_event(buffer_dir: Path, name: str, **extra) -> Path:
     """Write a trace event JSON file matching trace_buffer.emit_trace_event() output format."""
+    # Use valid 32-char hex IDs (BUG-161 requires hex trace IDs)
+    hex_id = hashlib.md5(name.encode()).hexdigest()
     event = {
         "timestamp": time.time(),
         "event_type": "TestHook",
-        "trace_id": f"trace-{name}",
-        "span_id": f"span-{name}",
+        "trace_id": hex_id,
+        "span_id": hex_id[:16],
         "parent_span_id": None,
-        "session_id": "sess-001",
+        "session_id": "sess001",
         "project_id": "test-project",
         "data": {
             "start_time": "2026-02-23T10:00:00+00:00",
@@ -61,7 +74,6 @@ def _write_event(buffer_dir: Path, name: str, **extra) -> Path:
 # ---------------------------------------------------------------------------
 
 
-@patch("memory.trace_flush_worker.OTEL_AVAILABLE", False)
 def test_processes_valid_buffer_files(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
     _write_event(buffer_dir, "evt1")
@@ -84,7 +96,6 @@ def test_processes_valid_buffer_files(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@patch("memory.trace_flush_worker.OTEL_AVAILABLE", False)
 def test_removes_processed_files(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
     path = _write_event(buffer_dir, "evt_del")
@@ -102,7 +113,6 @@ def test_removes_processed_files(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@patch("memory.trace_flush_worker.OTEL_AVAILABLE", False)
 def test_handles_malformed_json(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
     bad = buffer_dir / "bad.json"
@@ -121,7 +131,6 @@ def test_handles_malformed_json(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@patch("memory.trace_flush_worker.OTEL_AVAILABLE", False)
 def test_graceful_shutdown(tmp_path, monkeypatch):
     mod, _ = _load_module(tmp_path, monkeypatch)
     monkeypatch.setattr(mod, "shutdown_requested", False)
@@ -138,7 +147,6 @@ def test_graceful_shutdown(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@patch("memory.trace_flush_worker.OTEL_AVAILABLE", False)
 def test_pushes_prometheus_metrics(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
     _write_event(buffer_dir, "evt_metrics")
@@ -177,7 +185,6 @@ def test_pushes_prometheus_metrics(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@patch("memory.trace_flush_worker.OTEL_AVAILABLE", False)
 def test_eviction_triggers_when_buffer_exceeds_max_mb(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
     # Set max to near-zero so any file triggers eviction
@@ -194,7 +201,6 @@ def test_eviction_triggers_when_buffer_exceeds_max_mb(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@patch("memory.trace_flush_worker.OTEL_AVAILABLE", False)
 def test_eviction_removes_oldest_by_mtime(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
     monkeypatch.setattr(mod, "MAX_BUFFER_MB", 0.000001)
@@ -223,7 +229,6 @@ def test_eviction_removes_oldest_by_mtime(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@patch("memory.trace_flush_worker.OTEL_AVAILABLE", False)
 def test_eviction_counter_metric_increments(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
     monkeypatch.setattr(mod, "MAX_BUFFER_MB", 0.000001)
@@ -240,7 +245,6 @@ def test_eviction_counter_metric_increments(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@patch("memory.trace_flush_worker.OTEL_AVAILABLE", False)
 def test_buffer_size_metric_reflects_post_eviction_size(tmp_path, monkeypatch):
     mod, buffer_dir = _load_module(tmp_path, monkeypatch)
     monkeypatch.setattr(mod, "MAX_BUFFER_MB", 0.000001)
