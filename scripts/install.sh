@@ -743,6 +743,7 @@ main() {
         create_directories
         step "File Deployment"
         copy_files
+        import_user_env
         step "Python Environment"
         install_python_dependencies
         step "Environment Configuration"
@@ -1489,6 +1490,83 @@ copy_files() {
     log_success "Files copied to $INSTALL_DIR"
 }
 
+# BUG-186: Import user customizations from $SOURCE_DIR/.env into $INSTALL_DIR/docker/.env
+# Called after copy_files and before configure_environment so imported credentials
+# are present when credential generation checks run.
+import_user_env() {
+    local docker_env="$INSTALL_DIR/docker/.env"
+    local user_env="$SOURCE_DIR/.env"
+
+    # Only import if user's .env exists and docker/.env exists
+    if [[ ! -f "$user_env" ]] || [[ ! -f "$docker_env" ]]; then
+        return 0
+    fi
+
+    log_info "Found user .env at $user_env — importing customizations..."
+
+    local imported=0
+    while IFS= read -r line; do
+        # Skip comments and empty lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// }" ]] && continue
+
+        # Extract key and value
+        local key="${line%%=*}"
+
+        # Skip lines without = separator
+        [[ "$key" == "$line" ]] && continue
+
+        local value="${line#*=}"
+
+        # Strip matched surrounding quotes only (common in .env files)
+        if [[ "$value" =~ ^\"(.*)\"$ ]]; then
+            value="${BASH_REMATCH[1]}"
+        elif [[ "$value" =~ ^\'(.*)\'$ ]]; then
+            value="${BASH_REMATCH[1]}"
+        fi
+
+        # Skip keys with invalid characters (safety against regex injection)
+        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+
+        # Skip empty values
+        [[ -z "$value" ]] && continue
+
+        # Skip installer-managed keys (paths, ports, container prefix)
+        case "$key" in
+            AI_MEMORY_INSTALL_DIR|AI_MEMORY_CONTAINER_PREFIX|AI_MEMORY_PROJECT_ID)
+                continue ;;
+            *_PORT|*_HOST)
+                continue ;;
+        esac
+
+        # Skip known placeholder values (case-insensitive)
+        local lower_value
+        lower_value=$(echo "$value" | tr '[:upper:]' '[:lower:]')
+        case "$lower_value" in
+            changeme|your-key-here|your-*|change_me|todo|placeholder)
+                continue ;;
+        esac
+
+        # Import: remove old key line (if any) and append new value
+        # Uses grep -v + echo to avoid sed metacharacter issues (|, &, \)
+        local tmp_env
+        tmp_env=$(grep -v "^${key}=" "$docker_env" 2>/dev/null) || true
+        if [[ -n "$tmp_env" ]]; then
+            printf '%s\n' "$tmp_env" > "$docker_env"
+        else
+            : > "$docker_env"
+        fi
+        echo "${key}=${value}" >> "$docker_env"
+        imported=$((imported + 1))
+    done < "$user_env"
+
+    if [[ $imported -gt 0 ]]; then
+        log_success "Imported $imported customization(s) from user .env"
+    else
+        log_debug "No customizations to import from user .env"
+    fi
+}
+
 # Environment configuration (AC 7.1.6)
 # BUG-040: Docker Compose runs from $INSTALL_DIR/docker/ and needs .env there
 configure_environment() {
@@ -1660,7 +1738,7 @@ EOF
     # Uses Python secrets module for cryptographically secure random values
     local _gen_secret="import secrets; print(secrets.token_urlsafe(18))"
 
-    if ! grep -q "^QDRANT_API_KEY=.\+" "$docker_env" 2>/dev/null; then
+    if ! grep -q "^QDRANT_API_KEY=.\+" "$docker_env" 2>/dev/null || grep -q "^QDRANT_API_KEY=changeme$" "$docker_env" 2>/dev/null; then
         # Prefer environment variable (e.g., CI sets QDRANT_API_KEY=test-ci-key)
         local gen_key="${QDRANT_API_KEY:-}"
         if [[ -z "$gen_key" ]]; then
@@ -1680,7 +1758,7 @@ EOF
         fi
     fi
 
-    if ! grep -q "^GRAFANA_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null; then
+    if ! grep -q "^GRAFANA_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null || grep -q "^GRAFANA_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
         local gen_gf
         gen_gf=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
         if [[ -n "$gen_gf" ]]; then
@@ -1699,7 +1777,7 @@ EOF
         log_debug "Added SECURITY_SCAN_SESSION_MODE=relaxed to .env"
     fi
 
-    if ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null; then
+    if ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null || grep -q "^PROMETHEUS_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
         local gen_prom
         gen_prom=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
         if [[ -n "$gen_prom" ]]; then
@@ -1712,7 +1790,7 @@ EOF
         fi
     fi
 
-    if ! grep -q "^GRAFANA_SECRET_KEY=.\+" "$docker_env" 2>/dev/null; then
+    if ! grep -q "^GRAFANA_SECRET_KEY=.\+" "$docker_env" 2>/dev/null || grep -q "^GRAFANA_SECRET_KEY=changeme$" "$docker_env" 2>/dev/null; then
         local gen_gsk
         gen_gsk=$("$INSTALL_DIR/.venv/bin/python" -c "import secrets; print(secrets.token_hex(32))")
         if [[ -n "$gen_gsk" ]]; then
@@ -2476,6 +2554,7 @@ configure_project_hooks() {
         python3 "$INSTALL_DIR/scripts/generate_settings.py" "$PROJECT_SETTINGS" "$HOOKS_DIR" "$PROJECT_NAME"
     fi
 
+
     # BUG-126: Sync QDRANT_API_KEY to settings.local.json if it exists
     # Claude Code's settings hierarchy: settings.local.json overrides settings.json
     # A stale key in settings.local.json causes all hook→Qdrant storage to fail
@@ -3058,7 +3137,7 @@ setup_parzival() {
     # Skip in non-interactive mode (CI)
     if [[ "$NON_INTERACTIVE" == "true" ]]; then
         log_info "Non-interactive mode - skipping Parzival setup"
-        append_env_if_missing "PARZIVAL_ENABLED" "false"
+        set_env_value "PARZIVAL_ENABLED" "false"
         return 0
     fi
 
@@ -3103,7 +3182,7 @@ setup_parzival() {
     else
         log_debug "Skipping Parzival setup (PARZIVAL_ENABLED=false)"
         # Ensure disabled in .env
-        append_env_if_missing "PARZIVAL_ENABLED" "false"
+        set_env_value "PARZIVAL_ENABLED" "false"
     fi
 }
 
@@ -3202,7 +3281,7 @@ deploy_oversight_templates() {
 configure_parzival_env() {
     local env_file="$INSTALL_DIR/docker/.env"
 
-    append_env_if_missing "PARZIVAL_ENABLED" "true"
+    set_env_value "PARZIVAL_ENABLED" "true"
     append_env_if_missing "PARZIVAL_USER_NAME" "Developer"
     append_env_if_missing "PARZIVAL_LANGUAGE" "English"
     append_env_if_missing "PARZIVAL_DOC_LANGUAGE" "English"
@@ -3225,6 +3304,21 @@ append_env_if_missing() {
     local value="$2"
     local env_file="$INSTALL_DIR/docker/.env"
     if ! grep -q "^${key}=" "$env_file" 2>/dev/null; then
+        echo "${key}=${value}" >> "$env_file"
+    fi
+}
+
+# Set env value — updates existing key OR appends if missing
+# Unlike append_env_if_missing, this OVERWRITES existing values
+# WARNING: Values must not contain sed metacharacters (|, &, \)
+# Current callers only pass literal "true"/"false" which is safe
+set_env_value() {
+    local key="$1"
+    local value="$2"
+    local env_file="${3:-$INSTALL_DIR/docker/.env}"
+    if grep -q "^${key}=" "$env_file" 2>/dev/null; then
+        sed -i "s|^${key}=.*|${key}=${value}|" "$env_file"
+    else
         echo "${key}=${value}" >> "$env_file"
     fi
 }

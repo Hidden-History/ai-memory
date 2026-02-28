@@ -201,12 +201,9 @@ def _upgrade_hook_commands(settings: dict) -> dict:
                     if match:
                         hook["command"] = _hook_cmd(match.group(1))
 
-    # TD-200: SessionStart always uses broad matcher for all installations
-    for wrapper in hooks.get("SessionStart", []):
-        if isinstance(wrapper, dict):
-            # Always ensure broad matcher — upgrade if found narrow (never narrow it)
-            if wrapper.get("matcher") == "resume|compact":
-                wrapper["matcher"] = "startup|resume|compact|clear"
+    # Matcher is Parzival-aware: update_parzival_settings.py manages expansion
+    # (startup|resume|compact when enabled, resume|compact when disabled).
+    # merge_settings must NOT force a specific matcher — preserve what exists.
 
     return settings
 

@@ -28,7 +28,7 @@ PARZIVAL_VARS = [
     "PARZIVAL_HANDOFF_RETENTION",
 ]
 
-MATCHER_PARZIVAL = "startup|resume|compact|clear"
+MATCHER_PARZIVAL = "startup|resume|compact"
 MATCHER_STANDARD = "resume|compact"
 
 
@@ -101,13 +101,17 @@ def main():
                 del env_section[var]
                 print(f"  Removed env.{var}")
 
-        # Narrow SessionStart matcher back to standard
+        # Narrow SessionStart matcher — remove startup trigger (Parzival-only feature)
+        # startup bootstrap loads Parzival's cross-session memory from Qdrant.
+        # Without Parzival, there is no cross-session memory to load on startup.
         for wrapper in hooks.get("SessionStart", []):
-            if isinstance(wrapper, dict) and wrapper.get("matcher") == MATCHER_PARZIVAL:
-                wrapper["matcher"] = MATCHER_STANDARD
-                print(
-                    f"  SessionStart matcher: {MATCHER_PARZIVAL!r} -> {MATCHER_STANDARD!r}"
-                )
+            if isinstance(wrapper, dict):
+                current = wrapper.get("matcher", "")
+                if "startup" in current:
+                    wrapper["matcher"] = MATCHER_STANDARD
+                    print(
+                        f"  SessionStart matcher: {current!r} -> {MATCHER_STANDARD!r}"
+                    )
 
     # Write updated settings.json atomically (preserve indent=2)
     fd, temp_path = tempfile.mkstemp(

@@ -46,8 +46,9 @@ def test_generate_hook_config_session_start(monkeypatch):
     # Correct structure: wrapper with 'matcher' + 'hooks' array
     wrapper = session_start[0]
     assert "matcher" in wrapper, "SessionStart must have 'matcher' field"
-    # TD-200: Always broad matcher for all installations
-    assert wrapper["matcher"] == "startup|resume|compact|clear"
+    # Default matcher without Parzival: resume|compact only (session restore)
+    # update_parzival_settings.py expands to startup|resume|compact when Parzival is enabled
+    assert wrapper["matcher"] == "resume|compact"
     assert "hooks" in wrapper, "SessionStart must have 'hooks' array"
     assert isinstance(wrapper["hooks"], list)
     assert len(wrapper["hooks"]) == 1
@@ -60,14 +61,16 @@ def test_generate_hook_config_session_start(monkeypatch):
 
 
 def test_generate_hook_config_session_start_parzival(monkeypatch):
-    """BUG-118: Parzival requires startup|resume|compact|clear for Tier 1 Bootstrap."""
+    """generate_settings.py always outputs resume|compact default.
+    Parzival expansion to startup|resume|compact is done by update_parzival_settings.py."""
     from generate_settings import generate_hook_config
 
     monkeypatch.setenv("PARZIVAL_ENABLED", "true")
 
     config = generate_hook_config("/test/path/hooks", "test-project")
     wrapper = config["hooks"]["SessionStart"][0]
-    assert wrapper["matcher"] == "startup|resume|compact|clear"
+    # generate_settings outputs the default; update_parzival_settings.py expands later
+    assert wrapper["matcher"] == "resume|compact"
 
 
 def test_generate_hook_config_post_tool_use():
@@ -103,31 +106,31 @@ def test_generate_hook_config_post_tool_use():
     assert "post_tool_capture.py" in hook["command"]
 
 
-def test_session_start_always_broad_matcher(monkeypatch):
-    """TD-200: SessionStart always uses broad matcher for all installations."""
+def test_session_start_default_matcher_without_parzival(monkeypatch):
+    """Default matcher is resume|compact (session restore only, no startup bootstrap)."""
     from generate_settings import generate_hook_config
 
-    # Without Parzival — still broad
     monkeypatch.delenv("PARZIVAL_ENABLED", raising=False)
     config = generate_hook_config("/test/hooks", "test")
     matcher = config["hooks"]["SessionStart"][0]["matcher"]
     assert (
-        matcher == "startup|resume|compact|clear"
-    ), "SessionStart must always use broad matcher"
-    assert "startup" in matcher, "startup must trigger session_start for all installs"
-    assert "clear" in matcher, "clear must trigger session_start for all installs"
+        matcher == "resume|compact"
+    ), "Without Parzival, matcher must be resume|compact"
+    assert "startup" not in matcher, "startup is Parzival-only (cross-session memory)"
+    assert "clear" not in matcher, "clear must never be in matcher (spec Section 7.2)"
 
 
-def test_session_start_broad_matcher_with_parzival(monkeypatch):
-    """TD-200: With Parzival, matcher is same broad pattern."""
+def test_session_start_default_matcher_with_parzival_env(monkeypatch):
+    """generate_settings outputs resume|compact even with PARZIVAL_ENABLED.
+    Expansion to startup|resume|compact is done by update_parzival_settings.py."""
     from generate_settings import generate_hook_config
 
     monkeypatch.setenv("PARZIVAL_ENABLED", "true")
     config = generate_hook_config("/test/hooks", "test")
     matcher = config["hooks"]["SessionStart"][0]["matcher"]
     assert (
-        matcher == "startup|resume|compact|clear"
-    ), "SessionStart must always use broad matcher"
+        matcher == "resume|compact"
+    ), "generate_settings always outputs default matcher"
 
 
 def test_generate_hook_config_stop():
