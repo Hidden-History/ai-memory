@@ -1518,18 +1518,19 @@ import_user_env() {
 
         local value="${line#*=}"
 
-        # Strip matched surrounding quotes only (common in .env files)
-        if [[ "$value" =~ ^\"(.*)\"$ ]]; then
-            value="${BASH_REMATCH[1]}"
-        elif [[ "$value" =~ ^\'(.*)\'$ ]]; then
-            value="${BASH_REMATCH[1]}"
+        # Determine raw value (without quotes) for validation checks
+        local raw_value="$value"
+        if [[ "$raw_value" =~ ^\"(.*)\"$ ]]; then
+            raw_value="${BASH_REMATCH[1]}"
+        elif [[ "$raw_value" =~ ^\'(.*)\'$ ]]; then
+            raw_value="${BASH_REMATCH[1]}"
         fi
 
         # Skip keys with invalid characters (safety against regex injection)
         [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
 
         # Skip empty values
-        [[ -z "$value" ]] && continue
+        [[ -z "$raw_value" ]] && continue
 
         # Skip installer-managed keys (paths, ports, container prefix)
         case "$key" in
@@ -1541,7 +1542,7 @@ import_user_env() {
 
         # Skip known placeholder values (case-insensitive)
         local lower_value
-        lower_value=$(echo "$value" | tr '[:upper:]' '[:lower:]')
+        lower_value=$(echo "$raw_value" | tr '[:upper:]' '[:lower:]')
         case "$lower_value" in
             changeme|your-key-here|your-*|change_me|todo|placeholder)
                 continue ;;
@@ -1556,7 +1557,12 @@ import_user_env() {
         else
             : > "$docker_env"
         fi
-        echo "${key}=\"${value}\"" >> "$docker_env"
+        # Write value: preserve existing quotes, add double quotes if unquoted
+        if [[ "$value" =~ ^\".*\"$ ]] || [[ "$value" =~ ^\'.*\'$ ]]; then
+            echo "${key}=${value}" >> "$docker_env"
+        else
+            echo "${key}=\"${value}\"" >> "$docker_env"
+        fi
         imported=$((imported + 1))
     done < "$user_env"
 
