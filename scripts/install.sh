@@ -1556,7 +1556,7 @@ import_user_env() {
         else
             : > "$docker_env"
         fi
-        echo "${key}=${value}" >> "$docker_env"
+        echo "${key}=\"${value}\"" >> "$docker_env"
         imported=$((imported + 1))
     done < "$user_env"
 

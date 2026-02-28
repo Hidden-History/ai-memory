@@ -85,9 +85,9 @@ env_set() {
     local value="$2"
     if grep -qE "^${key}=" "$ENV_FILE" 2>/dev/null; then
         # Update in place — sed with | delimiter to handle hex values safely
-        sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+        sed -i "s|^${key}=.*|${key}=\"${value}\"|" "$ENV_FILE"
     else
-        printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+        printf '%s="%s"\n' "$key" "$value" >> "$ENV_FILE"
     fi
 }
 
