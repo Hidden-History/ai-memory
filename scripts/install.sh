@@ -2914,7 +2914,7 @@ setup_audit_directory() {
     chmod 700 "$PROJECT_PATH/.audit" 2>/dev/null || log_warning "Could not set .audit/ permissions to 700 (filesystem limitation)"
     log_debug "Private audit directory: $PROJECT_PATH/.audit (chmod 700)"
 
-    # Add .audit/ to project .gitignore (idempotent — check before adding)
+    # Add .audit/ and .claude/settings.local.json to project .gitignore (idempotent)
     if [[ -f "$PROJECT_PATH/.gitignore" ]]; then
         if ! grep -q "^\.audit/" "$PROJECT_PATH/.gitignore" 2>/dev/null; then
             echo "" >> "$PROJECT_PATH/.gitignore"
@@ -2922,11 +2922,21 @@ setup_audit_directory() {
             echo ".audit/" >> "$PROJECT_PATH/.gitignore"
             log_debug "Added .audit/ to .gitignore"
         fi
+        # BUG-195: settings.local.json contains QDRANT_API_KEY — must be gitignored
+        if ! grep -q "settings\.local\.json" "$PROJECT_PATH/.gitignore" 2>/dev/null; then
+            echo "" >> "$PROJECT_PATH/.gitignore"
+            echo "# AI Memory local settings (contains API keys — do not commit)" >> "$PROJECT_PATH/.gitignore"
+            echo ".claude/settings.local.json" >> "$PROJECT_PATH/.gitignore"
+            log_debug "Added .claude/settings.local.json to .gitignore"
+        fi
     else
         # Create .gitignore if it doesn't exist
         echo "# AI Memory audit trail (ephemeral/sensitive data)" > "$PROJECT_PATH/.gitignore"
         echo ".audit/" >> "$PROJECT_PATH/.gitignore"
-        log_debug "Created .gitignore with .audit/ entry"
+        echo "" >> "$PROJECT_PATH/.gitignore"
+        echo "# AI Memory local settings (contains API keys — do not commit)" >> "$PROJECT_PATH/.gitignore"
+        echo ".claude/settings.local.json" >> "$PROJECT_PATH/.gitignore"
+        log_debug "Created .gitignore with .audit/ and settings.local.json entries"
     fi
 
     # Generate README (overwritten on re-install to pick up latest content)
