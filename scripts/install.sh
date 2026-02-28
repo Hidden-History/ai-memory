@@ -3317,7 +3317,7 @@ set_env_value() {
     local value="$2"
     local env_file="${3:-$INSTALL_DIR/docker/.env}"
     if grep -q "^${key}=" "$env_file" 2>/dev/null; then
-        sed -i "s|^${key}=.*|${key}=${value}|" "$env_file"
+        sed -i.bak "s|^${key}=.*|${key}=${value}|" "$env_file" && rm -f "$env_file.bak"
     else
         echo "${key}=${value}" >> "$env_file"
     fi
