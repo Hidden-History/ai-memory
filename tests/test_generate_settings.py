@@ -62,7 +62,8 @@ def test_generate_hook_config_session_start(monkeypatch):
 
 def test_generate_hook_config_session_start_parzival(monkeypatch):
     """generate_settings.py always outputs resume|compact default.
-    Parzival expansion to startup|resume|compact is done by update_parzival_settings.py."""
+    Parzival expansion to startup|resume|compact is done by update_parzival_settings.py.
+    """
     from generate_settings import generate_hook_config
 
     monkeypatch.setenv("PARZIVAL_ENABLED", "true")
