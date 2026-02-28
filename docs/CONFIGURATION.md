@@ -647,7 +647,7 @@ export DECAY_TYPE_OVERRIDES="github_ci_result:7,agent_task:14,guideline:60"
 
 **Example:**
 ```bash
-# Enable (default) — commit-count freshness tiers used during /freshness-report
+# Enable (default) — commit-count freshness tiers used during /aim-freshness-report
 export FRESHNESS_ENABLED=true
 
 # Disable — skip freshness checks (faster scans, no git dependency)
@@ -750,14 +750,14 @@ export GITHUB_SYNC_INTERVAL=1800
 # Hourly
 export GITHUB_SYNC_INTERVAL=3600
 
-# Disable automatic sync (manual only via /github-sync skill)
+# Disable automatic sync (manual only via /aim-github-sync skill)
 export GITHUB_SYNC_INTERVAL=0
 ```
 
 **When to change:**
 - **Lower**: High-velocity projects where you want PR/issue context refreshed more often
 - **Higher**: Cost-sensitive setups or low-activity repositories
-- **0**: When you prefer on-demand sync via the `/github-sync` skill
+- **0**: When you prefer on-demand sync via the `/aim-github-sync` skill
 
 ---
 
@@ -1035,9 +1035,9 @@ Controls whether the memory system automatically updates stale memories when cha
 
 **Usage:**
 - Set to `false` to pause all automatic memory updates (kill switch)
-- Can be toggled via the `/pause-updates` skill
-- When disabled, manual operations (`/github-sync`, `/memory-refresh`) still work
-- Status visible in `/memory-status` output
+- Can be toggled via the `/aim-pause-updates` skill
+- When disabled, manual operations (`/aim-github-sync`, `/aim-refresh`) still work
+- Status visible in `/aim-status` output
 
 **Example:**
 ```env

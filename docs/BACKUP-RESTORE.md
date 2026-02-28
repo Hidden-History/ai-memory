@@ -268,7 +268,7 @@ python scripts/restore_qdrant.py backups/2026-02-03_143052 --restore-config --fo
 
 3. Test memory retrieval:
    ```bash
-   /memory-status
+   /aim-status
    ```
 
 ---

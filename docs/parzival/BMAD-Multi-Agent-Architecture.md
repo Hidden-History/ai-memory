@@ -603,7 +603,7 @@ Agent spawned → Session starts
 
 **2. On-Demand Retrieval (Skills)**:
 ```
-Agent: /search-memory "authentication patterns"
+Agent: /aim-search "authentication patterns"
   ↓
   Memory module: Semantic search across all collections
   ↓

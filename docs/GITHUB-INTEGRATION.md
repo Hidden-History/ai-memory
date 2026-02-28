@@ -147,53 +147,53 @@ GitHub allows 5,000 API requests per hour for authenticated requests. The sync a
 
 ## Using GitHub Data
 
-### `/search-github` Skill
+### `/aim-github-search` Skill
 
 Semantic search across all synced GitHub content.
 
 ```bash
 # Basic semantic search
-/search-github "authentication flow changes"
+/aim-github-search "authentication flow changes"
 
 # Filter by content type
-/search-github "login bug" --type issue
-/search-github "refactor storage" --type pr
-/search-github "bump version" --type commit
-/search-github "test failure on main" --type ci_result
-/search-github "token refresh logic" --type code_blob
+/aim-github-search "login bug" --type issue
+/aim-github-search "refactor storage" --type pr
+/aim-github-search "bump version" --type commit
+/aim-github-search "test failure on main" --type ci_result
+/aim-github-search "token refresh logic" --type code_blob
 
 # Filter by state
-/search-github "open security issues" --type issue --state open
-/search-github "merged last week" --type pr --state merged
-/search-github "closed without merge" --type pr --state closed
+/aim-github-search "open security issues" --type issue --state open
+/aim-github-search "merged last week" --type pr --state merged
+/aim-github-search "closed without merge" --type pr --state closed
 
 # Combine filters
-/search-github "database migration" --type pr --state merged --limit 10
+/aim-github-search "database migration" --type pr --state merged --limit 10
 
 # Look up a specific PR or issue by number
-/search-github --pr 142
-/search-github --issue 87
+/aim-github-search --pr 142
+/aim-github-search --issue 87
 ```
 
-### `/github-sync` Skill
+### `/aim-github-sync` Skill
 
 Manually trigger a sync outside the scheduled interval.
 
 ```bash
 # Incremental sync (default)
-/github-sync
+/aim-github-sync
 
 # Full sync (re-fetch all history)
-/github-sync --full
+/aim-github-sync --full
 
 # Sync only a specific content type
-/github-sync --type prs
-/github-sync --type issues
-/github-sync --type commits
-/github-sync --type ci
+/aim-github-sync --type prs
+/aim-github-sync --type issues
+/aim-github-sync --type commits
+/aim-github-sync --type ci
 
 # Check sync status
-/github-sync --status
+/aim-github-sync --status
 ```
 
 ### Session Start Enrichment
@@ -215,7 +215,7 @@ When a merged PR touches files that have corresponding code-patterns in Qdrant, 
 1. Sync detects a merged PR with changed files
 2. Each changed file path is checked against `code-patterns` metadata
 3. Matching patterns have their `freshness_status` set to `needs_review`
-4. The next `/freshness-report` run surfaces these flagged patterns
+4. The next `/aim-freshness-report` run surfaces these flagged patterns
 
 This creates a closed loop: code changes in GitHub automatically trigger re-evaluation of the memory patterns derived from that code.
 
@@ -245,7 +245,7 @@ GitHubRateLimitError: 403 — rate limit exceeded, resets at 2026-02-16T15:00:00
 
 ### Sync Failures
 
-Check the sync section in `/memory-status` for last sync time and error counts. For detailed logs:
+Check the sync section in `/aim-status` for last sync time and error counts. For detailed logs:
 
 ```bash
 # Enable debug logging
@@ -262,12 +262,12 @@ To force a full re-sync from scratch:
 ```bash
 # Remove state file and run full sync
 rm ~/.ai-memory/.audit/state/github_sync_state.json
-/github-sync --full
+/aim-github-sync --full
 ```
 
 ### Search Returns No Results
 
-- Run `/github-sync --status` to verify data exists in Qdrant
+- Run `/aim-github-sync --status` to verify data exists in Qdrant
 - Ensure `GITHUB_SYNC_ENABLED=true` in your `.env`
 - Verify the collection exists: `curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/collections/discussions`
 - Check that `GITHUB_REPO` matches the repository you expect
@@ -305,7 +305,7 @@ cd ~/.ai-memory/docker && ~/.ai-memory/.venv/bin/python ~/.ai-memory/scripts/git
 
 ## Health Check Integration
 
-The `/memory-status` skill and `scripts/health-check.py` include GitHub sync status:
+The `/aim-status` skill and `scripts/health-check.py` include GitHub sync status:
 
 - Last sync time and items synced per content type
 - Rate limit remaining

@@ -528,7 +528,7 @@ These hooks are triggered by BMAD workflows during structured work:
 
 In addition to automatic hooks, three manual commands are available:
 
-#### /save-memory
+#### /aim-save
 
 **Purpose:** Manually save current session context to discussions
 
@@ -539,15 +539,15 @@ In addition to automatic hooks, three manual commands are available:
 
 **Implementation:** `manual_save_memory.py`
 
-#### /search-memory <query>
+#### /aim-search <query>
 
 **Purpose:** Search across all memory collections
 
-**Example:** `/search-memory JWT authentication patterns`
+**Example:** `/aim-search JWT authentication patterns`
 
 **Implementation:** `scripts/memory/search_cli.py`
 
-#### /memory-status
+#### /aim-status
 
 **Purpose:** Check memory system health
 

@@ -289,7 +289,7 @@ oversight/
     └── PROJECT_STANDARDS.yaml     ← Project-specific conventions checked before every recommendation
 ```
 
-**Critical:** The `oversight/` folder contains active session data. The installer never overwrites it during updates. Old handoffs in Qdrant are subject to decay scoring (180-day half-life) and can be archived with `/memory-purge` if the directory grows large.
+**Critical:** The `oversight/` folder contains active session data. The installer never overwrites it during updates. Old handoffs in Qdrant are subject to decay scoring (180-day half-life) and can be archived with `/aim-purge` if the directory grows large.
 
 ---
 
@@ -359,6 +359,6 @@ All core AI Memory features work independently of Parzival. What you lose is the
 | Session continuity via Qdrant | Not available |
 | `agent_handoff` / `agent_insight` namespace | Not available |
 | Decay scoring, freshness detection, GitHub sync | Available — independent of Parzival |
-| `/search-memory`, `/search-jira`, `/search-github` | Available — independent of Parzival |
+| `/aim-search`, `/aim-jira-search`, `/aim-github-search` | Available — independent of Parzival |
 
 If you do not need cross-session continuity or quality enforcement, you can skip Parzival and rely on manual context-setting. But if you run multi-session projects with agent teams, quality gates, and complex architectural decisions, Parzival is what keeps that work coherent.

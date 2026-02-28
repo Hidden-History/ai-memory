@@ -31,15 +31,22 @@ Multi-project sync (PLAN-009): Prometheus-style `projects.d/` discovery, per-rep
 - Graceful degradation: `has_key=false` when OLLAMA_API_KEY missing (no crash, just no triage)
 
 ### Changed
+- **Skills renamed to `aim-` prefix**: `/memory-status` → `/aim-status`, `/search-memory` → `/aim-search`, `/save-memory` → `/aim-save`, `/memory-settings` → `/aim-settings`, `/memory-purge` → `/aim-purge`, `/memory-refresh` → `/aim-refresh`, `/freshness-report` → `/aim-freshness-report`, `/pause-updates` → `/aim-pause-updates`, `/search-github` → `/aim-github-search`, `/github-sync` → `/aim-github-sync`, `/search-jira` → `/aim-jira-search`, `/jira-sync` → `/aim-jira-sync`
 - `GitHubSyncEngine.__init__()` now takes `repo: str` parameter (was hardcoded from config)
 - `CodeBlobSync.__init__()` now takes `repo: str` and `branch: str` parameters
 - `JiraSyncEngine.__init__()` accepts optional `instance_url` and `jira_projects` overrides
 - `github_sync_service.py` now iterates all registered projects from `discover_projects()`
+- Installer `set_env_value()` rewritten for BSD sed compatibility (macOS/FreeBSD)
 
 ### Fixed
 - **BUG-128** (HIGH): Grafana E2E selectors broken by AI Memory branding — updated selectors
 - **BUG-129** (MEDIUM): Qdrant API key missing from CI test environment — added to workflow
 - **BUG-130** (HIGH): Release workflow broken — fixed artifact path and permissions
+- **BUG-193** (MEDIUM): Installer `import_user_env()` stripped quotes from `.env` values, breaking bash `source` — preserved quoted values in import and added quoting in `set_env_value()`
+- **BUG-194** (MEDIUM): `create_agent_id_index()` failed when `docker/.env` didn't exist — added existence check before grep
+- **BUG-195** (LOW): `settings.local.json` not in `.gitignore` — added to prevent accidental credential commits
+- **BUG-196** (MEDIUM): Embedding service container missing `PYTHONPATH` — added to Docker environment for correct module resolution
+- **SPEC-021** (gap): SessionStart trace coverage incomplete — added tracing spans for session_start hook execution
 
 ### Security
 - QDRANT_API_KEY moved from `settings.json` (committed to git) to `settings.local.json` (gitignored) — Fixes GitHub issue #38
