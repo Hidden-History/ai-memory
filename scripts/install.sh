@@ -3333,7 +3333,7 @@ create_agent_id_index() {
     local qdrant_url="http://localhost:${QDRANT_PORT:-26350}"
     local api_key=""
     if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
-        api_key=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2-) || true
+        api_key=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
     fi
 
     log_debug "Creating agent_id payload index on discussions collection..."
