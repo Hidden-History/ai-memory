@@ -15,6 +15,7 @@ import signal
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Add src to path
@@ -30,6 +31,23 @@ try:
     from memory.trace_buffer import emit_trace_event
 except ImportError:
     emit_trace_event = None
+
+TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields (Wave 1H)
+
+# Phase 2: Initialize Langfuse instrumentation for classifier LLM calls
+try:
+    from memory.langfuse_config import is_langfuse_enabled
+
+    if is_langfuse_enabled():
+        # Pre-warm Langfuse client singleton (side effect: initializes connection)
+        from memory.langfuse_config import get_langfuse_client
+
+        if get_langfuse_client():
+            logging.getLogger("ai_memory.classifier.worker").info(
+                "langfuse_classifier_tracing_enabled"
+            )
+except ImportError:
+    pass
 
 logger = logging.getLogger("ai_memory.classifier.worker")
 
@@ -60,6 +78,9 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
     try:
         loop = asyncio.get_event_loop()
 
+        # Wave 1H: Capture real start/end times for latency measurement in Langfuse GENERATION
+        classify_start = datetime.now(tz=timezone.utc)
+
         # Run classification in thread pool (not unbounded)
         result = await loop.run_in_executor(
             executor,
@@ -70,10 +91,50 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
             ),
         )
 
+        # Wave 1H: Capture real end time after LLM call completes
+        classify_end = datetime.now(tz=timezone.utc)
+
+        # Wave 1H: Helper to emit 9_classify as GENERATION with actual content + timing
+        def _emit_classify_trace(output_text: str, metadata: dict) -> None:
+            if not emit_trace_event:
+                return
+            try:
+                # input: actual content being classified (truncated to 2000 chars)
+                # output: classification result with reasoning
+                # as_type="generation": creates Langfuse GENERATION (not SPAN)
+                # model: specific model name (e.g., "llama3.2:3b", "claude-3-5-haiku-20241022")
+                # usage: token counts propagated from ProviderResponse via ClassificationResult
+                model_name = getattr(result, "model_name", "") or "unknown" if result else "unknown"
+                data_payload = {
+                    "input": task.content[:TRACE_CONTENT_MAX],
+                    "output": output_text[:TRACE_CONTENT_MAX],
+                    "model": model_name,
+                    "usage": {
+                        "input": getattr(result, "input_tokens", None) or 0,
+                        "output": getattr(result, "output_tokens", None) or 0,
+                    },
+                    "metadata": {
+                        **metadata,
+                        "point_id": task.point_id,
+                        "collection": task.collection,
+                        "source_hook": task.source_hook,
+                    },
+                }
+                emit_trace_event(
+                    event_type="9_classify",
+                    data=data_payload,
+                    trace_id=task.trace_id,
+                    session_id=task.session_id,  # Wave 1H: Link to Claude session
+                    project_id=task.group_id,
+                    start_time=classify_start,
+                    end_time=classify_end,
+                    as_type="generation",  # Wave 1H: GENERATION not SPAN
+                )
+            except Exception as e:
+                logger.debug("emit_classify_trace_failed: %s", e)
+
         if result and result.confidence >= 0.7:
             # Update Qdrant with new type (TECH-DEBT-069 Phase 5)
-            from datetime import datetime, timezone
-
             success = await loop.run_in_executor(
                 executor,
                 lambda: update_point_payload(
@@ -101,31 +162,22 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                         "provider": result.provider_used,
                     },
                 )
-                if emit_trace_event:
-                    try:  # noqa: SIM105
-                        emit_trace_event(
-                            event_type="9_classify",
-                            data={
-                                "input": {
-                                    "point_id": task.point_id,
-                                    "collection": task.collection,
-                                },
-                                "output": {
-                                    "classified_type": result.classified_type,
-                                    "confidence": result.confidence,
-                                    "provider": result.provider_used,
-                                },
-                                "metadata": {
-                                    "classified_type": result.classified_type,
-                                    "confidence": result.confidence,
-                                    "was_reclassified": result.was_reclassified,
-                                },
-                            },
-                            trace_id=task.trace_id,
-                            project_id=task.group_id,
-                        )
-                    except Exception:
-                        pass
+                _emit_classify_trace(
+                    output_text=(
+                        f"Classified as '{result.classified_type}' "
+                        f"(confidence: {result.confidence:.2f}, "
+                        f"provider: {result.provider_used}, "
+                        f"reclassified: {result.was_reclassified}). "
+                        f"Reasoning: {result.reasoning}"
+                    ),
+                    metadata={
+                        "classified_type": result.classified_type,
+                        "confidence": result.confidence,
+                        "was_reclassified": result.was_reclassified,
+                        "provider": result.provider_used,
+                        "status": "success",
+                    },
+                )
                 return True
             else:
                 logger.error(
@@ -136,31 +188,19 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                         "classified_type": result.classified_type,
                     },
                 )
-                if emit_trace_event:
-                    try:  # noqa: SIM105
-                        emit_trace_event(
-                            event_type="9_classify",
-                            data={
-                                "input": {
-                                    "point_id": task.point_id,
-                                    "collection": task.collection,
-                                },
-                                "output": {
-                                    "status": "qdrant_update_failed",
-                                    "classified_type": result.classified_type,
-                                    "confidence": result.confidence,
-                                },
-                                "metadata": {
-                                    "classified_type": result.classified_type,
-                                    "confidence": result.confidence,
-                                    "status": "qdrant_update_failed",
-                                },
-                            },
-                            trace_id=task.trace_id,
-                            project_id=task.group_id,
-                        )
-                    except Exception:
-                        pass
+                _emit_classify_trace(
+                    output_text=(
+                        f"Classification succeeded ('{result.classified_type}', "
+                        f"confidence: {result.confidence:.2f}) but Qdrant update failed."
+                    ),
+                    metadata={
+                        "classified_type": result.classified_type,
+                        "confidence": result.confidence,
+                        "was_reclassified": result.was_reclassified,
+                        "provider": result.provider_used,
+                        "status": "qdrant_update_failed",
+                    },
+                )
                 return False
         else:
             logger.debug(
@@ -170,37 +210,21 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                     "reason": "low_confidence" if result else "no_result",
                 },
             )
-            if emit_trace_event:
-                try:  # noqa: SIM105
-                    emit_trace_event(
-                        event_type="9_classify",
-                        data={
-                            "input": {
-                                "point_id": task.point_id,
-                                "collection": task.collection,
-                            },
-                            "output": {
-                                "classified_type": (
-                                    result.classified_type if result else None
-                                ),
-                                "confidence": result.confidence if result else None,
-                                "provider": result.provider_used if result else None,
-                            },
-                            "metadata": {
-                                "classified_type": (
-                                    result.classified_type if result else None
-                                ),
-                                "confidence": result.confidence if result else None,
-                                "was_reclassified": (
-                                    result.was_reclassified if result else None
-                                ),
-                            },
-                        },
-                        trace_id=task.trace_id,
-                        project_id=task.group_id,
-                    )
-                except Exception:
-                    pass
+            _emit_classify_trace(
+                output_text=(
+                    f"Classification unchanged: kept '{result.classified_type if result else task.current_type}' "
+                    f"(confidence: {result.confidence:.2f if result else 0.0}, "
+                    f"provider: {result.provider_used if result else 'none'}, "
+                    f"below threshold or no result)"
+                ),
+                metadata={
+                    "classified_type": result.classified_type if result else None,
+                    "confidence": result.confidence if result else None,
+                    "was_reclassified": result.was_reclassified if result else None,
+                    "provider": result.provider_used if result else None,
+                    "status": "low_confidence",
+                },
+            )
             return True  # Still counts as processed
 
     except Exception as e:

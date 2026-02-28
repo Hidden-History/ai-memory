@@ -46,12 +46,14 @@ def emit_trace_event(
     project_id: str | None = None,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
+    as_type: str | None = None,
 ) -> bool:
     """Write a trace event to the buffer directory.
 
     Args:
-        event_type: Span name (e.g., "1_capture", "5_chunk", "7_store")
-        data: Event payload (inputs, outputs, metadata)
+        event_type: Span name (e.g., "1_capture", "5_chunk", "7_store", "9_classify")
+        data: Event payload (inputs, outputs, metadata). For generation type, may include
+              "model", "usage" ({"input": N, "output": N}) keys alongside "input"/"output".
         trace_id: Langfuse trace ID (shared across pipeline steps)
         span_id: Unique span ID for this event
         parent_span_id: Parent span ID (for nesting)
@@ -59,6 +61,8 @@ def emit_trace_event(
         project_id: AI Memory project ID (from detect_project)
         start_time: Span start time (default: now). Capture before doing work.
         end_time: Span end time (default: now). Enables Langfuse latency visualization.
+        as_type: Observation type override. "generation" creates a Langfuse generation
+                 (with model name + token usage) instead of the default span. None = span.
 
     Returns:
         True if event was written, False if skipped (disabled or buffer full).
@@ -82,12 +86,18 @@ def emit_trace_event(
     if buffer_size_mb >= BUFFER_MAX_MB:
         return False
 
+    # ISSUE-184: Fall back to env var for parent_span_id propagation from capture hook
+    if parent_span_id is None:
+        parent_span_id = os.environ.get("LANGFUSE_ROOT_SPAN_ID")
+
     now = datetime.now(tz=timezone.utc)
     event = {
         "timestamp": time.time(),
         "event_type": event_type,
-        "trace_id": trace_id or os.environ.get("LANGFUSE_TRACE_ID", str(uuid4())),
-        "span_id": span_id or str(uuid4()),
+        "trace_id": (
+            trace_id or os.environ.get("LANGFUSE_TRACE_ID", uuid4().hex)
+        ).replace("-", ""),
+        "span_id": span_id or uuid4().hex,
         "parent_span_id": parent_span_id,
         "session_id": session_id,
         "project_id": project_id or os.environ.get("AI_MEMORY_PROJECT_ID", ""),
@@ -97,6 +107,9 @@ def emit_trace_event(
             "end_time": (end_time or now).isoformat(),
         },
     }
+    # Wave 1H: Include observation type when explicitly specified (e.g., "generation")
+    if as_type:
+        event["as_type"] = as_type
 
     # Atomic write via temp file + rename (prevents partial reads)
     tmp_path = TRACE_BUFFER_DIR / f".tmp_{uuid4().hex}"

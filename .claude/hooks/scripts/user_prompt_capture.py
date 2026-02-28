@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +52,9 @@ logger.propagate = False
 try:
     from memory.metrics_push import push_hook_metrics_async
     from memory.project import detect_project
-    from memory.trace_buffer import emit_trace_event  # SPEC-021: Langfuse pipeline instrumentation
+    from memory.trace_buffer import (
+        emit_trace_event,  # SPEC-021: Langfuse pipeline instrumentation
+    )
 except ImportError:
     push_hook_metrics_async = None
     detect_project = None
@@ -61,6 +63,8 @@ except ImportError:
 # Maximum content length for user prompts (prevents payload bloat)
 # V2.0 Fix: Truncate extremely long prompts to avoid Qdrant payload issues
 MAX_CONTENT_LENGTH = 100000  # Embeddings handle large text well
+
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 
 def validate_hook_input(data: dict[str, Any]) -> str | None:
@@ -108,7 +112,9 @@ def count_turns_from_transcript(transcript_path: str) -> int:
         return 0
 
 
-def fork_to_background(hook_input: dict[str, Any], turn_number: int, trace_id: str | None = None) -> None:
+def fork_to_background(
+    hook_input: dict[str, Any], turn_number: int, trace_id: str | None = None
+) -> None:
     """Fork storage operation to background process.
 
     Args:
@@ -230,28 +236,32 @@ def main() -> int:
         # SPEC-021: Generate trace_id for pipeline trace linking
         trace_id = None
         if emit_trace_event:
-            trace_id = str(uuid.uuid4())
-            capture_start = datetime.utcnow()
+            trace_id = uuid.uuid4().hex
+            capture_start = datetime.now(tz=timezone.utc)
             content = hook_input.get("prompt", "")
             cwd = os.getcwd()
             try:
                 emit_trace_event(
                     event_type="1_capture",
                     data={
-                        "input": {"hook_type": "user_prompt", "raw_length": len(content)},
-                        "output": {"content_length": len(content), "content_extracted": True},
+                        "input": content[:TRACE_CONTENT_MAX],
+                        "output": content[:TRACE_CONTENT_MAX],
                         "metadata": {
                             "hook_type": "user_prompt",
                             "source": "stdin",
+                            "raw_length": len(content),
                             "content_length": len(content),
+                            "content_extracted": True,
                         },
                     },
                     trace_id=trace_id,
                     session_id=hook_input.get("session_id"),
                     project_id=detect_project(cwd) if detect_project else None,
                     start_time=capture_start,
-                    end_time=datetime.utcnow(),
+                    end_time=datetime.now(tz=timezone.utc),
                 )
+                # ISSUE-184: Expose capture span ID for child spans in store_async hooks
+                os.environ["LANGFUSE_ROOT_SPAN_ID"] = trace_id[:16]
             except Exception:
                 pass  # Never crash the hook for tracing
 

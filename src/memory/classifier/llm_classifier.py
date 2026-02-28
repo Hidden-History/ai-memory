@@ -133,6 +133,9 @@ class ClassificationResult:
         tags: List of relevant tags extracted
         provider_used: Provider name that performed classification (or "rule-based")
         was_reclassified: True if type changed, False if kept original
+        model_name: Specific model used (e.g., "llama3.2:3b", "claude-3-5-haiku-20241022")
+        input_tokens: Number of input tokens used by the LLM call
+        output_tokens: Number of output tokens used by the LLM call
     """
 
     original_type: str
@@ -142,6 +145,9 @@ class ClassificationResult:
     tags: list[str]
     provider_used: str
     was_reclassified: bool
+    model_name: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 def classify(
@@ -429,6 +435,9 @@ def _classify_with_llm(
                     tags=response.tags,
                     provider_used=provider_name,
                     was_reclassified=was_reclassified,
+                    model_name=response.model_name,
+                    input_tokens=response.input_tokens,
+                    output_tokens=response.output_tokens,
                 )
             else:
                 logger.debug(

@@ -44,6 +44,14 @@ from memory.config import COLLECTION_CONVENTIONS
 from memory.hooks_common import get_metrics, log_to_activity, setup_hook_logging
 from memory.metrics_push import track_hook_duration
 
+# SPEC-021: Trace buffer for retrieval instrumentation
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
+
 logger = setup_hook_logging()
 
 # CR-2 FIX: Use consolidated metrics import (TECH-DEBT-142: Remove local hook_duration_seconds)
@@ -239,6 +247,34 @@ def main() -> int:
 
                 # Output to stdout (Claude sees this before tool execution)
                 print("\n".join(output_parts))
+
+                # SPEC-021: Langfuse trace for convention retrieval
+                if emit_trace_event:
+                    try:
+                        from uuid import uuid4
+
+                        emit_trace_event(
+                            event_type="convention_retrieval",
+                            data={
+                                "input": f"New file: {file_path} (type: {language})",
+                                "output": f"Retrieved {len(results)} conventions"
+                                + (
+                                    f": {results[0].get('content', '')[:500]}"
+                                    if results
+                                    else ""
+                                ),
+                                "metadata": {
+                                    "collection": "conventions",
+                                    "result_count": len(results),
+                                    "file_type": language,
+                                },
+                            },
+                            trace_id=uuid4().hex,
+                            session_id=hook_input.get("session_id"),
+                            project_id=project_name,
+                        )
+                    except Exception:
+                        logger.debug("trace_event_failed_convention_retrieval")
 
                 # Log success
                 duration_ms = (time.perf_counter() - start_time) * 1000

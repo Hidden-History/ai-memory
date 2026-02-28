@@ -38,6 +38,7 @@ from .config import (
     get_config,
 )
 from .qdrant_client import get_qdrant_client
+from .trace_buffer import emit_trace_event
 
 logger = logging.getLogger("ai_memory.freshness")
 
@@ -400,6 +401,20 @@ def run_freshness_scan(
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
+    _trace_start = datetime.now(timezone.utc)
+    emit_trace_event(
+        event_type="freshness_scan_start",
+        data={
+            "input": f"Freshness scan: {len(ground_truth_map)} ground truth files, group_id={group_id or 'all'}",
+            "output": "",
+            "metadata": {
+                "ground_truth_files": len(ground_truth_map),
+                "group_id": group_id,
+            },
+        },
+        start_time=_trace_start,
+    )
+
     # Step 2: Scroll code-patterns and compare
     results: list[FreshnessResult] = []
     commit_count_cache: dict[str, int] = {}
@@ -524,6 +539,25 @@ def run_freshness_scan(
             "unknown": unknown,
             "duration_seconds": round(duration, 2),
         },
+    )
+
+    emit_trace_event(
+        event_type="freshness_scan_complete",
+        data={
+            "input": f"Freshness scan for {group_id or 'all projects'}",
+            "output": f"{report.total_checked} checked: {fresh} fresh, {aging} aging, {stale} stale, {expired} expired, {unknown} unknown in {duration:.1f}s",
+            "metadata": {
+                "total_checked": report.total_checked,
+                "fresh": fresh,
+                "aging": aging,
+                "stale": stale,
+                "expired": expired,
+                "unknown": unknown,
+                "duration_seconds": round(duration, 2),
+            },
+        },
+        start_time=_trace_start,
+        end_time=datetime.now(timezone.utc),
     )
 
     # Step 6: Push Prometheus metrics (fire-and-forget)

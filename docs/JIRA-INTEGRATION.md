@@ -150,23 +150,23 @@ State Persistence (jira_sync_state.json)
 - **Deduplication**: SHA256 content hashing prevents duplicate storage
 - **Resource cleanup**: `try/finally` for async clients
 
-### Using `/jira-sync` Skill
+### Using `/aim-jira-sync` Skill
 
 ```bash
 # Incremental sync (default) — only fetch updated issues
-/jira-sync
+/aim-jira-sync
 
 # Full sync — fetch all issues and comments
-/jira-sync --full
+/aim-jira-sync --full
 
 # Sync specific project
-/jira-sync --project PROJ
+/aim-jira-sync --project PROJ
 
 # Check sync status (last sync time, items synced, errors)
-/jira-sync --status
+/aim-jira-sync --status
 
 # Full sync for specific project
-/jira-sync --full --project PROJ
+/aim-jira-sync --full --project PROJ
 ```
 
 ### CLI (`scripts/jira_sync.py`)
@@ -202,34 +202,34 @@ Uses `jina-embeddings-v2-base-en` for vector similarity against the `jira-data` 
 Retrieves complete issue context — the issue document plus all comments, sorted chronologically.
 
 ```bash
-/search-jira --issue PROJ-42
+/aim-jira-search --issue PROJ-42
 ```
 
-### Using `/search-jira` Skill
+### Using `/aim-jira-search` Skill
 
 ```bash
 # Basic semantic search
-/search-jira "authentication bug"
+/aim-jira-search "authentication bug"
 
 # Filter by project
-/search-jira "API errors" --project PROJ
+/aim-jira-search "API errors" --project PROJ
 
 # Filter by type
-/search-jira "implementation details" --type jira_comment
+/aim-jira-search "implementation details" --type jira_comment
 
 # Filter by issue type, status, priority
-/search-jira "bugs" --issue-type Bug
-/search-jira "in progress work" --status "In Progress"
-/search-jira "critical issues" --priority High
+/aim-jira-search "bugs" --issue-type Bug
+/aim-jira-search "in progress work" --status "In Progress"
+/aim-jira-search "critical issues" --priority High
 
 # Filter by author
-/search-jira "alice's comments" --author alice@company.com
+/aim-jira-search "alice's comments" --author alice@company.com
 
 # Issue lookup mode (issue + all comments)
-/search-jira --issue PROJ-42
+/aim-jira-search --issue PROJ-42
 
 # Combine filters
-/search-jira "database" --project PROJ --issue-type Bug --status Done --limit 10
+/aim-jira-search "database" --project PROJ --issue-type Bug --status Done --limit 10
 ```
 
 ### Result Format
@@ -269,7 +269,7 @@ cd ~/.ai-memory/docker && ~/.ai-memory/.venv/bin/python ~/.ai-memory/scripts/jir
 
 ## Health Check Integration
 
-The `/memory-status` skill and `scripts/health-check.py` include Jira data collection status:
+The `/aim-status` skill and `scripts/health-check.py` include Jira data collection status:
 
 - Collection existence and document count
 - Sync state (last sync time, items synced)
@@ -309,12 +309,12 @@ The ADF (Atlassian Document Format) converter transforms Jira's rich text JSON i
 
 - Large projects with hundreds/thousands of issues take time on first full sync
 - After initial sync, use incremental mode for fast daily updates
-- Reduce project scope by syncing specific projects: `/jira-sync --project PROJ`
+- Reduce project scope by syncing specific projects: `/aim-jira-sync --project PROJ`
 - Adjust `JIRA_SYNC_DELAY_MS` (lower = faster but more API pressure)
 
 ### Search Returns No Results
 
-- Run `/jira-sync --status` to verify data exists in the collection
+- Run `/aim-jira-sync --status` to verify data exists in the collection
 - Check that `group_id` matches (derived from `JIRA_INSTANCE_URL` hostname)
 - Verify the `jira-data` collection exists: `curl http://localhost:26350/collections/jira-data`
 - Ensure `JIRA_SYNC_ENABLED=true` in your `.env`

@@ -1,18 +1,18 @@
 ---
-name: memory-purge
+name: aim-purge
 description: "Purge old memories from Qdrant collections with safety guards"
-trigger: "/memory-purge"
+trigger: "/aim-purge"
 ---
 
 ```python
-"""Memory purge skill: /memory-purge
+"""Memory purge skill: /aim-purge
 
 Purge old memories from Qdrant collections with safety guards.
 
 Usage:
-    /memory-purge --older-than 30d              # Dry-run (preview)
-    /memory-purge --older-than 30d --confirm    # Execute purge
-    /memory-purge --older-than 90d --collection code-patterns
+    /aim-purge --older-than 30d              # Dry-run (preview)
+    /aim-purge --older-than 30d --confirm    # Execute purge
+    /aim-purge --older-than 90d --collection code-patterns
 """
 
 from __future__ import annotations
@@ -199,7 +199,7 @@ def log_purge(purgeable, deleted, cutoff_iso, cwd):
 
 
 def main():
-    """Entry point for /memory-purge skill."""
+    """Entry point for /aim-purge skill."""
     parser = argparse.ArgumentParser(description="Purge old memories")
     parser.add_argument("--older-than", required=True, help="Duration (e.g., 30d, 2w, 3m, 1y)")
     parser.add_argument("--collection", help="Limit to one collection")

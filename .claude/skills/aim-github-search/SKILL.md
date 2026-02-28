@@ -1,5 +1,5 @@
 ---
-name: search-github
+name: aim-github-search
 description: 'Search GitHub issues, PRs, commits, and CI results with semantic search and filters'
 allowed-tools: Read, Bash
 ---
@@ -12,17 +12,17 @@ Search the discussions collection for GitHub-sourced content using semantic simi
 
 ```bash
 # Basic semantic search
-/search-github "authentication bug"
+/aim-github-search "authentication bug"
 
 # Filter by type
-/search-github "API refactoring" --type github_pr
-/search-github "CI failures" --type github_ci_result
+/aim-github-search "API refactoring" --type github_pr
+/aim-github-search "CI failures" --type github_ci_result
 
 # Filter by state
-/search-github "deployment fix" --state merged
+/aim-github-search "deployment fix" --state merged
 
 # Combine filters
-/search-github "security" --type github_issue --limit 10
+/aim-github-search "security" --type github_issue --limit 10
 ```
 
 ## Options

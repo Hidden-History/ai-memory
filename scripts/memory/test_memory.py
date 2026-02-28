@@ -62,10 +62,9 @@ def test_imports():
         from memory.storage import MemoryStorage
 
         print("[PASS] All memory modules imported successfully")
-        return True
     except ImportError as e:
         print(f"[FAIL] Import failed: {e}")
-        return False
+        assert False, f"Import failed: {e}"
 
 
 def test_memory_payload_creation():
@@ -112,11 +111,10 @@ def test_memory_payload_creation():
         print(f"   - Type: {payload.type.value}")
         print(f"   - Source Hook: {payload.source_hook}")
         print(f"   - Importance: {payload.importance}")
-        return True
 
     except Exception as e:
         print(f"[FAIL] MemoryPayload creation failed: {e}")
-        return False
+        assert False, f"MemoryPayload creation failed: {e}"
 
 
 def test_content_hash_generation():
@@ -136,27 +134,19 @@ def test_content_hash_generation():
         hash2 = generate_content_hash(content2)
         hash3 = generate_content_hash(content3)
 
-        if hash1 == hash2:
-            print("[PASS] Exact duplicate detected (same hash)")
-        else:
-            print("[FAIL] Exact duplicates should have same hash")
-            return False
+        assert hash1 == hash2, "Exact duplicates should have same hash"
+        print("[PASS] Exact duplicate detected (same hash)")
 
-        if hash1 != hash3:
-            print("[PASS] Different content has different hash")
-        else:
-            print("[FAIL] Different content should have different hash")
-            return False
+        assert hash1 != hash3, "Different content should have different hash"
+        print("[PASS] Different content has different hash")
 
         print(f"   - Hash length: {len(hash1)} chars")
-        return True
 
     except ImportError:
         print("[SKIP] check_duplicates.py not available")
-        return True
     except Exception as e:
         print(f"[FAIL] Hash generation failed: {e}")
-        return False
+        assert False, f"Hash generation failed: {e}"
 
 
 def test_metadata_validation():
@@ -179,12 +169,9 @@ def test_metadata_validation():
         }
 
         is_valid, details = validate_metadata_complete(valid_metadata)
-        if is_valid:
-            print("[PASS] Valid metadata accepted")
-            print(f"   Checks performed: {', '.join(details['checks_performed'])}")
-        else:
-            print(f"[FAIL] Valid metadata rejected: {details['errors']}")
-            return False
+        assert is_valid, f"Valid metadata rejected: {details['errors']}"
+        print("[PASS] Valid metadata accepted")
+        print(f"   Checks performed: {', '.join(details['checks_performed'])}")
 
         # Test invalid metadata (missing required field)
         invalid_metadata = {
@@ -193,21 +180,17 @@ def test_metadata_validation():
         }
 
         is_valid, details = validate_metadata_complete(invalid_metadata)
-        if not is_valid:
-            print("[PASS] Invalid metadata correctly rejected")
-            print(f"   Errors: {len(details['errors'])}")
-        else:
-            print("[FAIL] Invalid metadata should be rejected")
-            return False
-
-        return True
+        assert not is_valid, "Invalid metadata should be rejected"
+        print("[PASS] Invalid metadata correctly rejected")
+        print(f"   Errors: {len(details['errors'])}")
 
     except ImportError:
         print("[SKIP] validate_metadata.py not available")
-        return True
+    except AssertionError:
+        raise
     except Exception as e:
         print(f"[FAIL] Metadata validation failed: {e}")
-        return False
+        assert False, f"Metadata validation failed: {e}"
 
 
 def test_storage_validation():
@@ -238,12 +221,9 @@ def test_storage_validation():
             valid_content, valid_metadata, skip_duplicate_check=True
         )
 
-        if is_valid:
-            print("[PASS] Valid content accepted for storage")
-            print(f"   Token count: ~{details['token_count']} tokens")
-        else:
-            print(f"[FAIL] Valid content rejected: {message}")
-            return False
+        assert is_valid, f"Valid content rejected: {message}"
+        print("[PASS] Valid content accepted for storage")
+        print(f"   Token count: ~{details['token_count']} tokens")
 
         # Test content without file:line (should fail for implementation type)
         invalid_content = "Implemented JWT authentication."
@@ -265,14 +245,13 @@ def test_storage_validation():
                 "PASS" if is_valid else "FAIL",
             )
 
-        return True
-
     except ImportError:
         print("[SKIP] validate_storage.py not available")
-        return True
+    except AssertionError:
+        raise
     except Exception as e:
         print(f"[FAIL] Storage validation failed: {e}")
-        return False
+        assert False, f"Storage validation failed: {e}"
 
 
 def test_memory_types():
@@ -288,7 +267,7 @@ def test_memory_types():
         MemoryType.FILE_PATTERN,
     ]
 
-    all_passed = True
+    failures = []
     for mem_type in memory_types:
         try:
             content = f"Test content for {mem_type.value} type memory"
@@ -304,9 +283,9 @@ def test_memory_types():
             print(f"[PASS] {mem_type.value}: Created successfully")
         except Exception as e:
             print(f"[FAIL] {mem_type.value}: Failed - {e}")
-            all_passed = False
+            failures.append(f"{mem_type.value}: {e}")
 
-    return all_passed
+    assert not failures, f"Memory type creation failed: {'; '.join(failures)}"
 
 
 def test_collection_routing():
@@ -351,7 +330,7 @@ def test_collection_routing():
         ("analysis", "discussions"),
     ]
 
-    all_passed = True
+    failures = []
     for memory_type, expected_collection in test_cases:
         actual_collection = route_to_collection(memory_type)
         if actual_collection == expected_collection:
@@ -360,9 +339,9 @@ def test_collection_routing():
             print(
                 f"[FAIL] {memory_type} -> {actual_collection} (expected {expected_collection})"
             )
-            all_passed = False
+            failures.append(f"{memory_type}: got {actual_collection}, expected {expected_collection}")
 
-    return all_passed
+    assert not failures, f"Collection routing failed: {'; '.join(failures)}"
 
 
 def test_qdrant_connection():
@@ -392,16 +371,12 @@ def test_qdrant_connection():
                     f"[INFO] Collection '{coll_name}' not found (will be created on first use)"
                 )
 
-        return True
-
     except QdrantUnavailable as e:
         print(f"[INFO] Qdrant unavailable: {e}")
         print("   This is OK for offline testing")
-        return True  # Don't fail test if Qdrant unavailable
     except Exception as e:
         print(f"[INFO] Qdrant connection failed: {e}")
         print("   This is OK for offline testing")
-        return True
 
 
 def test_config_loading():
@@ -433,17 +408,15 @@ def test_config_loading():
                 f"[WARNING] Embedding port is {config.embedding_port} (expected 28080)"
             )
 
-        return True
-
     except Exception as e:
         print(f"[FAIL] Configuration loading failed: {e}")
-        return False
+        assert False, f"Configuration loading failed: {e}"
 
 
 def run_all_tests(skip_qdrant: bool = False, verbose: bool = False):
     """Run all tests and report results."""
     print("\n" + "=" * 60)
-    print("BMAD MEMORY SYSTEM - COMPREHENSIVE TEST SUITE")
+    print("AI MEMORY SYSTEM - COMPREHENSIVE TEST SUITE")
     print("Testing 3 collections with validation patterns")
     print("=" * 60)
 
@@ -464,8 +437,12 @@ def run_all_tests(skip_qdrant: bool = False, verbose: bool = False):
     results = []
     for test_name, test_func in tests:
         try:
-            passed = test_func()
-            results.append((test_name, passed))
+            result = test_func()
+            # Assert-based tests return None on pass; legacy bool tests return a value
+            results.append((test_name, result is not False))
+        except AssertionError as e:
+            print(f"\n[FAIL] {test_name}: {e}")
+            results.append((test_name, False))
         except Exception as e:
             print(f"\n[FAIL] {test_name} CRASHED: {e}")
             if verbose:
@@ -508,7 +485,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Test BMAD memory system (all 3 collections)"
+        description="Test AI Memory system (all 3 collections)"
     )
     parser.add_argument(
         "--offline",

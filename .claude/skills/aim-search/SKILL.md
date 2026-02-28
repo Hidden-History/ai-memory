@@ -1,5 +1,5 @@
 ---
-name: search-memory
+name: aim-search
 description: 'Search memory system with advanced filtering and intent detection'
 allowed-tools: Read, Bash
 ---
@@ -19,25 +19,25 @@ The memory system has 3 collections:
 
 ```bash
 # Basic semantic search (searches code-patterns by default)
-/search-memory "how do I implement authentication"
+/aim-search "how do I implement authentication"
 
 # Search specific collection
-/search-memory "error handling patterns" --collection conventions
+/aim-search "error handling patterns" --collection conventions
 
 # Filter by memory type
-/search-memory "recent bugs" --type error_fix
+/aim-search "recent bugs" --type error_fix
 
 # Filter by multiple types
-/search-memory "code patterns" --type implementation,refactor
+/aim-search "code patterns" --type implementation,refactor
 
 # Use intent detection with cascading search
-/search-memory "how do I implement auth" --intent how
+/aim-search "how do I implement auth" --intent how
 
 # Limit results
-/search-memory "database patterns" --limit 10
+/aim-search "database patterns" --limit 10
 
 # Hide decay scores
-/search-memory "authentication" --no-decay
+/aim-search "authentication" --no-decay
 ```
 
 ## Options
@@ -136,25 +136,25 @@ Half-life varies by memory type (configured via `decay_type_overrides`):
 
 ```bash
 # Find implementation examples in current project
-/search-memory "authentication implementation"
+/aim-search "authentication implementation"
 
 # Find shared conventions across all projects
-/search-memory "naming conventions" --collection conventions
+/aim-search "naming conventions" --collection conventions
 
 # Find specific error fixes
-/search-memory "database connection" --type error_fix
+/aim-search "database connection" --type error_fix
 
 # Use cascading search with intent
-/search-memory "why did we choose postgres" --intent why
+/aim-search "why did we choose postgres" --intent why
 
 # Find architectural decisions
-/search-memory "database choice" --type decision --collection discussions
+/aim-search "database choice" --type decision --collection discussions
 
 # Search multiple types
-/search-memory "auth patterns" --type implementation,error_fix --limit 10
+/aim-search "auth patterns" --type implementation,error_fix --limit 10
 
 # Search without decay score display
-/search-memory "auth patterns" --no-decay
+/aim-search "auth patterns" --no-decay
 ```
 
 ## Python Implementation Reference

@@ -9,6 +9,7 @@ import logging
 import os
 
 from ..config import ANTHROPIC_MODEL, MAX_OUTPUT_TOKENS
+from ..langfuse_instrument import langfuse_generation
 from .base import BaseProvider, ProviderResponse
 
 logger = logging.getLogger("ai_memory.classifier.providers.claude")
@@ -91,59 +92,76 @@ class ClaudeProvider(BaseProvider):
 
         prompt = build_classification_prompt(content, collection, current_type)
 
-        try:
-            response = self._client.messages.create(
-                model=self.model,
-                max_tokens=MAX_OUTPUT_TOKENS,
-                temperature=0.1,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    }
-                ],
-            )
+        with langfuse_generation("claude", self.model) as gen:
+            gen.update(input_text=prompt)
 
-            # Extract response text
-            response_text = response.content[0].text
-
-            # Parse JSON response from LLM
-            classification = self._parse_response(response_text)
-
-            # Extract token usage
-            input_tokens = response.usage.input_tokens
-            output_tokens = response.usage.output_tokens
-
-            logger.info(
-                "claude_classification_success",
-                extra={
-                    "type": classification["classified_type"],
-                    "confidence": classification["confidence"],
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                },
-            )
-
-            return ProviderResponse(
-                classified_type=classification["classified_type"],
-                confidence=classification["confidence"],
-                reasoning=classification.get("reasoning", ""),
-                tags=classification.get("tags", []),
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-            )
-
-        except Exception as e:
-            # Handle various Anthropic SDK exceptions
-            error_type = type(e).__name__
-            if "timeout" in str(e).lower():
-                logger.error("claude_timeout", extra={"error": str(e)})
-                raise TimeoutError(f"Claude request timed out: {e}") from e
-            elif "api" in str(e).lower() or "auth" in str(e).lower():
-                logger.error("claude_api_error", extra={"error": str(e)})
-                raise ConnectionError(f"Claude API error: {e}") from e
-            else:
-                logger.error(
-                    "claude_error", extra={"error": str(e), "type": error_type}
+            try:
+                response = self._client.messages.create(
+                    model=self.model,
+                    max_tokens=MAX_OUTPUT_TOKENS,
+                    temperature=0.1,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": prompt,
+                        }
+                    ],
                 )
-                raise ValueError(f"Claude error: {e}") from e
+
+                # Extract response text
+                response_text = response.content[0].text
+
+                # Parse JSON response from LLM
+                classification = self._parse_response(response_text)
+
+                # Extract token usage
+                input_tokens = response.usage.input_tokens
+                output_tokens = response.usage.output_tokens
+
+                gen.update(
+                    output_text=response_text,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    metadata={
+                        "classified_type": classification["classified_type"],
+                        "confidence": classification["confidence"],
+                    },
+                )
+
+                logger.info(
+                    "claude_classification_success",
+                    extra={
+                        "type": classification["classified_type"],
+                        "confidence": classification["confidence"],
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                    },
+                )
+
+                return ProviderResponse(
+                    classified_type=classification["classified_type"],
+                    confidence=classification["confidence"],
+                    reasoning=classification.get("reasoning", ""),
+                    tags=classification.get("tags", []),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    model_name=self.model,
+                )
+
+            except Exception as e:
+                # Handle various Anthropic SDK exceptions
+                error_type = type(e).__name__
+                gen.update(
+                    level="ERROR", metadata={"error": str(e), "error_type": error_type}
+                )
+                if "timeout" in str(e).lower():
+                    logger.error("claude_timeout", extra={"error": str(e)})
+                    raise TimeoutError(f"Claude request timed out: {e}") from e
+                elif "api" in str(e).lower() or "auth" in str(e).lower():
+                    logger.error("claude_api_error", extra={"error": str(e)})
+                    raise ConnectionError(f"Claude API error: {e}") from e
+                else:
+                    logger.error(
+                        "claude_error", extra={"error": str(e), "type": error_type}
+                    )
+                    raise ValueError(f"Claude error: {e}") from e

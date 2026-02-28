@@ -206,7 +206,7 @@ def test_merge_settings_deduplicates_hooks(tmp_path):
         "hooks": {
             "SessionStart": [
                 {
-                    "matcher": "startup|resume|compact|clear",
+                    "matcher": "startup|resume|compact",
                     "hooks": [
                         {
                             "type": "command",

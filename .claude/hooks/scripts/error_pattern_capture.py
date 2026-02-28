@@ -26,9 +26,8 @@ import os
 import re
 import subprocess
 import sys
-import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +58,8 @@ except ImportError:
     track_hook_duration = None
     detect_project = None
     emit_trace_event = None
+
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 
 def detect_error_indicators(output: str, exit_code: int | None) -> bool:
@@ -279,7 +280,9 @@ def extract_error_context(hook_input: dict[str, Any]) -> dict[str, Any] | None:
     return context
 
 
-def fork_to_background(error_context: dict[str, Any], trace_id: str | None = None) -> None:
+def fork_to_background(
+    error_context: dict[str, Any], trace_id: str | None = None
+) -> None:
     """Fork error storage to background process.
 
     Args:
@@ -399,26 +402,37 @@ def main() -> int:
             # SPEC-021: Generate trace_id for pipeline trace linking
             trace_id = None
             if emit_trace_event:
-                trace_id = str(uuid.uuid4())
-                capture_start = datetime.utcnow()
+                trace_id = uuid.uuid4().hex
+                capture_start = datetime.now(tz=timezone.utc)
                 cwd = hook_input.get("cwd", os.getcwd())
                 try:
+                    _error_output = error_context.get("output", "")
+                    _error_cmd = error_context.get("command", "")
+                    _error_content = (
+                        f"$ {_error_cmd}\n{_error_output}"
+                        if _error_cmd
+                        else _error_output
+                    )
                     emit_trace_event(
                         event_type="1_capture",
                         data={
-                            "input": {"hook_type": "error_pattern", "raw_length": len(error_context.get("output", ""))},
-                            "output": {"content_length": len(error_context.get("output", "")), "content_extracted": True},
+                            "input": _error_content[:TRACE_CONTENT_MAX],
+                            "output": f"Captured {len(_error_output)} chars from error_pattern hook",
                             "metadata": {
                                 "hook_type": "error_pattern",
                                 "source": "bash_tool_output",
-                                "content_length": len(error_context.get("output", "")),
+                                "raw_length": len(_error_output),
+                                "content_length": len(_error_output),
+                                "content_extracted": True,
                             },
                         },
                         trace_id=trace_id,
                         session_id=hook_input.get("session_id"),
-                        project_id=detect_project_func(cwd) if detect_project_func else None,
+                        project_id=(
+                            detect_project_func(cwd) if detect_project_func else None
+                        ),
                         start_time=capture_start,
-                        end_time=datetime.utcnow(),
+                        end_time=datetime.now(tz=timezone.utc),
                     )
                 except Exception:
                     pass  # Never crash the hook for tracing

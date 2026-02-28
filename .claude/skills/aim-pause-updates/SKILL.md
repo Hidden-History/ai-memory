@@ -1,11 +1,11 @@
 ---
-name: pause-updates
+name: aim-pause-updates
 description: "Toggle auto_update_enabled kill switch for automatic memory updates"
-trigger: "/pause-updates"
+trigger: "/aim-pause-updates"
 ---
 
 ```python
-"""Pause/resume automatic memory updates: /pause-updates
+"""Pause/resume automatic memory updates: /aim-pause-updates
 
 Toggle the auto_update_enabled kill switch. When paused:
 - GitHub sync still runs (data still ingested)
@@ -13,9 +13,9 @@ Toggle the auto_update_enabled kill switch. When paused:
 - BUT: no auto-corrections, no auto-re-captures
 
 Usage:
-    /pause-updates          # Toggle current state
-    /pause-updates on       # Enable updates
-    /pause-updates off      # Disable updates
+    /aim-pause-updates          # Toggle current state
+    /aim-pause-updates on       # Enable updates
+    /aim-pause-updates off      # Disable updates
 """
 
 from __future__ import annotations
@@ -143,7 +143,7 @@ def main():
         print("- Freshness scans still run (staleness detected)")
         print("- Auto-corrections are **disabled** until re-enabled")
         print("")
-        print("Run `/pause-updates on` to re-enable.")
+        print("Run `/aim-pause-updates on` to re-enable.")
 
     push_skill_metrics_async("pause-updates", "success", time.perf_counter() - start_time)
 

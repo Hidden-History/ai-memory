@@ -235,9 +235,9 @@ class TestSelectResultsGreedy:
     def test_deduplication_by_excluded_ids(self):
         """Should skip results in excluded_ids list."""
         results = [
-            {"id": "1", "content": "test", "score": 0.9},
-            {"id": "2", "content": "test", "score": 0.8},
-            {"id": "3", "content": "test", "score": 0.7},
+            {"id": "1", "content": "first unique content", "score": 0.9},
+            {"id": "2", "content": "second unique content", "score": 0.8},
+            {"id": "3", "content": "third unique content", "score": 0.7},
         ]
         excluded = ["2"]
         budget = 1000
@@ -266,6 +266,79 @@ class TestSelectResultsGreedy:
         selected, _tokens_used = select_results_greedy(results, budget)
         assert len(selected) == 1
         assert selected[0]["id"] == "2"
+
+    def test_content_hash_dedup(self):
+        """BUG-172: Same content with different IDs should be deduplicated."""
+        same_content = "This is duplicate content stored under different types. " * 5
+        results = [
+            {"id": "1", "content": same_content, "score": 0.95, "type": "user_message"},
+            {"id": "2", "content": same_content, "score": 0.90, "type": "session"},
+            {
+                "id": "3",
+                "content": "Unique content here.",
+                "score": 0.85,
+                "type": "decision",
+            },
+        ]
+        budget = 10000
+
+        selected, _tokens_used = select_results_greedy(results, budget)
+        selected_ids = [s["id"] for s in selected]
+        # First occurrence kept, duplicate skipped, unique kept
+        assert "1" in selected_ids
+        assert "2" not in selected_ids
+        assert "3" in selected_ids
+
+    def test_score_gap_filter(self):
+        """BUG-173: Results >30% below best score should be filtered."""
+        results = [
+            {"id": "1", "content": "result one", "score": 0.95},
+            {"id": "2", "content": "result two", "score": 0.90},
+            {"id": "3", "content": "result three", "score": 0.60},
+            {"id": "4", "content": "result four", "score": 0.50},
+        ]
+        budget = 10000
+
+        selected, _tokens_used = select_results_greedy(results, budget)
+        selected_ids = [s["id"] for s in selected]
+        # 0.95 * 0.7 = 0.665 → 0.60 and 0.50 should be filtered
+        assert "1" in selected_ids
+        assert "2" in selected_ids
+        assert "3" not in selected_ids
+        assert "4" not in selected_ids
+
+    def test_score_gap_preserves_close_results(self):
+        """BUG-173: Results within 30% of best score should be preserved."""
+        results = [
+            {"id": "1", "content": "result one", "score": 0.90},
+            {"id": "2", "content": "result two", "score": 0.80},
+            {"id": "3", "content": "result three", "score": 0.70},
+        ]
+        budget = 10000
+
+        selected, _tokens_used = select_results_greedy(results, budget)
+        selected_ids = [s["id"] for s in selected]
+        # 0.90 * 0.7 = 0.63 → all pass (0.70 >= 0.63)
+        assert "1" in selected_ids
+        assert "2" in selected_ids
+        assert "3" in selected_ids
+
+    def test_score_gap_zero_best_score(self):
+        """BUG-173: When best_score is 0, no results should be filtered."""
+        results = [
+            {"id": "1", "content": "result one", "score": 0},
+            {"id": "2", "content": "result two", "score": 0},
+        ]
+        selected, _ = select_results_greedy(results, budget=10000)
+        assert len(selected) == 2
+
+    def test_score_gap_single_result(self):
+        """BUG-173: Single result should never be filtered by score gap."""
+        results = [
+            {"id": "1", "content": "only result", "score": 0.75},
+        ]
+        selected, _ = select_results_greedy(results, budget=10000)
+        assert len(selected) == 1
 
 
 class TestFormatInjectionOutput:

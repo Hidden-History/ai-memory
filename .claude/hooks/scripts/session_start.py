@@ -50,6 +50,14 @@ from memory.metrics_push import (
 from memory.project import detect_project
 from memory.qdrant_client import get_qdrant_client
 
+# SPEC-021: Trace buffer for retrieval instrumentation
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
+
 # Configure structured logging (Story 6.2)
 # Log to stderr since stdout is reserved for context injection
 handler = logging.StreamHandler(sys.stderr)
@@ -613,6 +621,26 @@ def main():
                                 "pid": os.getpid(),
                             },
                         )
+                        if emit_trace_event:
+                            try:
+                                emit_trace_event(
+                                    event_type="context_retrieval",
+                                    data={
+                                        "input": f"Session {trigger}: {project_name}",
+                                        "output": f"Skipped: dedup lock active (age: {lock_age:.1f}s)",
+                                        "metadata": {
+                                            "trigger": trigger,
+                                            "skipped_reason": "dedup_lock",
+                                            "lock_age_seconds": round(lock_age, 2),
+                                            "results_considered": 0,
+                                            "results_selected": 0,
+                                        },
+                                    },
+                                    session_id=session_id,
+                                    project_id=project_name,
+                                )
+                            except Exception:
+                                pass
                         # Output empty context so Claude proceeds normally
                         print(
                             json.dumps(
@@ -654,6 +682,26 @@ def main():
                     project=project_name,
                     reason="qdrant_unavailable",
                 )
+
+                if emit_trace_event:
+                    try:
+                        emit_trace_event(
+                            event_type="context_retrieval",
+                            data={
+                                "input": f"Session {trigger}: {project_name}",
+                                "output": "Qdrant unavailable — graceful degradation",
+                                "metadata": {
+                                    "trigger": trigger,
+                                    "error": "qdrant_unavailable",
+                                    "results_considered": 0,
+                                    "results_selected": 0,
+                                },
+                            },
+                            session_id=session_id,
+                            project_id=project_name,
+                        )
+                    except Exception:
+                        pass
 
                 # Empty context JSON - Claude continues without memories
                 print(
@@ -743,6 +791,25 @@ def main():
                             "duration_ms": round(duration_ms, 2),
                         },
                     )
+                    if emit_trace_event:
+                        try:
+                            emit_trace_event(
+                                event_type="context_retrieval",
+                                data={
+                                    "input": f"Bootstrap retrieval: {project_name}",
+                                    "output": "No bootstrap results available",
+                                    "metadata": {
+                                        "trigger": "startup",
+                                        "results_considered": 0,
+                                        "results_selected": 0,
+                                        "parzival_enabled": config.parzival_enabled,
+                                    },
+                                },
+                                session_id=session_id,
+                                project_id=project_name,
+                            )
+                        except Exception:
+                            pass
 
                     # User notification
                     print(
@@ -825,6 +892,60 @@ def main():
                     success=True,
                     project=project_name,
                 )
+
+                # SPEC-021: context_retrieval span — startup bootstrap detail
+                if emit_trace_event:
+                    try:
+                        emit_trace_event(
+                            event_type="context_retrieval",
+                            data={
+                                "input": f"Bootstrap retrieval: {project_name}",
+                                "output": f"Selected {len(selected)} from {len(bootstrap_results)} candidates",
+                                "metadata": {
+                                    "trigger": "startup",
+                                    "results_considered": len(bootstrap_results),
+                                    "results_selected": len(selected),
+                                    "tokens_used": tokens_used,
+                                    "budget": config.bootstrap_token_budget,
+                                    "parzival_enabled": config.parzival_enabled,
+                                },
+                            },
+                            session_id=session_id,
+                            project_id=project_name,
+                        )
+                    except Exception:
+                        pass
+
+                # SPEC-021: Langfuse trace for session bootstrap
+                if emit_trace_event:
+                    try:
+                        from uuid import uuid4
+
+                        emit_trace_event(
+                            event_type="session_bootstrap",
+                            data={
+                                "input": f"Session startup: {project_name}",
+                                "output": (
+                                    "\n".join(
+                                        r.get("content", "")[:500] for r in selected[:5]
+                                    )[:TRACE_CONTENT_MAX]
+                                    if selected
+                                    else f"No results for {project_name}"
+                                ),
+                                "metadata": {
+                                    "session_type": trigger,
+                                    "result_count": len(selected),
+                                    "tokens_injected": tokens_used,
+                                    "budget": config.bootstrap_token_budget,
+                                    "summary": f"Injected {tokens_used} tokens from {len(selected)} results",
+                                },
+                            },
+                            trace_id=uuid4().hex,
+                            session_id=session_id,
+                            project_id=project_name,
+                        )
+                    except Exception:
+                        logger.debug("trace_event_failed_session_bootstrap")
 
                 # Output to Claude
                 print(
@@ -929,6 +1050,25 @@ def main():
                     "other_memories_retrieval_failed",
                     extra={"session_id": session_id, "error": str(e)},
                 )
+                if emit_trace_event:
+                    try:
+                        emit_trace_event(
+                            event_type="context_retrieval",
+                            data={
+                                "input": f"Other memories retrieval: {project_name}",
+                                "output": f"Retrieval failed: {type(e).__name__}: {e!s}",
+                                "metadata": {
+                                    "trigger": trigger,
+                                    "error": type(e).__name__,
+                                    "results_considered": 0,
+                                    "results_selected": 0,
+                                },
+                            },
+                            session_id=session_id,
+                            project_id=project_name,
+                        )
+                    except Exception:
+                        pass
                 other_memories = []
 
             # Use priority injection (TECH-DEBT-047)
@@ -1074,6 +1214,61 @@ def main():
                 # TECH-DEBT-089: Push session injection duration for NFR-P3 tracking
                 push_session_injection_metrics_async(project_name, duration_seconds)
 
+                # SPEC-021: context_retrieval span — resume/compact retrieval detail
+                if emit_trace_event:
+                    try:
+                        collections_searched = [COLLECTION_DISCUSSIONS]
+                        if memories_per_collection.get(COLLECTION_CODE_PATTERNS, 0) > 0:
+                            collections_searched.append(COLLECTION_CODE_PATTERNS)
+                        if memories_per_collection.get(COLLECTION_CONVENTIONS, 0) > 0:
+                            collections_searched.append(COLLECTION_CONVENTIONS)
+                        emit_trace_event(
+                            event_type="context_retrieval",
+                            data={
+                                "input": f"Session {trigger} retrieval: {project_name}",
+                                "output": f"Injected {total_count} items ({summary_count} summaries, {message_count} messages)",
+                                "metadata": {
+                                    "trigger": trigger,
+                                    "collections_searched": collections_searched,
+                                    "results_considered": len(session_summaries) + sum(memories_per_collection.values()),
+                                    "results_selected": total_count,
+                                    "summary_count": summary_count,
+                                    "memory_counts": {k: v for k, v in memories_per_collection.items() if v > 0},
+                                    "tokens_used": token_count,
+                                    "budget": config.token_budget,
+                                },
+                            },
+                            session_id=session_id,
+                            project_id=project_name,
+                        )
+                    except Exception:
+                        pass
+
+                # SPEC-021: Langfuse trace for session restore
+                if emit_trace_event:
+                    try:
+                        from uuid import uuid4
+
+                        emit_trace_event(
+                            event_type="session_bootstrap",
+                            data={
+                                "input": f"Session {trigger}: {project_name}",
+                                "output": conversation_context[:TRACE_CONTENT_MAX],
+                                "metadata": {
+                                    "session_type": trigger,
+                                    "result_count": total_count,
+                                    "tokens_injected": token_count,
+                                    "budget": config.token_budget,
+                                    "summary": f"Injected {token_count} tokens from {total_count} results",
+                                },
+                            },
+                            trace_id=uuid4().hex,
+                            session_id=session_id,
+                            project_id=project_name,
+                        )
+                    except Exception:
+                        logger.debug("trace_event_failed_session_restore")
+
                 # Output conversation context to Claude
                 # TECH-DEBT-115: Add <retrieved_context> delimiters per BP-039 §1
                 formatted_context = (
@@ -1100,6 +1295,24 @@ def main():
                         "duration_ms": round(duration_ms, 2),
                     },
                 )
+                if emit_trace_event:
+                    try:
+                        emit_trace_event(
+                            event_type="context_retrieval",
+                            data={
+                                "input": f"Session {trigger} retrieval: {project_name}",
+                                "output": "No conversation context available",
+                                "metadata": {
+                                    "trigger": trigger,
+                                    "results_considered": 0,
+                                    "results_selected": 0,
+                                },
+                            },
+                            session_id=session_id,
+                            project_id=project_name,
+                        )
+                    except Exception:
+                        pass
 
                 # User notification - no conversation context
                 print(
@@ -1126,6 +1339,29 @@ def main():
         except Exception as e:
             # CRITICAL: Never crash or block Claude (FR30, NFR-R4)
             logger.error("retrieval_failed", extra={"error": str(e)})
+
+            if emit_trace_event:
+                try:
+                    _trigger = trigger if "trigger" in dir() else "unknown"
+                    _project = project_name if "project_name" in dir() else "unknown"
+                    _session = session_id if "session_id" in dir() else "unknown"
+                    emit_trace_event(
+                        event_type="context_retrieval",
+                        data={
+                            "input": f"Session {_trigger}: {_project}",
+                            "output": f"Fatal error: {type(e).__name__}: {e!s}",
+                            "metadata": {
+                                "trigger": _trigger,
+                                "error": type(e).__name__,
+                                "results_considered": 0,
+                                "results_selected": 0,
+                            },
+                        },
+                        session_id=_session,
+                        project_id=_project,
+                    )
+                except Exception:
+                    pass
 
             # Empty context JSON on error
             print(

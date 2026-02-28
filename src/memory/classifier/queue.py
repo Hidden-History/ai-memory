@@ -54,6 +54,7 @@ class ClassificationTask:
     retry_count: int = 0
     last_error: str | None = None
     trace_id: str | None = None
+    session_id: str | None = None  # Wave 1H: Propagate session_id to 9_classify trace
 
 
 def _acquire_lock(file_handle, timeout: float = LOCK_TIMEOUT_SECONDS) -> bool:

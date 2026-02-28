@@ -22,9 +22,8 @@ import logging
 import os
 import subprocess
 import sys
-import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +54,8 @@ except ImportError:
     detect_project = None
     emit_trace_event = None
 
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
+
 
 def _log_to_activity(message: str) -> None:
     """Log to activity file for Streamlit visibility.
@@ -65,12 +66,10 @@ def _log_to_activity(message: str) -> None:
     Args:
         message: Message to log (can be multi-line)
     """
-    from datetime import datetime
-
     log_dir = Path(INSTALL_DIR) / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "activity.log"
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     # Escape newlines for single-line output (Streamlit parses line-by-line)
     safe_message = message.replace("\n", "\\n")
     try:
@@ -339,26 +338,32 @@ def main() -> int:
             # SPEC-021: Generate trace_id for pipeline trace linking
             trace_id = None
             if emit_trace_event:
-                trace_id = str(uuid.uuid4())
-                capture_start = datetime.utcnow()
+                trace_id = uuid.uuid4().hex
+                capture_start = datetime.now(tz=timezone.utc)
                 cwd_path = hook_input.get("cwd", os.getcwd())
                 try:
                     emit_trace_event(
                         event_type="1_capture",
                         data={
-                            "input": {"hook_type": "post_tool", "raw_length": len(content) if content else 0},
-                            "output": {"content_length": len(content) if content else 0, "content_extracted": bool(content)},
+                            "input": content[:TRACE_CONTENT_MAX] if content else "",
+                            "output": f"Captured {len(content) if content else 0} chars from post_tool hook",
                             "metadata": {
                                 "hook_type": "post_tool",
                                 "source": tool_name,
+                                "raw_length": len(content) if content else 0,
                                 "content_length": len(content) if content else 0,
+                                "content_extracted": bool(content),
                             },
                         },
                         trace_id=trace_id,
                         session_id=hook_input.get("session_id"),
-                        project_id=detect_project_func(cwd_path) if detect_project_func else None,
+                        project_id=(
+                            detect_project_func(cwd_path)
+                            if detect_project_func
+                            else None
+                        ),
                         start_time=capture_start,
-                        end_time=datetime.utcnow(),
+                        end_time=datetime.now(tz=timezone.utc),
                     )
                 except Exception:
                     pass  # Never crash the hook for tracing

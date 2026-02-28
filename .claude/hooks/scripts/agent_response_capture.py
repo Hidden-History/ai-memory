@@ -26,12 +26,14 @@ import subprocess
 import sys
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 # Maximum response size to prevent memory issues in background process (100KB)
 MAX_RESPONSE_SIZE = 100 * 1024
+
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 # Add src to path for imports (must be inline before importing from memory)
 INSTALL_DIR = os.environ.get(
@@ -128,7 +130,10 @@ def extract_last_assistant_message(
 
 
 def fork_to_background(
-    hook_input: dict[str, Any], response_text: str, turn_number: int, trace_id: str | None = None
+    hook_input: dict[str, Any],
+    response_text: str,
+    turn_number: int,
+    trace_id: str | None = None,
 ) -> None:
     """Fork storage operation to background process.
 
@@ -300,27 +305,31 @@ def main() -> int:
         # SPEC-021: Generate trace_id for pipeline trace linking
         trace_id = None
         if emit_trace_event:
-            trace_id = str(uuid.uuid4())
-            capture_start = datetime.utcnow()
+            trace_id = uuid.uuid4().hex
+            capture_start = datetime.now(tz=timezone.utc)
             cwd = os.getcwd()
             try:
                 emit_trace_event(
                     event_type="1_capture",
                     data={
-                        "input": {"hook_type": "agent_response", "raw_length": raw_response_length},
-                        "output": {"content_length": len(response_text), "content_extracted": True},
+                        "input": response_text[:TRACE_CONTENT_MAX],
+                        "output": response_text[:TRACE_CONTENT_MAX],
                         "metadata": {
                             "hook_type": "agent_response",
                             "source": "transcript",
+                            "raw_length": raw_response_length,
                             "content_length": len(response_text),
+                            "content_extracted": True,
                         },
                     },
                     trace_id=trace_id,
                     session_id=hook_input.get("session_id"),
                     project_id=detect_project(cwd) if detect_project else None,
                     start_time=capture_start,
-                    end_time=datetime.utcnow(),
+                    end_time=datetime.now(tz=timezone.utc),
                 )
+                # ISSUE-184: Expose capture span ID for child spans in store_async hooks
+                os.environ["LANGFUSE_ROOT_SPAN_ID"] = trace_id[:16]
             except Exception:
                 pass  # Never crash the hook for tracing
 

@@ -502,7 +502,7 @@ async def collection_stats(collection: str):
             "status": "success",
             "collection": collection,
             "points_count": info.points_count,
-            "vectors_count": info.vectors_count,
+            "segments_count": info.segments_count,
             "indexed_vectors_count": info.indexed_vectors_count,
             "qdrant_status": info.status,
         }

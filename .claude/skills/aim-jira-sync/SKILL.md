@@ -1,5 +1,5 @@
 ---
-name: jira-sync
+name: aim-jira-sync
 description: 'Synchronize Jira issues and comments to AI Memory'
 allowed-tools: Bash
 ---
@@ -12,19 +12,19 @@ Synchronize Jira issues and comments from configured projects into the AI Memory
 
 ```bash
 # Incremental sync (default) - only fetch updated issues
-/jira-sync
+/aim-jira-sync
 
 # Full sync - fetch all issues and comments
-/jira-sync --full
+/aim-jira-sync --full
 
 # Sync specific project
-/jira-sync --project BMAD
+/aim-jira-sync --project BMAD
 
 # Check sync status (last sync time, items synced, errors)
-/jira-sync --status
+/aim-jira-sync --status
 
 # Full sync for specific project
-/jira-sync --full --project BMAD
+/aim-jira-sync --full --project BMAD
 ```
 
 ## Options
@@ -67,16 +67,16 @@ JIRA_SYNC_DELAY_MS=100
 
 ```bash
 # Daily incremental sync (recommended)
-/jira-sync
+/aim-jira-sync
 
 # Initial full sync for new project
-/jira-sync --full --project NEWPROJ
+/aim-jira-sync --full --project NEWPROJ
 
 # Check last sync status
-/jira-sync --status
+/aim-jira-sync --status
 
 # Full refresh of all projects (use sparingly)
-/jira-sync --full
+/aim-jira-sync --full
 ```
 
 ## Implementation Reference

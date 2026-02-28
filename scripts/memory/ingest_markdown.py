@@ -259,7 +259,7 @@ def ingest_directory(
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Ingest markdown files into BMAD memory"
+        description="Ingest markdown files into AI Memory"
     )
     parser.add_argument("--dir", type=Path, help="Directory containing markdown files")
     parser.add_argument("--file", type=Path, help="Single markdown file to ingest")

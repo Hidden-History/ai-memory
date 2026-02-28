@@ -1,5 +1,5 @@
 ---
-name: save-memory
+name: aim-save
 description: 'Manually save current session to memory'
 allowed-tools: Bash
 ---
@@ -8,7 +8,7 @@ allowed-tools: Bash
 
 Save the current session context to the AI Memory system's `discussions`
 collection. This creates a `type=session` entry that can be retrieved by
-SessionStart on future session resume or by `/search-memory`.
+SessionStart on future session resume or by `/aim-search`.
 
 ## When to Use
 
@@ -54,13 +54,13 @@ If Parzival is not enabled, the command returns an error.
 
 ```bash
 # Default behavior (unchanged)
-/save-memory "Completed authentication refactor"
+/aim-save "Completed authentication refactor"
 
 # Save as agent memory (general project knowledge)
-/save-memory "The decay formula uses 0.7/0.3 weighting" --type agent_memory
+/aim-save "The decay formula uses 0.7/0.3 weighting" --type agent_memory
 
 # Save as agent insight (key learning or pattern)
-/save-memory "PyYAML not in test deps caused CI failures" --type agent_insight
+/aim-save "PyYAML not in test deps caused CI failures" --type agent_insight
 ```
 
 ## Environment Variables (Auto-Configured)
@@ -89,19 +89,19 @@ These are set automatically in settings.json by the installer:
 
 ```bash
 # Save decision context
-/save-memory "Decided to use Qdrant for vector storage over Pinecone due to self-hosting requirement"
+/aim-save "Decided to use Qdrant for vector storage over Pinecone due to self-hosting requirement"
 
 # Save progress checkpoint
-/save-memory "Completed 3 of 5 API endpoints, auth middleware working"
+/aim-save "Completed 3 of 5 API endpoints, auth middleware working"
 
 # Quick save without description
-/save-memory
+/aim-save
 
 # Save as agent memory (general project knowledge)
-/save-memory "The decay formula uses 0.7/0.3 weighting" --type agent_memory
+/aim-save "The decay formula uses 0.7/0.3 weighting" --type agent_memory
 
 # Save as agent insight (key learning or pattern)
-/save-memory "PyYAML not in test deps caused CI failures" --type agent_insight
+/aim-save "PyYAML not in test deps caused CI failures" --type agent_insight
 ```
 
 ## Technical Details

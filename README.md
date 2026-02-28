@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.7-green?style=flat-square" alt="Version 2.0.7">
+  <img src="https://img.shields.io/badge/version-2.0.8-green?style=flat-square" alt="Version 2.0.8">
   <a href="https://github.com/Hidden-History/ai-memory/stargazers"><img src="https://img.shields.io/github/stars/Hidden-History/ai-memory?color=blue&style=flat-square" alt="Stars"></a>
   <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
   <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
@@ -143,7 +143,7 @@ v2.0.6 adds the **WHEN dimension** — your memories now understand time, freshn
 - 🔐 **SOPS+age Encryption**: Encrypt sensitive configuration with modern age encryption
 - 🧭 **Dual Embedding Routing**: Code content uses `jina-v2-base-code`, prose uses `jina-v2-base-en` for 10-30% better retrieval
 - 🤖 **Parzival Oversight Agent**: Technical PM, quality gatekeeper, and agent team orchestrator with cross-session memory backed by Qdrant
-- 🧰 **8 New Skills**: `/memory-purge`, `/search-github`, `/github-sync`, `/pause-updates`, `/memory-refresh`, `/parzival-save-handoff`, `/parzival-save-insight`, `/freshness-report`
+- 🧰 **8 New Skills**: `/aim-purge`, `/aim-github-search`, `/aim-github-sync`, `/aim-pause-updates`, `/aim-refresh`, `/parzival-save-handoff`, `/parzival-save-insight`, `/aim-freshness-report`
 
 ---
 
@@ -175,7 +175,7 @@ Bring your work context into semantic memory with built-in Jira Cloud support:
 - **Issue Lookup**: Retrieve complete issue context (issue + all comments, chronologically)
 - **Dedicated Collection**: `jira-data` collection keeps Jira content separate from code memory
 - **Tenant Isolation**: `group_id` based on Jira instance hostname prevents cross-instance leakage
-- **Two Skills**: `/jira-sync` for synchronization, `/search-jira` for semantic search
+- **Two Skills**: `/aim-jira-sync` for synchronization, `/aim-jira-search` for semantic search
 
 See [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for setup and usage guide.
 
@@ -191,7 +191,7 @@ Bring your repository history into semantic memory with built-in GitHub support:
 - **AST-Aware Code Chunking**: Code blobs are split at AST boundaries (functions, classes), not arbitrary character offsets
 - **Freshness Feedback Loop**: Merged PRs automatically flag stale code-pattern memories for review
 - **Adaptive Rate Limiting**: Reads `X-RateLimit-Remaining` response headers and backs off automatically
-- **Two Skills**: `/github-sync` for synchronization, `/search-github` for semantic search
+- **Two Skills**: `/aim-github-sync` for synchronization, `/aim-github-search` for semantic search
 
 See [docs/GITHUB-INTEGRATION.md](docs/GITHUB-INTEGRATION.md) for setup and usage guide.
 
@@ -564,41 +564,41 @@ Use slash commands for manual control:
 
 ```bash
 # Check system status
-/memory-status
+/aim-status
 
 # Manually save current session
-/save-memory
+/aim-save
 
 # Search across all memories
-/search-memory <query>
+/aim-search <query>
 
 # Jira Cloud Integration (requires JIRA_SYNC_ENABLED=true)
-/jira-sync              # Incremental sync from Jira
-/jira-sync --full       # Full sync (all issues and comments)
-/search-jira "query"    # Semantic search across Jira content
-/search-jira --issue PROJ-42  # Lookup issue + all comments
+/aim-jira-sync              # Incremental sync from Jira
+/aim-jira-sync --full       # Full sync (all issues and comments)
+/aim-jira-search "query"    # Semantic search across Jira content
+/aim-jira-search --issue PROJ-42  # Lookup issue + all comments
 ```
 
-#### v2.0.6 Skills
+#### v2.0.6+ Skills
 
 | Command | Description |
 |---------|-------------|
-| `/memory-purge` | Purge old memories with dry-run safety (e.g., `--older-than 90d`) |
-| `/search-github` | Semantic search of GitHub data (PRs, issues, commits, code) |
-| `/github-sync` | Manually trigger GitHub repository sync |
-| `/pause-updates` | Toggle automatic memory updates on/off (kill switch) |
-| `/memory-refresh` | Trigger freshness scan on changed files |
+| `/aim-purge` | Purge old memories with dry-run safety (e.g., `--older-than 90d`) |
+| `/aim-github-search` | Semantic search of GitHub data (PRs, issues, commits, code) |
+| `/aim-github-sync` | Manually trigger GitHub repository sync |
+| `/aim-pause-updates` | Toggle automatic memory updates on/off (kill switch) |
+| `/aim-refresh` | Trigger freshness scan on changed files |
 | `/parzival-save-handoff` | Save Parzival session handoff to Qdrant memory |
 | `/parzival-save-insight` | Save a Parzival insight for cross-session recall |
-| `/freshness-report` | Scan code-patterns for stale memories by comparing against current git state |
+| `/aim-freshness-report` | Scan code-patterns for stale memories by comparing against current git state |
 
-#### Upgraded Skills (v2.0.6)
+#### Upgraded Skills (v2.0.6+)
 
 | Command | What Changed |
 |---------|-------------|
-| `/memory-status` | 4 new sections: decay stats, GitHub sync status, security scan summary, Parzival session info |
-| `/search-memory` | Now displays decay scores alongside relevance scores |
-| `/save-memory` | Supports agent memory types (handoff, insight, task) |
+| `/aim-status` | 4 new sections: decay stats, GitHub sync status, security scan summary, Parzival session info |
+| `/aim-search` | Now displays decay scores alongside relevance scores |
+| `/aim-save` | Supports agent memory types (handoff, insight, task) |
 
 See [docs/HOOKS.md](docs/HOOKS.md) for hook documentation, [docs/COMMANDS.md](docs/COMMANDS.md) for commands, [docs/llm-classifier.md](docs/llm-classifier.md) for LLM classifier setup, [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for Jira integration guide, and [docs/LANGFUSE-INTEGRATION.md](docs/LANGFUSE-INTEGRATION.md) for LLM observability setup.
 

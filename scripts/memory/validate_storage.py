@@ -436,7 +436,7 @@ def validate_before_storage(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Pre-storage validation for BMAD memory system (all proven patterns)"
+        description="Pre-storage validation for AI Memory system (all proven patterns)"
     )
 
     parser.add_argument("--content", help="Knowledge content as string")
@@ -477,7 +477,7 @@ def main():
     )
 
     print("\n" + "=" * 60)
-    print("BMAD MEMORY SYSTEM - PRE-STORAGE VALIDATION")
+    print("AI MEMORY SYSTEM - PRE-STORAGE VALIDATION")
     print("=" * 60)
     print(f"\nContent hash: {details['content_hash'][:16]}...")
     print(f"Token count: ~{details['token_count']} tokens")

@@ -299,7 +299,7 @@ def main() -> int:
     start_time = time.perf_counter()
 
     parser = argparse.ArgumentParser(
-        description="Store implementation memories after BMAD workflow completion"
+        description="Store implementation memories after AI Memory workflow completion"
     )
 
     # Content input options

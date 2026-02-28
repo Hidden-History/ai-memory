@@ -33,6 +33,7 @@ DO_ALL=false
 DO_SECRETS=false
 DO_START=false
 DO_HEALTH=false
+DO_KEYS_ONLY=false
 
 if [[ $# -eq 0 ]]; then
     DO_ALL=true
@@ -46,12 +47,14 @@ for arg in "$@"; do
         --generate-secrets) DO_SECRETS=true ;;
         --start)            DO_START=true ;;
         --health-check)     DO_HEALTH=true ;;
+        --keys-only)        DO_KEYS_ONLY=true ;;
         --help|-h)
-            echo "Usage: $0 [--generate-secrets] [--start] [--health-check]"
+            echo "Usage: $0 [--generate-secrets] [--start] [--health-check] [--keys-only]"
             echo "  No args: run all steps"
             echo "  --generate-secrets  Generate Langfuse secrets, project init vars, and MinIO bucket"
             echo "  --start             Start Langfuse Docker services"
             echo "  --health-check      Wait for health, register custom models, print summary"
+            echo "  --keys-only         Generate secrets and API keys only (no containers, no MinIO)"
             exit 0
             ;;
         *)
@@ -82,9 +85,9 @@ env_set() {
     local value="$2"
     if grep -qE "^${key}=" "$ENV_FILE" 2>/dev/null; then
         # Update in place — sed with | delimiter to handle hex values safely
-        sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+        sed -i "s|^${key}=.*|${key}=\"${value}\"|" "$ENV_FILE"
     else
-        printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+        printf '%s="%s"\n' "$key" "$value" >> "$ENV_FILE"
     fi
 }
 
@@ -238,12 +241,23 @@ start_services() {
         log_warning "Run with --generate-secrets first, or run all steps (no args)."
     fi
 
-    # BUG-143: Pre-create trace_buffer dir so Docker doesn't create it as root:root
-    mkdir -p "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/trace_buffer"
+    # BUG-143/BUG-153/BUG-159: Pre-create trace_buffer dir so Docker doesn't create it as root:root
+    # Guard chown: skip if already owned by current user (fails on root-owned dirs without sudo)
+    local _install_dir="${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}"
+    mkdir -p "${_install_dir}/trace_buffer"
+    if [[ "$(stat -c '%u' "${_install_dir}/trace_buffer" 2>/dev/null)" != "$(id -u)" ]]; then
+        chown "$(id -u):$(id -g)" "${_install_dir}/trace_buffer" 2>/dev/null || log_warning "Could not chown trace_buffer — may need: sudo chown $(id -u):$(id -g) ${_install_dir}/trace_buffer"
+    fi
+    chmod 0755 "${_install_dir}/trace_buffer"
 
-    log_info "Running: docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse up -d"
+    log_info "Running: docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse build --no-cache && up -d"
     (
         cd "$DOCKER_DIR"
+        docker compose \
+            -f docker-compose.yml \
+            -f docker-compose.langfuse.yml \
+            --profile langfuse \
+            build --no-cache
         docker compose \
             -f docker-compose.yml \
             -f docker-compose.langfuse.yml \
@@ -356,6 +370,22 @@ except Exception:
         docker exec "$pg_container" psql -U langfuse -d langfuse -c \
             "UPDATE users SET email_verified = NOW(), admin = true WHERE email = '${init_email}' AND email_verified IS NULL;" \
             2>/dev/null || log_warning "Could not fix up init user (non-critical)"
+
+        # Langfuse INIT creates org_membership but NOT project_membership.
+        # Without it the UI redirects to the setup/onboarding page.
+        local init_project_id
+        init_project_id=$(env_get "LANGFUSE_INIT_PROJECT_ID")
+        if [[ -n "$init_project_id" ]]; then
+            log_info "Ensuring project membership for init user..."
+            docker exec "$pg_container" psql -U langfuse -d langfuse -c "
+                INSERT INTO project_memberships (project_id, user_id, org_membership_id, role)
+                SELECT '${init_project_id}', u.id, om.id, 'OWNER'
+                FROM users u
+                JOIN organization_memberships om ON om.user_id = u.id
+                WHERE u.email = '${init_email}'
+                ON CONFLICT (project_id, user_id) DO NOTHING;" \
+                2>/dev/null || log_warning "Could not ensure project membership (non-critical)"
+        fi
     }
 
     log_info "Checking Langfuse bootstrap (org, project, user)..."
@@ -421,6 +451,8 @@ register_custom_models() {
     fi
 
     local base_url="http://localhost:${web_port}"
+    local LOG_DIR="${SCRIPT_DIR}/../logs"
+    mkdir -p "$LOG_DIR" 2>/dev/null || true
 
     # Fetch existing model names across all pages (idempotency check)
     log_info "Checking existing model registrations..."
@@ -445,7 +477,7 @@ while True:
 for n in names:
     if n:
         print(n)
-" 2>/dev/null || echo "")
+" 2>>"$LOG_DIR/langfuse_model_registration.log" || echo "")
 
     # Registration helper
     register_model() {
@@ -538,6 +570,13 @@ print_summary() {
 main() {
     log_info "Langfuse Setup Script"
     log_info "ENV file: ${ENV_FILE}"
+
+    # --keys-only: steps 1–2 only (secrets + API keys, no containers, no MinIO)
+    if [[ "$DO_KEYS_ONLY" == true ]]; then
+        generate_secrets
+        setup_project_keys
+        return 0
+    fi
 
     # --generate-secrets: steps 1–3 (secrets, project init vars, MinIO bucket)
     if [[ "$DO_SECRETS" == true ]]; then

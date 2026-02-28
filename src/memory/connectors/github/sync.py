@@ -20,6 +20,19 @@ from typing import Any
 from qdrant_client import models
 
 from memory.config import COLLECTION_CODE_PATTERNS, MemoryConfig, get_config
+
+# Langfuse @observe() — conditional import (graceful degradation if SDK unavailable)
+try:
+    from langfuse import observe
+except ImportError:
+
+    def observe(**kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
+
+
 from memory.connectors.github.client import GitHubClient, GitHubClientError
 from memory.connectors.github.composer import (
     compose_ci_result,
@@ -107,14 +120,20 @@ class GitHubSyncEngine:
         state_file: Path to sync state JSON in .audit/state/
     """
 
-    # State file location (within .audit/state/ per SPEC-003)
-    STATE_FILENAME = "github_sync_state.json"
+    # State file prefix (within .audit/state/ per SPEC-003); full name is per-repo
+    STATE_FILENAME_PREFIX = "github_sync_state_"
 
-    def __init__(self, config: MemoryConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: MemoryConfig | None = None,
+        repo: str | None = None,
+        branch: str | None = None,
+    ) -> None:
         """Initialize sync engine with config validation.
 
         Args:
             config: Memory configuration. Uses get_config() if None.
+            repo: Repository in "owner/repo" format. Overrides config.github_repo.
 
         Raises:
             ValueError: If GitHub sync not enabled or config incomplete
@@ -123,12 +142,17 @@ class GitHubSyncEngine:
         if not self.config.github_sync_enabled:
             raise ValueError("GitHub sync not enabled (GITHUB_SYNC_ENABLED=false)")
 
+        self.repo = repo or self.config.github_repo
+        if not self.repo:
+            raise ValueError("No repo specified and GITHUB_REPO not configured")
+        self._branch = branch or self.config.github_branch
+
         self.client = GitHubClient(
             token=self.config.github_token.get_secret_value(),
-            repo=self.config.github_repo,
+            repo=self.repo,
         )
         self.storage = MemoryStorage(self.config)
-        self._group_id = self.config.github_repo  # owner/repo as tenant ID
+        self._group_id = self.repo  # owner/repo as tenant ID
         self.qdrant = get_qdrant_client(self.config)
 
         # SEC-2: Security scanner for GitHub content before storage
@@ -150,8 +174,11 @@ class GitHubSyncEngine:
         )
         self._project_root = project_root
         self._state_dir = project_root / ".audit" / "state"
-        self._state_file = self._state_dir / self.STATE_FILENAME
+        # Use __ for / to avoid collisions with - (which stays as-is)
+        repo_safe = self.repo.replace("/", "__")
+        self._state_file = self._state_dir / f"github_sync_state_{repo_safe}.json"
 
+    @observe(name="github_sync")
     async def sync(self, mode: str = "incremental") -> SyncResult:
         """Run full sync cycle across all document types.
 
@@ -174,7 +201,7 @@ class GitHubSyncEngine:
         logger.info(
             "Starting GitHub sync: mode=%s, repo=%s, batch=%s",
             mode,
-            self.config.github_repo,
+            self.repo,
             batch_id,
         )
 
@@ -223,6 +250,7 @@ class GitHubSyncEngine:
 
     # -- Per-Type Sync Methods -----------------------------------------
 
+    @observe(name="github_sync_issues")
     async def _sync_issues(
         self,
         since: str | None,
@@ -327,6 +355,7 @@ class GitHubSyncEngine:
 
         return count
 
+    @observe(name="github_sync_pull_requests")
     async def _sync_pull_requests(
         self,
         since: str | None,
@@ -487,6 +516,7 @@ class GitHubSyncEngine:
 
         return count
 
+    @observe(name="github_sync_commits")
     async def _sync_commits(
         self,
         since: str | None,
@@ -505,7 +535,7 @@ class GitHubSyncEngine:
         """
         try:
             commits = await self.client.list_commits(
-                sha=self.config.github_branch,
+                sha=self._branch,
                 since=since,
             )
         except GitHubClientError as e:
@@ -535,7 +565,7 @@ class GitHubSyncEngine:
                     timestamp=commit_summary["commit"]["committer"]["date"],
                     extra_payload={
                         "sha": sha,
-                        "branch": self.config.github_branch,
+                        "branch": self._branch,
                         "files_changed": [
                             f["filename"] for f in commit_detail.get("files", [])
                         ],
@@ -557,6 +587,7 @@ class GitHubSyncEngine:
 
         return count
 
+    @observe(name="github_sync_ci_results")
     async def _sync_ci_results(
         self,
         since: str | None,
@@ -854,7 +885,7 @@ class GitHubSyncEngine:
             "source": "github",
             "github_id": github_id,
             "sub_id": sub_id,
-            "repo": self.config.github_repo,
+            "repo": self.repo,
             "github_updated_at": timestamp,
             "content_hash": content_hash,
             "last_synced": now_iso,

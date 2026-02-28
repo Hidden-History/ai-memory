@@ -866,16 +866,16 @@ curl -X POST http://localhost:28080/embed \
 **Solutions:**
 ```bash
 # Try broader query
-/search-memory auth  # instead of "JWT HS256 asymmetric token validation"
+/aim-search auth  # instead of "JWT HS256 asymmetric token validation"
 
 # Search all collections
-/search-memory your-query --collection all
+/aim-search your-query --collection all
 
 # Check collection sizes
 curl http://localhost:26350/collections
 ```
 
-See [COMMANDS.md - /search-memory Troubleshooting](docs/COMMANDS.md#search-memory) for complete details.
+See [COMMANDS.md - /aim-search Troubleshooting](docs/COMMANDS.md#search-memory) for complete details.
 
 ---
 
@@ -883,7 +883,7 @@ See [COMMANDS.md - /search-memory Troubleshooting](docs/COMMANDS.md#search-memor
 
 For comprehensive command troubleshooting, see [docs/COMMANDS.md](docs/COMMANDS.md).
 
-### /memory-status Shows Service Unavailable
+### /aim-status Shows Service Unavailable
 
 **Quick Fix:**
 ```bash
@@ -894,11 +894,11 @@ docker compose -f docker/docker-compose.yml restart
 docker compose -f docker/docker-compose.yml ps
 ```
 
-See [COMMANDS.md - /memory-status](docs/COMMANDS.md#memory-status) for detailed troubleshooting.
+See [COMMANDS.md - /aim-status](docs/COMMANDS.md#memory-status) for detailed troubleshooting.
 
 ---
 
-### /save-memory Succeeds But Summary Not in SessionStart
+### /aim-save Succeeds But Summary Not in SessionStart
 
 **Diagnosis:**
 ```bash
@@ -912,7 +912,7 @@ curl http://localhost:26350/collections/discussions/points/scroll \
 2. **Wrong collection** - Stored in wrong collection
 3. **Low similarity** - Doesn't match next session's query
 
-See [COMMANDS.md - /save-memory](docs/COMMANDS.md#save-memory) for complete details.
+See [COMMANDS.md - /aim-save](docs/COMMANDS.md#save-memory) for complete details.
 
 ---
 

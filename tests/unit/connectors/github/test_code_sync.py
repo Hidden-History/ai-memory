@@ -312,6 +312,7 @@ def _make_sync_instance():
     sync.config.github_sync_circuit_breaker_reset = 60
     sync.client = AsyncMock()
     sync._group_id = "owner/repo"
+    sync._branch = "main"
     sync._exclude_patterns = []
     sync.storage = MagicMock()
 

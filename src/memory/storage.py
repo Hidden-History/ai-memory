@@ -19,10 +19,18 @@ from datetime import datetime, timezone
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from .chunking import ContentType, IntelligentChunker
-from .config import COLLECTION_DISCUSSIONS, MemoryConfig, get_config
+from .config import (
+    COLLECTION_DISCUSSIONS,
+    COLLECTION_JIRA_DATA,
+    COLLECTION_NAMES,
+    MemoryConfig,
+    get_config,
+)
 from .embeddings import EmbeddingClient, EmbeddingError
 from .models import EmbeddingStatus, MemoryPayload, MemoryType
 from .qdrant_client import QdrantUnavailable, get_qdrant_client
+from .stats import get_last_updated as _get_last_updated
+from .stats import get_unique_field_values as _get_unique_field_values
 from .validation import compute_content_hash, validate_payload
 
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
@@ -1279,6 +1287,94 @@ class MemoryStorage:
                 },
             )
             return None
+
+    def get_collection_stats(self) -> dict:
+        """Return point counts and status for all available collections.
+
+        Returns:
+            Dict mapping collection name to stats dict with keys:
+                - points_count (int)
+                - segments_count (int)
+                - status (str)
+
+        Example:
+            >>> storage = MemoryStorage()
+            >>> stats = storage.get_collection_stats()
+            >>> stats["code-patterns"]["points_count"]
+            150
+        """
+        stats = {}
+        collections_to_check = list(COLLECTION_NAMES)
+        # Include jira-data if it exists (conditional collection)
+        try:
+            self.qdrant_client.get_collection(COLLECTION_JIRA_DATA)
+            collections_to_check.append(COLLECTION_JIRA_DATA)
+        except Exception:
+            pass
+        for collection in collections_to_check:
+            try:
+                info = self.qdrant_client.get_collection(collection)
+                stats[collection] = {
+                    "points_count": info.points_count,
+                    "segments_count": info.segments_count,
+                    "status": str(info.status.value) if info.status else "unknown",
+                }
+            except Exception as e:
+                logger.warning(
+                    "Failed to get stats for collection %s: %s", collection, e
+                )
+                stats[collection] = {
+                    "points_count": 0,
+                    "segments_count": 0,
+                    "status": "error",
+                }
+        return stats
+
+    def get_unique_field_values(
+        self, collection: str, field: str, limit: int = 100
+    ) -> list[str]:
+        """Return unique values for a payload field in a collection.
+
+        Args:
+            collection: Qdrant collection name
+            field: Payload field name to extract unique values from
+            limit: Maximum number of unique values to return (default: 100)
+
+        Returns:
+            Sorted list of unique string values for the field
+
+        Example:
+            >>> storage = MemoryStorage()
+            >>> projects = storage.get_unique_field_values("code-patterns", "group_id")
+            >>> print(projects)
+            ['proj-a', 'proj-b']
+        """
+        try:
+            return _get_unique_field_values(self.qdrant_client, collection, field)[
+                :limit
+            ]
+        except Exception:
+            logger.warning(
+                "Failed to get unique field values for %s.%s", collection, field
+            )
+            return []
+
+    def get_last_updated(self, collection: str) -> str | None:
+        """Return the most recent timestamp in a collection.
+
+        Args:
+            collection: Qdrant collection name
+
+        Returns:
+            ISO 8601 timestamp string of most recent point, or None if empty
+
+        Example:
+            >>> storage = MemoryStorage()
+            >>> ts = storage.get_last_updated("code-patterns")
+            >>> print(ts or "N/A")
+            2026-02-24T10:00:00Z
+        """
+        return _get_last_updated(self.qdrant_client, collection)
 
 
 def store_best_practice(

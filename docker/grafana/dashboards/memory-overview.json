@@ -1052,6 +1052,16 @@
             "mode": "markdown",
             "content": "### Filter Traces by Project\n\nSelect a specific project from the **Langfuse Project** dropdown above, then use this link:\n\n[View Project Traces](http://localhost:23100/traces?filter=metadata.project_id%3D${project_id})\n\n> **Note:** The link above filters by the selected project. \"All\" is not a valid Langfuse filter — select a specific project name.\n\n**Quick filters:**\n- [Parzival Sessions](http://localhost:23100/traces?filter=metadata.agent_id%3Dparzival)\n- [Classifier Traces](http://localhost:23100/traces?filter=metadata.span_name%3D9_classify)"
           }
+        },
+        {
+          "type": "text",
+          "title": "Langfuse — Generations & Token Usage",
+          "id": 105,
+          "gridPos": { "h": 4, "w": 24, "x": 0, "y": 61 },
+          "options": {
+            "mode": "markdown",
+            "content": "### [Open Langfuse Generations](http://localhost:23100/generations)\n\nView token usage and LLM generation costs tracked by the AI Memory pipeline.\n\n- **Generations**: Individual LLM calls with model, input/output tokens, cost\n- **Token Usage**: Aggregate token consumption per session and pipeline step\n- **Cost Tracking**: Per-model pricing (configure in Langfuse Settings → Models)\n\n**Quick links:**\n- [All Generations](http://localhost:23100/generations)\n- [Cost Dashboard](http://localhost:23100/project/default/dashboard)"
+          }
         }
       ]
     }

@@ -105,7 +105,11 @@ class TestSecurityValidation:
     """Test security-related validation and patterns."""
 
     def test_gitignore_contains_env_exclusion(self):
-        """Test .gitignore excludes docker/.env (plaintext secrets)."""
+        """Test .gitignore excludes docker/.env (plaintext secrets).
+
+        TD-175: Note this test checks the repo root .gitignore, not the install dir.
+        The install dir (~/.ai-memory) is NOT a git repo and has no .gitignore.
+        """
         gitignore_path = Path(__file__).parent.parent.parent / ".gitignore"
         if not gitignore_path.exists():
             pytest.skip(".gitignore not found in expected location")

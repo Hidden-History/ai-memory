@@ -101,6 +101,8 @@ except ImportError:
 # Timeout configuration
 PRECOMPACT_HOOK_TIMEOUT = int(os.getenv("PRECOMPACT_HOOK_TIMEOUT", "10"))  # Default 10s
 
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
+
 
 def validate_hook_input(data: dict[str, Any]) -> str | None:
     """Validate PreCompact hook input against expected schema.
@@ -374,21 +376,29 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
         memory_id = str(uuid.uuid4())
 
         # SPEC-021: Pipeline trace context for pre_compact
-        trace_id = None  # PreCompact doesn't receive trace_id from capture hook
+        trace_id = (
+            uuid.uuid4().hex
+        )  # PreCompact generates own trace_id (no capture hook)
         pc_session_id = summary_data.get("session_id", "")
         pc_project_id = summary_data.get("group_id", "")
 
         # SPEC-021: 2_log span — content captured for processing
         if emit_trace_event:
             try:
+                _log_path = str(os.path.join(INSTALL_DIR, "logs", "activity.log"))
                 emit_trace_event(
                     event_type="2_log",
                     data={
-                        "input": {"content_length": len(summary_data["content"])},
-                        "output": {"log_path": str(os.path.join(INSTALL_DIR, "logs", "activity.log"))},
-                        "metadata": {"log_path": str(os.path.join(INSTALL_DIR, "logs", "activity.log"))},
+                        "input": summary_data["content"][:TRACE_CONTENT_MAX],
+                        "output": f"Logged to {_log_path}",
+                        "metadata": {
+                            "content_length": len(summary_data["content"]),
+                            "log_path": _log_path,
+                        },
                     },
-                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                    trace_id=trace_id,
+                    session_id=pc_session_id,
+                    project_id=pc_project_id,
                 )
             except Exception:
                 pass
@@ -399,9 +409,13 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="3_detect",
                     data={
-                        "input": {"content_length": len(summary_data["content"])},
-                        "output": {"detected_type": "session"},
-                        "metadata": {"detected_type": "session", "confidence": 1.0},
+                        "input": summary_data["content"][:300],
+                        "output": "Detected type: session_summary (confidence: 1.0)",
+                        "metadata": {
+                            "content_length": len(summary_data["content"]),
+                            "detected_type": "session",
+                            "confidence": 1.0,
+                        },
                     },
                     trace_id=trace_id,
                     session_id=pc_session_id,
@@ -426,9 +440,15 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                     from memory.security_scanner import ScanAction, SecurityScanner
 
                     scanner = SecurityScanner(enable_ner=False)
-                    scan_result = scanner.scan(summary_data["content"])
+                    scan_result = scanner.scan(
+                        summary_data["content"], source_type="user_session"
+                    )
                     scan_actually_ran = True
-                    scan_action = scan_result.action.value if hasattr(scan_result.action, 'value') else str(scan_result.action)
+                    scan_action = (
+                        scan_result.action.value
+                        if hasattr(scan_result.action, "value")
+                        else str(scan_result.action)
+                    )
                     scan_findings = scan_result.findings
 
                     if scan_result.action == ScanAction.BLOCKED:
@@ -446,19 +466,47 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                                 emit_trace_event(
                                     event_type="4_scan",
                                     data={
-                                        "input": {"content_length": scan_input_length},
-                                        "output": {"scan_result": "blocked"},
-                                        "metadata": {"scan_result": "blocked", "pii_found": False, "secrets_found": True},
+                                        "input": summary_data["content"][:300],
+                                        "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
+                                        "metadata": {
+                                            "content_length": scan_input_length,
+                                            "scan_result": "blocked",
+                                            "pii_found": any(
+                                                hasattr(f, "finding_type")
+                                                and f.finding_type.name.startswith(
+                                                    "PII_"
+                                                )
+                                                for f in scan_result.findings
+                                            ),
+                                            "secrets_found": any(
+                                                hasattr(f, "finding_type")
+                                                and f.finding_type.name.startswith(
+                                                    "SECRET_"
+                                                )
+                                                for f in scan_result.findings
+                                            ),
+                                        },
                                     },
-                                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                                    trace_id=trace_id,
+                                    session_id=pc_session_id,
+                                    project_id=pc_project_id,
                                 )
                             except Exception:
                                 pass
                             try:
                                 emit_trace_event(
                                     event_type="pipeline_terminated",
-                                    data={"metadata": {"reason": "scan_blocked", "scan_blocked": True}},
-                                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                                    data={
+                                        "input": "scan_blocked",
+                                        "output": "Pipeline terminated: scan_blocked",
+                                        "metadata": {
+                                            "reason": "scan_blocked",
+                                            "scan_blocked": True,
+                                        },
+                                    },
+                                    trace_id=trace_id,
+                                    session_id=pc_session_id,
+                                    project_id=pc_project_id,
                                 )
                             except Exception:
                                 pass
@@ -478,21 +526,30 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
         if emit_trace_event and scan_actually_ran:
             try:
                 pii_found = any(
-                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("PII_")
+                    hasattr(f, "finding_type")
+                    and f.finding_type.name.startswith("PII_")
                     for f in scan_findings
                 )
                 secrets_found = any(
-                    hasattr(f, 'finding_type') and f.finding_type.name.startswith("SECRET_")
+                    hasattr(f, "finding_type")
+                    and f.finding_type.name.startswith("SECRET_")
                     for f in scan_findings
                 )
                 emit_trace_event(
                     event_type="4_scan",
                     data={
-                        "input": {"content_length": scan_input_length},
-                        "output": {"scan_result": scan_action},
-                        "metadata": {"scan_result": scan_action, "pii_found": pii_found, "secrets_found": secrets_found},
+                        "input": summary_data["content"][:300],
+                        "output": f"Scan result: {scan_action} (PII: {pii_found}, secrets: {secrets_found})",
+                        "metadata": {
+                            "content_length": scan_input_length,
+                            "scan_result": scan_action,
+                            "pii_found": pii_found,
+                            "secrets_found": secrets_found,
+                        },
                     },
-                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                    trace_id=trace_id,
+                    session_id=pc_session_id,
+                    project_id=pc_project_id,
                 )
             except Exception:
                 pass
@@ -503,11 +560,17 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="5_chunk",
                     data={
-                        "input": {"content_length": len(summary_data["content"])},
-                        "output": {"num_chunks": 1, "chunk_type": "whole"},
-                        "metadata": {"num_chunks": 1, "chunk_type": "whole"},
+                        "input": summary_data["content"][:TRACE_CONTENT_MAX],
+                        "output": "Produced 1 chunk (whole): [session_summary]",
+                        "metadata": {
+                            "content_length": len(summary_data["content"]),
+                            "num_chunks": 1,
+                            "chunk_type": "whole",
+                        },
                     },
-                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                    trace_id=trace_id,
+                    session_id=pc_session_id,
+                    project_id=pc_project_id,
                 )
             except Exception:
                 pass
@@ -538,11 +601,18 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="6_embed",
                     data={
-                        "input": {"num_chunks": 1},
-                        "output": {"embedding_status": embedding_status, "dimensions": len(vector)},
-                        "metadata": {"embedding_status": embedding_status, "num_vectors": 1},
+                        "input": "Embedding 1 chunk",
+                        "output": f"Generated 1 vector ({len(vector)}-dim) — status: {embedding_status}",
+                        "metadata": {
+                            "num_chunks": 1,
+                            "embedding_status": embedding_status,
+                            "num_vectors": 1,
+                            "dimensions": len(vector),
+                        },
                     },
-                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                    trace_id=trace_id,
+                    session_id=pc_session_id,
+                    project_id=pc_project_id,
                 )
             except Exception:
                 pass
@@ -581,11 +651,17 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="7_store",
                     data={
-                        "input": {"num_points": 1},
-                        "output": {"collection": COLLECTION_DISCUSSIONS, "points_stored": 1},
-                        "metadata": {"collection": COLLECTION_DISCUSSIONS, "points_stored": 1},
+                        "input": f"Storing 1 point to {COLLECTION_DISCUSSIONS}",
+                        "output": f"Stored 1 point (ID: {memory_id})",
+                        "metadata": {
+                            "num_points": 1,
+                            "collection": COLLECTION_DISCUSSIONS,
+                            "points_stored": 1,
+                        },
                     },
-                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                    trace_id=trace_id,
+                    session_id=pc_session_id,
+                    project_id=pc_project_id,
                 )
             except Exception:
                 pass
@@ -596,11 +672,18 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="8_enqueue",
                     data={
-                        "input": {"point_id": memory_id},
-                        "output": {"enqueued": False, "collection": COLLECTION_DISCUSSIONS},
-                        "metadata": {"collection": COLLECTION_DISCUSSIONS, "current_type": "session", "reason": "classifier_not_integrated"},
+                        "input": f"Enqueuing 1 point for classification (collection: {COLLECTION_DISCUSSIONS})",
+                        "output": f"Enqueued: False (queue: {COLLECTION_DISCUSSIONS}) — classifier not integrated for session summaries",
+                        "metadata": {
+                            "point_id": memory_id,
+                            "collection": COLLECTION_DISCUSSIONS,
+                            "current_type": "session",
+                            "reason": "classifier_not_integrated",
+                        },
                     },
-                    trace_id=trace_id, session_id=pc_session_id, project_id=pc_project_id,
+                    trace_id=trace_id,
+                    session_id=pc_session_id,
+                    project_id=pc_project_id,
                 )
             except Exception:
                 pass

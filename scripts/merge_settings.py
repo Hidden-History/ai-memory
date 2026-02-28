@@ -201,20 +201,9 @@ def _upgrade_hook_commands(settings: dict) -> dict:
                     if match:
                         hook["command"] = _hook_cmd(match.group(1))
 
-    # BUG-078: SessionStart matcher management
-    # Standard sessions: "resume|compact" (BUG-078 — correct)
-    # Parzival sessions: "startup|resume|compact|clear" (BUG-118 — needs startup for Tier 1 Bootstrap)
-    parzival_enabled = os.environ.get("PARZIVAL_ENABLED", "").lower() == "true"
-    for wrapper in hooks.get("SessionStart", []):
-        if isinstance(wrapper, dict):
-            if parzival_enabled:
-                # Expand matcher for Parzival sessions
-                if wrapper.get("matcher") == "resume|compact":
-                    wrapper["matcher"] = "startup|resume|compact|clear"
-            else:
-                # Narrow matcher for standard sessions (BUG-078)
-                if wrapper.get("matcher") == "startup|resume|compact|clear":
-                    wrapper["matcher"] = "resume|compact"
+    # Matcher is Parzival-aware: update_parzival_settings.py manages expansion
+    # (startup|resume|compact when enabled, resume|compact when disabled).
+    # merge_settings must NOT force a specific matcher — preserve what exists.
 
     return settings
 
@@ -388,11 +377,20 @@ def merge_settings(
     # Deep merge
     merged = deep_merge(existing, new_config)
 
+    # Force-update system-managed env vars that must always match the current
+    # install state.  deep_merge preserves existing scalars ("base wins") which
+    # is correct for user customisations (SIMILARITY_THRESHOLD, LOG_LEVEL) but
+    # wrong for values the installer controls.  PLAN-009 lowercases project IDs;
+    # reinstalls must update old mixed-case values so verification passes and
+    # Qdrant group_id / projects.d/ lookups stay consistent.
+    if "env" not in merged:
+        merged["env"] = {}
+    merged["env"]["AI_MEMORY_PROJECT_ID"] = project_name
+
     # Add Langfuse env vars if enabled (SPEC-019, SPEC-022)
     if os.environ.get("LANGFUSE_ENABLED", "").lower() == "true":
         if "env" not in merged:
             merged["env"] = {}
-        merged["env"]["TRACE_TO_LANGFUSE"] = "true"
         merged["env"]["LANGFUSE_ENABLED"] = "true"
         merged["env"]["LANGFUSE_PUBLIC_KEY"] = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
         merged["env"]["LANGFUSE_SECRET_KEY"] = os.environ.get("LANGFUSE_SECRET_KEY", "")

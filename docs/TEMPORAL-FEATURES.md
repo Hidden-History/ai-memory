@@ -87,7 +87,7 @@ Every code-patterns memory has a freshness tier based on how many commits have t
 | **Stale** | 10–25 commits | Likely outdated; re-evaluation recommended |
 | **Expired** | > 25 commits | Probably superseded; consider archiving |
 
-Note: Freshness detection applies specifically to code-patterns memories that have `source_file` metadata. Freshness tiers are surfaced in search results and the `/freshness-report` output.
+Note: Freshness detection applies specifically to code-patterns memories that have `source_file` metadata. Freshness tiers are surfaced in search results and the `/aim-freshness-report` output.
 
 ### Git-Based Verification
 
@@ -98,40 +98,40 @@ For `code-patterns` memories, freshness detection can optionally cross-reference
 3. The commit count determines the freshness tier (< 3 = Fresh, 3–10 = Aging, 10–25 = Stale, > 25 = Expired)
 4. If the file has been modified but the memory was never updated, the pattern is flagged as `needs_review`
 
-### `/freshness-report` Skill
+### `/aim-freshness-report` Skill
 
 On-demand scan that surfaces stale or flagged memories:
 
 ```bash
 # Full freshness report across all collections
-/freshness-report
+/aim-freshness-report
 
 # Limit to a specific collection
-/freshness-report --collection code-patterns
+/aim-freshness-report --collection code-patterns
 
 # Show only stale and expired memories
-/freshness-report --tier stale
-/freshness-report --tier expired
+/aim-freshness-report --tier stale
+/aim-freshness-report --tier expired
 
 # Include git blame checks for code-patterns
-/freshness-report --git-check
+/aim-freshness-report --git-check
 ```
 
 The report groups results by tier and shows the source that caused the flag (age vs. git blame mismatch).
 
-### `/memory-refresh` Skill
+### `/aim-refresh` Skill
 
 Targeted re-evaluation for specific memories or groups:
 
 ```bash
 # Re-evaluate a single memory by ID
-/memory-refresh --id a1b2c3d4-...
+/aim-refresh --id a1b2c3d4-...
 
 # Refresh all stale code-patterns
-/memory-refresh --collection code-patterns --tier stale
+/aim-refresh --collection code-patterns --tier stale
 
 # Refresh memories flagged by GitHub feedback loop
-/memory-refresh --filter needs_review
+/aim-refresh --filter needs_review
 ```
 
 Refreshing prompts Claude Code to re-read the source (file, PR, issue) and store an updated memory, replacing the stale one.

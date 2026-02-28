@@ -1,5 +1,5 @@
 ---
-name: search-jira
+name: aim-jira-search
 description: 'Search Jira issues and comments with semantic search and filters'
 allowed-tools: Read, Bash
 ---
@@ -12,31 +12,31 @@ Search the jira-data collection for issues and comments using semantic similarit
 
 ```bash
 # Basic semantic search
-/search-jira "authentication bug"
+/aim-jira-search "authentication bug"
 
 # Filter by project
-/search-jira "API errors" --project BMAD
+/aim-jira-search "API errors" --project BMAD
 
 # Filter by type (issue or comment)
-/search-jira "implementation details" --type jira_comment
+/aim-jira-search "implementation details" --type jira_comment
 
 # Filter by issue type
-/search-jira "bugs" --issue-type Bug
+/aim-jira-search "bugs" --issue-type Bug
 
 # Filter by status
-/search-jira "in progress work" --status "In Progress"
+/aim-jira-search "in progress work" --status "In Progress"
 
 # Filter by priority
-/search-jira "critical issues" --priority High
+/aim-jira-search "critical issues" --priority High
 
 # Filter by author (comments) or reporter (issues)
-/search-jira "alice's comments" --author alice@company.com
+/aim-jira-search "alice's comments" --author alice@company.com
 
 # Issue lookup mode (issue + all comments)
-/search-jira --issue BMAD-42
+/aim-jira-search --issue BMAD-42
 
 # Combine filters
-/search-jira "database" --project BMAD --issue-type Bug --status Done --limit 10
+/aim-jira-search "database" --project BMAD --issue-type Bug --status Done --limit 10
 ```
 
 ## Options

@@ -464,3 +464,167 @@ def test_github_content_not_double_blocked(
         f"Expected stored/duplicate but got {result['status']}. "
         f"GitHub content discussing env vars should not be blocked when source_type is passed."
     )
+
+
+# =============================================================================
+# Unit tests for MemoryStorage stats wrapper methods (Review Finding #4)
+# =============================================================================
+
+
+class TestMemoryStorageStats:
+    """Tests for MemoryStorage.get_collection_stats(), get_unique_field_values(),
+    and get_last_updated() wrapper methods."""
+
+    def test_get_collection_stats_returns_all_core_collections(
+        self, mock_config, mock_qdrant_client
+    ):
+        """Stats should include all 3 core collections."""
+        mock_info = Mock()
+        mock_info.points_count = 100
+        mock_info.segments_count = 100
+        mock_info.status = Mock()
+        mock_info.status.value = "green"
+
+        def _get_collection_side_effect(name):
+            if name == "jira-data":
+                raise Exception("not found")
+            return mock_info
+
+        mock_qdrant_client.get_collection.side_effect = _get_collection_side_effect
+
+        storage = MemoryStorage()
+        stats = storage.get_collection_stats()
+
+        assert "code-patterns" in stats
+        assert "conventions" in stats
+        assert "discussions" in stats
+        assert "jira-data" not in stats
+
+    def test_get_collection_stats_includes_jira_data_when_exists(
+        self, mock_config, mock_qdrant_client
+    ):
+        """Stats should include jira-data when the collection exists."""
+        mock_info = Mock()
+        mock_info.points_count = 50
+        mock_info.segments_count = 50
+        mock_info.status = Mock()
+        mock_info.status.value = "green"
+
+        mock_qdrant_client.get_collection.return_value = mock_info
+
+        storage = MemoryStorage()
+        stats = storage.get_collection_stats()
+
+        assert "jira-data" in stats
+        assert len(stats) == 4
+
+    def test_get_collection_stats_handles_qdrant_error(
+        self, mock_config, mock_qdrant_client
+    ):
+        """A Qdrant failure for a core collection yields status='error'."""
+
+        def _get_collection_side_effect(name):
+            if name == "jira-data":
+                raise Exception("not found")
+            if name == "code-patterns":
+                raise Exception("Qdrant unreachable")
+            mock_info = Mock()
+            mock_info.points_count = 10
+            mock_info.segments_count = 10
+            mock_info.status = Mock()
+            mock_info.status.value = "green"
+            return mock_info
+
+        mock_qdrant_client.get_collection.side_effect = _get_collection_side_effect
+
+        storage = MemoryStorage()
+        stats = storage.get_collection_stats()
+
+        assert stats["code-patterns"]["status"] == "error"
+        assert stats["code-patterns"]["points_count"] == 0
+        assert stats["code-patterns"]["segments_count"] == 0
+
+    def test_get_collection_stats_stat_values_present(
+        self, mock_config, mock_qdrant_client
+    ):
+        """Each collection entry must contain points_count, segments_count, and status."""
+        mock_info = Mock()
+        mock_info.points_count = 42
+        mock_info.segments_count = 42
+        mock_info.status = Mock()
+        mock_info.status.value = "green"
+
+        def _get_collection_side_effect(name):
+            if name == "jira-data":
+                raise Exception("not found")
+            return mock_info
+
+        mock_qdrant_client.get_collection.side_effect = _get_collection_side_effect
+
+        storage = MemoryStorage()
+        stats = storage.get_collection_stats()
+
+        for info in stats.values():
+            assert "points_count" in info
+            assert "segments_count" in info
+            assert "status" in info
+
+    def test_get_unique_field_values_with_limit(
+        self, mock_config, mock_qdrant_client, monkeypatch
+    ):
+        """Limit parameter should truncate results."""
+        full_list = [f"project-{i}" for i in range(10)]
+        monkeypatch.setattr(
+            "src.memory.storage._get_unique_field_values",
+            lambda client, collection, field: full_list,
+        )
+
+        storage = MemoryStorage()
+        result = storage.get_unique_field_values("code-patterns", "group_id", limit=5)
+
+        assert len(result) == 5
+        assert result == full_list[:5]
+
+    def test_get_unique_field_values_handles_exception(
+        self, mock_config, mock_qdrant_client, monkeypatch
+    ):
+        """Should return empty list when the underlying function raises."""
+
+        def _raise(*args, **kwargs):
+            raise Exception("Qdrant scroll failed")
+
+        monkeypatch.setattr("src.memory.storage._get_unique_field_values", _raise)
+
+        storage = MemoryStorage()
+        result = storage.get_unique_field_values("code-patterns", "group_id")
+
+        assert result == []
+
+    def test_get_last_updated_delegates_correctly(
+        self, mock_config, mock_qdrant_client, monkeypatch
+    ):
+        """get_last_updated() should delegate to the stats module function."""
+        expected = "2026-02-24T10:00:00Z"
+        monkeypatch.setattr(
+            "src.memory.storage._get_last_updated",
+            lambda client, collection: expected,
+        )
+
+        storage = MemoryStorage()
+        result = storage.get_last_updated("code-patterns")
+
+        assert result == expected
+
+    def test_get_last_updated_returns_none_for_empty(
+        self, mock_config, mock_qdrant_client, monkeypatch
+    ):
+        """Should return None for empty collection."""
+        monkeypatch.setattr(
+            "src.memory.storage._get_last_updated",
+            lambda client, collection: None,
+        )
+
+        storage = MemoryStorage()
+        result = storage.get_last_updated("code-patterns")
+
+        assert result is None

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Claude Code settings.json with BMAD hooks.
+"""Generate Claude Code settings.json with AI Memory hooks.
 
 2026 Best Practice: Using Python json module + template pattern
 - Python 3.10+ required (project standard)
@@ -43,7 +43,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         - 'hooks' section with all 6 hook types
 
     2026 Best Practice: Complete Claude Code V2.0 hook structure
-    - SessionStart: Requires 'matcher' (resume|compact) per Core-Architecture-V2 Section 7.2
+    - SessionStart: Default 'matcher' (resume|compact) per Core-Architecture-V2 Section 7.2; expanded to startup|resume|compact when Parzival is enabled
     - UserPromptSubmit: Captures user prompts and triggers context injection
     - PreToolUse: Triggers for new file creation and first edit detection
     - PostToolUse: Wrapper with 'matcher' + nested 'hooks' array (Bash errors, Edit/Write capture)
@@ -87,31 +87,13 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         "PUSHGATEWAY_ENABLED": os.environ.get("PUSHGATEWAY_ENABLED", "true"),
     }
 
-    # Add Parzival env vars if enabled (SPEC-015)
-    if os.environ.get("PARZIVAL_ENABLED", "").lower() == "true":
-        env_section["PARZIVAL_ENABLED"] = "true"
-        env_section["PARZIVAL_USER_NAME"] = os.environ.get(
-            "PARZIVAL_USER_NAME", "Developer"
-        )
-        env_section["PARZIVAL_LANGUAGE"] = os.environ.get(
-            "PARZIVAL_LANGUAGE", "English"
-        )
-        env_section["PARZIVAL_DOC_LANGUAGE"] = os.environ.get(
-            "PARZIVAL_DOC_LANGUAGE", "English"
-        )
-        env_section["PARZIVAL_OVERSIGHT_FOLDER"] = os.environ.get(
-            "PARZIVAL_OVERSIGHT_FOLDER", "oversight"
-        )
-        env_section["PARZIVAL_HANDOFF_RETENTION"] = os.environ.get(
-            "PARZIVAL_HANDOFF_RETENTION", "10"
-        )
+    # Parzival env vars are managed by update_parzival_settings.py (not here)
 
     # Add Langfuse env vars if enabled (SPEC-019, SPEC-022)
     if os.environ.get("LANGFUSE_ENABLED", "").lower() == "true":
-        env_section["TRACE_TO_LANGFUSE"] = (
-            "true"  # Stop hook primary kill-switch (SPEC-022 §2.2, AC-6)
+        env_section["LANGFUSE_ENABLED"] = (
+            "true"  # Kill-switch (SPEC-022 §2.2, AC-6)
         )
-        env_section["LANGFUSE_ENABLED"] = "true"
         env_section["LANGFUSE_PUBLIC_KEY"] = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
         env_section["LANGFUSE_SECRET_KEY"] = os.environ.get("LANGFUSE_SECRET_KEY", "")
         env_section["LANGFUSE_BASE_URL"] = os.environ.get(
@@ -131,11 +113,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         "hooks": {
             "SessionStart": [
                 {
-                    "matcher": (
-                        "startup|resume|compact|clear"
-                        if os.environ.get("PARZIVAL_ENABLED", "").lower() == "true"
-                        else "resume|compact"
-                    ),
+                    "matcher": "resume|compact",
                     "hooks": [session_start_hook],
                 }
             ],

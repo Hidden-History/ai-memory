@@ -156,6 +156,54 @@ print(json.dumps(keys))
     echo "$result"
 }
 
+register_project_sync() {
+    local project_id="$1"
+    local github_repo="$2"
+    local source_dir="$3"
+    # 4th arg overrides; falls back to GITHUB_BRANCH variable already in scope,
+    # then to "main" as last resort.
+    local branch="${4:-${GITHUB_BRANCH:-main}}"
+    local config_dir="${HOME}/.ai-memory/config/projects.d"
+    local safe_name
+    safe_name=$(echo "$project_id" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
+    local config_file="${config_dir}/${safe_name}.yaml"
+    mkdir -p "$config_dir"
+    if [[ -f "$config_file" ]]; then
+        echo "  Project already registered: ${config_file}"
+        return 0
+    fi
+    # Write via python so arbitrary paths/repo names are safe YAML regardless
+    # of special characters (colons, quotes, backslashes, etc.).
+    # Use venv python if available (has PyYAML guaranteed); fall back to system.
+    local py_bin="${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/venv/bin/python3"
+    if [[ ! -x "$py_bin" ]]; then
+        py_bin="python3"
+    fi
+    # Write to temp file first — avoids empty file if python fails (PyYAML missing)
+    local tmp_file="${config_file}.tmp"
+    if ! "$py_bin" -c "
+import yaml, sys
+data = {
+    'project_id': sys.argv[1],
+    'source_directory': sys.argv[2],
+    'registered_at': sys.argv[3],
+    'github': {
+        'enabled': True,
+        'repo': sys.argv[4],
+        'branch': sys.argv[5],
+    },
+    'jira': {'enabled': False},
+}
+print(yaml.dump(data, default_flow_style=False, allow_unicode=True), end='')
+" "$project_id" "$source_dir" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$github_repo" "$branch" > "$tmp_file"; then
+        echo "  ✗ Failed to register project (python/PyYAML error)" >&2
+        rm -f "$tmp_file"
+        return 1
+    fi
+    mv "$tmp_file" "$config_file"
+    echo "  ✓ Project registered: ${config_file}"
+}
+
 # Configuration flags (set by interactive prompts or environment)
 INSTALL_MONITORING="${INSTALL_MONITORING:-}"
 SEED_BEST_PRACTICES="${SEED_BEST_PRACTICES:-}"
@@ -475,6 +523,9 @@ print(','.join(keys))
             if [[ "$http_code" == "200" ]]; then
                 log_success "GitHub connection verified (HTTP 200) — repo: $GITHUB_REPO"
 
+                # Register project in projects.d/ for multi-project support (PLAN-009)
+                register_project_sync "$GITHUB_REPO" "$GITHUB_REPO" "$(pwd)" "${GITHUB_BRANCH:-main}"
+
                 # Prompt for initial sync
                 echo ""
                 echo "   Initial sync can take 5-30 minutes depending on repo size"
@@ -669,6 +720,13 @@ main() {
     # IMPORTANT: Must run BEFORE check_prerequisites to skip port checks in add-project mode
     check_existing_installation
 
+    # Adjust step counter based on install mode
+    if [[ "$INSTALL_MODE" == "add-project" ]]; then
+        TOTAL_STEPS=2
+    elif [[ "${SKIP_DOCKER_CHECKS:-}" == "true" ]]; then
+        TOTAL_STEPS=6
+    fi
+
     # Prompt for project name (allows custom group_id for Qdrant isolation)
     configure_project_name
 
@@ -685,6 +743,7 @@ main() {
         create_directories
         step "File Deployment"
         copy_files
+        import_user_env
         step "Python Environment"
         install_python_dependencies
         step "Environment Configuration"
@@ -697,6 +756,7 @@ main() {
             log_info "Skipping Docker services (SKIP_DOCKER_CHECKS=true)"
             copy_env_template
         else
+            setup_langfuse_keys
             step "Starting Docker Services"
             start_services
             wait_for_services
@@ -1142,7 +1202,7 @@ create_directories() {
     fi
 
     # Create main installation directory and subdirectories
-    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,logs,queue,.locks}
+    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,logs,queue,.locks,trace_buffer}
 
     # Create queue directory with restricted permissions (security best practice 2026)
     # Queue is shared across all projects - single classifier worker processes all
@@ -1325,17 +1385,48 @@ copy_files() {
     fi
 
     # Copy core files (preserve directory structure)
+    # TD-198: Back up existing docker/.env BEFORE bulk copy to prevent overwrite
+    local _env_backup=""
+    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
+        _env_backup="$(mktemp)"
+        cp "$INSTALL_DIR/docker/.env" "$_env_backup"
+        log_debug "Backed up existing docker/.env before bulk copy"
+    fi
+
     log_debug "Copying docker configuration..."
     cp -r "$SOURCE_DIR/docker/"* "$INSTALL_DIR/docker/" || { log_error "Failed to copy docker files"; exit 1; }
-    # BUG-040: Explicitly copy dotfiles - glob .* matches . and .. causing failures
-    # Copy .env if it exists in source (contains credentials)
-    if [[ -f "$SOURCE_DIR/docker/.env" ]]; then
-        cp "$SOURCE_DIR/docker/.env" "$INSTALL_DIR/docker/"
-        log_debug "Copied docker/.env with credentials from source"
+
+    # Restore docker/.env if it was backed up (bulk cp may have overwritten with template)
+    if [[ -n "$_env_backup" ]]; then
+        cp "$_env_backup" "$INSTALL_DIR/docker/.env"
+        rm -f "$_env_backup"
+        log_debug "Restored docker/.env after bulk copy"
     fi
-    # Copy .env.example if it exists
+
+    # BUG-040: Explicitly copy dotfiles - glob .* matches . and .. causing failures
+    # Deploy .env: merge strategy preserves user customizations (TD-198)
     if [[ -f "$SOURCE_DIR/docker/.env.example" ]]; then
-        cp "$SOURCE_DIR/docker/.env.example" "$INSTALL_DIR/docker/"
+        cp "$SOURCE_DIR/docker/.env.example" "$INSTALL_DIR/docker/.env.example"
+        if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
+            # Merge: add any new keys from .env.example that don't exist in installed .env
+            while IFS= read -r line; do
+                # Skip comments and empty lines
+                [[ "$line" =~ ^[[:space:]]*# ]] && continue
+                [[ -z "${line// }" ]] && continue
+                # Extract key (everything before first =)
+                key="${line%%=*}"
+                [[ -z "$key" ]] && continue
+                # Only append if key doesn't already exist in installed .env
+                if ! grep -q "^${key}=" "$INSTALL_DIR/docker/.env"; then
+                    echo "$line" >> "$INSTALL_DIR/docker/.env"
+                fi
+            done < "$SOURCE_DIR/docker/.env.example"
+            log_debug "Merged new keys from .env.example into existing docker/.env"
+        else
+            # No existing .env: use .env.example as starting point
+            cp "$SOURCE_DIR/docker/.env.example" "$INSTALL_DIR/docker/.env"
+            log_debug "Created docker/.env from .env.example template"
+        fi
     fi
 
     log_debug "Copying Python memory modules..."
@@ -1397,6 +1488,89 @@ copy_files() {
     chmod +x "$INSTALL_DIR/.claude/hooks/scripts/"*.py 2>/dev/null || true
 
     log_success "Files copied to $INSTALL_DIR"
+}
+
+# BUG-186: Import user customizations from $SOURCE_DIR/.env into $INSTALL_DIR/docker/.env
+# Called after copy_files and before configure_environment so imported credentials
+# are present when credential generation checks run.
+import_user_env() {
+    local docker_env="$INSTALL_DIR/docker/.env"
+    local user_env="$SOURCE_DIR/.env"
+
+    # Only import if user's .env exists and docker/.env exists
+    if [[ ! -f "$user_env" ]] || [[ ! -f "$docker_env" ]]; then
+        return 0
+    fi
+
+    log_info "Found user .env at $user_env — importing customizations..."
+
+    local imported=0
+    while IFS= read -r line; do
+        # Skip comments and empty lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// }" ]] && continue
+
+        # Extract key and value
+        local key="${line%%=*}"
+
+        # Skip lines without = separator
+        [[ "$key" == "$line" ]] && continue
+
+        local value="${line#*=}"
+
+        # Determine raw value (without quotes) for validation checks
+        local raw_value="$value"
+        if [[ "$raw_value" =~ ^\"(.*)\"$ ]]; then
+            raw_value="${BASH_REMATCH[1]}"
+        elif [[ "$raw_value" =~ ^\'(.*)\'$ ]]; then
+            raw_value="${BASH_REMATCH[1]}"
+        fi
+
+        # Skip keys with invalid characters (safety against regex injection)
+        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+
+        # Skip empty values
+        [[ -z "$raw_value" ]] && continue
+
+        # Skip installer-managed keys (paths, ports, container prefix)
+        case "$key" in
+            AI_MEMORY_INSTALL_DIR|AI_MEMORY_CONTAINER_PREFIX|AI_MEMORY_PROJECT_ID)
+                continue ;;
+            *_PORT|*_HOST)
+                continue ;;
+        esac
+
+        # Skip known placeholder values (case-insensitive)
+        local lower_value
+        lower_value=$(echo "$raw_value" | tr '[:upper:]' '[:lower:]')
+        case "$lower_value" in
+            changeme|your-key-here|your-*|change_me|todo|placeholder)
+                continue ;;
+        esac
+
+        # Import: remove old key line (if any) and append new value
+        # Uses grep -v + echo to avoid sed metacharacter issues (|, &, \)
+        local tmp_env
+        tmp_env=$(grep -v "^${key}=" "$docker_env" 2>/dev/null) || true
+        if [[ -n "$tmp_env" ]]; then
+            printf '%s\n' "$tmp_env" > "$docker_env"
+        else
+            : > "$docker_env"
+        fi
+        # Write value: preserve existing quotes, add double quotes if unquoted
+        if [[ "$value" =~ ^\".*\"$ ]] || [[ "$value" =~ ^\'.*\'$ ]]; then
+            echo "${key}=${value}" >> "$docker_env"
+        else
+            echo "${key}=\"${value}\"" >> "$docker_env"
+        fi
+        imported=$((imported + 1))
+    done < "$user_env"
+
+    if [[ $imported -gt 0 ]]; then
+        log_success "Imported $imported customization(s) from user .env"
+    else
+        log_debug "No customizations to import from user .env"
+    fi
 }
 
 # Environment configuration (AC 7.1.6)
@@ -1570,20 +1744,27 @@ EOF
     # Uses Python secrets module for cryptographically secure random values
     local _gen_secret="import secrets; print(secrets.token_urlsafe(18))"
 
-    if ! grep -q "^QDRANT_API_KEY=.\+" "$docker_env" 2>/dev/null; then
-        local gen_key
-        gen_key=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
+    if ! grep -q "^QDRANT_API_KEY=.\+" "$docker_env" 2>/dev/null || grep -q "^QDRANT_API_KEY=changeme$" "$docker_env" 2>/dev/null; then
+        # Prefer environment variable (e.g., CI sets QDRANT_API_KEY=test-ci-key)
+        local gen_key="${QDRANT_API_KEY:-}"
+        if [[ -z "$gen_key" ]]; then
+            gen_key=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
+        fi
         if [[ -n "$gen_key" ]]; then
             if grep -q "^QDRANT_API_KEY=" "$docker_env" 2>/dev/null; then
                 sed -i.bak "s|^QDRANT_API_KEY=.*|QDRANT_API_KEY=$gen_key|" "$docker_env" && rm -f "$docker_env.bak"
             else
                 echo "QDRANT_API_KEY=$gen_key" >> "$docker_env"
             fi
-            log_success "Auto-generated QDRANT_API_KEY"
+            if [[ -n "${QDRANT_API_KEY:-}" ]]; then
+                log_success "Wrote QDRANT_API_KEY from environment to docker/.env"
+            else
+                log_success "Auto-generated QDRANT_API_KEY"
+            fi
         fi
     fi
 
-    if ! grep -q "^GRAFANA_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null; then
+    if ! grep -q "^GRAFANA_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null || grep -q "^GRAFANA_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
         local gen_gf
         gen_gf=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
         if [[ -n "$gen_gf" ]]; then
@@ -1602,7 +1783,7 @@ EOF
         log_debug "Added SECURITY_SCAN_SESSION_MODE=relaxed to .env"
     fi
 
-    if ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null; then
+    if ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null || grep -q "^PROMETHEUS_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
         local gen_prom
         gen_prom=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
         if [[ -n "$gen_prom" ]]; then
@@ -1615,7 +1796,7 @@ EOF
         fi
     fi
 
-    if ! grep -q "^GRAFANA_SECRET_KEY=.\+" "$docker_env" 2>/dev/null; then
+    if ! grep -q "^GRAFANA_SECRET_KEY=.\+" "$docker_env" 2>/dev/null || grep -q "^GRAFANA_SECRET_KEY=changeme$" "$docker_env" 2>/dev/null; then
         local gen_gsk
         gen_gsk=$("$INSTALL_DIR/.venv/bin/python" -c "import secrets; print(secrets.token_hex(32))")
         if [[ -n "$gen_gsk" ]]; then
@@ -1842,7 +2023,8 @@ start_services() {
     # multiple images simultaneously on low-RAM systems.
     log_info "Phase 1/2: Starting core services (qdrant + embedding)..."
     docker compose up -d qdrant
-    docker compose up -d --build embedding
+    docker compose build --no-cache embedding
+    docker compose up -d embedding
 
     _log_docker_state "after core startup"
 
@@ -1887,7 +2069,8 @@ start_services() {
     if [[ -n "$profile_flags" ]]; then
         log_info "Phase 2/2: Starting profile services ($profile_flags)..."
         # BUG-079: --build forces rebuild of source-built containers
-        docker compose $profile_flags up -d --build --no-recreate
+        docker compose $profile_flags build --no-cache
+        docker compose $profile_flags up -d --no-recreate
         _log_docker_state "after profile startup"
 
         # Verify core services survived profile startup
@@ -2095,20 +2278,20 @@ setup_collections() {
 copy_env_template() {
     log_debug "Copying environment template..."
 
-    # Copy .env.example to installation directory
-    if [ -f "$SCRIPT_DIR/../.env.example" ]; then
-        cp "$SCRIPT_DIR/../.env.example" "$INSTALL_DIR/.env.example"
-        log_success "Environment template copied to $INSTALL_DIR/.env.example"
+    # Copy docker/.env.example to installation directory (TD-198: root .env.example removed)
+    if [ -f "$SCRIPT_DIR/../docker/.env.example" ]; then
+        cp "$SCRIPT_DIR/../docker/.env.example" "$INSTALL_DIR/docker/.env.example"
+        log_success "Environment template copied to $INSTALL_DIR/docker/.env.example"
 
         # Check if .env already exists
-        if [ ! -f "$INSTALL_DIR/.env" ]; then
+        if [ ! -f "$INSTALL_DIR/docker/.env" ]; then
             log_debug "No .env file found - using defaults"
-            log_debug "To customize: cp $INSTALL_DIR/.env.example $INSTALL_DIR/.env"
+            log_debug "To customize: cp $INSTALL_DIR/docker/.env.example $INSTALL_DIR/docker/.env"
         else
-            log_debug "Existing .env file detected - keeping current configuration"
+            log_debug "Existing docker/.env file detected - keeping current configuration"
         fi
     else
-        log_warning "Template .env.example not found - skipping"
+        log_warning "Template docker/.env.example not found - skipping"
     fi
 }
 
@@ -2121,7 +2304,7 @@ verify_services_running() {
         log_error "Qdrant is not running at port $QDRANT_PORT"
         echo ""
         echo "Start services from shared installation:"
-        echo "  cd $INSTALL_DIR/docker && docker compose up -d"
+        echo "  cd $INSTALL_DIR/docker && docker compose up -d --build"
         exit 1
     fi
 
@@ -2130,7 +2313,7 @@ verify_services_running() {
         log_error "Embedding service is not running at port $EMBEDDING_PORT"
         echo ""
         echo "Start services from shared installation:"
-        echo "  cd $INSTALL_DIR/docker && docker compose up -d"
+        echo "  cd $INSTALL_DIR/docker && docker compose up -d --build"
         exit 1
     fi
 
@@ -2376,6 +2559,7 @@ configure_project_hooks() {
         log_debug "Creating new project settings at $PROJECT_SETTINGS..."
         python3 "$INSTALL_DIR/scripts/generate_settings.py" "$PROJECT_SETTINGS" "$HOOKS_DIR" "$PROJECT_NAME"
     fi
+
 
     # BUG-126: Sync QDRANT_API_KEY to settings.local.json if it exists
     # Claude Code's settings hierarchy: settings.local.json overrides settings.json
@@ -2699,6 +2883,15 @@ setup_langfuse() {
     fi
 }
 
+# Pre-generate Langfuse API keys so core containers get them at startup.
+# Called BEFORE start_services. Does NOT start any containers.
+setup_langfuse_keys() {
+    if [[ "$LANGFUSE_ENABLED" == "true" ]]; then
+        log_info "Pre-generating Langfuse API keys..."
+        bash "$INSTALL_DIR/scripts/langfuse_setup.sh" --keys-only
+    fi
+}
+
 # === .audit/ Directory Setup (v2.0.6 — AD-2 two-tier audit trail) ===
 # Creates project-local .audit/ directory for ephemeral/sensitive audit data.
 # This is Tier 1 of the two-tier hybrid audit trail (AD-2):
@@ -2721,7 +2914,7 @@ setup_audit_directory() {
     chmod 700 "$PROJECT_PATH/.audit" 2>/dev/null || log_warning "Could not set .audit/ permissions to 700 (filesystem limitation)"
     log_debug "Private audit directory: $PROJECT_PATH/.audit (chmod 700)"
 
-    # Add .audit/ to project .gitignore (idempotent — check before adding)
+    # Add .audit/ and .claude/settings.local.json to project .gitignore (idempotent)
     if [[ -f "$PROJECT_PATH/.gitignore" ]]; then
         if ! grep -q "^\.audit/" "$PROJECT_PATH/.gitignore" 2>/dev/null; then
             echo "" >> "$PROJECT_PATH/.gitignore"
@@ -2729,11 +2922,21 @@ setup_audit_directory() {
             echo ".audit/" >> "$PROJECT_PATH/.gitignore"
             log_debug "Added .audit/ to .gitignore"
         fi
+        # BUG-195: settings.local.json contains QDRANT_API_KEY — must be gitignored
+        if ! grep -q "settings\.local\.json" "$PROJECT_PATH/.gitignore" 2>/dev/null; then
+            echo "" >> "$PROJECT_PATH/.gitignore"
+            echo "# AI Memory local settings (contains API keys — do not commit)" >> "$PROJECT_PATH/.gitignore"
+            echo ".claude/settings.local.json" >> "$PROJECT_PATH/.gitignore"
+            log_debug "Added .claude/settings.local.json to .gitignore"
+        fi
     else
         # Create .gitignore if it doesn't exist
         echo "# AI Memory audit trail (ephemeral/sensitive data)" > "$PROJECT_PATH/.gitignore"
         echo ".audit/" >> "$PROJECT_PATH/.gitignore"
-        log_debug "Created .gitignore with .audit/ entry"
+        echo "" >> "$PROJECT_PATH/.gitignore"
+        echo "# AI Memory local settings (contains API keys — do not commit)" >> "$PROJECT_PATH/.gitignore"
+        echo ".claude/settings.local.json" >> "$PROJECT_PATH/.gitignore"
+        log_debug "Created .gitignore with .audit/ and settings.local.json entries"
     fi
 
     # Generate README (overwritten on re-install to pick up latest content)
@@ -2849,7 +3052,7 @@ show_success_message() {
     else
     echo "│   Add monitoring later:                                     │"
     echo "│     cd $INSTALL_DIR/docker                                  │"
-    echo "│     docker compose --profile monitoring up -d               │"
+    echo "│     docker compose --profile monitoring up -d --build       │"
     echo "│                                                             │"
     fi
     echo "└─────────────────────────────────────────────────────────────┘"
@@ -2950,7 +3153,7 @@ setup_parzival() {
     # Skip in non-interactive mode (CI)
     if [[ "$NON_INTERACTIVE" == "true" ]]; then
         log_info "Non-interactive mode - skipping Parzival setup"
-        append_env_if_missing "PARZIVAL_ENABLED" "false"
+        set_env_value "PARZIVAL_ENABLED" "false"
         return 0
     fi
 
@@ -2995,7 +3198,7 @@ setup_parzival() {
     else
         log_debug "Skipping Parzival setup (PARZIVAL_ENABLED=false)"
         # Ensure disabled in .env
-        append_env_if_missing "PARZIVAL_ENABLED" "false"
+        set_env_value "PARZIVAL_ENABLED" "false"
     fi
 }
 
@@ -3006,15 +3209,20 @@ deploy_parzival_commands() {
     mkdir -p "$cmd_dest"
 
     if [[ -d "$cmd_source" ]]; then
-        # Backup existing commands before overwrite
+        # Backup existing commands only if content changed (F-9 fix)
         for src_file in "$cmd_source"/*.md; do
             local bn=$(basename "$src_file")
             local dest_file="$cmd_dest/$bn"
             if [[ -f "$dest_file" ]]; then
-                cp "$dest_file" "$dest_file.bak.$(date +%Y%m%d%H%M%S)"
+                if ! diff -q "$src_file" "$dest_file" &>/dev/null; then
+                    cp "$dest_file" "$dest_file.bak"
+                    log_debug "Backed up changed command: $bn"
+                fi
             fi
         done
         cp -r "$cmd_source/"* "$cmd_dest/" 2>/dev/null || true
+        # Cleanup stale timestamped backups from previous installer versions
+        find "$cmd_dest" -name "*.bak.[0-9]*" -delete 2>/dev/null || true
         log_debug "Parzival commands deployed to $cmd_dest"
     else
         log_warning "Parzival command source not found at $cmd_source"
@@ -3089,7 +3297,7 @@ deploy_oversight_templates() {
 configure_parzival_env() {
     local env_file="$INSTALL_DIR/docker/.env"
 
-    append_env_if_missing "PARZIVAL_ENABLED" "true"
+    set_env_value "PARZIVAL_ENABLED" "true"
     append_env_if_missing "PARZIVAL_USER_NAME" "Developer"
     append_env_if_missing "PARZIVAL_LANGUAGE" "English"
     append_env_if_missing "PARZIVAL_DOC_LANGUAGE" "English"
@@ -3116,11 +3324,26 @@ append_env_if_missing() {
     fi
 }
 
+# Set env value — updates existing key OR appends if missing
+# Unlike append_env_if_missing, this OVERWRITES existing values
+# WARNING: Values must not contain sed metacharacters (|, &, \)
+# Current callers only pass literal "true"/"false" which is safe
+set_env_value() {
+    local key="$1"
+    local value="$2"
+    local env_file="${3:-$INSTALL_DIR/docker/.env}"
+    if grep -q "^${key}=" "$env_file" 2>/dev/null; then
+        sed -i.bak "s|^${key}=.*|${key}=${value}|" "$env_file" && rm -f "$env_file.bak"
+    else
+        echo "${key}=${value}" >> "$env_file"
+    fi
+}
+
 create_agent_id_index() {
     local qdrant_url="http://localhost:${QDRANT_PORT:-26350}"
     local api_key=""
     if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
-        api_key=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2-) || true
+        api_key=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
     fi
 
     log_debug "Creating agent_id payload index on discussions collection..."

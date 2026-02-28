@@ -6,9 +6,9 @@
 
 - [Overview](#overview)
 - [Memory Management Commands](#memory-management-commands)
-  - [/memory-status](#memory-status)
-  - [/save-memory](#save-memory)
-  - [/search-memory](#search-memory)
+  - [/aim-status](#aim-status)
+  - [/aim-save](#aim-save)
+  - [/aim-search](#aim-search)
 - [How Commands Work](#how-commands-work)
 - [Command vs Hook](#command-vs-hook)
 - [Troubleshooting](#troubleshooting)
@@ -23,15 +23,15 @@ AI Memory Module provides slash commands for manual memory operations. These com
 
 | Command | Purpose | Use Case | Typical Usage |
 |---------|---------|----------|---------------|
-| `/memory-status` | Check system health | Verify services running | Session startup, debugging |
-| `/save-memory` | Manually save session | Before ending without compaction | Major milestone completed |
-| `/search-memory` | Search all memories | Find specific pattern | Recall past implementation |
+| `/aim-status` | Check system health | Verify services running | Session startup, debugging |
+| `/aim-save` | Manually save session | Before ending without compaction | Major milestone completed |
+| `/aim-search` | Search all memories | Find specific pattern | Recall past implementation |
 
 ---
 
 ## 🧠 Memory Management Commands
 
-### /memory-status
+### /aim-status
 
 **Check AI Memory System Status**
 
@@ -40,7 +40,7 @@ Displays comprehensive health check of all memory system components including Qd
 
 #### Syntax
 ```bash
-/memory-status
+/aim-status
 ```
 
 No arguments required.
@@ -140,7 +140,7 @@ To view detailed metrics, visit:
 - Before important work (ensure memory capture working)
 
 **❌ Don't Use For:**
-- Checking if specific memory exists (use `/search-memory` instead)
+- Checking if specific memory exists (use `/aim-search` instead)
 - Viewing memory content (use Streamlit dashboard)
 - Performance tuning (use Grafana dashboards)
 
@@ -195,7 +195,7 @@ curl http://localhost:26350/collections/code-patterns/points/scroll \
 
 ---
 
-### /save-memory
+### /aim-save
 
 **Manually Save Current Session to Memory**
 
@@ -204,7 +204,7 @@ Saves the current session summary to discussions collection without waiting for 
 
 #### Syntax
 ```bash
-/save-memory [note]
+/aim-save [note]
 ```
 
 **Arguments:**
@@ -214,13 +214,13 @@ Saves the current session summary to discussions collection without waiting for 
 
 ```bash
 # Basic save
-/save-memory
+/aim-save
 
 # Save with note
-/save-memory Completed authentication feature
+/aim-save Completed authentication feature
 
 # Save with multi-word note (quotes not needed)
-/save-memory Fixed critical bug in JWT token validation
+/aim-save Fixed critical bug in JWT token validation
 ```
 
 #### What It Saves
@@ -255,7 +255,7 @@ Session ID: sess-abc123
 Timestamp: 2026-01-17T10:30:00.000Z
 User Note: Completed authentication feature
 
-This session summary was manually saved by the user using /save-memory command.
+This session summary was manually saved by the user using /aim-save command.
 
 Tools Used: Edit, Write, Read, Bash
 Files Modified (8):
@@ -301,15 +301,15 @@ Next Session: Consider implementing OAuth2 providers
 
 **❌ Don't Use For:**
 - Every small change (automatic hooks handle this)
-- Just to check status (use `/memory-status` instead)
-- Searching past work (use `/search-memory` instead)
+- Just to check status (use `/aim-status` instead)
+- Searching past work (use `/aim-search` instead)
 
 #### Comparison with Automatic Hooks
 
 | Method | Trigger | Use Case |
 |--------|---------|----------|
 | **PreCompact Hook** | Auto compaction | Automatic session continuity |
-| **/save-memory** | Manual command | User-controlled checkpoints |
+| **/aim-save** | Manual command | User-controlled checkpoints |
 | **PostToolUse Hook** | After Edit/Write | Automatic implementation capture |
 
 #### Troubleshooting
@@ -353,7 +353,7 @@ docker compose -f docker/docker-compose.yml restart ai-memory-qdrant
 
 ---
 
-### /search-memory
+### /aim-search
 
 **Search Across All Project Memories**
 
@@ -362,7 +362,7 @@ Performs semantic search across all memory collections (discussions, code-patter
 
 #### Syntax
 ```bash
-/search-memory <query> [--collection COLLECTION] [--limit N]
+/aim-search <query> [--collection COLLECTION] [--limit N]
 ```
 
 **Arguments:**
@@ -374,19 +374,19 @@ Performs semantic search across all memory collections (discussions, code-patter
 
 ```bash
 # Basic semantic search
-/search-memory JWT authentication implementation
+/aim-search JWT authentication implementation
 
 # Search specific collection
-/search-memory database migrations --collection code-patterns
+/aim-search database migrations --collection code-patterns
 
 # Limit results
-/search-memory error handling patterns --limit 10
+/aim-search error handling patterns --limit 10
 
 # Search all collections
-/search-memory React hooks best practices --collection all
+/aim-search React hooks best practices --collection all
 
 # Complex query
-/search-memory how did we handle user sessions in the authentication module
+/aim-search how did we handle user sessions in the authentication module
 ```
 
 #### Search Behavior
@@ -396,9 +396,9 @@ Searches by *meaning*, not exact text matching:
 
 ```bash
 # These queries all find similar results:
-/search-memory authentication with JWT
-/search-memory user login with tokens
-/search-memory securing API endpoints
+/aim-search authentication with JWT
+/aim-search user login with tokens
+/aim-search securing API endpoints
 
 # Because they share semantic meaning
 ```
@@ -568,8 +568,8 @@ Search Duration: 0.4s
 - **Cross-project learning**: "Best practices for React testing" (searches shared collection)
 
 **❌ Don't Use For:**
-- System health check (use `/memory-status` instead)
-- Saving current work (use `/save-memory` instead)
+- System health check (use `/aim-status` instead)
+- Saving current work (use `/aim-save` instead)
 - Exact text matching (semantic search, not grep)
 
 #### Search Tips
@@ -577,28 +577,28 @@ Search Duration: 0.4s
 **Good Queries:**
 ```bash
 # Conceptual
-/search-memory how we handle user authentication
+/aim-search how we handle user authentication
 
 # Implementation-focused
-/search-memory database connection pooling pattern
+/aim-search database connection pooling pattern
 
 # Decision-focused
-/search-memory why we chose PostgreSQL over MongoDB
+/aim-search why we chose PostgreSQL over MongoDB
 
 # Error-focused
-/search-memory how to fix CORS errors in React
+/aim-search how to fix CORS errors in React
 ```
 
 **Bad Queries:**
 ```bash
 # Too vague
-/search-memory code
+/aim-search code
 
 # Too specific (exact text)
-/search-memory def authenticate_user(email: str
+/aim-search def authenticate_user(email: str
 
 # Too broad
-/search-memory everything about the project
+/aim-search everything about the project
 ```
 
 #### Advanced Usage
@@ -607,26 +607,26 @@ Search Duration: 0.4s
 
 ```bash
 # Only session summaries
-/search-memory authentication --collection discussions
+/aim-search authentication --collection discussions
 
 # Only code implementations
-/search-memory database queries --collection code-patterns
+/aim-search database queries --collection code-patterns
 
 # Only shared best practices
-/search-memory testing patterns --collection conventions
+/aim-search testing patterns --collection conventions
 
 # All collections (default)
-/search-memory API design --collection all
+/aim-search API design --collection all
 ```
 
 **Result Limiting:**
 
 ```bash
 # Top 3 results (quick overview)
-/search-memory caching strategy --limit 3
+/aim-search caching strategy --limit 3
 
 # Comprehensive search (up to 20)
-/search-memory all authentication implementations --limit 20
+/aim-search all authentication implementations --limit 20
 ```
 
 #### Troubleshooting
@@ -643,10 +643,10 @@ Search Duration: 0.4s
 **Solutions:**
 ```bash
 # Try broader query
-/search-memory auth  # instead of "JWT HS256 authentication"
+/aim-search auth  # instead of "JWT HS256 authentication"
 
 # Search all collections
-/search-memory your-query --collection all
+/aim-search your-query --collection all
 
 # Check if memories exist
 curl http://localhost:26350/collections/code-patterns/points/scroll
@@ -666,21 +666,21 @@ Semantic search returns conceptually similar results, not exact matches.
 1. **Refine query**: Be more specific
    ```bash
    # Instead of:
-   /search-memory database
+   /aim-search database
 
    # Use:
-   /search-memory PostgreSQL connection pooling with SQLAlchemy
+   /aim-search PostgreSQL connection pooling with SQLAlchemy
    ```
 
 2. **Filter by collection**:
    ```bash
    # Implementations only
-   /search-memory database --collection code-patterns
+   /aim-search database --collection code-patterns
    ```
 
 3. **Increase limit to see lower scores**:
    ```bash
-   /search-memory database --limit 15
+   /aim-search database --limit 15
    ```
 </details>
 
@@ -695,14 +695,14 @@ Semantic search returns conceptually similar results, not exact matches.
 **Diagnosis:**
 ```bash
 # Check service health
-/memory-status
+/aim-status
 
 # Check Qdrant metrics
 curl http://localhost:26350/metrics
 ```
 
 **Solutions:**
-1. Reduce limit: `/search-memory query --limit 3`
+1. Reduce limit: `/aim-search query --limit 3`
 2. Check embedding service: `curl http://localhost:28080/health`
 3. Optimize Qdrant (see Prometheus metrics)
 </details>
@@ -714,7 +714,7 @@ curl http://localhost:26350/metrics
 ### Execution Flow
 
 ```
-User enters /search-memory in Claude Code
+User enters /aim-search in Claude Code
     ↓
 Claude Code executes skill script
     ↓
@@ -736,9 +736,9 @@ Each command maps to a Python script:
 
 | Command | Script | Module |
 |---------|--------|--------|
-| `/memory-status` | `scripts/memory/check_status.py` | `memory.health` |
-| `/save-memory` | `scripts/memory/manual_save.py` | `memory.storage` |
-| `/search-memory` | `scripts/memory/search_command.py` | `memory.search` |
+| `/aim-status` | `scripts/memory/check_status.py` | `memory.health` |
+| `/aim-save` | `scripts/memory/manual_save.py` | `memory.storage` |
+| `/aim-search` | `scripts/memory/search_command.py` | `memory.search` |
 
 ---
 
@@ -751,9 +751,9 @@ Each command maps to a Python script:
 | Session starts | **Hook** (SessionStart) | Automatic context loading |
 | File edited | **Hook** (PostToolUse) | Automatic capture |
 | Context compacts | **Hook** (PreCompact) | Automatic summary |
-| Check if system working | **Command** (/memory-status) | Manual verification |
-| Before ending session | **Command** (/save-memory) | User-controlled checkpoint |
-| Find past implementation | **Command** (/search-memory) | Manual retrieval |
+| Check if system working | **Command** (/aim-status) | Manual verification |
+| Before ending session | **Command** (/aim-save) | User-controlled checkpoint |
+| Find past implementation | **Command** (/aim-search) | Manual retrieval |
 
 **Hooks** = Automatic, invisible, continuous
 **Commands** = Manual, explicit, on-demand
@@ -765,7 +765,7 @@ Each command maps to a Python script:
 ### Command Not Found
 
 <details>
-<summary><strong>/memory-status command not recognized</strong></summary>
+<summary><strong>/aim-status command not recognized</strong></summary>
 
 **Cause**: Skills not installed correctly
 
@@ -807,9 +807,9 @@ ls -la .claude/skills/
 <summary><strong>Commands are slow</strong></summary>
 
 **Benchmarks:**
-- `/memory-status`: <1s
-- `/save-memory`: <3s
-- `/search-memory`: <2.5s
+- `/aim-status`: <1s
+- `/aim-save`: <3s
+- `/aim-search`: <2.5s
 
 **If slower:**
 1. Check Docker resources (CPU, memory)
@@ -848,15 +848,15 @@ In addition to slash commands, AI-Memory includes skills (auto-activated by Clau
 
 **Location:** `.claude/agents/skill-creator.md`
 
-### memory-settings (Skill)
+### aim-settings (Skill)
 
 **Activation:** When you ask about memory configuration or settings.
 
 **What It Does:** Displays current memory system configuration and settings.
 
-**Location:** `.claude/skills/memory-settings/`
+**Location:** `.claude/skills/aim-settings/`
 
-### search-memory (Skill)
+### aim-search (Skill)
 
 **Activation:** When you ask to search memories, recall past decisions, or find previous discussions.
 
@@ -865,9 +865,9 @@ In addition to slash commands, AI-Memory includes skills (auto-activated by Clau
 2. Uses semantic search to find relevant memories
 3. Returns formatted results with source and confidence
 
-**Location:** `.claude/skills/search-memory/`
+**Location:** `.claude/skills/aim-search/`
 
-### memory-status (Skill)
+### aim-status (Skill)
 
 **Activation:** When you ask about memory system health, statistics, or diagnostics.
 
@@ -876,7 +876,7 @@ In addition to slash commands, AI-Memory includes skills (auto-activated by Clau
 2. Reports collection sizes and memory counts
 3. Shows recent activity and system status
 
-**Location:** `.claude/skills/memory-status/`
+**Location:** `.claude/skills/aim-status/`
 
 ---
 

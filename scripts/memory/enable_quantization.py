@@ -196,7 +196,7 @@ def parse_args():
         argparse.Namespace with parsed arguments
     """
     parser = argparse.ArgumentParser(
-        description="Enable INT8 scalar quantization on BMAD memory collections",
+        description="Enable INT8 scalar quantization on AI Memory collections",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

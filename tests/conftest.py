@@ -298,7 +298,7 @@ def mock_qdrant_client(mocker):
     mock.search.return_value = []
     mock.upsert.return_value = Mock(status="completed")
     mock.get_collection.return_value = Mock(
-        vectors_count=0, points_count=0, status="green"
+        segments_count=0, points_count=0, status="green"
     )
 
     return mock

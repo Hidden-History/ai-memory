@@ -58,6 +58,14 @@ from memory.queue import queue_operation
 # Configure structured logging using shared utility (CR-4 Wave 2)
 logger = setup_hook_logging("ai_memory.manual")
 
+# SPEC-021: Trace buffer for pipeline instrumentation
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
+
 # Log successful path setup (F7: telemetry)
 logger.debug(
     "python_path_configured", extra={"install_dir": INSTALL_DIR, "src_path": src_path}
@@ -164,6 +172,29 @@ This session summary was manually saved by the user using /save-memory command.
                 "group_id": project_name,
             },
         )
+
+        # SPEC-021: manual_save trace event
+        if emit_trace_event:
+            try:
+                trace_id = os.environ.get("LANGFUSE_TRACE_ID")
+                emit_trace_event(
+                    event_type="manual_save",
+                    data={
+                        "input": summary_content[:TRACE_CONTENT_MAX],
+                        "output": f"Stored to {COLLECTION_DISCUSSIONS} as session (point ID: {memory_id})",
+                        "metadata": {
+                            "collection": COLLECTION_DISCUSSIONS,
+                            "type": "session",
+                            "point_id": str(memory_id),
+                            "content_length": len(summary_content),
+                        },
+                    },
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    project_id=project_name,
+                )
+            except Exception:
+                pass
 
         return True
 

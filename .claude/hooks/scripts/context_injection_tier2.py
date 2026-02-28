@@ -19,6 +19,7 @@ Performance: <500ms total (NFR-P1, NFR-P5)
 import json
 import logging
 import os
+import re
 import sys
 import time
 
@@ -56,6 +57,8 @@ logger = logging.getLogger("ai_memory.hooks.tier2")
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False
+
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 
 def main() -> int:
@@ -117,6 +120,24 @@ def main() -> int:
             )
             return 0
 
+        # BUG-171: Skip injection for slash commands (invocations, not queries)
+        if re.match(r"^/[\w:./-]+", prompt.strip()):
+            logger.info(
+                "tier2_skip_command",
+                extra={"prompt": prompt[:80], "session_id": session_id},
+            )
+            print(
+                json.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "UserPromptSubmit",
+                            "additionalContext": "",
+                        }
+                    }
+                )
+            )
+            return 0
+
         # Load session state
         state = InjectionSessionState.load(session_id)
         state.turn_count += 1
@@ -156,9 +177,10 @@ def main() -> int:
                     emit_trace_event(
                         event_type="context_retrieval",
                         data={
-                            "input": {"query_length": len(prompt), "collections_searched": collection_names},
-                            "output": {"error": str(search_err), "results_considered": 0, "results_selected": 0},
+                            "input": prompt[:TRACE_CONTENT_MAX],
+                            "output": f"Search error: {type(search_err).__name__}: {search_err!s}",
                             "metadata": {
+                                "query_length": len(prompt),
                                 "collections_searched": collection_names,
                                 "error": type(search_err).__name__,
                                 "results_considered": 0,
@@ -289,9 +311,10 @@ def main() -> int:
                 emit_trace_event(
                     event_type="context_retrieval",
                     data={
-                        "input": {"query_length": len(prompt), "collections_searched": collection_names},
-                        "output": {"results_considered": len(all_results), "results_selected": len(selected), "tokens_used": tokens_used},
+                        "input": prompt[:TRACE_CONTENT_MAX],
+                        "output": formatted[:TRACE_CONTENT_MAX],
                         "metadata": {
+                            "query_length": len(prompt),
                             "collections_searched": collection_names,
                             "results_considered": len(all_results),
                             "results_selected": len(selected),
@@ -355,14 +378,20 @@ def main() -> int:
         # SPEC-021: context_retrieval span on outer failure path
         if emit_trace_event:
             try:
+                _prompt_val = prompt if "prompt" in dir() else ""  # type: ignore[name-defined]
                 emit_trace_event(
                     event_type="context_retrieval",
                     data={
-                        "input": {"query_length": len(prompt) if "prompt" in dir() else 0},
-                        "output": {"error": str(e), "results_considered": 0, "results_selected": 0},
-                        "metadata": {"error": type(e).__name__, "results_considered": 0, "results_selected": 0},
+                        "input": _prompt_val[:TRACE_CONTENT_MAX] if _prompt_val else "",
+                        "output": f"Outer exception: {type(e).__name__}: {e!s}",
+                        "metadata": {
+                            "query_length": len(_prompt_val),
+                            "error": type(e).__name__,
+                            "results_considered": 0,
+                            "results_selected": 0,
+                        },
                     },
-                    session_id=session_id if "session_id" in dir() else "unknown",
+                    session_id=session_id if "session_id" in dir() else "unknown",  # type: ignore[name-defined]
                     project_id=project_name,
                 )
             except Exception:

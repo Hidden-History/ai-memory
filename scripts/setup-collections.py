@@ -225,6 +225,18 @@ def create_collections(dry_run: bool = False, force: bool = False) -> None:
                     field_schema=PayloadSchemaType.KEYWORD,
                 )
 
+            # Parzival agent_id index for discussions only
+            # Enables tenant-optimized filtering for agent_id=parzival queries
+            if collection_name == COLLECTION_DISCUSSIONS:
+                client.create_payload_index(
+                    collection_name=collection_name,
+                    field_name="agent_id",
+                    field_schema=KeywordIndexParams(
+                        type="keyword",
+                        is_tenant=True,
+                    ),
+                )
+
             # PLAN-004 Phase 2: Jira-specific indexes for jira-data collection
             if collection_name == COLLECTION_JIRA_DATA:
                 jira_indexes = [

@@ -40,7 +40,8 @@ WORKDIR /app
 # Python runtime optimization
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/opt/venv/bin:$PATH"
+    PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH="/app/src"
 
 # Install only runtime dependencies (curl for healthcheck)
 RUN apt-get update && \

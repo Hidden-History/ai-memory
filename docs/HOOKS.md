@@ -789,7 +789,7 @@ Benefits:
 
 ### Manual Save Memory
 
-**Command:** `/save-memory`
+**Command:** `/aim-save`
 
 **Purpose:** Manually save current session state without waiting for compaction
 
