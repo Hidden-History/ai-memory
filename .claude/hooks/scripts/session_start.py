@@ -1016,6 +1016,7 @@ def main():
                 try:
                     # Session summaries via deterministic get_recent
                     try:
+                        _retrieval_start = time.perf_counter()
                         session_summary_results = searcher.get_recent(
                             collection=COLLECTION_DISCUSSIONS,
                             group_id=project_name,
@@ -1033,6 +1034,30 @@ def main():
                                 "last_agent_responses": r.get("last_agent_responses", []),
                                 "session_metadata": r.get("session_metadata", {}),
                             })
+                        # TD-228: Trace event for Parzival session summaries retrieval
+                        if emit_trace_event:
+                            try:
+                                _retrieval_ms = (time.perf_counter() - _retrieval_start) * 1000
+                                emit_trace_event(
+                                    event_type="memory_retrieval_session_summaries",
+                                    data={
+                                        "input": f"get_recent(discussions, type=session, limit=3) for {project_name}",
+                                        "output": f"Retrieved {len(session_summaries)} session summaries",
+                                        "metadata": {
+                                            "trigger": trigger,
+                                            "collection": COLLECTION_DISCUSSIONS,
+                                            "memory_type": "session",
+                                            "method": "get_recent",
+                                            "result_count": len(session_summaries),
+                                            "retrieval_ms": round(_retrieval_ms, 2),
+                                            "parzival_enabled": True,
+                                        },
+                                    },
+                                    session_id=session_id,
+                                    project_id=project_name,
+                                )
+                            except Exception:
+                                pass
                     except Exception as e:
                         logger.warning(
                             "parzival_session_summaries_retrieval_failed",
@@ -1048,6 +1073,7 @@ def main():
                         COLLECTION_CONVENTIONS: 0,
                     }
                     try:
+                        _retrieval_start = time.perf_counter()
                         decisions = searcher.get_recent(
                             collection=COLLECTION_DISCUSSIONS,
                             group_id=project_name,
@@ -1056,6 +1082,30 @@ def main():
                         )
                         other_memories.extend(decisions)
                         memories_per_collection[COLLECTION_DISCUSSIONS] = len(decisions)
+                        # TD-228: Trace event for Parzival decisions retrieval
+                        if emit_trace_event:
+                            try:
+                                _retrieval_ms = (time.perf_counter() - _retrieval_start) * 1000
+                                emit_trace_event(
+                                    event_type="memory_retrieval_decisions",
+                                    data={
+                                        "input": f"get_recent(discussions, type=decision, limit=5) for {project_name}",
+                                        "output": f"Retrieved {len(decisions)} decisions",
+                                        "metadata": {
+                                            "trigger": trigger,
+                                            "collection": COLLECTION_DISCUSSIONS,
+                                            "memory_type": "decision",
+                                            "method": "get_recent",
+                                            "result_count": len(decisions),
+                                            "retrieval_ms": round(_retrieval_ms, 2),
+                                            "parzival_enabled": True,
+                                        },
+                                    },
+                                    session_id=session_id,
+                                    project_id=project_name,
+                                )
+                            except Exception:
+                                pass
                     except Exception as e:
                         logger.warning(
                             "other_memories_retrieval_failed",
@@ -1067,11 +1117,36 @@ def main():
             else:
                 # NON-PARZIVAL PATH: Keep existing behavior EXACTLY
                 # Retrieve session summaries using shared helper (TECH-DEBT-047 refactor)
+                _retrieval_start = time.perf_counter()
                 session_summaries = retrieve_session_summaries(
                     client, project_name, limit=20
                 )
                 # Take top 5 most recent
                 session_summaries = session_summaries[:5]
+                # TD-228: Trace event for non-Parzival session summaries retrieval
+                if emit_trace_event:
+                    try:
+                        _retrieval_ms = (time.perf_counter() - _retrieval_start) * 1000
+                        emit_trace_event(
+                            event_type="memory_retrieval_session_summaries",
+                            data={
+                                "input": f"retrieve_session_summaries(limit=20) for {project_name}",
+                                "output": f"Retrieved {len(session_summaries)} session summaries (from top 5)",
+                                "metadata": {
+                                    "trigger": trigger,
+                                    "collection": COLLECTION_DISCUSSIONS,
+                                    "memory_type": "session",
+                                    "method": "scroll",
+                                    "result_count": len(session_summaries),
+                                    "retrieval_ms": round(_retrieval_ms, 2),
+                                    "parzival_enabled": False,
+                                },
+                            },
+                            session_id=session_id,
+                            project_id=project_name,
+                        )
+                    except Exception:
+                        pass
 
                 # Retrieve other memories (decisions, patterns, conventions)
                 other_memories = []
