@@ -134,6 +134,18 @@ class MemorySearch:
         self.client = get_qdrant_client(self.config)
         self.embedding_client = EmbeddingClient(self.config)
 
+    def _get_embedding_model(self, collection: str) -> str:
+        """Route embedding model based on collection (collection-level routing only).
+
+        Mirrors MemoryStorage._get_embedding_model for collection-level routing.
+        Note: Does not handle content_type-based routing (e.g., github_code_blob
+        stored in discussions with "code" model). That remains a known gap.
+        """
+        # TODO: Add content_type-based routing for github_code_blob in discussions
+        if collection == COLLECTION_CODE_PATTERNS:
+            return "code"
+        return "en"
+
     def search(
         self,
         query: str,
@@ -240,7 +252,8 @@ class MemorySearch:
 
         # Generate query embedding
         # Propagates EmbeddingError for graceful degradation
-        query_embedding = self.embedding_client.embed([query])[0]
+        model = self._get_embedding_model(collection)
+        query_embedding = self.embedding_client.embed([query], model=model)[0]
 
         # Build filter conditions using 2025 best practice: model-based Filter API
         filter_conditions = []
@@ -650,7 +663,8 @@ class MemorySearch:
                 collection=secondary,
                 group_id=group_id,
                 limit=limit,
-                memory_type=memory_type,
+                memory_type=None,  # Primary intent types may not exist in secondary
+                # collections (e.g., "implementation" in code-patterns but not conventions)
                 fast_mode=fast_mode,
                 source=source,
             )

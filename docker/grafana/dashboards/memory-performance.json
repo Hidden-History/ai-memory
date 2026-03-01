@@ -311,7 +311,7 @@
         },
         {
           "expr": "vector(2.0)",
-          "refId": "B",
+          "refId": "C",
           "legendFormat": "NFR Threshold (2s)"
         }
       ],
