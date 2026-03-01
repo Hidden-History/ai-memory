@@ -90,6 +90,14 @@ def main() -> int:
         project_name = detect_project(cwd)
         config = get_config()
 
+        # SPEC-021: Propagate trace context so library function trace events
+        # (search.py, injection.py) link to the same Langfuse trace
+        from uuid import uuid4 as _uuid4
+
+        _tier2_trace_id = _uuid4().hex
+        os.environ["LANGFUSE_TRACE_ID"] = _tier2_trace_id
+        os.environ["CLAUDE_SESSION_ID"] = session_id
+
         # Check if injection is enabled
         if not config.injection_enabled:
             print(

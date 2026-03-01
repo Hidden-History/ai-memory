@@ -765,6 +765,15 @@ def main():
                 sys.exit(0)
 
             if trigger == "startup":
+                # SPEC-021: Propagate trace context to library functions
+                # so emit_trace_event() in search.py/injection.py shares
+                # the same trace_id and session_id as session_start events
+                from uuid import uuid4 as _uuid4
+
+                _startup_trace_id = _uuid4().hex
+                os.environ["LANGFUSE_TRACE_ID"] = _startup_trace_id
+                os.environ["CLAUDE_SESSION_ID"] = session_id
+
                 # Tier 1 Bootstrap: inject conventions, guidelines, recent findings
                 from memory.injection import (
                     format_injection_output,
@@ -928,8 +937,6 @@ def main():
                 # SPEC-021: Langfuse trace for session bootstrap
                 if emit_trace_event:
                     try:
-                        from uuid import uuid4
-
                         emit_trace_event(
                             event_type="session_bootstrap",
                             data={
@@ -951,7 +958,6 @@ def main():
                                     "result_scores": [round(r.get("score", 0), 4) for r in selected[:20]],
                                 },
                             },
-                            trace_id=uuid4().hex,
                             session_id=session_id,
                             project_id=project_name,
                         )
@@ -975,6 +981,13 @@ def main():
                 sys.exit(0)
 
             # On resume or compact: Inject conversation context to restore working memory
+            # SPEC-021: Propagate trace context for resume/compact path
+            from uuid import uuid4 as _uuid4
+
+            _resume_trace_id = _uuid4().hex
+            os.environ["LANGFUSE_TRACE_ID"] = _resume_trace_id
+            os.environ["CLAUDE_SESSION_ID"] = session_id
+
             logger.info(
                 "v2_context_injection",
                 extra={
@@ -1273,8 +1286,6 @@ def main():
                 # SPEC-021: Langfuse trace for session restore
                 if emit_trace_event:
                     try:
-                        from uuid import uuid4
-
                         emit_trace_event(
                             event_type="session_bootstrap",
                             data={
@@ -1290,7 +1301,6 @@ def main():
                                     "result_scores": [0.0 for _ in session_summaries[:10]] + [round(m.get("score", 0), 4) for m in other_memories[:10]],
                                 },
                             },
-                            trace_id=uuid4().hex,
                             session_id=session_id,
                             project_id=project_name,
                         )

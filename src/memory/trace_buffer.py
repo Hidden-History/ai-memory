@@ -99,7 +99,7 @@ def emit_trace_event(
         ).replace("-", ""),
         "span_id": span_id or uuid4().hex,
         "parent_span_id": parent_span_id,
-        "session_id": session_id,
+        "session_id": session_id or os.environ.get("CLAUDE_SESSION_ID"),
         "project_id": project_id or os.environ.get("AI_MEMORY_PROJECT_ID", ""),
         "data": {
             **data,
