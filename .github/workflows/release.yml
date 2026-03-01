@@ -109,7 +109,7 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest tests/ -v --ignore=tests/e2e --ignore=tests/integration -m "not quarantine"
+          pytest tests/ -v --ignore=tests/e2e --ignore=tests/integration -m "not quarantine" -p no:randomly
 
       - name: Verify Docker stack
         run: |

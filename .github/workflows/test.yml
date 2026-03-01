@@ -78,6 +78,7 @@ jobs:
             --ignore=tests/e2e \
             --ignore=tests/integration \
             -m "not quarantine" \
+            -p no:randomly \
             --cov=src/memory --cov-report=xml --cov-fail-under=70
         env:
           CI: "true"
