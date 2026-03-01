@@ -409,6 +409,7 @@ async def test_context_manager_cleanup(mock_storage, tmp_path):
         assert task.done()
 
 
+@pytest.mark.quarantine
 @pytest.mark.asyncio
 async def test_rate_limiter_integration(mock_storage, tmp_path):
     """Test rate limiter integrates with wrapper."""

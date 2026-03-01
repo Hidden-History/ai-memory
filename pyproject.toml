@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-memory"
-version = "2.0.6"
+version = "2.0.8"
 description = "BMAD AI Memory Module - Vector-based memory system for AI agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -72,6 +72,8 @@ dev = [
     "pytest-cov>=7.0.0,<8.0.0",
     "pytest-mock>=3.15.0,<4.0.0",
     "pytest-timeout>=2.4.0,<3.0.0",
+    "pytest-randomly>=3.15.0,<4.0.0",
+    "pytest-rerunfailures>=14.0.0,<15.0.0",
     "hypothesis>=6.0.0,<7.0.0",
     "requests>=2.32.0,<3.0.0",
     "psutil>=7.0.0,<8.0.0",
@@ -122,6 +124,7 @@ markers = [
     "requires_docker_stack: Tests requiring full Docker stack",
     "requires_api: Tests requiring Monitoring API service on port 28000",
     "requires_streamlit: Tests requiring Streamlit dashboard on port 28501",
+    "quarantine: Quarantined flaky tests excluded from default CI runs",
 ]
 
 # Coverage configuration

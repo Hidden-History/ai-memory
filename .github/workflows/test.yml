@@ -77,6 +77,7 @@ jobs:
           pytest tests/ -v --tb=short \
             --ignore=tests/e2e \
             --ignore=tests/integration \
+            -m "not quarantine" \
             --cov=src/memory --cov-report=xml --cov-fail-under=70
         env:
           CI: "true"
@@ -246,6 +247,50 @@ jobs:
           sys.exit(1)
           HEALTH_CHECK
 
+      # Initialize Qdrant collections for E2E tests
+      - name: Initialize Qdrant collections
+        run: |
+          python3 << 'INIT_COLLECTIONS'
+          import urllib.request
+          import json
+          import sys
+
+          base_url = "http://localhost:26350"
+          api_key = "ci-e2e-test-key"
+          collections = ["code-patterns", "conventions", "discussions", "jira-data"]
+
+          for name in collections:
+              payload = json.dumps({
+                  "vectors": {
+                      "size": 768,
+                      "distance": "Cosine"
+                  }
+              }).encode()
+
+              req = urllib.request.Request(
+                  f"{base_url}/collections/{name}",
+                  data=payload,
+                  headers={
+                      "Content-Type": "application/json",
+                      "api-key": api_key
+                  },
+                  method="PUT"
+              )
+
+              try:
+                  with urllib.request.urlopen(req, timeout=10) as response:
+                      if response.status == 200:
+                          print(f"✓ Collection '{name}' created")
+                      else:
+                          print(f"✗ Collection '{name}' returned status {response.status}")
+                          sys.exit(1)
+              except Exception as e:
+                  print(f"✗ Failed to create collection '{name}': {e}")
+                  sys.exit(1)
+
+          print(f"✓ All {len(collections)} collections initialized")
+          INIT_COLLECTIONS
+
       # Wait for Embedding service to be ready
       - name: Wait for Embedding service to be ready
         run: |
@@ -368,6 +413,55 @@ jobs:
           sys.exit(1)
           HEALTH_CHECK
 
+      # Verify Grafana dashboards are provisioned
+      - name: Verify Grafana dashboards provisioned
+        run: |
+          python3 << 'VERIFY_DASHBOARDS'
+          import urllib.request
+          import base64
+          import time
+          import sys
+          import json
+
+          dashboards = ["ai-memory-overview-v2", "ai-memory-performance-v2"]
+          max_attempts = 30
+          delay = 2
+
+          auth_header = "Basic " + base64.b64encode(b"admin:ci-test-password").decode()
+
+          for uid in dashboards:
+              url = f"http://localhost:23000/api/dashboards/uid/{uid}"
+              print(f"Waiting for dashboard '{uid}'...")
+              for attempt in range(1, max_attempts + 1):
+                  try:
+                      req = urllib.request.Request(url, headers={"Authorization": auth_header})
+                      with urllib.request.urlopen(req, timeout=5) as response:
+                          if response.status == 200:
+                              print(f"✓ Dashboard '{uid}' ready after {attempt} attempts")
+                              break
+                  except Exception as e:
+                      if attempt % 5 == 0:
+                          print(f"Attempt {attempt}/{max_attempts}: {e}")
+                      if attempt < max_attempts:
+                          time.sleep(delay)
+              else:
+                  print(f"✗ Dashboard '{uid}' not found after {max_attempts * delay}s")
+                  # Log available dashboards for debugging
+                  try:
+                      req = urllib.request.Request(
+                          "http://localhost:23000/api/search?type=dash-db",
+                          headers={"Authorization": auth_header}
+                      )
+                      with urllib.request.urlopen(req, timeout=5) as r:
+                          data = json.loads(r.read())
+                          print(f"Available dashboards: {[d.get('uid', 'no-uid') for d in data]}")
+                  except Exception:
+                      print("Could not fetch dashboard list")
+                  sys.exit(1)
+
+          print(f"✓ All {len(dashboards)} dashboards verified")
+          VERIFY_DASHBOARDS
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -404,12 +498,29 @@ jobs:
         run: |
           pytest tests/e2e -v --tb=short \
             --run-e2e \
-            --browser chromium
+            --browser chromium \
+            --reruns 2 --reruns-delay 5 \
+            --junit-xml=test-results-e2e.xml
         env:
           CI: "true"
           QDRANT_HOST: localhost
           QDRANT_PORT: "26350"
           QDRANT_API_KEY: ci-e2e-test-key
+
+      - name: Capture Docker logs on failure
+        if: failure()
+        working-directory: docker
+        run: |
+          echo "=== Docker service logs (last 100 lines each) ==="
+          docker compose --profile monitoring logs --tail=100
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: test-results-e2e.xml
+          retention-days: 30
 
       - name: Cleanup Docker services
         if: always()

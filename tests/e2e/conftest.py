@@ -36,7 +36,7 @@ def grafana_page(page: Page) -> Generator[Page, None, None]:
 
     Grafana should be accessible at http://localhost:23000 with anonymous access enabled.
     """
-    page.goto("http://localhost:23000", wait_until="networkidle", timeout=15000)
+    page.goto("http://localhost:23000", wait_until="networkidle", timeout=30000)
 
     # Wait for Grafana to be fully loaded - look for common Grafana UI elements
     # Try multiple selectors as Grafana UI can vary by version

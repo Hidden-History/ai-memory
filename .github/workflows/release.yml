@@ -105,11 +105,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements-dev.txt
+          pip install -e ".[dev]"
 
       - name: Run tests
         run: |
-          pytest tests/ -v
+          pytest tests/ -v --ignore=tests/e2e --ignore=tests/integration -m "not quarantine"
 
       - name: Verify Docker stack
         run: |

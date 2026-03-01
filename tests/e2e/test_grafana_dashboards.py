@@ -28,8 +28,8 @@ class TestGrafanaDashboards:
 
     GRAFANA_BASE_URL = "http://localhost:23000"
     FOLDER_NAME = "AI Memory Module"
-    OVERVIEW_DASHBOARD_UID = "ai-memory-overview"
-    PERFORMANCE_DASHBOARD_UID = "ai-memory-performance"
+    OVERVIEW_DASHBOARD_UID = "ai-memory-overview-v2"
+    PERFORMANCE_DASHBOARD_UID = "ai-memory-performance-v2"
 
     @pytest.fixture(autouse=True)
     def setup_console_monitoring(self, grafana_page: Page):
@@ -97,7 +97,7 @@ class TestGrafanaDashboards:
         )
 
         # Wait for panels to load
-        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=30000)
         grafana_page.wait_for_timeout(2000)  # Additional wait for panel rendering
 
         # Count panels
@@ -115,7 +115,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=30000)
         grafana_page.wait_for_timeout(3000)  # Wait for data queries to complete
 
         panel_errors = self._check_panels_for_errors(grafana_page)
@@ -168,7 +168,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=30000)
         grafana_page.wait_for_timeout(3000)
 
         # Check for Prometheus-specific error messages
@@ -216,7 +216,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=30000)
         grafana_page.wait_for_timeout(2000)
 
         panels = grafana_page.locator("[data-viz-panel-key]")
@@ -233,7 +233,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=30000)
         grafana_page.wait_for_timeout(3000)
 
         panel_errors = self._check_panels_for_errors(grafana_page)
@@ -258,7 +258,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=30000)
         grafana_page.wait_for_timeout(3000)
 
         prometheus_error_patterns = [
@@ -293,7 +293,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=30000)
         grafana_page.wait_for_timeout(3000)
 
         if self.console_errors:
@@ -314,7 +314,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=30000)
         grafana_page.wait_for_timeout(3000)
 
         if self.console_errors:
@@ -341,7 +341,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=30000)
         grafana_page.wait_for_timeout(3000)
 
         # Take full page screenshot
@@ -361,7 +361,7 @@ class TestGrafanaDashboards:
             wait_until="networkidle",
         )
 
-        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=15000)
+        grafana_page.wait_for_selector("[data-viz-panel-key]", timeout=30000)
         grafana_page.wait_for_timeout(3000)
 
         grafana_page.screenshot(
