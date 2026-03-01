@@ -1006,101 +1006,151 @@ def main():
 
             # TECH-DEBT-047: Priority-based injection
             # Phase 1: Retrieve session summaries (60% of budget)
-            # Phase 2: Retrieve other memories - decisions, patterns, conventions (40% of budget)
+            # Phase 2: Retrieve other memories (40% of budget)
 
-            # Retrieve session summaries using shared helper (TECH-DEBT-047 refactor)
-            session_summaries = retrieve_session_summaries(
-                client, project_name, limit=20
-            )
-            # Take top 5 most recent
-            session_summaries = session_summaries[:5]
-
-            # Retrieve other memories (decisions, patterns, conventions)
-            other_memories = []
-            # Track memory counts per collection for metrics (BUG-021 fix)
-            memories_per_collection = {
-                COLLECTION_DISCUSSIONS: 0,
-                COLLECTION_CODE_PATTERNS: 0,
-                COLLECTION_CONVENTIONS: 0,
-            }
-            try:
+            if config.parzival_enabled:
+                # PARZIVAL PATH: Deterministic retrieval, decisions only
                 from memory.search import MemorySearch
 
-                # Build a query from the most recent session summary
-                query = "recent implementation patterns and decisions"  # More specific default
-                if session_summaries:
-                    first_summary = session_summaries[0]
-                    # Try multiple fields for better query relevance
-                    query = (
-                        first_summary.get("first_user_prompt")
-                        or first_summary.get("content", "")[:200]  # Use content preview
-                        or "recent implementation patterns"
-                    )
-
-                # Search for relevant memories across collections
                 searcher = MemorySearch(config)
 
-                # Search decisions from discussions (type=decision)
-                decisions = searcher.search(
-                    query=query,
+                # Session summaries via deterministic get_recent
+                session_summary_results = searcher.get_recent(
                     collection=COLLECTION_DISCUSSIONS,
                     group_id=project_name,
+                    memory_type=["session"],
                     limit=3,
-                    memory_type="decision",
-                    fast_mode=True,  # Use fast mode for triggers
                 )
-                other_memories.extend(decisions)
-                memories_per_collection[COLLECTION_DISCUSSIONS] = len(decisions)
+                session_summaries = []
+                for r in session_summary_results:
+                    session_summaries.append({
+                        "content": r.get("content", ""),
+                        "timestamp": r.get("created_at", r.get("timestamp", "")),
+                        "type": r.get("type", "session"),
+                        "first_user_prompt": r.get("first_user_prompt", ""),
+                        "last_user_prompts": r.get("last_user_prompts", []),
+                        "last_agent_responses": r.get("last_agent_responses", []),
+                        "session_metadata": r.get("session_metadata", {}),
+                    })
 
-                # Search patterns from code-patterns
-                patterns = searcher.search(
-                    query=query,
-                    collection=COLLECTION_CODE_PATTERNS,
-                    group_id=project_name,
-                    limit=3,
-                    fast_mode=True,
-                )
-                other_memories.extend(patterns)
-                memories_per_collection[COLLECTION_CODE_PATTERNS] = len(patterns)
-
-                # Search conventions (no group_id filter - shared)
-                conventions = searcher.search(
-                    query=query,
-                    collection=COLLECTION_CONVENTIONS,
-                    group_id=None,  # Shared across projects
-                    limit=2,
-                    fast_mode=True,
-                )
-                other_memories.extend(conventions)
-                memories_per_collection[COLLECTION_CONVENTIONS] = len(conventions)
+                # Other memories: decisions ONLY (no conventions, no patterns)
+                other_memories = []
+                memories_per_collection = {
+                    COLLECTION_DISCUSSIONS: 0,
+                    COLLECTION_CODE_PATTERNS: 0,
+                    COLLECTION_CONVENTIONS: 0,
+                }
+                try:
+                    decisions = searcher.get_recent(
+                        collection=COLLECTION_DISCUSSIONS,
+                        group_id=project_name,
+                        memory_type=["decision"],
+                        limit=5,
+                    )
+                    other_memories.extend(decisions)
+                    memories_per_collection[COLLECTION_DISCUSSIONS] = len(decisions)
+                except Exception as e:
+                    logger.warning(
+                        "other_memories_retrieval_failed",
+                        extra={"session_id": session_id, "error": str(e)},
+                    )
 
                 searcher.close()
 
-            except Exception as e:
-                logger.warning(
-                    "other_memories_retrieval_failed",
-                    extra={"session_id": session_id, "error": str(e)},
+            else:
+                # NON-PARZIVAL PATH: Keep existing behavior EXACTLY
+                # Retrieve session summaries using shared helper (TECH-DEBT-047 refactor)
+                session_summaries = retrieve_session_summaries(
+                    client, project_name, limit=20
                 )
-                if emit_trace_event:
-                    try:
-                        emit_trace_event(
-                            event_type="context_retrieval",
-                            data={
-                                "input": f"Other memories retrieval: {project_name}",
-                                "output": f"Retrieval failed: {type(e).__name__}: {e!s}",
-                                "metadata": {
-                                    "trigger": trigger,
-                                    "error": type(e).__name__,
-                                    "results_considered": 0,
-                                    "results_selected": 0,
-                                },
-                            },
-                            session_id=session_id,
-                            project_id=project_name,
-                        )
-                    except Exception:
-                        pass
+                # Take top 5 most recent
+                session_summaries = session_summaries[:5]
+
+                # Retrieve other memories (decisions, patterns, conventions)
                 other_memories = []
+                # Track memory counts per collection for metrics (BUG-021 fix)
+                memories_per_collection = {
+                    COLLECTION_DISCUSSIONS: 0,
+                    COLLECTION_CODE_PATTERNS: 0,
+                    COLLECTION_CONVENTIONS: 0,
+                }
+                try:
+                    from memory.search import MemorySearch
+
+                    # Build a query from the most recent session summary
+                    query = "recent implementation patterns and decisions"
+                    if session_summaries:
+                        first_summary = session_summaries[0]
+                        query = (
+                            first_summary.get("first_user_prompt")
+                            or first_summary.get("content", "")[:200]
+                            or "recent implementation patterns"
+                        )
+
+                    # Search for relevant memories across collections
+                    searcher = MemorySearch(config)
+
+                    # Search decisions from discussions (type=decision)
+                    decisions = searcher.search(
+                        query=query,
+                        collection=COLLECTION_DISCUSSIONS,
+                        group_id=project_name,
+                        limit=3,
+                        memory_type="decision",
+                        fast_mode=True,
+                    )
+                    other_memories.extend(decisions)
+                    memories_per_collection[COLLECTION_DISCUSSIONS] = len(decisions)
+
+                    # Search patterns from code-patterns
+                    patterns = searcher.search(
+                        query=query,
+                        collection=COLLECTION_CODE_PATTERNS,
+                        group_id=project_name,
+                        limit=3,
+                        fast_mode=True,
+                    )
+                    other_memories.extend(patterns)
+                    memories_per_collection[COLLECTION_CODE_PATTERNS] = len(patterns)
+
+                    # Search conventions (no group_id filter - shared)
+                    conventions = searcher.search(
+                        query=query,
+                        collection=COLLECTION_CONVENTIONS,
+                        group_id=None,
+                        limit=2,
+                        fast_mode=True,
+                    )
+                    other_memories.extend(conventions)
+                    memories_per_collection[COLLECTION_CONVENTIONS] = len(conventions)
+
+                    searcher.close()
+
+                except Exception as e:
+                    logger.warning(
+                        "other_memories_retrieval_failed",
+                        extra={"session_id": session_id, "error": str(e)},
+                    )
+                    if emit_trace_event:
+                        try:
+                            emit_trace_event(
+                                event_type="context_retrieval",
+                                data={
+                                    "input": f"Other memories retrieval: {project_name}",
+                                    "output": f"Retrieval failed: {type(e).__name__}: {e!s}",
+                                    "metadata": {
+                                        "trigger": trigger,
+                                        "error": type(e).__name__,
+                                        "results_considered": 0,
+                                        "results_selected": 0,
+                                    },
+                                },
+                                session_id=session_id,
+                                project_id=project_name,
+                            )
+                        except Exception:
+                            pass
+                    other_memories = []
 
             # Use priority injection (TECH-DEBT-047)
             conversation_context = inject_with_priority(
