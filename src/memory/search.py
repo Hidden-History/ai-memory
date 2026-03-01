@@ -12,6 +12,7 @@ Best Practices (2025/2026):
 import contextlib
 import logging
 import time
+from datetime import datetime, timezone
 
 from qdrant_client.models import (
     FieldCondition,
@@ -43,6 +44,12 @@ except ImportError:
     retrieval_duration_seconds = None
     memory_retrievals_total = None
     failure_events_total = None
+
+# SPEC-021: Trace buffer for search instrumentation
+try:
+    from .trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
 
 from .activity_log import log_memory_search
 from .metrics_push import push_failure_metrics_async, push_retrieval_metrics_async
@@ -252,6 +259,7 @@ class MemorySearch:
 
         # Generate query embedding
         # Propagates EmbeddingError for graceful degradation
+        _trace_start = datetime.now(tz=timezone.utc)
         model = self._get_embedding_model(collection)
         query_embedding = self.embedding_client.embed([query], model=model)[0]
 
@@ -430,6 +438,38 @@ class MemorySearch:
             }
             memories.append(memory)
 
+        # SPEC-021: Emit search trace event
+        if emit_trace_event:
+            try:
+                _trace_end = datetime.now(tz=timezone.utc)
+                _top_score = results[0].score if results else 0.0
+                _search_duration_ms = (time.perf_counter() - start_time) * 1000
+                emit_trace_event(
+                    event_type="search_query",
+                    data={
+                        "input": query[:2000],
+                        "output": f"Found {len(memories)} results, top score: {_top_score:.4f}",
+                        "metadata": {
+                            "collection": collection,
+                            "group_id": group_id,
+                            "limit": limit,
+                            "memory_type": memory_type,
+                            "fast_mode": fast_mode,
+                            "source": source,
+                            "agent_id": agent_id,
+                            "embedding_model": model,
+                            "search_duration_ms": round(_search_duration_ms, 2),
+                            "result_count": len(memories),
+                            "top_score": round(_top_score, 4),
+                        },
+                    },
+                    project_id=group_id,
+                    start_time=_trace_start,
+                    end_time=_trace_end,
+                )
+            except Exception:
+                pass
+
         # Metrics: Increment retrieval counter with success/empty status (Story 6.1, AC 6.1.3)
         status = "success" if memories else "empty"
         if memory_retrievals_total:
@@ -520,6 +560,8 @@ class MemorySearch:
                 )
                 effective_group_id = None
 
+        _trace_start = datetime.now(tz=timezone.utc)
+
         # Search code-patterns with group_id filter (project-specific)
         code_patterns = self.search(
             query=query,
@@ -548,6 +590,34 @@ class MemorySearch:
                 "total_results": len(code_patterns) + len(conventions),
             },
         )
+
+        # SPEC-021: Emit dual-collection search trace event
+        if emit_trace_event:
+            try:
+                _trace_end = datetime.now(tz=timezone.utc)
+                emit_trace_event(
+                    event_type="dual_collection_search",
+                    data={
+                        "input": query[:2000],
+                        "output": (
+                            f"Dual search: {len(code_patterns)} code-patterns, "
+                            f"{len(conventions)} conventions"
+                        ),
+                        "metadata": {
+                            "group_id": effective_group_id,
+                            "code_patterns_count": len(code_patterns),
+                            "conventions_count": len(conventions),
+                            "total_results": len(code_patterns) + len(conventions),
+                            "limit": limit,
+                            "fast_mode": fast_mode,
+                        },
+                    },
+                    project_id=effective_group_id,
+                    start_time=_trace_start,
+                    end_time=_trace_end,
+                )
+            except Exception:
+                pass
 
         return {
             "code-patterns": code_patterns,
@@ -606,6 +676,8 @@ class MemorySearch:
             >>> results[0]["collection"]
             'code-patterns'
         """
+        _trace_start = datetime.now(tz=timezone.utc)
+
         # Step 1: Search primary collection
         primary_results = self.search(
             query=query,
@@ -634,6 +706,35 @@ class MemorySearch:
                     "expansion_needed": False,
                 },
             )
+            # SPEC-021: Emit cascading search trace (primary sufficient)
+            if emit_trace_event:
+                try:
+                    _trace_end = datetime.now(tz=timezone.utc)
+                    emit_trace_event(
+                        event_type="cascading_search",
+                        data={
+                            "input": query[:2000],
+                            "output": (
+                                f"Cascading: {len(primary_results)} results "
+                                f"from 1 collection (primary sufficient)"
+                            ),
+                            "metadata": {
+                                "primary_collection": primary_collection,
+                                "secondary_collections": secondary_collections,
+                                "total_results": len(primary_results),
+                                "primary_results_count": len(primary_results),
+                                "secondary_results_count": 0,
+                                "expanded": False,
+                                "intent_type": str(memory_type),
+                                "search_type": "cascading",
+                            },
+                        },
+                        project_id=group_id,
+                        start_time=_trace_start,
+                        end_time=_trace_end,
+                    )
+                except Exception:
+                    pass
             return primary_results
 
         # Step 3: Results insufficient - expand to secondary collections
@@ -684,6 +785,38 @@ class MemorySearch:
                 "expanded": True,
             },
         )
+
+        # SPEC-021: Emit cascading search trace (expanded)
+        _secondary_count = len(all_results) - results_count
+        _collections_searched = 1 + len(secondary_collections)
+        if emit_trace_event:
+            try:
+                _trace_end = datetime.now(tz=timezone.utc)
+                emit_trace_event(
+                    event_type="cascading_search",
+                    data={
+                        "input": query[:2000],
+                        "output": (
+                            f"Cascading: {len(final_results)} results "
+                            f"from {_collections_searched} collections"
+                        ),
+                        "metadata": {
+                            "primary_collection": primary_collection,
+                            "secondary_collections": secondary_collections,
+                            "total_results": len(final_results),
+                            "primary_results_count": results_count,
+                            "secondary_results_count": _secondary_count,
+                            "expanded": True,
+                            "intent_type": str(memory_type),
+                            "search_type": "cascading",
+                        },
+                    },
+                    project_id=group_id,
+                    start_time=_trace_start,
+                    end_time=_trace_end,
+                )
+            except Exception:
+                pass
 
         return final_results
 

@@ -908,6 +908,15 @@ def main():
                                     "tokens_used": tokens_used,
                                     "budget": config.bootstrap_token_budget,
                                     "parzival_enabled": config.parzival_enabled,
+                                    "results_detail": [
+                                        {
+                                            "type": r.get("type", "unknown"),
+                                            "collection": r.get("collection", "unknown"),
+                                            "score": round(r.get("score", 0), 4),
+                                            "tokens": count_tokens(r.get("content", "")) if r.get("content") else 0,
+                                        }
+                                        for r in selected[:20]
+                                    ],
                                 },
                             },
                             session_id=session_id,
@@ -938,6 +947,8 @@ def main():
                                     "tokens_injected": tokens_used,
                                     "budget": config.bootstrap_token_budget,
                                     "summary": f"Injected {tokens_used} tokens from {len(selected)} results",
+                                    "result_types": [r.get("type", "unknown") for r in selected[:20]],
+                                    "result_scores": [round(r.get("score", 0), 4) for r in selected[:20]],
                                 },
                             },
                             trace_id=uuid4().hex,
@@ -1236,6 +1247,21 @@ def main():
                                     "memory_counts": {k: v for k, v in memories_per_collection.items() if v > 0},
                                     "tokens_used": token_count,
                                     "budget": config.token_budget,
+                                    "results_detail": [
+                                        {
+                                            "type": s.get("type", "session_summary"),
+                                            "tokens": count_tokens(s.get("content", "")) if s.get("content") else 0,
+                                        }
+                                        for s in session_summaries[:10]
+                                    ] + [
+                                        {
+                                            "type": m.get("type", "unknown"),
+                                            "collection": m.get("collection", "unknown"),
+                                            "score": round(m.get("score", 0), 4),
+                                            "tokens": count_tokens(m.get("content", "")) if m.get("content") else 0,
+                                        }
+                                        for m in other_memories[:10]
+                                    ],
                                 },
                             },
                             session_id=session_id,
@@ -1260,6 +1286,8 @@ def main():
                                     "tokens_injected": token_count,
                                     "budget": config.token_budget,
                                     "summary": f"Injected {token_count} tokens from {total_count} results",
+                                    "result_types": [s.get("type", "session_summary") for s in session_summaries[:10]] + [m.get("type", "unknown") for m in other_memories[:10]],
+                                    "result_scores": [0.0 for _ in session_summaries[:10]] + [round(m.get("score", 0), 4) for m in other_memories[:10]],
                                 },
                             },
                             trace_id=uuid4().hex,

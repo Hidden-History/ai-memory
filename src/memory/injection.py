@@ -48,6 +48,12 @@ from memory.triggers import (
     detect_session_history_keywords,
 )
 
+# SPEC-021: Trace buffer for injection instrumentation
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
 __all__ = [
     "InjectionSessionState",
     "RouteTarget",
@@ -243,7 +249,12 @@ def retrieve_bootstrap_context(
     Returns:
         List of result dicts sorted by relevance score, ready for greedy fill.
     """
+    _trace_start = datetime.now(tz=timezone.utc)
     results = []
+    _conventions_count = 0
+    _decisions_count = 0
+    _agent_count = 0
+    _github_count = 0
 
     # 1. Conventions (shared, no group_id filter)
     try:
@@ -255,6 +266,7 @@ def retrieve_bootstrap_context(
             fast_mode=True,
         )
         results.extend(conventions)
+        _conventions_count = len(conventions)
     except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
         logger.warning(
             "bootstrap_conventions_unavailable",
@@ -272,6 +284,7 @@ def retrieve_bootstrap_context(
             fast_mode=True,
         )
         results.extend(decisions)
+        _decisions_count = len(decisions)
     except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
         logger.warning(
             "bootstrap_decisions_unavailable",
@@ -304,6 +317,7 @@ def retrieve_bootstrap_context(
                 fast_mode=True,
             )
             results.extend(insights)
+            _agent_count = len(last_handoff) + len(insights)
 
             # 3c. GitHub enrichment — recent activity since last session
             last_session_date = None
@@ -317,6 +331,7 @@ def retrieve_bootstrap_context(
                 last_session_date,
             )
             results.extend(github_enrichment)
+            _github_count = len(github_enrichment)
         except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
             logger.warning(
                 "parzival_qdrant_unavailable",
@@ -334,6 +349,7 @@ def retrieve_bootstrap_context(
                 fast_mode=True,
             )
             results.extend(agent_context)
+            _agent_count = len(agent_context)
         except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
             logger.warning(
                 "bootstrap_agent_context_unavailable",
@@ -342,6 +358,40 @@ def retrieve_bootstrap_context(
 
     # Sort all results by score (decay-weighted) for greedy fill
     results.sort(key=lambda r: r.get("score", 0), reverse=True)
+
+    # SPEC-021: Emit bootstrap retrieval trace event
+    if emit_trace_event:
+        try:
+            emit_trace_event(
+                event_type="bootstrap_retrieval",
+                data={
+                    "input": f"Bootstrap retrieval for project: {project_name}, parzival_enabled: {config.parzival_enabled}",
+                    "output": f"Retrieved {len(results)} total results: {_conventions_count} conventions, {_decisions_count} decisions, {_agent_count} agent context, {_github_count} github",
+                    "metadata": {
+                        "project_name": project_name,
+                        "parzival_enabled": config.parzival_enabled,
+                        "conventions_count": _conventions_count,
+                        "decisions_count": _decisions_count,
+                        "agent_context_count": _agent_count,
+                        "github_enrichment_count": _github_count,
+                        "total_results": len(results),
+                        "per_result_scores": [
+                            {
+                                "type": r.get("type", "unknown"),
+                                "score": r.get("score", 0),
+                                "collection": r.get("collection", "unknown"),
+                            }
+                            for r in results[:20]
+                        ],
+                    },
+                },
+                project_id=project_name,
+                start_time=_trace_start,
+                end_time=datetime.now(tz=timezone.utc),
+            )
+        except Exception:
+            pass
+
     return results
 
 
@@ -531,9 +581,13 @@ def select_results_greedy(
     Returns:
         Tuple of (selected_results, total_tokens_used).
     """
+    _trace_start = datetime.now(tz=timezone.utc)
     excluded = set(excluded_ids or [])
     selected = []
+    _selected_token_counts: list[int] = []
     tokens_used = 0
+    _dedup_skipped = 0
+    _score_gap_skipped = 0
 
     # BUG-172: Content-hash deduplication for cross-type duplicates
     seen_hashes: set[str] = set()
@@ -555,12 +609,14 @@ def select_results_greedy(
         # BUG-172: Skip duplicate content (same text stored under different types)
         content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
         if content_hash in seen_hashes:
+            _dedup_skipped += 1
             continue
         seen_hashes.add(content_hash)
 
         # BUG-173: Skip results with >30% score gap from best
         result_score = result.get("score", 0)
         if best_score > 0 and result_score < best_score * _SCORE_GAP_THRESHOLD:
+            _score_gap_skipped += 1
             continue
 
         # Count tokens accurately
@@ -569,11 +625,46 @@ def select_results_greedy(
         # Check if this result fits in remaining budget
         if tokens_used + result_tokens <= budget:
             selected.append(result)
+            _selected_token_counts.append(result_tokens)
             tokens_used += result_tokens
         else:
             # Skip-and-continue: try next smaller result
             # (AD-6: don't truncate, don't stop — keep trying)
             continue
+
+    # SPEC-021: Emit greedy fill trace event
+    if emit_trace_event:
+        try:
+            _utilization_pct = int(tokens_used / budget * 100) if budget > 0 else 0
+            emit_trace_event(
+                event_type="greedy_fill",
+                data={
+                    "input": f"Greedy fill: {len(results)} candidates, budget: {budget} tokens, excluded: {len(excluded)}",
+                    "output": f"Selected {len(selected)} results using {tokens_used}/{budget} tokens ({_utilization_pct}%)",
+                    "metadata": {
+                        "budget": budget,
+                        "tokens_used": tokens_used,
+                        "utilization_pct": _utilization_pct,
+                        "results_considered": len(results),
+                        "results_selected": len(selected),
+                        "excluded_count": len(excluded),
+                        "dedup_skipped": _dedup_skipped,
+                        "score_gap_skipped": _score_gap_skipped,
+                        "selected_detail": [
+                            {
+                                "type": r.get("type", "unknown"),
+                                "score": r.get("score", 0),
+                                "tokens": tc,
+                            }
+                            for r, tc in zip(selected, _selected_token_counts)
+                        ],
+                    },
+                },
+                start_time=_trace_start,
+                end_time=datetime.now(tz=timezone.utc),
+            )
+        except Exception:
+            pass
 
     return selected, tokens_used
 
@@ -594,6 +685,8 @@ def format_injection_output(
     Returns:
         Formatted markdown string wrapped in <retrieved_context> tags.
     """
+    _trace_start = datetime.now(tz=timezone.utc)
+
     if not results:
         return ""
 
@@ -610,7 +703,30 @@ def format_injection_output(
         lines.append(f"**[{result_type}|{collection}|{score_pct}%]** {content}\n")
 
     body = "\n".join(lines)
-    return f"<retrieved_context>\n{body}\n</retrieved_context>"
+    formatted = f"<retrieved_context>\n{body}\n</retrieved_context>"
+
+    # SPEC-021: Emit format injection trace event
+    if emit_trace_event:
+        try:
+            emit_trace_event(
+                event_type="format_injection",
+                data={
+                    "input": f"Format {len(results)} results for tier {tier}",
+                    "output": f"Formatted {len(results)} results into {len(formatted)} chars",
+                    "metadata": {
+                        "tier": tier,
+                        "result_count": len(results),
+                        "output_chars": len(formatted),
+                        "result_types": [r.get("type", "unknown") for r in results],
+                    },
+                },
+                start_time=_trace_start,
+                end_time=datetime.now(tz=timezone.utc),
+            )
+        except Exception:
+            pass
+
+    return formatted
 
 
 def log_injection_event(
