@@ -505,6 +505,166 @@ class MemorySearch:
 
         return memories
 
+    def get_recent(
+        self,
+        collection: str,
+        group_id: str | None = None,
+        memory_type: str | list[str] | None = None,
+        agent_id: str | None = None,
+        source: str | None = None,
+        limit: int = 5,
+    ) -> list[dict]:
+        """Retrieve most recent memories by timestamp (deterministic, no vector search).
+
+        Uses Qdrant scroll with order_by timestamp descending to retrieve the most
+        recent memories. No embedding or similarity scoring is involved — this is
+        a pure chronological retrieval for use cases where recency matters more
+        than semantic similarity.
+
+        Args:
+            collection: Qdrant collection name to search.
+            group_id: Optional project/group filter. Uses explicit None check.
+            memory_type: Optional type filter. String or list of strings.
+            agent_id: Optional agent-scoped filter (e.g., "parzival").
+            source: Optional namespace filter (e.g., "github").
+            limit: Maximum number of results to return (default 5).
+
+        Returns:
+            List of memory dicts with keys matching search() output format:
+            id, score, collection, type, attribution, plus all payload fields.
+            Score is always 1.0 for deterministic (non-vector) results.
+
+        Raises:
+            QdrantUnavailable: If Qdrant is unreachable or the scroll fails.
+        """
+        logger.debug(
+            "get_recent_query",
+            extra={
+                "collection": collection,
+                "group_id": group_id,
+                "memory_type": memory_type,
+                "agent_id": agent_id,
+                "limit": limit,
+            },
+        )
+
+        # Normalize memory_type to list
+        if memory_type is not None:
+            memory_types = (
+                memory_type if isinstance(memory_type, list) else [memory_type]
+            )
+        else:
+            memory_types = None
+
+        # Build filter conditions using 2025 best practice: model-based Filter API
+        filter_conditions = []
+        # CRITICAL: Use explicit None check (not truthy) per AC 4.3.2
+        if group_id is not None:
+            filter_conditions.append(
+                FieldCondition(key="group_id", match=MatchValue(value=group_id))
+            )
+        if memory_types:
+            filter_conditions.append(
+                FieldCondition(key="type", match=MatchAny(any=memory_types))
+            )
+        # SPEC-005: Namespace filter (e.g., source="github")
+        if source is not None:
+            filter_conditions.append(
+                FieldCondition(key="source", match=MatchValue(value=source))
+            )
+            if source == "github":
+                filter_conditions.append(
+                    FieldCondition(key="is_current", match=MatchValue(value=True))
+                )
+        # SPEC-015: Agent-scoped filter (e.g., agent_id="parzival")
+        if agent_id is not None:
+            filter_conditions.append(
+                FieldCondition(
+                    key="agent_id",
+                    match=MatchValue(value=agent_id),
+                )
+            )
+
+        start_time = time.perf_counter()
+        try:
+            points, _ = self.client.scroll(
+                collection_name=collection,
+                scroll_filter=Filter(must=filter_conditions) if filter_conditions else None,
+                limit=limit,
+                order_by={"key": "timestamp", "direction": "desc"},
+                with_payload=True,
+                with_vectors=False,
+            )
+        except Exception as e:
+            duration_seconds = time.perf_counter() - start_time
+            if retrieval_duration_seconds:
+                retrieval_duration_seconds.observe(duration_seconds)
+
+            if memory_retrievals_total:
+                memory_retrievals_total.labels(
+                    collection=collection,
+                    status="failed",
+                    project=group_id or "unknown",
+                ).inc()
+
+            if failure_events_total:
+                failure_events_total.labels(
+                    component="qdrant",
+                    error_code="QDRANT_UNAVAILABLE",
+                    project=group_id or "unknown",
+                ).inc()
+
+            push_retrieval_metrics_async(
+                collection=collection,
+                status="failed",
+                duration_seconds=duration_seconds,
+                project=group_id or "unknown",
+            )
+            push_failure_metrics_async(
+                component="qdrant",
+                error_code="QDRANT_UNAVAILABLE",
+                project=group_id or "unknown",
+            )
+
+            logger.error(
+                "qdrant_get_recent_failed",
+                extra={
+                    "collection": collection,
+                    "group_id": group_id,
+                    "error": str(e),
+                },
+            )
+            raise QdrantUnavailable(f"Get recent failed: {e}") from e
+
+        # Format results with collection and type attribution matching search() output
+        memories = []
+        for point in points:
+            payload = point.payload or {}
+            memory_type_val = payload.get("type", "unknown")
+            memory = {
+                **payload,
+                "id": point.id,
+                "score": 1.0,  # Deterministic retrieval — score is always 1.0
+                "collection": collection,
+                "type": memory_type_val,
+                "attribution": format_attribution(
+                    collection, memory_type_val, 1.0
+                ),
+            }
+            memories.append(memory)
+
+        logger.info(
+            "get_recent_completed",
+            extra={
+                "collection": collection,
+                "results_count": len(memories),
+                "group_id": group_id,
+                "duration_seconds": round(time.perf_counter() - start_time, 4),
+            },
+        )
+
+        return memories
+
     def search_both_collections(
         self,
         query: str,
