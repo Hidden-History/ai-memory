@@ -402,7 +402,11 @@ def retrieve_bootstrap_context(
                 event_type="bootstrap_retrieval",
                 data={
                     "input": f"Bootstrap retrieval for project: {project_name}, parzival_enabled: {config.parzival_enabled}",
-                    "output": _result_previews[:TRACE_CONTENT_MAX] if _result_previews else "No bootstrap results",
+                    "output": (
+                        _result_previews[:TRACE_CONTENT_MAX]
+                        if _result_previews
+                        else "No bootstrap results"
+                    ),
                     "metadata": {
                         "project_name": project_name,
                         "parzival_enabled": config.parzival_enabled,
@@ -684,7 +688,11 @@ def select_results_greedy(
                 event_type="greedy_fill",
                 data={
                     "input": f"Greedy fill: {len(results)} candidates, budget: {budget} tokens, excluded: {len(excluded)}",
-                    "output": _selected_previews[:TRACE_CONTENT_MAX] if _selected_previews else "No results selected",
+                    "output": (
+                        _selected_previews[:TRACE_CONTENT_MAX]
+                        if _selected_previews
+                        else "No results selected"
+                    ),
                     "metadata": {
                         "budget": budget,
                         "tokens_used": tokens_used,
@@ -700,7 +708,9 @@ def select_results_greedy(
                                 "score": r.get("score", 0),
                                 "tokens": tc,
                             }
-                            for r, tc in zip(selected, _selected_token_counts, strict=False)
+                            for r, tc in zip(
+                                selected, _selected_token_counts, strict=False
+                            )
                         ],
                     },
                 },

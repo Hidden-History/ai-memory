@@ -462,7 +462,11 @@ class MemorySearch:
                     event_type="search_query",
                     data={
                         "input": query[:TRACE_CONTENT_MAX],
-                        "output": _result_previews[:10000] if _result_previews else f"No results (collection={collection})",
+                        "output": (
+                            _result_previews[:10000]
+                            if _result_previews
+                            else f"No results (collection={collection})"
+                        ),
                         "metadata": {
                             "collection": collection,
                             "group_id": group_id,
@@ -596,7 +600,9 @@ class MemorySearch:
         try:
             points, _ = self.client.scroll(
                 collection_name=collection,
-                scroll_filter=Filter(must=filter_conditions) if filter_conditions else None,
+                scroll_filter=(
+                    Filter(must=filter_conditions) if filter_conditions else None
+                ),
                 limit=limit,
                 order_by={"key": "timestamp", "direction": "desc"},
                 with_payload=True,
@@ -654,9 +660,7 @@ class MemorySearch:
                 "score": 1.0,  # Deterministic retrieval — score is always 1.0
                 "collection": collection,
                 "type": memory_type_val,
-                "attribution": format_attribution(
-                    collection, memory_type_val, 1.0
-                ),
+                "attribution": format_attribution(collection, memory_type_val, 1.0),
             }
             memories.append(memory)
 
@@ -800,7 +804,11 @@ class MemorySearch:
                     event_type="dual_collection_search",
                     data={
                         "input": query[:TRACE_CONTENT_MAX],
-                        "output": _dual_previews[:10000] if _dual_previews else "No results from dual search",
+                        "output": (
+                            _dual_previews[:10000]
+                            if _dual_previews
+                            else "No results from dual search"
+                        ),
                         "metadata": {
                             "group_id": effective_group_id,
                             "code_patterns_count": len(code_patterns),
@@ -916,7 +924,11 @@ class MemorySearch:
                         event_type="cascading_search",
                         data={
                             "input": query[:TRACE_CONTENT_MAX],
-                            "output": _casc_previews[:10000] if _casc_previews else "No results",
+                            "output": (
+                                _casc_previews[:10000]
+                                if _casc_previews
+                                else "No results"
+                            ),
                             "metadata": {
                                 "primary_collection": primary_collection,
                                 "secondary_collections": secondary_collections,
@@ -999,7 +1011,11 @@ class MemorySearch:
                     event_type="cascading_search",
                     data={
                         "input": query[:TRACE_CONTENT_MAX],
-                        "output": _casc_exp_previews[:10000] if _casc_exp_previews else "No results",
+                        "output": (
+                            _casc_exp_previews[:10000]
+                            if _casc_exp_previews
+                            else "No results"
+                        ),
                         "metadata": {
                             "primary_collection": primary_collection,
                             "secondary_collections": secondary_collections,
