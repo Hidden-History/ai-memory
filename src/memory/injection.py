@@ -20,6 +20,7 @@ References:
 - BP-089: Adaptive budgets improve accuracy 5-15%
 """
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -677,7 +678,7 @@ def select_results_greedy(
             # Build content preview of what was selected
             _selected_previews = "\n---\n".join(
                 f"[{r.get('type','?')}|{round(r.get('score',0)*100)}%|{tc}tok] {r.get('content','')[:400]}"
-                for r, tc in zip(selected, _selected_token_counts)
+                for r, tc in zip(selected, _selected_token_counts, strict=False)
             )
             emit_trace_event(
                 event_type="greedy_fill",
@@ -699,7 +700,7 @@ def select_results_greedy(
                                 "score": r.get("score", 0),
                                 "tokens": tc,
                             }
-                            for r, tc in zip(selected, _selected_token_counts)
+                            for r, tc in zip(selected, _selected_token_counts, strict=False)
                         ],
                     },
                 },
@@ -750,7 +751,7 @@ def format_injection_output(
 
     # SPEC-021: Emit format injection trace event
     if emit_trace_event:
-        try:
+        with contextlib.suppress(Exception):
             emit_trace_event(
                 event_type="format_injection",
                 data={
@@ -766,8 +767,6 @@ def format_injection_output(
                 start_time=_trace_start,
                 end_time=datetime.now(tz=timezone.utc),
             )
-        except Exception:
-            pass
 
     return formatted
 

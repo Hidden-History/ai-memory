@@ -22,6 +22,7 @@ from qdrant_client.models import (
     SearchParams,
 )
 
+from .activity_log import log_memory_search
 from .config import (
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
@@ -31,6 +32,7 @@ from .config import (
 )
 from .decay import build_decay_formula
 from .embeddings import EmbeddingClient, EmbeddingError
+from .metrics_push import push_failure_metrics_async, push_retrieval_metrics_async
 from .qdrant_client import QdrantUnavailable, get_qdrant_client
 
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
@@ -52,9 +54,6 @@ except ImportError:
     emit_trace_event = None
 
 TRACE_CONTENT_MAX = 2000  # Max chars per result preview in traces
-
-from .activity_log import log_memory_search
-from .metrics_push import push_failure_metrics_async, push_retrieval_metrics_async
 
 __all__ = [
     "MemorySearch",
@@ -801,7 +800,7 @@ class MemorySearch:
                     event_type="dual_collection_search",
                     data={
                         "input": query[:TRACE_CONTENT_MAX],
-                        "output": _dual_previews[:10000] if _dual_previews else f"No results from dual search",
+                        "output": _dual_previews[:10000] if _dual_previews else "No results from dual search",
                         "metadata": {
                             "group_id": effective_group_id,
                             "code_patterns_count": len(code_patterns),
