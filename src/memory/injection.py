@@ -628,7 +628,10 @@ def select_results_greedy(
     seen_hashes: set[str] = set()
 
     # BUG-173: Score gap filter — skip results >30% below best
-    best_score = results[0].get("score", 0) if results else 0.0
+    # Exclude deterministic results (score=1.0) from gap calculation
+    # since they are not comparable to semantic similarity scores
+    semantic_scores = [r.get("score", 0) for r in results if r.get("score", 0) < 1.0]
+    best_score = max(semantic_scores) if semantic_scores else 0.0
 
     for result in results:
         point_id = str(result.get("id", ""))

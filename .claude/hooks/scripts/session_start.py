@@ -1013,49 +1013,56 @@ def main():
                 from memory.search import MemorySearch
 
                 searcher = MemorySearch(config)
-
-                # Session summaries via deterministic get_recent
-                session_summary_results = searcher.get_recent(
-                    collection=COLLECTION_DISCUSSIONS,
-                    group_id=project_name,
-                    memory_type=["session"],
-                    limit=3,
-                )
-                session_summaries = []
-                for r in session_summary_results:
-                    session_summaries.append({
-                        "content": r.get("content", ""),
-                        "timestamp": r.get("created_at", r.get("timestamp", "")),
-                        "type": r.get("type", "session"),
-                        "first_user_prompt": r.get("first_user_prompt", ""),
-                        "last_user_prompts": r.get("last_user_prompts", []),
-                        "last_agent_responses": r.get("last_agent_responses", []),
-                        "session_metadata": r.get("session_metadata", {}),
-                    })
-
-                # Other memories: decisions ONLY (no conventions, no patterns)
-                other_memories = []
-                memories_per_collection = {
-                    COLLECTION_DISCUSSIONS: 0,
-                    COLLECTION_CODE_PATTERNS: 0,
-                    COLLECTION_CONVENTIONS: 0,
-                }
                 try:
-                    decisions = searcher.get_recent(
-                        collection=COLLECTION_DISCUSSIONS,
-                        group_id=project_name,
-                        memory_type=["decision"],
-                        limit=5,
-                    )
-                    other_memories.extend(decisions)
-                    memories_per_collection[COLLECTION_DISCUSSIONS] = len(decisions)
-                except Exception as e:
-                    logger.warning(
-                        "other_memories_retrieval_failed",
-                        extra={"session_id": session_id, "error": str(e)},
-                    )
+                    # Session summaries via deterministic get_recent
+                    try:
+                        session_summary_results = searcher.get_recent(
+                            collection=COLLECTION_DISCUSSIONS,
+                            group_id=project_name,
+                            memory_type=["session"],
+                            limit=3,
+                        )
+                        session_summaries = []
+                        for r in session_summary_results:
+                            session_summaries.append({
+                                "content": r.get("content", ""),
+                                "timestamp": r.get("created_at", r.get("timestamp", "")),
+                                "type": r.get("type", "session"),
+                                "first_user_prompt": r.get("first_user_prompt", ""),
+                                "last_user_prompts": r.get("last_user_prompts", []),
+                                "last_agent_responses": r.get("last_agent_responses", []),
+                                "session_metadata": r.get("session_metadata", {}),
+                            })
+                    except Exception as e:
+                        logger.warning(
+                            "parzival_session_summaries_retrieval_failed",
+                            extra={"session_id": session_id, "error": str(e)},
+                        )
+                        session_summaries = []
 
-                searcher.close()
+                    # Other memories: decisions ONLY (no conventions, no patterns)
+                    other_memories = []
+                    memories_per_collection = {
+                        COLLECTION_DISCUSSIONS: 0,
+                        COLLECTION_CODE_PATTERNS: 0,
+                        COLLECTION_CONVENTIONS: 0,
+                    }
+                    try:
+                        decisions = searcher.get_recent(
+                            collection=COLLECTION_DISCUSSIONS,
+                            group_id=project_name,
+                            memory_type=["decision"],
+                            limit=5,
+                        )
+                        other_memories.extend(decisions)
+                        memories_per_collection[COLLECTION_DISCUSSIONS] = len(decisions)
+                    except Exception as e:
+                        logger.warning(
+                            "other_memories_retrieval_failed",
+                            extra={"session_id": session_id, "error": str(e)},
+                        )
+                finally:
+                    searcher.close()
 
             else:
                 # NON-PARZIVAL PATH: Keep existing behavior EXACTLY

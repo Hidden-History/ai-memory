@@ -653,6 +653,28 @@ class MemorySearch:
             }
             memories.append(memory)
 
+        # Metrics: Record retrieval duration (same pattern as search())
+        if retrieval_duration_seconds:
+            duration_seconds = time.perf_counter() - start_time
+            retrieval_duration_seconds.observe(duration_seconds)
+
+        # Metrics: Record successful retrieval
+        status = "success" if memories else "empty"
+        if memory_retrievals_total:
+            memory_retrievals_total.labels(
+                collection=collection,
+                status=status,
+                project=group_id or "unknown",
+            ).inc()
+
+        # Push to Pushgateway for hook subprocess visibility
+        push_retrieval_metrics_async(
+            collection=collection,
+            status=status,
+            duration_seconds=time.perf_counter() - start_time,
+            project=group_id or "unknown",
+        )
+
         logger.info(
             "get_recent_completed",
             extra={
