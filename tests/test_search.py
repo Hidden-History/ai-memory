@@ -105,7 +105,9 @@ class TestMemorySearchBasic:
         assert results[0]["type"] == "implementation"
 
         # Verify embedding was called
-        mock_embedding_client.embed.assert_called_once_with(["test query"])
+        mock_embedding_client.embed.assert_called_once_with(
+            ["test query"], model="code"
+        )
 
         # Verify Qdrant search was called
         mock_qdrant_client.query_points.assert_called_once()
