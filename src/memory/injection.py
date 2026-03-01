@@ -258,57 +258,45 @@ def retrieve_bootstrap_context(
     _agent_count = 0
     _github_count = 0
 
-    # 1. Conventions (shared, no group_id filter)
-    try:
-        conventions = search_client.search(
-            query="project conventions rules guidelines standards",
-            collection=COLLECTION_CONVENTIONS,
-            group_id=None,
-            limit=5,
-            fast_mode=True,
-        )
-        results.extend(conventions)
-        _conventions_count = len(conventions)
-    except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
-        logger.warning(
-            "bootstrap_conventions_unavailable",
-            extra={"error": str(e)},
-        )
-
-    # 2. Recent decisions (project-scoped)
-    try:
-        decisions = search_client.search(
-            query="recent decisions architecture patterns",
-            collection=COLLECTION_DISCUSSIONS,
-            group_id=project_name,
-            limit=3,
-            memory_type=["decision"],
-            fast_mode=True,
-        )
-        results.extend(decisions)
-        _decisions_count = len(decisions)
-    except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
-        logger.warning(
-            "bootstrap_decisions_unavailable",
-            extra={"error": str(e)},
-        )
-
-    # 3. Active agent context (project-scoped)
     if config.parzival_enabled:
+        # LAYERED PRIORITY RETRIEVAL for Parzival sessions
+        # No conventions — they are noise for PM oversight
+        last_handoff = []
+
+        # Layer 1: Last handoff (DETERMINISTIC — most recent, not most similar)
         try:
-            # 3a. Last handoff — most recent session summary
-            last_handoff = search_client.search(
-                query="session handoff summary current work status",
+            last_handoff = search_client.get_recent(
                 collection=COLLECTION_DISCUSSIONS,
                 group_id=project_name,
-                limit=1,
                 memory_type=["agent_handoff"],
                 agent_id="parzival",
-                fast_mode=True,
+                limit=1,
             )
             results.extend(last_handoff)
+        except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
+            logger.warning(
+                "bootstrap_handoff_unavailable",
+                extra={"error": str(e)},
+            )
 
-            # 3b. Recent insights — key learnings (up to 3)
+        # Layer 2: Recent decisions (DETERMINISTIC — newest, not most similar)
+        try:
+            decisions = search_client.get_recent(
+                collection=COLLECTION_DISCUSSIONS,
+                group_id=project_name,
+                memory_type=["decision"],
+                limit=5,
+            )
+            results.extend(decisions)
+            _decisions_count = len(decisions)
+        except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
+            logger.warning(
+                "bootstrap_decisions_unavailable",
+                extra={"error": str(e)},
+            )
+
+        # Layer 3: Recent insights (SEMANTIC — relevance matters)
+        try:
             insights = search_client.search(
                 query="key insight learning pattern important",
                 collection=COLLECTION_DISCUSSIONS,
@@ -320,27 +308,67 @@ def retrieve_bootstrap_context(
             )
             results.extend(insights)
             _agent_count = len(last_handoff) + len(insights)
-
-            # 3c. GitHub enrichment — recent activity since last session
-            last_session_date = None
-            if last_handoff:
-                last_session_date = last_handoff[0].get("timestamp")
-
-            github_enrichment = _build_github_enrichment(
-                search_client,
-                config,
-                project_name,
-                last_session_date,
-            )
-            results.extend(github_enrichment)
-            _github_count = len(github_enrichment)
         except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
             logger.warning(
-                "parzival_qdrant_unavailable",
-                extra={"fallback": "file_reads", "error": str(e)},
+                "bootstrap_insights_unavailable",
+                extra={"error": str(e)},
             )
+
+        # Layer 4: GitHub enrichment (SEMANTIC — same as before)
+        last_session_date = None
+        if last_handoff:
+            last_session_date = last_handoff[0].get("timestamp")
+        github_enrichment = _build_github_enrichment(
+            search_client,
+            config,
+            project_name,
+            last_session_date,
+        )
+        results.extend(github_enrichment)
+        _github_count = len(github_enrichment)
+
+        # DO NOT sort by score — layer order IS the priority
+        # Greedy fill processes Layer 1 first, then Layer 2, etc.
+
     else:
-        # Fallback: existing generic agent context query (no agent_id filter)
+        # NON-PARZIVAL PATH — UNCHANGED
+
+        # 1. Conventions (shared, no group_id filter)
+        try:
+            conventions = search_client.search(
+                query="project conventions rules guidelines standards",
+                collection=COLLECTION_CONVENTIONS,
+                group_id=None,
+                limit=5,
+                fast_mode=True,
+            )
+            results.extend(conventions)
+            _conventions_count = len(conventions)
+        except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
+            logger.warning(
+                "bootstrap_conventions_unavailable",
+                extra={"error": str(e)},
+            )
+
+        # 2. Recent decisions (project-scoped)
+        try:
+            decisions = search_client.search(
+                query="recent decisions architecture patterns",
+                collection=COLLECTION_DISCUSSIONS,
+                group_id=project_name,
+                limit=3,
+                memory_type=["decision"],
+                fast_mode=True,
+            )
+            results.extend(decisions)
+            _decisions_count = len(decisions)
+        except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
+            logger.warning(
+                "bootstrap_decisions_unavailable",
+                extra={"error": str(e)},
+            )
+
+        # 3. Generic agent context (no agent_id filter)
         try:
             agent_context = search_client.search(
                 query="active task current work session handoff",
@@ -358,8 +386,8 @@ def retrieve_bootstrap_context(
                 extra={"error": str(e)},
             )
 
-    # Sort all results by score (decay-weighted) for greedy fill
-    results.sort(key=lambda r: r.get("score", 0), reverse=True)
+        # Sort by score for non-Parzival flat pool
+        results.sort(key=lambda r: r.get("score", 0), reverse=True)
 
     # SPEC-021: Emit bootstrap retrieval trace event
     if emit_trace_event:
