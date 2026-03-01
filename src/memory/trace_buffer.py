@@ -23,6 +23,9 @@ TRACE_BUFFER_DIR = (
 # Max buffer size guard (MB-based, per DEC-PLAN008-004)
 BUFFER_MAX_MB = int(os.environ.get("LANGFUSE_TRACE_BUFFER_MAX_MB", "100"))
 
+# Sentinel: "not provided" vs explicit None (root spans pass None to skip env fallback)
+_UNSET = object()
+
 # Buffer size tracked incrementally to avoid O(n) directory scan on every emit call.
 # Initialized from actual directory size on first write; updated on each successful write.
 _buffer_size_bytes: int = -1  # -1 = not yet calibrated
@@ -41,7 +44,7 @@ def emit_trace_event(
     data: dict,
     trace_id: str | None = None,
     span_id: str | None = None,
-    parent_span_id: str | None = None,
+    parent_span_id: str | None | object = _UNSET,
     session_id: str | None = None,
     project_id: str | None = None,
     start_time: datetime | None = None,
@@ -56,7 +59,9 @@ def emit_trace_event(
               "model", "usage" ({"input": N, "output": N}) keys alongside "input"/"output".
         trace_id: Langfuse trace ID (shared across pipeline steps)
         span_id: Unique span ID for this event
-        parent_span_id: Parent span ID (for nesting)
+        parent_span_id: Parent span ID for nesting. _UNSET (default) falls back to
+                        LANGFUSE_ROOT_SPAN_ID env var. Pass None explicitly for root spans
+                        to prevent env fallback.
         session_id: Claude Code session ID (for Tier 1 linking)
         project_id: AI Memory project ID (from detect_project)
         start_time: Span start time (default: now). Capture before doing work.
@@ -86,8 +91,10 @@ def emit_trace_event(
     if buffer_size_mb >= BUFFER_MAX_MB:
         return False
 
-    # ISSUE-184: Fall back to env var for parent_span_id propagation from capture hook
-    if parent_span_id is None:
+    # ISSUE-184: Fall back to env var for parent_span_id propagation from capture hook.
+    # _UNSET = "not provided" → use env fallback (child spans from library functions).
+    # None = "explicitly no parent" → root span, skip env fallback.
+    if parent_span_id is _UNSET:
         parent_span_id = os.environ.get("LANGFUSE_ROOT_SPAN_ID")
 
     now = datetime.now(tz=timezone.utc)

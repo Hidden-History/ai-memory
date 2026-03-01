@@ -22,6 +22,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime, timezone
 
 INSTALL_DIR = os.environ.get(
     "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
@@ -63,6 +64,7 @@ TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 def main() -> int:
     start_time = time.perf_counter()
+    _wall_start = datetime.now(tz=timezone.utc)
     project_name = "unknown"
 
     try:
@@ -91,11 +93,15 @@ def main() -> int:
         config = get_config()
 
         # SPEC-021: Propagate trace context so library function trace events
-        # (search.py, injection.py) link to the same Langfuse trace
+        # (search.py, injection.py) link to the same Langfuse trace.
+        # Root span ID creates a valid OTel parent so child spans nest
+        # under one trace (without it, INVALID_SPAN_ID causes separate traces).
         from uuid import uuid4 as _uuid4
 
         _tier2_trace_id = _uuid4().hex
+        _tier2_root_span_id = _uuid4().hex
         os.environ["LANGFUSE_TRACE_ID"] = _tier2_trace_id
+        os.environ["LANGFUSE_ROOT_SPAN_ID"] = _tier2_root_span_id
         os.environ["CLAUDE_SESSION_ID"] = session_id
 
         # Check if injection is enabled
@@ -195,8 +201,11 @@ def main() -> int:
                                 "results_selected": 0,
                             },
                         },
+                        span_id=_tier2_root_span_id,
+                        parent_span_id=None,
                         session_id=session_id,
                         project_id=project_name,
+                        start_time=_wall_start,
                     )
                 except Exception:
                     pass
@@ -314,6 +323,7 @@ def main() -> int:
         )
 
         # SPEC-021: context_retrieval span — retrieval pipeline complete
+        # Uses root span_id so this becomes the parent of library-emitted spans
         if emit_trace_event:
             try:
                 emit_trace_event(
@@ -332,8 +342,11 @@ def main() -> int:
                             "topic_drift": round(drift, 4),
                         },
                     },
+                    span_id=_tier2_root_span_id,
+                    parent_span_id=None,
                     session_id=session_id,
                     project_id=project_name,
+                    start_time=_wall_start,
                 )
             except Exception:
                 pass
@@ -399,8 +412,11 @@ def main() -> int:
                             "results_selected": 0,
                         },
                     },
+                    span_id=_tier2_root_span_id if "_tier2_root_span_id" in dir() else None,  # type: ignore[name-defined]
+                    parent_span_id=None,
                     session_id=session_id if "session_id" in dir() else "unknown",  # type: ignore[name-defined]
                     project_id=project_name,
+                    start_time=_wall_start if "_wall_start" in dir() else None,  # type: ignore[name-defined]
                 )
             except Exception:
                 pass

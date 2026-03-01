@@ -767,11 +767,14 @@ def main():
             if trigger == "startup":
                 # SPEC-021: Propagate trace context to library functions
                 # so emit_trace_event() in search.py/injection.py shares
-                # the same trace_id and session_id as session_start events
+                # the same trace_id and session_id as session_start events.
+                # Root span ID ensures valid OTel parent for span nesting.
                 from uuid import uuid4 as _uuid4
 
                 _startup_trace_id = _uuid4().hex
+                _startup_root_span_id = _uuid4().hex
                 os.environ["LANGFUSE_TRACE_ID"] = _startup_trace_id
+                os.environ["LANGFUSE_ROOT_SPAN_ID"] = _startup_root_span_id
                 os.environ["CLAUDE_SESSION_ID"] = session_id
 
                 # Tier 1 Bootstrap: inject conventions, guidelines, recent findings
@@ -934,7 +937,7 @@ def main():
                     except Exception:
                         pass
 
-                # SPEC-021: Langfuse trace for session bootstrap
+                # SPEC-021: Langfuse trace for session bootstrap (root span)
                 if emit_trace_event:
                     try:
                         emit_trace_event(
@@ -958,6 +961,8 @@ def main():
                                     "result_scores": [round(r.get("score", 0), 4) for r in selected[:20]],
                                 },
                             },
+                            span_id=_startup_root_span_id,
+                            parent_span_id=None,
                             session_id=session_id,
                             project_id=project_name,
                         )
@@ -985,7 +990,9 @@ def main():
             from uuid import uuid4 as _uuid4
 
             _resume_trace_id = _uuid4().hex
+            _resume_root_span_id = _uuid4().hex
             os.environ["LANGFUSE_TRACE_ID"] = _resume_trace_id
+            os.environ["LANGFUSE_ROOT_SPAN_ID"] = _resume_root_span_id
             os.environ["CLAUDE_SESSION_ID"] = session_id
 
             logger.info(
@@ -1283,7 +1290,7 @@ def main():
                     except Exception:
                         pass
 
-                # SPEC-021: Langfuse trace for session restore
+                # SPEC-021: Langfuse trace for session restore (root span)
                 if emit_trace_event:
                     try:
                         emit_trace_event(
@@ -1301,6 +1308,8 @@ def main():
                                     "result_scores": [0.0 for _ in session_summaries[:10]] + [round(m.get("score", 0), 4) for m in other_memories[:10]],
                                 },
                             },
+                            span_id=_resume_root_span_id,
+                            parent_span_id=None,
                             session_id=session_id,
                             project_id=project_name,
                         )

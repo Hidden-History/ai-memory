@@ -343,7 +343,9 @@ def main() -> int:
         # link to this hook's Langfuse trace
         from uuid import uuid4 as _uuid4
 
+        _bp_root_span_id = _uuid4().hex
         os.environ["LANGFUSE_TRACE_ID"] = _uuid4().hex
+        os.environ["LANGFUSE_ROOT_SPAN_ID"] = _bp_root_span_id
         bp_session_id = hook_input.get("session_id", "unknown")
         os.environ["CLAUDE_SESSION_ID"] = bp_session_id
 
@@ -462,6 +464,8 @@ def main() -> int:
                                 "best_score": best_score,
                             },
                         },
+                        span_id=_bp_root_span_id,
+                        parent_span_id=None,
                         session_id=bp_session_id,
                         project_id=project_name,
                     )
