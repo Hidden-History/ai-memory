@@ -24,6 +24,7 @@ class TestParzivalBootstrap:
         """When parzival_enabled=True, bootstrap queries include agent_id='parzival'."""
         mock_search = MagicMock()
         mock_search.search.return_value = []
+        mock_search.get_recent.return_value = []
 
         config = MagicMock(spec=MemoryConfig)
         config.parzival_enabled = True
@@ -31,24 +32,25 @@ class TestParzivalBootstrap:
 
         retrieve_bootstrap_context(mock_search, "test-project", config)
 
-        # Find calls with agent_id="parzival"
-        parzival_calls = [
+        # Handoff now uses get_recent with agent_id="parzival"
+        handoff_calls = [
+            call
+            for call in mock_search.get_recent.call_args_list
+            if call.kwargs.get("agent_id") == "parzival"
+        ]
+        assert len(handoff_calls) >= 1
+        assert handoff_calls[0].kwargs["memory_type"] == ["agent_handoff"]
+        assert handoff_calls[0].kwargs["limit"] == 1
+
+        # Insights use search with agent_id="parzival"
+        parzival_search_calls = [
             call
             for call in mock_search.search.call_args_list
             if call.kwargs.get("agent_id") == "parzival"
         ]
-        # Should have at least 2 calls with agent_id: handoff + insights
-        assert len(parzival_calls) >= 2
-
-        # Verify handoff query
-        handoff_call = parzival_calls[0]
-        assert handoff_call.kwargs["memory_type"] == ["agent_handoff"]
-        assert handoff_call.kwargs["limit"] == 1
-
-        # Verify insights query
-        insights_call = parzival_calls[1]
-        assert insights_call.kwargs["memory_type"] == ["agent_insight"]
-        assert insights_call.kwargs["limit"] == 3
+        assert len(parzival_search_calls) == 1
+        assert parzival_search_calls[0].kwargs["memory_type"] == ["agent_insight"]
+        assert parzival_search_calls[0].kwargs["limit"] == 3
 
     def test_parzival_disabled_uses_generic_query(self):
         """When parzival_enabled=False, bootstrap uses generic agent context query."""
@@ -112,9 +114,11 @@ class TestParzivalBootstrap:
         """Bootstrap returns empty when ALL queries fail (full Qdrant outage)."""
         mock_search = MagicMock()
         mock_search.search.side_effect = QdrantUnavailable("Connection refused")
+        mock_search.get_recent.side_effect = QdrantUnavailable("Connection refused")
 
         config = MagicMock(spec=MemoryConfig)
         config.parzival_enabled = True
+        config.github_sync_enabled = False
 
         results = retrieve_bootstrap_context(mock_search, "test-project", config)
         assert isinstance(results, list)
@@ -123,6 +127,7 @@ class TestParzivalBootstrap:
     def test_parzival_bootstrap_graceful_degradation(self):
         """When Qdrant fails during Parzival queries, returns empty without crash."""
         mock_search = MagicMock()
+        mock_search.get_recent.return_value = []
 
         def side_effect(**kwargs):
             if kwargs.get("agent_id") == "parzival":
@@ -133,6 +138,7 @@ class TestParzivalBootstrap:
 
         config = MagicMock(spec=MemoryConfig)
         config.parzival_enabled = True
+        config.github_sync_enabled = False
 
         # Should not raise
         results = retrieve_bootstrap_context(mock_search, "test-project", config)
@@ -154,13 +160,18 @@ class TestParzivalBootstrap:
             "score": 0.7,
         }
 
-        def search_side_effect(**kwargs):
+        # Handoff now uses get_recent, not search
+        def get_recent_side_effect(**kwargs):
             if kwargs.get("memory_type") == ["agent_handoff"]:
                 return [handoff_result]
+            return []
+
+        def search_side_effect(**kwargs):
             if kwargs.get("source") == "github":
                 return [github_result]
             return []
 
+        mock_search.get_recent.side_effect = get_recent_side_effect
         mock_search.search.side_effect = search_side_effect
 
         config = MagicMock(spec=MemoryConfig)
