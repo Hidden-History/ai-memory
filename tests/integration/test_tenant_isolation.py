@@ -42,7 +42,9 @@ def isolation_client():
     for name in ["code-patterns", "conventions", "discussions"]:
         client.create_collection(
             collection_name=name,
-            vectors_config=models.VectorParams(size=768, distance=models.Distance.COSINE),
+            vectors_config=models.VectorParams(
+                size=768, distance=models.Distance.COSINE
+            ),
         )
 
     yield client
@@ -124,7 +126,9 @@ def _scroll_with_filter(
 
 
 @pytest.mark.integration
-def test_tenant_data_not_visible_to_other_tenant(isolation_client: QdrantClient) -> None:
+def test_tenant_data_not_visible_to_other_tenant(
+    isolation_client: QdrantClient,
+) -> None:
     """CRITICAL negative assertion: tenant-a data is invisible to tenant-b.
 
     Given: a memory point stored with group_id="tenant-a"
