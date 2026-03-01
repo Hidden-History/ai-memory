@@ -289,7 +289,7 @@ class TestSearchGracefulDegradation:
         # Mock EmbeddingClient to raise error
         def mock_embed_init(config):
             mock = type("MockClient", (), {})()
-            mock.embed = lambda texts: (_ for _ in ()).throw(
+            mock.embed = lambda texts, **kwargs: (_ for _ in ()).throw(
                 EmbeddingError("Service down")
             )
             return mock
@@ -309,7 +309,7 @@ class TestSearchGracefulDegradation:
         # Mock EmbeddingClient to return valid embeddings (so we can test Qdrant failure)
         def mock_embed_init(config):
             mock = type("MockClient", (), {})()
-            mock.embed = lambda texts: [[0.1] * 384]  # Return dummy embedding
+            mock.embed = lambda texts, **kwargs: [[0.1] * 384]  # Return dummy embedding
             return mock
 
         monkeypatch.setattr("src.memory.search.EmbeddingClient", mock_embed_init)
