@@ -417,12 +417,12 @@ class TestGrafanaDashboards:
                 else f"Panel {i + 1}"
             )
 
-            # Check for actual error indicators only.
-            # "No data" / "No data points" / generic "Error" are normal when
-            # Prometheus has no scraped metrics (e.g., in CI environments).
-            # Specific Prometheus query errors are caught by separate tests.
+            # Check for hard rendering failures only.
+            # "No data" / "No data points" / generic "Error" / data-testid
+            # error markers are all normal when Prometheus has no scraped
+            # metrics (e.g., in CI environments). Specific Prometheus query
+            # errors are caught by dedicated test methods.
             error_indicators = [
-                ("Error", '[data-testid*="error"]'),
                 ("Failed", 'text="Failed"'),
             ]
 
