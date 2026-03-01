@@ -51,6 +51,8 @@ try:
 except ImportError:
     emit_trace_event = None
 
+TRACE_CONTENT_MAX = 2000  # Max chars per result preview in traces
+
 from .activity_log import log_memory_search
 from .metrics_push import push_failure_metrics_async, push_retrieval_metrics_async
 
@@ -444,11 +446,16 @@ class MemorySearch:
                 _trace_end = datetime.now(tz=timezone.utc)
                 _top_score = results[0].score if results else 0.0
                 _search_duration_ms = (time.perf_counter() - start_time) * 1000
+                # Build content preview: show what was actually retrieved
+                _result_previews = "\n---\n".join(
+                    f"[{m.get('type','?')}|{round(m.get('score',0)*100)}%] {m.get('content','')[:500]}"
+                    for m in memories[:10]
+                )
                 emit_trace_event(
                     event_type="search_query",
                     data={
-                        "input": query[:2000],
-                        "output": f"Found {len(memories)} results, top score: {_top_score:.4f}",
+                        "input": query[:TRACE_CONTENT_MAX],
+                        "output": _result_previews[:10000] if _result_previews else f"No results (collection={collection})",
                         "metadata": {
                             "collection": collection,
                             "group_id": group_id,
@@ -595,14 +602,16 @@ class MemorySearch:
         if emit_trace_event:
             try:
                 _trace_end = datetime.now(tz=timezone.utc)
+                _all_results = code_patterns + conventions
+                _dual_previews = "\n---\n".join(
+                    f"[{m.get('type','?')}|{m.get('collection','?')}|{round(m.get('score',0)*100)}%] {m.get('content','')[:400]}"
+                    for m in _all_results[:10]
+                )
                 emit_trace_event(
                     event_type="dual_collection_search",
                     data={
-                        "input": query[:2000],
-                        "output": (
-                            f"Dual search: {len(code_patterns)} code-patterns, "
-                            f"{len(conventions)} conventions"
-                        ),
+                        "input": query[:TRACE_CONTENT_MAX],
+                        "output": _dual_previews[:10000] if _dual_previews else f"No results from dual search",
                         "metadata": {
                             "group_id": effective_group_id,
                             "code_patterns_count": len(code_patterns),
@@ -710,14 +719,15 @@ class MemorySearch:
             if emit_trace_event:
                 try:
                     _trace_end = datetime.now(tz=timezone.utc)
+                    _casc_previews = "\n---\n".join(
+                        f"[{m.get('type','?')}|{primary_collection}|{round(m.get('score',0)*100)}%] {m.get('content','')[:400]}"
+                        for m in primary_results[:10]
+                    )
                     emit_trace_event(
                         event_type="cascading_search",
                         data={
-                            "input": query[:2000],
-                            "output": (
-                                f"Cascading: {len(primary_results)} results "
-                                f"from 1 collection (primary sufficient)"
-                            ),
+                            "input": query[:TRACE_CONTENT_MAX],
+                            "output": _casc_previews[:10000] if _casc_previews else "No results",
                             "metadata": {
                                 "primary_collection": primary_collection,
                                 "secondary_collections": secondary_collections,
@@ -792,14 +802,15 @@ class MemorySearch:
         if emit_trace_event:
             try:
                 _trace_end = datetime.now(tz=timezone.utc)
+                _casc_exp_previews = "\n---\n".join(
+                    f"[{m.get('type','?')}|{m.get('collection','?')}|{round(m.get('score',0)*100)}%] {m.get('content','')[:400]}"
+                    for m in final_results[:10]
+                )
                 emit_trace_event(
                     event_type="cascading_search",
                     data={
-                        "input": query[:2000],
-                        "output": (
-                            f"Cascading: {len(final_results)} results "
-                            f"from {_collections_searched} collections"
-                        ),
+                        "input": query[:TRACE_CONTENT_MAX],
+                        "output": _casc_exp_previews[:10000] if _casc_exp_previews else "No results",
                         "metadata": {
                             "primary_collection": primary_collection,
                             "secondary_collections": secondary_collections,

@@ -54,6 +54,8 @@ try:
 except ImportError:
     emit_trace_event = None
 
+TRACE_CONTENT_MAX = 10000  # Max chars for trace output fields
+
 __all__ = [
     "InjectionSessionState",
     "RouteTarget",
@@ -362,11 +364,16 @@ def retrieve_bootstrap_context(
     # SPEC-021: Emit bootstrap retrieval trace event
     if emit_trace_event:
         try:
+            # Build content preview: show what was actually retrieved
+            _result_previews = "\n---\n".join(
+                f"[{r.get('type','?')}|{r.get('collection','?')}|{round(r.get('score',0)*100)}%] {r.get('content','')[:500]}"
+                for r in results[:20]
+            )
             emit_trace_event(
                 event_type="bootstrap_retrieval",
                 data={
                     "input": f"Bootstrap retrieval for project: {project_name}, parzival_enabled: {config.parzival_enabled}",
-                    "output": f"Retrieved {len(results)} total results: {_conventions_count} conventions, {_decisions_count} decisions, {_agent_count} agent context, {_github_count} github",
+                    "output": _result_previews[:TRACE_CONTENT_MAX] if _result_previews else "No bootstrap results",
                     "metadata": {
                         "project_name": project_name,
                         "parzival_enabled": config.parzival_enabled,
@@ -636,11 +643,16 @@ def select_results_greedy(
     if emit_trace_event:
         try:
             _utilization_pct = int(tokens_used / budget * 100) if budget > 0 else 0
+            # Build content preview of what was selected
+            _selected_previews = "\n---\n".join(
+                f"[{r.get('type','?')}|{round(r.get('score',0)*100)}%|{tc}tok] {r.get('content','')[:400]}"
+                for r, tc in zip(selected, _selected_token_counts)
+            )
             emit_trace_event(
                 event_type="greedy_fill",
                 data={
                     "input": f"Greedy fill: {len(results)} candidates, budget: {budget} tokens, excluded: {len(excluded)}",
-                    "output": f"Selected {len(selected)} results using {tokens_used}/{budget} tokens ({_utilization_pct}%)",
+                    "output": _selected_previews[:TRACE_CONTENT_MAX] if _selected_previews else "No results selected",
                     "metadata": {
                         "budget": budget,
                         "tokens_used": tokens_used,
@@ -712,7 +724,7 @@ def format_injection_output(
                 event_type="format_injection",
                 data={
                     "input": f"Format {len(results)} results for tier {tier}",
-                    "output": f"Formatted {len(results)} results into {len(formatted)} chars",
+                    "output": formatted[:TRACE_CONTENT_MAX],
                     "metadata": {
                         "tier": tier,
                         "result_count": len(results),
