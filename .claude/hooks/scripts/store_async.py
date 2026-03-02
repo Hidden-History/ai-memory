@@ -282,7 +282,7 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 emit_trace_event(
                     event_type="3_detect",
                     data={
-                        "input": code_content[:300],
+                        "input": code_content[:TRACE_CONTENT_MAX],
                         "output": "Detected type: implementation (confidence: 1.0)",
                         "metadata": {
                             "detected_type": "implementation",
@@ -365,7 +365,7 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                                 emit_trace_event(
                                     event_type="4_scan",
                                     data={
-                                        "input": patterns["content"][:300],
+                                        "input": patterns["content"][:TRACE_CONTENT_MAX],
                                         "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
                                         "metadata": {
                                             "scan_result": "blocked",
@@ -426,7 +426,7 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 emit_trace_event(
                     event_type="4_scan",
                     data={
-                        "input": patterns["content"][:300],
+                        "input": patterns["content"][:TRACE_CONTENT_MAX],
                         "output": f"Scan result: {scan_action} (findings: {len(scan_findings)})",
                         "metadata": {
                             "scan_result": scan_action,

@@ -29,7 +29,7 @@ INSTALL_DIR = os.environ.get(
 )
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
-from memory.config import COLLECTION_DISCUSSIONS, get_config
+from memory.config import COLLECTION_CODE_PATTERNS, COLLECTION_DISCUSSIONS, get_config
 from memory.health import check_qdrant_health
 
 # SPEC-021: Trace buffer for retrieval instrumentation
@@ -187,6 +187,14 @@ def main() -> int:
                     ]
 
                 results = search_client.search(**search_kwargs)
+                # BUG-201: Exclude low-value error types from code-patterns injection.
+                # error_fix (legacy name) and error_pattern (new name) leak into context
+                # because the scroll/search has no must_not filter at the storage layer.
+                if route.collection == COLLECTION_CODE_PATTERNS:
+                    results = [
+                        r for r in results
+                        if r.get("type") not in ("error_fix", "error_pattern")
+                    ]
                 for r in results:
                     r["collection"] = route.collection  # Tag with source collection
                 all_results.extend(results)

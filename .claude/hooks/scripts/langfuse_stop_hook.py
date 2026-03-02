@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # Self-termination timeout — prevents hook from hanging Claude Code
 HOOK_TIMEOUT_SECONDS = 30
 FLUSH_TIMEOUT_SECONDS = 5
-LANGFUSE_PAYLOAD_MAX_CHARS = 2000
+LANGFUSE_PAYLOAD_MAX_CHARS = 10000
 
 
 def _timeout_handler(signum, frame):

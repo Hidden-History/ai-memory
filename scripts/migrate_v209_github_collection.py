@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -72,6 +73,17 @@ ERROR_INDICATORS = re.compile(
     r"errno|fatal:|panic:|segfault|core\s+dump|"
     r"permission\s+denied|command\s+not\s+found|no\s+such\s+file)",
     re.IGNORECASE,
+)
+
+# Patterns indicating error_message is CODE/CONFIG content being displayed,
+# not a real runtime error. These override ERROR_INDICATORS matches.
+# Example: `except Exception:` in source code is not an actual exception.
+CODE_CONTENT_PATTERNS = re.compile(
+    r"(^\s*except\s+\w+|"                       # Python exception handler syntax
+    r"\w+_(?:failed|error|failure)(?:\W|$)|"     # snake_case identifier (metric name)
+    r'"(?:failed|error|failure)"|'               # Quoted string literal in code
+    r'(?:Error|error):\s*""\s*$)',               # Empty error field (Last Error: "")
+    re.IGNORECASE | re.MULTILINE,
 )
 
 # Colors
@@ -387,14 +399,19 @@ def purge_false_errors(client, dry_run: bool) -> dict:
             stats["scanned"] += 1
             payload = point.payload or {}
 
-            # Check error_message field for false positive indicators
+            # BUG FIX: Check error_message ONLY, not content.
+            # The content field always contains "Error: <msg>" as a format
+            # label (from error_store_async.py line 114), which matches
+            # ERROR_INDICATORS and defeats false-positive detection entirely.
             error_message = payload.get("error_message", "")
-            content = payload.get("content", "")
+            exit_code = payload.get("exit_code")
 
-            # Combine both fields for analysis
-            text_to_check = f"{error_message} {content}"
+            # Non-zero exit code is strong evidence of a real error
+            if exit_code is not None and exit_code != 0:
+                stats["kept"] += 1
+                continue
 
-            if _is_false_positive_error(text_to_check):
+            if _is_false_positive_error(error_message):
                 false_positive_ids.append(point.id)
                 stats["purged"] += 1
             else:
@@ -431,10 +448,12 @@ def purge_false_errors(client, dry_run: bool) -> dict:
 
 
 def _is_false_positive_error(text: str) -> bool:
-    """Determine if error_fix text is a false positive.
+    """Determine if error_fix error_message is a false positive.
 
-    A false positive is text that looks like a filename listing or
-    path pattern without containing real error indicators.
+    Logic:
+    1. Empty text → false positive
+    2. Matches ERROR_INDICATORS → check for code-content override → real if not code
+    3. No error indicators → false positive (no evidence of a real error)
 
     Returns:
         True if the text is a false positive (should be deleted).
@@ -442,26 +461,16 @@ def _is_false_positive_error(text: str) -> bool:
     if not text or not text.strip():
         return True
 
-    # If the text contains real error indicators, it's genuine
+    # If the text contains real error indicators, check for code-content override
     if ERROR_INDICATORS.search(text):
+        # Code/config content that happens to contain error keywords
+        # (e.g., "except Exception:" in source code) is not a real error
+        if CODE_CONTENT_PATTERNS.search(text):
+            return True
         return False
 
-    # If the text is mostly file paths (lines starting with / or containing
-    # typical path separators), it's likely a false positive
-    lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
-    if not lines:
-        return True
-
-    path_like_count = 0
-    for line in lines:
-        # Match file-path-like patterns
-        if re.match(r"^[/.]?[\w./-]+\.\w+", line) or re.match(
-            r"^[\w/-]+/[\w./-]+", line
-        ):
-            path_like_count += 1
-
-    # If >50% of lines look like file paths and no error indicators, it's false
-    return len(lines) > 0 and path_like_count / len(lines) > 0.5
+    # No error indicators at all → false positive
+    return True
 
 
 # ─── Step 4: Audit log ──────────────────────────────────────────────────────
@@ -540,6 +549,40 @@ def main():
     # Connect to Qdrant
     try:
         config = get_config()
+
+        # Warn if shell QDRANT_API_KEY overrides .env value (common 401 cause)
+        shell_key = os.environ.get("QDRANT_API_KEY")
+        if shell_key:
+            env_file = INSTALL_DIR / "docker" / ".env"
+            dotenv_key = None
+            if env_file.exists():
+                for line in env_file.read_text().splitlines():
+                    if line.startswith("QDRANT_API_KEY="):
+                        dotenv_key = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        break
+            if dotenv_key and shell_key != dotenv_key:
+                print(
+                    f"{YELLOW}WARNING: Shell env QDRANT_API_KEY (***{shell_key[-3:]}) "
+                    f"overrides .env value (***{dotenv_key[-3:]}){RESET}"
+                )
+                print(
+                    "  pydantic-settings priority: shell env > .env file"
+                )
+                print(
+                    "  If you get 401 errors, fix with:"
+                )
+                print(
+                    "    unset QDRANT_API_KEY"
+                )
+                print(
+                    "  or sync to container key:"
+                )
+                print(
+                    '    export QDRANT_API_KEY="$(docker exec ai-memory-qdrant '
+                    "env | grep QDRANT__SERVICE__API_KEY | cut -d= -f2)\""
+                )
+                print()
+
         client = get_qdrant_client(config)
     except Exception as e:
         print(f"{RED}✗ Cannot connect to Qdrant: {e}{RESET}")

@@ -67,12 +67,52 @@ Injection quality sprint (PLAN-010): Dedicated `github` Qdrant collection for Gi
 - Ruff lint errors in injection.py and search.py
 - Parzival bootstrap test assertions updated for layered priority retrieval
 
-### Migration
-- Run `scripts/migrate_v209_github_collection.py` on existing installations
-- Moves ~4,000 `github_code_blob` points from `discussions` → `github` collection
-- Purges false-positive `error_fix` entries from `code-patterns`
-- Idempotent — safe to run multiple times
-- Supports `--dry-run` for preview
+### Upgrade Instructions
+
+#### Existing Installations (no nuke required)
+
+1. Update code via Installer **Option 1** ("Add project to existing installation"):
+   ```bash
+   cd /mnt/e/projects/ai-memory   # your clone
+   git pull                        # get v2.0.9
+   ./scripts/install.sh /path/to/your-project
+   # Select Option 1 when prompted
+   ```
+   Option 1 updates hooks and code only — preserves running containers, volumes, and data.
+
+2. **If you use GitHub sync**, rebuild the container (code is baked into the Docker image, not volume-mounted):
+   ```bash
+   cd ~/.ai-memory/docker
+   docker compose build --no-cache github-sync
+   docker compose --profile github up -d github-sync
+   ```
+   Without this, the github-sync container continues writing to the old `discussions` collection.
+   **Important**: Always run `docker compose` from `~/.ai-memory/docker/` (not the source repo) to ensure the correct `.env` is used.
+
+3. Run the migration script manually (installer does NOT run migrations):
+   ```bash
+   # IMPORTANT: Get API key from .env, not shell env.
+   # If QDRANT_API_KEY is set in your shell, it overrides .env and may be stale.
+   # Use: unset QDRANT_API_KEY
+   export QDRANT_API_KEY="$(grep '^QDRANT_API_KEY=' ~/.ai-memory/docker/.env | cut -d= -f2 | tr -d '\"')"
+
+   # Preview first
+   python3 ~/.ai-memory/scripts/migrate_v209_github_collection.py --dry-run
+
+   # Run migration
+   python3 ~/.ai-memory/scripts/migrate_v209_github_collection.py
+   ```
+
+4. The migration:
+   - Creates the `github` collection if it doesn't exist
+   - Moves ~4,000 `github_code_blob` points from `discussions` → `github`
+   - Purges false-positive `error_fix` entries from `code-patterns`
+   - Idempotent — safe to run multiple times
+   - Use `--skip-backup` to skip the automatic pre-migration backup
+
+#### New Installations
+
+No action needed — `setup-collections.py` creates all 5 collections (including `github`) automatically during fresh install.
 
 ---
 

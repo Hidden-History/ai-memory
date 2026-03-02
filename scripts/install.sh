@@ -2268,7 +2268,7 @@ setup_collections() {
 
     # Run the setup script
     if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/setup-collections.py" 2>&1; then
-        log_success "Qdrant collections created (code-patterns, conventions, discussions)"
+        log_success "Qdrant collections created (code-patterns, conventions, discussions, github, jira-data)"
     else
         log_error "Collection setup FAILED - re-run: $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/setup-collections.py"
         return 1

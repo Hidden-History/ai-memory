@@ -172,7 +172,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="3_detect",
                     data={
-                        "input": prompt[:300],
+                        "input": prompt[:TRACE_CONTENT_MAX],
                         "output": f"Detected type: {TYPE_USER_MESSAGE} (confidence: 1.0)",
                         "metadata": {
                             "detected_type": TYPE_USER_MESSAGE,
@@ -337,7 +337,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                             emit_trace_event(
                                 event_type="4_scan",
                                 data={
-                                    "input": prompt[:300],
+                                    "input": prompt[:TRACE_CONTENT_MAX],
                                     "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
                                     "metadata": {
                                         "scan_result": "blocked",
@@ -415,7 +415,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="4_scan",
                     data={
-                        "input": prompt[:300],
+                        "input": prompt[:TRACE_CONTENT_MAX],
                         "output": f"Scan result: {scan_action} (findings: {len(scan_findings)})",
                         "metadata": {
                             "scan_result": scan_action,

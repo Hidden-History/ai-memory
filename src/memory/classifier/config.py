@@ -336,7 +336,13 @@ LOW_PATTERNS: list[str] = [
 # MEMORY TYPES BY COLLECTION
 # =============================================================================
 VALID_TYPES: dict[str, list[str]] = {
-    "code-patterns": ["implementation", "error_fix", "refactor", "file_pattern"],
+    "code-patterns": [
+        "implementation",
+        "error_fix",
+        "error_pattern",
+        "refactor",
+        "file_pattern",
+    ],
     "conventions": ["rule", "guideline", "port", "naming", "structure"],
     "discussions": [
         "decision",
@@ -349,7 +355,7 @@ VALID_TYPES: dict[str, list[str]] = {
 }
 
 # Types that should NOT be reclassified
-SKIP_RECLASSIFICATION_TYPES: list[str] = ["session", "error_fix"]
+SKIP_RECLASSIFICATION_TYPES: list[str] = ["session", "error_fix", "error_pattern"]
 
 # =============================================================================
 # RULE-BASED CLASSIFICATION PATTERNS

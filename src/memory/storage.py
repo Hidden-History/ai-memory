@@ -1530,7 +1530,7 @@ def update_point_payload(
         ...     collection="code-patterns",
         ...     point_id="abc-123",
         ...     payload_updates={
-        ...         "type": "error_fix",
+        ...         "type": "error_pattern",
         ...         "classification_confidence": 0.92,
         ...         "classified_at": "2026-01-24T10:00:00Z"
         ...     }

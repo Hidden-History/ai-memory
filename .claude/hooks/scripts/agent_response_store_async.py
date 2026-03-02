@@ -174,7 +174,7 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="3_detect",
                     data={
-                        "input": response_text[:300],
+                        "input": response_text[:TRACE_CONTENT_MAX],
                         "output": f"Detected type: {TYPE_AGENT_RESPONSE} (confidence: 1.0)",
                         "metadata": {
                             "detected_type": TYPE_AGENT_RESPONSE,
@@ -337,7 +337,7 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                             emit_trace_event(
                                 event_type="4_scan",
                                 data={
-                                    "input": response_text[:300],
+                                    "input": response_text[:TRACE_CONTENT_MAX],
                                     "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
                                     "metadata": {
                                         "scan_result": "blocked",
@@ -413,7 +413,7 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="4_scan",
                     data={
-                        "input": response_text[:300],
+                        "input": response_text[:TRACE_CONTENT_MAX],
                         "output": f"Scan result: {scan_action} (findings: {len(scan_findings)})",
                         "metadata": {
                             "scan_result": scan_action,

@@ -11,13 +11,13 @@ Signal Detection:
 Action:
     - Extract error signature
     - Search code-patterns collection
-    - Filter by type="error_fix"
+    - Filter by type=["error_fix", "error_pattern"]
     - Inject up to 3 similar fixes to stdout
 
 Configuration:
     - Hook: PostToolUse with matcher "Bash"
     - Collection: code-patterns
-    - Type filter: "error_fix"
+    - Type filter: ["error_fix", "error_pattern"]
     - Max results: 3
 
 Exit Codes:
@@ -182,7 +182,7 @@ def main() -> int:
                 group_id=project_name,
                 limit=3,
                 score_threshold=0.5,
-                memory_type="error_fix",
+                memory_type=["error_fix", "error_pattern"],
             )
 
             if not results:

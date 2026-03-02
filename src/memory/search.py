@@ -53,7 +53,7 @@ try:
 except ImportError:
     emit_trace_event = None
 
-TRACE_CONTENT_MAX = 2000  # Max chars per result preview in traces
+TRACE_CONTENT_MAX = 10000  # Max chars per result preview in traces
 
 __all__ = [
     "MemorySearch",

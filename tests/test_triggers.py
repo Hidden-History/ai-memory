@@ -353,7 +353,7 @@ class TestTriggerConfiguration:
         assert isinstance(config["patterns"], list)
         assert len(config["patterns"]) > 0
         assert config["collection"] == "code-patterns"
-        assert config["type_filter"] == "error_fix"
+        assert config["type_filter"] == ["error_fix", "error_pattern"]
         assert config["max_results"] == 3
 
     def test_new_file_config(self):
