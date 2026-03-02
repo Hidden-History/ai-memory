@@ -106,6 +106,36 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
         response_text = store_data["response_text"]
         turn_number = store_data.get("turn_number", 0)
 
+        # PLAN-010 (P10-10): Skip low-value short messages
+        import re as _re
+
+        _LOW_VALUE_MESSAGES = {
+            "ok",
+            "yes",
+            "no",
+            "done",
+            "sure",
+            "thanks",
+            "got it",
+            "nothing to add",
+            "looks good",
+            "lgtm",
+        }
+        _content_stripped = response_text.strip().lower()
+        _content_stripped_nopunct = _re.sub(r"[^\w\s]", "", _content_stripped)
+        if (
+            len(_content_stripped.split()) < 4
+            or _content_stripped_nopunct in _LOW_VALUE_MESSAGES
+        ):
+            logger.info(
+                "quality_gate_skip",
+                extra={
+                    "content_preview": _content_stripped[:50],
+                    "reason": "too_short_or_low_value",
+                },
+            )
+            return True
+
         # SPEC-021: Read trace_id from capture hook env propagation
         trace_id = os.environ.get("LANGFUSE_TRACE_ID")
 

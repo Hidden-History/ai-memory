@@ -31,6 +31,7 @@ __all__ = [
     "COLLECTION_CODE_PATTERNS",
     "COLLECTION_CONVENTIONS",
     "COLLECTION_DISCUSSIONS",
+    "COLLECTION_GITHUB",
     "COLLECTION_JIRA_DATA",
     "COLLECTION_NAMES",
     "EMBEDDING_DIMENSIONS",
@@ -57,11 +58,15 @@ COLLECTION_DISCUSSIONS = "discussions"  # WHY things were decided
 # Therefore it is NOT included in COLLECTION_NAMES to avoid breaking existing iteration logic
 COLLECTION_JIRA_DATA = "jira-data"  # External work items from Jira Cloud
 
+# GitHub code/issues/PRs collection (PLAN-010: separated from discussions)
+COLLECTION_GITHUB = "github"
+
 # All collection names for iteration/validation
 COLLECTION_NAMES = [
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
     COLLECTION_DISCUSSIONS,
+    COLLECTION_GITHUB,
 ]
 
 # Memory types for conversations (V2.0)
@@ -408,6 +413,12 @@ class MemoryConfig(BaseSettings):
         default=30,
         ge=1,
         description="Half-life in days for jira-data collection decay",
+    )
+
+    decay_half_life_github: int = Field(
+        default=14,
+        ge=1,
+        description="Half-life in days for github collection decay",
     )
 
     decay_min_score: float = Field(

@@ -44,7 +44,7 @@ from memory.connectors.github.composer import (
     compose_pr_review,
 )
 from memory.connectors.github.schema import (
-    DISCUSSIONS_COLLECTION,
+    GITHUB_COLLECTION,
     SOURCE_AUTHORITY_MAP,
     compute_content_hash,
 )
@@ -105,7 +105,7 @@ class SyncResult:
 
 
 class GitHubSyncEngine:
-    """Orchestrates GitHub data sync into discussions collection.
+    """Orchestrates GitHub data sync into github collection.
 
     Mirrors JiraSyncEngine pattern: per-type sync methods, fail-open
     per-item error handling, JSON state persistence, pushgateway metrics.
@@ -799,7 +799,7 @@ class GitHubSyncEngine:
 
         try:
             existing = self.qdrant.scroll(
-                collection_name=DISCUSSIONS_COLLECTION,
+                collection_name=GITHUB_COLLECTION,
                 scroll_filter=models.Filter(must=must_filters),
                 limit=1,
             )
@@ -820,7 +820,7 @@ class GitHubSyncEngine:
                 # Unchanged -- update last_synced only, skip embedding
                 try:
                     self.qdrant.set_payload(
-                        collection_name=DISCUSSIONS_COLLECTION,
+                        collection_name=GITHUB_COLLECTION,
                         payload={"last_synced": now_iso},
                         points=[old_point.id],
                     )
@@ -852,7 +852,7 @@ class GitHubSyncEngine:
             supersedes = str(old_point.id)
             try:
                 self.qdrant.set_payload(
-                    collection_name=DISCUSSIONS_COLLECTION,
+                    collection_name=GITHUB_COLLECTION,
                     payload={"is_current": False},
                     points=[old_point.id],
                 )
@@ -910,7 +910,7 @@ class GitHubSyncEngine:
                 memory_type=memory_type,
                 source_hook="github_sync",
                 session_id=f"github_sync_{batch_id}",
-                collection=DISCUSSIONS_COLLECTION,
+                collection=GITHUB_COLLECTION,
                 source_type=type_value,
                 **github_payload,
             )

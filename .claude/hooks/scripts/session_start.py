@@ -765,6 +765,18 @@ def main():
                 sys.exit(0)
 
             if trigger == "startup":
+                # SPEC-021: Propagate trace context to library functions
+                # so emit_trace_event() in search.py/injection.py shares
+                # the same trace_id and session_id as session_start events.
+                # Root span ID ensures valid OTel parent for span nesting.
+                from uuid import uuid4 as _uuid4
+
+                _startup_trace_id = _uuid4().hex
+                _startup_root_span_id = _uuid4().hex
+                os.environ["LANGFUSE_TRACE_ID"] = _startup_trace_id
+                os.environ["LANGFUSE_ROOT_SPAN_ID"] = _startup_root_span_id
+                os.environ["CLAUDE_SESSION_ID"] = session_id
+
                 # Tier 1 Bootstrap: inject conventions, guidelines, recent findings
                 from memory.injection import (
                     format_injection_output,
@@ -908,6 +920,15 @@ def main():
                                     "tokens_used": tokens_used,
                                     "budget": config.bootstrap_token_budget,
                                     "parzival_enabled": config.parzival_enabled,
+                                    "results_detail": [
+                                        {
+                                            "type": r.get("type", "unknown"),
+                                            "collection": r.get("collection", "unknown"),
+                                            "score": round(r.get("score", 0), 4),
+                                            "tokens": count_tokens(r.get("content", "")) if r.get("content") else 0,
+                                        }
+                                        for r in selected[:20]
+                                    ],
                                 },
                             },
                             session_id=session_id,
@@ -916,11 +937,9 @@ def main():
                     except Exception:
                         pass
 
-                # SPEC-021: Langfuse trace for session bootstrap
+                # SPEC-021: Langfuse trace for session bootstrap (root span)
                 if emit_trace_event:
                     try:
-                        from uuid import uuid4
-
                         emit_trace_event(
                             event_type="session_bootstrap",
                             data={
@@ -938,9 +957,12 @@ def main():
                                     "tokens_injected": tokens_used,
                                     "budget": config.bootstrap_token_budget,
                                     "summary": f"Injected {tokens_used} tokens from {len(selected)} results",
+                                    "result_types": [r.get("type", "unknown") for r in selected[:20]],
+                                    "result_scores": [round(r.get("score", 0), 4) for r in selected[:20]],
                                 },
                             },
-                            trace_id=uuid4().hex,
+                            span_id=_startup_root_span_id,
+                            parent_span_id=None,
                             session_id=session_id,
                             project_id=project_name,
                         )
@@ -964,6 +986,15 @@ def main():
                 sys.exit(0)
 
             # On resume or compact: Inject conversation context to restore working memory
+            # SPEC-021: Propagate trace context for resume/compact path
+            from uuid import uuid4 as _uuid4
+
+            _resume_trace_id = _uuid4().hex
+            _resume_root_span_id = _uuid4().hex
+            os.environ["LANGFUSE_TRACE_ID"] = _resume_trace_id
+            os.environ["LANGFUSE_ROOT_SPAN_ID"] = _resume_root_span_id
+            os.environ["CLAUDE_SESSION_ID"] = session_id
+
             logger.info(
                 "v2_context_injection",
                 extra={
@@ -975,93 +1006,140 @@ def main():
 
             # TECH-DEBT-047: Priority-based injection
             # Phase 1: Retrieve session summaries (60% of budget)
-            # Phase 2: Retrieve other memories - decisions, patterns, conventions (40% of budget)
+            # Phase 2: Retrieve other memories (40% of budget)
 
-            # Retrieve session summaries using shared helper (TECH-DEBT-047 refactor)
-            session_summaries = retrieve_session_summaries(
-                client, project_name, limit=20
-            )
-            # Take top 5 most recent
-            session_summaries = session_summaries[:5]
-
-            # Retrieve other memories (decisions, patterns, conventions)
-            other_memories = []
-            # Track memory counts per collection for metrics (BUG-021 fix)
-            memories_per_collection = {
-                COLLECTION_DISCUSSIONS: 0,
-                COLLECTION_CODE_PATTERNS: 0,
-                COLLECTION_CONVENTIONS: 0,
-            }
-            try:
+            if config.parzival_enabled:
+                # PARZIVAL PATH: Deterministic retrieval, decisions only
                 from memory.search import MemorySearch
 
-                # Build a query from the most recent session summary
-                query = "recent implementation patterns and decisions"  # More specific default
-                if session_summaries:
-                    first_summary = session_summaries[0]
-                    # Try multiple fields for better query relevance
-                    query = (
-                        first_summary.get("first_user_prompt")
-                        or first_summary.get("content", "")[:200]  # Use content preview
-                        or "recent implementation patterns"
-                    )
-
-                # Search for relevant memories across collections
                 searcher = MemorySearch(config)
+                try:
+                    # Session summaries via deterministic get_recent
+                    try:
+                        _retrieval_start = time.perf_counter()
+                        session_summary_results = searcher.get_recent(
+                            collection=COLLECTION_DISCUSSIONS,
+                            group_id=project_name,
+                            memory_type=["session"],
+                            limit=3,
+                        )
+                        session_summaries = []
+                        for r in session_summary_results:
+                            session_summaries.append({
+                                "content": r.get("content", ""),
+                                "timestamp": r.get("created_at", r.get("timestamp", "")),
+                                "type": r.get("type", "session"),
+                                "first_user_prompt": r.get("first_user_prompt", ""),
+                                "last_user_prompts": r.get("last_user_prompts", []),
+                                "last_agent_responses": r.get("last_agent_responses", []),
+                                "session_metadata": r.get("session_metadata", {}),
+                            })
+                        # TD-228: Trace event for Parzival session summaries retrieval
+                        if emit_trace_event:
+                            try:
+                                _retrieval_ms = (time.perf_counter() - _retrieval_start) * 1000
+                                emit_trace_event(
+                                    event_type="memory_retrieval_session_summaries",
+                                    data={
+                                        "input": f"get_recent(discussions, type=session, limit=3) for {project_name}",
+                                        "output": f"Retrieved {len(session_summaries)} session summaries",
+                                        "metadata": {
+                                            "trigger": trigger,
+                                            "collection": COLLECTION_DISCUSSIONS,
+                                            "memory_type": "session",
+                                            "method": "get_recent",
+                                            "result_count": len(session_summaries),
+                                            "retrieval_ms": round(_retrieval_ms, 2),
+                                            "parzival_enabled": True,
+                                        },
+                                    },
+                                    session_id=session_id,
+                                    project_id=project_name,
+                                )
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        logger.warning(
+                            "parzival_session_summaries_retrieval_failed",
+                            extra={"session_id": session_id, "error": str(e)},
+                        )
+                        session_summaries = []
 
-                # Search decisions from discussions (type=decision)
-                decisions = searcher.search(
-                    query=query,
-                    collection=COLLECTION_DISCUSSIONS,
-                    group_id=project_name,
-                    limit=3,
-                    memory_type="decision",
-                    fast_mode=True,  # Use fast mode for triggers
+                    # Other memories: decisions ONLY (no conventions, no patterns)
+                    other_memories = []
+                    memories_per_collection = {
+                        COLLECTION_DISCUSSIONS: 0,
+                        COLLECTION_CODE_PATTERNS: 0,
+                        COLLECTION_CONVENTIONS: 0,
+                    }
+                    try:
+                        _retrieval_start = time.perf_counter()
+                        decisions = searcher.get_recent(
+                            collection=COLLECTION_DISCUSSIONS,
+                            group_id=project_name,
+                            memory_type=["decision"],
+                            limit=5,
+                        )
+                        other_memories.extend(decisions)
+                        memories_per_collection[COLLECTION_DISCUSSIONS] = len(decisions)
+                        # TD-228: Trace event for Parzival decisions retrieval
+                        if emit_trace_event:
+                            try:
+                                _retrieval_ms = (time.perf_counter() - _retrieval_start) * 1000
+                                emit_trace_event(
+                                    event_type="memory_retrieval_decisions",
+                                    data={
+                                        "input": f"get_recent(discussions, type=decision, limit=5) for {project_name}",
+                                        "output": f"Retrieved {len(decisions)} decisions",
+                                        "metadata": {
+                                            "trigger": trigger,
+                                            "collection": COLLECTION_DISCUSSIONS,
+                                            "memory_type": "decision",
+                                            "method": "get_recent",
+                                            "result_count": len(decisions),
+                                            "retrieval_ms": round(_retrieval_ms, 2),
+                                            "parzival_enabled": True,
+                                        },
+                                    },
+                                    session_id=session_id,
+                                    project_id=project_name,
+                                )
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        logger.warning(
+                            "other_memories_retrieval_failed",
+                            extra={"session_id": session_id, "error": str(e)},
+                        )
+                finally:
+                    searcher.close()
+
+            else:
+                # NON-PARZIVAL PATH: Keep existing behavior EXACTLY
+                # Retrieve session summaries using shared helper (TECH-DEBT-047 refactor)
+                _retrieval_start = time.perf_counter()
+                session_summaries = retrieve_session_summaries(
+                    client, project_name, limit=20
                 )
-                other_memories.extend(decisions)
-                memories_per_collection[COLLECTION_DISCUSSIONS] = len(decisions)
-
-                # Search patterns from code-patterns
-                patterns = searcher.search(
-                    query=query,
-                    collection=COLLECTION_CODE_PATTERNS,
-                    group_id=project_name,
-                    limit=3,
-                    fast_mode=True,
-                )
-                other_memories.extend(patterns)
-                memories_per_collection[COLLECTION_CODE_PATTERNS] = len(patterns)
-
-                # Search conventions (no group_id filter - shared)
-                conventions = searcher.search(
-                    query=query,
-                    collection=COLLECTION_CONVENTIONS,
-                    group_id=None,  # Shared across projects
-                    limit=2,
-                    fast_mode=True,
-                )
-                other_memories.extend(conventions)
-                memories_per_collection[COLLECTION_CONVENTIONS] = len(conventions)
-
-                searcher.close()
-
-            except Exception as e:
-                logger.warning(
-                    "other_memories_retrieval_failed",
-                    extra={"session_id": session_id, "error": str(e)},
-                )
+                # Take top 5 most recent
+                session_summaries = session_summaries[:5]
+                # TD-228: Trace event for non-Parzival session summaries retrieval
                 if emit_trace_event:
                     try:
+                        _retrieval_ms = (time.perf_counter() - _retrieval_start) * 1000
                         emit_trace_event(
-                            event_type="context_retrieval",
+                            event_type="memory_retrieval_session_summaries",
                             data={
-                                "input": f"Other memories retrieval: {project_name}",
-                                "output": f"Retrieval failed: {type(e).__name__}: {e!s}",
+                                "input": f"retrieve_session_summaries(limit=20) for {project_name}",
+                                "output": f"Retrieved {len(session_summaries)} session summaries (from top 5)",
                                 "metadata": {
                                     "trigger": trigger,
-                                    "error": type(e).__name__,
-                                    "results_considered": 0,
-                                    "results_selected": 0,
+                                    "collection": COLLECTION_DISCUSSIONS,
+                                    "memory_type": "session",
+                                    "method": "scroll",
+                                    "result_count": len(session_summaries),
+                                    "retrieval_ms": round(_retrieval_ms, 2),
+                                    "parzival_enabled": False,
                                 },
                             },
                             session_id=session_id,
@@ -1069,7 +1147,92 @@ def main():
                         )
                     except Exception:
                         pass
+
+                # Retrieve other memories (decisions, patterns, conventions)
                 other_memories = []
+                # Track memory counts per collection for metrics (BUG-021 fix)
+                memories_per_collection = {
+                    COLLECTION_DISCUSSIONS: 0,
+                    COLLECTION_CODE_PATTERNS: 0,
+                    COLLECTION_CONVENTIONS: 0,
+                }
+                try:
+                    from memory.search import MemorySearch
+
+                    # Build a query from the most recent session summary
+                    query = "recent implementation patterns and decisions"
+                    if session_summaries:
+                        first_summary = session_summaries[0]
+                        query = (
+                            first_summary.get("first_user_prompt")
+                            or first_summary.get("content", "")[:200]
+                            or "recent implementation patterns"
+                        )
+
+                    # Search for relevant memories across collections
+                    searcher = MemorySearch(config)
+
+                    # Search decisions from discussions (type=decision)
+                    decisions = searcher.search(
+                        query=query,
+                        collection=COLLECTION_DISCUSSIONS,
+                        group_id=project_name,
+                        limit=3,
+                        memory_type="decision",
+                        fast_mode=True,
+                    )
+                    other_memories.extend(decisions)
+                    memories_per_collection[COLLECTION_DISCUSSIONS] = len(decisions)
+
+                    # Search patterns from code-patterns
+                    patterns = searcher.search(
+                        query=query,
+                        collection=COLLECTION_CODE_PATTERNS,
+                        group_id=project_name,
+                        limit=3,
+                        fast_mode=True,
+                    )
+                    other_memories.extend(patterns)
+                    memories_per_collection[COLLECTION_CODE_PATTERNS] = len(patterns)
+
+                    # Search conventions (no group_id filter - shared)
+                    conventions = searcher.search(
+                        query=query,
+                        collection=COLLECTION_CONVENTIONS,
+                        group_id=None,
+                        limit=2,
+                        fast_mode=True,
+                    )
+                    other_memories.extend(conventions)
+                    memories_per_collection[COLLECTION_CONVENTIONS] = len(conventions)
+
+                    searcher.close()
+
+                except Exception as e:
+                    logger.warning(
+                        "other_memories_retrieval_failed",
+                        extra={"session_id": session_id, "error": str(e)},
+                    )
+                    if emit_trace_event:
+                        try:
+                            emit_trace_event(
+                                event_type="context_retrieval",
+                                data={
+                                    "input": f"Other memories retrieval: {project_name}",
+                                    "output": f"Retrieval failed: {type(e).__name__}: {e!s}",
+                                    "metadata": {
+                                        "trigger": trigger,
+                                        "error": type(e).__name__,
+                                        "results_considered": 0,
+                                        "results_selected": 0,
+                                    },
+                                },
+                                session_id=session_id,
+                                project_id=project_name,
+                            )
+                        except Exception:
+                            pass
+                    other_memories = []
 
             # Use priority injection (TECH-DEBT-047)
             conversation_context = inject_with_priority(
@@ -1236,6 +1399,21 @@ def main():
                                     "memory_counts": {k: v for k, v in memories_per_collection.items() if v > 0},
                                     "tokens_used": token_count,
                                     "budget": config.token_budget,
+                                    "results_detail": [
+                                        {
+                                            "type": s.get("type", "session_summary"),
+                                            "tokens": count_tokens(s.get("content", "")) if s.get("content") else 0,
+                                        }
+                                        for s in session_summaries[:10]
+                                    ] + [
+                                        {
+                                            "type": m.get("type", "unknown"),
+                                            "collection": m.get("collection", "unknown"),
+                                            "score": round(m.get("score", 0), 4),
+                                            "tokens": count_tokens(m.get("content", "")) if m.get("content") else 0,
+                                        }
+                                        for m in other_memories[:10]
+                                    ],
                                 },
                             },
                             session_id=session_id,
@@ -1244,11 +1422,9 @@ def main():
                     except Exception:
                         pass
 
-                # SPEC-021: Langfuse trace for session restore
+                # SPEC-021: Langfuse trace for session restore (root span)
                 if emit_trace_event:
                     try:
-                        from uuid import uuid4
-
                         emit_trace_event(
                             event_type="session_bootstrap",
                             data={
@@ -1260,9 +1436,12 @@ def main():
                                     "tokens_injected": token_count,
                                     "budget": config.token_budget,
                                     "summary": f"Injected {token_count} tokens from {total_count} results",
+                                    "result_types": [s.get("type", "session_summary") for s in session_summaries[:10]] + [m.get("type", "unknown") for m in other_memories[:10]],
+                                    "result_scores": [0.0 for _ in session_summaries[:10]] + [round(m.get("score", 0), 4) for m in other_memories[:10]],
                                 },
                             },
-                            trace_id=uuid4().hex,
+                            span_id=_resume_root_span_id,
+                            parent_span_id=None,
                             session_id=session_id,
                             project_id=project_name,
                         )

@@ -12,6 +12,7 @@ Best Practices (2025/2026):
 import contextlib
 import logging
 import time
+from datetime import datetime, timezone
 
 from qdrant_client.models import (
     FieldCondition,
@@ -21,6 +22,7 @@ from qdrant_client.models import (
     SearchParams,
 )
 
+from .activity_log import log_memory_search
 from .config import (
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
@@ -30,6 +32,7 @@ from .config import (
 )
 from .decay import build_decay_formula
 from .embeddings import EmbeddingClient, EmbeddingError
+from .metrics_push import push_failure_metrics_async, push_retrieval_metrics_async
 from .qdrant_client import QdrantUnavailable, get_qdrant_client
 
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
@@ -44,8 +47,13 @@ except ImportError:
     memory_retrievals_total = None
     failure_events_total = None
 
-from .activity_log import log_memory_search
-from .metrics_push import push_failure_metrics_async, push_retrieval_metrics_async
+# SPEC-021: Trace buffer for search instrumentation
+try:
+    from .trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
+TRACE_CONTENT_MAX = 2000  # Max chars per result preview in traces
 
 __all__ = [
     "MemorySearch",
@@ -134,16 +142,24 @@ class MemorySearch:
         self.client = get_qdrant_client(self.config)
         self.embedding_client = EmbeddingClient(self.config)
 
-    def _get_embedding_model(self, collection: str) -> str:
-        """Route embedding model based on collection (collection-level routing only).
+    def _get_embedding_model(
+        self, collection: str, memory_type: str | list[str] | None = None
+    ) -> str:
+        """Route embedding model based on collection and content type.
 
-        Mirrors MemoryStorage._get_embedding_model for collection-level routing.
-        Note: Does not handle content_type-based routing (e.g., github_code_blob
-        stored in discussions with "code" model). That remains a known gap.
+        Mirrors MemoryStorage._get_embedding_model routing rules.
+        SPEC-010 Section 4.2: Routing Rules
+        - code-patterns collection -> code model
+        - github_code_blob type (in any collection) -> code model
+        - Everything else -> prose (en) model
         """
-        # TODO: Add content_type-based routing for github_code_blob in discussions
         if collection == COLLECTION_CODE_PATTERNS:
             return "code"
+        # Content-type routing: github_code_blob stored in discussions uses code model
+        if memory_type is not None:
+            types = memory_type if isinstance(memory_type, list) else [memory_type]
+            if "github_code_blob" in types:
+                return "code"
         return "en"
 
     def search(
@@ -252,7 +268,8 @@ class MemorySearch:
 
         # Generate query embedding
         # Propagates EmbeddingError for graceful degradation
-        model = self._get_embedding_model(collection)
+        _trace_start = datetime.now(tz=timezone.utc)
+        model = self._get_embedding_model(collection, memory_type=memory_types)
         query_embedding = self.embedding_client.embed([query], model=model)[0]
 
         # Build filter conditions using 2025 best practice: model-based Filter API
@@ -430,6 +447,47 @@ class MemorySearch:
             }
             memories.append(memory)
 
+        # SPEC-021: Emit search trace event
+        if emit_trace_event:
+            try:
+                _trace_end = datetime.now(tz=timezone.utc)
+                _top_score = results[0].score if results else 0.0
+                _search_duration_ms = (time.perf_counter() - start_time) * 1000
+                # Build content preview: show what was actually retrieved
+                _result_previews = "\n---\n".join(
+                    f"[{m.get('type','?')}|{round(m.get('score',0)*100)}%] {m.get('content','')[:500]}"
+                    for m in memories[:10]
+                )
+                emit_trace_event(
+                    event_type="search_query",
+                    data={
+                        "input": query[:TRACE_CONTENT_MAX],
+                        "output": (
+                            _result_previews[:10000]
+                            if _result_previews
+                            else f"No results (collection={collection})"
+                        ),
+                        "metadata": {
+                            "collection": collection,
+                            "group_id": group_id,
+                            "limit": limit,
+                            "memory_type": memory_type,
+                            "fast_mode": fast_mode,
+                            "source": source,
+                            "agent_id": agent_id,
+                            "embedding_model": model,
+                            "search_duration_ms": round(_search_duration_ms, 2),
+                            "result_count": len(memories),
+                            "top_score": round(_top_score, 4),
+                        },
+                    },
+                    project_id=group_id,
+                    start_time=_trace_start,
+                    end_time=_trace_end,
+                )
+            except Exception:
+                pass
+
         # Metrics: Increment retrieval counter with success/empty status (Story 6.1, AC 6.1.3)
         status = "success" if memories else "empty"
         if memory_retrievals_total:
@@ -453,6 +511,188 @@ class MemorySearch:
                 "results_count": len(memories),
                 "group_id": group_id,
                 "threshold": score_threshold,
+            },
+        )
+
+        return memories
+
+    def get_recent(
+        self,
+        collection: str,
+        group_id: str | None = None,
+        memory_type: str | list[str] | None = None,
+        agent_id: str | None = None,
+        source: str | None = None,
+        limit: int = 5,
+    ) -> list[dict]:
+        """Retrieve most recent memories by timestamp (deterministic, no vector search).
+
+        Uses Qdrant scroll with order_by timestamp descending to retrieve the most
+        recent memories. No embedding or similarity scoring is involved — this is
+        a pure chronological retrieval for use cases where recency matters more
+        than semantic similarity.
+
+        Args:
+            collection: Qdrant collection name to search.
+            group_id: Optional project/group filter. Uses explicit None check.
+            memory_type: Optional type filter. String or list of strings.
+            agent_id: Optional agent-scoped filter (e.g., "parzival").
+            source: Optional namespace filter (e.g., "github").
+            limit: Maximum number of results to return (default 5).
+
+        Returns:
+            List of memory dicts with keys matching search() output format:
+            id, score, collection, type, attribution, plus all payload fields.
+            Score is always 1.0 for deterministic (non-vector) results.
+
+        Raises:
+            QdrantUnavailable: If Qdrant is unreachable or the scroll fails.
+        """
+        logger.debug(
+            "get_recent_query",
+            extra={
+                "collection": collection,
+                "group_id": group_id,
+                "memory_type": memory_type,
+                "agent_id": agent_id,
+                "limit": limit,
+            },
+        )
+
+        # Normalize memory_type to list
+        if memory_type is not None:
+            memory_types = (
+                memory_type if isinstance(memory_type, list) else [memory_type]
+            )
+        else:
+            memory_types = None
+
+        # Build filter conditions using 2025 best practice: model-based Filter API
+        filter_conditions = []
+        # CRITICAL: Use explicit None check (not truthy) per AC 4.3.2
+        if group_id is not None:
+            filter_conditions.append(
+                FieldCondition(key="group_id", match=MatchValue(value=group_id))
+            )
+        if memory_types:
+            filter_conditions.append(
+                FieldCondition(key="type", match=MatchAny(any=memory_types))
+            )
+        # SPEC-005: Namespace filter (e.g., source="github")
+        if source is not None:
+            filter_conditions.append(
+                FieldCondition(key="source", match=MatchValue(value=source))
+            )
+            if source == "github":
+                filter_conditions.append(
+                    FieldCondition(key="is_current", match=MatchValue(value=True))
+                )
+        # SPEC-015: Agent-scoped filter (e.g., agent_id="parzival")
+        if agent_id is not None:
+            filter_conditions.append(
+                FieldCondition(
+                    key="agent_id",
+                    match=MatchValue(value=agent_id),
+                )
+            )
+
+        start_time = time.perf_counter()
+        try:
+            points, _ = self.client.scroll(
+                collection_name=collection,
+                scroll_filter=(
+                    Filter(must=filter_conditions) if filter_conditions else None
+                ),
+                limit=limit,
+                order_by={"key": "timestamp", "direction": "desc"},
+                with_payload=True,
+                with_vectors=False,
+            )
+        except Exception as e:
+            duration_seconds = time.perf_counter() - start_time
+            if retrieval_duration_seconds:
+                retrieval_duration_seconds.observe(duration_seconds)
+
+            if memory_retrievals_total:
+                memory_retrievals_total.labels(
+                    collection=collection,
+                    status="failed",
+                    project=group_id or "unknown",
+                ).inc()
+
+            if failure_events_total:
+                failure_events_total.labels(
+                    component="qdrant",
+                    error_code="QDRANT_UNAVAILABLE",
+                    project=group_id or "unknown",
+                ).inc()
+
+            push_retrieval_metrics_async(
+                collection=collection,
+                status="failed",
+                duration_seconds=duration_seconds,
+                project=group_id or "unknown",
+            )
+            push_failure_metrics_async(
+                component="qdrant",
+                error_code="QDRANT_UNAVAILABLE",
+                project=group_id or "unknown",
+            )
+
+            logger.error(
+                "qdrant_get_recent_failed",
+                extra={
+                    "collection": collection,
+                    "group_id": group_id,
+                    "error": str(e),
+                },
+            )
+            raise QdrantUnavailable(f"Get recent failed: {e}") from e
+
+        # Format results with collection and type attribution matching search() output
+        memories = []
+        for point in points:
+            payload = point.payload or {}
+            memory_type_val = payload.get("type", "unknown")
+            memory = {
+                **payload,
+                "id": point.id,
+                "score": 1.0,  # Deterministic retrieval — score is always 1.0
+                "collection": collection,
+                "type": memory_type_val,
+                "attribution": format_attribution(collection, memory_type_val, 1.0),
+            }
+            memories.append(memory)
+
+        # Metrics: Record retrieval duration (same pattern as search())
+        if retrieval_duration_seconds:
+            duration_seconds = time.perf_counter() - start_time
+            retrieval_duration_seconds.observe(duration_seconds)
+
+        # Metrics: Record successful retrieval
+        status = "success" if memories else "empty"
+        if memory_retrievals_total:
+            memory_retrievals_total.labels(
+                collection=collection,
+                status=status,
+                project=group_id or "unknown",
+            ).inc()
+
+        # Push to Pushgateway for hook subprocess visibility
+        push_retrieval_metrics_async(
+            collection=collection,
+            status=status,
+            duration_seconds=time.perf_counter() - start_time,
+            project=group_id or "unknown",
+        )
+
+        logger.info(
+            "get_recent_completed",
+            extra={
+                "collection": collection,
+                "results_count": len(memories),
+                "group_id": group_id,
+                "duration_seconds": round(time.perf_counter() - start_time, 4),
             },
         )
 
@@ -520,6 +760,8 @@ class MemorySearch:
                 )
                 effective_group_id = None
 
+        _trace_start = datetime.now(tz=timezone.utc)
+
         # Search code-patterns with group_id filter (project-specific)
         code_patterns = self.search(
             query=query,
@@ -548,6 +790,40 @@ class MemorySearch:
                 "total_results": len(code_patterns) + len(conventions),
             },
         )
+
+        # SPEC-021: Emit dual-collection search trace event
+        if emit_trace_event:
+            try:
+                _trace_end = datetime.now(tz=timezone.utc)
+                _all_results = code_patterns + conventions
+                _dual_previews = "\n---\n".join(
+                    f"[{m.get('type','?')}|{m.get('collection','?')}|{round(m.get('score',0)*100)}%] {m.get('content','')[:400]}"
+                    for m in _all_results[:10]
+                )
+                emit_trace_event(
+                    event_type="dual_collection_search",
+                    data={
+                        "input": query[:TRACE_CONTENT_MAX],
+                        "output": (
+                            _dual_previews[:10000]
+                            if _dual_previews
+                            else "No results from dual search"
+                        ),
+                        "metadata": {
+                            "group_id": effective_group_id,
+                            "code_patterns_count": len(code_patterns),
+                            "conventions_count": len(conventions),
+                            "total_results": len(code_patterns) + len(conventions),
+                            "limit": limit,
+                            "fast_mode": fast_mode,
+                        },
+                    },
+                    project_id=effective_group_id,
+                    start_time=_trace_start,
+                    end_time=_trace_end,
+                )
+            except Exception:
+                pass
 
         return {
             "code-patterns": code_patterns,
@@ -606,6 +882,8 @@ class MemorySearch:
             >>> results[0]["collection"]
             'code-patterns'
         """
+        _trace_start = datetime.now(tz=timezone.utc)
+
         # Step 1: Search primary collection
         primary_results = self.search(
             query=query,
@@ -634,6 +912,40 @@ class MemorySearch:
                     "expansion_needed": False,
                 },
             )
+            # SPEC-021: Emit cascading search trace (primary sufficient)
+            if emit_trace_event:
+                try:
+                    _trace_end = datetime.now(tz=timezone.utc)
+                    _casc_previews = "\n---\n".join(
+                        f"[{m.get('type','?')}|{primary_collection}|{round(m.get('score',0)*100)}%] {m.get('content','')[:400]}"
+                        for m in primary_results[:10]
+                    )
+                    emit_trace_event(
+                        event_type="cascading_search",
+                        data={
+                            "input": query[:TRACE_CONTENT_MAX],
+                            "output": (
+                                _casc_previews[:10000]
+                                if _casc_previews
+                                else "No results"
+                            ),
+                            "metadata": {
+                                "primary_collection": primary_collection,
+                                "secondary_collections": secondary_collections,
+                                "total_results": len(primary_results),
+                                "primary_results_count": len(primary_results),
+                                "secondary_results_count": 0,
+                                "expanded": False,
+                                "intent_type": str(memory_type),
+                                "search_type": "cascading",
+                            },
+                        },
+                        project_id=group_id,
+                        start_time=_trace_start,
+                        end_time=_trace_end,
+                    )
+                except Exception:
+                    pass
             return primary_results
 
         # Step 3: Results insufficient - expand to secondary collections
@@ -684,6 +996,43 @@ class MemorySearch:
                 "expanded": True,
             },
         )
+
+        # SPEC-021: Emit cascading search trace (expanded)
+        _secondary_count = len(all_results) - results_count
+        _collections_searched = 1 + len(secondary_collections)
+        if emit_trace_event:
+            try:
+                _trace_end = datetime.now(tz=timezone.utc)
+                _casc_exp_previews = "\n---\n".join(
+                    f"[{m.get('type','?')}|{m.get('collection','?')}|{round(m.get('score',0)*100)}%] {m.get('content','')[:400]}"
+                    for m in final_results[:10]
+                )
+                emit_trace_event(
+                    event_type="cascading_search",
+                    data={
+                        "input": query[:TRACE_CONTENT_MAX],
+                        "output": (
+                            _casc_exp_previews[:10000]
+                            if _casc_exp_previews
+                            else "No results"
+                        ),
+                        "metadata": {
+                            "primary_collection": primary_collection,
+                            "secondary_collections": secondary_collections,
+                            "total_results": len(final_results),
+                            "primary_results_count": results_count,
+                            "secondary_results_count": _secondary_count,
+                            "expanded": True,
+                            "intent_type": str(memory_type),
+                            "search_type": "cascading",
+                        },
+                    },
+                    project_id=group_id,
+                    start_time=_trace_start,
+                    end_time=_trace_end,
+                )
+            except Exception:
+                pass
 
         return final_results
 
