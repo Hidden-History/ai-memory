@@ -12,10 +12,9 @@ import logging
 from qdrant_client import QdrantClient
 from qdrant_client.models import KeywordIndexParams, PayloadSchemaType
 
-logger = logging.getLogger("ai_memory.github.schema")
+from memory.config import COLLECTION_GITHUB as GITHUB_COLLECTION
 
-# Collection that GitHub data is stored in (PLAN-010: dedicated github collection)
-GITHUB_COLLECTION = "github"
+logger = logging.getLogger("ai_memory.github.schema")
 
 # GitHub-specific indexes to create on github collection.
 GITHUB_INDEXES: list[dict] = [

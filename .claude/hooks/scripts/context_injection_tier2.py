@@ -29,7 +29,7 @@ INSTALL_DIR = os.environ.get(
 )
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
-from memory.config import get_config
+from memory.config import COLLECTION_DISCUSSIONS, get_config
 from memory.health import check_qdrant_health
 
 # SPEC-021: Trace buffer for retrieval instrumentation
@@ -176,7 +176,7 @@ def main() -> int:
                     "limit": config.max_retrievals,
                     "fast_mode": True,
                 }
-                if route.collection == "discussions":
+                if route.collection == COLLECTION_DISCUSSIONS:
                     search_kwargs["memory_type"] = [
                         "decision",
                         "guideline",

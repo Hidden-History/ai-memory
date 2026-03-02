@@ -69,7 +69,8 @@ GITHUB_TYPES = [
 # Patterns that indicate a REAL error (not a false positive)
 ERROR_INDICATORS = re.compile(
     r"(Traceback|Exception|Error:|FAILED|exit\s+code|raise\s+\w+|"
-    r"errno|fatal:|panic:|segfault|core\s+dump)",
+    r"errno|fatal:|panic:|segfault|core\s+dump|"
+    r"permission\s+denied|command\s+not\s+found|no\s+such\s+file)",
     re.IGNORECASE,
 )
 
