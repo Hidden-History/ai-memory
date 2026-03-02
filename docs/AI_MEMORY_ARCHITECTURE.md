@@ -373,7 +373,7 @@ Session summaries are **fundamentally different** from implementation patterns:
 
 **Written By:** `github_sync.py`, `code_sync.py` (automated Docker service)
 
-**Indexes:** `source`, `github_id`, `file_path`, `sha`, `state`, `last_synced`, `update_batch_id`, plus standard `group_id`, `memory_type`, `timestamp`
+**Indexes:** `source`, `github_id`, `file_path`, `sha`, `state`, `last_synced`, `update_batch_id`, plus standard `group_id`, `type`, `timestamp`
 
 **Example Payload:**
 ```json
@@ -414,9 +414,9 @@ Session summaries are **fundamentally different** from implementation patterns:
 | **Scope** | Per-project | Per-project | All projects | Per-project | Per-project |
 | **group_id** | Project name | Project name | "universal" | Project name | Project name |
 | **Content** | Summaries, decisions | Code with file:line | Patterns, evidence | PRs, issues, code | Issues, comments |
-| **SessionStart** | ✅ Primary source | ❌ Not searched | ❌ Not searched | ✅ Parzival L4 | ❌ Not searched |
+| **SessionStart** | ✅ Primary source | ❌ Not searched | ⚠️ Non-Parzival path | ✅ Parzival L4 | ❌ Not searched |
 | **Pre-work** | ❌ Not searched | ✅ Primary source | ⚠️ Supplemental | ❌ Not searched | ❌ Not searched |
-| **Tier 2** | ✅ Type-filtered | ❌ Not searched | ❌ Not searched | ❌ By design | ❌ Not searched |
+| **Tier 2** | ✅ Type-filtered | ⚠️ HOW/file-path routing | ⚠️ Best-practices routing | ❌ By design | ❌ Not searched |
 | **Typical size** | 100-500 tokens | 50-500 tokens | 100-500 tokens | 50-2000 tokens | 100-500 tokens |
 
 ---
@@ -1111,7 +1111,7 @@ All memories must include required metadata fields:
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  WRITES TO discussions:                                    │
-│  ├── Stop hook (session summaries)                          │
+│  ├── PreCompact hook (session summaries)                    │
 │  └── store-chat-memory (workflow decisions)                 │
 │                                                              │
 │  READS FROM discussions:                                   │
@@ -1166,11 +1166,11 @@ All memories must include required metadata fields:
 **Result:** Generic query returns random code patterns (low relevance)
 **Correct:** SessionStart searches `discussions` for session summaries
 
-### Mistake 2: Stop Hook Storing to code-patterns
+### Mistake 2: Storing Session Summaries to code-patterns
 
-**Wrong:** Stop hook stores session summary to `code-patterns`
+**Wrong:** Storing session summary to `code-patterns`
 **Result:** Session summaries mixed with code patterns, wrong retrieval
-**Correct:** Stop hook stores to `discussions`
+**Correct:** PreCompact hook stores session summaries to `discussions`
 
 ### Mistake 3: Generic Queries for Feature Search
 
@@ -1239,7 +1239,7 @@ A five-collection memory system:
 | jira-data collection | Jira issues and comments |
 | SessionStart hook | Load previous session context |
 | PostToolUse hook | Auto-capture code as you work |
-| Stop hook | Save session for next time |
+| PreCompact hook | Save session for next time |
 | pre-work-search | Load relevant patterns before features |
 | post-work-store | Save outcomes after features |
 | Token budgets | Prevent context overflow |
