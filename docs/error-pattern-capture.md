@@ -45,12 +45,17 @@ The error pattern capture system automatically detects and stores error patterns
 ### Primary Indicators
 
 1. **Exit Code**: `exitCode != 0` (most reliable)
-2. **Error Keywords**: case-insensitive patterns:
-   - `error`, `failed`, `failure`
-   - `exception`, `traceback`, `fatal`, `panic`
-   - `warning`, `cannot`, `unable to`
-   - `permission denied`, `no such file`, `command not found`
-   - `syntax error`, `segmentation fault`, `core dumped`
+2. **Structured Error Patterns** (v2.0.9 rewrite — eliminates false positives from filenames):
+   - `TypeError:`, `ValueError:`, `KeyError:`, `AttributeError:`, `ImportError:`
+   - `Traceback (most recent call last):`
+   - `SyntaxError:`, `IndentationError:`
+   - `npm ERR!`, `ENOENT`, `EACCES`
+   - `FAILED`, `FATAL`, `panic:`
+   - `exit code [1-9]`, `exited with [1-9]`
+   - `permission denied`, `command not found`, `no such file or directory`
+   - `segmentation fault`, `core dumped`
+
+> **v2.0.9 Change:** The error detection was rewritten to use structured patterns instead of bare keyword matching. Previously, matching on the substring "error" caused false positives when filenames like `error-handling.md` appeared in `find`/`ls` output. The new detection first checks if output is a directory listing (file-path-only lines) and skips it entirely.
 
 ### Context Extraction
 

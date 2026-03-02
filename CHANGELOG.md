@@ -5,6 +5,77 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.9] - 2026-03-02
+
+Injection quality sprint (PLAN-010): Dedicated `github` Qdrant collection for GitHub-synced data, fixing 79.6% noise in discussions. Structured error pattern detection eliminates false positives. Tier 2 context injection now filters by memory type. Content quality gate prevents low-value messages from being stored. Langfuse observability with 7 emit_trace_event() calls across search, injection, and session pipelines. Parzival layered priority bootstrap with deterministic + semantic retrieval layers.
+
+### Added
+
+#### Dedicated GitHub Collection (PLAN-010)
+- New `github` Qdrant collection (768-dim, cosine, HNSW on-disk, int8 quantization) for all GitHub-synced data
+- `COLLECTION_GITHUB` constant in `config.py` as single source of truth
+- 7 GitHub-specific indexes: `source`, `github_id`, `file_path`, `sha`, `state`, `last_synced`, `update_batch_id`
+- `decay_half_life_github` configuration field (default 14 days)
+- Migration script `migrate_v209_github_collection.py` — idempotent, --dry-run support, audit logging
+
+#### Langfuse Observability
+- 7 `emit_trace_event()` calls across search, injection, and session_start pipelines
+- Trace events for compact/resume retrieval paths
+- Session ID linking for end-to-end trace correlation
+
+#### Parzival Layered Priority Bootstrap
+- L1 [DETERMINISTIC]: Last handoff via `get_recent()` timestamp-sorted scroll
+- L2 [DETERMINISTIC]: Recent decisions (5) via `get_recent()`
+- L3 [SEMANTIC]: Recent insights (3) via `search()`
+- L4 [SEMANTIC]: GitHub enrichment (10) via `search()` on github collection
+- Results returned in layer order, not score-sorted
+- Score gap filter excludes deterministic results from semantic threshold calculation
+
+#### Content Quality Gate
+- Skip storing messages under 4 words or matching low-value patterns ("ok", "yes", "lgtm", "nothing to add")
+- Applied to both `user_prompt_store_async.py` and `agent_response_store_async.py`
+
+### Changed
+
+#### GitHub Sync Target Collection
+- `github_sync.py`, `code_sync.py`, `sync.py` now write to `github` collection instead of `discussions`
+- `schema.py` imports `COLLECTION_GITHUB` from `config.py` (eliminates duplicate constant)
+- Parzival L4 enrichment queries `github` collection instead of filtering discussions
+
+#### Tier 2 Context Injection Type Filters
+- `context_injection_tier2.py` now filters by `memory_type` IN (`decision`, `guideline`, `session`, `agent_insight`, `agent_handoff`, `agent_memory`)
+- Excludes `user_message`, `agent_response`, `error_fix`, `github_code_blob` from injection
+- Uses `COLLECTION_DISCUSSIONS` constant instead of hardcoded string
+
+#### Error Pattern Detection Rewrite
+- `error_pattern_capture.py` `detect_error_indicators()` completely rewritten
+- Now detects directory listing output and skips file-path-only content
+- Structured error patterns: `TypeError:`, `Traceback (most recent`, `npm ERR!`, `exit code [1-9]`, `FAILED`, `command not found`, `permission denied`, `no such file`
+- Eliminates false positives from filenames containing "error" (e.g., `error-handling.md`)
+
+#### Content-Type-Aware Embedding Model Routing
+- `search.py` routes code content to `jina-embeddings-v2-base-code` model
+- Prose content continues using `jina-embeddings-v2-base-en`
+
+### Fixed
+- BUG-197: Lazy import `contextlib.suppress` for optional anthropic dependency
+- BUG-198/199: Langfuse trace event fixes (PM #135)
+- BUG-200: Error pattern capture false positives — 100% of code-patterns were garbage (PLAN-010)
+- BUG-201: Tier 2 injection missing type filter — injected "nothing to add" at 99% similarity (PLAN-010)
+- E2E test screenshots directory fixture (TD-219)
+- 11 E2E test failures: search model routing, Grafana selectors, panel error detection
+- Ruff lint errors in injection.py and search.py
+- Parzival bootstrap test assertions updated for layered priority retrieval
+
+### Migration
+- Run `scripts/migrate_v209_github_collection.py` on existing installations
+- Moves ~4,000 `github_code_blob` points from `discussions` → `github` collection
+- Purges false-positive `error_fix` entries from `code-patterns`
+- Idempotent — safe to run multiple times
+- Supports `--dry-run` for preview
+
+---
+
 ## [2.0.8] - 2026-02-25
 
 Multi-project sync (PLAN-009): Prometheus-style `projects.d/` discovery, per-repo/per-Jira-instance state files, and parameterized sync engines. AI issue triage via multi-model Ollama consensus. Housekeeping: CI fixes, security credential hardening, Dependabot updates.

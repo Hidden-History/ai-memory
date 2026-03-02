@@ -72,8 +72,9 @@ A PostToolUse hook system that automatically captures error patterns from failed
 
 ### Error Detection
 - Exit code checking (`!= 0`)
-- 15+ error keyword patterns (error, failed, exception, traceback, etc.)
-- Case-insensitive matching
+- Structured error patterns: `TypeError:`, `Traceback`, `npm ERR!`, `FAILED`, `exit code [1-9]`, etc.
+- Directory listing detection — skips `find`/`ls` output containing filenames with "error"
+- Eliminates false positives from bare keyword matching (v2.0.9 rewrite)
 
 ### Context Extraction
 - Command that failed

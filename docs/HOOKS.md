@@ -728,7 +728,7 @@ Activity logging hooks track session events for analytics and debugging. They wr
 
 **Hook:** `error_pattern_capture.py`
 
-**Storage:** `error_patterns` collection
+**Storage:** `code-patterns` collection (type=`error_pattern`)
 
 **Example Pattern:**
 ```json

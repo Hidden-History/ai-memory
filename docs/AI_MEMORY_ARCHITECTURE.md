@@ -2,7 +2,7 @@
 
 **Purpose:** This document defines the complete architecture of the AI Memory Module. It explains WHAT we're building, WHY each component exists, and HOW they work together. This is the authoritative reference to prevent implementation mistakes.
 
-**Last Updated:** 2026-01-26 (V2.0 collection names)
+**Last Updated:** 2026-03-02 (V2.0.9 — five-collection architecture, github collection separation)
 
 ---
 
@@ -11,7 +11,7 @@
 1. [AI Memory Module Integration](#ai-memory-module-integration)
 2. [The Vision](#the-vision)
 3. [The "Aha Moment" Explained](#the-aha-moment-explained)
-4. [Three-Collection Architecture](#three-collection-architecture)
+4. [Five-Collection Architecture](#five-collection-architecture)
 5. [Hook System Overview](#hook-system-overview)
 6. [Session Lifecycle Hooks](#session-lifecycle-hooks)
 7. [Workflow Hooks (BMAD Integration)](#workflow-hooks-bmad-integration)
@@ -163,7 +163,7 @@ This module works in TWO modes:
 - store-chat-memory preserves agent decisions
 - load-chat-context retrieves previous agent reasoning
 
-Both modes use the same three collections (`discussions`, `code-patterns`, `conventions`) and the same Qdrant infrastructure.
+Both modes use the same five collections (`discussions`, `code-patterns`, `conventions`, `github`, `jira-data`) and the same Qdrant infrastructure.
 
 ---
 
@@ -249,23 +249,29 @@ Session summaries are **fundamentally different** from implementation patterns:
 
 ---
 
-## Three-Collection Architecture
+## Five-Collection Architecture
+
+> **v2.0.9 Change:** The original three-collection architecture (discussions, code-patterns, conventions) has been expanded to five collections. GitHub-synced data was moved from `discussions` to a dedicated `github` collection (PLAN-010) to eliminate noise — 79.6% of discussions was GitHub framework markdown drowning real conversation data. The `jira-data` collection stores Jira issue and comment data.
 
 ### Collection 1: `discussions`
 
 **Purpose:** Store session memories, chat decisions, and workflow context for continuity across sessions.
 
 **What Goes Here:**
-- Session summaries (from Stop hook)
+- Session summaries (from PreCompact hook)
 - Workflow decisions (PM chose PostgreSQL over MongoDB)
 - Agent reasoning (why we picked this architecture)
 - Project classifications (greenfield/brownfield)
 
+**What Does NOT Go Here (v2.0.9):**
+- GitHub-synced data (`github_code_blob`, `github_issue`, `github_pr`, `github_commit`) → use `github` collection
+- Low-value messages ("ok", "yes", "nothing to add") → filtered by quality gate
+
 **Scope:** Project-isolated via `group_id`
 
-**Searched By:** SessionStart hook, load-chat-context workflow hook
+**Searched By:** SessionStart hook, Tier 2 context injection (filtered by type), load-chat-context workflow hook
 
-**Written By:** Stop hook, store-chat-memory workflow hook
+**Written By:** PreCompact hook, store-chat-memory workflow hook
 
 **Example Payload:**
 ```json
@@ -347,17 +353,71 @@ Session summaries are **fundamentally different** from implementation patterns:
 
 ---
 
+### Collection 4: `github`
+
+**Purpose:** Store GitHub-synced data — pull requests, issues, commits, CI results, and code blobs. Separated from `discussions` in v2.0.9 (PLAN-010) because GitHub code blobs were drowning real conversation data.
+
+**What Goes Here:**
+- Code blobs via AST-aware chunking (`github_code_blob`)
+- Pull requests and diffs (`github_pr`, `github_pr_diff`, `github_pr_review`)
+- Issues and comments (`github_issue`, `github_issue_comment`)
+- Commits (`github_commit`)
+- CI results (`github_ci_result`)
+- Releases (`github_release`)
+
+**Scope:** Project-isolated via `group_id`
+
+**Embedding:** Dual-routed — code blobs use `jina-embeddings-v2-base-code` (768d), prose content uses `jina-embeddings-v2-base-en` (768d)
+
+**Searched By:** Parzival L4 GitHub enrichment, `/aim-github-search` skill
+
+**Written By:** `github_sync.py`, `code_sync.py` (automated Docker service)
+
+**Indexes:** `source`, `github_id`, `file_path`, `sha`, `state`, `last_synced`, `update_batch_id`, plus standard `group_id`, `memory_type`, `timestamp`
+
+**Example Payload:**
+```json
+{
+  "content": "## PR #42: Add JWT authentication\n\nImplements JWT token-based auth...",
+  "group_id": "ai-memory",
+  "type": "github_pr",
+  "source": "github",
+  "github_id": "PR-42",
+  "state": "merged",
+  "timestamp": "2026-02-15T14:30:00Z"
+}
+```
+
+---
+
+### Collection 5: `jira-data`
+
+**Purpose:** Store Jira issues and comments for semantic search across project management data.
+
+**What Goes Here:**
+- Jira issues (summary, description, status, assignee)
+- Issue comments
+
+**Scope:** Project-isolated via `group_id`
+
+**Searched By:** `/aim-jira-search` skill
+
+**Written By:** `jira_sync.py` (automated Docker service)
+
+---
+
 ### Collection Comparison Summary
 
-| Aspect | discussions | code-patterns | conventions |
-|--------|--------------|-----------------|----------------|
-| **Purpose** | Session continuity | Code patterns | Universal patterns |
-| **Scope** | Per-project | Per-project | All projects |
-| **group_id** | Project name | Project name | "universal" |
-| **Content** | Summaries, decisions | Code with file:line | Patterns, evidence |
-| **SessionStart** | ✅ Primary source | ❌ Not searched | ❌ Not searched |
-| **Pre-work** | ❌ Not searched | ✅ Primary source | ⚠️ Supplemental |
-| **Typical size** | 100-500 tokens | 50-500 tokens | 100-500 tokens |
+| Aspect | discussions | code-patterns | conventions | github | jira-data |
+|--------|--------------|-----------------|----------------|--------|-----------|
+| **Purpose** | Session continuity | Code patterns | Universal patterns | GitHub data | Jira data |
+| **Scope** | Per-project | Per-project | All projects | Per-project | Per-project |
+| **group_id** | Project name | Project name | "universal" | Project name | Project name |
+| **Content** | Summaries, decisions | Code with file:line | Patterns, evidence | PRs, issues, code | Issues, comments |
+| **SessionStart** | ✅ Primary source | ❌ Not searched | ❌ Not searched | ✅ Parzival L4 | ❌ Not searched |
+| **Pre-work** | ❌ Not searched | ✅ Primary source | ⚠️ Supplemental | ❌ Not searched | ❌ Not searched |
+| **Tier 2** | ✅ Type-filtered | ❌ Not searched | ❌ Not searched | ❌ By design | ❌ Not searched |
+| **Typical size** | 100-500 tokens | 50-500 tokens | 100-500 tokens | 50-2000 tokens | 100-500 tokens |
 
 ---
 
@@ -1076,6 +1136,23 @@ All memories must include required metadata fields:
 │  ├── search-best-practices (on-demand)                      │
 │  └── pre-work-search (supplemental)                         │
 │                                                              │
+│  ─────────────────────────────────────────────────────────  │
+│                                                              │
+│  WRITES TO github:                                        │
+│  └── github_sync.py / code_sync.py (automated Docker sync)  │
+│                                                              │
+│  READS FROM github:                                       │
+│  ├── Parzival L4 enrichment (SessionStart)                  │
+│  └── /aim-github-search (on-demand)                         │
+│                                                              │
+│  ─────────────────────────────────────────────────────────  │
+│                                                              │
+│  WRITES TO jira-data:                                     │
+│  └── jira_sync.py (automated Docker sync)                   │
+│                                                              │
+│  READS FROM jira-data:                                    │
+│  └── /aim-jira-search (on-demand)                           │
+│                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -1143,11 +1220,13 @@ All memories must include required metadata fields:
 
 ### What We're Building
 
-A three-tier memory system:
+A five-collection memory system:
 
 1. **Session Memory (discussions)** - "What did we do last time?"
 2. **Implementation Patterns (code-patterns)** - "How did we build similar features?"
 3. **Universal Patterns (conventions)** - "What works across all projects?"
+4. **GitHub Data (github)** - "What changed in the repo recently?"
+5. **Jira Data (jira-data)** - "What are we supposed to be working on?"
 
 ### Why Each Piece Exists
 
@@ -1156,6 +1235,8 @@ A three-tier memory system:
 | discussions collection | Session continuity - the "aha moment" |
 | code-patterns collection | Feature-specific code patterns |
 | conventions collection | Cross-project learning |
+| github collection | GitHub PRs, issues, commits, code blobs |
+| jira-data collection | Jira issues and comments |
 | SessionStart hook | Load previous session context |
 | PostToolUse hook | Auto-capture code as you work |
 | Stop hook | Save session for next time |
@@ -1178,7 +1259,7 @@ A three-tier memory system:
 
 ---
 
-**Document Version:** 1.1.0
-**Last Updated:** 2026-01-26 (V2.0 collection names)
-**Changes:** Added PreCompact hook, slash commands, fixed Stop hook description
+**Document Version:** 1.2.0
+**Last Updated:** 2026-03-02 (V2.0.9 five-collection architecture)
+**Changes:** Expanded from 3 to 5 collections (added github, jira-data). Updated data flow diagrams. Added Tier 2 type filtering. Documented quality gate and error detection rewrite.
 **Author:** Architecture documentation from AI Memory Module development
