@@ -562,8 +562,8 @@ def main():
                         break
             if dotenv_key and shell_key != dotenv_key:
                 print(
-                    f"{YELLOW}WARNING: Shell env QDRANT_API_KEY (***{shell_key[-3:]}) "
-                    f"overrides .env value (***{dotenv_key[-3:]}){RESET}"
+                    f"{YELLOW}WARNING: Shell env QDRANT_API_KEY (len={len(shell_key)}) "
+                    f"overrides .env value (len={len(dotenv_key)}){RESET}"
                 )
                 print(
                     "  pydantic-settings priority: shell env > .env file"
