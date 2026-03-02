@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Create Qdrant collections for AI Memory Module.
 
-Creates up to four v2.0 collections:
+Creates up to five v2.0 collections:
 - code-patterns: HOW things are built (implementation, error_fix, refactor, file_pattern)
 - conventions: WHAT rules to follow (guideline, anti_pattern, decision)
 - discussions: WHY things were decided (session, conversation, analysis, reflection)
+- github: GitHub code/issues/PRs (PLAN-010: separated from discussions)
 - jira-data: Jira issues and comments (enabled when jira_sync_enabled=true)
 
 Implements Story 1.3 AC 1.3.1.
@@ -34,6 +35,7 @@ from memory.config import (
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
     COLLECTION_DISCUSSIONS,
+    COLLECTION_GITHUB,
     COLLECTION_JIRA_DATA,
     get_config,
 )
@@ -73,6 +75,7 @@ def create_collections(dry_run: bool = False, force: bool = False) -> None:
         COLLECTION_CODE_PATTERNS,  # code-patterns
         COLLECTION_CONVENTIONS,  # conventions
         COLLECTION_DISCUSSIONS,  # discussions
+        COLLECTION_GITHUB,  # github
     ]
 
     # Conditionally add jira-data collection (PLAN-004 Phase 2)
@@ -236,6 +239,25 @@ def create_collections(dry_run: bool = False, force: bool = False) -> None:
                         is_tenant=True,
                     ),
                 )
+
+            # PLAN-010: GitHub-specific indexes for github collection
+            if collection_name == COLLECTION_GITHUB:
+                github_indexes = [
+                    ("source", KeywordIndexParams(type="keyword", is_tenant=True)),
+                    ("github_id", PayloadSchemaType.INTEGER),
+                    ("file_path", PayloadSchemaType.KEYWORD),
+                    ("sha", PayloadSchemaType.KEYWORD),
+                    ("state", PayloadSchemaType.KEYWORD),
+                    ("last_synced", PayloadSchemaType.DATETIME),
+                    ("update_batch_id", PayloadSchemaType.KEYWORD),
+                ]
+                for field_name, schema_type in github_indexes:
+                    client.create_payload_index(
+                        collection_name=collection_name,
+                        field_name=field_name,
+                        field_schema=schema_type,
+                    )
+                print(f"  Created {len(github_indexes)} GitHub-specific indexes")
 
             # PLAN-004 Phase 2: Jira-specific indexes for jira-data collection
             if collection_name == COLLECTION_JIRA_DATA:

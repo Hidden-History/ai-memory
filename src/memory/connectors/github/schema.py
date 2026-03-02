@@ -1,7 +1,7 @@
-"""GitHub data schema and collection setup for discussions namespace.
+"""GitHub data schema and collection setup for github collection.
 
 Defines payload schemas and creates required payload indexes on the
-discussions collection for GitHub namespace isolation (AD-1, BP-075).
+github collection for GitHub data isolation (PLAN-010, BP-075).
 
 Spec: SPEC-005 (PLAN-006)
 """
@@ -14,11 +14,10 @@ from qdrant_client.models import KeywordIndexParams, PayloadSchemaType
 
 logger = logging.getLogger("ai_memory.github.schema")
 
-# Collection that GitHub data is stored in (AD-1: shared with discussions)
-DISCUSSIONS_COLLECTION = "discussions"
+# Collection that GitHub data is stored in (PLAN-010: dedicated github collection)
+GITHUB_COLLECTION = "github"
 
-# GitHub namespace indexes to create on discussions collection.
-# These are ADDITIONAL to existing discussions indexes (group_id, type, stored_at).
+# GitHub-specific indexes to create on github collection.
 GITHUB_INDEXES: list[dict] = [
     {
         "field_name": "source",
@@ -89,7 +88,7 @@ get_authority_tier = get_source_authority
 
 
 def create_github_indexes(client: QdrantClient) -> dict[str, int]:
-    """Create GitHub namespace payload indexes on discussions collection.
+    """Create GitHub namespace payload indexes on github collection.
 
     Idempotent -- safe to call multiple times. Qdrant ignores create_payload_index
     if the index already exists with the same configuration.
@@ -109,7 +108,7 @@ def create_github_indexes(client: QdrantClient) -> dict[str, int]:
             # BUG-116: is_tenant is encoded in KeywordIndexParams, not as a direct kwarg.
             # Pattern: setup-collections.py:140-147 (KeywordIndexParams for tenant indexes)
             client.create_payload_index(
-                collection_name=DISCUSSIONS_COLLECTION,
+                collection_name=GITHUB_COLLECTION,
                 field_name=field_name,
                 field_schema=index_def["schema"],
             )
@@ -125,7 +124,7 @@ def create_github_indexes(client: QdrantClient) -> dict[str, int]:
                 # TASK-023: Retry once on timeout (Qdrant may be slow under load)
                 try:
                     client.create_payload_index(
-                        collection_name=DISCUSSIONS_COLLECTION,
+                        collection_name=GITHUB_COLLECTION,
                         field_name=field_name,
                         field_schema=index_def["schema"],
                     )

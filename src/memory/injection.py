@@ -37,6 +37,7 @@ from memory.config import (
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
     COLLECTION_DISCUSSIONS,
+    COLLECTION_GITHUB,
     MemoryConfig,
 )
 from memory.embeddings import EmbeddingError
@@ -195,7 +196,7 @@ def _build_github_enrichment(
 
     recent_github = search_client.search(
         query="merged pull request new issue opened closed",
-        collection=COLLECTION_DISCUSSIONS,
+        collection=COLLECTION_GITHUB,
         group_id=project_name,
         limit=10,
         source="github",

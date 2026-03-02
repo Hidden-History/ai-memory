@@ -168,13 +168,25 @@ def main() -> int:
             for route in target_collections:
                 gid = None if route.shared else project_name
 
-                results = search_client.search(
-                    query=prompt,
-                    collection=route.collection,
-                    group_id=gid,
-                    limit=config.max_retrievals,
-                    fast_mode=True,
-                )
+                # PLAN-010 (P10-9): Filter discussions to high-value types only
+                search_kwargs = {
+                    "query": prompt,
+                    "collection": route.collection,
+                    "group_id": gid,
+                    "limit": config.max_retrievals,
+                    "fast_mode": True,
+                }
+                if route.collection == "discussions":
+                    search_kwargs["memory_type"] = [
+                        "decision",
+                        "guideline",
+                        "session",
+                        "agent_insight",
+                        "agent_handoff",
+                        "agent_memory",
+                    ]
+
+                results = search_client.search(**search_kwargs)
                 for r in results:
                     r["collection"] = route.collection  # Tag with source collection
                 all_results.extend(results)
