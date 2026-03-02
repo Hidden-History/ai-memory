@@ -12,7 +12,7 @@ session_start.py. session_start.py calls injection.py which handles the parzival
 
 from unittest.mock import MagicMock
 
-from memory.config import COLLECTION_DISCUSSIONS, MemoryConfig
+from memory.config import COLLECTION_GITHUB, MemoryConfig
 from memory.injection import _build_github_enrichment, retrieve_bootstrap_context
 from memory.qdrant_client import QdrantUnavailable
 
@@ -278,7 +278,7 @@ class TestGitHubEnrichment:
         )
 
         call_kwargs = mock_search.search.call_args.kwargs
-        assert call_kwargs["collection"] == COLLECTION_DISCUSSIONS
+        assert call_kwargs["collection"] == COLLECTION_GITHUB
         assert call_kwargs["source"] == "github"
         assert set(call_kwargs["memory_type"]) == {
             "github_pr",
