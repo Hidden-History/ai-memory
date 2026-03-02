@@ -10,7 +10,7 @@ import pytest
 
 from memory.connectors.github.schema import (
     AUTHORITY_TIER_MAP,
-    DISCUSSIONS_COLLECTION,
+    GITHUB_COLLECTION,
     GITHUB_INDEXES,
     SOURCE_AUTHORITY_MAP,
     compute_content_hash,
@@ -167,8 +167,8 @@ def test_all_required_indexes_defined():
 
 
 def test_discussions_collection_constant():
-    """Collection constant points to discussions."""
-    assert DISCUSSIONS_COLLECTION == "discussions"
+    """Collection constant points to github."""
+    assert GITHUB_COLLECTION == "github"
 
 
 def test_all_indexes_have_schema():

@@ -1,6 +1,6 @@
 """Code blob sync for GitHub repository source files.
 
-Ingests repository source code into discussions collection as github_code_blob
+Ingests repository source code into github collection as github_code_blob
 type with AST-aware chunking (Python) and context enrichment headers.
 Delivers +70.1% Recall@5 over fixed-size chunking (BP-065).
 
@@ -36,7 +36,7 @@ except ImportError:
 
 from memory.connectors.github.client import GitHubClient, GitHubClientError
 from memory.connectors.github.schema import (
-    DISCUSSIONS_COLLECTION,
+    GITHUB_COLLECTION,
     SOURCE_AUTHORITY_MAP,
     compute_content_hash,
 )
@@ -627,7 +627,7 @@ def _build_context_header(
 
 
 class CodeBlobSync:
-    """Syncs repository source files into discussions collection.
+    """Syncs repository source files into github collection.
 
     Uses tree-based incremental sync: compares blob SHA from GitHub tree
     against stored blob_hash to detect changes. Only fetches and re-embeds
@@ -999,7 +999,7 @@ class CodeBlobSync:
                     memory_type=MemoryType.GITHUB_CODE_BLOB,
                     source_hook="github_code_sync",
                     session_id=batch_id,
-                    collection=DISCUSSIONS_COLLECTION,
+                    collection=GITHUB_COLLECTION,
                     group_id=self._group_id,
                     **payload,
                 )
@@ -1031,7 +1031,7 @@ class CodeBlobSync:
 
             while True:
                 points, next_offset = self.qdrant.scroll(
-                    collection_name=DISCUSSIONS_COLLECTION,
+                    collection_name=GITHUB_COLLECTION,
                     scroll_filter=models.Filter(
                         must=[
                             models.FieldCondition(
@@ -1090,7 +1090,7 @@ class CodeBlobSync:
             all_point_ids = []
             while True:
                 points, next_offset = self.qdrant.scroll(
-                    collection_name=DISCUSSIONS_COLLECTION,
+                    collection_name=GITHUB_COLLECTION,
                     scroll_filter=models.Filter(
                         must=[
                             models.FieldCondition(
@@ -1126,7 +1126,7 @@ class CodeBlobSync:
 
             if all_point_ids:
                 self.qdrant.set_payload(
-                    collection_name=DISCUSSIONS_COLLECTION,
+                    collection_name=GITHUB_COLLECTION,
                     payload={"last_synced": now_iso},
                     points=all_point_ids,
                 )
@@ -1145,7 +1145,7 @@ class CodeBlobSync:
             all_point_ids = []
             while True:
                 points, next_offset = self.qdrant.scroll(
-                    collection_name=DISCUSSIONS_COLLECTION,
+                    collection_name=GITHUB_COLLECTION,
                     scroll_filter=models.Filter(
                         must=[
                             models.FieldCondition(
@@ -1181,7 +1181,7 @@ class CodeBlobSync:
 
             if all_point_ids:
                 self.qdrant.set_payload(
-                    collection_name=DISCUSSIONS_COLLECTION,
+                    collection_name=GITHUB_COLLECTION,
                     payload={"is_current": False},
                     points=all_point_ids,
                 )
@@ -1223,7 +1223,7 @@ class CodeBlobSync:
                 all_point_ids = []
                 while True:
                     points, next_offset = self.qdrant.scroll(
-                        collection_name=DISCUSSIONS_COLLECTION,
+                        collection_name=GITHUB_COLLECTION,
                         scroll_filter=models.Filter(
                             must=[
                                 models.FieldCondition(
@@ -1259,7 +1259,7 @@ class CodeBlobSync:
 
                 if all_point_ids:
                     self.qdrant.set_payload(
-                        collection_name=DISCUSSIONS_COLLECTION,
+                        collection_name=GITHUB_COLLECTION,
                         payload={"is_current": False},
                         points=all_point_ids,
                     )

@@ -2,7 +2,7 @@
 """Async storage script for error pattern capture background processing.
 
 This script runs in a detached background process, storing captured
-error patterns to Qdrant with type="error_fix" (v2.0).
+error patterns to Qdrant with type="error_pattern" (v2.0).
 
 Performance: Runs independently of hook (no <500ms constraint)
 Timeout: Configurable via HOOK_TIMEOUT env var (default: 60s)
@@ -245,9 +245,9 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 emit_trace_event(
                     event_type="3_detect",
                     data={
-                        "input": content[:300],
-                        "output": "Detected type: error_fix (confidence: 1.0)",
-                        "metadata": {"detected_type": "error_fix", "confidence": 1.0},
+                        "input": content[:TRACE_CONTENT_MAX],
+                        "output": "Detected type: error_pattern (confidence: 1.0)",
+                        "metadata": {"detected_type": "error_pattern", "confidence": 1.0},
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -295,7 +295,7 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                             emit_trace_event(
                                 event_type="4_scan",
                                 data={
-                                    "input": content[:300],
+                                    "input": content[:TRACE_CONTENT_MAX],
                                     "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
                                     "metadata": {
                                         "scan_result": "blocked",
@@ -373,7 +373,7 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 emit_trace_event(
                     event_type="4_scan",
                     data={
-                        "input": content[:300],
+                        "input": content[:TRACE_CONTENT_MAX],
                         "output": f"Scan result: {scan_action} (findings: {len(scan_findings)})",
                         "metadata": {
                             "scan_result": scan_action,
@@ -414,7 +414,7 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             "content": content,
             "content_hash": content_hash,
             "group_id": group_id,
-            "type": "error_fix",
+            "type": "error_pattern",
             "source_hook": "PostToolUse_ErrorCapture",
             "session_id": error_context.get("session_id", ""),
             "timestamp": now,
@@ -559,7 +559,7 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                         "output": f"Enqueued: False (collection: {collection_name})",
                         "metadata": {
                             "collection": collection_name,
-                            "current_type": "error_fix",
+                            "current_type": "error_pattern",
                             "reason": "classifier_not_integrated",
                         },
                     },

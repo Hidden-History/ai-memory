@@ -65,6 +65,9 @@ TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 def detect_error_indicators(output: str, exit_code: int | None) -> bool:
     """Detect if output contains error indicators.
 
+    PLAN-010 (P10-7): Rewritten to avoid false positives from filenames
+    containing 'error' in directory listings (find, ls, glob output).
+
     Args:
         output: Tool output text
         exit_code: Command exit code (None if not available)
@@ -72,33 +75,49 @@ def detect_error_indicators(output: str, exit_code: int | None) -> bool:
     Returns:
         True if error detected, False otherwise
     """
-    # Exit code check (most reliable)
+    # Exit code check (most reliable indicator)
     if exit_code is not None and exit_code != 0:
         return True
 
-    # Common error patterns (case-insensitive)
+    # Skip if output looks like a directory listing (find/ls/glob output)
+    # These commonly contain filenames with "error" in the name
+    lines = output.strip().split("\n")
+    if lines and all(
+        re.match(r"^[\s]*[/.]?[\w./-]+\.\w+\s*$", line.strip())
+        for line in lines[:20]
+        if line.strip()
+    ):
+        return False
+
+    # Actual error patterns — structured error indicators, NOT bare keywords
     error_patterns = [
-        r"\berror\b",
-        r"\bfailed\b",
-        r"\bfailure\b",
-        r"\bexception\b",
-        r"\btraceback\b",
-        r"\bfatal\b",
-        r"\bpanic\b",
-        r"\bwarning\b",
-        r"\bcannot\b",
-        r"\bunable to\b",
-        r"\bpermission denied\b",
-        r"\bno such file\b",
-        r"\bcommand not found\b",
-        r"\bsyntax error\b",
-        r"\bsegmentation fault\b",
-        r"\bcore dumped\b",
+        r"Traceback \(most recent call last\)",
+        r"(?:^|\s)(?:Error|Exception|Fatal|FATAL):\s",
+        r"(?:^|\s)(?:error|FAILED|panic)\[?\s*[\d:]",
+        r"command not found",
+        r"permission denied",
+        r"no such file or directory",
+        r"segmentation fault",
+        r"core dumped",
+        r"syntax error",
+        r"exit code [1-9]",
+        r"FAILED\s",
+        r"npm ERR!",
+        r"ModuleNotFoundError:",
+        r"ImportError:",
+        r"TypeError:",
+        r"ValueError:",
+        r"KeyError:",
+        r"AttributeError:",
+        r"RuntimeError:",
+        r"FileNotFoundError:",
+        r"ConnectionError:",
+        r"TimeoutError:",
     ]
 
-    output_lower = output.lower()
+    output_text = output
     for pattern in error_patterns:
-        if re.search(pattern, output_lower):
+        if re.search(pattern, output_text, re.IGNORECASE | re.MULTILINE):
             return True
 
     return False

@@ -20,6 +20,7 @@ References:
 - BP-089: Adaptive budgets improve accuracy 5-15%
 """
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -36,6 +37,7 @@ from memory.config import (
     COLLECTION_CODE_PATTERNS,
     COLLECTION_CONVENTIONS,
     COLLECTION_DISCUSSIONS,
+    COLLECTION_GITHUB,
     MemoryConfig,
 )
 from memory.embeddings import EmbeddingError
@@ -47,6 +49,14 @@ from memory.triggers import (
     detect_decision_keywords,
     detect_session_history_keywords,
 )
+
+# SPEC-021: Trace buffer for injection instrumentation
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
+TRACE_CONTENT_MAX = 10000  # Max chars for trace output fields
 
 __all__ = [
     "InjectionSessionState",
@@ -186,7 +196,7 @@ def _build_github_enrichment(
 
     recent_github = search_client.search(
         query="merged pull request new issue opened closed",
-        collection=COLLECTION_DISCUSSIONS,
+        collection=COLLECTION_GITHUB,
         group_id=project_name,
         limit=10,
         source="github",
@@ -243,57 +253,52 @@ def retrieve_bootstrap_context(
     Returns:
         List of result dicts sorted by relevance score, ready for greedy fill.
     """
+    _trace_start = datetime.now(tz=timezone.utc)
     results = []
+    _conventions_count = 0
+    _decisions_count = 0
+    _agent_count = 0
+    _github_count = 0
 
-    # 1. Conventions (shared, no group_id filter)
-    try:
-        conventions = search_client.search(
-            query="project conventions rules guidelines standards",
-            collection=COLLECTION_CONVENTIONS,
-            group_id=None,
-            limit=5,
-            fast_mode=True,
-        )
-        results.extend(conventions)
-    except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
-        logger.warning(
-            "bootstrap_conventions_unavailable",
-            extra={"error": str(e)},
-        )
-
-    # 2. Recent decisions (project-scoped)
-    try:
-        decisions = search_client.search(
-            query="recent decisions architecture patterns",
-            collection=COLLECTION_DISCUSSIONS,
-            group_id=project_name,
-            limit=3,
-            memory_type=["decision"],
-            fast_mode=True,
-        )
-        results.extend(decisions)
-    except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
-        logger.warning(
-            "bootstrap_decisions_unavailable",
-            extra={"error": str(e)},
-        )
-
-    # 3. Active agent context (project-scoped)
     if config.parzival_enabled:
+        # LAYERED PRIORITY RETRIEVAL for Parzival sessions
+        # No conventions — they are noise for PM oversight
+        last_handoff = []
+
+        # Layer 1: Last handoff (DETERMINISTIC — most recent, not most similar)
         try:
-            # 3a. Last handoff — most recent session summary
-            last_handoff = search_client.search(
-                query="session handoff summary current work status",
+            last_handoff = search_client.get_recent(
                 collection=COLLECTION_DISCUSSIONS,
                 group_id=project_name,
-                limit=1,
                 memory_type=["agent_handoff"],
                 agent_id="parzival",
-                fast_mode=True,
+                limit=1,
             )
             results.extend(last_handoff)
+        except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
+            logger.warning(
+                "bootstrap_handoff_unavailable",
+                extra={"error": str(e)},
+            )
 
-            # 3b. Recent insights — key learnings (up to 3)
+        # Layer 2: Recent decisions (DETERMINISTIC — newest, not most similar)
+        try:
+            decisions = search_client.get_recent(
+                collection=COLLECTION_DISCUSSIONS,
+                group_id=project_name,
+                memory_type=["decision"],
+                limit=5,
+            )
+            results.extend(decisions)
+            _decisions_count = len(decisions)
+        except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
+            logger.warning(
+                "bootstrap_decisions_unavailable",
+                extra={"error": str(e)},
+            )
+
+        # Layer 3: Recent insights (SEMANTIC — relevance matters)
+        try:
             insights = search_client.search(
                 query="key insight learning pattern important",
                 collection=COLLECTION_DISCUSSIONS,
@@ -304,26 +309,68 @@ def retrieve_bootstrap_context(
                 fast_mode=True,
             )
             results.extend(insights)
-
-            # 3c. GitHub enrichment — recent activity since last session
-            last_session_date = None
-            if last_handoff:
-                last_session_date = last_handoff[0].get("timestamp")
-
-            github_enrichment = _build_github_enrichment(
-                search_client,
-                config,
-                project_name,
-                last_session_date,
-            )
-            results.extend(github_enrichment)
+            _agent_count = len(last_handoff) + len(insights)
         except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
             logger.warning(
-                "parzival_qdrant_unavailable",
-                extra={"fallback": "file_reads", "error": str(e)},
+                "bootstrap_insights_unavailable",
+                extra={"error": str(e)},
             )
+
+        # Layer 4: GitHub enrichment (SEMANTIC — same as before)
+        last_session_date = None
+        if last_handoff:
+            last_session_date = last_handoff[0].get("timestamp")
+        github_enrichment = _build_github_enrichment(
+            search_client,
+            config,
+            project_name,
+            last_session_date,
+        )
+        results.extend(github_enrichment)
+        _github_count = len(github_enrichment)
+
+        # DO NOT sort by score — layer order IS the priority
+        # Greedy fill processes Layer 1 first, then Layer 2, etc.
+
     else:
-        # Fallback: existing generic agent context query (no agent_id filter)
+        # NON-PARZIVAL PATH — UNCHANGED
+
+        # 1. Conventions (shared, no group_id filter)
+        try:
+            conventions = search_client.search(
+                query="project conventions rules guidelines standards",
+                collection=COLLECTION_CONVENTIONS,
+                group_id=None,
+                limit=5,
+                fast_mode=True,
+            )
+            results.extend(conventions)
+            _conventions_count = len(conventions)
+        except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
+            logger.warning(
+                "bootstrap_conventions_unavailable",
+                extra={"error": str(e)},
+            )
+
+        # 2. Recent decisions (project-scoped)
+        try:
+            decisions = search_client.search(
+                query="recent decisions architecture patterns",
+                collection=COLLECTION_DISCUSSIONS,
+                group_id=project_name,
+                limit=3,
+                memory_type=["decision"],
+                fast_mode=True,
+            )
+            results.extend(decisions)
+            _decisions_count = len(decisions)
+        except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
+            logger.warning(
+                "bootstrap_decisions_unavailable",
+                extra={"error": str(e)},
+            )
+
+        # 3. Generic agent context (no agent_id filter)
         try:
             agent_context = search_client.search(
                 query="active task current work session handoff",
@@ -334,14 +381,58 @@ def retrieve_bootstrap_context(
                 fast_mode=True,
             )
             results.extend(agent_context)
+            _agent_count = len(agent_context)
         except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
             logger.warning(
                 "bootstrap_agent_context_unavailable",
                 extra={"error": str(e)},
             )
 
-    # Sort all results by score (decay-weighted) for greedy fill
-    results.sort(key=lambda r: r.get("score", 0), reverse=True)
+        # Sort by score for non-Parzival flat pool
+        results.sort(key=lambda r: r.get("score", 0), reverse=True)
+
+    # SPEC-021: Emit bootstrap retrieval trace event
+    if emit_trace_event:
+        try:
+            # Build content preview: show what was actually retrieved
+            _result_previews = "\n---\n".join(
+                f"[{r.get('type','?')}|{r.get('collection','?')}|{round(r.get('score',0)*100)}%] {r.get('content','')[:500]}"
+                for r in results[:20]
+            )
+            emit_trace_event(
+                event_type="bootstrap_retrieval",
+                data={
+                    "input": f"Bootstrap retrieval for project: {project_name}, parzival_enabled: {config.parzival_enabled}",
+                    "output": (
+                        _result_previews[:TRACE_CONTENT_MAX]
+                        if _result_previews
+                        else "No bootstrap results"
+                    ),
+                    "metadata": {
+                        "project_name": project_name,
+                        "parzival_enabled": config.parzival_enabled,
+                        "conventions_count": _conventions_count,
+                        "decisions_count": _decisions_count,
+                        "agent_context_count": _agent_count,
+                        "github_enrichment_count": _github_count,
+                        "total_results": len(results),
+                        "per_result_scores": [
+                            {
+                                "type": r.get("type", "unknown"),
+                                "score": r.get("score", 0),
+                                "collection": r.get("collection", "unknown"),
+                            }
+                            for r in results[:20]
+                        ],
+                    },
+                },
+                project_id=project_name,
+                start_time=_trace_start,
+                end_time=datetime.now(tz=timezone.utc),
+            )
+        except Exception:
+            pass
+
     return results
 
 
@@ -531,15 +622,22 @@ def select_results_greedy(
     Returns:
         Tuple of (selected_results, total_tokens_used).
     """
+    _trace_start = datetime.now(tz=timezone.utc)
     excluded = set(excluded_ids or [])
     selected = []
+    _selected_token_counts: list[int] = []
     tokens_used = 0
+    _dedup_skipped = 0
+    _score_gap_skipped = 0
 
     # BUG-172: Content-hash deduplication for cross-type duplicates
     seen_hashes: set[str] = set()
 
     # BUG-173: Score gap filter — skip results >30% below best
-    best_score = results[0].get("score", 0) if results else 0.0
+    # Exclude deterministic results (score=1.0) from gap calculation
+    # since they are not comparable to semantic similarity scores
+    semantic_scores = [r.get("score", 0) for r in results if r.get("score", 0) < 1.0]
+    best_score = max(semantic_scores) if semantic_scores else 0.0
 
     for result in results:
         point_id = str(result.get("id", ""))
@@ -555,12 +653,14 @@ def select_results_greedy(
         # BUG-172: Skip duplicate content (same text stored under different types)
         content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
         if content_hash in seen_hashes:
+            _dedup_skipped += 1
             continue
         seen_hashes.add(content_hash)
 
         # BUG-173: Skip results with >30% score gap from best
         result_score = result.get("score", 0)
         if best_score > 0 and result_score < best_score * _SCORE_GAP_THRESHOLD:
+            _score_gap_skipped += 1
             continue
 
         # Count tokens accurately
@@ -569,11 +669,57 @@ def select_results_greedy(
         # Check if this result fits in remaining budget
         if tokens_used + result_tokens <= budget:
             selected.append(result)
+            _selected_token_counts.append(result_tokens)
             tokens_used += result_tokens
         else:
             # Skip-and-continue: try next smaller result
             # (AD-6: don't truncate, don't stop — keep trying)
             continue
+
+    # SPEC-021: Emit greedy fill trace event
+    if emit_trace_event:
+        try:
+            _utilization_pct = int(tokens_used / budget * 100) if budget > 0 else 0
+            # Build content preview of what was selected
+            _selected_previews = "\n---\n".join(
+                f"[{r.get('type','?')}|{round(r.get('score',0)*100)}%|{tc}tok] {r.get('content','')[:400]}"
+                for r, tc in zip(selected, _selected_token_counts, strict=False)
+            )
+            emit_trace_event(
+                event_type="greedy_fill",
+                data={
+                    "input": f"Greedy fill: {len(results)} candidates, budget: {budget} tokens, excluded: {len(excluded)}",
+                    "output": (
+                        _selected_previews[:TRACE_CONTENT_MAX]
+                        if _selected_previews
+                        else "No results selected"
+                    ),
+                    "metadata": {
+                        "budget": budget,
+                        "tokens_used": tokens_used,
+                        "utilization_pct": _utilization_pct,
+                        "results_considered": len(results),
+                        "results_selected": len(selected),
+                        "excluded_count": len(excluded),
+                        "dedup_skipped": _dedup_skipped,
+                        "score_gap_skipped": _score_gap_skipped,
+                        "selected_detail": [
+                            {
+                                "type": r.get("type", "unknown"),
+                                "score": r.get("score", 0),
+                                "tokens": tc,
+                            }
+                            for r, tc in zip(
+                                selected, _selected_token_counts, strict=False
+                            )
+                        ],
+                    },
+                },
+                start_time=_trace_start,
+                end_time=datetime.now(tz=timezone.utc),
+            )
+        except Exception:
+            pass
 
     return selected, tokens_used
 
@@ -594,6 +740,8 @@ def format_injection_output(
     Returns:
         Formatted markdown string wrapped in <retrieved_context> tags.
     """
+    _trace_start = datetime.now(tz=timezone.utc)
+
     if not results:
         return ""
 
@@ -610,7 +758,28 @@ def format_injection_output(
         lines.append(f"**[{result_type}|{collection}|{score_pct}%]** {content}\n")
 
     body = "\n".join(lines)
-    return f"<retrieved_context>\n{body}\n</retrieved_context>"
+    formatted = f"<retrieved_context>\n{body}\n</retrieved_context>"
+
+    # SPEC-021: Emit format injection trace event
+    if emit_trace_event:
+        with contextlib.suppress(Exception):
+            emit_trace_event(
+                event_type="format_injection",
+                data={
+                    "input": f"Format {len(results)} results for tier {tier}",
+                    "output": formatted[:TRACE_CONTENT_MAX],
+                    "metadata": {
+                        "tier": tier,
+                        "result_count": len(results),
+                        "output_chars": len(formatted),
+                        "result_types": [r.get("type", "unknown") for r in results],
+                    },
+                },
+                start_time=_trace_start,
+                end_time=datetime.now(tz=timezone.utc),
+            )
+
+    return formatted
 
 
 def log_injection_event(

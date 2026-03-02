@@ -48,7 +48,7 @@ TRIGGER_CONFIG = {
             "error:",  # Lowercase structured form
         ],
         "collection": "code-patterns",
-        "type_filter": "error_fix",
+        "type_filter": ["error_fix", "error_pattern"],
         "max_results": 3,
     },
     "new_file": {

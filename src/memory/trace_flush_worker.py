@@ -10,6 +10,7 @@ import contextlib
 import json
 import logging
 import os
+import random
 import signal
 import stat
 import sys
@@ -47,18 +48,26 @@ def _dt_to_ns(iso_str: str) -> int:
 
 
 def _make_parent_context(trace_id_hex: str, parent_span_id_hex: str | None = None):
-    """Create an OTel context for linking spans to a trace and optional parent."""
+    """Create an OTel context for linking spans to a trace and optional parent.
+
+    When parent_span_id_hex is None (root span), generates a random valid span_id
+    so the SpanContext passes is_valid() and OTel inherits the trace_id.
+    INVALID_SPAN_ID would make is_valid() return False, causing OTel to create
+    a new trace with a random trace_id — breaking trace linking.
+    """
     if not OTEL_AVAILABLE:
         return None
     trace_id_int = int(trace_id_hex, 16)
-    parent_span_id_int = 0
     if parent_span_id_hex:
         parent_span_id_int = int(parent_span_id_hex[:16], 16)
+    else:
+        # Generate a valid synthetic span_id (is_remote=True means OTel won't
+        # look for this span locally). This ensures SpanContext.is_valid() == True
+        # so the new span inherits our trace_id.
+        parent_span_id_int = random.getrandbits(64)
     span_context = SpanContext(
         trace_id=trace_id_int,
-        span_id=(
-            parent_span_id_int if parent_span_id_int else otel_trace_api.INVALID_SPAN_ID
-        ),
+        span_id=parent_span_id_int,
         is_remote=True,
         trace_flags=TraceFlags(TraceFlags.SAMPLED),
     )

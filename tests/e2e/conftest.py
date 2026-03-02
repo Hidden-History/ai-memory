@@ -1,5 +1,6 @@
 """Pytest configuration for E2E tests."""
 
+import os
 from collections.abc import Generator
 
 import pytest
@@ -14,6 +15,12 @@ except ImportError:
     Page = None  # type: ignore
     BrowserContext = None  # type: ignore
     Browser = None  # type: ignore
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _ensure_screenshot_dirs():
+    """Create output directories required by E2E tests (TD-219)."""
+    os.makedirs("tests/e2e/screenshots", exist_ok=True)
 
 
 @pytest.fixture(scope="session")

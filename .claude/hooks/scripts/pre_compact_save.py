@@ -409,7 +409,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="3_detect",
                     data={
-                        "input": summary_data["content"][:300],
+                        "input": summary_data["content"][:TRACE_CONTENT_MAX],
                         "output": "Detected type: session_summary (confidence: 1.0)",
                         "metadata": {
                             "content_length": len(summary_data["content"]),
@@ -466,7 +466,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                                 emit_trace_event(
                                     event_type="4_scan",
                                     data={
-                                        "input": summary_data["content"][:300],
+                                        "input": summary_data["content"][:TRACE_CONTENT_MAX],
                                         "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
                                         "metadata": {
                                             "content_length": scan_input_length,
@@ -538,7 +538,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="4_scan",
                     data={
-                        "input": summary_data["content"][:300],
+                        "input": summary_data["content"][:TRACE_CONTENT_MAX],
                         "output": f"Scan result: {scan_action} (PII: {pii_found}, secrets: {secrets_found})",
                         "metadata": {
                             "content_length": scan_input_length,

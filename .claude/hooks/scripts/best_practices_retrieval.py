@@ -339,6 +339,16 @@ def main() -> int:
         # Detect project for metrics (required per §7.3 multi-tenancy)
         project_name = detect_project(cwd)
 
+        # SPEC-021: Propagate trace context so MemorySearch trace events
+        # link to this hook's Langfuse trace
+        from uuid import uuid4 as _uuid4
+
+        _bp_root_span_id = _uuid4().hex
+        os.environ["LANGFUSE_TRACE_ID"] = _uuid4().hex
+        os.environ["LANGFUSE_ROOT_SPAN_ID"] = _bp_root_span_id
+        bp_session_id = hook_input.get("session_id", "unknown")
+        os.environ["CLAUDE_SESSION_ID"] = bp_session_id
+
         # Check Qdrant health (graceful degradation if down)
         if not check_qdrant_health(client):
             logger.warning("qdrant_unavailable")
@@ -437,8 +447,6 @@ def main() -> int:
             # SPEC-021: best_practices_retrieval trace event
             if emit_trace_event:
                 try:
-                    trace_id = os.environ.get("LANGFUSE_TRACE_ID")
-                    bp_session_id = os.environ.get("CLAUDE_SESSION_ID", "unknown")
                     best_score = results[0].get("score", 0) if results else 0
                     emit_trace_event(
                         event_type="best_practices_retrieval",
@@ -456,7 +464,8 @@ def main() -> int:
                                 "best_score": best_score,
                             },
                         },
-                        trace_id=trace_id,
+                        span_id=_bp_root_span_id,
+                        parent_span_id=None,
                         session_id=bp_session_id,
                         project_id=project_name,
                     )

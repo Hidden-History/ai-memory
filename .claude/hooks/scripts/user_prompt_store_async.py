@@ -106,6 +106,36 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
         turn_number = hook_input.get("turn_number", 0)
         cwd = os.getcwd()  # Detect project from current directory
 
+        # PLAN-010 (P10-10): Skip low-value short messages
+        import re as _re
+
+        _LOW_VALUE_MESSAGES = {
+            "ok",
+            "yes",
+            "no",
+            "done",
+            "sure",
+            "thanks",
+            "got it",
+            "nothing to add",
+            "looks good",
+            "lgtm",
+        }
+        _content_stripped = prompt.strip().lower()
+        _content_stripped_nopunct = _re.sub(r"[^\w\s]", "", _content_stripped)
+        if (
+            len(_content_stripped.split()) < 4
+            or _content_stripped_nopunct in _LOW_VALUE_MESSAGES
+        ):
+            logger.info(
+                "quality_gate_skip",
+                extra={
+                    "content_preview": _content_stripped[:50],
+                    "reason": "too_short_or_low_value",
+                },
+            )
+            return True
+
         # Detect project name
         group_id = detect_project(cwd)
 
@@ -142,7 +172,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="3_detect",
                     data={
-                        "input": prompt[:300],
+                        "input": prompt[:TRACE_CONTENT_MAX],
                         "output": f"Detected type: {TYPE_USER_MESSAGE} (confidence: 1.0)",
                         "metadata": {
                             "detected_type": TYPE_USER_MESSAGE,
@@ -307,7 +337,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                             emit_trace_event(
                                 event_type="4_scan",
                                 data={
-                                    "input": prompt[:300],
+                                    "input": prompt[:TRACE_CONTENT_MAX],
                                     "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
                                     "metadata": {
                                         "scan_result": "blocked",
@@ -385,7 +415,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 emit_trace_event(
                     event_type="4_scan",
                     data={
-                        "input": prompt[:300],
+                        "input": prompt[:TRACE_CONTENT_MAX],
                         "output": f"Scan result: {scan_action} (findings: {len(scan_findings)})",
                         "metadata": {
                             "scan_result": scan_action,

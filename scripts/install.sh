@@ -899,14 +899,16 @@ update_shared_scripts() {
     mkdir -p "$INSTALL_DIR/scripts"
     mkdir -p "$INSTALL_DIR/.claude/hooks/scripts"
 
-    # Copy all Python scripts from repo to shared installation
+    # BUG-205: Fixed non-recursive copy that missed scripts/memory/ subdirectory (33 files)
+    # and all .sh files. Old code used "for script in $SCRIPT_DIR/*.py" — top-level .py only.
+    # New code: recursive copy matching copy_files() pattern (line 1436).
     local updated_count=0
-    for script in "$SCRIPT_DIR"/*.py; do
-        if [[ -f "$script" ]]; then
-            cp "$script" "$INSTALL_DIR/scripts/"
-            updated_count=$((updated_count + 1))
-        fi
-    done
+    mkdir -p "$INSTALL_DIR/scripts/memory"
+    cp -r "$SCRIPT_DIR/"* "$INSTALL_DIR/scripts/" || { log_error "Failed to copy shared scripts"; return 1; }
+    # Remove __pycache__ directories from target (clean install)
+    find "$INSTALL_DIR/scripts" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    chmod +x "$INSTALL_DIR/scripts/"*.{py,sh} 2>/dev/null || true
+    updated_count=$(find "$SCRIPT_DIR" -type f -not -path "*/__pycache__/*" | wc -l)
 
     # BUG-034: Also update hook scripts in shared installation
     # This ensures projects get the latest hooks when added
@@ -2268,7 +2270,7 @@ setup_collections() {
 
     # Run the setup script
     if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/setup-collections.py" 2>&1; then
-        log_success "Qdrant collections created (code-patterns, conventions, discussions)"
+        log_success "Qdrant collections created (code-patterns, conventions, discussions, github, jira-data)"
     else
         log_error "Collection setup FAILED - re-run: $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/setup-collections.py"
         return 1

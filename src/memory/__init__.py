@@ -18,13 +18,18 @@ configure_logging()
 
 # Configuration
 # Async SDK Wrapper (TECH-DEBT-035 Phase 2)
-from .async_sdk_wrapper import (
-    AsyncConversationCapture,
-    AsyncSDKWrapper,
-    QueueDepthExceededError,
-    QueueTimeoutError,
-    RateLimitQueue,
-)
+# Lazy import: async_sdk_wrapper transitively depends on `anthropic`, which
+# may not be installed in every deployment (e.g. the embedding container).
+import contextlib
+
+with contextlib.suppress(ImportError):
+    from .async_sdk_wrapper import (
+        AsyncConversationCapture,
+        AsyncSDKWrapper,
+        QueueDepthExceededError,
+        QueueTimeoutError,
+        RateLimitQueue,
+    )
 from .config import MemoryConfig, get_config, reset_config
 
 # Service Clients

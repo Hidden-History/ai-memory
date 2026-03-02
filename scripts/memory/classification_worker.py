@@ -32,7 +32,7 @@ try:
 except ImportError:
     emit_trace_event = None
 
-TRACE_CONTENT_MAX = 2000  # Max chars for Langfuse input/output fields (Wave 1H)
+TRACE_CONTENT_MAX = 10000
 
 # Phase 2: Initialize Langfuse instrumentation for classifier LLM calls
 try:

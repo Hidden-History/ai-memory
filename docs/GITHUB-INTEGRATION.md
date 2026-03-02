@@ -6,7 +6,7 @@ GitHub integration for the AI Memory Module. Syncs pull requests, issues, commit
 
 ## Overview
 
-When GitHub integration is enabled, the AI Memory Module continuously ingests your repository activity into a dedicated Qdrant collection. This gives Claude Code access to:
+When GitHub integration is enabled, the AI Memory Module continuously ingests your repository activity into the dedicated `github` Qdrant collection. This gives Claude Code access to:
 
 - **Pull requests** — titles, descriptions, diffs, review comments
 - **Issues** — titles, body text, comments
@@ -126,7 +126,7 @@ Intelligent Chunker
 Embedding Service (dual routing: prose → jina-v2-base-en, code → jina-v2-base-code, 768d)
     │
     ▼
-Qdrant (code-patterns collection for code blobs, discussions for PRs/issues/commits)
+Qdrant (github collection for all GitHub-synced data)
     │   SHA256 content_hash for deduplication
     │   memory_type tag for filtering
     │
@@ -269,7 +269,7 @@ rm ~/.ai-memory/.audit/state/github_sync_state.json
 
 - Run `/aim-github-sync --status` to verify data exists in Qdrant
 - Ensure `GITHUB_SYNC_ENABLED=true` in your `.env`
-- Verify the collection exists: `curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/collections/discussions`
+- Verify the collection exists: `curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/collections/github`
 - Check that `GITHUB_REPO` matches the repository you expect
 
 ---
