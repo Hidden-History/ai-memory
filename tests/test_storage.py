@@ -516,7 +516,8 @@ class TestMemoryStorageStats:
         stats = storage.get_collection_stats()
 
         assert "jira-data" in stats
-        assert len(stats) == 4
+        assert "github" in stats
+        assert len(stats) == 5
 
     def test_get_collection_stats_handles_qdrant_error(
         self, mock_config, mock_qdrant_client
