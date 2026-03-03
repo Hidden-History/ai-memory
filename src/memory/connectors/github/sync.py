@@ -8,6 +8,7 @@ Reference: PLAN-006 Section 3.1 (GitHub Sync Service)
 """
 
 import asyncio
+import atexit
 import json
 import logging
 import os
@@ -42,6 +43,20 @@ except ImportError:
         import contextlib
         return contextlib.nullcontext()
 
+
+def _langfuse_shutdown():
+    """Flush and shutdown Langfuse client on process exit (TD-245)."""
+    if _langfuse_get_client is not None:
+        try:
+            client = _langfuse_get_client()
+            if client:
+                client.flush()
+                client.shutdown()
+        except Exception:
+            pass
+
+
+atexit.register(_langfuse_shutdown)
 
 from memory.connectors.github.client import GitHubClient, GitHubClientError
 from memory.connectors.github.composer import (
@@ -213,61 +228,62 @@ class GitHubSyncEngine:
             batch_id = GitHubClient.generate_batch_id()
             state = self._load_state()
 
-            logger.info(
-                "Starting GitHub sync: mode=%s, repo=%s, batch=%s",
-                mode,
-                self.repo,
-                batch_id,
-            )
-
-            async with self.client:
-                # Priority order: PRs -> Issues -> Commits -> CI Results
-                since = (
-                    None
-                    if mode == "full"
-                    else state.get("pull_requests", {}).get("last_synced")
-                )
-                pr_count = await self._sync_pull_requests(since, batch_id, result)
-                self._save_type_state(state, "pull_requests", pr_count)
-
-                since = (
-                    None if mode == "full" else state.get("issues", {}).get("last_synced")
-                )
-                issue_count = await self._sync_issues(since, batch_id, result)
-                self._save_type_state(state, "issues", issue_count)
-
-                since = (
-                    None if mode == "full" else state.get("commits", {}).get("last_synced")
-                )
-                commit_count = await self._sync_commits(since, batch_id, result)
-                self._save_type_state(state, "commits", commit_count)
-
-                since = (
-                    None
-                    if mode == "full"
-                    else state.get("ci_results", {}).get("last_synced")
-                )
-                ci_count = await self._sync_ci_results(since, batch_id, result)
-                self._save_type_state(state, "ci_results", ci_count)
-
-            result.duration_seconds = time.monotonic() - start
-            self._save_state(state)
-            self._push_metrics(result)
-
-            logger.info(
-                "GitHub sync complete: %d synced, %d skipped, %d errors in %.1fs",
-                result.total_synced,
-                result.items_skipped,
-                result.errors,
-                result.duration_seconds,
-            )
-
-        # Flush Langfuse traces after sync cycle
-        if _langfuse_get_client is not None:
             try:
-                _langfuse_get_client().flush()
-            except Exception:
-                pass  # Never crash sync for tracing
+                logger.info(
+                    "Starting GitHub sync: mode=%s, repo=%s, batch=%s",
+                    mode,
+                    self.repo,
+                    batch_id,
+                )
+
+                async with self.client:
+                    # Priority order: PRs -> Issues -> Commits -> CI Results
+                    since = (
+                        None
+                        if mode == "full"
+                        else state.get("pull_requests", {}).get("last_synced")
+                    )
+                    pr_count = await self._sync_pull_requests(since, batch_id, result)
+                    self._save_type_state(state, "pull_requests", pr_count)
+
+                    since = (
+                        None if mode == "full" else state.get("issues", {}).get("last_synced")
+                    )
+                    issue_count = await self._sync_issues(since, batch_id, result)
+                    self._save_type_state(state, "issues", issue_count)
+
+                    since = (
+                        None if mode == "full" else state.get("commits", {}).get("last_synced")
+                    )
+                    commit_count = await self._sync_commits(since, batch_id, result)
+                    self._save_type_state(state, "commits", commit_count)
+
+                    since = (
+                        None
+                        if mode == "full"
+                        else state.get("ci_results", {}).get("last_synced")
+                    )
+                    ci_count = await self._sync_ci_results(since, batch_id, result)
+                    self._save_type_state(state, "ci_results", ci_count)
+
+                result.duration_seconds = time.monotonic() - start
+                self._save_state(state)
+                self._push_metrics(result)
+
+                logger.info(
+                    "GitHub sync complete: %d synced, %d skipped, %d errors in %.1fs",
+                    result.total_synced,
+                    result.items_skipped,
+                    result.errors,
+                    result.duration_seconds,
+                )
+            finally:
+                # Flush Langfuse traces after sync cycle (guaranteed even on error)
+                if _langfuse_get_client is not None:
+                    try:
+                        _langfuse_get_client().flush()
+                    except Exception:
+                        pass  # Never crash sync for tracing
         return result
 
     # -- Per-Type Sync Methods -----------------------------------------

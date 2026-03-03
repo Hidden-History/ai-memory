@@ -13,6 +13,9 @@ References:
     - BP-060 (Solving Freshness in RAG)
     - SPEC-001 (complementary decay scoring)
 """
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 from __future__ import annotations
 
@@ -38,7 +41,13 @@ from .config import (
     get_config,
 )
 from .qdrant_client import get_qdrant_client
-from .trace_buffer import emit_trace_event
+
+try:
+    from .trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 logger = logging.getLogger("ai_memory.freshness")
 
@@ -402,18 +411,23 @@ def run_freshness_scan(
         )
 
     _trace_start = datetime.now(timezone.utc)
-    emit_trace_event(
-        event_type="freshness_scan_start",
-        data={
-            "input": f"Freshness scan: {len(ground_truth_map)} ground truth files, group_id={group_id or 'all'}",
-            "output": "",
-            "metadata": {
-                "ground_truth_files": len(ground_truth_map),
-                "group_id": group_id,
-            },
-        },
-        start_time=_trace_start,
-    )
+    if emit_trace_event:
+        try:
+            emit_trace_event(
+                event_type="freshness_scan_start",
+                data={
+                    "input": f"Freshness scan: {len(ground_truth_map)} ground truth files, group_id={group_id or 'all'}"[:TRACE_CONTENT_MAX],
+                    "output": ""[:TRACE_CONTENT_MAX],
+                    "metadata": {
+                        "ground_truth_files": len(ground_truth_map),
+                        "group_id": group_id,
+                    },
+                },
+                start_time=_trace_start,
+                session_id="freshness_scan",
+            )
+        except Exception:
+            pass
 
     # Step 2: Scroll code-patterns and compare
     results: list[FreshnessResult] = []
@@ -541,24 +555,29 @@ def run_freshness_scan(
         },
     )
 
-    emit_trace_event(
-        event_type="freshness_scan_complete",
-        data={
-            "input": f"Freshness scan for {group_id or 'all projects'}",
-            "output": f"{report.total_checked} checked: {fresh} fresh, {aging} aging, {stale} stale, {expired} expired, {unknown} unknown in {duration:.1f}s",
-            "metadata": {
-                "total_checked": report.total_checked,
-                "fresh": fresh,
-                "aging": aging,
-                "stale": stale,
-                "expired": expired,
-                "unknown": unknown,
-                "duration_seconds": round(duration, 2),
-            },
-        },
-        start_time=_trace_start,
-        end_time=datetime.now(timezone.utc),
-    )
+    if emit_trace_event:
+        try:
+            emit_trace_event(
+                event_type="freshness_scan_complete",
+                data={
+                    "input": f"Freshness scan for {group_id or 'all projects'}"[:TRACE_CONTENT_MAX],
+                    "output": f"{report.total_checked} checked: {fresh} fresh, {aging} aging, {stale} stale, {expired} expired, {unknown} unknown in {duration:.1f}s"[:TRACE_CONTENT_MAX],
+                    "metadata": {
+                        "total_checked": report.total_checked,
+                        "fresh": fresh,
+                        "aging": aging,
+                        "stale": stale,
+                        "expired": expired,
+                        "unknown": unknown,
+                        "duration_seconds": round(duration, 2),
+                    },
+                },
+                start_time=_trace_start,
+                end_time=datetime.now(timezone.utc),
+                session_id="freshness_scan",
+            )
+        except Exception:
+            pass
 
     # Step 6: Push Prometheus metrics (fire-and-forget)
     try:

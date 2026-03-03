@@ -9,6 +9,7 @@ Reference: PLAN-006 Section 3.3 (Code Blob Embedding Strategy)
 
 import ast
 import asyncio
+import atexit
 import base64
 import logging
 import os
@@ -43,6 +44,20 @@ except ImportError:
         import contextlib
         return contextlib.nullcontext()
 
+
+def _langfuse_shutdown():
+    """Flush and shutdown Langfuse client on process exit (TD-246)."""
+    if _langfuse_get_client is not None:
+        try:
+            client = _langfuse_get_client()
+            if client:
+                client.flush()
+                client.shutdown()
+        except Exception:
+            pass
+
+
+atexit.register(_langfuse_shutdown)
 
 from memory.connectors.github.client import GitHubClient, GitHubClientError
 from memory.connectors.github.schema import (

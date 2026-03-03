@@ -33,22 +33,22 @@ class TestGetLangfuseClient:
         monkeypatch.delenv("LANGFUSE_ENABLED", raising=False)
         assert get_langfuse_client() is None
 
-    @patch("memory.langfuse_config.Langfuse", create=True)
-    def test_enabled_with_keys_returns_client(self, mock_langfuse_cls, monkeypatch):
-        """Valid config → returns Langfuse instance."""
+    def test_enabled_with_keys_returns_client(self, monkeypatch):
+        """Valid config → returns Langfuse client via V3 get_client()."""
         monkeypatch.setenv("LANGFUSE_ENABLED", "true")
         monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test123")
         monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test456")
-        mock_instance = MagicMock()
-        mock_langfuse_cls.return_value = mock_instance
+        mock_client = MagicMock()
+        mock_get_client = MagicMock(return_value=mock_client)
 
         with patch.dict(
-            "sys.modules", {"langfuse": MagicMock(Langfuse=mock_langfuse_cls)}
+            "sys.modules", {"langfuse": MagicMock(get_client=mock_get_client)}
         ):
             reset_langfuse_client()
             client = get_langfuse_client()
 
-        assert client is not None
+        assert client is mock_client
+        mock_get_client.assert_called_once()
 
     def test_enabled_without_keys_returns_none(self, monkeypatch):
         """Enabled but no keys → returns None (defensive, not raise)."""
@@ -64,23 +64,31 @@ class TestGetLangfuseClient:
         monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test")
         monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
 
-        mock_langfuse = MagicMock()
-        with (
-            patch(
-                "memory.langfuse_config.Langfuse",
-                return_value=mock_langfuse,
-                create=True,
-            ),
-            patch.dict(
-                "sys.modules",
-                {"langfuse": MagicMock(Langfuse=MagicMock(return_value=mock_langfuse))},
-            ),
+        mock_client = MagicMock()
+        mock_get_client = MagicMock(return_value=mock_client)
+        with patch.dict(
+            "sys.modules",
+            {"langfuse": MagicMock(get_client=mock_get_client)},
         ):
             reset_langfuse_client()
             client1 = get_langfuse_client()
             client2 = get_langfuse_client()
 
+        assert client1 is mock_client
         assert client1 is client2
+        mock_get_client.assert_called_once()
+
+    def test_import_error_returns_none(self, monkeypatch):
+        """When langfuse package is not installed, returns None gracefully."""
+        monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test")
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
+
+        with patch.dict("sys.modules", {"langfuse": None}):
+            reset_langfuse_client()
+            client = get_langfuse_client()
+
+        assert client is None
 
 
 class TestKillSwitchHelpers:

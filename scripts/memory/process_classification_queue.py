@@ -48,6 +48,8 @@ try:
 except ImportError:
     emit_trace_event = None
 
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
+
 from prometheus_client import (
     REGISTRY,
     CollectorRegistry,
@@ -451,15 +453,16 @@ class ClassificationWorker:
                     emit_trace_event(
                         event_type="9_classify",
                         data={
-                            "input": {"point_id": task.point_id, "collection": task.collection},
-                            "output": {
+                            "input": json.dumps({"point_id": task.point_id, "collection": task.collection})[:TRACE_CONTENT_MAX],
+                            "output": json.dumps({
                                 "classified_type": result.classified_type,
                                 "confidence": result.confidence,
                                 "provider": result.provider_used,
                                 "was_reclassified": False,
-                            },
+                            })[:TRACE_CONTENT_MAX],
                         },
                         trace_id=task.trace_id,
+                        session_id=task.session_id,
                         project_id=task.group_id,
                     )
                 except Exception:
@@ -499,14 +502,15 @@ class ClassificationWorker:
                     emit_trace_event(
                         event_type="9_classify",
                         data={
-                            "input": {"point_id": task.point_id, "collection": task.collection},
-                            "output": {
+                            "input": json.dumps({"point_id": task.point_id, "collection": task.collection})[:TRACE_CONTENT_MAX],
+                            "output": json.dumps({
                                 "status": "qdrant_update_failed",
                                 "classified_type": result.classified_type,
                                 "confidence": result.confidence,
-                            },
+                            })[:TRACE_CONTENT_MAX],
                         },
                         trace_id=task.trace_id,
+                        session_id=task.session_id,
                         project_id=task.group_id,
                     )
                 except Exception:
@@ -530,15 +534,16 @@ class ClassificationWorker:
                 emit_trace_event(
                     event_type="9_classify",
                     data={
-                        "input": {"point_id": task.point_id, "collection": task.collection},
-                        "output": {
+                        "input": json.dumps({"point_id": task.point_id, "collection": task.collection})[:TRACE_CONTENT_MAX],
+                        "output": json.dumps({
                             "classified_type": result.classified_type,
                             "confidence": result.confidence,
                             "provider": result.provider_used,
                             "was_reclassified": True,
-                        },
+                        })[:TRACE_CONTENT_MAX],
                     },
                     trace_id=task.trace_id,
+                    session_id=task.session_id,
                     project_id=task.group_id,
                 )
             except Exception:

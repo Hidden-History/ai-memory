@@ -11,14 +11,6 @@ import logging
 import os
 import threading
 
-try:
-    from langfuse import get_client as _langfuse_get_client
-
-    LANGFUSE_AVAILABLE = True
-except ImportError:
-    _langfuse_get_client = None  # type: ignore[assignment]
-    LANGFUSE_AVAILABLE = False
-
 logger = logging.getLogger(__name__)
 
 _client = None
