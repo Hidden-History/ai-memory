@@ -522,7 +522,7 @@ class TestSearchMemories:
 
         results = search_memories(
             "test query",
-            memory_type=["implementation", "error_fix"],
+            memory_type=["implementation", "error_pattern"],
         )
         assert isinstance(results, list)
 

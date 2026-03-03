@@ -259,7 +259,7 @@ def main() -> int:
                                 "input": f"New file: {file_path} (type: {language})",
                                 "output": f"Retrieved {len(results)} conventions"
                                 + (
-                                    f": {results[0].get('content', '')[:500]}"
+                                    f": {results[0].get('content', '')[:TRACE_CONTENT_MAX]}"
                                     if results
                                     else ""
                                 ),

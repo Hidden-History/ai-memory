@@ -537,6 +537,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 "source_authority": 0.4,
                 "is_current": True,
                 "version": 1,
+                # F8/RISK-012: Agent identity for multi-agent Qdrant queries
+                "agent_id": os.environ.get("PARZIVAL_AGENT_ID", os.environ.get("AI_MEMORY_AGENT_ID", "default")),
             }
 
             # Generate embedding synchronously for immediate searchability

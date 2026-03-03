@@ -222,11 +222,11 @@ def record_rule_match(rule_type: str, project: str = "unknown"):
     """Record a rule-based classification (no LLM needed).
 
     Args:
-        rule_type: Type of rule that matched (error_fix, port, decision, etc.)
+        rule_type: Type of rule that matched (error_pattern, port, decision, etc.)
         project: Project identifier for multi-tenancy isolation
 
     Example:
-        >>> record_rule_match("error_fix", project="my-app")
+        >>> record_rule_match("error_pattern", project="my-app")
     """
     classifier_rule_matches_total.labels(project=project, rule_type=rule_type).inc()
 

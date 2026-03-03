@@ -60,7 +60,7 @@ def test_total_memory_type_count():
 def test_existing_types_unchanged():
     """Existing MemoryType values not affected."""
     assert MemoryType.IMPLEMENTATION.value == "implementation"
-    assert MemoryType.ERROR_FIX.value == "error_fix"
+    assert MemoryType.ERROR_PATTERN.value == "error_pattern"
     assert MemoryType.REFACTOR.value == "refactor"
     assert MemoryType.FILE_PATTERN.value == "file_pattern"
     assert MemoryType.RULE.value == "rule"

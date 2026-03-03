@@ -298,7 +298,7 @@ class TestSDKStorageIntegration:
 
     @pytest.mark.asyncio
     async def test_error_pattern_captured(self, sdk_wrapper, test_group_id):
-        """Test Bash error captured as ERROR_FIX type."""
+        """Test Bash error captured as ERROR_PATTERN type."""
         # Simulate Bash tool with error exit code
         input_data = {
             "tool_name": "Bash",
@@ -332,7 +332,7 @@ class TestSDKStorageIntegration:
 
         assert len(results) == 1
         payload = results[0].payload
-        assert payload["type"] == MemoryType.ERROR_FIX.value
+        assert payload["type"] == MemoryType.ERROR_PATTERN.value
         assert "false" in payload["content"]
 
     @pytest.mark.asyncio

@@ -10,7 +10,7 @@ Usage:
 Example:
   /search-memory authentication
   /search-memory JWT implementation --collection code-patterns
-  /search-memory "error handling" --type error_fix --limit 5
+  /search-memory "error handling" --type error_pattern --limit 5
 
 Exit Codes:
 - 0: Success
@@ -46,7 +46,7 @@ logger.propagate = False
 
 # Valid memory types by collection
 VALID_TYPES = {
-    "code-patterns": ["implementation", "error_fix", "refactor", "file_pattern"],
+    "code-patterns": ["implementation", "error_pattern", "refactor", "file_pattern"],
     "conventions": ["rule", "guideline", "port", "naming", "structure"],
     "discussions": [
         "decision",
@@ -91,7 +91,7 @@ def parse_args():
 Examples:
   search_cli.py "authentication"
   search_cli.py "error handling" --collection conventions
-  search_cli.py "database" --type error_fix --limit 5
+  search_cli.py "database" --type error_pattern --limit 5
   search_cli.py "why postgres" --intent why
         """,
     )
@@ -109,7 +109,7 @@ Examples:
     parser.add_argument(
         "-t",
         "--type",
-        help="Filter by memory type. Valid types: implementation, error_fix, refactor, "
+        help="Filter by memory type. Valid types: implementation, error_pattern, refactor, "
         "file_pattern, rule, guideline, port, naming, structure, decision, session, "
         "blocker, preference, user_message, agent_response",
     )

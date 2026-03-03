@@ -207,6 +207,8 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
             "source_authority": 0.4,
             "is_current": True,
             "version": 1,
+            # F8/RISK-012: Agent identity for multi-agent Qdrant queries
+            "agent_id": os.environ.get("PARZIVAL_AGENT_ID", os.environ.get("AI_MEMORY_AGENT_ID", "default")),
         }
 
         # Check for duplicate message before storing (CRITICAL FIX: deduplication)

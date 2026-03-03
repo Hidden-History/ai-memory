@@ -256,7 +256,7 @@ def main() -> int:
                             "input": f"First edit: {file_path}",
                             "output": f"Retrieved {len(results)} patterns"
                             + (
-                                f": {results[0].get('content', '')[:500]}"
+                                f": {results[0].get('content', '')[:TRACE_CONTENT_MAX]}"
                                 if results
                                 else ""
                             ),

@@ -75,7 +75,7 @@ RECOMMENDED_FIELDS = ["agent", "component", "story_id", "importance"]
 VALID_TYPES = [
     # code-patterns collection (HOW)
     "implementation",
-    "error_fix",
+    "error_pattern",
     "refactor",
     "file_pattern",
     # conventions collection (WHAT)

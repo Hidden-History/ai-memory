@@ -908,6 +908,9 @@ update_shared_scripts() {
     # Remove __pycache__ directories from target (clean install)
     find "$INSTALL_DIR/scripts" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
     chmod +x "$INSTALL_DIR/scripts/"*.{py,sh} 2>/dev/null || true
+    # F14/TD-240: chmod subdirectories missed by top-level glob
+    find "$INSTALL_DIR/scripts/memory" -name "*.py" -exec chmod +x {} + 2>/dev/null || true
+    find "$INSTALL_DIR/scripts/monitoring" -name "*.py" -exec chmod +x {} + 2>/dev/null || true
     updated_count=$(find "$SCRIPT_DIR" -type f -not -path "*/__pycache__/*" | wc -l)
 
     # BUG-034: Also update hook scripts in shared installation
@@ -1488,6 +1491,9 @@ copy_files() {
     log_debug "Making scripts executable..."
     chmod +x "$INSTALL_DIR/scripts/"*.{py,sh} 2>/dev/null || true
     chmod +x "$INSTALL_DIR/.claude/hooks/scripts/"*.py 2>/dev/null || true
+    # F14/TD-240: chmod subdirectories missed by top-level glob
+    find "$INSTALL_DIR/scripts/memory" -name "*.py" -exec chmod +x {} + 2>/dev/null || true
+    find "$INSTALL_DIR/scripts/monitoring" -name "*.py" -exec chmod +x {} + 2>/dev/null || true
 
     log_success "Files copied to $INSTALL_DIR"
 }

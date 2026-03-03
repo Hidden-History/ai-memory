@@ -71,7 +71,7 @@ if MODELS_IMPORTED:
     COLLECTION_TYPES = {
         "code-patterns": [
             MemoryType.IMPLEMENTATION.value,
-            MemoryType.ERROR_FIX.value,
+            MemoryType.ERROR_PATTERN.value,
             MemoryType.REFACTOR.value,
             MemoryType.FILE_PATTERN.value,
         ],
@@ -100,7 +100,7 @@ else:
     # CRITICAL: These values MUST be kept in sync with src/memory/models.py:39-58
     # Last verified: 2026-01-25 (TECH-DEBT-068)
     COLLECTION_TYPES = {
-        "code-patterns": ["implementation", "error_fix", "refactor", "file_pattern"],
+        "code-patterns": ["implementation", "error_pattern", "refactor", "file_pattern"],
         "conventions": ["rule", "guideline", "port", "naming", "structure"],
         "discussions": [
             "decision",
@@ -249,7 +249,7 @@ def get_type_counts(_client: QdrantClient, collection_name: str) -> dict[str, in
         collection_name: Collection to query
 
     Returns:
-        Dictionary mapping type names to counts (e.g., {"implementation": 245, "error_fix": 32})
+        Dictionary mapping type names to counts (e.g., {"implementation": 245, "error_pattern": 32})
     """
     type_counts = {}
     expected_types = COLLECTION_TYPES.get(collection_name, [])
