@@ -161,10 +161,15 @@ def fork_to_background(
         # Serialize data for background process
         input_json = json.dumps(store_data)
 
-        # SPEC-021: Propagate trace_id to store-async subprocess
+        # SPEC-021: Propagate trace_id + session_id (TD-241) to store-async subprocess
         subprocess_env = os.environ.copy()
         if trace_id:
             subprocess_env["LANGFUSE_TRACE_ID"] = trace_id
+        # TD-241: Propagate CLAUDE_SESSION_ID so store_async library calls get session_id
+        # via env fallback even if explicit param is unavailable.
+        _sid = hook_input.get("session_id", "")
+        if _sid:
+            subprocess_env["CLAUDE_SESSION_ID"] = _sid
 
         # Fork to background using subprocess.Popen + start_new_session=True
         process = subprocess.Popen(
@@ -301,6 +306,11 @@ def main() -> int:
                 },
             )
             response_text = response_text[:MAX_RESPONSE_SIZE] + "\n... [truncated]"
+
+        # TD-241: Set CLAUDE_SESSION_ID in this process so library calls pick it up via env fallback
+        _session_id = hook_input.get("session_id", "")
+        if _session_id:
+            os.environ["CLAUDE_SESSION_ID"] = _session_id
 
         # SPEC-021: Generate trace_id for pipeline trace linking
         trace_id = None

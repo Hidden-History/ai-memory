@@ -28,7 +28,9 @@ logger = logging.getLogger(__name__)
 
 # Self-termination timeout — prevents hook from hanging Claude Code
 HOOK_TIMEOUT_SECONDS = 30
-FLUSH_TIMEOUT_SECONDS = 5
+# TD-241 FIX: 5s was too short for large transcripts. Configurable via env var.
+# Default 15s: enough time for N child spans + network round-trip to local Langfuse.
+FLUSH_TIMEOUT_SECONDS = int(os.environ.get("LANGFUSE_FLUSH_TIMEOUT_SECONDS", "15"))
 LANGFUSE_PAYLOAD_MAX_CHARS = 10000
 
 
@@ -95,8 +97,37 @@ def _read_transcript(transcript_path: str) -> list[dict]:
     return messages
 
 
+def _get_entry_role(msg: dict) -> str:
+    """Get the role/type from a transcript entry.
+
+    Claude Code V2.x transcript format: {"type": "user"|"assistant", "message": {...}}
+    Older format (fallback): {"role": "user"|"assistant", "content": ...}
+    """
+    # New V2.x format uses "type" at the top level
+    if "type" in msg and msg["type"] in ("user", "assistant"):
+        return msg["type"]
+    # Fallback: older format used "role" at the top level
+    return msg.get("role", "unknown")
+
+
+def _get_entry_content(msg: dict):
+    """Get the content from a transcript entry.
+
+    Claude Code V2.x format: msg["message"]["content"] (string or list of blocks)
+    Older format (fallback): msg["content"] (string or list)
+    """
+    # New V2.x format: content nested under "message"
+    if "message" in msg and isinstance(msg["message"], dict):
+        return msg["message"].get("content", "")
+    # Fallback: older format had content at top level
+    return msg.get("content", "")
+
+
 def _pair_turns(messages: list[dict]) -> list[dict]:
     """Pair user messages with their assistant responses.
+
+    Handles both V2.x transcript format (type/message.content) and
+    older format (role/content).
 
     Returns list of turn dicts with keys:
       user_input, assistant_output, user_tokens, assistant_tokens
@@ -105,17 +136,17 @@ def _pair_turns(messages: list[dict]) -> list[dict]:
     i = 0
     while i < len(messages):
         msg = messages[i]
-        role = msg.get("role", "unknown")
+        role = _get_entry_role(msg)
 
         if role == "user":
             turn = {
-                "user_input": _extract_text(msg.get("content", "")),
+                "user_input": _extract_text(_get_entry_content(msg)),
                 "user_tokens": msg.get("token_count"),
             }
             # Look ahead for assistant response
-            if i + 1 < len(messages) and messages[i + 1].get("role") == "assistant":
+            if i + 1 < len(messages) and _get_entry_role(messages[i + 1]) == "assistant":
                 next_msg = messages[i + 1]
-                turn["assistant_output"] = _extract_text(next_msg.get("content", ""))
+                turn["assistant_output"] = _extract_text(_get_entry_content(next_msg))
                 turn["assistant_tokens"] = next_msg.get("token_count")
                 i += 2
             else:
@@ -129,7 +160,7 @@ def _pair_turns(messages: list[dict]) -> list[dict]:
                 {
                     "user_input": None,
                     "user_tokens": None,
-                    "assistant_output": _extract_text(msg.get("content", "")),
+                    "assistant_output": _extract_text(_get_entry_content(msg)),
                     "assistant_tokens": msg.get("token_count"),
                 }
             )
@@ -234,13 +265,24 @@ def main():
             )
             sys.exit(0)
 
-        # Wave 1F: Debug log env var state to diagnose missing credentials.
-        logger.info(
-            "Langfuse env: PUBLIC_KEY=%s, SECRET_KEY=%s, BASE_URL=%s",
-            "set" if os.environ.get("LANGFUSE_PUBLIC_KEY") else "MISSING",
-            "set" if os.environ.get("LANGFUSE_SECRET_KEY") else "MISSING",
-            os.environ.get("LANGFUSE_BASE_URL", "NOT SET"),
-        )
+        # TD-241 DIAGNOSTIC: Log credential status at WARNING so it's visible without DEBUG_HOOKS.
+        _pub = os.environ.get("LANGFUSE_PUBLIC_KEY")
+        _sec = os.environ.get("LANGFUSE_SECRET_KEY")
+        _url = os.environ.get("LANGFUSE_BASE_URL", "NOT SET")
+        if not _pub or not _sec:
+            logger.warning(
+                "Langfuse credentials MISSING — no session trace will be created. "
+                "PUBLIC_KEY=%s, SECRET_KEY=%s, BASE_URL=%s",
+                "set" if _pub else "MISSING",
+                "set" if _sec else "MISSING",
+                _url,
+            )
+        else:
+            logger.info(
+                "Langfuse env: PUBLIC_KEY=set, SECRET_KEY=set, BASE_URL=%s, FLUSH_TIMEOUT=%ds",
+                _url,
+                FLUSH_TIMEOUT_SECONDS,
+            )
 
         from memory.langfuse_config import get_langfuse_client
 
@@ -263,11 +305,19 @@ def main():
 
         messages = _read_transcript(transcript_path)
         if not messages:
-            logger.debug("Empty or missing transcript — skipping trace")
+            logger.warning(
+                "Empty or missing transcript at %s — skipping session trace", transcript_path
+            )
             sys.exit(0)
 
         # Pair user/assistant turns (BUG-154)
         turns = _pair_turns(messages)
+        logger.info(
+            "Transcript parsed: %d messages, %d turns, session=%s",
+            len(messages),
+            len(turns),
+            session_id[:8] + "..." if len(session_id) > 8 else session_id,
+        )
 
         # Build trace metadata
         now = datetime.now(tz=timezone.utc)  # BUG-157: timezone-aware
@@ -286,10 +336,10 @@ def main():
         first_user_text = ""
         last_assistant_text = ""
         for msg in messages:
-            if msg.get("role") == "user" and not first_user_text:
-                first_user_text = _extract_text(msg.get("content", ""))
-            if msg.get("role") == "assistant":
-                last_assistant_text = _extract_text(msg.get("content", ""))
+            if _get_entry_role(msg) == "user" and not first_user_text:
+                first_user_text = _extract_text(_get_entry_content(msg))
+            if _get_entry_role(msg) == "assistant":
+                last_assistant_text = _extract_text(_get_entry_content(msg))
 
         # Deterministic trace ID for dedup (replaces Langfuse.create_trace_id)
         trace_id = _deterministic_trace_id(session_id) if session_id else None
