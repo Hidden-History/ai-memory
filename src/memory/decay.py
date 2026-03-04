@@ -13,6 +13,7 @@ References:
     - SPEC-001-decay-scoring.md (PLAN-006)
     - BP-060 (Solving Freshness in RAG)
 """
+
 # LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4
 # SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
@@ -187,7 +188,9 @@ def build_decay_formula(
                     event_type="decay_scoring",
                     data={
                         "input": f"Decay check for {collection}"[:TRACE_CONTENT_MAX],
-                        "output": "Decay disabled — using simple query path"[:TRACE_CONTENT_MAX],
+                        "output": "Decay disabled — using simple query path"[
+                            :TRACE_CONTENT_MAX
+                        ],
                         "metadata": {
                             "collection": collection,
                             "decay_enabled": False,
@@ -308,8 +311,12 @@ def build_decay_formula(
             emit_trace_event(
                 event_type="decay_scoring",
                 data={
-                    "input": f"Building decay formula for {collection} (decay_enabled={config.decay_enabled}, semantic_weight={config.decay_semantic_weight})"[:TRACE_CONTENT_MAX],
-                    "output": f"Formula built: {len(half_life_groups)} type overrides, default_hl={default_hl_days}d, prefetch_limit={prefetch_limit}"[:TRACE_CONTENT_MAX],
+                    "input": f"Building decay formula for {collection} (decay_enabled={config.decay_enabled}, semantic_weight={config.decay_semantic_weight})"[
+                        :TRACE_CONTENT_MAX
+                    ],
+                    "output": f"Formula built: {len(half_life_groups)} type overrides, default_hl={default_hl_days}d, prefetch_limit={prefetch_limit}"[
+                        :TRACE_CONTENT_MAX
+                    ],
                     "metadata": {
                         "collection": collection,
                         "decay_enabled": config.decay_enabled,

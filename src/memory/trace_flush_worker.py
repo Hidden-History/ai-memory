@@ -5,6 +5,7 @@ Flushes the on-disk trace buffer to Langfuse on a configurable interval.
 
 SPEC-020 §5 / PLAN-008 / DEC-PLAN008-004
 """
+
 # LANGFUSE: Trace flush worker. See LANGFUSE-INTEGRATION-SPEC.md §7.6
 # SDK VERSION: V3 ONLY. Do NOT use start_span(), start_generation(), or Langfuse() constructor.
 # OTel path (_process_event_otel): Uses raw OTel spans — DO NOT change attribute names.
@@ -309,7 +310,9 @@ def _process_event_sdk(event: dict, data: dict, langfuse) -> None:
             observation.end(end_time=_dt_to_ns(data["end_time"]))
         except TypeError:
             # V3 SDK wrapper may not accept end_time kwarg — fall back to plain end
-            logger.warning("V3 SDK rejected end_time kwarg — trace duration may be inaccurate")
+            logger.warning(
+                "V3 SDK rejected end_time kwarg — trace duration may be inaccurate"
+            )
             observation.end()
     else:
         observation.end()

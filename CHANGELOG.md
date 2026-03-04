@@ -18,7 +18,7 @@ Observability and code quality sprint: full Langfuse V3 SDK migration across all
 - **Langfuse V3 SDK migration**: All instrumentation migrated from V2 to V3 SDK across the entire codebase. Uses `get_client()`, `start_as_current_observation()`, `propagate_attributes()`. V2 patterns (`Langfuse()` constructor, `start_span()`, `langfuse_context`) are project-banned.
 - **V3 compliance review**: 2 critical, 6 standard, and 9 warning-level issues resolved across 18 files (commit `77e9f97`).
 - **`TRACE_CONTENT_MAX` standardization**: Replaced 4 hardcoded `[:10000]` literals in `search.py` with `TRACE_CONTENT_MAX` constant per LANGFUSE-INTEGRATION-SPEC §9.2.
-- **ClickHouse memory limit**: Reduced from default to 16 GiB in `clickhouse-config.xml` to prevent OOM on constrained hosts.
+- **ClickHouse memory limit**: Set explicit 16 GiB cap in `clickhouse-config.xml` (up from previous 4 GiB, down from ClickHouse unlimited default) to balance query performance with OOM prevention on constrained hosts.
 - **Type name correction**: Renamed `error_fix` → `error_pattern` across 36 files for consistency with the error pattern detection rewrite in v2.0.9.
 - **Installer permissions**: Added `chmod +x` for executable files in subdirectories during installation.
 
@@ -35,7 +35,7 @@ v2.1.0 is a non-breaking, additive release. No migration scripts required.
 
 1. Pull latest code: `git pull origin main`
 2. Reinstall: `pip install -e .` (or re-run installer Option 1 for full installations)
-3. If using ClickHouse: note the memory cap has been increased from 4 GiB to 16 GiB in `clickhouse-config.xml`
+3. If using ClickHouse: note the memory cap is now 16 GiB in `clickhouse-config.xml` (was 4 GiB)
 
 **Optional environment variables** (new, with sensible defaults):
 - `CLAUDE_AGENT_NAME` — Agent identity for Langfuse traces (default: `main`)

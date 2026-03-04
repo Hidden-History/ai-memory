@@ -182,13 +182,19 @@ class JiraSyncEngine:
                     emit_trace_event(
                         event_type="jira_sync",
                         data={
-                            "input": f"Syncing issues from {project_key} (mode={mode}, since={updated_since})"[:TRACE_CONTENT_MAX],
+                            "input": f"Syncing issues from {project_key} (mode={mode}, since={updated_since})"[
+                                :TRACE_CONTENT_MAX
+                            ],
                             "output": ""[:TRACE_CONTENT_MAX],
                             "metadata": {
                                 "project": project_key,
                                 "mode": mode,
-                                "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
-                                "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                                "agent_name": os.environ.get(
+                                    "CLAUDE_AGENT_NAME", "main"
+                                ),
+                                "agent_role": os.environ.get(
+                                    "CLAUDE_AGENT_ROLE", "user"
+                                ),
                             },
                         },
                         session_id="jira_sync",
@@ -243,16 +249,24 @@ class JiraSyncEngine:
                     emit_trace_event(
                         event_type="jira_sync_complete",
                         data={
-                            "input": f"Syncing issues from {project_key} (mode={mode})"[:TRACE_CONTENT_MAX],
-                            "output": f"Synced {issues_synced} issues + {comments_synced} comments, {len(errors)} errors in {duration:.1f}s"[:TRACE_CONTENT_MAX],
+                            "input": f"Syncing issues from {project_key} (mode={mode})"[
+                                :TRACE_CONTENT_MAX
+                            ],
+                            "output": f"Synced {issues_synced} issues + {comments_synced} comments, {len(errors)} errors in {duration:.1f}s"[
+                                :TRACE_CONTENT_MAX
+                            ],
                             "metadata": {
                                 "project": project_key,
                                 "issues_synced": issues_synced,
                                 "comments_synced": comments_synced,
                                 "errors": len(errors),
                                 "duration_seconds": duration,
-                                "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
-                                "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                                "agent_name": os.environ.get(
+                                    "CLAUDE_AGENT_NAME", "main"
+                                ),
+                                "agent_role": os.environ.get(
+                                    "CLAUDE_AGENT_ROLE", "user"
+                                ),
                             },
                         },
                         session_id="jira_sync",
@@ -278,13 +292,19 @@ class JiraSyncEngine:
                     emit_trace_event(
                         event_type="jira_sync_error",
                         data={
-                            "input": f"Syncing issues from {project_key} (mode={mode})"[:TRACE_CONTENT_MAX],
+                            "input": f"Syncing issues from {project_key} (mode={mode})"[
+                                :TRACE_CONTENT_MAX
+                            ],
                             "output": f"FAILED: {e}"[:TRACE_CONTENT_MAX],
                             "metadata": {
                                 "project": project_key,
                                 "error": str(e),
-                                "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
-                                "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                                "agent_name": os.environ.get(
+                                    "CLAUDE_AGENT_NAME", "main"
+                                ),
+                                "agent_role": os.environ.get(
+                                    "CLAUDE_AGENT_ROLE", "user"
+                                ),
                             },
                         },
                         session_id="jira_sync",

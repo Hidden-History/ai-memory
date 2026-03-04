@@ -13,6 +13,7 @@ References:
     - BP-060 (Solving Freshness in RAG)
     - SPEC-001 (complementary decay scoring)
 """
+
 # LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4
 # SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
@@ -418,7 +419,9 @@ def run_freshness_scan(
             emit_trace_event(
                 event_type="freshness_scan_start",
                 data={
-                    "input": f"Freshness scan: {len(ground_truth_map)} ground truth files, group_id={group_id or 'all'}"[:TRACE_CONTENT_MAX],
+                    "input": f"Freshness scan: {len(ground_truth_map)} ground truth files, group_id={group_id or 'all'}"[
+                        :TRACE_CONTENT_MAX
+                    ],
                     "output": ""[:TRACE_CONTENT_MAX],
                     "metadata": {
                         "ground_truth_files": len(ground_truth_map),
@@ -562,8 +565,12 @@ def run_freshness_scan(
             emit_trace_event(
                 event_type="freshness_scan_complete",
                 data={
-                    "input": f"Freshness scan for {group_id or 'all projects'}"[:TRACE_CONTENT_MAX],
-                    "output": f"{report.total_checked} checked: {fresh} fresh, {aging} aging, {stale} stale, {expired} expired, {unknown} unknown in {duration:.1f}s"[:TRACE_CONTENT_MAX],
+                    "input": f"Freshness scan for {group_id or 'all projects'}"[
+                        :TRACE_CONTENT_MAX
+                    ],
+                    "output": f"{report.total_checked} checked: {fresh} fresh, {aging} aging, {stale} stale, {expired} expired, {unknown} unknown in {duration:.1f}s"[
+                        :TRACE_CONTENT_MAX
+                    ],
                     "metadata": {
                         "total_checked": report.total_checked,
                         "fresh": fresh,

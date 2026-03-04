@@ -43,6 +43,7 @@ except ImportError:
     def propagate_attributes(**kwargs):
         """No-op context manager when Langfuse unavailable."""
         import contextlib
+
         return contextlib.nullcontext()
 
 
@@ -252,13 +253,17 @@ class GitHubSyncEngine:
                     self._save_type_state(state, "pull_requests", pr_count)
 
                     since = (
-                        None if mode == "full" else state.get("issues", {}).get("last_synced")
+                        None
+                        if mode == "full"
+                        else state.get("issues", {}).get("last_synced")
                     )
                     issue_count = await self._sync_issues(since, batch_id, result)
                     self._save_type_state(state, "issues", issue_count)
 
                     since = (
-                        None if mode == "full" else state.get("commits", {}).get("last_synced")
+                        None
+                        if mode == "full"
+                        else state.get("commits", {}).get("last_synced")
                     )
                     commit_count = await self._sync_commits(since, batch_id, result)
                     self._save_type_state(state, "commits", commit_count)

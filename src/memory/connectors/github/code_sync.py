@@ -44,6 +44,7 @@ except ImportError:
     def propagate_attributes(**kwargs):
         """No-op context manager when Langfuse unavailable."""
         import contextlib
+
         return contextlib.nullcontext()
 
 
@@ -776,7 +777,9 @@ class CodeBlobSync:
 
                 # Step 3: Pre-filter eligible files for accurate progress counts
                 current_paths: set[str] = set()
-                eligible_entries: list[tuple[dict, str | None]] = []  # (entry, stored_hash)
+                eligible_entries: list[tuple[dict, str | None]] = (
+                    []
+                )  # (entry, stored_hash)
                 for entry in tree_entries:
                     file_path = entry["path"]
                     current_paths.add(file_path)
@@ -866,10 +869,14 @@ class CodeBlobSync:
                         logger.error("Failed to sync file %s: %s", file_path, e)
                         result.errors += 1
                         result.error_details.append(f"{file_path}: {e}")
-                        self._circuit_breaker.record_failure(cb_provider, type(e).__name__)
+                        self._circuit_breaker.record_failure(
+                            cb_provider, type(e).__name__
+                        )
 
                 # Step 5: Detect deleted files
-                deleted = await self._detect_deleted_files(current_paths, stored_map=stored_map)
+                deleted = await self._detect_deleted_files(
+                    current_paths, stored_map=stored_map
+                )
                 result.files_deleted = deleted
 
                 result.duration_seconds = time.monotonic() - start

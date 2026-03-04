@@ -8,6 +8,7 @@ Best Practices (2025/2026):
 - https://qdrant.tech/articles/vector-search-filtering/
 - https://qdrant.tech/articles/vector-search-resource-optimization/
 """
+
 # LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4
 # SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
@@ -178,7 +179,9 @@ class MemorySearch:
         fast_mode: bool = False,  # NEW: Use hnsw_ef=64 for triggers
         source: str | None = None,  # SPEC-005: Namespace filter (e.g., "github")
         agent_id: str | None = None,  # SPEC-015: Agent-scoped filter
-        must_not_types: list[str] | None = None,  # F13/TD-243: Qdrant-level type exclusion
+        must_not_types: (
+            list[str] | None
+        ) = None,  # F13/TD-243: Qdrant-level type exclusion
     ) -> list[dict]:
         """Search for relevant memories using semantic similarity with project scoping.
 
@@ -963,8 +966,12 @@ class MemorySearch:
                                 "expanded": False,
                                 "intent_type": str(memory_type),
                                 "search_type": "cascading",
-                                "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
-                                "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                                "agent_name": os.environ.get(
+                                    "CLAUDE_AGENT_NAME", "main"
+                                ),
+                                "agent_role": os.environ.get(
+                                    "CLAUDE_AGENT_ROLE", "user"
+                                ),
                             },
                         },
                         session_id=os.environ.get("CLAUDE_SESSION_ID", ""),

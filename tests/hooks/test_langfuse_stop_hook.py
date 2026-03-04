@@ -624,12 +624,16 @@ class TestLangfuseTraceCreation:
         prop_kwargs = mock_langfuse_client._propagate_attributes.call_args.kwargs
         assert prop_kwargs.get("session_id") == "my-session-xyz"
 
-    def test_propagate_attributes_called_inside_root_span(self, mock_langfuse_client, transcript_file):
+    def test_propagate_attributes_called_inside_root_span(
+        self, mock_langfuse_client, transcript_file
+    ):
         """Verify propagate_attributes is nested inside root span context (V3 requirement)."""
         call_order = []
 
         # Capture the original context manager side effect for start_as_current_observation
-        original_start_side_effect = mock_langfuse_client.start_as_current_observation.side_effect
+        original_start_side_effect = (
+            mock_langfuse_client.start_as_current_observation.side_effect
+        )
         # Capture the original _propagate_attributes mock (a plain MagicMock / context manager)
         original_prop = mock_langfuse_client._propagate_attributes
 
@@ -648,7 +652,9 @@ class TestLangfuseTraceCreation:
         # Replace with tracking wrappers.
         # _run_main_with_mock re-wires mock_langfuse_module.propagate_attributes = mock_client._propagate_attributes,
         # so setting mock_client._propagate_attributes here means the wiring picks up our tracker.
-        mock_langfuse_client.start_as_current_observation = MagicMock(side_effect=track_start)
+        mock_langfuse_client.start_as_current_observation = MagicMock(
+            side_effect=track_start
+        )
         mock_langfuse_client._propagate_attributes = MagicMock(side_effect=track_prop)
 
         self._run_main_with_mock(
@@ -657,15 +663,18 @@ class TestLangfuseTraceCreation:
         )
 
         # propagate_attributes must be called AFTER start_as_current_observation
-        assert "start_observation" in call_order, "start_as_current_observation was never called"
-        assert "propagate_attributes" in call_order, "propagate_attributes was never called"
+        assert (
+            "start_observation" in call_order
+        ), "start_as_current_observation was never called"
+        assert (
+            "propagate_attributes" in call_order
+        ), "propagate_attributes was never called"
         start_idx = call_order.index("start_observation")
         prop_idx = call_order.index("propagate_attributes")
         assert start_idx < prop_idx, (
             f"propagate_attributes (idx={prop_idx}) must be called AFTER "
             f"start_as_current_observation (idx={start_idx}) to ensure nesting"
         )
-
 
 
 class TestDatetimeFix:

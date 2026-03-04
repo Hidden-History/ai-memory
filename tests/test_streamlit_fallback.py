@@ -21,7 +21,12 @@ def test_streamlit_fallback_matches_models():
     # Fallback values from docker/streamlit/app.py:84-92
     # These are what the dashboard uses when imports fail
     FALLBACK_TYPES = {
-        "code-patterns": ["implementation", "error_pattern", "refactor", "file_pattern"],
+        "code-patterns": [
+            "implementation",
+            "error_pattern",
+            "refactor",
+            "file_pattern",
+        ],
         "conventions": ["rule", "guideline", "port", "naming", "structure"],
         "discussions": [
             "decision",

@@ -4,6 +4,7 @@ Provides a thread-safe Langfuse client factory with kill-switch support.
 
 SPEC: LANGFUSE-INTEGRATION-SPEC.md Section 7.2
 """
+
 # LANGFUSE: Client factory (Path B infrastructure). See LANGFUSE-INTEGRATION-SPEC.md §7.2
 # SDK VERSION: V3 ONLY. Uses get_client() singleton — Do NOT use Langfuse() constructor.
 
@@ -63,6 +64,7 @@ def get_langfuse_client():
             # NOTE: Local import (not module-level _langfuse_get_client) because tests
             # patch sys.modules["langfuse"] at runtime, after module-level vars are set.
             from langfuse import get_client as _get_client
+
             client = _get_client()
             logger.info(
                 "Langfuse client initialized via V3 get_client() (host=%s)",
