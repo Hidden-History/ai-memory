@@ -19,6 +19,7 @@ References:
 
 from __future__ import annotations
 
+import contextlib
 import os
 from datetime import datetime, timezone
 
@@ -181,7 +182,7 @@ def build_decay_formula(
     # Decay disabled -- return None formula, caller uses simple query path
     if not config.decay_enabled:
         if emit_trace_event:
-            try:
+            with contextlib.suppress(Exception):
                 emit_trace_event(
                     event_type="decay_scoring",
                     data={
@@ -198,8 +199,6 @@ def build_decay_formula(
                     end_time=datetime.now(timezone.utc),
                     session_id=os.environ.get("CLAUDE_SESSION_ID"),
                 )
-            except Exception:
-                pass
         return None, prefetch
 
     if now is None:
@@ -305,7 +304,7 @@ def build_decay_formula(
 
     # Langfuse trace: decay formula construction
     if emit_trace_event:
-        try:
+        with contextlib.suppress(Exception):
             emit_trace_event(
                 event_type="decay_scoring",
                 data={
@@ -326,7 +325,5 @@ def build_decay_formula(
                 end_time=datetime.now(timezone.utc),
                 session_id=os.environ.get("CLAUDE_SESSION_ID"),
             )
-        except Exception:
-            pass
 
     return formula, prefetch

@@ -472,7 +472,7 @@ class MemorySearch:
                 _top_score = results[0].score if results else 0.0
                 _search_duration_ms = (time.perf_counter() - start_time) * 1000
                 # Build content preview for trace span (display only, not storage truncation).
-                # 500 chars per result × 10 results = ~5000 chars fits within TRACE_CONTENT_MAX.
+                # 500 chars per result x 10 results = ~5000 chars fits within TRACE_CONTENT_MAX.
                 _result_previews = "\n---\n".join(
                     f"[{m.get('type','?')}|{round(m.get('score',0)*100)}%] {m.get('content','')[:500]}"
                     for m in memories[:10]

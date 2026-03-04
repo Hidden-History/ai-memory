@@ -23,6 +23,7 @@ References:
 # SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -771,7 +772,7 @@ def format_injection_output(
 
     # SPEC-021: Emit format injection trace event
     if emit_trace_event:
-        try:
+        with contextlib.suppress(Exception):
             emit_trace_event(
                 event_type="format_injection",
                 data={
@@ -790,8 +791,6 @@ def format_injection_output(
                 start_time=_trace_start,
                 end_time=datetime.now(tz=timezone.utc),
             )
-        except Exception:
-            pass
 
     return formatted
 

@@ -19,6 +19,7 @@ References:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -413,7 +414,7 @@ def run_freshness_scan(
 
     _trace_start = datetime.now(timezone.utc)
     if emit_trace_event:
-        try:
+        with contextlib.suppress(Exception):
             emit_trace_event(
                 event_type="freshness_scan_start",
                 data={
@@ -429,8 +430,6 @@ def run_freshness_scan(
                 start_time=_trace_start,
                 session_id="freshness_scan",
             )
-        except Exception:
-            pass
 
     # Step 2: Scroll code-patterns and compare
     results: list[FreshnessResult] = []
@@ -559,7 +558,7 @@ def run_freshness_scan(
     )
 
     if emit_trace_event:
-        try:
+        with contextlib.suppress(Exception):
             emit_trace_event(
                 event_type="freshness_scan_complete",
                 data={
@@ -581,8 +580,6 @@ def run_freshness_scan(
                 end_time=datetime.now(timezone.utc),
                 session_id="freshness_scan",
             )
-        except Exception:
-            pass
 
     # Step 6: Push Prometheus metrics (fire-and-forget)
     try:

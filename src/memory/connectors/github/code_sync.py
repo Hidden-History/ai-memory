@@ -11,6 +11,7 @@ import ast
 import asyncio
 import atexit
 import base64
+import contextlib
 import logging
 import os
 import time
@@ -29,7 +30,8 @@ from memory.config import MemoryConfig, get_config
 
 # Langfuse @observe() + propagate_attributes — conditional import (graceful degradation)
 try:
-    from langfuse import get_client as _langfuse_get_client, observe, propagate_attributes
+    from langfuse import get_client as _langfuse_get_client
+    from langfuse import observe, propagate_attributes
 except ImportError:
     _langfuse_get_client = None  # type: ignore[assignment]
 
@@ -59,15 +61,18 @@ def _langfuse_shutdown():
 
 atexit.register(_langfuse_shutdown)
 
-from memory.connectors.github.client import GitHubClient, GitHubClientError
-from memory.connectors.github.schema import (
+from memory.connectors.github.client import (  # noqa: E402
+    GitHubClient,
+    GitHubClientError,
+)
+from memory.connectors.github.schema import (  # noqa: E402
     GITHUB_COLLECTION,
     SOURCE_AUTHORITY_MAP,
     compute_content_hash,
 )
-from memory.models import MemoryType
-from memory.qdrant_client import get_qdrant_client
-from memory.storage import MemoryStorage
+from memory.models import MemoryType  # noqa: E402
+from memory.qdrant_client import get_qdrant_client  # noqa: E402
+from memory.storage import MemoryStorage  # noqa: E402
 
 logger = logging.getLogger("ai_memory.github.code_sync")
 
@@ -884,10 +889,8 @@ class CodeBlobSync:
         finally:
             # Flush Langfuse traces after sync cycle (runs on all exit paths)
             if _langfuse_get_client is not None:
-                try:
+                with contextlib.suppress(Exception):
                     _langfuse_get_client().flush()
-                except Exception:
-                    pass  # Never crash sync for tracing
 
     async def _walk_tree(self) -> list[dict[str, Any]]:
         """Fetch and filter repository file tree.

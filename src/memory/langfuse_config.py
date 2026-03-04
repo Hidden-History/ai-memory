@@ -62,7 +62,7 @@ def get_langfuse_client():
             # in the environment above, so get_client() picks them up.
             # NOTE: Local import (not module-level _langfuse_get_client) because tests
             # patch sys.modules["langfuse"] at runtime, after module-level vars are set.
-            from langfuse import get_client as _get_client  # noqa: PLC0415
+            from langfuse import get_client as _get_client
             client = _get_client()
             logger.info(
                 "Langfuse client initialized via V3 get_client() (host=%s)",

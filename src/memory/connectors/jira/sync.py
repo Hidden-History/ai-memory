@@ -23,6 +23,7 @@ Error Handling:
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -37,6 +38,7 @@ from ...embeddings import EmbeddingClient
 from ...models import MemoryType
 from ...qdrant_client import get_qdrant_client
 from ...storage import MemoryStorage
+
 try:
     from ...trace_buffer import emit_trace_event
 except ImportError:
@@ -176,7 +178,7 @@ class JiraSyncEngine:
             )
             trace_start_time = datetime.now(timezone.utc)
             if emit_trace_event:
-                try:
+                with contextlib.suppress(Exception):
                     emit_trace_event(
                         event_type="jira_sync",
                         data={
@@ -192,8 +194,6 @@ class JiraSyncEngine:
                         session_id="jira_sync",
                         start_time=trace_start_time,
                     )
-                except Exception:
-                    pass  # Never crash sync for tracing
 
             # Fetch issues with pagination
             issues = await self.jira_client.search_issues(project_key, updated_since)
@@ -239,7 +239,7 @@ class JiraSyncEngine:
             )
 
             if emit_trace_event:
-                try:
+                with contextlib.suppress(Exception):
                     emit_trace_event(
                         event_type="jira_sync_complete",
                         data={
@@ -259,8 +259,6 @@ class JiraSyncEngine:
                         start_time=trace_start_time,
                         end_time=datetime.now(timezone.utc),
                     )
-                except Exception:
-                    pass  # Never crash sync for tracing
 
             return SyncResult(
                 issues_synced=issues_synced,
@@ -276,7 +274,7 @@ class JiraSyncEngine:
             )
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
             if emit_trace_event:
-                try:
+                with contextlib.suppress(Exception):
                     emit_trace_event(
                         event_type="jira_sync_error",
                         data={
@@ -293,8 +291,6 @@ class JiraSyncEngine:
                         start_time=start_time,
                         end_time=datetime.now(timezone.utc),
                     )
-                except Exception:
-                    pass  # Never crash sync for tracing
             return SyncResult(errors=[str(e)], duration_seconds=duration)
 
     async def sync_all_projects(
