@@ -5,20 +5,23 @@ Tests user message capture on UserPromptSubmit event.
 
 import json
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, "tests")
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from mocks.qdrant_mock import MockQdrantClient
 
-sys.path.insert(0, ".claude/hooks/scripts")
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / ".claude/hooks/scripts"))
 
 
 @pytest.fixture
 def user_prompt_event():
     """Load user prompt event fixture."""
-    with open("tests/fixtures/hooks/user_prompt_submit.json") as f:
+    with open(
+        Path(__file__).parent.parent / "fixtures/hooks/user_prompt_submit.json"
+    ) as f:
         return json.load(f)
 
 

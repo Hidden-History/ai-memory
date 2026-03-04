@@ -5,27 +5,32 @@ Tests code pattern capture on PostToolUse events.
 
 import json
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, "tests")
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from mocks.qdrant_mock import MockQdrantClient
 
-sys.path.insert(0, ".claude/hooks/scripts")
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / ".claude/hooks/scripts"))
 
 
 @pytest.fixture
 def post_tool_edit_event():
     """Load PostToolUse Edit event fixture."""
-    with open("tests/fixtures/hooks/post_tool_use_edit.json") as f:
+    with open(
+        Path(__file__).parent.parent / "fixtures/hooks/post_tool_use_edit.json"
+    ) as f:
         return json.load(f)
 
 
 @pytest.fixture
 def post_tool_write_event():
     """Load PostToolUse Write event fixture."""
-    with open("tests/fixtures/hooks/post_tool_use_write.json") as f:
+    with open(
+        Path(__file__).parent.parent / "fixtures/hooks/post_tool_use_write.json"
+    ) as f:
         return json.load(f)
 
 

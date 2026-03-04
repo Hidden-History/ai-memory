@@ -18,6 +18,21 @@ from src.memory.config import MemoryConfig, get_config, reset_config
 class TestLangfuseDefaults:
     """Test that all Langfuse fields have correct defaults when disabled."""
 
+    @pytest.fixture(autouse=True)
+    def _clean_langfuse_env(self, monkeypatch):
+        """Isolate tests from environment — pydantic reads env vars even with _env_file=None."""
+        for var in [
+            "LANGFUSE_ENABLED",
+            "LANGFUSE_PUBLIC_KEY",
+            "LANGFUSE_SECRET_KEY",
+            "LANGFUSE_BASE_URL",
+            "LANGFUSE_FLUSH_INTERVAL",
+            "LANGFUSE_TRACE_HOOKS",
+            "LANGFUSE_TRACE_SESSIONS",
+            "LANGFUSE_RETENTION_DAYS",
+        ]:
+            monkeypatch.delenv(var, raising=False)
+
     def test_langfuse_defaults_disabled(self):
         """Verify default state: enabled=False, all fields have defaults."""
         config = MemoryConfig(_env_file=None)

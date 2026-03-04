@@ -10,6 +10,7 @@ are loaded fresh for each test class.
 import logging
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -121,12 +122,14 @@ def session_start_with_mocks():
     sys.modules["memory.session_logger"] = Mock()
 
     # Ensure src is in path
-    if "src" not in sys.path:
-        sys.path.insert(0, "src")
+    _src_path = str(Path(__file__).parent.parent / "src")
+    if _src_path not in sys.path:
+        sys.path.insert(0, _src_path)
 
     # Load session_start module
     spec = importlib.util.spec_from_file_location(
-        "session_start", ".claude/hooks/scripts/session_start.py"
+        "session_start",
+        str(Path(__file__).parent.parent / ".claude/hooks/scripts/session_start.py"),
     )
     session_start = importlib.util.module_from_spec(spec)
     sys.modules["session_start"] = session_start

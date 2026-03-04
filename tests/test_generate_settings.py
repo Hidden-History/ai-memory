@@ -134,8 +134,10 @@ def test_session_start_default_matcher_with_parzival_env(monkeypatch):
     ), "generate_settings always outputs default matcher"
 
 
-def test_generate_hook_config_stop():
+def test_generate_hook_config_stop(monkeypatch):
     """Test Stop hook generation with correct Claude Code structure."""
+    monkeypatch.delenv("LANGFUSE_ENABLED", raising=False)
+
     from generate_settings import generate_hook_config
 
     hooks_dir = "/test/hooks"
@@ -156,6 +158,30 @@ def test_generate_hook_config_stop():
     assert hook["type"] == "command"
     # V2.0 uses agent_response_capture.py (renamed from session_stop.py)
     assert "agent_response_capture.py" in hook["command"]
+
+
+def test_generate_hook_config_stop_with_langfuse(monkeypatch):
+    """Test Stop hook generation includes langfuse_stop_hook when LANGFUSE_ENABLED=true."""
+    monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+
+    from generate_settings import generate_hook_config
+
+    hooks_dir = "/test/hooks"
+    config = generate_hook_config(hooks_dir, "test-project")
+
+    stop_hook = config["hooks"]["Stop"]
+    assert len(stop_hook) == 2
+
+    # First entry: agent_response_capture.py
+    first_hooks = stop_hook[0]["hooks"]
+    assert len(first_hooks) == 1
+    assert "agent_response_capture.py" in first_hooks[0]["command"]
+
+    # Second entry: langfuse_stop_hook.py with timeout 10000
+    second_hooks = stop_hook[1]["hooks"]
+    assert len(second_hooks) == 1
+    assert "langfuse_stop_hook.py" in second_hooks[0]["command"]
+    assert second_hooks[0]["timeout"] == 10000
 
 
 def test_generate_hook_config_absolute_paths():
