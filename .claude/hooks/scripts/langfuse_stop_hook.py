@@ -34,7 +34,10 @@ logger = logging.getLogger(__name__)
 HOOK_TIMEOUT_SECONDS = 30
 # TD-241 FIX: 5s was too short for large transcripts. Configurable via env var.
 # Default 15s: enough time for N child spans + network round-trip to local Langfuse.
-FLUSH_TIMEOUT_SECONDS = int(os.environ.get("LANGFUSE_FLUSH_TIMEOUT_SECONDS", "15"))
+try:
+    FLUSH_TIMEOUT_SECONDS = int(os.environ.get("LANGFUSE_FLUSH_TIMEOUT_SECONDS", "15"))
+except (ValueError, TypeError):
+    FLUSH_TIMEOUT_SECONDS = 15
 LANGFUSE_PAYLOAD_MAX_CHARS = 10000
 
 

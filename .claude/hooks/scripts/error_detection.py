@@ -11,13 +11,13 @@ Signal Detection:
 Action:
     - Extract error signature
     - Search code-patterns collection
-    - Filter by type="error_pattern"
+    - Filter by type in ("error_pattern", "error_fix") for backward compatibility with legacy records
     - Inject up to 3 similar fixes to stdout
 
 Configuration:
     - Hook: PostToolUse with matcher "Bash"
     - Collection: code-patterns
-    - Type filter: "error_pattern"
+    - Type filter: ["error_pattern", "error_fix"]
     - Max results: 3
 
 Exit Codes:

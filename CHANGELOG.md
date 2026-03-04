@@ -29,6 +29,19 @@ Observability and code quality sprint: full Langfuse V3 SDK migration across all
 - **TD-245**: GitHub sync missing atexit Langfuse shutdown handler.
 - **TD-246**: Code sync missing atexit Langfuse shutdown handler.
 
+### Upgrade Instructions
+
+v2.1.0 is a non-breaking, additive release. No migration scripts required.
+
+1. Pull latest code: `git pull origin main`
+2. Reinstall: `pip install -e .` (or re-run installer Option 1 for full installations)
+3. If using ClickHouse: note the memory cap has been increased from 4 GiB to 16 GiB in `clickhouse-config.xml`
+
+**Optional environment variables** (new, with sensible defaults):
+- `CLAUDE_AGENT_NAME` — Agent identity for Langfuse traces (default: `main`)
+- `CLAUDE_AGENT_ROLE` — Agent role for Langfuse traces (default: `user`)
+- `LANGFUSE_FLUSH_TIMEOUT_SECONDS` — Langfuse flush timeout (default: `15`)
+
 ## [2.0.9] - 2026-03-02
 
 Injection quality sprint (PLAN-010): Dedicated `github` Qdrant collection for GitHub-synced data, fixing 79.6% noise in discussions. Structured error pattern detection eliminates false positives. Tier 2 context injection now filters by memory type. Content quality gate prevents low-value messages from being stored. Langfuse observability with 7 emit_trace_event() calls across search, injection, and session pipelines. Parzival layered priority bootstrap with deterministic + semantic retrieval layers.

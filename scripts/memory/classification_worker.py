@@ -14,6 +14,7 @@ RESOURCE LIMITS:
 import argparse
 import asyncio
 import logging
+import os
 import signal
 import sys
 import threading
@@ -121,6 +122,8 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                         "point_id": task.point_id,
                         "collection": task.collection,
                         "source_hook": task.source_hook,
+                        "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                        "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                     },
                 }
                 emit_trace_event(

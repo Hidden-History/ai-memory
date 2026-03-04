@@ -475,6 +475,10 @@ class ClassificationWorker:
                                 "provider": result.provider_used,
                                 "was_reclassified": False,
                             })[:TRACE_CONTENT_MAX],
+                            "metadata": {
+                                "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                            },
                         },
                         trace_id=task.trace_id,
                         session_id=task.session_id,
@@ -523,6 +527,10 @@ class ClassificationWorker:
                                 "classified_type": result.classified_type,
                                 "confidence": result.confidence,
                             })[:TRACE_CONTENT_MAX],
+                            "metadata": {
+                                "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                            },
                         },
                         trace_id=task.trace_id,
                         session_id=task.session_id,
@@ -556,6 +564,10 @@ class ClassificationWorker:
                             "provider": result.provider_used,
                             "was_reclassified": True,
                         })[:TRACE_CONTENT_MAX],
+                        "metadata": {
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                        },
                     },
                     trace_id=task.trace_id,
                     session_id=task.session_id,
