@@ -14,7 +14,7 @@ Architecture:
 
 Memory Type Mapping:
 - PostToolUse (Write/Edit) → IMPLEMENTATION → code-patterns
-- PostToolUse (Bash error) → ERROR_FIX → code-patterns
+- PostToolUse (Bash error) → ERROR_PATTERN → code-patterns
 - Stop (agent response) → AGENT_RESPONSE → discussions
 - Message stream → AGENT_RESPONSE → discussions (real-time)
 
@@ -80,7 +80,7 @@ class PendingMemory:
 
     Attributes:
         content: Memory content
-        memory_type: Memory type (IMPLEMENTATION, ERROR_FIX, AGENT_RESPONSE)
+        memory_type: Memory type (IMPLEMENTATION, ERROR_PATTERN, AGENT_RESPONSE)
         collection: Target collection name
         source: Source hook name
         session_id: Session identifier
@@ -103,7 +103,7 @@ class AgentSDKWrapper:
     """Agent SDK wrapper with automatic memory capture via hooks.
 
     Wraps ClaudeSDKClient to provide:
-    - PostToolUse hook → captures code patterns (implementation, error_fix)
+    - PostToolUse hook → captures code patterns (implementation, error_pattern)
     - Stop hook → captures agent responses (agent_response)
     - Background storage with fire-and-forget pattern
     - Session continuity and conversation context
@@ -333,7 +333,7 @@ class AgentSDKWrapper:
 
         Args:
             content: Memory content
-            memory_type: Memory type (IMPLEMENTATION, ERROR_FIX, AGENT_RESPONSE)
+            memory_type: Memory type (IMPLEMENTATION, ERROR_PATTERN, AGENT_RESPONSE)
             collection: Target collection (code-patterns or discussions)
             source: Source hook name
         """
@@ -432,7 +432,7 @@ class AgentSDKWrapper:
 
         Maps tool executions to memory types:
         - Write/Edit/NotebookEdit → IMPLEMENTATION (code-patterns)
-        - Bash with error → ERROR_FIX (code-patterns)
+        - Bash with error → ERROR_PATTERN (code-patterns)
 
         Args:
             input_data: Hook input with tool name, input, response
@@ -468,7 +468,7 @@ class AgentSDKWrapper:
                 )
 
                 if is_error:
-                    memory_type = MemoryType.ERROR_FIX
+                    memory_type = MemoryType.ERROR_PATTERN
                     content = f"Error fix pattern (Bash): {tool_input.get('command', '')}\nResult: {tool_response}"
                 else:
                     # Don't capture successful Bash commands
@@ -595,7 +595,7 @@ class AgentSDKWrapper:
 
         Args:
             content: Memory content
-            memory_type: Memory type (IMPLEMENTATION, ERROR_FIX, AGENT_RESPONSE)
+            memory_type: Memory type (IMPLEMENTATION, ERROR_PATTERN, AGENT_RESPONSE)
             collection: Target collection (code-patterns or discussions)
             source: Source hook name
         """

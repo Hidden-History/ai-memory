@@ -7,6 +7,9 @@ error patterns to Qdrant with type="error_pattern" (v2.0).
 Performance: Runs independently of hook (no <500ms constraint)
 Timeout: Configurable via HOOK_TIMEOUT env var (default: 60s)
 """
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import asyncio
 import json
@@ -230,6 +233,8 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                         "metadata": {
                             "content_length": len(content),
                             "log_path": log_path,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -247,7 +252,12 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                     data={
                         "input": content[:TRACE_CONTENT_MAX],
                         "output": "Detected type: error_pattern (confidence: 1.0)",
-                        "metadata": {"detected_type": "error_pattern", "confidence": 1.0},
+                        "metadata": {
+                            "detected_type": "error_pattern",
+                            "confidence": 1.0,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -301,6 +311,8 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                                         "scan_result": "blocked",
                                         "pii_found": False,
                                         "secrets_found": True,
+                                        "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                        "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                     },
                                 },
                                 trace_id=trace_id,
@@ -318,6 +330,8 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                                     "metadata": {
                                         "reason": "scan_blocked",
                                         "scan_blocked": True,
+                                        "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                        "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                     },
                                 },
                                 trace_id=trace_id,
@@ -380,6 +394,8 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                             "content_length": scan_input_length,
                             "pii_found": pii_found,
                             "secrets_found": secrets_found,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -442,6 +458,8 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             "source_authority": 0.4,
             "is_current": True,
             "version": 1,
+            # F8/RISK-012: Agent identity for multi-agent Qdrant queries
+            "agent_id": os.environ.get("PARZIVAL_AGENT_ID", os.environ.get("AI_MEMORY_AGENT_ID", "default")),
         }
 
         # SPEC-021: 5_chunk span — error patterns use structured truncation (single chunk)
@@ -456,6 +474,8 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                             "num_chunks": 1,
                             "chunk_type": "structured_smart_truncate",
                             "content_length": len(content),
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -517,6 +537,8 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                             "embedding_status": payload["embedding_status"],
                             "num_vectors": 1,
                             "dimensions": dim,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -540,7 +562,12 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                     data={
                         "input": f"Storing 1 point to {collection_name}",
                         "output": f"Stored 1 point (ID: {memory_id})",
-                        "metadata": {"collection": collection_name, "points_stored": 1},
+                        "metadata": {
+                            "collection": collection_name,
+                            "points_stored": 1,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                        },
                     },
                     trace_id=trace_id,
                     session_id=session_id,
@@ -561,6 +588,8 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                             "collection": collection_name,
                             "current_type": "error_pattern",
                             "reason": "classifier_not_integrated",
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,

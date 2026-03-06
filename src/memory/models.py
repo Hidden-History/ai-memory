@@ -30,7 +30,7 @@ class MemoryType(str, Enum):
         f"{MemoryType.IMPLEMENTATION.value}"  # "implementation"
 
     Collections (v2.0):
-        code-patterns: IMPLEMENTATION, ERROR_FIX, REFACTOR, FILE_PATTERN
+        code-patterns: IMPLEMENTATION, ERROR_PATTERN, REFACTOR, FILE_PATTERN
         conventions: RULE, GUIDELINE, PORT, NAMING, STRUCTURE
         discussions: DECISION, SESSION, BLOCKER, PREFERENCE, USER_MESSAGE, AGENT_RESPONSE
         discussions (agent namespace): AGENT_HANDOFF, AGENT_MEMORY, AGENT_TASK, AGENT_INSIGHT
@@ -42,7 +42,7 @@ class MemoryType(str, Enum):
 
     # === code-patterns collection (HOW things are built) ===
     IMPLEMENTATION = "implementation"  # How a feature/component was built
-    ERROR_FIX = "error_fix"  # Error encountered + what fixed it
+    ERROR_PATTERN = "error_pattern"  # Error encountered + what fixed it
     REFACTOR = "refactor"  # Code refactoring patterns applied
     FILE_PATTERN = "file_pattern"  # Patterns specific to a file or module
 

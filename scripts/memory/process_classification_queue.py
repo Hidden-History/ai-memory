@@ -22,6 +22,9 @@ Reference:
 - BP-039: Async Background Task Processing for Python (2025)
 - BUG-024: LLM Classifier works but no daemon processes the queue
 """
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import asyncio
 import os
@@ -44,6 +47,8 @@ try:
     from memory.trace_buffer import emit_trace_event
 except ImportError:
     emit_trace_event = None
+
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 from prometheus_client import (
     REGISTRY,
@@ -94,6 +99,21 @@ try:
             logger.warning(
                 "opentelemetry-instrumentation-anthropic not installed — Anthropic SDK calls will not be traced"
             )
+
+        import atexit
+
+        def _langfuse_shutdown():
+            """Flush and shutdown Langfuse client on process exit."""
+            try:
+                from langfuse import get_client
+                client = get_client()
+                if client:
+                    client.flush()
+                    client.shutdown()
+            except Exception:
+                pass
+
+        atexit.register(_langfuse_shutdown)
 except ImportError:
     pass  # memory.langfuse_config not available
 
@@ -448,15 +468,20 @@ class ClassificationWorker:
                     emit_trace_event(
                         event_type="9_classify",
                         data={
-                            "input": {"point_id": task.point_id, "collection": task.collection},
-                            "output": {
+                            "input": json.dumps({"point_id": task.point_id, "collection": task.collection})[:TRACE_CONTENT_MAX],
+                            "output": json.dumps({
                                 "classified_type": result.classified_type,
                                 "confidence": result.confidence,
                                 "provider": result.provider_used,
                                 "was_reclassified": False,
+                            })[:TRACE_CONTENT_MAX],
+                            "metadata": {
+                                "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                             },
                         },
                         trace_id=task.trace_id,
+                        session_id=task.session_id,
                         project_id=task.group_id,
                     )
                 except Exception:
@@ -496,14 +521,19 @@ class ClassificationWorker:
                     emit_trace_event(
                         event_type="9_classify",
                         data={
-                            "input": {"point_id": task.point_id, "collection": task.collection},
-                            "output": {
+                            "input": json.dumps({"point_id": task.point_id, "collection": task.collection})[:TRACE_CONTENT_MAX],
+                            "output": json.dumps({
                                 "status": "qdrant_update_failed",
                                 "classified_type": result.classified_type,
                                 "confidence": result.confidence,
+                            })[:TRACE_CONTENT_MAX],
+                            "metadata": {
+                                "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                             },
                         },
                         trace_id=task.trace_id,
+                        session_id=task.session_id,
                         project_id=task.group_id,
                     )
                 except Exception:
@@ -527,15 +557,20 @@ class ClassificationWorker:
                 emit_trace_event(
                     event_type="9_classify",
                     data={
-                        "input": {"point_id": task.point_id, "collection": task.collection},
-                        "output": {
+                        "input": json.dumps({"point_id": task.point_id, "collection": task.collection})[:TRACE_CONTENT_MAX],
+                        "output": json.dumps({
                             "classified_type": result.classified_type,
                             "confidence": result.confidence,
                             "provider": result.provider_used,
                             "was_reclassified": True,
+                        })[:TRACE_CONTENT_MAX],
+                        "metadata": {
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=task.trace_id,
+                    session_id=task.session_id,
                     project_id=task.group_id,
                 )
             except Exception:

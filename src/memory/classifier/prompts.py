@@ -15,8 +15,7 @@ Classify this memory into EXACTLY ONE type based on its content.
 
 ### code-patterns collection (HOW things are built):
 - **implementation**: How a feature was built, code patterns, architecture
-- **error_fix**: An error/exception encountered AND its solution
-- **error_pattern**: Detected error pattern from command output (automated capture, not manually reported)
+- **error_pattern**: Error patterns from command output or user-reported errors with their solutions
 - **refactor**: Code restructuring, renaming, moving, extracting
 - **file_pattern**: File-specific conventions or patterns
 
@@ -40,7 +39,7 @@ Classify this memory into EXACTLY ONE type based on its content.
 ## CLASSIFICATION RULES
 1. Choose the MOST SPECIFIC type that applies
 2. "decision" requires an actual choice was made, not just discussion
-3. "error_fix" = user-reported error WITH its solution; "error_pattern" = automated capture of error output from commands (Traceback, Exception, exit code)
+3. "error_pattern" = error output from commands (Traceback, Exception, exit code) or user-reported errors with their solutions
 4. "rule" requires strong language (MUST/NEVER), otherwise use "guideline"
 5. If unsure between types, prefer the default (user_message/agent_response)
 

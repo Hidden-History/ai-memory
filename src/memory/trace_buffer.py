@@ -8,6 +8,8 @@ Overhead: ~5-10ms per event (atomic file write).
 SPEC-020 §4 / PLAN-008
 """
 
+# LANGFUSE: Trace buffer core (Path A infrastructure). See LANGFUSE-INTEGRATION-SPEC.md §4
+
 import json
 import os
 import time

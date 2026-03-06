@@ -409,7 +409,6 @@ async def test_context_manager_cleanup(mock_storage, tmp_path):
         assert task.done()
 
 
-@pytest.mark.quarantine
 @pytest.mark.asyncio
 async def test_rate_limiter_integration(mock_storage, tmp_path):
     """Test rate limiter integrates with wrapper."""
@@ -429,17 +428,24 @@ async def test_rate_limiter_integration(mock_storage, tmp_path):
     mock_client.close = AsyncMock()
     wrapper.client = mock_client
 
-    # First two requests should succeed
-    await wrapper.send_message("Request 1")
-    await wrapper.send_message("Request 2")
+    sleep_calls = []
 
-    # Third request should queue (and wait)
-    start = time.monotonic()
-    await wrapper.send_message("Request 3")
-    elapsed = time.monotonic() - start
+    async def mock_sleep(seconds):
+        sleep_calls.append(seconds)
+        # Refill the bucket so the rate limiter exits the wait loop immediately
+        wrapper.rate_limiter.available_requests = float(wrapper.rate_limiter.rpm_limit)
 
-    # Should have waited for refill
-    assert elapsed > 0.3
+    with patch("src.memory.async_sdk_wrapper.asyncio.sleep", side_effect=mock_sleep):
+        # First two requests consume the 2 available tokens (no sleep needed)
+        await wrapper.send_message("Request 1")
+        await wrapper.send_message("Request 2")
+
+        # Third request should trigger rate limiting: tokens exhausted → sleep called
+        await wrapper.send_message("Request 3")
+
+    # Rate limiter must have slept at least once for the third request
+    assert len(sleep_calls) > 0, "Rate limiter should have slept when tokens exhausted"
+    assert all(s >= 0 for s in sleep_calls), "Sleep durations must be non-negative"
 
     await wrapper.close()
 

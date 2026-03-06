@@ -9,7 +9,9 @@ Reference: PLAN-006 Section 3.3 (Code Blob Embedding Strategy)
 
 import ast
 import asyncio
+import atexit
 import base64
+import contextlib
 import logging
 import os
 import time
@@ -22,10 +24,16 @@ from qdrant_client import models
 
 from memory.config import MemoryConfig, get_config
 
-# Langfuse @observe() — conditional import (graceful degradation if SDK unavailable)
+# LANGFUSE: Uses direct SDK (Path B). See LANGFUSE-INTEGRATION-SPEC.md §3.2, §7.3
+# SDK VERSION: V3 ONLY. Use get_client(), observe(), propagate_attributes().
+# Do NOT use Langfuse() constructor, start_span(), start_generation(), or langfuse_context.
+
+# Langfuse @observe() + propagate_attributes — conditional import (graceful degradation)
 try:
-    from langfuse import observe
+    from langfuse import get_client as _langfuse_get_client
+    from langfuse import observe, propagate_attributes
 except ImportError:
+    _langfuse_get_client = None  # type: ignore[assignment]
 
     def observe(**kwargs):
         def decorator(func):
@@ -33,16 +41,39 @@ except ImportError:
 
         return decorator
 
+    def propagate_attributes(**kwargs):
+        """No-op context manager when Langfuse unavailable."""
+        import contextlib
 
-from memory.connectors.github.client import GitHubClient, GitHubClientError
-from memory.connectors.github.schema import (
+        return contextlib.nullcontext()
+
+
+def _langfuse_shutdown():
+    """Flush and shutdown Langfuse client on process exit (TD-246)."""
+    if _langfuse_get_client is not None:
+        try:
+            client = _langfuse_get_client()
+            if client:
+                client.flush()
+                client.shutdown()
+        except Exception:
+            pass
+
+
+atexit.register(_langfuse_shutdown)
+
+from memory.connectors.github.client import (  # noqa: E402
+    GitHubClient,
+    GitHubClientError,
+)
+from memory.connectors.github.schema import (  # noqa: E402
     GITHUB_COLLECTION,
     SOURCE_AUTHORITY_MAP,
     compute_content_hash,
 )
-from memory.models import MemoryType
-from memory.qdrant_client import get_qdrant_client
-from memory.storage import MemoryStorage
+from memory.models import MemoryType  # noqa: E402
+from memory.qdrant_client import get_qdrant_client  # noqa: E402
+from memory.storage import MemoryStorage  # noqa: E402
 
 logger = logging.getLogger("ai_memory.github.code_sync")
 
@@ -711,145 +742,162 @@ class CodeBlobSync:
         Returns:
             CodeSyncResult with file/chunk counts
         """
-        start = time.monotonic()
-        result = CodeSyncResult()
-        if total_timeout is None:
-            total_timeout = self.config.github_sync_total_timeout
-        per_file_timeout = self.config.github_sync_per_file_timeout
-
-        logger.info(
-            "Starting code blob sync: branch=%s, batch=%s, total_timeout=%ds, per_file_timeout=%ds",
-            self._branch,
-            batch_id,
-            total_timeout,
-            per_file_timeout,
-        )
-
-        # Step 1: Fetch file tree
         try:
-            tree_entries = await self._walk_tree()
-        except GitHubClientError as e:
-            logger.error("Failed to fetch file tree: %s", e)
-            result.errors += 1
-            result.error_details.append(f"get_tree: {e}")
-            result.duration_seconds = time.monotonic() - start
-            return result
+            with propagate_attributes(
+                session_id="github_sync",
+                user_id="system",
+                metadata={"sync_type": "code_blobs"},
+            ):
+                start = time.monotonic()
+                result = CodeSyncResult()
+                if total_timeout is None:
+                    total_timeout = self.config.github_sync_total_timeout
+                per_file_timeout = self.config.github_sync_per_file_timeout
 
-        # Step 2: Build stored blob lookup map (BP-066 batch lookup)
-        stored_map = self._get_stored_blob_map()
-
-        # Step 3: Pre-filter eligible files for accurate progress counts
-        current_paths: set[str] = set()
-        eligible_entries: list[tuple[dict, str | None]] = []  # (entry, stored_hash)
-        for entry in tree_entries:
-            file_path = entry["path"]
-            current_paths.add(file_path)
-
-            if not self._should_sync_file(entry):
-                result.files_skipped += 1
-                continue
-
-            stored_hash = stored_map.get(file_path)
-            if stored_hash == entry["sha"]:
-                self._update_last_synced(file_path)
-                result.files_skipped += 1
-                continue
-
-            eligible_entries.append((entry, stored_hash))
-
-        total_eligible = len(eligible_entries)
-        logger.info(
-            "Code blob sync: %d eligible files to process (of %d total tree entries)",
-            total_eligible,
-            len(tree_entries),
-        )
-
-        # Step 4: Sync each eligible file with timeouts and circuit breaker
-        cb_provider = "code_blob_sync"  # Circuit breaker provider key
-        for idx, (entry, stored_hash) in enumerate(eligible_entries):
-            file_path = entry["path"]
-
-            # BUG-112: Total timeout check
-            elapsed = time.monotonic() - start
-            if elapsed >= total_timeout:
-                remaining = total_eligible - idx
-                logger.warning(
-                    "Code blob sync total timeout reached (%.0fs >= %ds). "
-                    "Stopping with %d files remaining.",
-                    elapsed,
-                    total_timeout,
-                    remaining,
-                )
-                result.error_details.append(
-                    f"total_timeout: stopped after {idx}/{total_eligible} files ({elapsed:.0f}s)"
-                )
-                break
-
-            # BUG-112: Circuit breaker check
-            if not self._circuit_breaker.is_available(cb_provider):
-                remaining = total_eligible - idx
-                logger.warning(
-                    "Code blob sync circuit breaker OPEN after %d consecutive failures. "
-                    "Stopping with %d files remaining.",
-                    self._circuit_breaker.failure_threshold,
-                    remaining,
-                )
-                result.error_details.append(
-                    f"circuit_breaker_open: stopped after {idx}/{total_eligible} files"
-                )
-                break
-
-            # BUG-112: Progress logging every 10 files
-            if idx > 0 and idx % 10 == 0:
                 logger.info(
-                    "Code blob sync progress: %d/%d files (%.0fs elapsed)",
-                    idx,
+                    "Starting code blob sync: branch=%s, batch=%s, total_timeout=%ds, per_file_timeout=%ds",
+                    self._branch,
+                    batch_id,
+                    total_timeout,
+                    per_file_timeout,
+                )
+
+                # Step 1: Fetch file tree
+                try:
+                    tree_entries = await self._walk_tree()
+                except GitHubClientError as e:
+                    logger.error("Failed to fetch file tree: %s", e)
+                    result.errors += 1
+                    result.error_details.append(f"get_tree: {e}")
+                    result.duration_seconds = time.monotonic() - start
+                    return result
+
+                # Step 2: Build stored blob lookup map (BP-066 batch lookup)
+                stored_map = self._get_stored_blob_map()
+
+                # Step 3: Pre-filter eligible files for accurate progress counts
+                current_paths: set[str] = set()
+                eligible_entries: list[tuple[dict, str | None]] = (
+                    []
+                )  # (entry, stored_hash)
+                for entry in tree_entries:
+                    file_path = entry["path"]
+                    current_paths.add(file_path)
+
+                    if not self._should_sync_file(entry):
+                        result.files_skipped += 1
+                        continue
+
+                    stored_hash = stored_map.get(file_path)
+                    if stored_hash == entry["sha"]:
+                        self._update_last_synced(file_path)
+                        result.files_skipped += 1
+                        continue
+
+                    eligible_entries.append((entry, stored_hash))
+
+                total_eligible = len(eligible_entries)
+                logger.info(
+                    "Code blob sync: %d eligible files to process (of %d total tree entries)",
                     total_eligible,
-                    time.monotonic() - start,
+                    len(tree_entries),
                 )
 
-            # BUG-112: Per-file timeout via asyncio.wait_for
-            try:
-                chunks_stored = await asyncio.wait_for(
-                    self._sync_file(entry, batch_id, stored_hash),
-                    timeout=per_file_timeout,
-                )
-                result.files_synced += 1
-                result.chunks_created += chunks_stored
-                self._circuit_breaker.record_success(cb_provider)
-            except asyncio.TimeoutError:
-                logger.error(
-                    "Per-file timeout (%ds) for %s", per_file_timeout, file_path
-                )
-                result.errors += 1
-                result.error_details.append(
-                    f"{file_path}: per_file_timeout ({per_file_timeout}s)"
-                )
-                self._circuit_breaker.record_failure(cb_provider, "timeout")
-            except Exception as e:
-                logger.error("Failed to sync file %s: %s", file_path, e)
-                result.errors += 1
-                result.error_details.append(f"{file_path}: {e}")
-                self._circuit_breaker.record_failure(cb_provider, type(e).__name__)
+                # Step 4: Sync each eligible file with timeouts and circuit breaker
+                cb_provider = "code_blob_sync"  # Circuit breaker provider key
+                for idx, (entry, stored_hash) in enumerate(eligible_entries):
+                    file_path = entry["path"]
 
-        # Step 5: Detect deleted files
-        deleted = await self._detect_deleted_files(current_paths, stored_map=stored_map)
-        result.files_deleted = deleted
+                    # BUG-112: Total timeout check
+                    elapsed = time.monotonic() - start
+                    if elapsed >= total_timeout:
+                        remaining = total_eligible - idx
+                        logger.warning(
+                            "Code blob sync total timeout reached (%.0fs >= %ds). "
+                            "Stopping with %d files remaining.",
+                            elapsed,
+                            total_timeout,
+                            remaining,
+                        )
+                        result.error_details.append(
+                            f"total_timeout: stopped after {idx}/{total_eligible} files ({elapsed:.0f}s)"
+                        )
+                        break
 
-        result.duration_seconds = time.monotonic() - start
-        self._push_metrics(result)
+                    # BUG-112: Circuit breaker check
+                    if not self._circuit_breaker.is_available(cb_provider):
+                        remaining = total_eligible - idx
+                        logger.warning(
+                            "Code blob sync circuit breaker OPEN after %d consecutive failures. "
+                            "Stopping with %d files remaining.",
+                            self._circuit_breaker.failure_threshold,
+                            remaining,
+                        )
+                        result.error_details.append(
+                            f"circuit_breaker_open: stopped after {idx}/{total_eligible} files"
+                        )
+                        break
 
-        logger.info(
-            "Code blob sync complete: %d synced, %d skipped, %d deleted, "
-            "%d chunks, %d errors in %.1fs",
-            result.files_synced,
-            result.files_skipped,
-            result.files_deleted,
-            result.chunks_created,
-            result.errors,
-            result.duration_seconds,
-        )
-        return result
+                    # BUG-112: Progress logging every 10 files
+                    if idx > 0 and idx % 10 == 0:
+                        logger.info(
+                            "Code blob sync progress: %d/%d files (%.0fs elapsed)",
+                            idx,
+                            total_eligible,
+                            time.monotonic() - start,
+                        )
+
+                    # BUG-112: Per-file timeout via asyncio.wait_for
+                    try:
+                        chunks_stored = await asyncio.wait_for(
+                            self._sync_file(entry, batch_id, stored_hash),
+                            timeout=per_file_timeout,
+                        )
+                        result.files_synced += 1
+                        result.chunks_created += chunks_stored
+                        self._circuit_breaker.record_success(cb_provider)
+                    except asyncio.TimeoutError:
+                        logger.error(
+                            "Per-file timeout (%ds) for %s", per_file_timeout, file_path
+                        )
+                        result.errors += 1
+                        result.error_details.append(
+                            f"{file_path}: per_file_timeout ({per_file_timeout}s)"
+                        )
+                        self._circuit_breaker.record_failure(cb_provider, "timeout")
+                    except Exception as e:
+                        logger.error("Failed to sync file %s: %s", file_path, e)
+                        result.errors += 1
+                        result.error_details.append(f"{file_path}: {e}")
+                        self._circuit_breaker.record_failure(
+                            cb_provider, type(e).__name__
+                        )
+
+                # Step 5: Detect deleted files
+                deleted = await self._detect_deleted_files(
+                    current_paths, stored_map=stored_map
+                )
+                result.files_deleted = deleted
+
+                result.duration_seconds = time.monotonic() - start
+                self._push_metrics(result)
+
+                logger.info(
+                    "Code blob sync complete: %d synced, %d skipped, %d deleted, "
+                    "%d chunks, %d errors in %.1fs",
+                    result.files_synced,
+                    result.files_skipped,
+                    result.files_deleted,
+                    result.chunks_created,
+                    result.errors,
+                    result.duration_seconds,
+                )
+                return result
+        finally:
+            # Flush Langfuse traces after sync cycle (runs on all exit paths)
+            if _langfuse_get_client is not None:
+                with contextlib.suppress(Exception):
+                    _langfuse_get_client().flush()
 
     async def _walk_tree(self) -> list[dict[str, Any]]:
         """Fetch and filter repository file tree.

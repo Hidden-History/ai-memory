@@ -28,7 +28,7 @@ def classify_by_rules(content: str, collection: str) -> tuple[str, float] | None
 
     Examples:
         >>> classify_by_rules("Fixed TypeError by adding null check", "code-patterns")
-        ('error_fix', 0.90)
+        ('error_pattern', 0.90)
         >>> classify_by_rules("Port 26350 for Qdrant", "conventions")
         ('port', 0.95)
         >>> classify_by_rules("MUST use snake_case", "conventions")

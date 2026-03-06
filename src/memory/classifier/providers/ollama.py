@@ -5,6 +5,10 @@ Uses Ollama API for free, local classification.
 TECH-DEBT-069: LLM-based memory classification system.
 """
 
+# LANGFUSE: Data-capture via langfuse_generation wrapper (Path A upstream via classification_worker).
+# See LANGFUSE-INTEGRATION-SPEC.md §3.1, §7.5. Does NOT call Langfuse SDK directly.
+# Do NOT add direct Langfuse SDK imports to this file.
+
 import json
 import logging
 

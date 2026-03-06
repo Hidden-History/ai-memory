@@ -6,6 +6,11 @@ Flushes the on-disk trace buffer to Langfuse on a configurable interval.
 SPEC-020 §5 / PLAN-008 / DEC-PLAN008-004
 """
 
+# LANGFUSE: Trace flush worker. See LANGFUSE-INTEGRATION-SPEC.md §7.6
+# SDK VERSION: V3 ONLY. Do NOT use start_span(), start_generation(), or Langfuse() constructor.
+# OTel path (_process_event_otel): Uses raw OTel spans — DO NOT change attribute names.
+# SDK path (_process_event_sdk): Fallback when OTel unavailable — uses start_observation().
+
 import contextlib
 import json
 import logging
@@ -225,6 +230,8 @@ def _process_event_otel(event: dict, data: dict) -> None:
         if event.get("session_id"):
             # Langfuse SDK v3 expects "session.id" (not "langfuse.trace.session_id")
             otel_span.set_attribute("session.id", event["session_id"])
+        # Trace flush worker is a system service — user.id is always "system"
+        otel_span.set_attribute("user.id", "system")
         if data.get("input") is not None:
             val = data["input"]
             otel_span.set_attribute(
@@ -269,34 +276,25 @@ def _process_event_sdk(event: dict, data: dict, langfuse) -> None:
     if parent_span_id:
         span_metadata["parent_span_id"] = parent_span_id
 
-    if as_type == "generation":
-        observation = langfuse.start_generation(
-            trace_context={"trace_id": trace_id},
-            name=event_type,
-        )
-        observation.update(
-            input=data.get("input"),
-            output=data.get("output"),
-            metadata=span_metadata,
-            model=data.get("model"),
-            usage_details=data.get("usage"),
-        )
-    else:
-        observation = langfuse.start_span(
-            trace_context={"trace_id": trace_id},
-            name=event_type,
-        )
-        observation.update(
-            input=data.get("input"),
-            output=data.get("output"),
-            metadata=span_metadata,
-        )
+    observation = langfuse.start_observation(
+        name=event_type,
+        as_type=as_type if as_type in ("generation", "span") else "span",
+        trace_context={"trace_id": trace_id} if trace_id else None,
+    )
+    observation.update(
+        input=data.get("input"),
+        output=data.get("output"),
+        metadata=span_metadata,
+        model=data.get("model") if as_type == "generation" else None,
+        usage_details=data.get("usage") if as_type == "generation" else None,
+    )
 
     # ISSUE-185: Only set trace-level I/O on root events
     is_root = event_type == "1_capture" or not parent_span_id
     trace_kwargs = {
         "name": f"hook_pipeline_{event.get('project_id', 'unknown')}",
         "session_id": event.get("session_id"),
+        "user_id": "system",  # Trace flush worker is a system service
         "metadata": {
             "project_id": event.get("project_id"),
             "source": "trace_buffer",
@@ -308,7 +306,14 @@ def _process_event_sdk(event: dict, data: dict, langfuse) -> None:
     observation.update_trace(**trace_kwargs)
 
     if data.get("end_time"):
-        observation.end(end_time=_dt_to_ns(data["end_time"]))
+        try:
+            observation.end(end_time=_dt_to_ns(data["end_time"]))
+        except TypeError:
+            # V3 SDK wrapper may not accept end_time kwarg — fall back to plain end
+            logger.warning(
+                "V3 SDK rejected end_time kwarg — trace duration may be inaccurate"
+            )
+            observation.end()
     else:
         observation.end()
 

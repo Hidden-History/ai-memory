@@ -14,6 +14,9 @@ Sources:
 - Qdrant AsyncQdrantClient: https://python-client.qdrant.tech/
 - Exception handling: https://python-client.qdrant.tech/qdrant_client.http.exceptions
 """
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import asyncio
 import json
@@ -182,6 +185,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                         "metadata": {
                             "content_length": len(code_content),
                             "log_path": log_path,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -227,6 +232,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                                     "content_hash": content_hash,
                                     "matched_point_id": matched_id,
                                     "collection": collection_name,
+                                    "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                    "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                 },
                             },
                             trace_id=trace_id,
@@ -288,6 +295,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                             "detected_type": "implementation",
                             "confidence": 1.0,
                             "language": language,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -314,7 +323,11 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                         data={
                             "input": "no_patterns_extracted",
                             "output": "Pipeline terminated: no patterns extracted from tool output",
-                            "metadata": {"reason": "no_patterns_extracted"},
+                            "metadata": {
+                                "reason": "no_patterns_extracted",
+                                "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                            },
                         },
                         trace_id=trace_id,
                         session_id=session_id,
@@ -371,6 +384,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                                             "scan_result": "blocked",
                                             "pii_found": False,
                                             "secrets_found": True,
+                                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                         },
                                     },
                                     trace_id=trace_id,
@@ -388,6 +403,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                                         "metadata": {
                                             "reason": "scan_blocked",
                                             "scan_blocked": True,
+                                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                         },
                                     },
                                     trace_id=trace_id,
@@ -433,6 +450,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                             "content_length": scan_input_length,
                             "pii_found": pii_found,
                             "secrets_found": secrets_found,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -480,6 +499,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                                 c.metadata.chunk_size_tokens for c in chunks
                             ),
                             "content_length": len(patterns["content"]),
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -537,6 +558,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 "source_authority": 0.4,
                 "is_current": True,
                 "version": 1,
+                # F8/RISK-012: Agent identity for multi-agent Qdrant queries
+                "agent_id": os.environ.get("PARZIVAL_AGENT_ID", os.environ.get("AI_MEMORY_AGENT_ID", "default")),
             }
 
             # Generate embedding synchronously for immediate searchability
@@ -581,6 +604,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                             ),
                             "num_vectors": len(points_to_store),
                             "dimensions": dim,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -608,6 +633,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                         "metadata": {
                             "collection": collection_name,
                             "points_stored": len(points_to_store),
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -675,6 +702,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                             "collection": collection_name,
                             "current_type": "implementation",
                             "enqueue_count": enqueue_count,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,

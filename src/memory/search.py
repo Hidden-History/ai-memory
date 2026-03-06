@@ -9,8 +9,13 @@ Best Practices (2025/2026):
 - https://qdrant.tech/articles/vector-search-resource-optimization/
 """
 
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
+
 import contextlib
 import logging
+import os
 import time
 from datetime import datetime, timezone
 
@@ -77,7 +82,7 @@ def format_attribution(
 
     Args:
         collection: Collection name (code-patterns, conventions, discussions)
-        memory_type: Memory type from payload (e.g., implementation, error_fix)
+        memory_type: Memory type from payload (e.g., implementation, error_pattern)
         score: Optional relevance score (0.0 to 1.0)
 
     Returns:
@@ -174,6 +179,9 @@ class MemorySearch:
         fast_mode: bool = False,  # NEW: Use hnsw_ef=64 for triggers
         source: str | None = None,  # SPEC-005: Namespace filter (e.g., "github")
         agent_id: str | None = None,  # SPEC-015: Agent-scoped filter
+        must_not_types: (
+            list[str] | None
+        ) = None,  # F13/TD-243: Qdrant-level type exclusion
     ) -> list[dict]:
         """Search for relevant memories using semantic similarity with project scoping.
 
@@ -193,7 +201,7 @@ class MemorySearch:
             limit: Maximum results to return (defaults to config.max_retrievals)
             score_threshold: Minimum similarity score (defaults to config.similarity_threshold)
             memory_type: Optional memory type(s) to filter by - accepts string or list
-                        (e.g., "implementation" or ["implementation", "error_fix"])
+                        (e.g., "implementation" or ["implementation", "error_pattern"])
             fast_mode: If True, use hnsw_ef=64 for faster search (triggers).
                       If False (default), use hnsw_ef=128 for accuracy (user searches).
             source: Optional namespace filter (e.g., "github"). When set to "github",
@@ -212,7 +220,7 @@ class MemorySearch:
             >>> results = search.search(
             ...     query="database connection pooling",
             ...     cwd="/path/to/project",  # Auto-detect project
-            ...     memory_type=["implementation", "error_fix"]
+            ...     memory_type=["implementation", "error_pattern"]
             ... )
             >>> results[0].keys()
             dict_keys(['id', 'score', 'content', 'group_id', 'type', ...])
@@ -316,7 +324,20 @@ class MemorySearch:
                 )
             )
 
-        query_filter = Filter(must=filter_conditions) if filter_conditions else None
+        # F13/TD-243: Build must_not conditions for Qdrant-level type exclusion
+        must_not_conditions = []
+        if must_not_types:
+            must_not_conditions.append(
+                FieldCondition(key="type", match=MatchAny(any=must_not_types))
+            )
+
+        if filter_conditions or must_not_conditions:
+            query_filter = Filter(
+                must=filter_conditions if filter_conditions else None,
+                must_not=must_not_conditions if must_not_conditions else None,
+            )
+        else:
+            query_filter = None
 
         # Search Qdrant using query_points (qdrant-client 1.16+ API)
         # Wraps exceptions in QdrantUnavailable for graceful degradation (AC 1.6.4)
@@ -453,7 +474,8 @@ class MemorySearch:
                 _trace_end = datetime.now(tz=timezone.utc)
                 _top_score = results[0].score if results else 0.0
                 _search_duration_ms = (time.perf_counter() - start_time) * 1000
-                # Build content preview: show what was actually retrieved
+                # Build content preview for trace span (display only, not storage truncation).
+                # 500 chars per result x 10 results = ~5000 chars fits within TRACE_CONTENT_MAX.
                 _result_previews = "\n---\n".join(
                     f"[{m.get('type','?')}|{round(m.get('score',0)*100)}%] {m.get('content','')[:500]}"
                     for m in memories[:10]
@@ -463,7 +485,7 @@ class MemorySearch:
                     data={
                         "input": query[:TRACE_CONTENT_MAX],
                         "output": (
-                            _result_previews[:10000]
+                            _result_previews[:TRACE_CONTENT_MAX]
                             if _result_previews
                             else f"No results (collection={collection})"
                         ),
@@ -479,8 +501,11 @@ class MemorySearch:
                             "search_duration_ms": round(_search_duration_ms, 2),
                             "result_count": len(memories),
                             "top_score": round(_top_score, 4),
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
+                    session_id=os.environ.get("CLAUDE_SESSION_ID", ""),
                     project_id=group_id,
                     start_time=_trace_start,
                     end_time=_trace_end,
@@ -805,7 +830,7 @@ class MemorySearch:
                     data={
                         "input": query[:TRACE_CONTENT_MAX],
                         "output": (
-                            _dual_previews[:10000]
+                            _dual_previews[:TRACE_CONTENT_MAX]
                             if _dual_previews
                             else "No results from dual search"
                         ),
@@ -816,8 +841,11 @@ class MemorySearch:
                             "total_results": len(code_patterns) + len(conventions),
                             "limit": limit,
                             "fast_mode": fast_mode,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
+                    session_id=os.environ.get("CLAUDE_SESSION_ID", ""),
                     project_id=effective_group_id,
                     start_time=_trace_start,
                     end_time=_trace_end,
@@ -925,7 +953,7 @@ class MemorySearch:
                         data={
                             "input": query[:TRACE_CONTENT_MAX],
                             "output": (
-                                _casc_previews[:10000]
+                                _casc_previews[:TRACE_CONTENT_MAX]
                                 if _casc_previews
                                 else "No results"
                             ),
@@ -938,8 +966,15 @@ class MemorySearch:
                                 "expanded": False,
                                 "intent_type": str(memory_type),
                                 "search_type": "cascading",
+                                "agent_name": os.environ.get(
+                                    "CLAUDE_AGENT_NAME", "main"
+                                ),
+                                "agent_role": os.environ.get(
+                                    "CLAUDE_AGENT_ROLE", "user"
+                                ),
                             },
                         },
+                        session_id=os.environ.get("CLAUDE_SESSION_ID", ""),
                         project_id=group_id,
                         start_time=_trace_start,
                         end_time=_trace_end,
@@ -1012,7 +1047,7 @@ class MemorySearch:
                     data={
                         "input": query[:TRACE_CONTENT_MAX],
                         "output": (
-                            _casc_exp_previews[:10000]
+                            _casc_exp_previews[:TRACE_CONTENT_MAX]
                             if _casc_exp_previews
                             else "No results"
                         ),
@@ -1025,8 +1060,11 @@ class MemorySearch:
                             "expanded": True,
                             "intent_type": str(memory_type),
                             "search_type": "cascading",
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
+                    session_id=os.environ.get("CLAUDE_SESSION_ID", ""),
                     project_id=group_id,
                     start_time=_trace_start,
                     end_time=_trace_end,
@@ -1097,7 +1135,7 @@ class MemorySearch:
                 memory_type = mem.get("type", "unknown")
                 content = mem.get("content", "")
                 output.append(f"\n### {memory_type} ({mem['score']:.0%})")
-                # Truncate to 500 chars
+                # Display truncation for stdout (not a trace limit)
                 if len(content) > 500:
                     content = content[:500] + "..."
                 output.append(content)

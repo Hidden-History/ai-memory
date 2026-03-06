@@ -1,7 +1,7 @@
 """Intent Detection for AI Memory System V2.0.
 
 Routes searches based on user intent:
-- HOW queries → code-patterns collection (implementation, error_fix, refactor)
+- HOW queries → code-patterns collection (implementation, error_pattern, refactor)
 - WHAT queries → conventions collection (rule, guideline, port, naming)
 - WHY queries → discussions collection (decision, session, blocker)
 """
@@ -110,7 +110,7 @@ def get_target_types(intent: IntentType) -> list[str]:
         List of memory types for payload filtering
     """
     mapping = {
-        IntentType.HOW: ["implementation", "error_fix", "refactor", "file_pattern"],
+        IntentType.HOW: ["implementation", "error_pattern", "refactor", "file_pattern"],
         IntentType.WHAT: ["rule", "guideline", "port", "naming", "structure"],
         IntentType.WHY: ["decision", "session", "blocker", "preference", "context"],
         IntentType.UNKNOWN: [],  # No type filter for unknown

@@ -5,29 +5,34 @@ Tests V2.0 context injection behavior for compact/resume events.
 
 import json
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 # Import fixtures
-sys.path.insert(0, "tests")
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from mocks.qdrant_mock import MockQdrantClient
 
 # Add hook scripts to path
-sys.path.insert(0, ".claude/hooks/scripts")
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / ".claude/hooks/scripts"))
 
 
 @pytest.fixture
 def compact_event():
     """Load compact event fixture."""
-    with open("tests/fixtures/hooks/session_start_compact.json") as f:
+    with open(
+        Path(__file__).parent.parent / "fixtures/hooks/session_start_compact.json"
+    ) as f:
         return json.load(f)
 
 
 @pytest.fixture
 def resume_event():
     """Load resume event fixture."""
-    with open("tests/fixtures/hooks/session_start_resume.json") as f:
+    with open(
+        Path(__file__).parent.parent / "fixtures/hooks/session_start_resume.json"
+    ) as f:
         return json.load(f)
 
 

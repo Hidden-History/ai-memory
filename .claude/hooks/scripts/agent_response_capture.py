@@ -19,6 +19,9 @@ Input Schema:
     "transcript_path": "~/.claude/projects/.../xxx.jsonl"
 }
 """
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import json
 import os
@@ -161,10 +164,15 @@ def fork_to_background(
         # Serialize data for background process
         input_json = json.dumps(store_data)
 
-        # SPEC-021: Propagate trace_id to store-async subprocess
+        # SPEC-021: Propagate trace_id + session_id (TD-241) to store-async subprocess
         subprocess_env = os.environ.copy()
         if trace_id:
             subprocess_env["LANGFUSE_TRACE_ID"] = trace_id
+        # TD-241: Propagate CLAUDE_SESSION_ID so store_async library calls get session_id
+        # via env fallback even if explicit param is unavailable.
+        _sid = hook_input.get("session_id", "")
+        if _sid:
+            subprocess_env["CLAUDE_SESSION_ID"] = _sid
 
         # Fork to background using subprocess.Popen + start_new_session=True
         process = subprocess.Popen(
@@ -302,6 +310,11 @@ def main() -> int:
             )
             response_text = response_text[:MAX_RESPONSE_SIZE] + "\n... [truncated]"
 
+        # TD-241: Set CLAUDE_SESSION_ID in this process so library calls pick it up via env fallback
+        _session_id = hook_input.get("session_id", "")
+        if _session_id:
+            os.environ["CLAUDE_SESSION_ID"] = _session_id
+
         # SPEC-021: Generate trace_id for pipeline trace linking
         trace_id = None
         if emit_trace_event:
@@ -320,6 +333,8 @@ def main() -> int:
                             "raw_length": raw_response_length,
                             "content_length": len(response_text),
                             "content_extracted": True,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,

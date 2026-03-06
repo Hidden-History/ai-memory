@@ -338,7 +338,6 @@ LOW_PATTERNS: list[str] = [
 VALID_TYPES: dict[str, list[str]] = {
     "code-patterns": [
         "implementation",
-        "error_fix",
         "error_pattern",
         "refactor",
         "file_pattern",
@@ -355,13 +354,13 @@ VALID_TYPES: dict[str, list[str]] = {
 }
 
 # Types that should NOT be reclassified
-SKIP_RECLASSIFICATION_TYPES: list[str] = ["session", "error_fix", "error_pattern"]
+SKIP_RECLASSIFICATION_TYPES: list[str] = ["session", "error_pattern"]
 
 # =============================================================================
 # RULE-BASED CLASSIFICATION PATTERNS
 # =============================================================================
 RULE_PATTERNS: dict[str, dict[str, Any]] = {
-    "error_fix": {
+    "error_pattern": {
         "patterns": [
             r"(?i)(fixed|resolved|solved).*(error|exception|bug|issue)",
             r"(?i)(error|exception|traceback).*\n.*fixed",

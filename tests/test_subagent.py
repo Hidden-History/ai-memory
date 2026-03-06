@@ -241,7 +241,7 @@ class TestMemorySubagent:
             {
                 "score": 0.85,
                 "content": "Test 2",
-                "type": "error_fix",
+                "type": "error_pattern",
                 "file_path": None,
             },
         ]
@@ -253,7 +253,7 @@ class TestMemorySubagent:
         assert result.sources[0].memory_type == "implementation"
         assert result.sources[0].file_path == "/src/auth.py"
         assert result.sources[0].score == 0.95
-        assert result.sources[1].memory_type == "error_fix"
+        assert result.sources[1].memory_type == "error_pattern"
         assert result.sources[1].file_path is None
 
     @pytest.mark.asyncio
@@ -341,7 +341,7 @@ class TestMemorySubagent:
         mock_search = Mock()
         mock_results = [
             {"content": "test1", "score": 0.9, "type": "implementation"},
-            {"content": "test2", "score": 0.8, "type": "error_fix"},
+            {"content": "test2", "score": 0.8, "type": "error_pattern"},
         ]
         mock_search.search.return_value = mock_results
 

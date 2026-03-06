@@ -5,7 +5,7 @@ Metadata Validation for AI Memory System
 Implements metadata validation with JSON schema enforcement for all memory types.
 
 Validates metadata for memory types across 3 v2.0 collections:
-- code-patterns: implementation, error_fix, refactor, file_pattern
+- code-patterns: implementation, error_pattern, refactor, file_pattern
 - conventions: guideline, anti_pattern, decision
 - discussions: session, conversation, analysis, reflection, context, decision_record, lesson_learned
 
@@ -51,7 +51,7 @@ OPTIONAL_FIELDS = [
 VALID_TYPES = [
     # code-patterns collection (HOW)
     "implementation",
-    "error_fix",
+    "error_pattern",
     "refactor",
     "file_pattern",
     # conventions collection (WHAT)

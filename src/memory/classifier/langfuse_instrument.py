@@ -13,6 +13,10 @@ Kill switch: No longer relevant here (tracing controlled by trace buffer).
 Graceful fallback: Always yields a data-capture wrapper.
 """
 
+# LANGFUSE: Data-capture helper for classification_worker (Path A upstream).
+# See LANGFUSE-INTEGRATION-SPEC.md §3.1, §7.5. Does NOT call Langfuse SDK directly.
+# SDK VERSION: V3 ONLY. Do NOT add Langfuse() constructor, start_span(), or start_generation().
+
 import contextlib
 import logging
 from datetime import datetime, timezone

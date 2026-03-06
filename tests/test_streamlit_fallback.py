@@ -21,7 +21,12 @@ def test_streamlit_fallback_matches_models():
     # Fallback values from docker/streamlit/app.py:84-92
     # These are what the dashboard uses when imports fail
     FALLBACK_TYPES = {
-        "code-patterns": ["implementation", "error_fix", "refactor", "file_pattern"],
+        "code-patterns": [
+            "implementation",
+            "error_pattern",
+            "refactor",
+            "file_pattern",
+        ],
         "conventions": ["rule", "guideline", "port", "naming", "structure"],
         "discussions": [
             "decision",
@@ -37,7 +42,7 @@ def test_streamlit_fallback_matches_models():
     # Source of truth from models.py
     source_code_patterns = {
         MemoryType.IMPLEMENTATION.value,
-        MemoryType.ERROR_FIX.value,
+        MemoryType.ERROR_PATTERN.value,
         MemoryType.REFACTOR.value,
         MemoryType.FILE_PATTERN.value,
     }
@@ -103,7 +108,7 @@ def test_collection_names_match():
     # This is an indirect check - if new types are added, they should fit one of these
     code_pattern_types = {
         MemoryType.IMPLEMENTATION,
-        MemoryType.ERROR_FIX,
+        MemoryType.ERROR_PATTERN,
         MemoryType.REFACTOR,
         MemoryType.FILE_PATTERN,
     }

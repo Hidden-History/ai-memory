@@ -1,22 +1,16 @@
 """Langfuse client configuration for AI Memory Module.
 
 Provides a thread-safe Langfuse client factory with kill-switch support.
-Phase 1+2 implementation — client factory with kill-switch helpers.
 
-PLAN-008 / SPEC-019 / SPEC-022
+SPEC: LANGFUSE-INTEGRATION-SPEC.md Section 7.2
 """
+
+# LANGFUSE: Client factory (Path B infrastructure). See LANGFUSE-INTEGRATION-SPEC.md §7.2
+# SDK VERSION: V3 ONLY. Uses get_client() singleton — Do NOT use Langfuse() constructor.
 
 import logging
 import os
 import threading
-
-try:
-    from langfuse import Langfuse
-
-    LANGFUSE_AVAILABLE = True
-except ImportError:
-    Langfuse = None  # type: ignore[assignment,misc]
-    LANGFUSE_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -59,27 +53,29 @@ def get_langfuse_client():
         public_key = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
         secret_key = os.environ.get("LANGFUSE_SECRET_KEY", "")
 
-        if Langfuse is None:
-            logger.warning("langfuse package not installed — pip install langfuse")
-            return None
-
         if not public_key or not secret_key:
             logger.warning("Langfuse enabled but API keys not configured — skipping")
             return None
 
         try:
-            client = Langfuse(
-                public_key=public_key,
-                secret_key=secret_key,
-                host=os.environ.get("LANGFUSE_BASE_URL", "http://localhost:23100"),
-            )
+            # V3 SDK: get_client() is a singleton that reads env vars automatically.
+            # We set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL
+            # in the environment above, so get_client() picks them up.
+            # NOTE: Local import (not module-level _langfuse_get_client) because tests
+            # patch sys.modules["langfuse"] at runtime, after module-level vars are set.
+            from langfuse import get_client as _get_client
+
+            client = _get_client()
             logger.info(
-                "Langfuse client initialized (host=%s)",
+                "Langfuse client initialized via V3 get_client() (host=%s)",
                 os.environ.get("LANGFUSE_BASE_URL", "http://localhost:23100"),
             )
             _client = client
             _initialized = True
             return client
+        except ImportError:
+            logger.warning("langfuse package not installed — pip install langfuse")
+            return None
         except Exception as e:
             logger.error("Failed to initialize Langfuse client: %s", e)
             return None

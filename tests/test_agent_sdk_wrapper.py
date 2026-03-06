@@ -138,8 +138,8 @@ async def test_post_tool_use_hook_implementation():
 
 
 @pytest.mark.asyncio
-async def test_post_tool_use_hook_error_fix():
-    """Test PostToolUse hook captures Bash errors as ERROR_FIX."""
+async def test_post_tool_use_hook_error_pattern():
+    """Test PostToolUse hook captures Bash errors as ERROR_PATTERN."""
     mock_storage = Mock()
     mock_storage.store_memory = Mock(return_value={"status": "stored"})
 
@@ -177,10 +177,10 @@ async def test_post_tool_use_hook_error_fix():
         # Flush batch to trigger storage
         await wrapper._flush_batch()
 
-        # Verify storage was called with ERROR_FIX type
+        # Verify storage was called with ERROR_PATTERN type
         mock_storage.store_memory.assert_called()
         call_args = mock_storage.store_memory.call_args
-        assert call_args[0][2] == MemoryType.ERROR_FIX
+        assert call_args[0][2] == MemoryType.ERROR_PATTERN
         assert call_args[0][5] == COLLECTION_CODE_PATTERNS
 
 

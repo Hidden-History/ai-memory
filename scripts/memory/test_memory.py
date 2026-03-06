@@ -297,7 +297,7 @@ def test_collection_routing():
     def route_to_collection(memory_type: str) -> str:
         """Route to correct collection based on type (v2.0)."""
         # code-patterns collection (HOW)
-        if memory_type in ["implementation", "error_fix", "refactor", "file_pattern"]:
+        if memory_type in ["implementation", "error_pattern", "refactor", "file_pattern"]:
             return "code-patterns"
         # conventions collection (WHAT)
         elif memory_type in ["guideline", "anti_pattern", "decision"]:
@@ -319,7 +319,7 @@ def test_collection_routing():
     # Test routing (v2.0)
     test_cases = [
         ("implementation", "code-patterns"),
-        ("error_fix", "code-patterns"),
+        ("error_pattern", "code-patterns"),
         ("refactor", "code-patterns"),
         ("file_pattern", "code-patterns"),
         ("guideline", "conventions"),

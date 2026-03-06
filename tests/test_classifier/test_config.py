@@ -52,7 +52,7 @@ class TestClassifierConfig:
 
         # Check code-patterns types
         assert "implementation" in VALID_TYPES["code-patterns"]
-        assert "error_fix" in VALID_TYPES["code-patterns"]
+        assert "error_pattern" in VALID_TYPES["code-patterns"]
         assert "refactor" in VALID_TYPES["code-patterns"]
         assert "file_pattern" in VALID_TYPES["code-patterns"]
 

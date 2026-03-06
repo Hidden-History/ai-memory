@@ -5,6 +5,43 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-03-03
+
+Observability and code quality sprint: full Langfuse V3 SDK migration across all services, agent identity metadata for per-agent trace filtering, and graceful shutdown handling for Docker workers.
+
+### Added
+- **Agent identity metadata**: All Langfuse trace events now include `agent_name` and `agent_role` in metadata, enabling per-agent filtering in the Langfuse UI. Defaults to `main`/`user` for non-team sessions.
+- **Graceful Langfuse shutdown**: `atexit` handlers added to classification worker (`process_classification_queue.py`), GitHub sync (`sync.py`), and code sync (`code_sync.py`) Docker services for reliable span flushing on container stop.
+- **Session ID propagation**: All 4 `emit_trace_event()` calls in `search.py` now include `session_id` for end-to-end trace correlation in Langfuse.
+
+### Changed
+- **Langfuse V3 SDK migration**: All instrumentation migrated from V2 to V3 SDK across the entire codebase. Uses `get_client()`, `start_as_current_observation()`, `propagate_attributes()`. V2 patterns (`Langfuse()` constructor, `start_span()`, `langfuse_context`) are project-banned.
+- **V3 compliance review**: 2 critical, 6 standard, and 9 warning-level issues resolved across 18 files (commit `77e9f97`).
+- **`TRACE_CONTENT_MAX` standardization**: Replaced 4 hardcoded `[:10000]` literals in `search.py` with `TRACE_CONTENT_MAX` constant per LANGFUSE-INTEGRATION-SPEC §9.2.
+- **ClickHouse memory limit**: Set explicit 16 GiB cap in `clickhouse-config.xml` (up from previous 4 GiB, down from ClickHouse unlimited default) to balance query performance with OOM prevention on constrained hosts.
+- **Type name correction**: Renamed `error_fix` → `error_pattern` across 36 files for consistency with the error pattern detection rewrite in v2.0.9.
+- **Installer permissions**: Added `chmod +x` for executable files in subdirectories during installation.
+
+### Fixed
+- **BUG-175**: Flaky rate limiter integration test — replaced real-time sleep with mocked `asyncio.sleep` for deterministic behavior.
+- **TD-236/237/238/239**: Stale task tracker entries reconciled.
+- **TD-240/241/243**: Quality sprint tech debt items resolved.
+- **TD-245**: GitHub sync missing atexit Langfuse shutdown handler.
+- **TD-246**: Code sync missing atexit Langfuse shutdown handler.
+
+### Upgrade Instructions
+
+v2.1.0 is a non-breaking, additive release. No migration scripts required.
+
+1. Pull latest code: `git pull origin main`
+2. Reinstall: `pip install -e .` (or re-run installer Option 1 for full installations)
+3. If using ClickHouse: note the memory cap is now 16 GiB in `clickhouse-config.xml` (was 4 GiB)
+
+**Optional environment variables** (new, with sensible defaults):
+- `CLAUDE_AGENT_NAME` — Agent identity for Langfuse traces (default: `main`)
+- `CLAUDE_AGENT_ROLE` — Agent role for Langfuse traces (default: `user`)
+- `LANGFUSE_FLUSH_TIMEOUT_SECONDS` — Langfuse flush timeout (default: `15`)
+
 ## [2.0.9] - 2026-03-02
 
 Injection quality sprint (PLAN-010): Dedicated `github` Qdrant collection for GitHub-synced data, fixing 79.6% noise in discussions. Structured error pattern detection eliminates false positives. Tier 2 context injection now filters by memory type. Content quality gate prevents low-value messages from being stored. Langfuse observability with 7 emit_trace_event() calls across search, injection, and session pipelines. Parzival layered priority bootstrap with deterministic + semantic retrieval layers.

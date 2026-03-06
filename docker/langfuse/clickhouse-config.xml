@@ -28,12 +28,12 @@
 
   <!-- ── Memory limit ─────────────────────────────────────────────────────── -->
   <!--
-    Cap total server memory at 4 GiB (4294967296 bytes).
-    Risk: SPEC-019 §10 — "ClickHouse uses 4 GiB RAM under load".
+    Cap total server memory at 16 GiB (17179869184 bytes).
+    Risk: SPEC-019 §10 — "ClickHouse uses 16 GiB RAM under load".
     Without this cap, ClickHouse can consume all available host RAM when
     processing large trace ingestion bursts.
   -->
-  <max_server_memory_usage>4294967296</max_server_memory_usage>
+  <max_server_memory_usage>17179869184</max_server_memory_usage>
 
   <!-- ── MergeTree TTL settings ────────────────────────────────────────────── -->
   <merge_tree>

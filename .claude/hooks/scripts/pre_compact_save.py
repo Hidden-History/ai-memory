@@ -29,6 +29,9 @@ Sources:
 - Claude Hooks reference: oversight/research/Claude_Hooks_reference.md
 - Architecture: docs/memory settings/AI_MEMORY_ARCHITECTURE.md
 """
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import json
 import os
@@ -394,6 +397,8 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                         "metadata": {
                             "content_length": len(summary_data["content"]),
                             "log_path": _log_path,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -415,6 +420,8 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                             "content_length": len(summary_data["content"]),
                             "detected_type": "session",
                             "confidence": 1.0,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -485,6 +492,8 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                                                 )
                                                 for f in scan_result.findings
                                             ),
+                                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                         },
                                     },
                                     trace_id=trace_id,
@@ -502,6 +511,8 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                                         "metadata": {
                                             "reason": "scan_blocked",
                                             "scan_blocked": True,
+                                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                         },
                                     },
                                     trace_id=trace_id,
@@ -545,6 +556,8 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                             "scan_result": scan_action,
                             "pii_found": pii_found,
                             "secrets_found": secrets_found,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -566,6 +579,8 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                             "content_length": len(summary_data["content"]),
                             "num_chunks": 1,
                             "chunk_type": "whole",
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -608,6 +623,8 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                             "embedding_status": embedding_status,
                             "num_vectors": 1,
                             "dimensions": len(vector),
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -657,6 +674,8 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                             "num_points": 1,
                             "collection": COLLECTION_DISCUSSIONS,
                             "points_stored": 1,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,
@@ -679,6 +698,8 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                             "collection": COLLECTION_DISCUSSIONS,
                             "current_type": "session",
                             "reason": "classifier_not_integrated",
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     trace_id=trace_id,

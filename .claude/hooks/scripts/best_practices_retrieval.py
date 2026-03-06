@@ -37,6 +37,9 @@ Performance:
 Exit Codes:
     - 0: Success (or graceful degradation on error)
 """
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import json
 import os
@@ -462,6 +465,8 @@ def main() -> int:
                                 "collection": COLLECTION_CONVENTIONS,
                                 "result_count": len(results),
                                 "best_score": best_score,
+                                "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                             },
                         },
                         span_id=_bp_root_span_id,

@@ -434,8 +434,8 @@ class TestLangfuseTraceCreation:
     """Tests for BUG-152, BUG-154: root span I/O and child span pairing.
 
     Uses mocks since we can't rely on a real Langfuse server.
-    Mocks memory.langfuse_config in sys.modules so the lazy import inside
-    main() picks up our mock get_langfuse_client.
+    Mocks memory.langfuse_config and langfuse in sys.modules so the lazy
+    imports inside main() pick up our V3 mock client and propagate_attributes.
     """
 
     @pytest.fixture(autouse=True)
@@ -451,11 +451,14 @@ class TestLangfuseTraceCreation:
 
     @pytest.fixture
     def mock_langfuse_client(self):
-        """Create a mock Langfuse client with span tracking."""
+        """Create a mock Langfuse V3 client with observation tracking."""
+        from contextlib import contextmanager
+
         client = MagicMock()
         spans_created = []
 
-        def track_start_span(**kwargs):
+        @contextmanager
+        def track_start_observation(**kwargs):
             span = MagicMock()
             span.trace_id = "mock-trace-id"
             span.id = f"span-{len(spans_created)}"
@@ -467,19 +470,23 @@ class TestLangfuseTraceCreation:
 
             span.update = track_update
             spans_created.append(span)
-            return span
+            yield span
 
-        client.start_span = MagicMock(side_effect=track_start_span)
+        client.start_as_current_observation = MagicMock(
+            side_effect=track_start_observation
+        )
         client.flush = MagicMock()
         client._spans_created = spans_created
+        # V3 propagate_attributes mock — MagicMock is a valid context manager
+        client._propagate_attributes = MagicMock()
         return client
 
     def _run_main_with_mock(self, mock_client, stdin_payload: str):
         """Run langfuse_stop_hook.main() with mocked Langfuse client and stdin.
 
-        Injects a mock memory.langfuse_config module into sys.modules so the
-        lazy `from memory.langfuse_config import get_langfuse_client` inside
-        main() resolves to our mock.
+        Injects mock modules:
+        - memory.langfuse_config → get_langfuse_client() returns mock_client
+        - langfuse → get_client() returns mock_client, propagate_attributes tracked
         """
         # Create mock module for memory.langfuse_config
         mock_config_module = MagicMock()
@@ -489,13 +496,19 @@ class TestLangfuseTraceCreation:
         mock_memory_pkg = MagicMock()
         mock_memory_pkg.langfuse_config = mock_config_module
 
+        # Mock the langfuse package itself for V3 direct imports in main()
+        mock_langfuse_module = MagicMock()
+        mock_langfuse_module.get_client = MagicMock(return_value=mock_client)
+        mock_langfuse_module.propagate_attributes = mock_client._propagate_attributes
+
         saved_modules = {}
-        for mod_name in ["memory", "memory.langfuse_config"]:
+        for mod_name in ["memory", "memory.langfuse_config", "langfuse"]:
             saved_modules[mod_name] = sys.modules.get(mod_name)
 
         try:
             sys.modules["memory"] = mock_memory_pkg
             sys.modules["memory.langfuse_config"] = mock_config_module
+            sys.modules["langfuse"] = mock_langfuse_module
 
             sys.path.insert(0, str(_PROJECT_ROOT / ".claude" / "hooks" / "scripts"))
             if "langfuse_stop_hook" in sys.modules:
@@ -533,7 +546,7 @@ class TestLangfuseTraceCreation:
         )
 
         # Verify root span (first span created) has input and output
-        root_call = mock_langfuse_client.start_span.call_args_list[0]
+        root_call = mock_langfuse_client.start_as_current_observation.call_args_list[0]
         root_kwargs = root_call.kwargs
         assert root_kwargs.get("input") is not None, "Root span missing input (BUG-152)"
         assert (
@@ -575,7 +588,7 @@ class TestLangfuseTraceCreation:
         )
 
         # Root span input should contain extracted text
-        root_call = mock_langfuse_client.start_span.call_args_list[0]
+        root_call = mock_langfuse_client.start_as_current_observation.call_args_list[0]
         root_kwargs = root_call.kwargs
         assert "Edit my file" in root_kwargs.get("input", "")
         assert "[Tool: Edit]" in root_kwargs.get("output", "")
@@ -592,7 +605,7 @@ class TestLangfuseTraceCreation:
     def test_trace_metadata_includes_session_id(
         self, transcript_file, mock_langfuse_client
     ):
-        """Trace metadata should include session_id and tags."""
+        """Trace metadata should include session_id (via propagate_attributes) and tags."""
         self._run_main_with_mock(
             mock_langfuse_client,
             _make_stdin_payload(
@@ -601,12 +614,67 @@ class TestLangfuseTraceCreation:
             ),
         )
 
-        # Root span should call update_trace with session_id
+        # Root span should call update_trace with name and tags
         root_span = mock_langfuse_client._spans_created[0]
         root_span.update_trace.assert_called_once()
         call_kwargs = root_span.update_trace.call_args.kwargs
-        assert call_kwargs["session_id"] == "my-session-xyz"
         assert "session_trace" in call_kwargs.get("tags", [])
+        # V3: session_id is set via propagate_attributes (not update_trace)
+        mock_langfuse_client._propagate_attributes.assert_called()
+        prop_kwargs = mock_langfuse_client._propagate_attributes.call_args.kwargs
+        assert prop_kwargs.get("session_id") == "my-session-xyz"
+
+    def test_propagate_attributes_called_inside_root_span(
+        self, mock_langfuse_client, transcript_file
+    ):
+        """Verify propagate_attributes is nested inside root span context (V3 requirement)."""
+        call_order = []
+
+        # Capture the original context manager side effect for start_as_current_observation
+        original_start_side_effect = (
+            mock_langfuse_client.start_as_current_observation.side_effect
+        )
+        # Capture the original _propagate_attributes mock (a plain MagicMock / context manager)
+        original_prop = mock_langfuse_client._propagate_attributes
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def track_start(**kwargs):
+            call_order.append("start_observation")
+            with original_start_side_effect(**kwargs) as span:
+                yield span
+
+        def track_prop(*args, **kwargs):
+            call_order.append("propagate_attributes")
+            return original_prop(*args, **kwargs)
+
+        # Replace with tracking wrappers.
+        # _run_main_with_mock re-wires mock_langfuse_module.propagate_attributes = mock_client._propagate_attributes,
+        # so setting mock_client._propagate_attributes here means the wiring picks up our tracker.
+        mock_langfuse_client.start_as_current_observation = MagicMock(
+            side_effect=track_start
+        )
+        mock_langfuse_client._propagate_attributes = MagicMock(side_effect=track_prop)
+
+        self._run_main_with_mock(
+            mock_langfuse_client,
+            _make_stdin_payload(transcript_path=str(transcript_file)),
+        )
+
+        # propagate_attributes must be called AFTER start_as_current_observation
+        assert (
+            "start_observation" in call_order
+        ), "start_as_current_observation was never called"
+        assert (
+            "propagate_attributes" in call_order
+        ), "propagate_attributes was never called"
+        start_idx = call_order.index("start_observation")
+        prop_idx = call_order.index("propagate_attributes")
+        assert start_idx < prop_idx, (
+            f"propagate_attributes (idx={prop_idx}) must be called AFTER "
+            f"start_as_current_observation (idx={start_idx}) to ensure nesting"
+        )
 
 
 class TestDatetimeFix:

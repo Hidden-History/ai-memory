@@ -61,9 +61,9 @@ class TestSearchCLIParsing:
             args = search_cli.parse_args()
             assert args.type == "implementation"
 
-        with patch("sys.argv", ["search_cli.py", "test", "-t", "error_fix"]):
+        with patch("sys.argv", ["search_cli.py", "test", "-t", "error_pattern"]):
             args = search_cli.parse_args()
-            assert args.type == "error_fix"
+            assert args.type == "error_pattern"
 
     def test_intent_choices(self):
         """Test intent detection options."""
@@ -130,7 +130,7 @@ class TestSearchCLIParsing:
                 "--collection",
                 "code-patterns",
                 "--type",
-                "error_fix",
+                "error_pattern",
                 "--intent",
                 "how",
                 "--limit",
@@ -142,7 +142,7 @@ class TestSearchCLIParsing:
             args = search_cli.parse_args()
             assert args.query == "authentication error"
             assert args.collection == "code-patterns"
-            assert args.type == "error_fix"
+            assert args.type == "error_pattern"
             assert args.intent == "how"
             assert args.limit == 7
             assert args.group_id == "test-project"

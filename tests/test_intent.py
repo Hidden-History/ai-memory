@@ -114,7 +114,7 @@ class TestGetTargetTypes:
         assert isinstance(types, list)
         assert len(types) > 0
         # Should include implementation-related types
-        expected_types = ["implementation", "error_fix", "refactor", "file_pattern"]
+        expected_types = ["implementation", "error_pattern", "refactor", "file_pattern"]
         for expected in expected_types:
             assert expected in types, f"Missing type: {expected}"
 

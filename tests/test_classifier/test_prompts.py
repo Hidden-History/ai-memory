@@ -116,6 +116,6 @@ class TestPromptFormatting:
 
         # Check for some specific types
         assert "implementation" in prompt
-        assert "error_fix" in prompt
+        assert "error_pattern" in prompt
         assert "decision" in prompt
         assert "rule" in prompt

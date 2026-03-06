@@ -161,7 +161,7 @@ def classify(
     Classification flow:
     1. Check if classification is enabled
     2. Check content significance (skip if SKIP or LOW)
-    3. Check if type should be skipped (session, error_fix)
+    3. Check if type should be skipped (session, error_pattern)
     4. Try rule-based classification first
     5. If no rule match, try LLM provider chain
 
@@ -177,7 +177,7 @@ def classify(
     Examples:
         >>> result = classify("Fixed TypeError by adding null check", "code-patterns", "implementation")
         >>> result.classified_type
-        'error_fix'
+        'error_pattern'
         >>> result.was_reclassified
         True
         >>> result.provider_used

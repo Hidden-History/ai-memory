@@ -14,8 +14,14 @@ References:
     - BP-060 (Solving Freshness in RAG)
 """
 
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
+
 from __future__ import annotations
 
+import contextlib
+import os
 from datetime import datetime, timezone
 
 from qdrant_client import models
@@ -28,7 +34,13 @@ if not hasattr(models, "FormulaQuery"):
     )
 
 from .config import MemoryConfig
-from .trace_buffer import emit_trace_event
+
+try:
+    from .trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 
 def compute_decay_score(
@@ -170,16 +182,26 @@ def build_decay_formula(
 
     # Decay disabled -- return None formula, caller uses simple query path
     if not config.decay_enabled:
-        emit_trace_event(
-            event_type="decay_scoring",
-            data={
-                "input": f"Decay check for {collection}",
-                "output": "Decay disabled — using simple query path",
-                "metadata": {"collection": collection, "decay_enabled": False},
-            },
-            start_time=_trace_start,
-            end_time=datetime.now(timezone.utc),
-        )
+        if emit_trace_event:
+            with contextlib.suppress(Exception):
+                emit_trace_event(
+                    event_type="decay_scoring",
+                    data={
+                        "input": f"Decay check for {collection}"[:TRACE_CONTENT_MAX],
+                        "output": "Decay disabled — using simple query path"[
+                            :TRACE_CONTENT_MAX
+                        ],
+                        "metadata": {
+                            "collection": collection,
+                            "decay_enabled": False,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                        },
+                    },
+                    start_time=_trace_start,
+                    end_time=datetime.now(timezone.utc),
+                    session_id=os.environ.get("CLAUDE_SESSION_ID"),
+                )
         return None, prefetch
 
     if now is None:
@@ -284,22 +306,31 @@ def build_decay_formula(
     )
 
     # Langfuse trace: decay formula construction
-    emit_trace_event(
-        event_type="decay_scoring",
-        data={
-            "input": f"Building decay formula for {collection} (decay_enabled={config.decay_enabled}, semantic_weight={config.decay_semantic_weight})",
-            "output": f"Formula built: {len(half_life_groups)} type overrides, default_hl={default_hl_days}d, prefetch_limit={prefetch_limit}",
-            "metadata": {
-                "collection": collection,
-                "decay_enabled": config.decay_enabled,
-                "semantic_weight": config.decay_semantic_weight,
-                "type_overrides": len(half_life_groups),
-                "default_half_life_days": default_hl_days,
-                "prefetch_limit": prefetch_limit,
-            },
-        },
-        start_time=_trace_start,
-        end_time=datetime.now(timezone.utc),
-    )
+    if emit_trace_event:
+        with contextlib.suppress(Exception):
+            emit_trace_event(
+                event_type="decay_scoring",
+                data={
+                    "input": f"Building decay formula for {collection} (decay_enabled={config.decay_enabled}, semantic_weight={config.decay_semantic_weight})"[
+                        :TRACE_CONTENT_MAX
+                    ],
+                    "output": f"Formula built: {len(half_life_groups)} type overrides, default_hl={default_hl_days}d, prefetch_limit={prefetch_limit}"[
+                        :TRACE_CONTENT_MAX
+                    ],
+                    "metadata": {
+                        "collection": collection,
+                        "decay_enabled": config.decay_enabled,
+                        "semantic_weight": config.decay_semantic_weight,
+                        "type_overrides": len(half_life_groups),
+                        "default_half_life_days": default_hl_days,
+                        "prefetch_limit": prefetch_limit,
+                        "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                        "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                    },
+                },
+                start_time=_trace_start,
+                end_time=datetime.now(timezone.utc),
+                session_id=os.environ.get("CLAUDE_SESSION_ID"),
+            )
 
     return formula, prefetch

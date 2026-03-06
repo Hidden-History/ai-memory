@@ -9,27 +9,27 @@ from src.memory.classifier.rules import classify_by_rules
 class TestRuleClassification:
     """Test rule-based memory classification."""
 
-    def test_error_fix_pattern_fixed(self):
-        """Test error_fix pattern with 'fixed' keyword."""
+    def test_error_pattern_pattern_fixed(self):
+        """Test error_pattern pattern with 'fixed' keyword."""
         content = "Fixed TypeError by adding null check before map call"
         result = classify_by_rules(content, "code-patterns")
 
         assert result is not None
         classified_type, confidence = result
-        assert classified_type == "error_fix"
+        assert classified_type == "error_pattern"
         assert confidence >= 0.85
 
-    def test_error_fix_pattern_resolved(self):
-        """Test error_fix pattern with 'resolved' keyword."""
+    def test_error_pattern_pattern_resolved(self):
+        """Test error_pattern pattern with 'resolved' keyword."""
         content = "Resolved the exception by catching the error properly"
         result = classify_by_rules(content, "code-patterns")
 
         assert result is not None
         classified_type, _confidence = result
-        assert classified_type == "error_fix"
+        assert classified_type == "error_pattern"
 
-    def test_error_fix_pattern_multiline(self):
-        """Test error_fix pattern with traceback."""
+    def test_error_pattern_pattern_multiline(self):
+        """Test error_pattern pattern with traceback."""
         content = """
         Got this error:
         TypeError: Cannot read property 'map' of undefined
@@ -39,7 +39,7 @@ class TestRuleClassification:
 
         assert result is not None
         classified_type, _confidence = result
-        assert classified_type == "error_fix"
+        assert classified_type == "error_pattern"
 
     def test_port_pattern_colon(self):
         """Test port pattern with colon separator."""
@@ -158,12 +158,12 @@ class TestRuleClassification:
 
     def test_multiple_patterns_first_wins(self):
         """Test that when multiple patterns match, first one wins."""
-        # This content could match both error_fix and decision patterns
+        # This content could match both error_pattern and decision patterns
         content = "DEC-015: Fixed the bug in authentication system"
         result = classify_by_rules(content, "discussions")
 
         # Should match decision (higher confidence pattern)
         assert result is not None
         classified_type, _confidence = result
-        # Either error_fix or decision is valid, depending on pattern order
-        assert classified_type in ["error_fix", "decision"]
+        # Either error_pattern or decision is valid, depending on pattern order
+        assert classified_type in ["error_pattern", "decision"]

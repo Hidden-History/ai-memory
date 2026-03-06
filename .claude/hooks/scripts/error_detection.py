@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PostToolUse Hook - Retrieve error_fix patterns when errors detected.
+"""PostToolUse Hook - Retrieve error patterns when errors detected.
 
 Memory System V2.0 TRIGGER 1: Error Detection
 Automatically retrieves similar error fixes when bash commands fail.
@@ -11,18 +11,21 @@ Signal Detection:
 Action:
     - Extract error signature
     - Search code-patterns collection
-    - Filter by type=["error_fix", "error_pattern"]
+    - Filter by type in ("error_pattern", "error_fix") for backward compatibility with legacy records
     - Inject up to 3 similar fixes to stdout
 
 Configuration:
     - Hook: PostToolUse with matcher "Bash"
     - Collection: code-patterns
-    - Type filter: ["error_fix", "error_pattern"]
+    - Type filter: ["error_pattern", "error_fix"]
     - Max results: 3
 
 Exit Codes:
     - 0: Success (or graceful degradation)
 """
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import json
 import os
@@ -106,7 +109,7 @@ def detect_error(tool_response: dict) -> bool:
     return False
 
 
-def format_error_fix(fix: dict, index: int) -> str:
+def format_error_pattern(fix: dict, index: int) -> str:
     """Format a single error fix for display (no truncation).
 
     Args:
@@ -118,7 +121,7 @@ def format_error_fix(fix: dict, index: int) -> str:
     """
     content = fix.get("content", "")
     score = fix.get("score", 0)
-    fix_type = fix.get("type", "error_fix")
+    fix_type = fix.get("type", "error_pattern")
     file_path = fix.get("file_path", "")
 
     # Build header with relevance
@@ -182,7 +185,7 @@ def main() -> int:
                 group_id=project_name,
                 limit=3,
                 score_threshold=0.5,
-                memory_type=["error_fix", "error_pattern"],
+                memory_type=["error_pattern", "error_fix"],
             )
 
             if not results:
@@ -193,7 +196,7 @@ def main() -> int:
                     INSTALL_DIR,
                 )
                 logger.debug(
-                    "no_error_fixes_found", extra={"error": error_signature[:50]}
+                    "no_error_patterns_found", extra={"error": error_signature[:50]}
                 )
 
                 # Push trigger metrics even when no results
@@ -221,7 +224,7 @@ def main() -> int:
             output_parts.append("")
 
             for i, fix in enumerate(results, 1):
-                output_parts.append(format_error_fix(fix, i))
+                output_parts.append(format_error_pattern(fix, i))
 
             output_parts.append("=" * 70 + "\n")
 
@@ -247,6 +250,8 @@ def main() -> int:
                                 "result_count": len(results),
                                 "best_score": best_score,
                                 "summary": f"Retrieved {len(results)} similar fixes",
+                                "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                             },
                         },
                         trace_id=uuid4().hex,
@@ -262,7 +267,7 @@ def main() -> int:
                 INSTALL_DIR,
             )
             logger.info(
-                "error_fixes_retrieved",
+                "error_patterns_retrieved",
                 extra={
                     "results_count": len(results),
                     "duration_ms": round(duration_ms, 2),

@@ -522,7 +522,7 @@ class TestSearchMemories:
 
         results = search_memories(
             "test query",
-            memory_type=["implementation", "error_fix"],
+            memory_type=["implementation", "error_pattern"],
         )
         assert isinstance(results, list)
 
@@ -763,3 +763,60 @@ class TestDecayPath:
         call_kwargs = mock_qdrant_client.query_points.call_args.kwargs
         assert "prefetch" in call_kwargs
         assert call_kwargs["prefetch"] is not None
+
+
+class TestMustNotTypesFilter:
+    """Test must_not_types parameter builds correct Qdrant must_not filter (F13/TD-243)."""
+
+    def test_must_not_types_builds_must_not_condition(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """must_not_types=["error_pattern"] builds a must_not FieldCondition on 'type'."""
+        search = MemorySearch()
+        search.search(query="test", must_not_types=["error_pattern"])
+
+        call_args = mock_qdrant_client.query_points.call_args
+        query_filter = call_args.kwargs["query_filter"]
+
+        assert query_filter is not None
+        assert query_filter.must_not is not None
+        assert len(query_filter.must_not) == 1
+        assert query_filter.must_not[0].key == "type"
+
+    def test_must_not_types_combined_with_memory_type(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """must_not_types + memory_type produces both must and must_not conditions."""
+        search = MemorySearch()
+        search.search(
+            query="test",
+            memory_type="implementation",
+            must_not_types=["error_pattern", "error_fix"],
+        )
+
+        call_args = mock_qdrant_client.query_points.call_args
+        query_filter = call_args.kwargs["query_filter"]
+
+        assert query_filter is not None
+        # must contains the memory_type inclusion filter
+        assert query_filter.must is not None
+        assert len(query_filter.must) == 1
+        assert query_filter.must[0].key == "type"
+        # must_not contains the exclusion filter with both types
+        assert query_filter.must_not is not None
+        assert len(query_filter.must_not) == 1
+        assert query_filter.must_not[0].key == "type"
+
+    def test_must_not_types_none_builds_no_must_not(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """must_not_types=None (default) produces no must_not conditions."""
+        search = MemorySearch()
+        search.search(query="test", group_id="proj")
+
+        call_args = mock_qdrant_client.query_points.call_args
+        query_filter = call_args.kwargs["query_filter"]
+
+        # query_filter exists (for group_id), but must_not should be None
+        assert query_filter is not None
+        assert query_filter.must_not is None

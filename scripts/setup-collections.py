@@ -2,7 +2,7 @@
 """Create Qdrant collections for AI Memory Module.
 
 Creates up to five v2.0 collections:
-- code-patterns: HOW things are built (implementation, error_fix, refactor, file_pattern)
+- code-patterns: HOW things are built (implementation, error_pattern, refactor, file_pattern)
 - conventions: WHAT rules to follow (guideline, anti_pattern, decision)
 - discussions: WHY things were decided (session, conversation, analysis, reflection)
 - github: GitHub code/issues/PRs (PLAN-010: separated from discussions)

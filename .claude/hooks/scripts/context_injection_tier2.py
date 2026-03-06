@@ -15,6 +15,9 @@ Exit Codes:
 
 Performance: <500ms total (NFR-P1, NFR-P5)
 """
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import json
 import logging
@@ -186,15 +189,12 @@ def main() -> int:
                         "agent_memory",
                     ]
 
-                results = search_client.search(**search_kwargs)
-                # BUG-201: Exclude low-value error types from code-patterns injection.
-                # error_fix (legacy name) and error_pattern (new name) leak into context
-                # because the scroll/search has no must_not filter at the storage layer.
+                # F13/TD-243: Move type exclusion to Qdrant-level must_not filter
+                # (replaces Python post-filtering for efficiency).
+                # error_pattern excluded at Qdrant query layer instead of post-processing.
                 if route.collection == COLLECTION_CODE_PATTERNS:
-                    results = [
-                        r for r in results
-                        if r.get("type") not in ("error_fix", "error_pattern")
-                    ]
+                    search_kwargs["must_not_types"] = ["error_pattern", "error_fix"]
+                results = search_client.search(**search_kwargs)
                 for r in results:
                     r["collection"] = route.collection  # Tag with source collection
                 all_results.extend(results)
@@ -219,6 +219,8 @@ def main() -> int:
                                 "error": type(search_err).__name__,
                                 "results_considered": 0,
                                 "results_selected": 0,
+                                "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                             },
                         },
                         span_id=_tier2_root_span_id,
@@ -360,6 +362,8 @@ def main() -> int:
                             "budget": budget,
                             "best_score": round(best_score, 4),
                             "topic_drift": round(drift, 4),
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     span_id=_tier2_root_span_id,
@@ -430,6 +434,8 @@ def main() -> int:
                             "error": type(e).__name__,
                             "results_considered": 0,
                             "results_selected": 0,
+                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
                     span_id=_tier2_root_span_id if "_tier2_root_span_id" in dir() else None,  # type: ignore[name-defined]

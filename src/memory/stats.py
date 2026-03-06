@@ -153,7 +153,7 @@ def get_unique_field_values(
         >>> # Normal usage (single project)
         >>> types = get_unique_field_values(client, "code-patterns", "type", group_id="proj-a")
         >>> print(types)
-        ['error_fix', 'implementation']
+        ['error_pattern', 'implementation']
     """
     # Build filter if group_id provided (Architecture Spec Section 7.3)
     scroll_filter = None

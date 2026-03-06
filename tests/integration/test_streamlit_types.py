@@ -130,7 +130,7 @@ class TestCollectionTypesValidation:
 
         C3.6: Validate code-patterns collection (HOW things are built).
         """
-        expected = {"implementation", "error_fix", "refactor", "file_pattern"}
+        expected = {"implementation", "error_pattern", "refactor", "file_pattern"}
         actual = set(COLLECTION_TYPES["code-patterns"])
 
         assert (
@@ -201,4 +201,4 @@ class TestMemoryTypeEnumStructure:
             value = mem_type.value
             assert value.islower(), f"Type value '{value}' should be lowercase"
             assert " " not in value, f"Type value '{value}' should not contain spaces"
-            # Allow underscores for multi-word types (error_fix, user_message, etc.)
+            # Allow underscores for multi-word types (error_pattern, user_message, etc.)

@@ -647,6 +647,8 @@ class MemoryConfig(BaseSettings):
 
     # =========================================================================
     # v2.0.7 — Langfuse LLM Observability (SPEC-019, PLAN-008)
+    # LANGFUSE: Configuration fields. See LANGFUSE-INTEGRATION-SPEC.md §8
+    # Changes to Langfuse env vars MUST be verified against the spec.
     # =========================================================================
 
     langfuse_enabled: bool = Field(

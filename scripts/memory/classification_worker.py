@@ -7,10 +7,14 @@ RESOURCE LIMITS:
 - Batch size: 10 items
 - Graceful shutdown on SIGTERM/SIGINT
 """
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import argparse
 import asyncio
 import logging
+import os
 import signal
 import sys
 import threading
@@ -118,6 +122,8 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                         "point_id": task.point_id,
                         "collection": task.collection,
                         "source_hook": task.source_hook,
+                        "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                        "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                     },
                 }
                 emit_trace_event(

@@ -168,7 +168,7 @@ async def store_memory_async(payload: dict[str, Any]) -> None:
             "agent_decision",
         ]:
             collection = COLLECTION_DISCUSSIONS
-        # code-patterns: implementation, error_fix, refactor, file_pattern
+        # code-patterns: implementation, error_pattern, refactor, file_pattern
         else:
             collection = COLLECTION_CODE_PATTERNS
 

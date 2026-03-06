@@ -20,10 +20,15 @@ References:
 - BP-089: Adaptive budgets improve accuracy 5-15%
 """
 
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
+
 import contextlib
 import hashlib
 import json
 import logging
+import os
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -424,9 +429,12 @@ def retrieve_bootstrap_context(
                             }
                             for r in results[:20]
                         ],
+                        "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                        "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                     },
                 },
                 project_id=project_name,
+                session_id=os.environ.get("CLAUDE_SESSION_ID"),
                 start_time=_trace_start,
                 end_time=datetime.now(tz=timezone.utc),
             )
@@ -713,8 +721,11 @@ def select_results_greedy(
                                 selected, _selected_token_counts, strict=False
                             )
                         ],
+                        "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                        "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                     },
                 },
+                session_id=os.environ.get("CLAUDE_SESSION_ID"),
                 start_time=_trace_start,
                 end_time=datetime.now(tz=timezone.utc),
             )
@@ -773,8 +784,11 @@ def format_injection_output(
                         "result_count": len(results),
                         "output_chars": len(formatted),
                         "result_types": [r.get("type", "unknown") for r in results],
+                        "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                        "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                     },
                 },
+                session_id=os.environ.get("CLAUDE_SESSION_ID"),
                 start_time=_trace_start,
                 end_time=datetime.now(tz=timezone.utc),
             )

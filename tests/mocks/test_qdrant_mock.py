@@ -80,7 +80,7 @@ class TestMockQdrantClient:
                 vector=[0.1, 0.2, 0.3],
                 payload={
                     "content": "error",
-                    "type": "error_fix",
+                    "type": "error_pattern",
                     "group_id": "project-a",
                 },
             ),

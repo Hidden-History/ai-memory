@@ -8,6 +8,8 @@ Reference: PLAN-006 Section 3.1 (GitHub Sync Service)
 """
 
 import asyncio
+import atexit
+import contextlib
 import json
 import logging
 import os
@@ -21,10 +23,16 @@ from qdrant_client import models
 
 from memory.config import COLLECTION_CODE_PATTERNS, MemoryConfig, get_config
 
-# Langfuse @observe() — conditional import (graceful degradation if SDK unavailable)
+# LANGFUSE: Uses direct SDK (Path B). See LANGFUSE-INTEGRATION-SPEC.md §3.2, §7.3
+# SDK VERSION: V3 ONLY. Use get_client(), observe(), propagate_attributes().
+# Do NOT use Langfuse() constructor, start_span(), start_generation(), or langfuse_context.
+
+# Langfuse @observe() + propagate_attributes — conditional import (graceful degradation)
 try:
-    from langfuse import observe
+    from langfuse import get_client as _langfuse_get_client
+    from langfuse import observe, propagate_attributes
 except ImportError:
+    _langfuse_get_client = None  # type: ignore[assignment]
 
     def observe(**kwargs):
         def decorator(func):
@@ -32,9 +40,32 @@ except ImportError:
 
         return decorator
 
+    def propagate_attributes(**kwargs):
+        """No-op context manager when Langfuse unavailable."""
+        import contextlib
 
-from memory.connectors.github.client import GitHubClient, GitHubClientError
-from memory.connectors.github.composer import (
+        return contextlib.nullcontext()
+
+
+def _langfuse_shutdown():
+    """Flush and shutdown Langfuse client on process exit (TD-245)."""
+    if _langfuse_get_client is not None:
+        try:
+            client = _langfuse_get_client()
+            if client:
+                client.flush()
+                client.shutdown()
+        except Exception:
+            pass
+
+
+atexit.register(_langfuse_shutdown)
+
+from memory.connectors.github.client import (  # noqa: E402
+    GitHubClient,
+    GitHubClientError,
+)
+from memory.connectors.github.composer import (  # noqa: E402
     compose_ci_result,
     compose_commit,
     compose_issue,
@@ -43,14 +74,14 @@ from memory.connectors.github.composer import (
     compose_pr_diff,
     compose_pr_review,
 )
-from memory.connectors.github.schema import (
+from memory.connectors.github.schema import (  # noqa: E402
     GITHUB_COLLECTION,
     SOURCE_AUTHORITY_MAP,
     compute_content_hash,
 )
-from memory.models import MemoryType
-from memory.qdrant_client import get_qdrant_client
-from memory.storage import MemoryStorage
+from memory.models import MemoryType  # noqa: E402
+from memory.qdrant_client import get_qdrant_client  # noqa: E402
+from memory.storage import MemoryStorage  # noqa: E402
 
 logger = logging.getLogger("ai_memory.github.sync")
 
@@ -193,59 +224,74 @@ class GitHubSyncEngine:
         Returns:
             SyncResult with per-type counts and timing
         """
-        start = time.monotonic()
-        result = SyncResult()
-        batch_id = GitHubClient.generate_batch_id()
-        state = self._load_state()
+        with propagate_attributes(
+            session_id="github_sync",
+            user_id="system",
+            metadata={"sync_type": mode},
+        ):
+            start = time.monotonic()
+            result = SyncResult()
+            batch_id = GitHubClient.generate_batch_id()
+            state = self._load_state()
 
-        logger.info(
-            "Starting GitHub sync: mode=%s, repo=%s, batch=%s",
-            mode,
-            self.repo,
-            batch_id,
-        )
+            try:
+                logger.info(
+                    "Starting GitHub sync: mode=%s, repo=%s, batch=%s",
+                    mode,
+                    self.repo,
+                    batch_id,
+                )
 
-        async with self.client:
-            # Priority order: PRs -> Issues -> Commits -> CI Results
-            since = (
-                None
-                if mode == "full"
-                else state.get("pull_requests", {}).get("last_synced")
-            )
-            pr_count = await self._sync_pull_requests(since, batch_id, result)
-            self._save_type_state(state, "pull_requests", pr_count)
+                async with self.client:
+                    # Priority order: PRs -> Issues -> Commits -> CI Results
+                    since = (
+                        None
+                        if mode == "full"
+                        else state.get("pull_requests", {}).get("last_synced")
+                    )
+                    pr_count = await self._sync_pull_requests(since, batch_id, result)
+                    self._save_type_state(state, "pull_requests", pr_count)
 
-            since = (
-                None if mode == "full" else state.get("issues", {}).get("last_synced")
-            )
-            issue_count = await self._sync_issues(since, batch_id, result)
-            self._save_type_state(state, "issues", issue_count)
+                    since = (
+                        None
+                        if mode == "full"
+                        else state.get("issues", {}).get("last_synced")
+                    )
+                    issue_count = await self._sync_issues(since, batch_id, result)
+                    self._save_type_state(state, "issues", issue_count)
 
-            since = (
-                None if mode == "full" else state.get("commits", {}).get("last_synced")
-            )
-            commit_count = await self._sync_commits(since, batch_id, result)
-            self._save_type_state(state, "commits", commit_count)
+                    since = (
+                        None
+                        if mode == "full"
+                        else state.get("commits", {}).get("last_synced")
+                    )
+                    commit_count = await self._sync_commits(since, batch_id, result)
+                    self._save_type_state(state, "commits", commit_count)
 
-            since = (
-                None
-                if mode == "full"
-                else state.get("ci_results", {}).get("last_synced")
-            )
-            ci_count = await self._sync_ci_results(since, batch_id, result)
-            self._save_type_state(state, "ci_results", ci_count)
+                    since = (
+                        None
+                        if mode == "full"
+                        else state.get("ci_results", {}).get("last_synced")
+                    )
+                    ci_count = await self._sync_ci_results(since, batch_id, result)
+                    self._save_type_state(state, "ci_results", ci_count)
 
-        result.duration_seconds = time.monotonic() - start
-        self._save_state(state)
-        self._push_metrics(result)
+                result.duration_seconds = time.monotonic() - start
+                self._save_state(state)
+                self._push_metrics(result)
 
-        logger.info(
-            "GitHub sync complete: %d synced, %d skipped, %d errors in %.1fs",
-            result.total_synced,
-            result.items_skipped,
-            result.errors,
-            result.duration_seconds,
-        )
+                logger.info(
+                    "GitHub sync complete: %d synced, %d skipped, %d errors in %.1fs",
+                    result.total_synced,
+                    result.items_skipped,
+                    result.errors,
+                    result.duration_seconds,
+                )
+            finally:
+                # Flush Langfuse traces after sync cycle (guaranteed even on error)
+                if _langfuse_get_client is not None:
+                    with contextlib.suppress(Exception):
+                        _langfuse_get_client().flush()
         return result
 
     # -- Per-Type Sync Methods -----------------------------------------

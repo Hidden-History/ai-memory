@@ -120,7 +120,7 @@ class TestValidatePayload:
         valid_types = [
             # code-patterns collection
             "implementation",
-            "error_fix",
+            "error_pattern",
             "refactor",
             "file_pattern",
             # conventions collection

@@ -205,7 +205,7 @@ def migrate_point(
         type_remapping = {
             "session_summary": "session",
             "best_practice": "guideline",
-            "error_pattern": "error_fix",
+            "error_pattern": "error_pattern",
         }
         payload["type"] = type_remapping.get(existing_type, existing_type)
 

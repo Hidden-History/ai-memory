@@ -17,6 +17,9 @@ Metric naming follows BP-045: aimemory_{component}_{metric}_{unit}
 All push functions use subprocess fork pattern to avoid blocking hook execution.
 """
 
+# LANGFUSE: Infrastructure config. See LANGFUSE-INTEGRATION-SPEC.md §8
+# Changes to Langfuse env vars or Docker config MUST be verified against the spec.
+
 import json
 import logging
 import os

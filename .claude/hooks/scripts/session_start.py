@@ -10,6 +10,9 @@ Best Practices (2026):
 - https://python-client.qdrant.tech/ (Qdrant Python Client 1.16+)
 - https://signoz.io/guides/python-logging-best-practices/ (Structured Logging 2025)
 """
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
+# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import json
 import logging
@@ -634,6 +637,8 @@ def main():
                                             "lock_age_seconds": round(lock_age, 2),
                                             "results_considered": 0,
                                             "results_selected": 0,
+                                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                         },
                                     },
                                     session_id=session_id,
@@ -695,6 +700,8 @@ def main():
                                     "error": "qdrant_unavailable",
                                     "results_considered": 0,
                                     "results_selected": 0,
+                                    "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                    "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                 },
                             },
                             session_id=session_id,
@@ -815,6 +822,8 @@ def main():
                                         "results_considered": 0,
                                         "results_selected": 0,
                                         "parzival_enabled": config.parzival_enabled,
+                                        "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                        "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                     },
                                 },
                                 session_id=session_id,
@@ -929,6 +938,8 @@ def main():
                                         }
                                         for r in selected[:20]
                                     ],
+                                    "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                    "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                 },
                             },
                             session_id=session_id,
@@ -959,6 +970,8 @@ def main():
                                     "summary": f"Injected {tokens_used} tokens from {len(selected)} results",
                                     "result_types": [r.get("type", "unknown") for r in selected[:20]],
                                     "result_scores": [round(r.get("score", 0), 4) for r in selected[:20]],
+                                    "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                    "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                 },
                             },
                             span_id=_startup_root_span_id,
@@ -1051,6 +1064,8 @@ def main():
                                             "result_count": len(session_summaries),
                                             "retrieval_ms": round(_retrieval_ms, 2),
                                             "parzival_enabled": True,
+                                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                         },
                                     },
                                     session_id=session_id,
@@ -1099,6 +1114,8 @@ def main():
                                             "result_count": len(decisions),
                                             "retrieval_ms": round(_retrieval_ms, 2),
                                             "parzival_enabled": True,
+                                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                         },
                                     },
                                     session_id=session_id,
@@ -1140,6 +1157,8 @@ def main():
                                     "result_count": len(session_summaries),
                                     "retrieval_ms": round(_retrieval_ms, 2),
                                     "parzival_enabled": False,
+                                    "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                    "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                 },
                             },
                             session_id=session_id,
@@ -1225,6 +1244,8 @@ def main():
                                         "error": type(e).__name__,
                                         "results_considered": 0,
                                         "results_selected": 0,
+                                        "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                        "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                     },
                                 },
                                 session_id=session_id,
@@ -1414,6 +1435,8 @@ def main():
                                         }
                                         for m in other_memories[:10]
                                     ],
+                                    "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                    "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                 },
                             },
                             session_id=session_id,
@@ -1438,6 +1461,8 @@ def main():
                                     "summary": f"Injected {token_count} tokens from {total_count} results",
                                     "result_types": [s.get("type", "session_summary") for s in session_summaries[:10]] + [m.get("type", "unknown") for m in other_memories[:10]],
                                     "result_scores": [0.0 for _ in session_summaries[:10]] + [round(m.get("score", 0), 4) for m in other_memories[:10]],
+                                    "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                    "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                 },
                             },
                             span_id=_resume_root_span_id,
@@ -1485,6 +1510,8 @@ def main():
                                     "trigger": trigger,
                                     "results_considered": 0,
                                     "results_selected": 0,
+                                    "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                    "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                                 },
                             },
                             session_id=session_id,
@@ -1534,6 +1561,8 @@ def main():
                                 "error": type(e).__name__,
                                 "results_considered": 0,
                                 "results_selected": 0,
+                                "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
+                                "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                             },
                         },
                         session_id=_session,

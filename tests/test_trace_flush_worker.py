@@ -80,15 +80,18 @@ def test_processes_valid_buffer_files(tmp_path, monkeypatch):
 
     mock_langfuse = MagicMock()
     mock_span = MagicMock()
-    mock_langfuse.start_span.return_value = mock_span
+    mock_langfuse.start_observation.return_value = mock_span
 
     processed, errors = mod.process_buffer_files(mock_langfuse)
 
     assert processed == 1
     assert errors == 0
-    mock_langfuse.start_span.assert_called_once()
+    mock_langfuse.start_observation.assert_called_once()
     mock_span.update_trace.assert_called_once()
     mock_span.end.assert_called_once()
+    # V2 methods must NOT be called (regression guard)
+    mock_langfuse.start_span.assert_not_called()
+    mock_langfuse.start_generation.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -101,11 +104,14 @@ def test_removes_processed_files(tmp_path, monkeypatch):
     path = _write_event(buffer_dir, "evt_del")
 
     mock_langfuse = MagicMock()
-    mock_langfuse.start_span.return_value = MagicMock()
+    mock_langfuse.start_observation.return_value = MagicMock()
 
     mod.process_buffer_files(mock_langfuse)
 
     assert not path.exists(), "Processed file should be deleted"
+    # V2 methods must NOT be called (regression guard)
+    mock_langfuse.start_span.assert_not_called()
+    mock_langfuse.start_generation.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +158,7 @@ def test_pushes_prometheus_metrics(tmp_path, monkeypatch):
     _write_event(buffer_dir, "evt_metrics")
 
     mock_langfuse = MagicMock()
-    mock_langfuse.start_span.return_value = MagicMock()
+    mock_langfuse.start_observation.return_value = MagicMock()
 
     mock_push = MagicMock()
     monkeypatch.setattr(mod, "push_metrics_fn", mock_push)
@@ -178,6 +184,9 @@ def test_pushes_prometheus_metrics(tmp_path, monkeypatch):
     assert "buffer_size_bytes" in call_kwargs
     assert "events_processed" in call_kwargs
     assert "flush_errors" in call_kwargs
+    # V2 methods must NOT be called (regression guard)
+    mock_langfuse.start_span.assert_not_called()
+    mock_langfuse.start_generation.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
