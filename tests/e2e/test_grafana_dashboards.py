@@ -355,7 +355,10 @@ class TestGrafanaDashboards:
 
         real_errors = self._filter_console_errors(self.console_errors)
         if real_errors:
-            error_messages = [f"{msg.type}: {msg.text}" for msg in real_errors]
+            error_messages = [
+                f"{msg.type}: {msg.text} [location: {msg.location}]"
+                for msg in real_errors
+            ]
             grafana_page.screenshot(
                 path="tests/e2e/screenshots/overview-console-errors.png",
                 full_page=True,
@@ -377,7 +380,10 @@ class TestGrafanaDashboards:
 
         real_errors = self._filter_console_errors(self.console_errors)
         if real_errors:
-            error_messages = [f"{msg.type}: {msg.text}" for msg in real_errors]
+            error_messages = [
+                f"{msg.type}: {msg.text} [location: {msg.location}]"
+                for msg in real_errors
+            ]
             grafana_page.screenshot(
                 path="tests/e2e/screenshots/performance-console-errors.png",
                 full_page=True,
