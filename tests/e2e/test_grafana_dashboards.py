@@ -46,6 +46,9 @@ _GRAFANA_CONSOLE_NOISE = [
     # Grafana built-in plugin loading errors (not our dashboards)
     "Could not load plugin",
     "Failed to preload plugin",
+    # grafana-lokiexplore-app plugin imports react/jsx-runtime as bare module,
+    # browser resolves it as HTTP request to /react/jsx-runtime -> 404
+    "/react/jsx-runtime",
 ]
 
 
@@ -485,8 +488,11 @@ class TestGrafanaDashboards:
         errors: list[ConsoleMessage],
     ) -> list[ConsoleMessage]:
         """Filter out known Grafana console noise from error list."""
-        return [
-            err
-            for err in errors
-            if not any(noise in err.text for noise in _GRAFANA_CONSOLE_NOISE)
-        ]
+        filtered = []
+        for err in errors:
+            text = err.text
+            location_url = err.location.get("url", "") if err.location else ""
+            searchable = f"{text} {location_url}"
+            if not any(noise in searchable for noise in _GRAFANA_CONSOLE_NOISE):
+                filtered.append(err)
+        return filtered
