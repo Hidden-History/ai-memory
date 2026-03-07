@@ -854,6 +854,7 @@ def load_parzival_constraints(
     phase_count = 0
     if phase:
         import re
+
         phase = re.sub(r"[^a-zA-Z0-9_-]", "", phase)
         phase_file = constraints_dir / phase / "constraints.md"
         if phase_file.exists():
