@@ -43,6 +43,9 @@ _GRAFANA_CONSOLE_NOISE = [
     "net::ERR_",
     "status: 502",
     "status: 504",
+    # Grafana built-in plugin loading errors (not our dashboards)
+    "Could not load plugin",
+    "Failed to preload plugin",
 ]
 
 
