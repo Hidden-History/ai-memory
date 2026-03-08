@@ -3,6 +3,19 @@
 TECH-DEBT-069: LLM-based memory classification system tests.
 """
 
+import importlib
+
+import pytest
+
+from src.memory.classifier import config
+
+
+@pytest.fixture(autouse=True)
+def _reload_classifier_config():
+    """Reload classifier config module after each test to reset module-level state."""
+    yield
+    importlib.reload(config)
+
 
 class TestClassifierConfig:
     """Test classifier configuration loading and defaults."""
@@ -31,10 +44,6 @@ class TestClassifierConfig:
         monkeypatch.setenv("MEMORY_CLASSIFIER_MIN_CONTENT_LENGTH", "50")
 
         # Reload module to pick up new env vars
-        import importlib
-
-        from src.memory.classifier import config
-
         importlib.reload(config)
 
         assert config.CLASSIFIER_ENABLED is False

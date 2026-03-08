@@ -16,7 +16,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct, SparseVector
 
 from .chunking import ContentType, IntelligentChunker
 from .config import (
@@ -442,13 +442,37 @@ class MemoryStorage:
 
         # Store in Qdrant
         memory_id = str(uuid.uuid4())
+
+        # Generate sparse vector for hybrid search (T-022)
+        if self.config.hybrid_search_enabled:
+            try:
+                sparse_results = self.embedding_client.embed_sparse([content])
+                if isinstance(sparse_results, list) and sparse_results:
+                    sr = sparse_results[0]
+                    point_vector = {
+                        "": embedding,  # Default dense vector
+                        "bm25": SparseVector(
+                            indices=sr["indices"], values=sr["values"]
+                        ),
+                    }
+                else:
+                    point_vector = embedding
+            except Exception as e:
+                logger.warning(
+                    "sparse_embedding_failed",
+                    extra={"error": str(e)},
+                )
+                point_vector = embedding  # Fallback: dense only
+        else:
+            point_vector = embedding
+
         try:
             self.qdrant_client.upsert(
                 collection_name=collection,
                 points=[
                     PointStruct(
                         id=memory_id,
-                        vector=embedding,
+                        vector=point_vector,
                         payload={
                             **payload.to_dict(),
                             **extra_payload,
@@ -515,10 +539,36 @@ class MemoryStorage:
                         "truncated": False,
                     }
 
+                    # Generate sparse vector for chunk (T-022)
+                    if self.config.hybrid_search_enabled:
+                        try:
+                            chunk_sparse = self.embedding_client.embed_sparse(
+                                [chunk.content]
+                            )
+                            if isinstance(chunk_sparse, list) and chunk_sparse:
+                                csr = chunk_sparse[0]
+                                chunk_point_vector = {
+                                    "": chunk_embedding,
+                                    "bm25": SparseVector(
+                                        indices=csr["indices"],
+                                        values=csr["values"],
+                                    ),
+                                }
+                            else:
+                                chunk_point_vector = chunk_embedding
+                        except Exception as e:
+                            logger.warning(
+                                "chunk_sparse_embedding_failed",
+                                extra={"error": str(e)},
+                            )
+                            chunk_point_vector = chunk_embedding
+                    else:
+                        chunk_point_vector = chunk_embedding
+
                     additional_points.append(
                         PointStruct(
                             id=chunk_id,
-                            vector=chunk_embedding,
+                            vector=chunk_point_vector,
                             payload={
                                 **chunk_payload.to_dict(),
                                 **extra_payload,
@@ -809,6 +859,8 @@ class MemoryStorage:
 
         # Collect chunk data for batch embedding (avoid N+1 API calls)
         pending_chunks = []
+        # Collect non-chunked points for batch sparse embedding (avoid N+1 API calls)
+        pending_main_points = []
 
         # Build points for batch upsert
         for memory, embedding, mem_model in zip(
@@ -997,8 +1049,9 @@ class MemoryStorage:
                 "truncated": False,
             }
 
-            points.append(
-                PointStruct(id=memory_id, vector=embedding, payload=payload_dict)
+            # Stage point for sparse embedding (deferred to batch call below)
+            pending_main_points.append(
+                (memory_id, embedding, payload_dict, content)
             )
             results.append(
                 {
@@ -1007,6 +1060,38 @@ class MemoryStorage:
                     "embedding_status": embedding_status.value,
                 }
             )
+
+        # Batch sparse embeddings for non-chunked main points (T-022, avoid N+1 calls)
+        if pending_main_points and self.config.hybrid_search_enabled:
+            main_contents = [c for _, _, _, c in pending_main_points]
+            try:
+                main_sparse_results = self.embedding_client.embed_sparse(main_contents)
+            except Exception as e:
+                logger.warning(
+                    "batch_sparse_embedding_failed",
+                    extra={"error": str(e), "count": len(main_contents)},
+                )
+                main_sparse_results = None
+
+            for i, (mid, emb, pdict, _content) in enumerate(pending_main_points):
+                if isinstance(main_sparse_results, list) and i < len(main_sparse_results) and main_sparse_results[i]:
+                    bsr = main_sparse_results[i]
+                    point_vector = {
+                        "": emb,
+                        "bm25": SparseVector(
+                            indices=bsr["indices"], values=bsr["values"]
+                        ),
+                    }
+                else:
+                    point_vector = emb
+                points.append(
+                    PointStruct(id=mid, vector=point_vector, payload=pdict)
+                )
+        else:
+            for mid, emb, pdict, _content in pending_main_points:
+                points.append(
+                    PointStruct(id=mid, vector=emb, payload=pdict)
+                )
 
         # Pass 2: Batch-embed all chunk contents, grouped by model
         # SPEC-010: Each chunk uses its parent memory's embedding model
@@ -1035,13 +1120,39 @@ class MemoryStorage:
                 for c_idx, c_emb in zip(c_indices, c_embs, strict=True):
                     chunk_embeddings[c_idx] = c_emb
 
-            for (chunk_id, chunk_payload_dict, _), chunk_emb in zip(
-                pending_chunks, chunk_embeddings, strict=True
+            # Batch sparse embeddings for all chunks (T-022, avoid N+1 calls)
+            chunk_sparse_results = None
+            if self.config.hybrid_search_enabled:
+                all_chunk_contents = [pd["content"] for _, pd, _ in pending_chunks]
+                try:
+                    chunk_sparse_results = self.embedding_client.embed_sparse(
+                        all_chunk_contents
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "batch_chunk_sparse_embedding_failed",
+                        extra={"error": str(e), "count": len(all_chunk_contents)},
+                    )
+
+            for ci, ((chunk_id, chunk_payload_dict, _), chunk_emb) in enumerate(
+                zip(pending_chunks, chunk_embeddings, strict=True)
             ):
+                if isinstance(chunk_sparse_results, list) and ci < len(chunk_sparse_results) and chunk_sparse_results[ci]:
+                    bcsr = chunk_sparse_results[ci]
+                    bc_point_vector = {
+                        "": chunk_emb,
+                        "bm25": SparseVector(
+                            indices=bcsr["indices"],
+                            values=bcsr["values"],
+                        ),
+                    }
+                else:
+                    bc_point_vector = chunk_emb
+
                 points.append(
                     PointStruct(
                         id=chunk_id,
-                        vector=chunk_emb,
+                        vector=bc_point_vector,
                         payload=chunk_payload_dict,
                     )
                 )

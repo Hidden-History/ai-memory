@@ -345,6 +345,7 @@ VALID_TYPES: dict[str, list[str]] = {
     "conventions": ["rule", "guideline", "port", "naming", "structure"],
     "discussions": [
         "decision",
+        "discussion",
         "session",
         "blocker",
         "preference",
@@ -362,9 +363,9 @@ SKIP_RECLASSIFICATION_TYPES: list[str] = ["session", "error_pattern"]
 RULE_PATTERNS: dict[str, dict[str, Any]] = {
     "error_pattern": {
         "patterns": [
-            r"(?i)(fixed|resolved|solved).*(error|exception|bug|issue)",
-            r"(?i)(error|exception|traceback).*\n.*fixed",
-            r"(?i)the (fix|solution) (was|is)",
+            r"(?i)\b(traceback|exception|stack\s*trace)\b",
+            r"(?i)\berror[:\s]+\S",
+            r"(?i)\b(TypeError|ValueError|KeyError|AttributeError|RuntimeError|ImportError|SyntaxError|IndexError|NameError|OSError|IOError|FileNotFoundError|PermissionError|ConnectionError|TimeoutError)\b",
         ],
         "confidence": 0.90,
     },

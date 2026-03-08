@@ -8,12 +8,8 @@ Tests verify:
 5. Edge cases (None, negative, zero, very large token counts)
 """
 
-import os
 import sys
 from unittest.mock import patch
-
-# Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from memory.metrics_push import (
     VALID_DIRECTIONS,

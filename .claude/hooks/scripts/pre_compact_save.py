@@ -91,8 +91,9 @@ try:
         ResponseHandlingException,
         UnexpectedResponse,
     )
-    from qdrant_client.models import FieldCondition, Filter, MatchValue
+    from qdrant_client.models import FieldCondition, Filter, MatchValue, SparseVector
 except ImportError:
+    SparseVector = None
     # Graceful degradation if qdrant-client not installed
     ApiException = Exception
     ResponseHandlingException = Exception
@@ -610,6 +611,19 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
             )
             # Continue with zero vector - will be backfilled later
 
+        # v2.2.1: Generate BM25 sparse vector for hybrid search
+        sparse_vector = None
+        try:
+            from memory.config import get_config as _get_config
+            _cfg = _get_config()
+            if _cfg.hybrid_search_enabled and embedding_status == EmbeddingStatus.COMPLETE.value:
+                with EmbeddingClient(_cfg) as sparse_client:
+                    sparse_results = sparse_client.embed_sparse([summary_data["content"]])
+                    if sparse_results and sparse_results[0]:
+                        sparse_vector = sparse_results[0]
+        except Exception as e:
+            logger.debug("sparse_embedding_skipped", extra={"error": str(e)})
+
         # SPEC-021: 6_embed span — embedding generation
         if emit_trace_event:
             try:
@@ -656,10 +670,18 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
         }
 
         # Store to discussions collection (v2.0)
+        # v2.2.1: Use dict vector format when sparse available
+        if sparse_vector is not None and SparseVector is not None:
+            point_vector = {
+                "": vector,
+                "bm25": SparseVector(indices=sparse_vector["indices"], values=sparse_vector["values"]),
+            }
+        else:
+            point_vector = vector
         client = get_qdrant_client()
         client.upsert(
             collection_name=COLLECTION_DISCUSSIONS,
-            points=[PointStruct(id=memory_id, vector=vector, payload=payload)],
+            points=[PointStruct(id=memory_id, vector=point_vector, payload=payload)],
         )
 
         # SPEC-021: 7_store span — data persisted to Qdrant

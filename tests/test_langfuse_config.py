@@ -1,10 +1,6 @@
 """Unit tests for memory.langfuse_config — SPEC-020 §9.1 client factory tests."""
 
-import os
-import sys
 from unittest.mock import MagicMock, patch
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from memory.langfuse_config import (
     get_langfuse_client,

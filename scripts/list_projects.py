@@ -55,7 +55,7 @@ def format_project_json(projects: dict[str, ProjectSyncConfig]) -> str:
     for project_id, cfg in projects.items():
         data[project_id] = {
             "project_id": cfg.project_id,
-            "source_directory": cfg.source_directory,
+            "source_directory": str(cfg.source_directory) if cfg.source_directory else None,
             "github": {
                 "repo": cfg.github_repo,
                 "branch": cfg.github_branch,

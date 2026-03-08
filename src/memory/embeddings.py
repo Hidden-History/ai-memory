@@ -315,6 +315,94 @@ class EmbeddingClient:
 
             raise EmbeddingError(f"EMBEDDING_ERROR: {e}") from e
 
+    def embed_sparse(self, texts: list[str]) -> list[dict]:
+        """Generate BM25 sparse embeddings via embedding service.
+
+        Args:
+            texts: List of text strings to generate sparse embeddings for.
+
+        Returns:
+            List of dicts with 'indices' and 'values' keys for each input text.
+
+        Raises:
+            EmbeddingError: If request fails or service returns an error.
+        """
+        try:
+            response = self.client.post(
+                f"{self.base_url}/embed/sparse",
+                json={"texts": texts},
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return response.json()["embeddings"]
+        except httpx.TimeoutException as e:
+            logger.error(
+                "sparse_embedding_timeout",
+                extra={
+                    "texts_count": len(texts),
+                    "base_url": self.base_url,
+                    "error": str(e),
+                },
+            )
+            raise EmbeddingError("SPARSE_EMBEDDING_TIMEOUT") from e
+        except httpx.HTTPError as e:
+            logger.error(
+                "sparse_embedding_error",
+                extra={
+                    "texts_count": len(texts),
+                    "base_url": self.base_url,
+                    "error": str(e),
+                },
+            )
+            raise EmbeddingError(f"SPARSE_EMBEDDING_ERROR: {e}") from e
+
+    def embed_late(self, texts: list[str]) -> list[list[list[float]]]:
+        """Generate ColBERT late interaction embeddings via embedding service.
+
+        Returns multi-vector embeddings for ColBERT reranking. Each text produces
+        a list of token-level vectors (list[list[float]]).
+
+        Args:
+            texts: List of text strings to generate late interaction embeddings for.
+
+        Returns:
+            List of multi-vector embeddings. Each element is a list of token vectors
+            (list[list[float]]) suitable for Qdrant's multi-vector 'colbert' named vector.
+
+        Raises:
+            EmbeddingError: If request fails or service returns an error.
+        """
+        try:
+            response = self.client.post(
+                f"{self.base_url}/embed/late",
+                json={"texts": texts},
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()["embeddings"]
+            # Service returns [{embeddings: [[float]]}] — extract inner embeddings
+            return [item["embeddings"] for item in data]
+        except httpx.TimeoutException as e:
+            logger.error(
+                "late_embedding_timeout",
+                extra={
+                    "texts_count": len(texts),
+                    "base_url": self.base_url,
+                    "error": str(e),
+                },
+            )
+            raise EmbeddingError("LATE_EMBEDDING_TIMEOUT") from e
+        except httpx.HTTPError as e:
+            logger.error(
+                "late_embedding_error",
+                extra={
+                    "texts_count": len(texts),
+                    "base_url": self.base_url,
+                    "error": str(e),
+                },
+            )
+            raise EmbeddingError(f"LATE_EMBEDDING_ERROR: {e}") from e
+
     def health_check(self) -> bool:
         """Check if embedding service is healthy.
 

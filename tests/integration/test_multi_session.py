@@ -19,9 +19,6 @@ from pathlib import Path
 
 import pytest
 
-# Import core modules for direct storage
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
-
 from memory.config import get_config
 from memory.models import MemoryType
 from memory.storage import MemoryStorage

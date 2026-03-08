@@ -52,6 +52,7 @@ queue/*.jsonl
 
 # Migration backups (may contain secrets)
 migration-backup*/
+scripts/_migration_state.json
 
 # Ruff linter cache
 .ruff_cache/

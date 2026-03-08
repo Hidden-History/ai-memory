@@ -9,9 +9,6 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-# Ensure src/ is on path for direct imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
 
 def _load_module(tmp_path, monkeypatch):
     """Import trace_flush_worker with BUFFER_DIR patched to tmp_path.

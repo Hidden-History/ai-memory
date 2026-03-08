@@ -5,8 +5,6 @@ Tests AC 1.4.2 - Embeddings Client Module functionality.
 
 import sys
 
-sys.path.insert(0, ".")
-
 from unittest.mock import Mock, patch
 
 from src.memory.config import MemoryConfig

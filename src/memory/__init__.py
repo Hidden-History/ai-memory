@@ -18,10 +18,12 @@ configure_logging()
 
 # Configuration
 # Async SDK Wrapper (TECH-DEBT-035 Phase 2)
-# Lazy import: async_sdk_wrapper transitively depends on `anthropic`, which
-# may not be installed in every deployment (e.g. the embedding container).
+# TD-197: Lazy import — async_sdk_wrapper transitively depends on `anthropic`,
+# which is NOT installed in the embedding container. Guard the import so that
+# `from memory.metrics import ...` works without anthropic.
 import contextlib
 
+_async_sdk_available = False
 with contextlib.suppress(ImportError):
     from .async_sdk_wrapper import (
         AsyncConversationCapture,
@@ -30,6 +32,7 @@ with contextlib.suppress(ImportError):
         QueueTimeoutError,
         RateLimitQueue,
     )
+    _async_sdk_available = True
 from .config import MemoryConfig, get_config, reset_config
 
 # Service Clients
@@ -108,12 +111,6 @@ __all__ = [
     "MemoryStorage",
     # Search (Story 1.6)
     "MemorySearch",
-    # Async SDK Wrapper (TECH-DEBT-035 Phase 2)
-    "AsyncSDKWrapper",
-    "AsyncConversationCapture",
-    "RateLimitQueue",
-    "QueueTimeoutError",
-    "QueueDepthExceededError",
     # Graceful Degradation (Story 1.7)
     "graceful_hook",
     "exit_success",
@@ -144,6 +141,18 @@ __all__ = [
     "stats",
     "warnings",
 ]
+
+# TD-197: Async SDK Wrapper names only exported when anthropic is installed.
+# This prevents NameError when the embedding container (no anthropic) does
+# `from memory import *`.
+if _async_sdk_available:
+    __all__ += [
+        "AsyncSDKWrapper",
+        "AsyncConversationCapture",
+        "RateLimitQueue",
+        "QueueTimeoutError",
+        "QueueDepthExceededError",
+    ]
 
 # Submodule exports for test mocking compatibility (Python 3.10+)
 # These must be imported as modules (not just their contents) to support

@@ -81,7 +81,7 @@ try:
         ResponseHandlingException,
         UnexpectedResponse,
     )
-    from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
+    from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct, SparseVector
 except ImportError:
     PointStruct = None
     Filter = None
@@ -605,6 +605,16 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
             vectors = [[0.0] * config.embedding_dimension for _ in chunks_to_store]
             embedding_status = "pending"
 
+        # Generate BM25 sparse vectors for hybrid search (PLAN-013)
+        sparse_vectors = [None] * len(chunks_to_store)
+        if getattr(config, "hybrid_search_enabled", False) and embedding_status == "complete":
+            try:
+                with EmbeddingClient(config) as sparse_client:
+                    sparse_results = sparse_client.embed_sparse(chunk_contents)
+                    sparse_vectors = sparse_results if sparse_results else sparse_vectors
+            except Exception as e:
+                logger.debug("sparse_embedding_skipped", extra={"error": str(e)})
+
         # SPEC-021: 6_embed span — embedding generation
         if emit_trace_event:
             try:
@@ -631,8 +641,8 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
 
         # Build points for all chunks
         points = []
-        for i, ((chunk_content, chunk_meta), vector) in enumerate(
-            zip(chunks_to_store, vectors)
+        for i, ((chunk_content, chunk_meta), vector, sparse) in enumerate(
+            zip(chunks_to_store, vectors, sparse_vectors)
         ):
             chunk_id = (
                 str(
@@ -657,8 +667,16 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 "embedding_status": embedding_status,
                 "chunking_metadata": chunk_meta,
             }
+            # Use dict format with sparse vector when available (PLAN-013)
+            if sparse is not None and SparseVector is not None:
+                point_vector = {
+                    "": vector,
+                    "bm25": SparseVector(indices=sparse["indices"], values=sparse["values"]),
+                }
+            else:
+                point_vector = vector
             points.append(
-                PointStruct(id=chunk_id, vector=vector, payload=chunk_payload)
+                PointStruct(id=chunk_id, vector=point_vector, payload=chunk_payload)
             )
 
         # Store all chunks to Qdrant

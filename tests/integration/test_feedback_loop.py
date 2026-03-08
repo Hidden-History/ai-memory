@@ -7,15 +7,12 @@ requiring a running Qdrant instance.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Add src to path for imports
 _project_root = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(_project_root / "src"))
 
 
 def _make_mock_point(point_id, payload=None):

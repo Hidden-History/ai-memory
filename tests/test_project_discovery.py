@@ -81,7 +81,7 @@ def test_single_yaml_returns_one_config(tmp_path: Path) -> None:
     assert cfg.github_branch == "develop"
     assert cfg.github_enabled is True
     assert cfg.jira_enabled is False
-    assert cfg.source_directory == "/home/user/repos/my-project"
+    assert cfg.source_directory == Path("/home/user/repos/my-project")
 
 
 # ---------------------------------------------------------------------------

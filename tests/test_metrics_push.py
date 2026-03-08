@@ -4,12 +4,8 @@ Tests verify async fork pattern and graceful degradation.
 Note: PUSHGATEWAY_ENABLED tests require env var set before import.
 """
 
-import os
 import sys
 from unittest.mock import patch
-
-# Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from memory.metrics_push import (
     VALID_STATUSES,

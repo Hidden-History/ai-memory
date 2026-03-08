@@ -4,11 +4,6 @@ Tests verify that IntelligentChunker accepts explicit content_type
 and routes correctly without relying on file extension detection.
 """
 
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../src"))
-
 from memory.chunking import ContentType, IntelligentChunker
 
 

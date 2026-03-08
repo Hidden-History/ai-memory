@@ -9,9 +9,13 @@ Creates up to five v2.0 collections:
 - jira-data: Jira issues and comments (enabled when jira_sync_enabled=true)
 
 Implements Story 1.3 AC 1.3.1.
+
+v2.2.1 (PLAN-013): Added sparse vector config (BM25/IDF) for hybrid search,
+and optional ColBERT named vector for late interaction reranking.
 """
 
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -26,6 +30,8 @@ from qdrant_client.models import (
     ScalarQuantization,
     ScalarQuantizationConfig,
     ScalarType,
+    SparseVectorParams,
+    Modifier,
     TextIndexParams,
     TokenizerType,
     VectorParams,
@@ -69,6 +75,31 @@ def create_collections(dry_run: bool = False, force: bool = False) -> None:
 
     # Vector configuration (DEC-010: 768 dimensions from jina-embeddings-v2-base-code)
     vector_config = VectorParams(size=768, distance=Distance.COSINE)
+
+    # v2.2.1 (PLAN-013): Sparse vector config for hybrid dense+sparse search
+    sparse_config = {
+        "bm25": SparseVectorParams(modifier=Modifier.IDF),
+    }
+
+    # v2.2.1 (PLAN-013): Optional ColBERT named vector for late interaction reranking
+    # When enabled, vectors_config becomes a dict with "" (default dense) + "colbert"
+    colbert_enabled = os.getenv("COLBERT_RERANKING_ENABLED", "false").lower() == "true"
+    vectors_config_dict = None
+    if colbert_enabled:
+        from qdrant_client.models import MultiVectorConfig, MultiVectorComparator
+
+        vectors_config_dict = {
+            "": VectorParams(size=768, distance=Distance.COSINE),  # Default dense
+            "colbert": VectorParams(
+                size=128,
+                distance=Distance.COSINE,
+                multivector_config=MultiVectorConfig(
+                    comparator=MultiVectorComparator.MAX_SIM
+                ),
+                hnsw_config=HnswConfigDiff(m=0),  # Disable HNSW for reranking-only
+            ),
+        }
+        print("ColBERT reranking enabled — adding 'colbert' named vector to collections")
 
     # V2.0 Collections (Memory System Spec v2.0, 2026-01-17)
     collection_names = [
@@ -129,9 +160,14 @@ def create_collections(dry_run: bool = False, force: bool = False) -> None:
                 )
             )
 
+            # Use ColBERT dict (with default "" + "colbert") when enabled,
+            # otherwise use the single VectorParams (unnamed default)
+            effective_vectors_config = vectors_config_dict if colbert_enabled else vector_config
+
             client.create_collection(
                 collection_name=collection_name,
-                vectors_config=vector_config,
+                vectors_config=effective_vectors_config,
+                sparse_vectors_config=sparse_config,
                 hnsw_config=hnsw_config,
                 quantization_config=quantization_config,
             )

@@ -12,16 +12,11 @@ Per Chunking-Strategy-V2.md V2.1:
 - All points: Must include chunking_metadata payload
 """
 
-import os
-import sys
 from datetime import datetime, timezone
 from typing import Any
 
 import pytest
 import tiktoken
-
-# Setup path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../src"))
 
 from memory.chunking import ContentType, IntelligentChunker
 

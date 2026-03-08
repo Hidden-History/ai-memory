@@ -20,6 +20,7 @@
   - [Parzival Session Agent](#parzival-session-agent)
   - [Security Scanning](#security-scanning)
   - [Context Injection](#context-injection)
+  - [Hybrid Search](#hybrid-search)
 - [Langfuse Configuration](#langfuse-configuration)
 - [Docker Configuration](#docker-configuration)
 - [Hook Configuration](#hook-configuration)
@@ -762,7 +763,7 @@ export GITHUB_SYNC_INTERVAL=0
 ---
 
 #### GITHUB_CODE_BLOB_ENABLED
-**Purpose:** Enable code blob synchronisation — fetches source files from the repository and stores them as memories in the `code-patterns` collection (separate from PR/issue/commit sync)
+**Purpose:** Enable code blob synchronisation — fetches source files from the repository and stores them as memories in the `github` collection (separate from PR/issue/commit sync)
 
 **Default:** `true` (when `GITHUB_SYNC_ENABLED=true`)
 
@@ -1057,6 +1058,11 @@ Controls the two-tier token budget system for injecting memories into Claude's c
 
 Budgets are measured in **tokens** (approximately 4 characters per token).
 
+**3-Tier Soft Confidence Gating** (Tier 2 per-turn injection):
+- Scores >= 0.60: Full adaptive budget injection
+- Scores 0.55-0.60: Reduced (50%) budget injection
+- Scores < 0.55: Skip injection entirely
+
 ---
 
 #### INJECTION_ENABLED
@@ -1182,6 +1188,106 @@ export INJECTION_BUDGET_CEILING=800
 - **Higher**: When per-turn memory recall frequently misses important context
 - Must be ≥ `INJECTION_BUDGET_FLOOR` (validated at startup)
 - Per-turn injection uses decay-ranked scores, so the highest-relevance memories fill the budget first
+
+---
+
+### Hybrid Search
+
+Controls the triple fusion hybrid search system that combines dense vectors (Jina), sparse vectors (BM25), and late interaction (ColBERT) retrieval.
+
+Search queries use Qdrant native Reciprocal Rank Fusion (RRF) to combine results from multiple retrieval paths. Points without BM25 sparse vectors fall back to dense-only automatically.
+
+---
+
+#### HYBRID_SEARCH_ENABLED
+**Purpose:** Enable hybrid dense+sparse search using Qdrant prefetch + RRF fusion
+
+**Default:** `true`
+
+**Format:** Boolean (`true`/`false`)
+
+**Example:**
+```bash
+# Enable (default) — queries use both dense (Jina) and sparse (BM25) vectors
+export HYBRID_SEARCH_ENABLED=true
+
+# Disable — queries use dense vectors only
+export HYBRID_SEARCH_ENABLED=false
+```
+
+**When to change:**
+- **Disable**: When BM25 sparse vectors have not been indexed yet, or for debugging retrieval quality with dense-only baseline
+- **Enable**: For production use; hybrid search provides significantly better keyword+semantic coverage
+- Points without BM25 vectors fall back to dense-only automatically, so enabling is safe even during incremental indexing
+
+---
+
+#### COLBERT_RERANKING_ENABLED
+**Purpose:** Enable ColBERT late interaction reranking after dense+sparse prefetch
+
+**Default:** `false`
+
+**Format:** Boolean (`true`/`false`)
+
+**Example:**
+```bash
+# Enable ColBERT reranking (requires COLBERT_ENABLED=true in embedding service)
+export COLBERT_RERANKING_ENABLED=true
+
+# Disable (default)
+export COLBERT_RERANKING_ENABLED=false
+```
+
+**When to change:**
+- **Enable**: When retrieval precision is critical and the ~400MB model download is acceptable
+- **Disable**: In resource-constrained environments or when latency requirements are tight
+- **Requires**: `COLBERT_ENABLED=true` must be set in the embedding container environment for the model to be loaded at startup
+
+---
+
+#### COLBERT_ENABLED
+**Purpose:** Load ColBERT model in embedding service at startup
+
+**Default:** `false`
+
+**Format:** Boolean (`true`/`false`)
+
+**Example:**
+```bash
+# Set in embedding container environment (docker-compose.yml or docker/.env)
+COLBERT_ENABLED=true
+```
+
+**When to change:**
+- **Enable**: Must be `true` for `COLBERT_RERANKING_ENABLED` to work; loads the ColBERT v2 model (~400MB) at service startup
+- **Disable**: When ColBERT reranking is not needed; saves memory and startup time
+- This is an **embedding service** variable, not a hook/client variable
+
+---
+
+#### INJECTION_SCORE_GAP_THRESHOLD
+**Purpose:** Score gap threshold for injection result selection
+
+**Default:** `0.7`
+
+**Format:** Float (range 0.5 to 0.95)
+
+**Example:**
+```bash
+# Default — moderate filtering
+export INJECTION_SCORE_GAP_THRESHOLD=0.7
+
+# Strict — aggressively filter low-relevance results
+export INJECTION_SCORE_GAP_THRESHOLD=0.9
+
+# Permissive — include more marginal results
+export INJECTION_SCORE_GAP_THRESHOLD=0.55
+```
+
+**When to change:**
+- **Raise**: When injection includes too many marginally relevant results (stricter filtering)
+- **Lower**: When useful context is being filtered out too aggressively
+- Controls how aggressively low-relevance results are dropped relative to the top result
 
 ---
 

@@ -121,6 +121,7 @@ def test_collection_names_match():
     }
     discussion_types = {
         MemoryType.DECISION,
+        MemoryType.DISCUSSION,
         MemoryType.SESSION,
         MemoryType.BLOCKER,
         MemoryType.PREFERENCE,

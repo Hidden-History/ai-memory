@@ -2,7 +2,7 @@
 # Python 3.10+
 
 # Vector Database
-qdrant-client>=1.14.0,<2.0.0
+qdrant-client>=1.17.0,<2.0.0
 
 # HTTP Client
 httpx>=0.27.0,<1.0.0

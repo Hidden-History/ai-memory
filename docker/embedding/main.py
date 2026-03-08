@@ -18,7 +18,7 @@ import sys
 import time
 
 from fastapi import FastAPI, HTTPException
-from fastembed import TextEmbedding
+from fastembed import TextEmbedding, SparseTextEmbedding, LateInteractionTextEmbedding
 from prometheus_client import make_asgi_app
 from pydantic import BaseModel
 
@@ -116,6 +116,31 @@ def load_models():
 
 load_models()  # Called at module init
 
+# Sparse and late interaction model registries (T-017/T-018)
+SPARSE_REGISTRY: dict[str, SparseTextEmbedding] = {}
+LATE_REGISTRY: dict[str, LateInteractionTextEmbedding] = {}
+
+
+def load_sparse_models():
+    """Load BM25 sparse embedding model at startup."""
+    logger.info("model_loading", extra={"model": "Qdrant/bm25", "key": "bm25"})
+    start = time.time()
+    SPARSE_REGISTRY["bm25"] = SparseTextEmbedding("Qdrant/bm25")
+    logger.info("model_loaded", extra={"model": "Qdrant/bm25", "key": "bm25", "load_time_seconds": round(time.time() - start, 2)})
+
+    if os.getenv("COLBERT_ENABLED", "false").lower() == "true":
+        logger.info("model_loading", extra={"model": "colbert-ir/colbertv2.0", "key": "colbert"})
+        start = time.time()
+        LATE_REGISTRY["colbert"] = LateInteractionTextEmbedding("colbert-ir/colbertv2.0")
+        logger.info("model_loaded", extra={"model": "colbert-ir/colbertv2.0", "key": "colbert", "load_time_seconds": round(time.time() - start, 2)})
+
+
+try:
+    load_sparse_models()
+except Exception as e:
+    logger.error("sparse_model_load_failed", extra={"error": str(e)})
+    # Service continues with dense-only capability
+
 
 class EmbedRequest(BaseModel):
     texts: list[str]
@@ -138,6 +163,33 @@ class EmbedDenseResponse(BaseModel):
     dimensions: int  # 768
 
 
+class EmbedSparseRequest(BaseModel):
+    texts: list[str]
+
+
+class SparseEmbeddingResult(BaseModel):
+    indices: list[int]
+    values: list[float]
+
+
+class EmbedSparseResponse(BaseModel):
+    embeddings: list[SparseEmbeddingResult]
+    model: str
+
+
+class EmbedLateRequest(BaseModel):
+    texts: list[str]
+
+
+class LateEmbeddingResult(BaseModel):
+    embeddings: list[list[float]]
+
+
+class EmbedLateResponse(BaseModel):
+    embeddings: list[LateEmbeddingResult]
+    model: str
+
+
 class HealthResponse(BaseModel):
     status: str
     model_loaded: bool
@@ -145,6 +197,8 @@ class HealthResponse(BaseModel):
     models: list[str]  # NEW: list both models
     dimensions: int
     uptime_seconds: int
+    sparse_models: list[str]  # BM25 model status
+    late_models: list[str]  # ColBERT model status
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -157,6 +211,8 @@ def health():
         models=list(MODEL_NAMES.values()),  # NEW: list both models
         dimensions=VECTOR_DIMENSIONS,
         uptime_seconds=int(time.time() - models_ready_time),
+        sparse_models=list(SPARSE_REGISTRY.keys()),
+        late_models=list(LATE_REGISTRY.keys()),
     )
 
 
@@ -192,6 +248,36 @@ def embed(request: EmbedRequest):
     )
 
 
+@app.post("/embed/sparse", response_model=EmbedSparseResponse)
+def embed_sparse(request: EmbedSparseRequest):
+    """Generate BM25 sparse embeddings for keyword-aware hybrid search."""
+    if not request.texts:
+        raise HTTPException(status_code=400, detail="No texts provided")
+    if "bm25" not in SPARSE_REGISTRY:
+        raise HTTPException(status_code=503, detail="BM25 model not loaded")
+    model = SPARSE_REGISTRY["bm25"]
+    results = list(model.embed(request.texts))
+    return EmbedSparseResponse(
+        embeddings=[SparseEmbeddingResult(indices=r.indices.tolist(), values=r.values.tolist()) for r in results],
+        model="Qdrant/bm25",
+    )
+
+
+@app.post("/embed/late", response_model=EmbedLateResponse)
+def embed_late(request: EmbedLateRequest):
+    """Generate ColBERT late interaction embeddings (conditional on COLBERT_ENABLED)."""
+    if not request.texts:
+        raise HTTPException(status_code=400, detail="No texts provided")
+    if "colbert" not in LATE_REGISTRY:
+        raise HTTPException(status_code=503, detail="ColBERT model not loaded (set COLBERT_ENABLED=true)")
+    model = LATE_REGISTRY["colbert"]
+    results = list(model.embed(request.texts))
+    return EmbedLateResponse(
+        embeddings=[LateEmbeddingResult(embeddings=r.tolist()) for r in results],
+        model="colbert-ir/colbertv2.0",
+    )
+
+
 @app.get("/")
 def root():
     return {
@@ -201,6 +287,8 @@ def root():
         "endpoints": {
             "health": "/health",
             "embed": "/embed (POST) - backward compatible, uses model=en",
-            "embed_dense": "/embed/dense (POST) - new dual-model endpoint"
+            "embed_dense": "/embed/dense (POST) - new dual-model endpoint",
+            "embed_sparse": "/embed/sparse (POST) - BM25 sparse embeddings",
+            "embed_late": "/embed/late (POST) - ColBERT late interaction embeddings (conditional)",
         },
     }

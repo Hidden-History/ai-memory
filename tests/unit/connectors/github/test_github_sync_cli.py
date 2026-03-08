@@ -1,13 +1,8 @@
 """Tests for GitHub sync CLI script (SPEC-008 Section 3.4)."""
 
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-# Add scripts directory to path for importing the CLI module
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
 
 import github_sync
 from github_sync import main

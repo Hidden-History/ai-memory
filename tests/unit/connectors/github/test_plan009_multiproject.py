@@ -9,14 +9,10 @@ Covers:
 - run_sync_cycle iterates over projects.d/ via mocked discover_projects
 """
 
-import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-# Allow importing github_sync_service from scripts/
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
 
 import github_sync_service
 from github_sync_service import run_sync_cycle

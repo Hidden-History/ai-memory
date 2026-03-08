@@ -11,8 +11,6 @@ Tests verify:
 
 import sys
 
-sys.path.insert(0, ".")
-
 import pytest
 
 from src.memory.config import get_config

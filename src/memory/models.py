@@ -22,7 +22,7 @@ __all__ = [
 class MemoryType(str, Enum):
     """Types of memories that can be stored (Memory System v2.0).
 
-    Total: 30 types (4 code-patterns + 5 conventions + 6 discussions + 2 jira-data + 9 github + 4 agent)
+    Total: 31 types (4 code-patterns + 5 conventions + 7 discussions + 2 jira-data + 9 github + 4 agent)
     Spec: oversight/specs/MEMORY-SYSTEM-REDESIGN-v2.md Section 5
 
     Note: Uses (str, Enum) pattern for Python 3.10 compatibility (AMD ROCm images).
@@ -32,7 +32,7 @@ class MemoryType(str, Enum):
     Collections (v2.0):
         code-patterns: IMPLEMENTATION, ERROR_PATTERN, REFACTOR, FILE_PATTERN
         conventions: RULE, GUIDELINE, PORT, NAMING, STRUCTURE
-        discussions: DECISION, SESSION, BLOCKER, PREFERENCE, USER_MESSAGE, AGENT_RESPONSE
+        discussions: DECISION, DISCUSSION, SESSION, BLOCKER, PREFERENCE, USER_MESSAGE, AGENT_RESPONSE
         discussions (agent namespace): AGENT_HANDOFF, AGENT_MEMORY, AGENT_TASK, AGENT_INSIGHT
         jira-data: JIRA_ISSUE, JIRA_COMMENT
         discussions (github namespace): GITHUB_ISSUE, GITHUB_ISSUE_COMMENT, GITHUB_PR,
@@ -55,6 +55,7 @@ class MemoryType(str, Enum):
 
     # === discussions collection (WHY things were decided) ===
     DECISION = "decision"  # Architectural/design decisions (DEC-xxx)
+    DISCUSSION = "discussion"  # General discussion points (TD-208)
     SESSION = "session"  # Session summaries
     BLOCKER = "blocker"  # Blockers and their resolutions (BLK-xxx)
     PREFERENCE = "preference"  # User preferences and working style

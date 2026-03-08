@@ -1,14 +1,9 @@
 """Tests for GitHub sync service container entrypoint (SPEC-008 Section 3.3)."""
 
 import signal
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-# Add scripts directory to path for importing the service module
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
 
 import github_sync_service
 from github_sync_service import handle_signal, main, run_sync_cycle

@@ -22,9 +22,13 @@ from datetime import datetime, timezone
 from qdrant_client.models import (
     FieldCondition,
     Filter,
+    Fusion,
+    FusionQuery,
     MatchAny,
     MatchValue,
+    Prefetch,
     SearchParams,
+    SparseVector,
 )
 
 from .activity_log import log_memory_search
@@ -148,16 +152,29 @@ class MemorySearch:
         self.embedding_client = EmbeddingClient(self.config)
 
     def _get_embedding_model(
-        self, collection: str, memory_type: str | list[str] | None = None
+        self,
+        collection: str,
+        memory_type: str | list[str] | None = None,
+        content_type: str | None = None,
     ) -> str:
         """Route embedding model based on collection and content type.
 
         Mirrors MemoryStorage._get_embedding_model routing rules.
         SPEC-010 Section 4.2: Routing Rules
+        - content_type="github_code_blob" -> code model (highest priority)
         - code-patterns collection -> code model
-        - github_code_blob type (in any collection) -> code model
+        - github_code_blob in memory_type list -> code model
         - Everything else -> prose (en) model
+
+        Args:
+            collection: Qdrant collection name.
+            memory_type: Optional memory type filter (str or list).
+            content_type: Optional explicit content type override. When set to
+                "github_code_blob", forces "code" model regardless of collection.
         """
+        # TD-225: content_type takes highest priority for model routing
+        if content_type == "github_code_blob":
+            return "code"
         if collection == COLLECTION_CODE_PATTERNS:
             return "code"
         # Content-type routing: github_code_blob stored in discussions uses code model
@@ -277,7 +294,12 @@ class MemorySearch:
         # Generate query embedding
         # Propagates EmbeddingError for graceful degradation
         _trace_start = datetime.now(tz=timezone.utc)
-        model = self._get_embedding_model(collection, memory_type=memory_types)
+        # TD-225: Extract content_type for embedding model routing when a single
+        # type is filtered (e.g., github_code_blob in github collection).
+        _content_type = memory_types[0] if memory_types and len(memory_types) == 1 else None
+        model = self._get_embedding_model(
+            collection, memory_type=memory_types, content_type=_content_type
+        )
         query_embedding = self.embedding_client.embed([query], model=model)[0]
 
         # Build filter conditions using 2025 best practice: model-based Filter API
@@ -366,10 +388,117 @@ class MemorySearch:
             },
         )
 
+        _search_mode = "dense"  # Track mode for logging/tracing
         start_time = time.perf_counter()
         try:
-            # SPEC-001: Decay scoring integration
-            if self.config.decay_enabled:
+            # Search path selection: hybrid and decay COMPOSE (not exclusive).
+            # Priority order:
+            #   1. hybrid+decay  — RRF fusion of dense+sparse, then decay rerank
+            #   2. hybrid only   — RRF fusion (or ColBERT rerank) of dense+sparse
+            #   3. decay only    — dense prefetch, then decay rerank
+            #   4. plain dense   — simple dense vector search
+
+            # Step 1: Attempt to build hybrid prefetch stages (dense+sparse)
+            hybrid_prefetch_stages = None
+            if self.config.hybrid_search_enabled:
+                hybrid_prefetch_stages = self._build_hybrid_prefetch(
+                    query=query,
+                    query_embedding=query_embedding,
+                    collection=collection,
+                    query_filter=query_filter,
+                    limit=limit,
+                    score_threshold=score_threshold,
+                    search_params=search_params,
+                )
+                # hybrid_prefetch_stages is None if sparse embedding failed
+
+            # Step 2: Execute query based on available capabilities
+            if hybrid_prefetch_stages is not None and self.config.decay_enabled:
+                # PATH 1: Hybrid + Decay (best quality)
+                # Architecture: [dense -> decay formula, sparse] -> RRF fusion
+                # Decay must be applied to dense FIRST because:
+                # - Dense scores are cosine similarity (0-1 scale) — compatible with
+                #   decay formula's 0.7*$score + 0.3*temporal weighting
+                # - RRF scores are reciprocal rank (~0.01-0.05) — NOT compatible with
+                #   the decay formula. Applying decay after RRF would zero out semantics.
+                _search_mode = "hybrid_rrf_decay"
+                prefetch_limit = max(50, limit * 5)
+
+                # Build decay formula + dense prefetch (decay applied to dense scores)
+                formula, decay_dense_prefetch = build_decay_formula(
+                    query_embedding=query_embedding,
+                    collection=collection,
+                    config=self.config,
+                    extra_filter=query_filter,
+                    prefetch_limit=prefetch_limit,
+                    score_threshold=score_threshold,
+                    search_params=search_params,
+                )
+
+                # Decay-scored dense prefetch: dense -> decay formula reranks
+                decay_dense_stage = Prefetch(
+                    prefetch=decay_dense_prefetch,
+                    query=formula,
+                    limit=prefetch_limit,
+                )
+
+                # Extract sparse prefetch from hybrid stages (index 1)
+                sparse_stage = hybrid_prefetch_stages[1]
+                # Ensure sparse stage has enough candidates
+                sparse_stage.limit = prefetch_limit
+
+                # RRF fusion of decay-adjusted dense + raw sparse scores
+                try:
+                    response = self.client.query_points(
+                        collection_name=collection,
+                        prefetch=[decay_dense_stage, sparse_stage],
+                        query=FusionQuery(fusion=Fusion.RRF),
+                        limit=limit,
+                        with_payload=True,
+                    )
+                except Exception as hybrid_err:
+                    # Graceful degradation: collection may lack sparse config
+                    logger.warning(
+                        "hybrid_query_failed_falling_back_to_decay",
+                        extra={"error": str(hybrid_err), "collection": collection},
+                    )
+                    _search_mode = "decay"
+                    response = self.client.query_points(
+                        collection_name=collection,
+                        prefetch=decay_dense_prefetch,
+                        query=formula,
+                        limit=limit,
+                        with_payload=True,
+                    )
+
+            elif hybrid_prefetch_stages is not None:
+                # PATH 2: Hybrid only (no decay)
+                # Try ColBERT reranking first, then RRF fusion
+                _search_mode = self._hybrid_query_with_fallback(
+                    query=query,
+                    collection=collection,
+                    query_filter=query_filter,
+                    limit=limit,
+                    hybrid_prefetch_stages=hybrid_prefetch_stages,
+                )
+                if isinstance(_search_mode, tuple):
+                    response, _search_mode = _search_mode
+                else:
+                    # ColBERT and RRF both failed — fall through to dense
+                    _search_mode = "dense"
+                    response = self.client.query_points(
+                        collection_name=collection,
+                        query=query_embedding,
+                        query_filter=query_filter,
+                        limit=limit,
+                        score_threshold=score_threshold,
+                        with_payload=True,
+                        search_params=search_params,
+                    )
+
+            elif self.config.decay_enabled:
+                # PATH 3: Decay only (no hybrid — sparse unavailable or hybrid disabled)
+                _search_mode = "decay"
                 prefetch_limit = max(50, limit * 5)
                 formula, prefetch = build_decay_formula(
                     query_embedding=query_embedding,
@@ -388,7 +517,9 @@ class MemorySearch:
                     limit=limit,
                     with_payload=True,
                 )
+
             else:
+                # PATH 4: Plain dense search (no hybrid, no decay)
                 response = self.client.query_points(
                     collection_name=collection,
                     query=query_embedding,
@@ -498,6 +629,7 @@ class MemorySearch:
                             "source": source,
                             "agent_id": agent_id,
                             "embedding_model": model,
+                            "search_mode": _search_mode,
                             "search_duration_ms": round(_search_duration_ms, 2),
                             "result_count": len(memories),
                             "top_score": round(_top_score, 4),
@@ -536,10 +668,175 @@ class MemorySearch:
                 "results_count": len(memories),
                 "group_id": group_id,
                 "threshold": score_threshold,
+                "search_mode": _search_mode,
             },
         )
 
         return memories
+
+    def _build_hybrid_prefetch(
+        self,
+        query: str,
+        query_embedding: list[float],
+        collection: str,
+        query_filter: Filter | None,
+        limit: int,
+        score_threshold: float | None,
+        search_params: SearchParams | None,
+    ) -> list[Prefetch] | None:
+        """Build dense+sparse prefetch stages for hybrid search.
+
+        Generates sparse embedding and constructs the two Prefetch stages
+        (dense + BM25 sparse) needed for hybrid search. Returns None if
+        sparse embedding is unavailable, signaling the caller to fall back
+        to dense-only search.
+
+        Args:
+            query: Original query text (for sparse embedding generation).
+            query_embedding: Pre-computed dense embedding vector.
+            collection: Qdrant collection name (for logging).
+            query_filter: Pre-built filter conditions.
+            limit: Maximum results (used to compute prefetch_limit).
+            score_threshold: Minimum similarity score (applied to dense prefetch).
+            search_params: HNSW search parameters (applied to dense prefetch).
+
+        Returns:
+            List of [dense_prefetch, sparse_prefetch] on success, or None on failure.
+        """
+        # Generate sparse embedding
+        sparse_embedding = None
+        try:
+            sparse_results = self.embedding_client.embed_sparse([query])
+            sparse_embedding = sparse_results[0] if sparse_results else None
+        except Exception as e:
+            logger.warning(
+                "hybrid_sparse_embedding_failed",
+                extra={"error": str(e), "collection": collection},
+            )
+
+        if sparse_embedding is None:
+            logger.debug(
+                "hybrid_fallback_no_sparse",
+                extra={"collection": collection, "reason": "sparse_embedding_unavailable"},
+            )
+            return None
+
+        # Build prefetch stages: dense + sparse (BM25)
+        # max(50, limit * 5) ensures enough candidates for downstream RRF + decay
+        prefetch_limit = max(50, limit * 5)
+
+        dense_prefetch = Prefetch(
+            query=query_embedding,
+            limit=prefetch_limit,
+            score_threshold=score_threshold,
+            filter=query_filter,
+        )
+        if search_params is not None:
+            dense_prefetch.params = search_params
+
+        sparse_prefetch = Prefetch(
+            query=SparseVector(
+                indices=sparse_embedding["indices"],
+                values=sparse_embedding["values"],
+            ),
+            using="bm25",
+            limit=prefetch_limit,
+            filter=query_filter,
+        )
+
+        return [dense_prefetch, sparse_prefetch]
+
+    def _hybrid_query_with_fallback(
+        self,
+        query: str,
+        collection: str,
+        query_filter: Filter | None,
+        limit: int,
+        hybrid_prefetch_stages: list[Prefetch],
+    ) -> str | tuple:
+        """Execute hybrid search query using pre-built prefetch stages.
+
+        PLAN-013: Hybrid search execution with graceful degradation.
+        Called when hybrid is enabled but decay is NOT (hybrid-only path).
+
+        Ordering of attempts:
+        1. ColBERT reranking (if colbert_reranking_enabled and ColBERT embeddings available)
+        2. RRF fusion (dense + sparse prefetch fused with Reciprocal Rank Fusion)
+        3. "dense" string fallback (caller handles dense-only search)
+
+        Args:
+            query: Original query text (for late/ColBERT embedding generation).
+            collection: Qdrant collection name.
+            query_filter: Pre-built filter conditions.
+            limit: Maximum results to return.
+            hybrid_prefetch_stages: Pre-built [dense_prefetch, sparse_prefetch] list.
+
+        Returns:
+            Tuple of (QueryResponse, mode_name) on success, or "dense" string on fallback.
+        """
+        # Step 1: Try ColBERT reranking path (highest quality, optional)
+        if self.config.colbert_reranking_enabled:
+            try:
+                late_results = self.embedding_client.embed_late([query])
+                late_embedding = late_results[0] if late_results else None
+            except Exception as e:
+                logger.warning(
+                    "hybrid_colbert_embedding_failed",
+                    extra={"error": str(e), "collection": collection},
+                )
+                late_embedding = None
+
+            if late_embedding is not None:
+                try:
+                    response = self.client.query_points(
+                        collection_name=collection,
+                        prefetch=hybrid_prefetch_stages,
+                        query=late_embedding,
+                        using="colbert",
+                        query_filter=query_filter,
+                        limit=limit,
+                        with_payload=True,
+                    )
+                    logger.debug(
+                        "hybrid_colbert_search_completed",
+                        extra={
+                            "collection": collection,
+                            "results_count": len(response.points),
+                        },
+                    )
+                    return (response, "hybrid_colbert")
+                except Exception as e:
+                    logger.warning(
+                        "hybrid_colbert_query_failed",
+                        extra={"error": str(e), "collection": collection},
+                    )
+                    # Fall through to RRF fusion
+
+        # Step 2: RRF fusion path (dense + sparse combined)
+        try:
+            response = self.client.query_points(
+                collection_name=collection,
+                prefetch=hybrid_prefetch_stages,
+                query=FusionQuery(fusion=Fusion.RRF),
+                query_filter=query_filter,
+                limit=limit,
+                with_payload=True,
+            )
+            logger.debug(
+                "hybrid_rrf_search_completed",
+                extra={
+                    "collection": collection,
+                    "results_count": len(response.points),
+                },
+            )
+            return (response, "hybrid_rrf")
+        except Exception as e:
+            logger.warning(
+                "hybrid_rrf_query_failed",
+                extra={"error": str(e), "collection": collection},
+            )
+            # Fall through to dense-only
+            return "dense"
 
     def get_recent(
         self,

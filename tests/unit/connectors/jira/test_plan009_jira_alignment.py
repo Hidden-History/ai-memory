@@ -8,14 +8,10 @@ Covers:
 - jira_sync.run_sync() 3-way project branching with mocked discover_projects
 """
 
-import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-
-# Allow importing jira_sync from scripts/
-sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
 
 import jira_sync
 

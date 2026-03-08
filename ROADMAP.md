@@ -4,28 +4,28 @@ This roadmap outlines the development direction for AI Memory Module. Community 
 
 ---
 
-## Current Release: v2.0.3 (Released 2026-02-03)
+## Current Release: v2.2.0 (Released 2026-03-08)
 
-**V2.0 Architecture** - Complete memory system redesign with specialized collections, automatic triggers, and intelligent context injection.
+**Parzival V2 Architecture** - Agent-activated injection, clean session starts, and full Langfuse V3 observability.
 
 ### Architecture Overview
 
-**Three-Collection Memory System** (V2.7 Architecture Spec):
+**Five-Collection Memory System** (V3.4 Architecture Spec):
 
 | Collection | Purpose | Example Types |
 |------------|---------|---------------|
-| **code-patterns** | HOW things are built | implementation, error_fix, refactor, file_pattern |
+| **code-patterns** | HOW things are built | implementation, error_pattern, refactor, file_pattern |
 | **conventions** | WHAT rules to follow | rule, guideline, port, naming, structure |
 | **discussions** | WHY things were decided | decision, session, preference, user_message, agent_response |
+| **github** | Code context from repos | github_code_blob |
+| **jira-data** | Project management context | jira_issue, jira_comment |
 
-**Best Practices Applied**:
-- **BP-038** (Qdrant Best Practices 2026): HNSW configuration, payload indexing, 8-bit scalar quantization
-- **BP-039** (RAG Best Practices): Intent detection, token budgets, context injection
-- **BP-040** (Event-Driven Architecture): Hook classification, graceful degradation
-
-### V2.0.x Features
-
-- **15 Memory Types** for precise categorization
+**Core Capabilities:**
+- **30+ Memory Types** for precise categorization across all five collections
+- **Agent-Activated Injection**: Sessions start clean -- no ambient Qdrant noise. Bootstrap via skills only.
+- **Parzival V2**: Layered bootstrap (L1-L4), constraint re-injection, skill-activated retrieval
+- **Langfuse V3**: Full OTel-based tracing with dual-path architecture (trace buffer for hooks, direct SDK for services)
+- **Zero-Truncation Principle**: Content is chunked into multiple vectors, never truncated for storage
 - **6 Automatic Triggers** (signal-driven retrieval):
   1. **Error Detection** - Retrieves past error fixes when commands fail
   2. **New File Creation** - Retrieves naming conventions and structure patterns
@@ -43,124 +43,87 @@ This roadmap outlines the development direction for AI Memory Module. Community 
 - **Graceful Degradation** - Claude works even when services are temporarily unavailable
 - **Multi-Project Isolation** - `group_id` filtering keeps projects separate
 
-### V2.0.2 Fixes
-- Installer now runs `pip install` for Python dependencies (BUG-054)
-- SessionStart hook timeout parameter cast to int (BUG-051)
-- store_async.py handles missing session_id gracefully (BUG-058)
+**Best Practices Applied**:
+- **BP-038** (Qdrant Best Practices 2026): HNSW configuration, payload indexing, 8-bit scalar quantization
+- **BP-039** (RAG Best Practices): Intent detection, token budgets, context injection, hybrid search
+- **BP-040** (Event-Driven Architecture): Hook classification, graceful degradation
+- **BP-001** (RAG Chunking 2026): 256-512 token chunks, 10-20% overlap, topical chunking
 
 ---
 
-## Planned - v2.0.3: Quality & Performance (In Progress)
+## In Development: v2.2.1
 
-**Theme:** Technical debt resolution and performance optimization
+**Theme:** Triple fusion hybrid search and retrieval quality
 
-### Performance
-- [ ] **TECH-DEBT-104**: Add `content_hash` payload index for O(1) deduplication
-- [ ] **TECH-DEBT-117**: Add retrieval latency NFR (<500ms)
-- [ ] **TECH-DEBT-118**: Clarify embedding latency NFR (batch vs real-time)
+### Triple Fusion Hybrid Search
+- **Dense Vectors**: Jina v2 Base EN (768d, prose) + Jina v2 Base Code (768d, code)
+- **Sparse Vectors**: Qdrant BM25 with IDF weighting for keyword matching
+- **Late Interaction**: ColBERT v2 (opt-in, ~400MB model) for token-level reranking
+- **Fusion**: Combined via Qdrant native Reciprocal Rank Fusion (RRF)
+- **4-Path Search Composition**: hybrid+decay, hybrid-only, decay-only, plain dense
+- Points without BM25 vectors fall back to dense-only automatically
 
-### Documentation
-- [x] **TECH-DEBT-109**: ROADMAP.md rewrite for V2.0+ architecture
-- [x] **TECH-DEBT-108**: Update trigger count from 5 to 6 in README (verified in v2.0.3)
-
-### Configuration
-- [x] **TECH-DEBT-116**: Increase token budget from 2000 to 4000 per BP-039 Section 3
-
-**Target Release:** February 2026
+### Injection Quality
+- 3-tier soft confidence gating (full / reduced / skip)
+- Score gap threshold for adaptive result filtering
+- Type-filtered Tier 2 injection (excludes low-value types)
 
 ---
 
-## Planned - v2.1: Resilience & Quality (Q1 2026)
+## Release History
 
-**Theme:** Circuit breaker implementation and code quality improvements
+| Version | Date | Highlights |
+|---------|------|------------|
+| **v2.2.0** | 2026-03-08 | Parzival V2, agent-activated injection, PCB step-files, constraint re-injection |
+| **v2.1.0** | 2026-03-06 | Langfuse V3 SDK, DEC-038, TRACE_CONTENT_MAX |
+| **v2.0.8** | 2026-02 | Multi-project sync, credential hardening, `aim-` prefix rename |
+| **v2.0.7** | 2026-02 | Langfuse tracing, stack.sh, 20 bug fixes |
+| **v2.0.5** | 2026-02 | Jira integration, CI hardening |
+| **v2.0.4** | 2026-02 | Zero-truncation principle, topical chunking, `_enforce_content_limit` removed |
+| **v2.0.3** | 2026-02-03 | First stable release with 3-collection architecture |
+
+---
+
+## Planned - v2.3: Search Hardening (Q2 2026)
+
+**Theme:** ColBERT production hardening and test reorganization
+
+### Search Quality
+- [ ] ColBERT production hardening (memory optimization, model caching)
+- [ ] Search accuracy benchmarking and regression testing
+- [ ] BM25 index maintenance and vocabulary tuning
+
+### Code Quality
+- [ ] Test reorganization (unit / integration / e2e separation)
+- [ ] Type hints for mypy strict mode
+- [ ] Async migration to asyncio.TaskGroup (Python 3.11+)
 
 ### Resilience
-- [ ] **TECH-DEBT-081**: Circuit Breaker Pattern Implementation
-  - failure_threshold=5, reset_timeout=30s, half-open state per BP-040 Section 6
-- [ ] **TECH-DEBT-080**: Service Down Graceful Degradation Testing
-  - Verify Qdrant unavailability handling and queue fallback
-- [ ] **TECH-DEBT-078**: Automatic Queue Processor
-  - Background thread in classifier-worker container
-
-### Code Quality
-- [ ] **TECH-DEBT-102**: Migrate to asyncio.TaskGroup (Python 3.11+)
-  - 11 places using legacy asyncio.create_task()
-- [ ] **TECH-DEBT-111**: Strongly-typed hook event classes
-  - Add CaptureEvent, RetrievalEvent dataclasses per BP-040 Section 1
-- [ ] **TECH-DEBT-113**: Keyword pattern collision detection
-  - 63 patterns in triggers.py need maintenance workflow
-- [ ] **TECH-DEBT-115**: Context injection delimiter spec
-  - Add `<retrieved_context>` format for source attribution per BP-039 Section 1
-
-### Data Quality
-- [ ] **TECH-DEBT-059**: Backfill embeddings script
-  - 762 records pending migration
-- [ ] **TECH-DEBT-048**: Filter low-value agent responses
-- [ ] **TECH-DEBT-049**: Deduplicate similar user messages
-- [ ] **TECH-DEBT-050**: Smart truncation for context injection
-
-**Target Release:** March 2026
-
----
-
-## Planned - v2.2: Search Intelligence (Q2 2026)
-
-**Theme:** Hybrid search and advanced retrieval
-
-### Search Improvements
-- [ ] **TECH-DEBT-058**: Hybrid Search (BM25 + Dense Vectors)
-  - +15-25% accuracy improvement per BP-039 Section 5
-  - Reciprocal Rank Fusion (RRF) for result combination
-- [ ] **TECH-DEBT-003**: Embedding Migration Phases 2-3
-  - SPLADE sparse vectors for keyword matching
-  - ColBERT reranking (+15-20% accuracy per BP-039 Section 5)
-- [ ] **TECH-DEBT-055**: Late chunking for long documents
-  - +24% accuracy for documents >2000 tokens
-
-### Architecture
-- [ ] **TECH-DEBT-114**: Entity memory tier
-  - Hierarchical memory for cross-session entity knowledge per BP-039 Section 4
-- [ ] **TECH-DEBT-110**: Event sourcing / audit trail
-  - Append-only event log with hash-chain verification per BP-040 Section 7
-- [ ] **TECH-DEBT-112**: Multi-agent lifecycle events
-  - MultiAgentInitializedEvent, BeforeMultiAgentInvocationEvent per BP-040 Section 1
-
-### Performance
-- [ ] **TECH-DEBT-106**: HNSW inline_storage (Qdrant 1.16+)
-  - Disk optimization with inline_storage=True
-- [ ] **TECH-DEBT-107**: gRPC client for higher throughput
-  - prefer_grpc=True for Qdrant connections
-- [ ] **TECH-DEBT-060**: Cross-collection deduplication
-
-### Code Quality
-- [ ] **TECH-DEBT-105**: Add type hints for mypy strict mode
-- [ ] **TECH-DEBT-001**: Python 3.12+ optimizations
+- [ ] Circuit breaker pattern implementation (failure_threshold=5, reset_timeout=30s)
+- [ ] Automatic queue processor (background thread in classifier-worker container)
 
 **Target Release:** June 2026
 
 ---
 
-## Planned - v3.0: Enterprise & Extensibility (Q3-Q4 2026)
+## Planned - v3.0: Multi-Modal & Query API (Q3-Q4 2026)
 
-**Theme:** CI/CD enhancements and enterprise features
+**Theme:** Multi-modal memory and natural language query interface
 
-### CI/CD (TECH-DEBT-096)
-- [ ] Automated documentation deployment
-- [ ] PyPI Trusted Publishing
-- [ ] AI workflow enhancements
-- [ ] Artifact attestation
+### Multi-Modal Memory
+- [ ] Image and diagram memory (screenshots, architecture diagrams)
+- [ ] Multi-modal embeddings for visual content
+- [ ] Cross-modal retrieval (text query to image results)
+
+### Natural Language Query API
+- [ ] Natural language query interface for memory retrieval
+- [ ] Structured query builder from natural language
+- [ ] Query explanation and confidence reporting
 
 ### Enterprise Features
 - [ ] Team collaboration with shared memory pools
 - [ ] Access control and permissions
-- [ ] Memory review and approval workflows
-- [ ] SSO integration (SAML 2.0, OAuth 2.0 / OIDC)
-- [ ] Role-based access control (RBAC)
-
-### Architecture
 - [ ] Plugin system for custom extractors
-- [ ] Distributed deployment support (multi-node Qdrant)
-- [ ] Alternative vector DB support (Milvus, Weaviate adapters)
 
 **Target Release:** To be determined based on community demand
 
@@ -173,9 +136,10 @@ This system is built on verified best practices research:
 | BP-ID | Topic | Applied |
 |-------|-------|---------|
 | **BP-038** | Qdrant Best Practices 2026 | Collection design, HNSW config, payload indexing, quantization |
-| **BP-039** | RAG Best Practices | Intent detection, token budgets, context injection, hybrid search planning |
+| **BP-039** | RAG Best Practices | Intent detection, token budgets, context injection, hybrid search |
 | **BP-040** | Event-Driven Architecture | Hook classification, graceful degradation, circuit breaker planning |
 | **BP-037** | Multi-Tenancy Patterns | group_id isolation, is_tenant config, mandatory tenant filter |
+| **BP-001** | RAG Chunking 2026 | 256-512 token chunks, 10-20% overlap, topical chunking |
 
 ---
 
@@ -187,7 +151,10 @@ Features requested by the community are tracked here. Submit requests via [GitHu
 _Submit a feature request to be the first!_
 
 ### Recently Implemented
-- **V2.0 Three-Collection Architecture** - Community feedback on memory organization
+- **Parzival V2 Agent Architecture** - Agent-activated bootstrap, clean session starts
+- **Triple Fusion Hybrid Search** (v2.2.1) - Dense + sparse + late interaction retrieval
+- **Langfuse V3 Observability** - Full OTel-based tracing for all hook and service operations
+- **Five-Collection Architecture** - Dedicated github and jira-data collections
 - **Session History Trigger** - Requested continuity for "where were we" questions
 - **Backup/Restore Scripts** - Production deployment requirements
 
@@ -222,8 +189,8 @@ Participate in [GitHub Discussions](https://github.com/Hidden-History/ai-memory/
 
 ---
 
-**Last Updated:** 2026-02-03
-**Architecture Version:** V2.7
+**Last Updated:** 2026-03-08
+**Architecture Version:** V3.4
 **Maintainer:** [@Hidden-History](https://github.com/Hidden-History)
 
 _This roadmap is a living document and evolves based on community feedback and project needs._

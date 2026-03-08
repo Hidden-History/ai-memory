@@ -13,12 +13,22 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
+import warnings
+
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse, Response
 from prometheus_client import REGISTRY, make_asgi_app
 from pydantic import BaseModel, Field
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
+
+# TD-261: Targeted suppression — only silence the specific Qdrant client warning
+# about API keys with insecure connections, not ALL InsecureRequestWarning globally.
+warnings.filterwarnings(
+    "ignore",
+    message=".*Api key is used with an insecure connection.*",
+    category=UserWarning,
+)
 
 
 class StructuredLogFormatter(logging.Formatter):

@@ -453,6 +453,20 @@ class MemoryConfig(BaseSettings):
     )
 
     # =========================================================================
+    # v2.2.1 — Hybrid Search (PLAN-013)
+    # =========================================================================
+
+    hybrid_search_enabled: bool = Field(
+        default=True,
+        description="Enable hybrid dense+sparse search using Qdrant prefetch + RRF fusion",
+    )
+
+    colbert_reranking_enabled: bool = Field(
+        default=False,
+        description="Enable ColBERT late interaction reranking (requires ~400MB model download)",
+    )
+
+    # =========================================================================
     # v2.0.6 — Dual Embedding (SPEC-010)
     # =========================================================================
 
@@ -558,6 +572,13 @@ class MemoryConfig(BaseSettings):
         ge=0.0,
         le=1.0,
         description="Weight for topic drift signal in adaptive budget computation",
+    )
+
+    injection_score_gap_threshold: float = Field(
+        default=0.7,
+        ge=0.5,
+        le=0.95,
+        description="Score gap threshold for greedy result selection. Results below best_score * threshold are excluded.",
     )
 
     # =========================================================================
@@ -890,7 +911,7 @@ class ProjectSyncConfig:
     """Per-project sync configuration loaded from projects.d/ YAML."""
 
     project_id: str
-    source_directory: str | None = None
+    source_directory: Path | None = None
     github_repo: str | None = None
     github_branch: str = "main"
     github_enabled: bool = True
@@ -924,7 +945,15 @@ def discover_projects(config_dir: Path | None = None) -> dict[str, ProjectSyncCo
     projects: dict[str, ProjectSyncConfig] = {}
 
     if config_dir.is_dir():
-        for path in sorted(config_dir.glob("*.yaml")):
+        yaml_files = sorted(
+            list(config_dir.glob("*.yaml")) + list(config_dir.glob("*.yml"))
+        )
+        seen_stems: set[str] = set()
+        for path in yaml_files:
+            if path.stem in seen_stems:
+                logger.warning("Skipping duplicate project config %s (stem already loaded)", path.name)
+                continue
+            seen_stems.add(path.stem)
             try:
                 raw = yaml.safe_load(path.read_text())
                 if not raw or not raw.get("project_id"):
@@ -939,7 +968,7 @@ def discover_projects(config_dir: Path | None = None) -> dict[str, ProjectSyncCo
                     jira_proj_raw = [jira_proj_raw] if jira_proj_raw else []
                 projects[raw["project_id"]] = ProjectSyncConfig(
                     project_id=raw["project_id"],
-                    source_directory=raw.get("source_directory"),
+                    source_directory=Path(raw["source_directory"]) if raw.get("source_directory") else None,
                     github_repo=github.get("repo"),
                     github_branch=github.get("branch", "main"),
                     github_enabled=github.get("enabled", True),

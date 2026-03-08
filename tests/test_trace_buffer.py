@@ -10,12 +10,7 @@ Tests:
 """
 
 import json
-import os
-import sys
 import time
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
 
 import memory.trace_buffer as tb
 from memory.trace_buffer import emit_trace_event

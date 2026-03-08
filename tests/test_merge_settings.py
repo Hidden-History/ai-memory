@@ -11,12 +11,8 @@ Follows red-green-refactor cycle - these tests MUST fail initially.
 import json
 import sys
 from datetime import datetime
-from pathlib import Path
 
 import pytest
-
-# Import the module we're testing
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 
 def test_deep_merge_basic():

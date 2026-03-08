@@ -93,6 +93,7 @@ def detect_error_indicators(output: str, exit_code: int | None) -> bool:
         return False
 
     # Actual error patterns — structured error indicators, NOT bare keywords
+    # Checked FIRST so real errors are never masked by conversational filter
     error_patterns = [
         r"Traceback \(most recent call last\)",
         r"(?:^|\s)(?:Error|Exception|Fatal|FATAL):\s",
@@ -119,9 +120,31 @@ def detect_error_indicators(output: str, exit_code: int | None) -> bool:
     ]
 
     output_text = output
+    has_structural_error = False
     for pattern in error_patterns:
         if re.search(pattern, output_text, re.IGNORECASE | re.MULTILINE):
-            return True
+            has_structural_error = True
+            break
+
+    # If structural error found, it's a real error regardless of conversational text
+    if has_structural_error:
+        return True
+
+    # TD-260: Skip conversational content when no structural error AND no non-zero exit code
+    # Prevents false positives from agent responses mentioning "error" conversationally
+    # Applied AFTER structural error check to avoid masking real errors
+    if exit_code is None or exit_code == 0:
+        first_lines = "\n".join(lines[:5]).lower()
+        conversational_phrases = [
+            "i fixed", "i resolved", "the error was", "no errors",
+            "error handling", "error-free", "without error",
+            "has been fixed", "has been resolved", "was resolved",
+            "successfully", "works correctly", "no issues",
+            "error is gone", "errors were fixed", "fixed the error",
+            "resolved the error", "error has been", "handled the error",
+        ]
+        if any(phrase in first_lines for phrase in conversational_phrases):
+            return False
 
     return False
 

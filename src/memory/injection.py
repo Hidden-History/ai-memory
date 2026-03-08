@@ -554,13 +554,15 @@ def compute_topic_drift(
 # best_score * this value are filtered as low-relevance noise.
 # 0.7 (30% gap) chosen based on BUG-173 Langfuse trace analysis:
 # best=99%, noise=82% → 82/99=0.83 passes at 0.7 but fails at 0.85.
-_SCORE_GAP_THRESHOLD = 0.7
+# Now configurable via INJECTION_SCORE_GAP_THRESHOLD env var (default 0.7).
+_SCORE_GAP_THRESHOLD_DEFAULT = 0.7
 
 
 def select_results_greedy(
     results: list[dict],
     budget: int,
     excluded_ids: list[str] | None = None,
+    score_gap_threshold: float = _SCORE_GAP_THRESHOLD_DEFAULT,
 ) -> tuple[list[dict], int]:
     """Select results using greedy fill until budget exhausted.
 
@@ -610,9 +612,9 @@ def select_results_greedy(
             continue
         seen_hashes.add(content_hash)
 
-        # BUG-173: Skip results with >30% score gap from best
+        # BUG-173: Skip results with score gap from best exceeding threshold
         result_score = result.get("score", 0)
-        if best_score > 0 and result_score < best_score * _SCORE_GAP_THRESHOLD:
+        if best_score > 0 and result_score < best_score * score_gap_threshold:
             _score_gap_skipped += 1
             continue
 
@@ -656,6 +658,7 @@ def select_results_greedy(
                         "excluded_count": len(excluded),
                         "dedup_skipped": _dedup_skipped,
                         "score_gap_skipped": _score_gap_skipped,
+                        "gap_threshold": score_gap_threshold,
                         "selected_detail": [
                             {
                                 "type": r.get("type", "unknown"),
@@ -755,6 +758,8 @@ def log_injection_event(
     skipped_confidence: bool = False,
     topic_drift: float = 0.0,
     collections_searched: list[str] | None = None,
+    gap_threshold: float = 0.7,
+    gating_mode: str = "full",
 ) -> None:
     """Log injection event to .audit/logs/injection-log.jsonl.
 
@@ -776,6 +781,8 @@ def log_injection_event(
         skipped_confidence: True if injection was skipped due to low confidence
         topic_drift: Topic drift signal value
         collections_searched: Collections that were queried
+        gap_threshold: Score gap threshold used for greedy fill filtering
+        gating_mode: Confidence gating path taken ("skip", "soft", or "full")
     """
     log_path = Path(audit_dir) / "logs" / "injection-log.jsonl"
 
@@ -794,6 +801,8 @@ def log_injection_event(
         "skipped_confidence": skipped_confidence,
         "topic_drift": round(topic_drift, 4),
         "collections_searched": collections_searched or [],
+        "gap_threshold": round(gap_threshold, 4),
+        "gating_mode": gating_mode,
     }
 
     try:
