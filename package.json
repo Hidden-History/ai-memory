@@ -1,7 +1,7 @@
 {
   "name": "ai-memory",
   "version": "1.0.0",
-  "description": "BMAD AI Memory Module - Vector-based memory system for AI agents",
+  "description": "AI Memory Module - Vector-based memory system for AI agents",
   "main": "index.js",
   "directories": {
     "doc": "docs",
