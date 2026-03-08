@@ -106,6 +106,7 @@ def resolve_half_life(
         "discussions": config.decay_half_life_discussions,
         "conventions": config.decay_half_life_conventions,
         "jira-data": config.decay_half_life_jira_data,
+        "github": config.decay_half_life_github,
     }
     if collection in collection_defaults:
         return float(collection_defaults[collection])

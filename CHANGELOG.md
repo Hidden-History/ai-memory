@@ -5,6 +5,63 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-03-08
+
+Triple Fusion Hybrid Search (PLAN-013): Dense vectors augmented with BM25 sparse vectors and optional ColBERT late interaction reranking via Qdrant's native RRF fusion. 4-path search composition with automatic fallback. RRF score normalization to [0.5, 0.95] range for compatibility with existing confidence thresholds.
+
+### Added
+- **BM25 sparse vectors**: All 5 collections gain BM25/IDF sparse embeddings via fastembed `Qdrant/bm25` model, stored alongside dense vectors
+- **ColBERT late interaction reranking** (opt-in): `COLBERT_RERANKING_ENABLED=true` adds ColBERT multi-vector reranking via embedding service `/rerank` endpoint
+- **4-path search composition**: PATH 1 (hybrid+decay), PATH 2 (hybrid-only), PATH 3 (decay-only), PATH 4 (plain dense) — automatic fallback through paths
+- **Sparse embedding in hooks**: `store_async.py` generates BM25 sparse vectors alongside dense embeddings for code-pattern storage
+- **Migration script**: `scripts/migrate_v221_hybrid_vectors.py` — idempotent, resumable migration that adds BM25 sparse vectors to existing collections
+- **Installer migration notice**: Success message includes hybrid search migration command for existing installations
+- **BM25 model pre-download**: Embedding service Dockerfile downloads `Qdrant/bm25` model at build time (no cold-start delay)
+- **`COLBERT_ENABLED` passthrough**: Docker Compose passes ColBERT toggle to embedding container
+
+### Fixed
+- **DEC-062 RRF score normalization**: RRF reciprocal-rank scores (~0.01-0.05) normalized to [0.5, 0.95] range using min-max scaling. Prevents confidence gating bypass, score gap filter malfunction, and adaptive budget distortion.
+- **Missing `github` collection in decay**: `resolve_half_life()` now includes `github` collection with configurable `decay_half_life_github` (default: 14 days)
+- **EmbeddingClient resource leak**: `pre_compact_save.py` now uses `with` context manager for EmbeddingClient
+- **`COLBERT_ENABLED` env var**: Was missing from docker-compose embedding service environment
+
+### Changed
+- **`hybrid_search_enabled` default**: Changed from `True` to `False` in config.py for backward compatibility — requires explicit opt-in + migration
+- **Search result tagging**: All results now include `search_mode` field for downstream observability
+
+### Upgrade Instructions
+
+1. Update code and reinstall:
+   ```bash
+   cd /path/to/your/ai-memory-clone
+   git pull origin main
+   ./scripts/install.sh /path/to/your-project
+   # Select Option 1 (updates hooks and code only)
+   ```
+
+2. **Rebuild embedding container** (required — new BM25 model):
+   ```bash
+   cd ~/.ai-memory/docker
+   unset QDRANT_API_KEY  # prevent env override
+   docker compose build --no-cache embedding
+   docker compose up -d embedding
+   ```
+
+3. **Enable hybrid search** (optional):
+   ```bash
+   # Add to ~/.ai-memory/docker/.env:
+   HYBRID_SEARCH_ENABLED=true
+   COLBERT_RERANKING_ENABLED=false  # or true for ColBERT
+   COLBERT_ENABLED=false            # or true to load ColBERT model
+
+   # Migrate existing data:
+   python ~/.ai-memory/scripts/migrate_v221_hybrid_vectors.py
+   ```
+
+4. **No Qdrant schema changes required**: Sparse vectors are added alongside existing dense vectors. Plain dense search continues to work without migration.
+
+---
+
 ## [2.2.0] - 2026-03-08
 
 Agent-activated architecture (PLAN-011 + PLAN-012): Cross-session memory moves from automatic ambient injection to agent-activated retrieval via skills. Sessions start clean — no Qdrant noise on startup or resume. Parzival V2 deployment with deployable `_ai-memory/` package, PCB step-file workflows, constraint re-injection, and layered bootstrap skill. Installer upgraded with V2 deployment pipeline, V1-to-V2 migration, and stale matcher cleanup.

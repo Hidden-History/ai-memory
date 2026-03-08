@@ -457,8 +457,9 @@ class MemoryConfig(BaseSettings):
     # =========================================================================
 
     hybrid_search_enabled: bool = Field(
-        default=True,
-        description="Enable hybrid dense+sparse search using Qdrant prefetch + RRF fusion",
+        default=False,
+        description="Enable hybrid dense+sparse search using Qdrant prefetch + RRF fusion. "
+        "Requires running migrate_v221_hybrid_vectors.py first for existing collections.",
     )
 
     colbert_reranking_enabled: bool = Field(

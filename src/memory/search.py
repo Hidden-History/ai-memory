@@ -601,11 +601,44 @@ class MemorySearch:
             }
             memories.append(memory)
 
+        # PLAN-013 / DEC-062: Normalize hybrid search scores to [0.5, 0.95] range.
+        # RRF scores are reciprocal rank (~0.01-0.05), NOT cosine similarity (0-1).
+        # Without normalization, downstream confidence gating (threshold=0.6)
+        # would ALWAYS skip injection — a silent regression.
+        #
+        # Min-max normalization to [0.5, 0.95] (not [0, 1.0]) because:
+        # - Best result gets 0.95 (not 1.0) → preserves quality signal for
+        #   adaptive budget and is not excluded by score gap filter (which
+        #   skips deterministic score=1.0 results from get_recent()).
+        # - Worst result gets 0.5 → below confidence threshold (0.55 skip)
+        #   so low-quality tail results are naturally filtered.
+        # - Single result gets 0.75 → above threshold, moderate budget.
+        if _search_mode.startswith("hybrid") and memories:
+            scores = [m["score"] for m in memories]
+            max_score = max(scores)
+            min_score = min(scores)
+            if max_score > 0:
+                score_range = max_score - min_score
+                for m in memories:
+                    if score_range > 0:
+                        m["score"] = 0.5 + 0.45 * (m["score"] - min_score) / score_range
+                    else:
+                        # All same score (or single result) → use midpoint
+                        m["score"] = 0.75
+                    # Update attribution with normalized score
+                    m["attribution"] = format_attribution(
+                        m["collection"], m["type"], m["score"]
+                    )
+
+        # Tag results with search mode for downstream observability
+        for m in memories:
+            m["search_mode"] = _search_mode
+
         # SPEC-021: Emit search trace event
         if emit_trace_event:
             try:
                 _trace_end = datetime.now(tz=timezone.utc)
-                _top_score = results[0].score if results else 0.0
+                _top_score = memories[0]["score"] if memories else 0.0
                 _search_duration_ms = (time.perf_counter() - start_time) * 1000
                 # Build content preview for trace span (display only, not storage truncation).
                 # 500 chars per result x 10 results = ~5000 chars fits within TRACE_CONTENT_MAX.

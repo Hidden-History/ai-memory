@@ -482,7 +482,7 @@ def compute_adaptive_budget(
     ceiling = config.injection_budget_ceiling
 
     # Signal 1: Quality (50%) — higher best score = more budget
-    # Normalize to [0, 1] range. Score is already 0-1 from cosine similarity.
+    # Score is 0-1: cosine similarity for dense paths, normalized for hybrid/RRF paths.
     quality_signal = min(1.0, max(0.0, best_score))
 
     # Signal 2: Density (30%) — proportion of results above threshold

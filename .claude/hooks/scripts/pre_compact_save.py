@@ -29,6 +29,7 @@ Sources:
 - Claude Hooks reference: oversight/research/Claude_Hooks_reference.md
 - Architecture: docs/memory settings/AI_MEMORY_ARCHITECTURE.md
 """
+
 # LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
 # SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
@@ -474,7 +475,9 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                                 emit_trace_event(
                                     event_type="4_scan",
                                     data={
-                                        "input": summary_data["content"][:TRACE_CONTENT_MAX],
+                                        "input": summary_data["content"][
+                                            :TRACE_CONTENT_MAX
+                                        ],
                                         "output": f"Scan result: blocked (findings: {len(scan_result.findings)})",
                                         "metadata": {
                                             "content_length": scan_input_length,
@@ -493,8 +496,12 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                                                 )
                                                 for f in scan_result.findings
                                             ),
-                                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
-                                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                                            "agent_name": os.environ.get(
+                                                "CLAUDE_AGENT_NAME", "main"
+                                            ),
+                                            "agent_role": os.environ.get(
+                                                "CLAUDE_AGENT_ROLE", "user"
+                                            ),
                                         },
                                     },
                                     trace_id=trace_id,
@@ -512,8 +519,12 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                                         "metadata": {
                                             "reason": "scan_blocked",
                                             "scan_blocked": True,
-                                            "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
-                                            "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
+                                            "agent_name": os.environ.get(
+                                                "CLAUDE_AGENT_NAME", "main"
+                                            ),
+                                            "agent_role": os.environ.get(
+                                                "CLAUDE_AGENT_ROLE", "user"
+                                            ),
                                         },
                                     },
                                     trace_id=trace_id,
@@ -596,14 +607,14 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
         vector = [0.0] * 768  # Default placeholder
 
         try:
-            embed_client = EmbeddingClient()
-            embeddings = embed_client.embed([summary_data["content"]])
-            vector = embeddings[0]
-            embedding_status = EmbeddingStatus.COMPLETE.value
-            logger.info(
-                "embedding_generated",
-                extra={"memory_id": memory_id, "dimensions": len(vector)},
-            )
+            with EmbeddingClient() as embed_client:
+                embeddings = embed_client.embed([summary_data["content"]])
+                vector = embeddings[0]
+                embedding_status = EmbeddingStatus.COMPLETE.value
+                logger.info(
+                    "embedding_generated",
+                    extra={"memory_id": memory_id, "dimensions": len(vector)},
+                )
         except EmbeddingError as e:
             logger.warning(
                 "embedding_failed_using_placeholder",
@@ -615,10 +626,16 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
         sparse_vector = None
         try:
             from memory.config import get_config as _get_config
+
             _cfg = _get_config()
-            if _cfg.hybrid_search_enabled and embedding_status == EmbeddingStatus.COMPLETE.value:
+            if (
+                _cfg.hybrid_search_enabled
+                and embedding_status == EmbeddingStatus.COMPLETE.value
+            ):
                 with EmbeddingClient(_cfg) as sparse_client:
-                    sparse_results = sparse_client.embed_sparse([summary_data["content"]])
+                    sparse_results = sparse_client.embed_sparse(
+                        [summary_data["content"]]
+                    )
                     if sparse_results and sparse_results[0]:
                         sparse_vector = sparse_results[0]
         except Exception as e:
@@ -674,7 +691,9 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
         if sparse_vector is not None and SparseVector is not None:
             point_vector = {
                 "": vector,
-                "bm25": SparseVector(indices=sparse_vector["indices"], values=sparse_vector["values"]),
+                "bm25": SparseVector(
+                    indices=sparse_vector["indices"], values=sparse_vector["values"]
+                ),
             }
         else:
             point_vector = vector

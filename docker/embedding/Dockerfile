@@ -30,7 +30,8 @@ RUN pip install --upgrade --no-cache-dir -r requirements.txt
 # Pre-download both embedding models at build time (BUG-105)
 # Downloads ~500MB each from HuggingFace. Eliminates runtime download dependency.
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding('jinaai/jina-embeddings-v2-base-en')" && \
-    python -c "from fastembed import TextEmbedding; TextEmbedding('jinaai/jina-embeddings-v2-base-code')"
+    python -c "from fastembed import TextEmbedding; TextEmbedding('jinaai/jina-embeddings-v2-base-code')" && \
+    python -c "from fastembed import SparseTextEmbedding; SparseTextEmbedding('Qdrant/bm25')"
 
 # Stage 2: Runtime - Minimal production image
 FROM python:3.12-slim

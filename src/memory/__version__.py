@@ -4,10 +4,13 @@ Single source of truth for version number.
 Follows PEP 440 and semantic versioning principles.
 """
 
-__version__ = "2.0.8"
+__version__ = "2.2.1"
 __version_info__ = tuple(int(part) for part in __version__.split("."))
 
 # Version history:
+# 2.2.1 - Triple Fusion Hybrid Search (dense + sparse BM25 + ColBERT late interaction)
+# 2.2.0 - Agent-activated injection architecture, Parzival V2 deployment
+# 2.1.0 - Langfuse V3 SDK, agent identity, graceful shutdown
 # 2.0.8 - Multi-project sync, credential hardening, Langfuse tracing
 # 2.0.7 - Langfuse tracing (optional), stack.sh, 20 bug fixes
 # 2.0.6 - Installation hardening, doc accuracy sprint

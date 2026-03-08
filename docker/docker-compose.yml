@@ -38,6 +38,8 @@ services:
       - MODEL_NAME_CODE=${MODEL_NAME_CODE:-jinaai/jina-embeddings-v2-base-code}
       - VECTOR_DIMENSIONS=768
       - LOG_LEVEL=${BMAD_LOG_LEVEL:-INFO}
+      # PLAN-013: ColBERT late interaction model (opt-in, ~400MB download)
+      - COLBERT_ENABLED=${COLBERT_ENABLED:-false}
       # Set fastembed cache to persistent volume location
       - FASTEMBED_CACHE_PATH=/home/embedding/.cache/fastembed
     restart: unless-stopped

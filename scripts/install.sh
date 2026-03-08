@@ -3027,6 +3027,10 @@ show_success_message() {
     echo "│       Activate with: /pov:parzival-start                   │"
     fi
     echo "│                                                             │"
+    echo "│   \033[93mHybrid search (v2.2.1):\033[0m                                  │"
+    echo "│     To enable hybrid search on existing data, run:          │"
+    echo "│     python $INSTALL_DIR/scripts/migrate_v221_hybrid_vectors.py │"
+    echo "│                                                             │"
     echo "├─────────────────────────────────────────────────────────────┤"
     echo "│                                                             │"
     echo "│   What happens next:                                        │"
