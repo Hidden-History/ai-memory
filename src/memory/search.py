@@ -296,7 +296,9 @@ class MemorySearch:
         _trace_start = datetime.now(tz=timezone.utc)
         # TD-225: Extract content_type for embedding model routing when a single
         # type is filtered (e.g., github_code_blob in github collection).
-        _content_type = memory_types[0] if memory_types and len(memory_types) == 1 else None
+        _content_type = (
+            memory_types[0] if memory_types and len(memory_types) == 1 else None
+        )
         model = self._get_embedding_model(
             collection, memory_type=memory_types, content_type=_content_type
         )
@@ -717,7 +719,10 @@ class MemorySearch:
         if sparse_embedding is None:
             logger.debug(
                 "hybrid_fallback_no_sparse",
-                extra={"collection": collection, "reason": "sparse_embedding_unavailable"},
+                extra={
+                    "collection": collection,
+                    "reason": "sparse_embedding_unavailable",
+                },
             )
             return None
 

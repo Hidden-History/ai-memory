@@ -1056,9 +1056,7 @@ class MemoryStorage:
             }
 
             # Stage point for sparse embedding (deferred to batch call below)
-            pending_main_points.append(
-                (memory_id, embedding, payload_dict, content)
-            )
+            pending_main_points.append((memory_id, embedding, payload_dict, content))
             results.append(
                 {
                     "memory_id": memory_id,
@@ -1080,7 +1078,11 @@ class MemoryStorage:
                 main_sparse_results = None
 
             for i, (mid, emb, pdict, _content) in enumerate(pending_main_points):
-                if isinstance(main_sparse_results, list) and i < len(main_sparse_results) and main_sparse_results[i]:
+                if (
+                    isinstance(main_sparse_results, list)
+                    and i < len(main_sparse_results)
+                    and main_sparse_results[i]
+                ):
                     bsr = main_sparse_results[i]
                     point_vector = {
                         "": emb,
@@ -1090,14 +1092,10 @@ class MemoryStorage:
                     }
                 else:
                     point_vector = emb
-                points.append(
-                    PointStruct(id=mid, vector=point_vector, payload=pdict)
-                )
+                points.append(PointStruct(id=mid, vector=point_vector, payload=pdict))
         else:
             for mid, emb, pdict, _content in pending_main_points:
-                points.append(
-                    PointStruct(id=mid, vector=emb, payload=pdict)
-                )
+                points.append(PointStruct(id=mid, vector=emb, payload=pdict))
 
         # Pass 2: Batch-embed all chunk contents, grouped by model
         # SPEC-010: Each chunk uses its parent memory's embedding model
@@ -1143,7 +1141,11 @@ class MemoryStorage:
             for ci, ((chunk_id, chunk_payload_dict, _), chunk_emb) in enumerate(
                 zip(pending_chunks, chunk_embeddings, strict=True)
             ):
-                if isinstance(chunk_sparse_results, list) and ci < len(chunk_sparse_results) and chunk_sparse_results[ci]:
+                if (
+                    isinstance(chunk_sparse_results, list)
+                    and ci < len(chunk_sparse_results)
+                    and chunk_sparse_results[ci]
+                ):
                     bcsr = chunk_sparse_results[ci]
                     bc_point_vector = {
                         "": chunk_emb,

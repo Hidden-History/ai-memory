@@ -32,6 +32,7 @@ with contextlib.suppress(ImportError):
         QueueTimeoutError,
         RateLimitQueue,
     )
+
     _async_sdk_available = True
 from .config import MemoryConfig, get_config, reset_config
 

@@ -951,7 +951,10 @@ def discover_projects(config_dir: Path | None = None) -> dict[str, ProjectSyncCo
         seen_stems: set[str] = set()
         for path in yaml_files:
             if path.stem in seen_stems:
-                logger.warning("Skipping duplicate project config %s (stem already loaded)", path.name)
+                logger.warning(
+                    "Skipping duplicate project config %s (stem already loaded)",
+                    path.name,
+                )
                 continue
             seen_stems.add(path.stem)
             try:
@@ -968,7 +971,11 @@ def discover_projects(config_dir: Path | None = None) -> dict[str, ProjectSyncCo
                     jira_proj_raw = [jira_proj_raw] if jira_proj_raw else []
                 projects[raw["project_id"]] = ProjectSyncConfig(
                     project_id=raw["project_id"],
-                    source_directory=Path(raw["source_directory"]) if raw.get("source_directory") else None,
+                    source_directory=(
+                        Path(raw["source_directory"])
+                        if raw.get("source_directory")
+                        else None
+                    ),
                     github_repo=github.get("repo"),
                     github_branch=github.get("branch", "main"),
                     github_enabled=github.get("enabled", True),
