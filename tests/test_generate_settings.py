@@ -47,7 +47,7 @@ def test_generate_hook_config_session_start(monkeypatch):
     wrapper = session_start[0]
     assert "matcher" in wrapper, "SessionStart must have 'matcher' field"
     # Default matcher without Parzival: resume|compact only (session restore)
-    # update_parzival_settings.py expands to startup|resume|compact when Parzival is enabled
+    # v2.2.0: matcher is resume|compact for ALL states (update_parzival_settings.py no longer modifies matcher)
     assert wrapper["matcher"] == "resume|compact"
     assert "hooks" in wrapper, "SessionStart must have 'hooks' array"
     assert isinstance(wrapper["hooks"], list)
@@ -62,7 +62,7 @@ def test_generate_hook_config_session_start(monkeypatch):
 
 def test_generate_hook_config_session_start_parzival(monkeypatch):
     """generate_settings.py always outputs resume|compact default.
-    Parzival expansion to startup|resume|compact is done by update_parzival_settings.py.
+    v2.2.0: update_parzival_settings.py syncs env vars only, does not modify matcher.
     """
     from generate_settings import generate_hook_config
 
@@ -123,7 +123,7 @@ def test_session_start_default_matcher_without_parzival(monkeypatch):
 
 def test_session_start_default_matcher_with_parzival_env(monkeypatch):
     """generate_settings outputs resume|compact even with PARZIVAL_ENABLED.
-    Expansion to startup|resume|compact is done by update_parzival_settings.py."""
+    v2.2.0: update_parzival_settings.py syncs env vars only, does not modify matcher."""
     from generate_settings import generate_hook_config
 
     monkeypatch.setenv("PARZIVAL_ENABLED", "true")

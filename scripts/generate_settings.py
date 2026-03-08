@@ -43,7 +43,7 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
         - 'hooks' section with all 6 hook types
 
     2026 Best Practice: Complete Claude Code V2.0 hook structure
-    - SessionStart: Default 'matcher' (resume|compact) per Core-Architecture-V2 Section 7.2; expanded to startup|resume|compact when Parzival is enabled
+    - SessionStart: Default 'matcher' (resume|compact) per Core-Architecture-V2 Section 7.2 (v2.2.0: resume|compact for ALL states, DEC-054/055)
     - UserPromptSubmit: Captures user prompts and triggers context injection
     - PreToolUse: Triggers for new file creation and first edit detection
     - PostToolUse: Wrapper with 'matcher' + nested 'hooks' array (Bash errors, Edit/Write capture)

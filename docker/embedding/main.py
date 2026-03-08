@@ -64,7 +64,7 @@ logger = logging.getLogger("ai_memory.embedding")
 app = FastAPI(
     title="AI Memory Embedding Service",
     description="Dual embedding generation using Jina v2 Base EN (prose) + Base Code (code) - 768d",
-    version="2.1.0",
+    version="2.2.0",
 )
 
 # Mount Prometheus metrics endpoint (AC 6.1.5, AC 6.1.1)
