@@ -354,7 +354,7 @@ def main():
                 if line.startswith("QDRANT_API_KEY="):
                     file_key = line.split("=", 1)[1].strip().strip('"').strip("'")
                     if shell_key != file_key:
-                        print(f"  {YELLOW}WARNING: Shell QDRANT_API_KEY (***{shell_key[-3:]}) differs from .env (***{file_key[-3:]}){RESET}")
+                        print(f"  {YELLOW}WARNING: Shell QDRANT_API_KEY differs from docker/.env value{RESET}")
                         print(f"  {YELLOW}Run: unset QDRANT_API_KEY{RESET}")
                     break
 
