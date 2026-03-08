@@ -1,0 +1,23 @@
+name,description,module,path
+agent-dispatch,Prepare and dispatch BMAD agents as Claude Code teammates,pov,pov/workflows/cycles/agent-dispatch/workflow.md
+approval-gate,Route deliverables to user for explicit approval,pov,pov/workflows/cycles/approval-gate/workflow.md
+legitimacy-check,Classify code review issues as legitimate or non-issues,pov,pov/workflows/cycles/legitimacy-check/workflow.md
+research-protocol,Three-layer research protocol for finding verified answers,pov,pov/workflows/cycles/research-protocol/workflow.md
+review-cycle,Orchestrate code review and fix cycles until zero legitimate issues,pov,pov/workflows/cycles/review-cycle/workflow.md
+init-new,Initialize a new project with Parzival oversight,pov,pov/workflows/init/new/workflow.md
+init-existing,Onboard an existing project with Parzival oversight,pov,pov/workflows/init/existing/workflow.md
+discovery,Discovery phase - produce validated PRD from user requirements,pov,pov/workflows/phases/discovery/workflow.md
+architecture,Architecture phase - design technical architecture and create epics,pov,pov/workflows/phases/architecture/workflow.md
+planning,Planning phase - create implementation-ready sprint with story files,pov,pov/workflows/phases/planning/workflow.md
+execution,Execution phase - implement stories via DEV agent dispatch and review,pov,pov/workflows/phases/execution/workflow.md
+integration,Integration phase - full system testing and cohesion verification,pov,pov/workflows/phases/integration/workflow.md
+release,Release phase - compile release artifacts and deployment verification,pov,pov/workflows/phases/release/workflow.md
+maintenance,Maintenance phase - triage and fix production issues,pov,pov/workflows/phases/maintenance/workflow.md
+session-start,Full session start protocol with context loading and status report,pov,pov/workflows/session/start/workflow.md
+session-status,Quick read-only project status check,pov,pov/workflows/session/status/workflow.md
+session-blocker,Analyze and log a project blocker with resolution options,pov,pov/workflows/session/blocker/workflow.md
+session-decision,Present a decision with options and tradeoffs for user approval,pov,pov/workflows/session/decision/workflow.md
+session-verify,Run verification protocol on completed work,pov,pov/workflows/session/verify/workflow.md
+session-team-prompt,Build agent team prompts for 2-tier or 3-tier teams,pov,pov/workflows/session/team-prompt/workflow.md
+session-handoff,Create mid-session handoff document,pov,pov/workflows/session/handoff/workflow.md
+session-close,Full session closeout with tracking updates and Qdrant save,pov,pov/workflows/session/close/workflow.md

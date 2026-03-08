@@ -1,0 +1,21 @@
+installation:
+  version: 1.0.0
+  installDate: 2026-03-01T00:00:00.000Z
+  lastUpdated: 2026-03-01T00:00:00.000Z
+modules:
+  - name: core
+    version: 1.0.0
+    installDate: 2026-03-01T00:00:00.000Z
+    lastUpdated: 2026-03-01T00:00:00.000Z
+    source: built-in
+    npmPackage: null
+    repoUrl: null
+  - name: pov
+    version: 1.0.0
+    installDate: 2026-03-01T00:00:00.000Z
+    lastUpdated: 2026-03-01T00:00:00.000Z
+    source: built-in
+    npmPackage: null
+    repoUrl: null
+ides:
+  - claude-code

@@ -1,0 +1,8 @@
+# Parzival Agent Team: Code Review
+bundle:
+  name: Code Review
+  description: Code review agent for implementation verification and quality assurance.
+agents:
+  - dev
+party: null
+dispatch_mode: single

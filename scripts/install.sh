@@ -956,6 +956,30 @@ update_shared_scripts() {
         fi
     fi
 
+    # Sync _ai-memory/ deployable package (PLAN-011a Phase 4)
+    local aim_source="$SCRIPT_DIR/../_ai-memory"
+    if [[ -d "$aim_source" ]]; then
+        mkdir -p "$INSTALL_DIR/_ai-memory"
+        if compgen -G "$aim_source/*" > /dev/null 2>&1; then
+            cp -r "$aim_source/"* "$INSTALL_DIR/_ai-memory/"
+            find "$INSTALL_DIR/_ai-memory" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+            log_debug "Synced _ai-memory/ package to INSTALL_DIR"
+        fi
+    fi
+
+    # Sync .claude/{skills,agents,commands} shims to INSTALL_DIR (PLAN-011a Phase 4)
+    # In add-project mode, copy_files() is skipped — these must be synced here
+    for subdir in skills agents commands; do
+        local sub_src="$SCRIPT_DIR/../.claude/$subdir"
+        if [[ -d "$sub_src" ]]; then
+            mkdir -p "$INSTALL_DIR/.claude/$subdir"
+            if compgen -G "$sub_src/*" > /dev/null 2>&1; then
+                cp -r "$sub_src/"* "$INSTALL_DIR/.claude/$subdir/" 2>/dev/null || true
+            fi
+        fi
+    done
+    log_debug "Synced .claude/ shims to INSTALL_DIR"
+
     if [[ $updated_count -gt 0 || $hooks_count -gt 0 ]]; then
         log_success "Updated $updated_count shared scripts, $hooks_count hook scripts"
         if [[ $archived_count -gt 0 ]]; then
@@ -1207,7 +1231,7 @@ create_directories() {
     fi
 
     # Create main installation directory and subdirectories
-    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,logs,queue,.locks,trace_buffer}
+    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,.claude/commands,logs,queue,.locks,trace_buffer,_ai-memory}
 
     # Create queue directory with restricted permissions (security best practice 2026)
     # Queue is shared across all projects - single classifier worker processes all
@@ -1466,6 +1490,19 @@ copy_files() {
         log_debug "Copying Claude Code commands..."
         mkdir -p "$INSTALL_DIR/.claude/commands"
         cp -r "$SOURCE_DIR/.claude/commands/"* "$INSTALL_DIR/.claude/commands/" 2>/dev/null || true
+    fi
+
+    # Copy _ai-memory/ deployable package (Parzival V2 + skills + agents)
+    if [[ -d "$SOURCE_DIR/_ai-memory" ]]; then
+        log_debug "Copying _ai-memory/ deployable package..."
+        mkdir -p "$INSTALL_DIR/_ai-memory"
+        if compgen -G "$SOURCE_DIR/_ai-memory/*" > /dev/null 2>&1; then
+            cp -r "$SOURCE_DIR/_ai-memory/"* "$INSTALL_DIR/_ai-memory/"
+            find "$INSTALL_DIR/_ai-memory" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+            local aim_count
+            aim_count=$(find "$INSTALL_DIR/_ai-memory" -type f | wc -l)
+            log_debug "Copied $aim_count files to $INSTALL_DIR/_ai-memory/"
+        fi
     fi
 
     # Copy templates for best practices seeding
@@ -2470,51 +2507,6 @@ create_project_symlinks() {
         log_success "Created $file_count symlinks in $PROJECT_PATH/.claude/hooks/scripts/"
     fi
 
-    # Copy skills to project (core ai-memory functionality)
-    if [[ -d "$INSTALL_DIR/.claude/skills" ]]; then
-        local skills_count=0
-        for skill_dir in "$INSTALL_DIR/.claude/skills"/*/; do
-            if [[ -d "$skill_dir" ]]; then
-                skill_name=$(basename "$skill_dir")
-                target_skill="$PROJECT_PATH/.claude/skills/$skill_name"
-                mkdir -p "$target_skill"
-
-                if [[ "$link_method" == "copy" ]]; then
-                    cp -r "$skill_dir"* "$target_skill/" 2>/dev/null || true
-                else
-                    # Symlink entire skill directory
-                    rm -rf "$target_skill"
-                    ln -sf "${skill_dir%/}" "$PROJECT_PATH/.claude/skills/$skill_name"
-                fi
-                skills_count=$((skills_count + 1))
-            fi
-        done
-        if [[ $skills_count -gt 0 ]]; then
-            log_success "Installed $skills_count skill(s) to $PROJECT_PATH/.claude/skills/"
-        fi
-    fi
-
-    # Copy agents to project (core ai-memory functionality)
-    if [[ -d "$INSTALL_DIR/.claude/agents" ]]; then
-        mkdir -p "$PROJECT_PATH/.claude/agents"
-        local agents_count=0
-        for agent_file in "$INSTALL_DIR/.claude/agents"/*.md; do
-            if [[ -f "$agent_file" ]]; then
-                agent_name=$(basename "$agent_file")
-                target_agent="$PROJECT_PATH/.claude/agents/$agent_name"
-
-                if [[ "$link_method" == "copy" ]]; then
-                    cp "$agent_file" "$target_agent"
-                else
-                    ln -sf "$agent_file" "$target_agent"
-                fi
-                agents_count=$((agents_count + 1))
-            fi
-        done
-        if [[ $agents_count -gt 0 ]]; then
-            log_success "Installed $agents_count agent(s) to $PROJECT_PATH/.claude/agents/"
-        fi
-    fi
 }
 
 # Configure hooks for project (project-level settings.json)
@@ -3028,6 +3020,12 @@ show_success_message() {
     if [[ "$LANGFUSE_ENABLED" == "true" ]]; then
     echo "│     ✓ Langfuse LLM Observability (http://localhost:23100)  │"
     fi
+    # Parzival V2 status
+    if grep -q "^PARZIVAL_ENABLED=true" "$INSTALL_DIR/docker/.env" 2>/dev/null; then
+    echo "│     ✓ Parzival V2 session agent (Technical PM & QA)        │"
+    echo "│       _ai-memory/ package deployed to project              │"
+    echo "│       Activate with: /pov:parzival-start                   │"
+    fi
     echo "│                                                             │"
     echo "├─────────────────────────────────────────────────────────────┤"
     echo "│                                                             │"
@@ -3157,122 +3155,364 @@ show_python_version_error() {
 # =================================================================
 # Parzival Session Agent (optional, SPEC-015)
 # =================================================================
+# Detect Parzival version installed in target project
+# Returns: "v2", "v1", or "none" (printed to stdout)
+# Checks BOTH V1 directories to catch partial remnants (R1-Finding-9)
+detect_parzival_version() {
+    if [[ -d "$PROJECT_PATH/_ai-memory/pov" ]]; then
+        echo "v2"
+    elif [[ -d "$PROJECT_PATH/.claude/agents/parzival" ]] || [[ -d "$PROJECT_PATH/.claude/commands/parzival" ]]; then
+        echo "v1"
+    else
+        echo "none"
+    fi
+}
+
+# Remove V1 Parzival directories from target project (V1->V2 upgrade)
+# Backs up to .claude/.parzival-v1-backup/ before removal
+cleanup_parzival_v1() {
+    local backup_dir="$PROJECT_PATH/.claude/.parzival-v1-backup"
+
+    local v1_dirs=(
+        "$PROJECT_PATH/.claude/agents/parzival"
+        "$PROJECT_PATH/.claude/commands/parzival"
+    )
+
+    local needs_cleanup=false
+    for dir in "${v1_dirs[@]}"; do
+        if [[ -d "$dir" ]]; then
+            needs_cleanup=true
+            break
+        fi
+    done
+
+    if [[ "$needs_cleanup" == "false" ]]; then
+        log_debug "No V1 Parzival directories found — skipping cleanup"
+        return 0
+    fi
+
+    log_info "Backing up V1 Parzival files before upgrade..."
+    mkdir -p "$backup_dir"
+
+    for dir in "${v1_dirs[@]}"; do
+        if [[ -d "$dir" ]]; then
+            local rel_path
+            rel_path="$(basename "$(dirname "$dir")")/$(basename "$dir")"
+            mkdir -p "$backup_dir/$(dirname "$rel_path")"
+            cp -r "$dir" "$backup_dir/$rel_path"
+            rm -rf "$dir"
+            log_debug "Backed up and removed: $dir"
+        fi
+    done
+
+    log_success "V1 Parzival files backed up to $backup_dir and removed"
+}
+
+# Deploy _ai-memory/ package to target project
+# On V2->V2 update: removes stale files, preserves _memory/ user-created data
+deploy_parzival_v2() {
+    local src="$INSTALL_DIR/_ai-memory"
+    local dst="$PROJECT_PATH/_ai-memory"
+
+    if [[ ! -d "$src" ]]; then
+        log_error "_ai-memory/ package not found in $INSTALL_DIR"
+        log_error "This indicates copy_files() failed or source repo is incomplete"
+        return 1
+    fi
+
+    # Preserve _memory/ user-created files on update
+    # PID-suffixed path prevents race conditions with parallel installs (R2-NF6)
+    local mem_backup="$INSTALL_DIR/.parzival-memory-backup-$$"
+    rm -rf "$mem_backup" 2>/dev/null || true
+    if [[ -d "$dst/_memory" ]]; then
+        mkdir -p "$mem_backup"
+        cp -r "$dst/_memory" "$mem_backup/"
+        log_debug "Preserved _memory/ user data for restore"
+    fi
+
+    # Clean destination to remove stale files (R1-Finding-4)
+    # _memory/ is already backed up above
+    if [[ -d "$dst" ]]; then
+        rm -rf "$dst"
+    fi
+
+    # Deploy fresh package
+    mkdir -p "$dst"
+    if compgen -G "$src/*" > /dev/null 2>&1; then
+        cp -r "$src/"* "$dst/"
+    fi
+    find "$dst" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
+    # Restore user-created _memory/ files (R1-Finding-5)
+    # Only restore files that are NOT in the fresh template (user-created content only)
+    if [[ -d "$mem_backup/_memory" ]]; then
+        while IFS= read -r -d '' user_file; do
+            local rel="${user_file#$mem_backup/_memory/}"
+            local template_file="$dst/_memory/$rel"
+            if [[ ! -f "$template_file" ]]; then
+                # User-created file not in template — restore it
+                local target_dir
+                target_dir=$(dirname "$dst/_memory/$rel")
+                mkdir -p "$target_dir"
+                cp "$user_file" "$dst/_memory/$rel"
+            fi
+        done < <(find "$mem_backup/_memory" -type f -print0 2>/dev/null)
+        rm -rf "$mem_backup"
+        log_debug "Restored user-created _memory/ files"
+    fi
+
+    local file_count
+    file_count=$(find "$dst" -type f | wc -l)
+    log_success "Deployed _ai-memory/ package ($file_count files) to $PROJECT_PATH"
+}
+
+# Deploy Parzival-specific shims: .claude/agents/pov/ and .claude/commands/pov/
+deploy_parzival_shims() {
+    local src_agents="$INSTALL_DIR/.claude/agents/pov"
+    local src_commands="$INSTALL_DIR/.claude/commands/pov"
+
+    # Deploy pov agent shim
+    if [[ -d "$src_agents" ]]; then
+        mkdir -p "$PROJECT_PATH/.claude/agents/pov"
+        if compgen -G "$src_agents/*" > /dev/null 2>&1; then
+            cp -r "$src_agents/"* "$PROJECT_PATH/.claude/agents/pov/"
+        fi
+        log_debug "Deployed .claude/agents/pov/ shim"
+    fi
+
+    # Deploy pov command shims
+    if [[ -d "$src_commands" ]]; then
+        mkdir -p "$PROJECT_PATH/.claude/commands/pov"
+        if compgen -G "$src_commands/*" > /dev/null 2>&1; then
+            cp -r "$src_commands/"* "$PROJECT_PATH/.claude/commands/pov/"
+        fi
+        local cmd_count
+        cmd_count=$(find "$PROJECT_PATH/.claude/commands/pov" -name "*.md" | wc -l)
+        log_debug "Deployed $cmd_count pov command shims"
+    fi
+
+    log_success "Parzival V2 shims deployed to project"
+}
+
+# Deploy skill shims from INSTALL_DIR/.claude/skills/ to project
+# Replaces the skill deployment loop formerly in create_project_symlinks()
+# Stale cleanup scoped to ai-memory prefixes only (R2-NF4: never delete user custom skills)
+deploy_ai_memory_skills() {
+    local src="$INSTALL_DIR/.claude/skills"
+    if [[ ! -d "$src" ]]; then
+        log_debug "No skills found in INSTALL_DIR — skipping"
+        return 0
+    fi
+
+    mkdir -p "$PROJECT_PATH/.claude/skills"
+
+    # Remove stale ai-memory skills not in source (R2-NF4: scoped to known prefixes)
+    for existing_skill in "$PROJECT_PATH/.claude/skills"/*/; do
+        if [[ -d "$existing_skill" ]]; then
+            local sname
+            sname=$(basename "$existing_skill")
+            # Only clean skills with ai-memory managed prefixes
+            case "$sname" in
+                aim-*|parzival-save-*)
+                    if [[ ! -d "$src/$sname" ]]; then
+                        rm -rf "$existing_skill"
+                        log_debug "Removed stale skill: $sname"
+                    fi
+                    ;;
+            esac
+        fi
+    done
+
+    # Deploy current skills
+    local skills_count=0
+    for skill_dir in "$src"/*/; do
+        if [[ -d "$skill_dir" ]]; then
+            local skill_name
+            skill_name=$(basename "$skill_dir")
+            local target="$PROJECT_PATH/.claude/skills/$skill_name"
+            mkdir -p "$target"
+            if compgen -G "$skill_dir"* > /dev/null 2>&1; then
+                cp -r "$skill_dir"* "$target/" 2>/dev/null || true
+            fi
+            skills_count=$((skills_count + 1))
+        fi
+    done
+
+    if [[ $skills_count -gt 0 ]]; then
+        log_success "Deployed $skills_count skill(s) to $PROJECT_PATH/.claude/skills/"
+    fi
+}
+
+# Deploy agent shims from INSTALL_DIR/.claude/agents/ to project
+# Replaces the agent deployment loop formerly in create_project_symlinks()
+# Deploys only top-level .md files (not subdirectories like pov/)
+# Stale cleanup scoped to known ai-memory agent names (R2-NF5: never delete user custom agents)
+deploy_ai_memory_agents() {
+    local src="$INSTALL_DIR/.claude/agents"
+    if [[ ! -d "$src" ]]; then
+        log_debug "No agents found in INSTALL_DIR — skipping"
+        return 0
+    fi
+
+    mkdir -p "$PROJECT_PATH/.claude/agents"
+
+    # Known ai-memory managed agent filenames (R2-NF5: explicit allowlist)
+    local managed_agents=("code-reviewer.md" "verify-implementation.md" "skill-creator.md")
+
+    # Remove stale ai-memory agents not in source
+    for managed in "${managed_agents[@]}"; do
+        if [[ -f "$PROJECT_PATH/.claude/agents/$managed" ]] && [[ ! -f "$src/$managed" ]]; then
+            rm -f "$PROJECT_PATH/.claude/agents/$managed"
+            log_debug "Removed stale agent: $managed"
+        fi
+    done
+
+    # Deploy current agents
+    local agents_count=0
+    for agent_file in "$src"/*.md; do
+        if [[ -f "$agent_file" ]]; then
+            local agent_name
+            agent_name=$(basename "$agent_file")
+            cp "$agent_file" "$PROJECT_PATH/.claude/agents/$agent_name"
+            agents_count=$((agents_count + 1))
+        fi
+    done
+
+    if [[ $agents_count -gt 0 ]]; then
+        log_success "Deployed $agents_count agent(s) to $PROJECT_PATH/.claude/agents/"
+    fi
+}
+
+# Write Parzival env vars into _ai-memory/pov/config.yaml
+# Uses sed for targeted key replacement (preserves comments and key order — R2-NF2)
+sync_parzival_config_yaml() {
+    local config_file="$PROJECT_PATH/_ai-memory/pov/config.yaml"
+    local env_file="$INSTALL_DIR/docker/.env"
+
+    if [[ ! -f "$config_file" ]]; then
+        log_debug "config.yaml not found at $config_file — skipping sync"
+        return 0
+    fi
+
+    if [[ ! -f "$env_file" ]]; then
+        log_debug "docker/.env not found — skipping config.yaml sync"
+        return 0
+    fi
+
+    # Read env vars with defaults
+    local user_name oversight_folder comm_language doc_language
+    user_name=$(grep "^PARZIVAL_USER_NAME=" "$env_file" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "Developer")
+    oversight_folder=$(grep "^PARZIVAL_OVERSIGHT_FOLDER=" "$env_file" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "oversight")
+    comm_language=$(grep "^PARZIVAL_LANGUAGE=" "$env_file" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "English")
+    doc_language=$(grep "^PARZIVAL_DOC_LANGUAGE=" "$env_file" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "English")
+
+    # Targeted sed replacements — preserves comments and key order (R2-NF2)
+    # Config.yaml keys: user_name, communication_language, document_output_language, oversight_path
+    sed -i.bak "s|^user_name:.*|user_name: ${user_name:-Developer}|" "$config_file" && rm -f "$config_file.bak"
+    sed -i.bak "s|^communication_language:.*|communication_language: ${comm_language:-English}|" "$config_file" && rm -f "$config_file.bak"
+    sed -i.bak "s|^document_output_language:.*|document_output_language: ${doc_language:-English}|" "$config_file" && rm -f "$config_file.bak"
+
+    # Update oversight_path if oversight_folder is not the default
+    if [[ "${oversight_folder:-oversight}" != "oversight" ]]; then
+        sed -i.bak "s|^oversight_path:.*|oversight_path: \"{project-root}/${oversight_folder}\"|" "$config_file" && rm -f "$config_file.bak"
+    fi
+
+    log_debug "Synced Parzival env vars to $config_file"
+}
+
 setup_parzival() {
-    # Skip in non-interactive mode (CI)
+    # Defensive definition (R2-NF3: don't rely on side-effect from configure_project_hooks)
+    PROJECT_SETTINGS="${PROJECT_SETTINGS:-$PROJECT_PATH/.claude/settings.json}"
+
+    # Skills and agents are always deployed (ai-memory core functionality)
+    # These run even when Parzival is disabled — aim-search, aim-status etc. are standalone
+    deploy_ai_memory_skills
+    deploy_ai_memory_agents
+
+    # Guard: if _ai-memory/ package is not available (old source repo), skip V2 setup
+    # (R1-Finding-7: backwards compatibility)
+    if [[ ! -d "$INSTALL_DIR/_ai-memory" ]]; then
+        log_warning "Parzival V2 package not found in source repo — skipping Parzival setup"
+        log_info "To enable Parzival V2, update your source repo to v2.2.0+"
+        set_env_value "PARZIVAL_ENABLED" "false"
+        return 0
+    fi
+
+    # Skip Parzival-specific setup in non-interactive mode (CI)
     if [[ "$NON_INTERACTIVE" == "true" ]]; then
-        log_info "Non-interactive mode - skipping Parzival setup"
+        log_info "Non-interactive mode — skipping Parzival setup"
         set_env_value "PARZIVAL_ENABLED" "false"
         return 0
     fi
 
     echo ""
-    echo "═══════════════════════════════════════════════════════"
+    echo "══════════════════════════════════════════════════════════"
     echo "  Parzival Session Agent (Optional)"
-    echo "═══════════════════════════════════════════════════════"
+    echo "══════════════════════════════════════════════════════════"
     echo ""
     echo "Parzival is a Technical PM & Quality Gatekeeper that provides:"
-    echo "  - Cross-session memory (remembers previous sessions)"
+    echo "  - Cross-session memory (remembers previous sessions via Qdrant)"
     echo "  - Project oversight (tracks bugs, specs, decisions)"
     echo "  - Quality gatekeeping (verification checklists)"
+    echo "  - Parallel agent team dispatch and review cycles"
     echo ""
     read -p "Enable Parzival session agent? [y/N] " parzival_choice
 
     if [[ "${parzival_choice,,}" =~ ^(y|yes)$ ]]; then
-        log_info "Setting up Parzival..."
+        log_info "Setting up Parzival V2..."
 
-        # Deploy commands to project
-        deploy_parzival_commands
+        # Detect existing version for upgrade handling
+        local current_version
+        current_version=$(detect_parzival_version)
+        log_debug "Detected Parzival version in project: $current_version"
 
-        # Deploy oversight templates
+        # V1 -> V2 upgrade: backup and remove V1 directories
+        if [[ "$current_version" == "v1" ]]; then
+            log_info "Upgrading Parzival V1 -> V2..."
+            cleanup_parzival_v1
+        fi
+
+        # Deploy _ai-memory/ package (must be before shims)
+        # Wrapped with error handler (R2-NF1: return 1 would crash under set -e)
+        deploy_parzival_v2 || {
+            log_error "Failed to deploy _ai-memory/ package — Parzival setup aborted"
+            log_info "The installer will continue without Parzival"
+            set_env_value "PARZIVAL_ENABLED" "false"
+            return 0
+        }
+
+        # Deploy thin shims (.claude/agents/pov/, .claude/commands/pov/)
+        deploy_parzival_shims
+
+        # Deploy oversight templates (existing function — unchanged)
         deploy_oversight_templates
 
-        # Add Parzival config to .env
+        # Configure Parzival env vars (existing function — unchanged)
         configure_parzival_env
 
-        # Create agent_id payload index
+        # Sync env vars into config.yaml
+        sync_parzival_config_yaml
+
+        # Create agent_id payload index on Qdrant (existing function — unchanged)
         create_agent_id_index
 
-        # BUG-118 + BUG-120: Sync Parzival env vars and matcher to settings.json
+        # Sync Parzival settings to project settings.json
         if [[ -f "$PROJECT_SETTINGS" ]]; then
             log_debug "Updating project settings with Parzival configuration..."
             python3 "$INSTALL_DIR/scripts/update_parzival_settings.py" \
                 "$PROJECT_SETTINGS" \
-                "$INSTALL_DIR/docker/.env" 2>&1 | tee -a "$INSTALL_LOG" || {
+                "$INSTALL_DIR/docker/.env" 2>&1 | tee -a "${INSTALL_LOG:-/dev/null}" || {
                 log_warning "Failed to update Parzival settings in settings.json"
             }
         fi
 
-        log_success "Parzival enabled"
+        log_success "Parzival V2 enabled"
     else
         log_debug "Skipping Parzival setup (PARZIVAL_ENABLED=false)"
-        # Ensure disabled in .env
         set_env_value "PARZIVAL_ENABLED" "false"
     fi
 }
 
-deploy_parzival_commands() {
-    local cmd_source="$INSTALL_DIR/.claude/commands/parzival"
-    local cmd_dest="$PROJECT_PATH/.claude/commands/parzival"
-
-    mkdir -p "$cmd_dest"
-
-    if [[ -d "$cmd_source" ]]; then
-        # Backup existing commands only if content changed (F-9 fix)
-        for src_file in "$cmd_source"/*.md; do
-            local bn=$(basename "$src_file")
-            local dest_file="$cmd_dest/$bn"
-            if [[ -f "$dest_file" ]]; then
-                if ! diff -q "$src_file" "$dest_file" &>/dev/null; then
-                    cp "$dest_file" "$dest_file.bak"
-                    log_debug "Backed up changed command: $bn"
-                fi
-            fi
-        done
-        cp -r "$cmd_source/"* "$cmd_dest/" 2>/dev/null || true
-        # Cleanup stale timestamped backups from previous installer versions
-        find "$cmd_dest" -name "*.bak.[0-9]*" -delete 2>/dev/null || true
-        log_debug "Parzival commands deployed to $cmd_dest"
-    else
-        log_warning "Parzival command source not found at $cmd_source"
-    fi
-
-    # TODO(v2.0.7): De-duplicate agent deployment — create_project_symlinks() already covers
-    # agents in $PROJECT_PATH/.claude/agents/. This section deploys the same files.
-    # After v2.0.6, consolidate into a single deployment path.
-
-    # Deploy subagent files so exec= directives in parzival.md resolve correctly
-    local agent_dest="$PROJECT_PATH/.claude/agents"
-    mkdir -p "$agent_dest"
-    local agents_deployed=0
-
-    for agent_file in code-reviewer.md verify-implementation.md; do
-        if [[ -f "$INSTALL_DIR/.claude/agents/$agent_file" ]]; then
-            # BUG-108: Skip if already installed (symlink, broken symlink, or copy from create_project_symlinks)
-            if [[ -e "$agent_dest/$agent_file" || -L "$agent_dest/$agent_file" ]]; then
-                log_debug "Agent $agent_file already installed — skipping"
-            else
-                cp "$INSTALL_DIR/.claude/agents/$agent_file" "$agent_dest/$agent_file"
-                agents_deployed=$((agents_deployed + 1))
-            fi
-        fi
-    done
-
-    if [[ -d "$INSTALL_DIR/.claude/agents/parzival" ]]; then
-        # BUG-108: Skip if already installed (including broken symlinks)
-        if [[ -e "$agent_dest/parzival" || -L "$agent_dest/parzival" ]]; then
-            log_debug "Parzival agent directory already installed — skipping"
-        else
-            cp -r "$INSTALL_DIR/.claude/agents/parzival" "$agent_dest/"
-            agents_deployed=$((agents_deployed + 1))
-        fi
-    fi
-
-    if [[ $agents_deployed -gt 0 ]]; then
-        log_debug "Parzival agent files deployed ($agents_deployed) to $agent_dest"
-    else
-        log_debug "Parzival agent files already present (skipped) in $agent_dest"
-    fi
-}
 
 deploy_oversight_templates() {
     local tmpl_source="$INSTALL_DIR/templates/oversight"

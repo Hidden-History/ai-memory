@@ -598,8 +598,8 @@ def main():
             cwd = hook_input.get("cwd", os.getcwd())
             session_id = hook_input.get("session_id", "unknown")
             trigger = hook_input.get(
-                "source", "startup"
-            )  # startup, resume, compact, clear
+                "source", "unknown"
+            )  # resume, compact, clear
             project_name = detect_project(cwd)  # FR13 - automatic project detection
 
             # BUG-020: Deduplication lock to prevent double execution
@@ -728,7 +728,7 @@ def main():
 
             # V2.0.6 SPEC-012: Progressive Context Injection (AD-6 override of Core Arch V2)
             # clear: No injection - user wants fresh start, delete injection state
-            # startup: Tier 1 Bootstrap injection - conventions + guidelines + recent findings (2-3K)
+            # startup: REMOVED (v2.2.0) — bootstrap moved to aim-parzival-bootstrap skill
             # resume/compact: Session restore (existing behavior, 4K)
 
             if trigger == "clear":
@@ -762,233 +762,6 @@ def main():
                             "hookSpecificOutput": {
                                 "hookEventName": "SessionStart",
                                 "additionalContext": "",
-                            }
-                        }
-                    )
-                )
-
-                cleanup_dedup_lock(lock_file_path)
-
-                sys.exit(0)
-
-            if trigger == "startup":
-                # SPEC-021: Propagate trace context to library functions
-                # so emit_trace_event() in search.py/injection.py shares
-                # the same trace_id and session_id as session_start events.
-                # Root span ID ensures valid OTel parent for span nesting.
-                from uuid import uuid4 as _uuid4
-
-                _startup_trace_id = _uuid4().hex
-                _startup_root_span_id = _uuid4().hex
-                os.environ["LANGFUSE_TRACE_ID"] = _startup_trace_id
-                os.environ["LANGFUSE_ROOT_SPAN_ID"] = _startup_root_span_id
-                os.environ["CLAUDE_SESSION_ID"] = session_id
-
-                # Tier 1 Bootstrap: inject conventions, guidelines, recent findings
-                from memory.injection import (
-                    format_injection_output,
-                    init_session_state,
-                    log_injection_event,
-                    retrieve_bootstrap_context,
-                    select_results_greedy,
-                )
-                from memory.search import MemorySearch
-
-                bootstrap_results = retrieve_bootstrap_context(
-                    search_client=MemorySearch(config),
-                    project_name=project_name,
-                    config=config,
-                )
-
-                if not bootstrap_results:
-                    duration_ms = (time.perf_counter() - start_time) * 1000
-                    logger.info(
-                        "bootstrap_no_results",
-                        extra={
-                            "session_id": session_id,
-                            "project": project_name,
-                            "duration_ms": round(duration_ms, 2),
-                        },
-                    )
-                    if emit_trace_event:
-                        try:
-                            emit_trace_event(
-                                event_type="context_retrieval",
-                                data={
-                                    "input": f"Bootstrap retrieval: {project_name}",
-                                    "output": "No bootstrap results available",
-                                    "metadata": {
-                                        "trigger": "startup",
-                                        "results_considered": 0,
-                                        "results_selected": 0,
-                                        "parzival_enabled": config.parzival_enabled,
-                                        "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
-                                        "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
-                                    },
-                                },
-                                session_id=session_id,
-                                project_id=project_name,
-                            )
-                        except Exception:
-                            pass
-
-                    # User notification
-                    print(
-                        f"🧠 AI Memory V2.0: No bootstrap context available [{duration_ms:.0f}ms]",
-                        file=sys.stderr,
-                    )
-
-                    # Empty context JSON
-                    print(
-                        json.dumps(
-                            {
-                                "hookSpecificOutput": {
-                                    "hookEventName": "SessionStart",
-                                    "additionalContext": "",
-                                }
-                            }
-                        )
-                    )
-
-                    cleanup_dedup_lock(lock_file_path)
-
-                    sys.exit(0)
-
-                # Greedy fill with bootstrap budget
-                selected, tokens_used = select_results_greedy(
-                    results=bootstrap_results,
-                    budget=config.bootstrap_token_budget,
-                )
-
-                # Format and output
-                formatted = format_injection_output(selected, tier=1)
-
-                # Initialize session injection state (for Tier 2 dedup)
-                init_session_state(
-                    session_id=session_id,
-                    injected_ids=[r["id"] for r in selected],
-                )
-
-                # Audit log
-                log_injection_event(
-                    tier=1,
-                    trigger=trigger,
-                    project=project_name,
-                    session_id=session_id,
-                    results_considered=len(bootstrap_results),
-                    results_selected=len(selected),
-                    tokens_used=tokens_used,
-                    budget=config.bootstrap_token_budget,
-                    audit_dir=config.audit_dir,
-                )
-
-                # Calculate duration for logging
-                duration_ms = (time.perf_counter() - start_time) * 1000
-                duration_seconds = duration_ms / 1000.0
-
-                # User notification
-                print(
-                    f"🧠 AI Memory V2.0: Bootstrap context injected ({len(selected)} items, {tokens_used} tokens) [{duration_ms:.0f}ms]",
-                    file=sys.stderr,
-                )
-
-                logger.info(
-                    "bootstrap_injection_complete",
-                    extra={
-                        "session_id": session_id,
-                        "project": project_name,
-                        "results_selected": len(selected),
-                        "tokens_used": tokens_used,
-                        "budget": config.bootstrap_token_budget,
-                        "duration_ms": round(duration_ms, 2),
-                    },
-                )
-
-                # Push metrics
-                from memory.metrics_push import push_hook_metrics_async
-
-                push_hook_metrics_async(
-                    hook_name="SessionStart",
-                    duration_seconds=duration_seconds,
-                    success=True,
-                    project=project_name,
-                )
-
-                # SPEC-021: context_retrieval span — startup bootstrap detail
-                if emit_trace_event:
-                    try:
-                        emit_trace_event(
-                            event_type="context_retrieval",
-                            data={
-                                "input": f"Bootstrap retrieval: {project_name}",
-                                "output": f"Selected {len(selected)} from {len(bootstrap_results)} candidates",
-                                "metadata": {
-                                    "trigger": "startup",
-                                    "results_considered": len(bootstrap_results),
-                                    "results_selected": len(selected),
-                                    "tokens_used": tokens_used,
-                                    "budget": config.bootstrap_token_budget,
-                                    "parzival_enabled": config.parzival_enabled,
-                                    "results_detail": [
-                                        {
-                                            "type": r.get("type", "unknown"),
-                                            "collection": r.get("collection", "unknown"),
-                                            "score": round(r.get("score", 0), 4),
-                                            "tokens": count_tokens(r.get("content", "")) if r.get("content") else 0,
-                                        }
-                                        for r in selected[:20]
-                                    ],
-                                    "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
-                                    "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
-                                },
-                            },
-                            session_id=session_id,
-                            project_id=project_name,
-                        )
-                    except Exception:
-                        pass
-
-                # SPEC-021: Langfuse trace for session bootstrap (root span)
-                if emit_trace_event:
-                    try:
-                        emit_trace_event(
-                            event_type="session_bootstrap",
-                            data={
-                                "input": f"Session startup: {project_name}",
-                                "output": (
-                                    "\n".join(
-                                        r.get("content", "")[:500] for r in selected[:5]
-                                    )[:TRACE_CONTENT_MAX]
-                                    if selected
-                                    else f"No results for {project_name}"
-                                ),
-                                "metadata": {
-                                    "session_type": trigger,
-                                    "result_count": len(selected),
-                                    "tokens_injected": tokens_used,
-                                    "budget": config.bootstrap_token_budget,
-                                    "summary": f"Injected {tokens_used} tokens from {len(selected)} results",
-                                    "result_types": [r.get("type", "unknown") for r in selected[:20]],
-                                    "result_scores": [round(r.get("score", 0), 4) for r in selected[:20]],
-                                    "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
-                                    "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
-                                },
-                            },
-                            span_id=_startup_root_span_id,
-                            parent_span_id=None,
-                            session_id=session_id,
-                            project_id=project_name,
-                        )
-                    except Exception:
-                        logger.debug("trace_event_failed_session_bootstrap")
-
-                # Output to Claude
-                print(
-                    json.dumps(
-                        {
-                            "hookSpecificOutput": {
-                                "hookEventName": "SessionStart",
-                                "additionalContext": formatted,
                             }
                         }
                     )
@@ -1130,6 +903,18 @@ def main():
                         )
                 finally:
                     searcher.close()
+
+                # TASK-034: Re-inject Parzival constraints after compact
+                # Ensures behavioral constraints survive context compaction
+                try:
+                    from memory.injection import load_parzival_constraints
+                    _constraints = load_parzival_constraints(os.getcwd())
+                    if _constraints:
+                        _parzival_constraints_context = f"\n\n{_constraints}"
+                    else:
+                        _parzival_constraints_context = ""
+                except Exception:
+                    _parzival_constraints_context = ""
 
             else:
                 # NON-PARZIVAL PATH: Keep existing behavior EXACTLY
@@ -1478,6 +1263,16 @@ def main():
                 formatted_context = (
                     f"<retrieved_context>\n{conversation_context}\n</retrieved_context>"
                 )
+
+                # TASK-034: Append Parzival constraints after compact
+                if config.parzival_enabled:
+                    try:
+                        _constraints_ctx = _parzival_constraints_context
+                    except NameError:
+                        _constraints_ctx = ""
+                    if _constraints_ctx:
+                        formatted_context += f"\n\n<parzival_constraints>{_constraints_ctx}\n</parzival_constraints>"
+
                 output = {
                     "hookSpecificOutput": {
                         "hookEventName": "SessionStart",

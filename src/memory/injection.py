@@ -70,6 +70,7 @@ __all__ = [
     "compute_topic_drift",
     "format_injection_output",
     "init_session_state",
+    "load_parzival_constraints",
     "log_injection_event",
     "retrieve_bootstrap_context",
     "route_collections",
@@ -240,15 +241,15 @@ def retrieve_bootstrap_context(
     project_name: str,
     config: MemoryConfig,
 ) -> list[dict]:
-    """Retrieve bootstrap context for session startup.
+    """Retrieve bootstrap context for Parzival session startup.
 
-    Searches conventions (shared) + recent discussions (project-scoped).
-    Uses decay scoring for recency-aware ranking.
+    Uses layered priority retrieval (no score-sorting):
+    1. Last handoff (DETERMINISTIC) — agent_id=parzival, limit=1
+    2. Recent decisions (DETERMINISTIC) — limit=5
+    3. Recent insights (SEMANTIC) — agent_id=parzival, limit=3
+    4. GitHub enrichment (SEMANTIC) — since last handoff timestamp
 
-    Bootstrap content (priority order):
-    1. Project conventions — rules and guidelines (shared, no group_id)
-    2. Recent decisions — most recent architecture/pattern decisions (30 days)
-    3. Active task context — agent handoff/memory (7 days)
+    Caller is responsible for gating on config.parzival_enabled.
 
     Args:
         search_client: MemorySearch instance
@@ -256,75 +257,74 @@ def retrieve_bootstrap_context(
         config: Memory configuration
 
     Returns:
-        List of result dicts sorted by relevance score, ready for greedy fill.
+        List of result dicts in layer priority order, ready for greedy fill.
     """
     _trace_start = datetime.now(tz=timezone.utc)
     results = []
-    _conventions_count = 0
     _decisions_count = 0
     _agent_count = 0
     _github_count = 0
 
-    if config.parzival_enabled:
-        # LAYERED PRIORITY RETRIEVAL for Parzival sessions
-        # No conventions — they are noise for PM oversight
-        last_handoff = []
+    # LAYERED PRIORITY RETRIEVAL for Parzival sessions
+    # No conventions — they are noise for PM oversight
+    last_handoff = []
 
-        # Layer 1: Last handoff (DETERMINISTIC — most recent, not most similar)
-        try:
-            last_handoff = search_client.get_recent(
-                collection=COLLECTION_DISCUSSIONS,
-                group_id=project_name,
-                memory_type=["agent_handoff"],
-                agent_id="parzival",
-                limit=1,
-            )
-            results.extend(last_handoff)
-        except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
-            logger.warning(
-                "bootstrap_handoff_unavailable",
-                extra={"error": str(e)},
-            )
+    # Layer 1: Last handoff (DETERMINISTIC — most recent, not most similar)
+    try:
+        last_handoff = search_client.get_recent(
+            collection=COLLECTION_DISCUSSIONS,
+            group_id=project_name,
+            memory_type=["agent_handoff"],
+            agent_id="parzival",
+            limit=1,
+        )
+        results.extend(last_handoff)
+    except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
+        logger.warning(
+            "bootstrap_handoff_unavailable",
+            extra={"error": str(e)},
+        )
 
-        # Layer 2: Recent decisions (DETERMINISTIC — newest, not most similar)
-        try:
-            decisions = search_client.get_recent(
-                collection=COLLECTION_DISCUSSIONS,
-                group_id=project_name,
-                memory_type=["decision"],
-                limit=5,
-            )
-            results.extend(decisions)
-            _decisions_count = len(decisions)
-        except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
-            logger.warning(
-                "bootstrap_decisions_unavailable",
-                extra={"error": str(e)},
-            )
+    # Layer 2: Recent decisions (DETERMINISTIC — newest, not most similar)
+    try:
+        decisions = search_client.get_recent(
+            collection=COLLECTION_DISCUSSIONS,
+            group_id=project_name,
+            memory_type=["decision"],
+            limit=5,
+        )
+        results.extend(decisions)
+        _decisions_count = len(decisions)
+    except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
+        logger.warning(
+            "bootstrap_decisions_unavailable",
+            extra={"error": str(e)},
+        )
 
-        # Layer 3: Recent insights (SEMANTIC — relevance matters)
-        try:
-            insights = search_client.search(
-                query="key insight learning pattern important",
-                collection=COLLECTION_DISCUSSIONS,
-                group_id=project_name,
-                limit=3,
-                memory_type=["agent_insight"],
-                agent_id="parzival",
-                fast_mode=True,
-            )
-            results.extend(insights)
-            _agent_count = len(last_handoff) + len(insights)
-        except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
-            logger.warning(
-                "bootstrap_insights_unavailable",
-                extra={"error": str(e)},
-            )
+    # Layer 3: Recent insights (SEMANTIC — relevance matters)
+    try:
+        insights = search_client.search(
+            query="key insight learning pattern important",
+            collection=COLLECTION_DISCUSSIONS,
+            group_id=project_name,
+            limit=3,
+            memory_type=["agent_insight"],
+            agent_id="parzival",
+            fast_mode=True,
+        )
+        results.extend(insights)
+        _agent_count = len(last_handoff) + len(insights)
+    except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
+        logger.warning(
+            "bootstrap_insights_unavailable",
+            extra={"error": str(e)},
+        )
 
-        # Layer 4: GitHub enrichment (SEMANTIC — same as before)
-        last_session_date = None
-        if last_handoff:
-            last_session_date = last_handoff[0].get("timestamp")
+    # Layer 4: GitHub enrichment (SEMANTIC — same as before)
+    last_session_date = None
+    if last_handoff:
+        last_session_date = last_handoff[0].get("timestamp")
+    try:
         github_enrichment = _build_github_enrichment(
             search_client,
             config,
@@ -333,68 +333,14 @@ def retrieve_bootstrap_context(
         )
         results.extend(github_enrichment)
         _github_count = len(github_enrichment)
+    except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
+        logger.warning(
+            "bootstrap_github_unavailable",
+            extra={"error": str(e)},
+        )
 
-        # DO NOT sort by score — layer order IS the priority
-        # Greedy fill processes Layer 1 first, then Layer 2, etc.
-
-    else:
-        # NON-PARZIVAL PATH — UNCHANGED
-
-        # 1. Conventions (shared, no group_id filter)
-        try:
-            conventions = search_client.search(
-                query="project conventions rules guidelines standards",
-                collection=COLLECTION_CONVENTIONS,
-                group_id=None,
-                limit=5,
-                fast_mode=True,
-            )
-            results.extend(conventions)
-            _conventions_count = len(conventions)
-        except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
-            logger.warning(
-                "bootstrap_conventions_unavailable",
-                extra={"error": str(e)},
-            )
-
-        # 2. Recent decisions (project-scoped)
-        try:
-            decisions = search_client.search(
-                query="recent decisions architecture patterns",
-                collection=COLLECTION_DISCUSSIONS,
-                group_id=project_name,
-                limit=3,
-                memory_type=["decision"],
-                fast_mode=True,
-            )
-            results.extend(decisions)
-            _decisions_count = len(decisions)
-        except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
-            logger.warning(
-                "bootstrap_decisions_unavailable",
-                extra={"error": str(e)},
-            )
-
-        # 3. Generic agent context (no agent_id filter)
-        try:
-            agent_context = search_client.search(
-                query="active task current work session handoff",
-                collection=COLLECTION_DISCUSSIONS,
-                group_id=project_name,
-                limit=2,
-                memory_type=["agent_handoff", "agent_memory"],
-                fast_mode=True,
-            )
-            results.extend(agent_context)
-            _agent_count = len(agent_context)
-        except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
-            logger.warning(
-                "bootstrap_agent_context_unavailable",
-                extra={"error": str(e)},
-            )
-
-        # Sort by score for non-Parzival flat pool
-        results.sort(key=lambda r: r.get("score", 0), reverse=True)
+    # DO NOT sort by score — layer order IS the priority
+    # Greedy fill processes Layer 1 first, then Layer 2, etc.
 
     # SPEC-021: Emit bootstrap retrieval trace event
     if emit_trace_event:
@@ -416,7 +362,6 @@ def retrieve_bootstrap_context(
                     "metadata": {
                         "project_name": project_name,
                         "parzival_enabled": config.parzival_enabled,
-                        "conventions_count": _conventions_count,
                         "decisions_count": _decisions_count,
                         "agent_context_count": _agent_count,
                         "github_enrichment_count": _github_count,
@@ -875,3 +820,52 @@ def init_session_state(session_id: str, injected_ids: list[str]) -> None:
         turn_count=0,
     )
     state.save()
+
+
+def load_parzival_constraints(
+    project_root: str,
+    phase: str | None = None,
+) -> str:
+    """Load Parzival behavioral constraints from _ai-memory/pov/constraints/.
+
+    Reads global constraints (always loaded) and optionally phase-specific
+    constraints. Returns formatted markdown ready for injection.
+
+    Args:
+        project_root: Project root directory (where _ai-memory/ lives)
+        phase: Optional phase name (e.g., 'execution', 'planning', 'discovery')
+
+    Returns:
+        Formatted markdown string with constraints, or empty string if not found.
+    """
+    constraints_dir = Path(project_root) / "_ai-memory" / "pov" / "constraints"
+
+    if not constraints_dir.exists():
+        return ""
+
+    sections = []
+
+    # Always load global constraints
+    global_file = constraints_dir / "global" / "CONSTRAINTS.md"
+    if global_file.exists():
+        sections.append(global_file.read_text())
+
+    # Optionally load phase-specific constraints
+    phase_count = 0
+    if phase:
+        import re
+
+        phase = re.sub(r"[^a-zA-Z0-9_-]", "", phase)
+        phase_file = constraints_dir / phase / "constraints.md"
+        if phase_file.exists():
+            sections.append(phase_file.read_text())
+            phase_count = 1
+
+    if not sections:
+        return ""
+
+    result = "\n\n---\n\n".join(sections)
+    global_count = 1 if (constraints_dir / "global" / "CONSTRAINTS.md").exists() else 0
+    footer = f"\n\n---\nConstraints loaded: {global_count} global + {phase_count} phase-specific"
+
+    return result + footer

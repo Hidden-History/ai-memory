@@ -1,0 +1,9 @@
+# CORE Module Configuration
+# AI Memory System
+# Version: 1.0.0
+# Date: 2026-03-01
+
+user_name: wbsolutions
+communication_language: English
+document_output_language: English
+output_folder: "{project-root}/_ai-memory-output"

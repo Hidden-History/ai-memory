@@ -1,0 +1,7 @@
+# Parzival Agent Team: Default Dispatch
+bundle:
+  name: Default Single-Agent Dispatch
+  description: Default configuration for dispatching a single agent with standard monitoring.
+agents: []
+party: null
+dispatch_mode: single

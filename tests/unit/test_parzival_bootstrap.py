@@ -2,12 +2,12 @@
 
 Tests cover:
 - Enhanced Tier 1 bootstrap with agent_id=parzival filter
-- Fallback to generic query when parzival_enabled=False
+- Layered priority retrieval always uses Parzival path (gating at caller level)
 - GitHub enrichment date filtering, caps, and skip conditions
 - Graceful degradation when Qdrant is unavailable
 
-TD-174: parzival_enabled is read in injection.py (retrieve_bootstrap_context), NOT in
-session_start.py. session_start.py calls injection.py which handles the parzival logic.
+TD-174: parzival_enabled gating is at caller level (session_start.py / bootstrap skill),
+not inside retrieve_bootstrap_context. The function always uses Parzival layered retrieval.
 """
 
 from unittest.mock import MagicMock
@@ -52,49 +52,39 @@ class TestParzivalBootstrap:
         assert parzival_search_calls[0].kwargs["memory_type"] == ["agent_insight"]
         assert parzival_search_calls[0].kwargs["limit"] == 3
 
-    def test_parzival_disabled_uses_generic_query(self):
-        """When parzival_enabled=False, bootstrap uses generic agent context query."""
+    def test_always_uses_parzival_layered_retrieval(self):
+        """retrieve_bootstrap_context always uses Parzival layered priority (gating is at caller level)."""
         mock_search = MagicMock()
         mock_search.search.return_value = []
+        mock_search.get_recent.return_value = []
 
         config = MagicMock(spec=MemoryConfig)
         config.parzival_enabled = False
+        config.github_sync_enabled = False
 
         retrieve_bootstrap_context(mock_search, "test-project", config)
 
-        # Should NOT have any calls with agent_id="parzival"
-        parzival_calls = [
+        # Handoff layer: get_recent WAS called with agent_id="parzival"
+        handoff_calls = [
+            call
+            for call in mock_search.get_recent.call_args_list
+            if call.kwargs.get("agent_id") == "parzival"
+        ]
+        assert len(handoff_calls) >= 1
+
+        # Insights layer: search WAS called with agent_id="parzival"
+        parzival_search_calls = [
             call
             for call in mock_search.search.call_args_list
             if call.kwargs.get("agent_id") == "parzival"
         ]
-        assert len(parzival_calls) == 0
-
-        # Should have a generic agent context call with memory_type including agent_handoff
-        generic_calls = [
-            call
-            for call in mock_search.search.call_args_list
-            if "agent_handoff" in (call.kwargs.get("memory_type") or [])
-            and call.kwargs.get("agent_id") is None
-        ]
-        assert len(generic_calls) >= 1
+        assert len(parzival_search_calls) >= 1
 
     def test_parzival_bootstrap_skips_github_when_disabled(self):
         """GitHub enrichment skipped when github_sync_enabled=False."""
         mock_search = MagicMock()
-
-        handoff_result = {
-            "content": "Session handoff",
-            "timestamp": "2026-02-10T00:00:00Z",
-            "score": 0.9,
-        }
-
-        def search_side_effect(**kwargs):
-            if kwargs.get("memory_type") == ["agent_handoff"]:
-                return [handoff_result]
-            return []
-
-        mock_search.search.side_effect = search_side_effect
+        mock_search.search.return_value = []
+        mock_search.get_recent.return_value = []
 
         config = MagicMock(spec=MemoryConfig)
         config.parzival_enabled = True

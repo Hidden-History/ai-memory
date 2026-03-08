@@ -1,0 +1,71 @@
+# Oversight Directory Schema
+# Defines the expected structure of the {oversight_path}/ directory
+# Parzival session workflows read from and write to this structure
+
+directories:
+  root:
+    - SESSION_WORK_INDEX.md       # Quick context loading (~400 tokens)
+    - PROJECT_STANDARDS.yaml      # Project-level standards
+
+  tracking:
+    description: Sprint and project tracking files
+    files:
+      - task-tracker.md
+      - risk-register.md
+      - blockers-log.md
+      - dependencies.md
+      - scope-change-log.md
+      - technical-debt.md
+
+  decisions:
+    description: Decision records (DEC-### format)
+    pattern: "DEC-{number}.md"
+
+  bugs:
+    description: Bug reports (BUG-### format)
+    pattern: "BUG-{number}.md"
+
+  session-logs:
+    description: Session handoff documents
+    pattern: "SESSION_HANDOFF_{date}.md"
+
+  session-index:
+    description: Archived session history
+    files:
+      - INDEX.md
+
+  reports:
+    description: Test, audit, and review reports
+
+  specs:
+    description: Fix and feature specifications
+
+  plans:
+    description: Implementation plans
+
+  knowledge:
+    description: Confidence maps and assumptions
+
+  learning:
+    description: Failure patterns and lessons learned
+
+  research:
+    description: Best practices research
+
+  agent-constraints:
+    description: Per-agent constraint overrides
+
+  audits:
+    description: Audit records
+
+  standards:
+    description: Global and project standards
+
+  validation:
+    description: Validation records
+
+  verification:
+    description: Verification checklists and results
+    subdirectories:
+      checklists:
+        description: Verification checklist templates

@@ -1,0 +1,8 @@
+# Parzival Agent Team: Development Cycle
+bundle:
+  name: Development Cycle
+  description: Standard development agent dispatch for story implementation and code review.
+agents:
+  - dev
+party: null
+dispatch_mode: single

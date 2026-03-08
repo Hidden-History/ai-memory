@@ -508,6 +508,18 @@ class TestSessionStartHook:
             assert "Actual useful content" in result
 
 
+class TestMatcherConfiguration:
+    """Tests for SessionStart hook matcher configuration."""
+
+    def test_matcher_does_not_include_startup(self):
+        """PLAN-011: startup trigger removed — no matcher constants in settings script."""
+        import scripts.update_parzival_settings as ups
+
+        # Matcher constants were removed (v2.2.0) — startup is no longer managed
+        assert not hasattr(ups, "MATCHER_PARZIVAL")
+        assert not hasattr(ups, "MATCHER_STANDARD")
+
+
 class TestPriorityInjectionEdgeCases:
     """Edge case tests for inject_with_priority() - MEDIUM-7 fixes."""
 

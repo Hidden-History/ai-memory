@@ -1,0 +1,17 @@
+# POV (Parzival Oversight) Module Configuration
+# AI Memory System
+# Version: 1.0.0
+# Date: 2026-03-01
+
+# Module-specific paths
+pov_output_folder: "{project-root}/_ai-memory-output/pov"
+constraints_path: "{project-root}/_ai-memory/pov/constraints"
+workflows_path: "{project-root}/_ai-memory/pov/workflows"
+oversight_path: "{project-root}/oversight"
+teams_enabled: true
+
+# Core Configuration Values
+user_name: wbsolutions
+communication_language: English
+document_output_language: English
+output_folder: "{project-root}/_ai-memory-output"

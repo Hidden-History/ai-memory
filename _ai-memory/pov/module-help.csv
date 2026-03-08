@@ -1,0 +1,13 @@
+module,phase,name,code,sequence,workflow-file,command,required,agent,options,description,output-location,outputs
+pov,,Session Start,ST,1,pov/workflows/session/start/workflow.md,parzival-start,false,parzival,,Start session with context loading and status report,{oversight_path}/session-logs/,SESSION_HANDOFF_*.md
+pov,,Session Status,SU,2,pov/workflows/session/status/workflow.md,parzival-status,false,parzival,,Quick read-only project status check,{oversight_path}/,SESSION_WORK_INDEX.md
+pov,,Log Blocker,BL,3,pov/workflows/session/blocker/workflow.md,parzival-blocker,false,parzival,,Analyze and log a blocker with resolution options,{oversight_path}/tracking/,blockers-log.md
+pov,,Log Decision,DC,4,pov/workflows/session/decision/workflow.md,parzival-decision,false,parzival,,Present a decision with options and tradeoffs,{oversight_path}/tracking/,decision-log.md
+pov,,Verify Work,VE,5,pov/workflows/session/verify/workflow.md,parzival-verify,false,parzival,,Run verification protocol on completed work,{oversight_path}/tracking/,task-tracker.md
+pov,,Team Prompt,TP,6,pov/workflows/session/team-prompt/workflow.md,parzival-team,false,parzival,,Build 2-tier or 3-tier agent team prompts,,
+pov,,Session Handoff,HO,7,pov/workflows/session/handoff/workflow.md,parzival-handoff,false,parzival,,Create mid-session state snapshot,{oversight_path}/session-logs/,SESSION_HANDOFF_*.md
+pov,,Session Close,CL,8,pov/workflows/session/close/workflow.md,parzival-closeout,false,parzival,,Full session closeout with Qdrant save,{oversight_path}/session-logs/,SESSION_HANDOFF_*.md
+pov,,Help,HP,9,core/tasks/help.md,,false,parzival,,Analyze project state and recommend next steps,,
+pov,,Data Analysis,DA,10,,,,false,parzival,,Query and analyze Qdrant memory data,,
+pov,init,Init New,INIT-NEW,1,pov/workflows/init/new/workflow.md,,true,parzival,,Initialize new project with Parzival oversight,{oversight_path}/,project-status.md
+pov,init,Init Existing,INIT-EXIST,2,pov/workflows/init/existing/workflow.md,,true,parzival,,Onboard existing project with state detection,{oversight_path}/,project-status.md

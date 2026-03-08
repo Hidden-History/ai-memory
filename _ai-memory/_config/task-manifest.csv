@@ -1,0 +1,2 @@
+name,displayName,description,module,path,standalone
+help,Help,Analyzes project state and recommends next workflow steps,core,core/tasks/help.md,true

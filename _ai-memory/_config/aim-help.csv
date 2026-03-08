@@ -1,0 +1,21 @@
+module,phase,name,code,sequence,workflow-file,command,required,agent-name,agent-command,agent-display-name,agent-title,options,description,output-location,outputs
+pov,,Session Start,ST,1,pov/workflows/session/start/workflow.md,parzival-start,false,parzival,,Parzival,Project Oversight Lead,,Start a new session with full context loading and status report,{oversight_path}/session-logs/,SESSION_HANDOFF_*.md
+pov,,Session Status,SU,2,pov/workflows/session/status/workflow.md,parzival-status,false,parzival,,Parzival,Project Oversight Lead,,Quick read-only project status check without full session startup,{oversight_path}/,SESSION_WORK_INDEX.md
+pov,,Log Blocker,BL,3,pov/workflows/session/blocker/workflow.md,parzival-blocker,false,parzival,,Parzival,Project Oversight Lead,,Analyze and log a project blocker with resolution options,{oversight_path}/tracking/,blockers-log.md
+pov,,Log Decision,DC,4,pov/workflows/session/decision/workflow.md,parzival-decision,false,parzival,,Parzival,Project Oversight Lead,,Present a decision with options and tradeoffs for user approval,{oversight_path}/tracking/,decision-log.md
+pov,,Verify Work,VE,5,pov/workflows/session/verify/workflow.md,parzival-verify,false,parzival,,Parzival,Project Oversight Lead,,Run verification protocol on completed work (story/code/production),{oversight_path}/tracking/,task-tracker.md
+pov,,Team Prompt,TP,6,pov/workflows/session/team-prompt/workflow.md,parzival-team,false,parzival,,Parzival,Project Oversight Lead,,Build agent team prompts for 2-tier or 3-tier hierarchical teams,,
+pov,,Session Handoff,HO,7,pov/workflows/session/handoff/workflow.md,parzival-handoff,false,parzival,,Parzival,Project Oversight Lead,,Create mid-session handoff document (state snapshot),{oversight_path}/session-logs/,SESSION_HANDOFF_*.md
+pov,,Session Close,CL,8,pov/workflows/session/close/workflow.md,parzival-closeout,false,parzival,,Parzival,Project Oversight Lead,,Full session closeout with tracking updates and Qdrant save,{oversight_path}/session-logs/,SESSION_HANDOFF_*.md
+pov,,Help,HP,9,core/tasks/help.md,,false,parzival,,Parzival,Project Oversight Lead,,Analyze project state and recommend next steps,,
+pov,,Dispatch Agent,DA,10,pov/workflows/cycles/agent-dispatch/workflow.md,,false,parzival,,Parzival,Project Oversight Lead,,Activate a BMAD agent for a specific task,,
+pov,,Exit,EX,11,,,false,parzival,,Parzival,Project Oversight Lead,,Dismiss Parzival and end session,,
+pov,init,Init New Project,INIT-NEW,1,pov/workflows/init/new/workflow.md,,true,parzival,,Parzival,Project Oversight Lead,,Initialize a new project with full Parzival oversight setup,{oversight_path}/,project-status.md
+pov,init,Init Existing Project,INIT-EXIST,2,pov/workflows/init/existing/workflow.md,,true,parzival,,Parzival,Project Oversight Lead,,Onboard an existing project with state detection and branch routing,{oversight_path}/,project-status.md
+pov,discovery,Discovery,DISC,1,pov/workflows/phases/discovery/workflow.md,,true,parzival,,Parzival,Project Oversight Lead,,Produce a validated PRD from user requirements,{oversight_path}/,PRD.md
+pov,architecture,Architecture,ARCH,1,pov/workflows/phases/architecture/workflow.md,,true,parzival,,Parzival,Project Oversight Lead,,Design technical architecture and create epics with stories,,architecture.md
+pov,planning,Sprint Planning,PLAN,1,pov/workflows/phases/planning/workflow.md,,true,parzival,,Parzival,Project Oversight Lead,,Create implementation-ready sprint with story files,,sprint-plan.md
+pov,execution,Execution,EXEC,1,pov/workflows/phases/execution/workflow.md,,true,parzival,,Parzival,Project Oversight Lead,,Implement stories via DEV agent dispatch and review cycles,,
+pov,integration,Integration,INTG,1,pov/workflows/phases/integration/workflow.md,,true,parzival,,Parzival,Project Oversight Lead,,Full system testing and architectural cohesion verification,,
+pov,release,Release,REL,1,pov/workflows/phases/release/workflow.md,,true,parzival,,Parzival,Project Oversight Lead,,Compile release artifacts and verify deployment readiness,,CHANGELOG.md
+pov,maintenance,Maintenance,MAINT,1,pov/workflows/phases/maintenance/workflow.md,,false,parzival,,Parzival,Project Oversight Lead,,Triage and fix production issues with full review cycles,,
