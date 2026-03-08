@@ -648,7 +648,8 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 embed_statuses = [
                     p["payload"]["embedding_status"] for p in points_to_store
                 ]
-                dim = len(points_to_store[0]["vector"]) if points_to_store else 0
+                raw_vec = points_to_store[0]["vector"] if points_to_store else []
+                dim = len(raw_vec[""]) if isinstance(raw_vec, dict) else len(raw_vec)
                 emit_trace_event(
                     event_type="6_embed",
                     data={

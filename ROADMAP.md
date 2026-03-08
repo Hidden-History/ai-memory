@@ -4,9 +4,9 @@ This roadmap outlines the development direction for AI Memory Module. Community 
 
 ---
 
-## Current Release: v2.2.0 (Released 2026-03-08)
+## Current Release: v2.2.1 (Released 2026-03-08)
 
-**Parzival V2 Architecture** - Agent-activated injection, clean session starts, and full Langfuse V3 observability.
+**Triple Fusion Hybrid Search** - Dense + BM25 sparse + ColBERT late interaction via Qdrant RRF fusion, with RRF score normalization and 4-path search composition.
 
 ### Architecture Overview
 
@@ -51,22 +51,9 @@ This roadmap outlines the development direction for AI Memory Module. Community 
 
 ---
 
-## In Development: v2.2.1
+## In Development: v2.3
 
-**Theme:** Triple fusion hybrid search and retrieval quality
-
-### Triple Fusion Hybrid Search
-- **Dense Vectors**: Jina v2 Base EN (768d, prose) + Jina v2 Base Code (768d, code)
-- **Sparse Vectors**: Qdrant BM25 with IDF weighting for keyword matching
-- **Late Interaction**: ColBERT v2 (opt-in, ~400MB model) for token-level reranking
-- **Fusion**: Combined via Qdrant native Reciprocal Rank Fusion (RRF)
-- **4-Path Search Composition**: hybrid+decay, hybrid-only, decay-only, plain dense
-- Points without BM25 vectors fall back to dense-only automatically
-
-### Injection Quality
-- 3-tier soft confidence gating (full / reduced / skip)
-- Score gap threshold for adaptive result filtering
-- Type-filtered Tier 2 injection (excludes low-value types)
+See **Planned - v2.3** section below.
 
 ---
 
@@ -74,6 +61,7 @@ This roadmap outlines the development direction for AI Memory Module. Community 
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **v2.2.1** | 2026-03-08 | Triple Fusion Hybrid Search (dense + BM25 + ColBERT), RRF normalization, 4-path search |
 | **v2.2.0** | 2026-03-08 | Parzival V2, agent-activated injection, PCB step-files, constraint re-injection |
 | **v2.1.0** | 2026-03-06 | Langfuse V3 SDK, DEC-038, TRACE_CONTENT_MAX |
 | **v2.0.8** | 2026-02 | Multi-project sync, credential hardening, `aim-` prefix rename |

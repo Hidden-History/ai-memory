@@ -990,10 +990,7 @@ def should_store_summary(summary_data: dict[str, Any]) -> bool:
         len(tools_used) == 0 and files_modified == 0 and user_interactions == 0
     )
 
-    if has_no_activity:
-        return False
-
-    return True
+    return not has_no_activity
 
 
 def check_duplicate_hash(content_hash: str, group_id: str, client) -> str | None:
@@ -1230,15 +1227,6 @@ def main() -> int:
                 f"📤 AI Memory: Session summary saved for {project} (trigger: {trigger}) [{duration_ms:.0f}ms]",
                 file=sys.stderr,
             )
-
-        # Activity log with full content
-        tools_list = (
-            ", ".join(transcript_analysis["tools_used"])
-            if transcript_analysis["tools_used"]
-            else "None"
-        )
-        files_count = len(transcript_analysis["files_modified"])
-        prompts_count = transcript_analysis["user_prompts_count"]
 
         # Log summary header
         session_id = summary_data.get("session_id", "unknown")

@@ -923,7 +923,11 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.0.8...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.2.1...HEAD
+[2.2.1]: https://github.com/Hidden-History/ai-memory/compare/v2.2.0...v2.2.1
+[2.2.0]: https://github.com/Hidden-History/ai-memory/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/Hidden-History/ai-memory/compare/v2.0.9...v2.1.0
+[2.0.9]: https://github.com/Hidden-History/ai-memory/compare/v2.0.8...v2.0.9
 [2.0.8]: https://github.com/Hidden-History/ai-memory/compare/v2.0.7...v2.0.8
 [2.0.7]: https://github.com/Hidden-History/ai-memory/compare/v2.0.6...v2.0.7
 [2.0.6]: https://github.com/Hidden-History/ai-memory/compare/v2.0.5...v2.0.6
