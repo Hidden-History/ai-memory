@@ -641,13 +641,21 @@ class MemorySearch:
                 emit_trace_event(
                     event_type="search_path_selection",
                     data={
-                        "input": json.dumps({"query": query[:200], "collection": collection, "search_mode": _search_mode})[:TRACE_CONTENT_MAX],
-                        "output": json.dumps({
-                            "path": _search_mode,
-                            "result_count": len(memories),
-                            "hybrid_available": hybrid_prefetch_stages is not None,
-                            "decay_enabled": self.config.decay_enabled,
-                        })[:TRACE_CONTENT_MAX],
+                        "input": json.dumps(
+                            {
+                                "query": query[:200],
+                                "collection": collection,
+                                "search_mode": _search_mode,
+                            }
+                        )[:TRACE_CONTENT_MAX],
+                        "output": json.dumps(
+                            {
+                                "path": _search_mode,
+                                "result_count": len(memories),
+                                "hybrid_available": hybrid_prefetch_stages is not None,
+                                "decay_enabled": self.config.decay_enabled,
+                            }
+                        )[:TRACE_CONTENT_MAX],
                         "metadata": {"path": _search_mode, "collection": collection},
                     },
                     session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),

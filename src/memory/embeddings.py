@@ -226,11 +226,19 @@ class EmbeddingClient:
                     emit_trace_event(
                         event_type="embedding_generation",
                         data={
-                            "input": f"Embed {len(texts)} texts (model={model})"[:TRACE_CONTENT_MAX],
-                            "output": f"{len(embeddings)} embeddings generated"[:TRACE_CONTENT_MAX],
+                            "input": f"Embed {len(texts)} texts (model={model})"[
+                                :TRACE_CONTENT_MAX
+                            ],
+                            "output": f"{len(embeddings)} embeddings generated"[
+                                :TRACE_CONTENT_MAX
+                            ],
                             "model": "jina-embeddings-v2-base-en",
                             "usage": {"input": len(texts), "output": 0},
-                            "metadata": {"text_count": len(texts), "model": model, "endpoint": "dense"},
+                            "metadata": {
+                                "text_count": len(texts),
+                                "model": model,
+                                "endpoint": "dense",
+                            },
                         },
                         session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
                         as_type="generation",
@@ -368,11 +376,18 @@ class EmbeddingClient:
                     emit_trace_event(
                         event_type="embedding_generation",
                         data={
-                            "input": f"Embed {len(texts)} texts (sparse BM25)"[:TRACE_CONTENT_MAX],
-                            "output": f"{len(sparse_embeddings)} sparse embeddings generated"[:TRACE_CONTENT_MAX],
+                            "input": f"Embed {len(texts)} texts (sparse BM25)"[
+                                :TRACE_CONTENT_MAX
+                            ],
+                            "output": f"{len(sparse_embeddings)} sparse embeddings generated"[
+                                :TRACE_CONTENT_MAX
+                            ],
                             "model": "jina-embeddings-v2-base-en",
                             "usage": {"input": len(texts), "output": 0},
-                            "metadata": {"text_count": len(texts), "endpoint": "sparse"},
+                            "metadata": {
+                                "text_count": len(texts),
+                                "endpoint": "sparse",
+                            },
                         },
                         session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
                         as_type="generation",
@@ -434,8 +449,12 @@ class EmbeddingClient:
                     emit_trace_event(
                         event_type="embedding_generation",
                         data={
-                            "input": f"Embed {len(texts)} texts (ColBERT late interaction)"[:TRACE_CONTENT_MAX],
-                            "output": f"{len(late_embeddings)} late interaction embeddings generated"[:TRACE_CONTENT_MAX],
+                            "input": f"Embed {len(texts)} texts (ColBERT late interaction)"[
+                                :TRACE_CONTENT_MAX
+                            ],
+                            "output": f"{len(late_embeddings)} late interaction embeddings generated"[
+                                :TRACE_CONTENT_MAX
+                            ],
                             "model": "jina-embeddings-v2-base-en",
                             "usage": {"input": len(texts), "output": 0},
                             "metadata": {"text_count": len(texts), "endpoint": "late"},
