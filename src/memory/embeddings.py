@@ -222,7 +222,7 @@ class EmbeddingClient:
 
             # PLAN-014 G-11: GENERATION trace for dense embedding API call
             if emit_trace_event:
-                try:
+                with contextlib.suppress(Exception):
                     emit_trace_event(
                         event_type="embedding_generation",
                         data={
@@ -236,8 +236,6 @@ class EmbeddingClient:
                         as_type="generation",
                         tags=["embedding"],
                     )
-                except Exception:
-                    pass
 
             return embeddings
 
@@ -366,7 +364,7 @@ class EmbeddingClient:
 
             # PLAN-014 G-11: GENERATION trace for sparse embedding API call
             if emit_trace_event:
-                try:
+                with contextlib.suppress(Exception):
                     emit_trace_event(
                         event_type="embedding_generation",
                         data={
@@ -380,8 +378,6 @@ class EmbeddingClient:
                         as_type="generation",
                         tags=["embedding"],
                     )
-                except Exception:
-                    pass
 
             return sparse_embeddings
         except httpx.TimeoutException as e:
@@ -434,7 +430,7 @@ class EmbeddingClient:
 
             # PLAN-014 G-11: GENERATION trace for late interaction (ColBERT) embedding API call
             if emit_trace_event:
-                try:
+                with contextlib.suppress(Exception):
                     emit_trace_event(
                         event_type="embedding_generation",
                         data={
@@ -448,8 +444,6 @@ class EmbeddingClient:
                         as_type="generation",
                         tags=["embedding"],
                     )
-                except Exception:
-                    pass
 
             return late_embeddings
         except httpx.TimeoutException as e:

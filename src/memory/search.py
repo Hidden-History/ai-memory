@@ -637,7 +637,7 @@ class MemorySearch:
 
         # G-10: Emit search path selection trace event
         if emit_trace_event:
-            try:
+            with contextlib.suppress(Exception):
                 emit_trace_event(
                     event_type="search_path_selection",
                     data={
@@ -653,8 +653,6 @@ class MemorySearch:
                     session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
                     tags=["search", collection],
                 )
-            except Exception:
-                pass
 
         # SPEC-021: Emit search trace event
         if emit_trace_event:
