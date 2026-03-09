@@ -379,7 +379,7 @@ def retrieve_bootstrap_context(
                     },
                 },
                 project_id=project_name,
-                session_id=os.environ.get("CLAUDE_SESSION_ID"),
+                session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
                 start_time=_trace_start,
                 end_time=datetime.now(tz=timezone.utc),
             )
@@ -673,7 +673,7 @@ def select_results_greedy(
                         "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                     },
                 },
-                session_id=os.environ.get("CLAUDE_SESSION_ID"),
+                session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
                 start_time=_trace_start,
                 end_time=datetime.now(tz=timezone.utc),
             )
@@ -736,7 +736,7 @@ def format_injection_output(
                         "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                     },
                 },
-                session_id=os.environ.get("CLAUDE_SESSION_ID"),
+                session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
                 start_time=_trace_start,
                 end_time=datetime.now(tz=timezone.utc),
             )

@@ -250,6 +250,8 @@ def _process_event_otel(event: dict, data: dict) -> None:
                 {"project_id": event.get("project_id"), "source": "trace_buffer"}
             ),
         )
+        if event.get("tags"):
+            otel_span.set_attribute("langfuse.trace.tags", json.dumps(event["tags"]))
 
     if end_ns is not None:
         otel_span.end(end_time=end_ns)
@@ -303,6 +305,8 @@ def _process_event_sdk(event: dict, data: dict, langfuse) -> None:
     if is_root:
         trace_kwargs["input"] = data.get("input")
         trace_kwargs["output"] = data.get("output")
+    if event.get("tags"):
+        trace_kwargs["tags"] = event["tags"]
     observation.update_trace(**trace_kwargs)
 
     if data.get("end_time"):

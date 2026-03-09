@@ -139,7 +139,7 @@ class TestGetProjectHash:
         test_dir.mkdir()
         hash_result = get_project_hash(str(test_dir))
         assert hash_result.isalnum()
-        assert hash_result.islower()
+        assert hash_result == hash_result.lower()
 
 
 class TestDetectProject:

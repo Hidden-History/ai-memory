@@ -130,6 +130,41 @@ def _get_entry_content(msg: dict):
     return msg.get("content", "")
 
 
+def _extract_model_and_usage(msg: dict) -> tuple:
+    """Extract model name and usage data from a transcript entry.
+
+    PLAN-014 G-04: Token usage enrichment for turn observations.
+
+    Claude Code V2.x format stores these under "message":
+      msg["message"]["model"] and msg["message"]["usage"]
+    Older format may have them at the top level.
+
+    Note: Claude Code transcripts may NOT include usage/model in all cases.
+    If not present, returns (None, None) — callers must handle gracefully.
+    """
+    inner = msg.get("message", {}) if isinstance(msg.get("message"), dict) else {}
+    model_name = inner.get("model") or msg.get("model")
+    usage = inner.get("usage") or msg.get("usage")
+    return model_name, usage
+
+
+def _extract_thinking_blocks(msg: dict) -> list[dict]:
+    """Extract thinking content blocks from a transcript entry.
+
+    PLAN-014 G-02: Thinking block observation enrichment.
+
+    Claude Code assistant turns may contain content blocks with type="thinking".
+    V2.x format: msg["message"]["content"] is a list of blocks.
+
+    Note: Thinking blocks may NOT be present in all transcript formats or may
+    be redacted. Returns empty list if none found — callers must handle gracefully.
+    """
+    content = _get_entry_content(msg)
+    if not isinstance(content, list):
+        return []
+    return [b for b in content if isinstance(b, dict) and b.get("type") == "thinking"]
+
+
 def _pair_turns(messages: list[dict]) -> list[dict]:
     """Pair user messages with their assistant responses.
 
@@ -137,7 +172,8 @@ def _pair_turns(messages: list[dict]) -> list[dict]:
     older format (role/content).
 
     Returns list of turn dicts with keys:
-      user_input, assistant_output, user_tokens, assistant_tokens
+      user_input, assistant_output, user_tokens, assistant_tokens,
+      model, usage, thinking_blocks
     """
     turns = []
     i = 0
@@ -155,20 +191,32 @@ def _pair_turns(messages: list[dict]) -> list[dict]:
                 next_msg = messages[i + 1]
                 turn["assistant_output"] = _extract_text(_get_entry_content(next_msg))
                 turn["assistant_tokens"] = next_msg.get("token_count")
+                # PLAN-014 G-04: Extract model and usage from assistant turn
+                turn["model"], turn["usage"] = _extract_model_and_usage(next_msg)
+                # PLAN-014 G-02: Extract thinking blocks from assistant turn
+                turn["thinking_blocks"] = _extract_thinking_blocks(next_msg)
                 i += 2
             else:
                 turn["assistant_output"] = None
                 turn["assistant_tokens"] = None
+                turn["model"] = None
+                turn["usage"] = None
+                turn["thinking_blocks"] = []
                 i += 1
             turns.append(turn)
         elif role == "assistant" and not turns:
             # Orphan assistant message at start — still capture it
+            model, usage = _extract_model_and_usage(msg)
+            thinking = _extract_thinking_blocks(msg)
             turns.append(
                 {
                     "user_input": None,
                     "user_tokens": None,
                     "assistant_output": _extract_text(_get_entry_content(msg)),
                     "assistant_tokens": msg.get("token_count"),
+                    "model": model,
+                    "usage": usage,
+                    "thinking_blocks": thinking,
                 }
             )
             i += 1
@@ -388,18 +436,62 @@ def main():
                     if turn.get("assistant_tokens") is not None:
                         token_meta["assistant_tokens"] = turn["assistant_tokens"]
 
+                    # PLAN-014 G-04: Include model and usage in turn metadata if available
+                    # Note: Claude Code transcripts may not always include usage/model data.
+                    # These fields are extracted best-effort; if absent, they are simply omitted.
+                    turn_model = turn.get("model")
+                    turn_usage = turn.get("usage")
+                    if turn_model:
+                        token_meta["model"] = turn_model
+                    if turn_usage and isinstance(turn_usage, dict):
+                        token_meta["usage"] = turn_usage
+
                     turn_input = turn.get("user_input") or ""
                     turn_output = turn.get("assistant_output") or ""
 
+                    # PLAN-014 G-04: Use as_type="generation" when model/usage available,
+                    # otherwise keep as "span" for backward compatibility
+                    turn_type = "generation" if turn_model else "span"
+
                     with langfuse_v3.start_as_current_observation(
-                        as_type="span",
+                        as_type=turn_type,
                         name=f"turn_{i}",
                         input=turn_input[:LANGFUSE_PAYLOAD_MAX_CHARS] if turn_input else None,
                     ) as turn_span:
-                        turn_span.update(
-                            output=turn_output[:LANGFUSE_PAYLOAD_MAX_CHARS] if turn_output else None,
-                            metadata=token_meta,
-                        )
+                        update_kwargs = {
+                            "output": turn_output[:LANGFUSE_PAYLOAD_MAX_CHARS] if turn_output else None,
+                            "metadata": token_meta,
+                        }
+                        # PLAN-014 G-04: Set model and usage on generation observations
+                        if turn_type == "generation":
+                            update_kwargs["model"] = turn_model
+                            if turn_usage and isinstance(turn_usage, dict):
+                                update_kwargs["usage"] = turn_usage
+                        turn_span.update(**update_kwargs)
+
+                        # PLAN-014 G-02: Child span for thinking blocks if present
+                        # Claude Code assistant turns may include content blocks with
+                        # type="thinking". If found, capture as a child observation.
+                        # Note: Thinking blocks may not be present in all transcript
+                        # formats or may be redacted by Claude Code.
+                        thinking_blocks = turn.get("thinking_blocks", [])
+                        if thinking_blocks:
+                            thinking_text = "\n".join(
+                                b.get("thinking", b.get("text", ""))
+                                for b in thinking_blocks
+                            )
+                            if thinking_text.strip():
+                                with langfuse_v3.start_as_current_observation(
+                                    as_type="span",
+                                    name=f"turn_{i}_thinking",
+                                    input=thinking_text[:LANGFUSE_PAYLOAD_MAX_CHARS],
+                                ) as thinking_span:
+                                    thinking_span.update(
+                                        metadata={
+                                            "block_count": len(thinking_blocks),
+                                            "source": "extended_thinking",
+                                        },
+                                    )
 
         # ── BUG-155: flush() with timeout guard + logging ──
         logger.info(

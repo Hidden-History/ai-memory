@@ -14,6 +14,7 @@ Best Practices (2025/2026):
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import contextlib
+import json
 import logging
 import os
 import time
@@ -634,6 +635,26 @@ class MemorySearch:
         for m in memories:
             m["search_mode"] = _search_mode
 
+        # G-10: Emit search path selection trace event
+        if emit_trace_event:
+            try:
+                emit_trace_event(
+                    event_type="search_path_selection",
+                    data={
+                        "input": json.dumps({"query": query[:200], "collection": collection, "search_mode": _search_mode})[:TRACE_CONTENT_MAX],
+                        "output": json.dumps({
+                            "path": _search_mode,
+                            "result_count": len(memories),
+                            "hybrid_available": hybrid_prefetch_stages is not None,
+                            "decay_enabled": self.config.decay_enabled,
+                        })[:TRACE_CONTENT_MAX],
+                        "metadata": {"path": _search_mode, "collection": collection},
+                    },
+                    session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
+                )
+            except Exception:
+                pass
+
         # SPEC-021: Emit search trace event
         if emit_trace_event:
             try:
@@ -672,7 +693,7 @@ class MemorySearch:
                             "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
-                    session_id=os.environ.get("CLAUDE_SESSION_ID", ""),
+                    session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
                     project_id=group_id,
                     start_time=_trace_start,
                     end_time=_trace_end,
@@ -1180,7 +1201,7 @@ class MemorySearch:
                             "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
-                    session_id=os.environ.get("CLAUDE_SESSION_ID", ""),
+                    session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
                     project_id=effective_group_id,
                     start_time=_trace_start,
                     end_time=_trace_end,
@@ -1309,7 +1330,7 @@ class MemorySearch:
                                 ),
                             },
                         },
-                        session_id=os.environ.get("CLAUDE_SESSION_ID", ""),
+                        session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
                         project_id=group_id,
                         start_time=_trace_start,
                         end_time=_trace_end,
@@ -1399,7 +1420,7 @@ class MemorySearch:
                             "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                         },
                     },
-                    session_id=os.environ.get("CLAUDE_SESSION_ID", ""),
+                    session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
                     project_id=group_id,
                     start_time=_trace_start,
                     end_time=_trace_end,

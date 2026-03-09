@@ -21,6 +21,7 @@ References:
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 from datetime import datetime, timezone
 
@@ -201,7 +202,7 @@ def build_decay_formula(
                     },
                     start_time=_trace_start,
                     end_time=datetime.now(timezone.utc),
-                    session_id=os.environ.get("CLAUDE_SESSION_ID"),
+                    session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
                 )
         return None, prefetch
 
@@ -306,7 +307,7 @@ def build_decay_formula(
         defaults={"stored_at": "2020-01-01T00:00:00Z"},
     )
 
-    # Langfuse trace: decay formula construction
+    # Langfuse trace: decay formula construction (includes G-09 summary fields)
     if emit_trace_event:
         with contextlib.suppress(Exception):
             emit_trace_event(
@@ -325,13 +326,16 @@ def build_decay_formula(
                         "type_overrides": len(half_life_groups),
                         "default_half_life_days": default_hl_days,
                         "prefetch_limit": prefetch_limit,
+                        "branch_count": len(decay_branches),
+                        "scoring_applied": True,
+                        "temporal_weight": temporal_w,
                         "agent_name": os.environ.get("CLAUDE_AGENT_NAME", "main"),
                         "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                     },
                 },
                 start_time=_trace_start,
                 end_time=datetime.now(timezone.utc),
-                session_id=os.environ.get("CLAUDE_SESSION_ID"),
+                session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
             )
 
     return formula, prefetch

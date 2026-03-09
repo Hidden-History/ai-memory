@@ -183,11 +183,12 @@ class TestMemoryTypeEnumStructure:
 
         V2.0.5: 17 types (4 code-patterns + 5 conventions + 6 discussions + 2 jira-data)
         V2.0.6: 30 types (added GitHub sync, agent, decay, freshness types)
+        V2.2.1: 31 types (added github_release)
         """
         all_types = list(MemoryType)
         assert (
-            len(all_types) == 30
-        ), f"MemoryType enum should have 30 types (V2.0.6 spec), got {len(all_types)}"
+            len(all_types) == 31
+        ), f"MemoryType enum should have 31 types (V2.2.1 spec), got {len(all_types)}"
 
     def test_memory_type_values_are_lowercase_snake_case(self):
         """Verify all MemoryType values use lowercase snake_case.

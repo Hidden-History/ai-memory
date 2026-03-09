@@ -130,7 +130,7 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                     event_type="9_classify",
                     data=data_payload,
                     trace_id=task.trace_id,
-                    session_id=task.session_id,  # Wave 1H: Link to Claude session
+                    session_id=task.session_id or "unknown",  # Wave 1H: Link to Claude session
                     project_id=task.group_id,
                     start_time=classify_start,
                     end_time=classify_end,

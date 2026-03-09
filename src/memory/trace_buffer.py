@@ -52,6 +52,7 @@ def emit_trace_event(
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     as_type: str | None = None,
+    tags: list[str] | None = None,
 ) -> bool:
     """Write a trace event to the buffer directory.
 
@@ -70,6 +71,8 @@ def emit_trace_event(
         end_time: Span end time (default: now). Enables Langfuse latency visualization.
         as_type: Observation type override. "generation" creates a Langfuse generation
                  (with model name + token usage) instead of the default span. None = span.
+        tags: Optional list of string tags for trace-level tagging in Langfuse.
+              Used for filtering and aggregating traces in dashboards.
 
     Returns:
         True if event was written, False if skipped (disabled or buffer full).
@@ -80,6 +83,10 @@ def emit_trace_event(
     if os.environ.get("LANGFUSE_ENABLED", "false").lower() != "true":
         return False
     if os.environ.get("LANGFUSE_TRACE_HOOKS", "true").lower() != "true":
+        return False
+
+    # G-15: Reject unnamed/empty trace events
+    if not event_type:
         return False
 
     TRACE_BUFFER_DIR.mkdir(parents=True, exist_ok=True)
@@ -108,7 +115,7 @@ def emit_trace_event(
         ).replace("-", ""),
         "span_id": span_id or uuid4().hex,
         "parent_span_id": parent_span_id,
-        "session_id": session_id or os.environ.get("CLAUDE_SESSION_ID"),
+        "session_id": session_id or os.environ.get("CLAUDE_SESSION_ID") or "unknown",
         "project_id": project_id or os.environ.get("AI_MEMORY_PROJECT_ID", ""),
         "data": {
             **data,
@@ -119,6 +126,8 @@ def emit_trace_event(
     # Wave 1H: Include observation type when explicitly specified (e.g., "generation")
     if as_type:
         event["as_type"] = as_type
+    if tags:
+        event["tags"] = tags
 
     # Atomic write via temp file + rename (prevents partial reads)
     tmp_path = TRACE_BUFFER_DIR / f".tmp_{uuid4().hex}"

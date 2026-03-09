@@ -30,6 +30,15 @@ except ImportError:
     embedding_duration_seconds = None
     failure_events_total = None
 
+# Langfuse GENERATION tracing for embedding API calls (PLAN-014 G-11)
+# LANGFUSE: Uses Path A (trace buffer). See LANGFUSE-INTEGRATION-SPEC.md §3.1
+try:
+    from .trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
+TRACE_CONTENT_MAX = 10000
+
 __all__ = ["EmbeddingClient", "EmbeddingError"]
 
 logger = logging.getLogger("ai_memory.embed")
@@ -211,6 +220,24 @@ class EmbeddingClient:
                 model=model,
             )
 
+            # PLAN-014 G-11: GENERATION trace for dense embedding API call
+            if emit_trace_event:
+                try:
+                    emit_trace_event(
+                        event_type="embedding_generation",
+                        data={
+                            "input": f"Embed {len(texts)} texts (model={model})"[:TRACE_CONTENT_MAX],
+                            "output": f"{len(embeddings)} embeddings generated"[:TRACE_CONTENT_MAX],
+                            "model": "jina-embeddings-v2-base-en",
+                            "usage": {"input": len(texts), "output": 0},
+                            "metadata": {"text_count": len(texts), "model": model, "endpoint": "dense"},
+                        },
+                        session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
+                        as_type="generation",
+                    )
+                except Exception:
+                    pass
+
             return embeddings
 
         except httpx.TimeoutException as e:
@@ -334,7 +361,27 @@ class EmbeddingClient:
                 timeout=30.0,
             )
             response.raise_for_status()
-            return response.json()["embeddings"]
+            sparse_embeddings = response.json()["embeddings"]
+
+            # PLAN-014 G-11: GENERATION trace for sparse embedding API call
+            if emit_trace_event:
+                try:
+                    emit_trace_event(
+                        event_type="embedding_generation",
+                        data={
+                            "input": f"Embed {len(texts)} texts (sparse BM25)"[:TRACE_CONTENT_MAX],
+                            "output": f"{len(sparse_embeddings)} sparse embeddings generated"[:TRACE_CONTENT_MAX],
+                            "model": "jina-embeddings-v2-base-en",
+                            "usage": {"input": len(texts), "output": 0},
+                            "metadata": {"text_count": len(texts), "endpoint": "sparse"},
+                        },
+                        session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
+                        as_type="generation",
+                    )
+                except Exception:
+                    pass
+
+            return sparse_embeddings
         except httpx.TimeoutException as e:
             logger.error(
                 "sparse_embedding_timeout",
@@ -381,7 +428,27 @@ class EmbeddingClient:
             response.raise_for_status()
             data = response.json()["embeddings"]
             # Service returns [{embeddings: [[float]]}] — extract inner embeddings
-            return [item["embeddings"] for item in data]
+            late_embeddings = [item["embeddings"] for item in data]
+
+            # PLAN-014 G-11: GENERATION trace for late interaction (ColBERT) embedding API call
+            if emit_trace_event:
+                try:
+                    emit_trace_event(
+                        event_type="embedding_generation",
+                        data={
+                            "input": f"Embed {len(texts)} texts (ColBERT late interaction)"[:TRACE_CONTENT_MAX],
+                            "output": f"{len(late_embeddings)} late interaction embeddings generated"[:TRACE_CONTENT_MAX],
+                            "model": "jina-embeddings-v2-base-en",
+                            "usage": {"input": len(texts), "output": 0},
+                            "metadata": {"text_count": len(texts), "endpoint": "late"},
+                        },
+                        session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
+                        as_type="generation",
+                    )
+                except Exception:
+                    pass
+
+            return late_embeddings
         except httpx.TimeoutException as e:
             logger.error(
                 "late_embedding_timeout",
