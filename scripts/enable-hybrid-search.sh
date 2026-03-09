@@ -288,11 +288,7 @@ if [[ -n "${QDRANT_API_KEY:-}" ]] && [[ -f "${ENV_FILE}" ]]; then
     # Read the .env file value directly
     ENV_FILE_KEY="$(read_env_value "QDRANT_API_KEY")"
     if [[ -n "${ENV_FILE_KEY}" ]] && [[ "${QDRANT_API_KEY}" != "${ENV_FILE_KEY}" ]]; then
-        SHELL_LAST3="${QDRANT_API_KEY: -3}"
-        FILE_LAST3="${ENV_FILE_KEY: -3}"
-        log_warning "QDRANT_API_KEY mismatch detected (BUG-202 pattern)!"
-        log_warning "  Shell env ends with:  ...${SHELL_LAST3}"
-        log_warning "  .env file ends with:  ...${FILE_LAST3}"
+        log_warning "Shell QDRANT_API_KEY differs from .env file value"
         log_warning "  Shell env OVERRIDES .env — Docker containers read from .env."
         log_warning "  This can cause 401 errors. Recommended: unset QDRANT_API_KEY"
     fi

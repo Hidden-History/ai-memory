@@ -1202,13 +1202,13 @@ Search queries use Qdrant native Reciprocal Rank Fusion (RRF) to combine results
 #### HYBRID_SEARCH_ENABLED
 **Purpose:** Enable hybrid dense+sparse search using Qdrant prefetch + RRF fusion
 
-**Default:** `true`
+**Default:** `false`
 
 **Format:** Boolean (`true`/`false`)
 
 **Example:**
 ```bash
-# Enable (default) — queries use both dense (Jina) and sparse (BM25) vectors
+# Enable — queries use both dense (Jina) and sparse (BM25) vectors
 export HYBRID_SEARCH_ENABLED=true
 
 # Disable — queries use dense vectors only

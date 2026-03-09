@@ -382,7 +382,7 @@ class EmbeddingClient:
                             "output": f"{len(sparse_embeddings)} sparse embeddings generated"[
                                 :TRACE_CONTENT_MAX
                             ],
-                            "model": "jina-embeddings-v2-base-en",
+                            "model": "Qdrant/bm25",
                             "usage": {"input": len(texts), "output": 0},
                             "metadata": {
                                 "text_count": len(texts),
@@ -455,7 +455,7 @@ class EmbeddingClient:
                             "output": f"{len(late_embeddings)} late interaction embeddings generated"[
                                 :TRACE_CONTENT_MAX
                             ],
-                            "model": "jina-embeddings-v2-base-en",
+                            "model": "colbert-ir/colbertv2.0",
                             "usage": {"input": len(texts), "output": 0},
                             "metadata": {"text_count": len(texts), "endpoint": "late"},
                         },

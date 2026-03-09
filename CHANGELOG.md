@@ -18,16 +18,23 @@ Triple Fusion Hybrid Search (PLAN-013): Dense vectors augmented with BM25 sparse
 - **Installer migration notice**: Success message includes hybrid search migration command for existing installations
 - **BM25 model pre-download**: Embedding service Dockerfile downloads `Qdrant/bm25` model at build time (no cold-start delay)
 - **`COLBERT_ENABLED` passthrough**: Docker Compose passes ColBERT toggle to embedding container
-
-### Fixed
-- **DEC-062 RRF score normalization**: RRF reciprocal-rank scores (~0.01-0.05) normalized to [0.5, 0.95] range using min-max scaling. Prevents confidence gating bypass, score gap filter malfunction, and adaptive budget distortion.
-- **Missing `github` collection in decay**: `resolve_half_life()` now includes `github` collection with configurable `decay_half_life_github` (default: 14 days)
-- **EmbeddingClient resource leak**: `pre_compact_save.py` now uses `with` context manager for EmbeddingClient
-- **`COLBERT_ENABLED` env var**: Was missing from docker-compose embedding service environment
+- **Langfuse trace tags** (PLAN-014): All 93 trace emit calls now include semantic tags (capture, retrieval, injection, bootstrap, search, embedding, etc.) for Langfuse dashboard filtering
+- **Skill tracing** (PLAN-014): 9 Python-based skills instrumented with Langfuse trace events
+- **Embedding GENERATION traces** (PLAN-014): Dense, sparse, and ColBERT embedding API calls emit Langfuse GENERATION observations with model and usage metadata
+- **Turnkey hybrid search enablement**: `scripts/enable-hybrid-search.sh` and `stack.sh enable-hybrid` for one-command hybrid search setup (pre-flight checks, container rebuild, migration, verification)
+- **`discussion` memory type**: New MemoryType for general discussion points (total types: 31)
 
 ### Changed
 - **`hybrid_search_enabled` default**: Changed from `True` to `False` in config.py for backward compatibility — requires explicit opt-in + migration
 - **Search result tagging**: All results now include `search_mode` field for downstream observability
+- **pytest configuration**: Migrated from `pytest.ini` to `pyproject.toml`; removed redundant `sys.path.insert()` from test files
+
+### Fixed
+- **Conditional exports** (TD-197): `AsyncSDKWrapper` names only exported when `anthropic` is installed, preventing `NameError` in embedding container
+- **DEC-062 RRF score normalization**: RRF reciprocal-rank scores (~0.01-0.05) normalized to [0.5, 0.95] range using min-max scaling. Prevents confidence gating bypass, score gap filter malfunction, and adaptive budget distortion.
+- **Missing `github` collection in decay**: `resolve_half_life()` now includes `github` collection with configurable `decay_half_life_github` (default: 14 days)
+- **EmbeddingClient resource leak**: `pre_compact_save.py` now uses `with` context manager for EmbeddingClient
+- **`COLBERT_ENABLED` env var**: Was missing from docker-compose embedding service environment
 
 ### Upgrade Instructions
 
