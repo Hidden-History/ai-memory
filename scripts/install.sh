@@ -980,8 +980,59 @@ update_shared_scripts() {
     done
     log_debug "Synced .claude/ shims to INSTALL_DIR"
 
-    if [[ $updated_count -gt 0 || $hooks_count -gt 0 ]]; then
-        log_success "Updated $updated_count shared scripts, $hooks_count hook scripts"
+    # Sync Docker files (Dockerfiles, main.py, requirements.txt, docker-compose.yml, etc.)
+    # In add-project mode, copy_files() is skipped — Docker changes must be synced here
+    local docker_source="$SCRIPT_DIR/../docker"
+    local docker_count=0
+    if [[ -d "$docker_source" ]]; then
+        mkdir -p "$INSTALL_DIR/docker"
+
+        # TD-198: Back up existing docker/.env BEFORE bulk copy to prevent overwrite
+        local _env_backup=""
+        if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
+            _env_backup="$(mktemp)"
+            cp "$INSTALL_DIR/docker/.env" "$_env_backup"
+            log_debug "Backed up existing docker/.env before bulk copy"
+        fi
+
+        log_info "Syncing Docker files to installation..."
+        cp -r "$docker_source/"* "$INSTALL_DIR/docker/" || { log_error "Failed to copy docker files"; return 1; }
+        find "$INSTALL_DIR/docker" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
+        # Restore docker/.env if it was backed up (bulk cp may have overwritten with template)
+        if [[ -n "$_env_backup" ]]; then
+            cp "$_env_backup" "$INSTALL_DIR/docker/.env"
+            rm -f "$_env_backup"
+            log_debug "Restored docker/.env after bulk copy"
+        fi
+
+        # Merge new keys from .env.example into restored .env (TD-198)
+        if [[ -f "$docker_source/.env.example" ]] && [[ -f "$INSTALL_DIR/docker/.env" ]]; then
+            local _new_keys=0
+            while IFS= read -r line; do
+                # Skip comments and empty lines
+                [[ "$line" =~ ^[[:space:]]*# ]] && continue
+                [[ -z "${line// }" ]] && continue
+                # Extract key (everything before first =)
+                key="${line%%=*}"
+                [[ -z "$key" ]] && continue
+                # Only append if key doesn't already exist in installed .env
+                if ! grep -q "^${key}=" "$INSTALL_DIR/docker/.env"; then
+                    echo "$line" >> "$INSTALL_DIR/docker/.env"
+                    _new_keys=$((_new_keys + 1))
+                fi
+            done < "$docker_source/.env.example"
+            if [[ $_new_keys -gt 0 ]]; then
+                log_debug "Merged $_new_keys new key(s) from .env.example into docker/.env"
+            fi
+        fi
+
+        docker_count=$(find "$docker_source" -type f -not -path "*/__pycache__/*" | wc -l)
+        log_debug "Synced $docker_count Docker files to INSTALL_DIR"
+    fi
+
+    if [[ $updated_count -gt 0 || $hooks_count -gt 0 || $docker_count -gt 0 ]]; then
+        log_success "Updated $updated_count shared scripts, $hooks_count hook scripts, $docker_count docker files"
         if [[ $archived_count -gt 0 ]]; then
             log_info "Archived $archived_count stale hook scripts to .archived/"
         fi
