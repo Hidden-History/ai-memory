@@ -13,6 +13,7 @@
 #   restart            Stop then start (full cycle)
 #   status             Show container status, health, and ports
 #   nuke [--yes|-y]    Stop + remove volumes + clean up (clean slate)
+#   enable-hybrid      Enable hybrid search (rebuild embedding + migrate data)
 #   help               Show this help
 #
 # Architecture:
@@ -545,6 +546,19 @@ cmd_nuke() {
 }
 
 # =============================================================================
+# cmd_enable_hybrid — Delegate to enable-hybrid-search.sh
+# =============================================================================
+cmd_enable_hybrid() {
+    local enable_script="${SCRIPT_DIR}/enable-hybrid-search.sh"
+    if [[ ! -f "${enable_script}" ]]; then
+        log_error "enable-hybrid-search.sh not found at: ${enable_script}"
+        log_error "This script requires AI Memory v2.2.1+."
+        exit 1
+    fi
+    exec "${enable_script}" "$@"
+}
+
+# =============================================================================
 # cmd_help — Usage information
 # =============================================================================
 cmd_help() {
@@ -560,6 +574,7 @@ ${BOLD}COMMANDS${NC}
   ${GREEN}restart${NC}            Stop then start (full cycle)
   ${GREEN}status${NC}             Show container status, health, and ports
   ${GREEN}nuke${NC} [--yes|-y]    Stop + remove volumes + remove network (clean slate)
+  ${GREEN}enable-hybrid${NC}      Enable hybrid search (rebuild + config + migrate)
   ${GREEN}help${NC}               Show this help
 
 ${BOLD}CONFIGURATION${NC}
@@ -616,6 +631,7 @@ case "${COMMAND}" in
     restart)         cmd_restart ;;
     status)          cmd_status ;;
     nuke)            cmd_nuke "$@" ;;
+    enable-hybrid)   cmd_enable_hybrid "$@" ;;
     help|--help|-h)  cmd_help ;;
     *)
         log_error "Unknown command: '${COMMAND}'"
