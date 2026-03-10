@@ -5,7 +5,7 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.2.1] - 2026-03-08
+## [2.2.1] - 2026-03-10
 
 Triple Fusion Hybrid Search (PLAN-013): Dense vectors augmented with BM25 sparse vectors and optional ColBERT late interaction reranking via Qdrant's native RRF fusion. 4-path search composition with automatic fallback. RRF score normalization to [0.5, 0.95] range for compatibility with existing confidence thresholds.
 
