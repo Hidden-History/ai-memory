@@ -428,7 +428,8 @@ cmd_nuke() {
         echo "    - All AI Memory containers"
         echo "    - All named volumes:"
         echo "        qdrant_storage, embedding_cache, prometheus_data,"
-        echo "        grafana_data, pushgateway_data, classifier_queue"
+        echo "        prometheus_runtime, grafana_data, pushgateway_data,"
+        echo "        classifier_queue"
         if [[ -f "${COMPOSE_LANGFUSE}" ]]; then
             echo "        langfuse-postgres-data, langfuse-clickhouse-data, langfuse-minio-data"
         fi

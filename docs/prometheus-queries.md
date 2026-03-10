@@ -44,7 +44,7 @@ curl -u admin:$PROMETHEUS_PASSWORD "http://localhost:29090/api/v1/query?query=up
 **Environment variables for custom credentials:**
 - `PROMETHEUS_URL` (default: http://localhost:29090)
 - `PROMETHEUS_USER` (default: admin)
-- `PROMETHEUS_PASSWORD` (default from web.yml)
+- `PROMETHEUS_PASSWORD` (from PROMETHEUS_ADMIN_PASSWORD in docker/.env)
 
 **Helper Script:** `scripts/monitoring/prometheus_query.py`
 

@@ -30,7 +30,7 @@ Triple Fusion Hybrid Search (PLAN-013): Dense vectors augmented with BM25 sparse
 - **pytest configuration**: Migrated from `pytest.ini` to `pyproject.toml`; removed redundant `sys.path.insert()` from test files
 
 ### Fixed
-- **Prometheus stale bcrypt hash** (BUG-210): `web.yml` had a hardcoded bcrypt hash that became stale on password changes/reinstalls, causing health check 401 failures. Entrypoint now generates `web.yml` at runtime from `PROMETHEUS_ADMIN_PASSWORD`, matching the existing pattern for `prometheus.yml`. Requires Prometheus image rebuild (see upgrade instructions).
+- **Prometheus stale bcrypt hash** (BUG-210, BLK-021): `web.yml` had a hardcoded bcrypt hash that became stale on password changes/reinstalls, causing health check 401 failures. Init container now generates `web.yml` at runtime from `PROMETHEUS_ADMIN_PASSWORD` with a fresh bcrypt hash. Uses stock `prom/prometheus:v2.55.1` image — no custom Dockerfile required.
 - **Conditional exports** (TD-197): `AsyncSDKWrapper` names only exported when `anthropic` is installed, preventing `NameError` in embedding container
 - **DEC-062 RRF score normalization**: RRF reciprocal-rank scores (~0.01-0.05) normalized to [0.5, 0.95] range using min-max scaling. Prevents confidence gating bypass, score gap filter malfunction, and adaptive budget distortion.
 - **Missing `github` collection in decay**: `resolve_half_life()` now includes `github` collection with configurable `decay_half_life_github` (default: 14 days)
@@ -49,14 +49,13 @@ Triple Fusion Hybrid Search (PLAN-013): Dense vectors augmented with BM25 sparse
    # This updates hooks, scripts, skills, AND Docker files
    ```
 
-2. **Rebuild Prometheus** (required — fixes health check 401):
+2. **Recreate Prometheus** (required — fixes health check 401):
    ```bash
    cd ~/.ai-memory/docker
    unset QDRANT_API_KEY
-   docker compose build --no-cache prometheus
-   docker compose up -d prometheus
+   docker compose --profile monitoring up -d --force-recreate prometheus-init prometheus
    ```
-   This rebuilds the Prometheus image with runtime bcrypt hash generation. The container will now automatically generate the correct auth hash from `PROMETHEUS_ADMIN_PASSWORD` on every start — no more stale hash mismatches.
+   This starts the new init container which generates `web.yml` with a fresh bcrypt hash from `PROMETHEUS_ADMIN_PASSWORD`. No image rebuild required — uses stock Prometheus image.
 
 3. **Enable hybrid search** (run from anywhere):
    ```bash

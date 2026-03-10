@@ -88,31 +88,61 @@ services:
       retries: 3
       start_period: 30s
 
-  prometheus:
-    build:
-      context: ./prometheus
-      dockerfile: Dockerfile
-    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-prometheus
+  # BLK-021: Init container generates Prometheus config with fresh bcrypt hash
+  # prom/prometheus is BusyBox-based (no package manager, no Python)
+  # Best practice: Docker init container pattern for config generation
+  prometheus-init:
+    image: python:3.12-alpine
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-prometheus-init
     profiles: ["monitoring"]
-    ports:
-      - "127.0.0.1:29090:9090"
     volumes:
-      - prometheus_data:/prometheus
+      - prometheus_runtime:/etc/prometheus/runtime
+      - ./prometheus/web.yml:/etc/prometheus/web.yml.template:ro
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml.template:ro
+      - ./prometheus/gen-prometheus-config.py:/scripts/gen-prometheus-config.py:ro
     environment:
-      - QDRANT_API_KEY=${QDRANT_API_KEY}
       - PROMETHEUS_ADMIN_PASSWORD=${PROMETHEUS_ADMIN_PASSWORD}
-    restart: unless-stopped
-    # Security hardening (2026 best practices)
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+    command: ["sh", "-c", "pip install --no-cache-dir bcrypt==4.2.1 && python3 /scripts/gen-prometheus-config.py"]
+    restart: "no"
+    # Security hardening
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     networks:
       - default
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-prometheus
+    profiles: ["monitoring"]
+    ports:
+      - "127.0.0.1:29090:9090"
+    volumes:
+      - prometheus_runtime:/etc/prometheus/runtime:ro
+      - prometheus_data:/prometheus
+    environment:
+      - PROMETHEUS_BASIC_AUTH_HEADER=${PROMETHEUS_BASIC_AUTH_HEADER}
+    command:
+      - "--config.file=/etc/prometheus/runtime/prometheus.yml"
+      - "--web.config.file=/etc/prometheus/runtime/web.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    restart: unless-stopped
+    # Security hardening (2026 best practices)
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      prometheus-init:
+        condition: service_completed_successfully
+    networks:
+      - default
     # BP-040: Healthcheck with basic auth via Authorization header
-    # Generate new hash: echo "$(htpasswd -nBC 10 admin)" | base64
-    # Then set PROMETHEUS_BASIC_AUTH_HEADER in .env (format: "Basic <base64>")
-    # Note: For production, use external monitoring (Grafana checks, monitoring-api)
     healthcheck:
       test: ["CMD-SHELL", "if [ -n \"$PROMETHEUS_BASIC_AUTH_HEADER\" ]; then wget --quiet --tries=1 --spider --header=\"Authorization: $PROMETHEUS_BASIC_AUTH_HEADER\" http://localhost:9090/-/healthy; else wget --quiet --tries=1 --spider http://localhost:9090/-/healthy; fi"]
       interval: 30s
@@ -446,6 +476,8 @@ volumes:
   qdrant_storage:
     driver: local
   prometheus_data:
+    driver: local
+  prometheus_runtime:
     driver: local
   grafana_data:
     driver: local

@@ -473,18 +473,7 @@ Edit `docker/.env` and set these required values:
 | `PROMETHEUS_ADMIN_PASSWORD` | `python3 -c "import secrets; print(secrets.token_urlsafe(16))"` | Yes (if using monitoring) |
 | `AI_MEMORY_INSTALL_DIR` | Set to your ai-memory clone path (e.g., `/home/user/ai-memory`) | Yes |
 
-After setting `PROMETHEUS_ADMIN_PASSWORD`, you also need to configure Prometheus basic auth:
-
-1. Generate the bcrypt hash:
-   ```bash
-   python3 -c "import bcrypt; print(bcrypt.hashpw(b'YOUR_PASSWORD_HERE', bcrypt.gensalt(rounds=12)).decode())"
-   ```
-2. Paste the hash into `docker/prometheus/web.yml` under `basic_auth_users.admin`
-3. Generate the base64 auth header:
-   ```bash
-   echo -n "admin:YOUR_PASSWORD_HERE" | base64
-   ```
-4. Set `PROMETHEUS_BASIC_AUTH_HEADER` to `Basic <base64-output>`
+The Prometheus bcrypt hash is generated automatically at container start from `PROMETHEUS_ADMIN_PASSWORD` by the `prometheus-init` container. No manual hash generation is needed. The installer generates `PROMETHEUS_BASIC_AUTH_HEADER` automatically for the health check.
 
 The classifier configuration (Ollama, OpenRouter, etc.) at the bottom of `.env` can use defaults for local development. See the comments in `.env.example` for provider-specific setup.
 

@@ -1,5 +1,5 @@
 # Prometheus basic auth configuration
-# Template file — the entrypoint generates the runtime web.yml with a fresh bcrypt hash
+# Template file — the prometheus-init container generates runtime web.yml with a fresh bcrypt hash
 # from PROMETHEUS_ADMIN_PASSWORD at container start.
 # Manual regeneration: python3 -c "import bcrypt; print(bcrypt.hashpw(b'<password>', bcrypt.gensalt(12)).decode())"
 basic_auth_users:

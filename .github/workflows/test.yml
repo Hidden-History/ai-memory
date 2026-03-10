@@ -202,15 +202,6 @@ jobs:
           BMAD_LOG_LEVEL=INFO
           ENVEOF
 
-      # Generate Prometheus web.yml with matching bcrypt hash for CI
-      - name: Generate Prometheus auth for CI
-        working-directory: docker
-        run: |
-          pip install bcrypt
-          HASH=$(python3 -c "import bcrypt; print(bcrypt.hashpw(b'ci-test-prometheus-password', bcrypt.gensalt(12)).decode())")
-          echo "basic_auth_users:" > prometheus/web.yml
-          echo "  admin: $HASH" >> prometheus/web.yml
-
       # Start all E2E services with docker-compose
       - name: Start Docker services
         working-directory: docker
