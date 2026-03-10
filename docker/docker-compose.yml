@@ -97,7 +97,6 @@ services:
     ports:
       - "127.0.0.1:29090:9090"
     volumes:
-      - ./prometheus/web.yml:/etc/prometheus/web.yml:ro
       - prometheus_data:/prometheus
     environment:
       - QDRANT_API_KEY=${QDRANT_API_KEY}

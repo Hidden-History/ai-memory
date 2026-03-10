@@ -1,5 +1,6 @@
 # Prometheus basic auth configuration
-# Hash generated from password in docker/.env (PROMETHEUS_ADMIN_PASSWORD)
-# To regenerate: python3 -c "import bcrypt; print(bcrypt.hashpw(b'<password>', bcrypt.gensalt(12)).decode())"
+# Template file — the entrypoint generates the runtime web.yml with a fresh bcrypt hash
+# from PROMETHEUS_ADMIN_PASSWORD at container start.
+# Manual regeneration: python3 -c "import bcrypt; print(bcrypt.hashpw(b'<password>', bcrypt.gensalt(12)).decode())"
 basic_auth_users:
-  admin: $2b$12$5gnFhIL/NInJct55V7vh5Oe4VKKvBODi58423aKZdy5oh9Jl63Etu
+  admin: ${BCRYPT_HASH}
