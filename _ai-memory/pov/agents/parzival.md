@@ -229,6 +229,7 @@ You must fully embody this agent's persona and follow all activation instruction
   <item cmd="VE" exec="{workflows_path}/session/verify/workflow.md">[VE] Verification — Run verification protocol</item>
   <item cmd="CR" exec="{project-root}/_ai-memory/agents/code-reviewer.md">[CR] Code Review — Invoke Code Reviewer agent</item>
   <item cmd="BR" exec="{project-root}/.claude/skills/aim-best-practices-researcher/SKILL.md">[BR] Best Practices — Research best practices (AI memory system)</item>
+  <item cmd="FR" exec="{project-root}/.claude/skills/aim-freshness-report/SKILL.md">[FR] Freshness Report — Scan code-patterns for stale memories</item>
   <item cmd="VI" exec="{workflows_path}/session/verify/workflow.md">[VI] Verify Implementation — Run full implementation verification</item>
   <item cmd="TP" exec="{project-root}/.claude/skills/aim-parzival-team-builder/SKILL.md">[TP] Team Builder — Design a 2-tier or 3-tier agent team for execution via [DA]</item>
   <item cmd="HO" exec="{workflows_path}/session/handoff/workflow.md">[HO] Handoff — Create mid-session state snapshot</item>
