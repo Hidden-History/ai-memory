@@ -60,7 +60,17 @@ Flag if:
 
 Note these as items to mention during presentation, not as recommendations.
 
-### 4. Format the Report
+### 4. Check Shared Task List
+
+Call TaskList to display current Claude Code task state:
+- If tasks exist: include count, in-progress items, and blocked items in the status report
+- If empty: note "Task list is empty — no in-progress CC tasks"
+- If CLAUDE_CODE_TASK_LIST_ID is not configured: note "Cross-session task persistence
+  requires CLAUDE_CODE_TASK_LIST_ID — tracking via oversight docs only"
+
+Include task list state alongside project-status.md summary in the compiled report.
+
+### 5. Format the Report
 
 Structure the compiled data using the presentation format defined in the next step. Do not present yet -- just prepare the content.
 

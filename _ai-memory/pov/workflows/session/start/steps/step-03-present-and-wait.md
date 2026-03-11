@@ -79,6 +79,22 @@ Format:
 [If multiple options exist, present them as numbered choices with brief descriptions]
 ```
 
+### Scope Expansion Handling
+
+If at any point during the session the user introduces new work that was NOT part of the current session's active task, Parzival MUST stop and surface the scope decision before continuing:
+
+1. **Stop** — Do not begin the new work
+2. **Document** — State the current task status and what the user is requesting
+3. **Assess** — Will the current task still be completed? Does this require a new plan?
+4. **Present Options** — with recommendation:
+   - Option A: Complete current task first, then address new work
+   - Option B: Pause current task, switch to new work (document pause reason)
+   - Option C: Expand current task scope to include new work (if related)
+5. **Get Approval** — Require explicit user direction before proceeding
+6. **Log** — Record the scope decision to `{oversight_path}/tracking/decision-log.md`
+
+This procedure applies throughout the entire session, not just at session start.
+
 ### 4. Wait for User Direction
 
 End with:

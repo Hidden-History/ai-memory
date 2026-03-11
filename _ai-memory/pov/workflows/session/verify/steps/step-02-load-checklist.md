@@ -23,15 +23,22 @@ Load the appropriate verification checklist template so that all checks are defi
 
 ## MANDATORY SEQUENCE
 
-### 1. Load Template Based on Type
+### 1. Load Checklist Based on Type
 
-| Verification Type | Template Path |
-|-------------------|---------------|
-| Story | `{storyTemplate}` |
-| Code | `{codeTemplate}` |
-| Production | `{productionTemplate}` |
+Use a two-tier lookup: project-specific checklist first, framework template as fallback.
 
-Read the selected template file in full.
+| Verification Type | Project Checklist (try first) | Framework Fallback |
+|---|---|---|
+| Story | `{oversight_path}/verification/checklists/story-complete.md` | `{storyTemplate}` |
+| Code | `{oversight_path}/verification/checklists/code-review.md` | `{codeTemplate}` |
+| Production | `{oversight_path}/verification/checklists/production-ready.md` | `{productionTemplate}` |
+
+1. Try to read the project checklist from `{oversight_path}/verification/checklists/`
+2. If it exists — use it. Project checklists take priority over framework templates.
+3. If it does not exist — load the framework template from `{project-root}/_ai-memory/pov/templates/`
+4. If neither exists — use the inline fallback checklist defined below in this step file.
+
+Read the selected checklist in full before proceeding.
 
 ### 2. Handle Missing Template
 

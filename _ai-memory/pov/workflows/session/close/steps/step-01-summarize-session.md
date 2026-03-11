@@ -77,19 +77,11 @@ Before proceeding to the next step, check if `{oversight_path}/SESSION_WORK_INDE
 
 **If EITHER threshold is exceeded**:
 1. Identify sessions older than the 5 most recent
-2. Archive to `{oversight_path}/session-index/{YYYY-MM}/week-{N}.md` using format:
-   ```
-   ### {date}: {Task Title}
-   - **Task**: {full title}
-   - **Task ID**: {id}
-   - **Status**: {status}
-   - **Summary**: {summary}
-   - **Handoff**: `../session-logs/SESSION_HANDOFF_{date}.md`
-   ```
-3. Create the directory if needed
-4. Update `{oversight_path}/session-index/INDEX.md` if it exists
-5. Remove archived entries from SESSION_WORK_INDEX.md
-6. Verify: file < 80 lines, exactly 5 sessions remain, no data lost
+2. Append each archived session as a new table row in the correct month/week section of `{oversight_path}/session-index/INDEX.md`:
+   `| {date} | {session topic} | {TASK-ID} | {1-sentence summary} | \`session-logs/SESSION_HANDOFF_{date}.md\` |`
+   If the current week section does not exist yet in INDEX.md, add it following the existing table format.
+3. Remove archived entries from SESSION_WORK_INDEX.md
+4. Verify: SESSION_WORK_INDEX.md < 80 lines, exactly 5 sessions remain in "Last 5 Sessions", no session data was lost
 
 **If thresholds are NOT exceeded**: Note "Index maintenance not needed" and proceed.
 

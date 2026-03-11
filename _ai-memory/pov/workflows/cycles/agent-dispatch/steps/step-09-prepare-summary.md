@@ -42,6 +42,10 @@ Record final dispatch entry for this session:
 - Output received: yes
 - Review result: accepted (or number of correction loops)
 - Final status: complete
+- Task list status: [completed | blocked-then-resolved | skipped — task_id null]
+  - If TaskUpdate(completed) was NOT called in step-07 for any reason:
+    call TaskUpdate now before updating the dispatch log
+  - If task_id is null: note "task list not updated — CLAUDE_CODE_TASK_LIST_ID not configured"
 
 This log feeds into the end-of-session summary and project-status.md update.
 

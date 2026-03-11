@@ -60,6 +60,25 @@
 
 ---
 
+## Observability (if new code was added)
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| [ ] Structured logging added (`extra={}` pattern, context fields: session_id, operation, duration_ms) | | |
+| [ ] Prometheus metrics added (counter/histogram/gauge as appropriate) | | |
+| [ ] Grafana dashboard updated if new metrics introduced | | |
+
+---
+
+## Agent Memory (if agents were dispatched)
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| [ ] Each agent was assigned a unique AI_MEMORY_AGENT_ID | | |
+| [ ] Named agents used consistent IDs across sessions | | |
+
+---
+
 ## Security (if applicable)
 
 | Check | Status | Notes |
@@ -90,6 +109,8 @@
 | Testing | 0 | 0 | 0 |
 | Documentation | 0 | 0 | 0 |
 | Security | 0 | 0 | 0 |
+| Observability | 0 | 0 | 0 |
+| Agent Memory | 0 | 0 | 0 |
 | Performance | 0 | 0 | 0 |
 
 **Overall Status**: [ ] PASSED / [ ] FAILED / [ ] PARTIAL

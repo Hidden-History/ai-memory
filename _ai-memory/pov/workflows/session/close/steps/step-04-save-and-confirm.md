@@ -25,7 +25,7 @@ Invoke the handoff save skill:
 
 /parzival-save-handoff --file {handoff_path}
 
-Where {handoff_path} is the file created in Step 3 (e.g., oversight/session-logs/SESSION_HANDOFF_2026-03-07_PM156.md).
+Where {handoff_path} is the file created in Step 3 (e.g., `{oversight_path}/session-logs/SESSION_HANDOFF_{date}.md`).
 
 **If skill succeeds**: Note the Qdrant memory ID in the closeout checklist.
 

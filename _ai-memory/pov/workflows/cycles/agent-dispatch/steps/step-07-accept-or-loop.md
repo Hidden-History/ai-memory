@@ -29,7 +29,11 @@ Based on the output review from step-06, either accept the output (all checks pa
 - Zero legitimate issues remain (implementation) or zero inaccuracies (docs)
 - Output is complete -- not partial
 
-If accepted: proceed to {nextStepFile}
+If accepted:
+- If task_id is set: call **TaskUpdate** with task_id, status = `completed`
+  - This fires the TaskCompleted hook (if configured) and makes completion visible cross-session
+  - If task_id is null (CLAUDE_CODE_TASK_LIST_ID not set): skip and note in dispatch log
+- Proceed to {nextStepFile}
 
 **Send Correction when ANY check fails:**
 Build a correction instruction using {correctionTemplate}

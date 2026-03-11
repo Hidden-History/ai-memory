@@ -1,10 +1,16 @@
 ---
 name: session-team-prompt
 description: 'Build agent team prompts (2-tier or 3-tier) for parallel work execution via Claude Code teams.'
+status: deprecated
+deprecatedBy: aim-parzival-team-builder skill (PLAN-017, 2026-03-10)
 firstStep: './steps/step-01-preflight-and-tier-selection.md'
 twoTierTemplate: '{project-root}/_ai-memory/pov/templates/team-prompt-2tier.template.md'
 threeTierTemplate: '{project-root}/_ai-memory/pov/templates/team-prompt-3tier.template.md'
 ---
+
+> **DEPRECATED** (2026-03-10 / PLAN-017): Converted to `aim-parzival-team-builder` skill.
+> Use `.claude/skills/aim-parzival-team-builder/SKILL.md` instead.
+> Step files preserved for reference. Do not invoke this workflow.
 
 # Team Prompt Builder
 

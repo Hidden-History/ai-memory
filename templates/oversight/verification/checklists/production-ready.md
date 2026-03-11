@@ -69,6 +69,7 @@
 | [ ] Monitoring in place | | |
 | [ ] Alerting configured | | |
 | [ ] Logging adequate | | |
+| [ ] Observability verified: structured logging, Prometheus metrics, Grafana panels | | |
 
 ---
 
