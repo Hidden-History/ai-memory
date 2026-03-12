@@ -67,8 +67,23 @@ Cross-check across all files:
 - Do not present an incomplete or inconsistent baseline to the user
 - Re-verify the fixed item
 
+### 6. Research Initial Best Practices
+
+Once all verification checks pass, seed the project's knowledge base with best practices for the confirmed technology stack.
+
+Run `/aim-best-practices-researcher` for each major technology in the confirmed stack (from goals.md "Tech Stack Decisions Made" section). For example:
+- If the project uses React: research "React 2026 best practices"
+- If the project uses Python + FastAPI: research "Python FastAPI best practices 2026"
+- If the project uses Docker: research "Docker containerization best practices 2026"
+
+**Why now**: Best practices must be in Qdrant BEFORE Discovery begins. When the PM agent creates the PRD and the Architect designs the system, they will receive these best practices via Tier 2 context injection — ensuring the project starts with current knowledge, not outdated patterns.
+
+**Minimum**: Research at least the primary language/framework and the primary infrastructure pattern.
+
+**If Qdrant is unavailable**: Note the gap. Best practices will be file-only (in `oversight/knowledge/best-practices/`). Flag this for the user — Qdrant storage is needed for agent injection.
+
 ## CRITICAL STEP COMPLETION NOTE
-ONLY when all verification checks pass with zero failures, load and read fully {nextStepFile}
+ONLY when all verification checks pass with zero failures AND initial best practices research is complete, load and read fully {nextStepFile}
 
 ## SYSTEM SUCCESS/FAILURE METRICS
 

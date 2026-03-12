@@ -53,9 +53,18 @@ During the review cycle, Parzival tracks:
 - Uncertain issues stalling (escalate to user)
 
 ### 4. Handle Non-Converging Review
+
+**At pass 2+** (fix required more than one attempt):
+Run `/aim-best-practices-researcher` for the specific technology or pattern causing the failure. The fact that a fix did not resolve on the first attempt is a signal that current best practices may not be in the knowledge base, or DEV is working from outdated patterns.
+
+- Research the specific pattern that failed (e.g., "Python async error handling 2026", "React state management best practices 2026")
+- Include the research findings in the next correction instruction to DEV
+- This ensures DEV has current guidance, not just the reviewer's critique
+
 If not converging after 4+ passes:
 - Assess: are fixes addressing root cause or just symptoms?
-- Provide more specific fix guidance
+- Verify best practices research was done (if not, do it now — this is mandatory)
+- Provide more specific fix guidance informed by best practices
 - Break down fixes into smaller steps
 - If still not converging, escalate to user with options
 

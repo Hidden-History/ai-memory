@@ -20,7 +20,28 @@ Build the implementation instruction -- the most important document Parzival pro
 
 ## MANDATORY SEQUENCE
 
-### 1. Build Implementation Instruction
+### 1. Research Relevant Best Practices
+
+Before building the instruction, check that current best practices exist in the knowledge base for the technologies this story touches.
+
+**Assessment**: Review the story's technical scope — which languages, frameworks, patterns, and tools are involved? For each:
+1. Check if a relevant best practice exists in Qdrant (the skill checks database first)
+2. If missing or stale (>6 months), run `/aim-best-practices-researcher` for that technology
+3. If current best practice exists (score >0.7, <6 months old), proceed — Tier 2 injection will deliver it to DEV
+
+**When to research** (mandatory triggers):
+- Story introduces a new technology or pattern not previously used in the project
+- Story touches a technology whose best practices have not been researched yet
+- Story involves security, authentication, or data handling (always verify current practices)
+
+**When to skip** (acceptable):
+- Story is a minor bug fix in well-researched technology
+- Best practices were researched within the last 30 days for this technology
+- Story is purely documentation or configuration
+
+**Why**: DEV agents receive best practices via Tier 2 context injection. If the knowledge base is empty or stale for the relevant technology, DEV builds with outdated patterns. Research BEFORE instruction ensures current guidance is available.
+
+### 2. Build Implementation Instruction
 Include all of the following sections:
 
 **Task:** Implement [Story Title] as specified.
@@ -50,7 +71,7 @@ Include all of the following sections:
 
 **Report back with:** Files created/modified, implementation approach, any unavoidable decisions, any blockers
 
-### 2. Run Instruction Quality Check
+### 3. Run Instruction Quality Check
 Before dispatching:
 - Is every acceptance criterion reflected in DONE WHEN?
 - Are files specifically named (not "the relevant files")?

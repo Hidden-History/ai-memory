@@ -19,7 +19,18 @@ Add a reference to the new handoff in the SESSION_WORK_INDEX and confirm to the 
 
 ## MANDATORY SEQUENCE
 
-### 1. Update SESSION_WORK_INDEX
+### 1. Save Handoff to Qdrant
+
+Run `/parzival-save-handoff --file {handoff_path}` where `{handoff_path}` is the path to the handoff document created in Step 2.
+
+The skill handles:
+- Storing the handoff as `agent_handoff` type with `agent_id=parzival`
+- Graceful degradation if Qdrant is unavailable (logs warning, does not block)
+- Prometheus metrics and Langfuse tracing
+
+**If the skill reports Qdrant unavailable**: Note the warning and continue. The file write from Step 2 is the primary record. Qdrant is supplementary enrichment for cross-session semantic search.
+
+### 2. Update SESSION_WORK_INDEX
 
 Add or update entry in `{oversight_path}/SESSION_WORK_INDEX.md`:
 
@@ -32,7 +43,7 @@ Add or update entry in `{oversight_path}/SESSION_WORK_INDEX.md`:
 - **Snapshot**: `session-logs/SESSION_HANDOFF_{date}.md`
 ```
 
-### 2. Confirm to User
+### 3. Confirm to User
 
 Present:
 
@@ -48,7 +59,7 @@ Session continues. This snapshot can be used to:
 Continue with current work?
 ```
 
-### 3. Session Continues
+### 4. Session Continues
 
 This is NOT a session end. The session continues after the snapshot.
 - Do not run closeout procedures

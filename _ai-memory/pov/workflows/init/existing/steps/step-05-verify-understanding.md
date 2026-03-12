@@ -44,8 +44,26 @@ Document why the selected exit route is correct:
 - Are there alternative routes that were considered and rejected?
 - What would need to be true for a different route to be correct?
 
+### 4. Research Project Best Practices
+
+Once all completeness checks pass, seed the project's knowledge base with best practices for the project's technology stack.
+
+Run `/aim-best-practices-researcher` for each major technology identified during the audit. The Analyst audit (Step 2) and baseline files (Step 4) will have confirmed the actual stack in use.
+
+**Why now**: Existing projects may have been built with outdated patterns. Seeding current (2024-2026) best practices into Qdrant ensures that when Parzival dispatches agents for future work, they receive up-to-date guidance via Tier 2 context injection — not just the project's existing conventions.
+
+**Priority order**:
+1. Primary language/framework (e.g., Python, React, Go)
+2. Database/storage technology (e.g., PostgreSQL, Qdrant, Redis)
+3. Infrastructure patterns (e.g., Docker, CI/CD, deployment)
+4. Testing approach (e.g., pytest, Playwright, integration testing)
+
+**Minimum**: Research at least the primary language/framework and the primary data store.
+
+**If Qdrant is unavailable**: Note the gap and flag for user. File-only research still has value but won't be injected to agents.
+
 ## CRITICAL STEP COMPLETION NOTE
-ONLY when all completeness checks pass, load and read fully {nextStepFile}
+ONLY when all completeness checks pass AND best practices research is complete, load and read fully {nextStepFile}
 
 ## SYSTEM SUCCESS/FAILURE METRICS
 
