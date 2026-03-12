@@ -200,6 +200,7 @@ class MemorySearch:
         must_not_types: (
             list[str] | None
         ) = None,  # F13/TD-243: Qdrant-level type exclusion
+        exclude_expired_freshness: bool = False,  # WP-2: Pre-filter expired from code-patterns queries (Spec §4.5.3)
     ) -> list[dict]:
         """Search for relevant memories using semantic similarity with project scoping.
 
@@ -354,6 +355,15 @@ class MemorySearch:
         if must_not_types:
             must_not_conditions.append(
                 FieldCondition(key="type", match=MatchAny(any=must_not_types))
+            )
+
+        # WP-2: Belt-and-suspenders pre-filter — exclude EXPIRED from code-patterns at Qdrant query layer
+        if exclude_expired_freshness and collection == COLLECTION_CODE_PATTERNS:
+            must_not_conditions.append(
+                FieldCondition(
+                    key="freshness_status",
+                    match=MatchValue(value="expired"),
+                )
             )
 
         if filter_conditions or must_not_conditions:

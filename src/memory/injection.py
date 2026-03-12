@@ -619,6 +619,13 @@ def select_results_greedy(
         seen_hashes.add(content_hash)
 
         # BUG-173: Skip results with score gap from best exceeding threshold
+        # NOTE (PLAN-015 WP-2 / Spec §4.2.5 step 3): Freshness-blocked results (score=0.0)
+        # do NOT need an explicit skip here. Defense-in-depth coverage:
+        #   1. Gating (best_score<0.45 → hard_skip) prevents reaching this when ALL results are 0.0.
+        #   2. The `best_score > 0` guard below ensures 0.0-scored items are caught by gap filter
+        #      when any positive-scored result exists (0.0 < positive_score × threshold → skip).
+        # The caller (context_injection_tier2.py) applies freshness penalty upstream so that
+        # post-penalty scores drive both gating and this selection. Do NOT add penalty logic here.
         result_score = result.get("score", 0)
         if best_score > 0 and result_score < best_score * score_gap_threshold:
             _score_gap_skipped += 1

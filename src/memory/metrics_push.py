@@ -1565,6 +1565,72 @@ except Exception as e:
         )
 
 
+def push_freshness_blocked_metrics_async(
+    count: int,
+    project: str = "unknown",
+) -> None:
+    """Push freshness-blocked injection counter asynchronously (fire-and-forget).
+
+    Emitted from context_injection_tier2.py when STALE/EXPIRED code-patterns
+    are blocked from injection by the freshness penalty gate (WP-2, Spec §4.5.3).
+
+    Args:
+        count: Number of results blocked by freshness penalty in this turn.
+        project: Project name.
+    """
+    if not PUSHGATEWAY_ENABLED:
+        return
+
+    project = _validate_label(project, "project")
+
+    try:
+        metrics_data = {"count": count, "project": project}
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                f"""
+import json, os
+from prometheus_client import CollectorRegistry, Counter, pushadd_to_gateway
+
+data = json.loads({json.dumps(metrics_data)!r})
+registry = CollectorRegistry()
+
+blocked = Counter(
+    "aimemory_freshness_blocked_injections_total",
+    "Total code-pattern results blocked from injection due to STALE/EXPIRED freshness status",
+    ["project"],
+    registry=registry
+)
+blocked.labels(project=data["project"]).inc(data["count"])
+
+try:
+    pushadd_to_gateway(
+        os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
+        job="ai_memory_hooks",
+        grouping_key={{"instance": "freshness_blocked"}},
+        registry=registry,
+        timeout=0.5
+    )
+except Exception as e:
+    import logging
+    logging.getLogger("ai_memory.metrics").warning(
+        "pushgateway_async_failed",
+        extra={{"error": str(e), "metric": "freshness_blocked"}}
+    )
+""",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "metrics_fork_failed",
+            extra={"error": str(e), "metric": "freshness_blocked"},
+        )
+
+
 def push_langfuse_buffer_metrics_async(
     evictions: int = 0,
     buffer_size_bytes: int = 0,

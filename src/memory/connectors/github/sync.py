@@ -287,6 +287,27 @@ class GitHubSyncEngine:
                     result.errors,
                     result.duration_seconds,
                 )
+
+                # WP-8: Run freshness scan after every sync cycle (Spec §4.5.4)
+                # Lazy import avoids circular dependency. Exception must never propagate.
+                try:
+                    from memory.freshness import run_freshness_scan
+
+                    _fr = run_freshness_scan(config=self.config)
+                    logger.info(
+                        "post_sync_freshness_scan_complete: %d checked, %d fresh, %d aging, %d stale, %d expired, %d unknown",
+                        _fr.total_checked,
+                        _fr.fresh_count,
+                        _fr.aging_count,
+                        _fr.stale_count,
+                        _fr.expired_count,
+                        _fr.unknown_count,
+                    )
+                except Exception as _fe:
+                    logger.warning(
+                        "post_sync_freshness_scan_failed",
+                        extra={"error": str(_fe), "error_type": type(_fe).__name__},
+                    )
             finally:
                 # Flush Langfuse traces after sync cycle (guaranteed even on error)
                 if _langfuse_get_client is not None:
