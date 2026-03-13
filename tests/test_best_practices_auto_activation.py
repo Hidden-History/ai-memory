@@ -13,11 +13,8 @@ import io
 import json
 import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 # Setup path to import the hook script
 HOOK_SCRIPT_DIR = Path(__file__).parent.parent / ".claude" / "hooks" / "scripts"
@@ -25,8 +22,8 @@ SRC_DIR = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(HOOK_SCRIPT_DIR))
 sys.path.insert(0, str(SRC_DIR))
 
-# Import the functions under test
-from best_practices_retrieval import (
+# Import the functions under test (after sys.path setup above)
+from best_practices_retrieval import (  # noqa: E402
     AUTO_ACTIVATION_CONFIDENCE_THRESHOLD,
     STRUGGLING_EDIT_THRESHOLD,
     _check_auto_activation,

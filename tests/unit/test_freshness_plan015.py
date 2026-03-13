@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Group 1: build_ground_truth_map() queries COLLECTION_GITHUB
 # ---------------------------------------------------------------------------
@@ -97,10 +96,14 @@ def test_build_ground_truth_map_retains_type_filter():
 
     type_condition_found = False
     for condition in scroll_filter.must:
-        if hasattr(condition, "key") and condition.key == "type":
-            if hasattr(condition, "match") and hasattr(condition.match, "value"):
-                if condition.match.value == "github_code_blob":
-                    type_condition_found = True
+        if (
+            hasattr(condition, "key")
+            and condition.key == "type"
+            and hasattr(condition, "match")
+            and hasattr(condition.match, "value")
+            and condition.match.value == "github_code_blob"
+        ):
+            type_condition_found = True
 
     assert type_condition_found, (
         "type='github_code_blob' filter must be present in scroll_filter"
@@ -183,10 +186,14 @@ def test_count_commits_for_file_retains_type_filter():
 
     type_condition_found = False
     for condition in scroll_filter.must:
-        if hasattr(condition, "key") and condition.key == "type":
-            if hasattr(condition, "match") and hasattr(condition.match, "value"):
-                if condition.match.value == "github_commit":
-                    type_condition_found = True
+        if (
+            hasattr(condition, "key")
+            and condition.key == "type"
+            and hasattr(condition, "match")
+            and hasattr(condition.match, "value")
+            and condition.match.value == "github_commit"
+        ):
+            type_condition_found = True
 
     assert type_condition_found, (
         "type='github_commit' filter must be present in scroll_filter"

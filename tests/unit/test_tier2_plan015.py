@@ -6,10 +6,10 @@ Covers:
 - Group 3: search.py exclude_expired_freshness parameter (Spec §4.5.3)
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-from qdrant_client.models import FieldCondition, MatchValue
+from qdrant_client.models import FieldCondition
 
 from memory.config import (
     COLLECTION_CODE_PATTERNS,
@@ -18,7 +18,6 @@ from memory.config import (
     MemoryConfig,
 )
 from memory.search import MemorySearch
-
 
 # =============================================================================
 # Helpers
@@ -329,10 +328,10 @@ class TestSearchExcludeExpiredFreshness:
         # Also patch search (qdrant legacy) calls
         search.client.search = MagicMock(return_value=[])
 
-        try:
+        import contextlib
+
+        with contextlib.suppress(Exception):
             search.search(**kwargs)
-        except Exception:
-            pass  # We only care about the filter captured, not the result
 
         return captured_filters
 

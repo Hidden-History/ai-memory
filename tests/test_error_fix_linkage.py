@@ -14,10 +14,7 @@ Covers:
 
 import hashlib
 import importlib.util
-import json
-import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -67,7 +64,7 @@ class TestErrorGroupId:
             "pip", "ModuleNotFoundError", "sess_123"
         )
         expected = hashlib.sha256(
-            "pip:ModuleNotFoundError:sess_123".encode()
+            b"pip:ModuleNotFoundError:sess_123"
         ).hexdigest()[:16]
         assert result == expected
 
@@ -222,13 +219,15 @@ def _run_detect_edit_fix(post_tool_module, hook_input, mock_state):
     mock_injection = MagicMock()
     mock_injection.InjectionSessionState.load.return_value = mock_state
 
-    with patch.dict(sys.modules, {"memory.injection": mock_injection}):
-        with patch.object(
+    with (
+        patch.dict(sys.modules, {"memory.injection": mock_injection}),
+        patch.object(
             post_tool_module,
             "_fork_fix_to_background_from_post_tool",
             side_effect=mock_fork,
-        ):
-            post_tool_module.detect_edit_write_fix(hook_input)
+        ),
+    ):
+        post_tool_module.detect_edit_write_fix(hook_input)
 
     return captured
 
@@ -243,11 +242,13 @@ def _run_detect_bash_fix(capture_module, hook_input, mock_state):
     mock_injection = MagicMock()
     mock_injection.InjectionSessionState.load.return_value = mock_state
 
-    with patch.dict(sys.modules, {"memory.injection": mock_injection}):
-        with patch.object(
+    with (
+        patch.dict(sys.modules, {"memory.injection": mock_injection}),
+        patch.object(
             capture_module, "_fork_fix_to_background", side_effect=mock_fork
-        ):
-            capture_module.detect_bash_fix(hook_input)
+        ),
+    ):
+        capture_module.detect_bash_fix(hook_input)
 
     return captured
 

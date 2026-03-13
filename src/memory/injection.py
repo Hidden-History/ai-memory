@@ -623,7 +623,7 @@ def select_results_greedy(
         # do NOT need an explicit skip here. Defense-in-depth coverage:
         #   1. Gating (best_score<0.45 → hard_skip) prevents reaching this when ALL results are 0.0.
         #   2. The `best_score > 0` guard below ensures 0.0-scored items are caught by gap filter
-        #      when any positive-scored result exists (0.0 < positive_score × threshold → skip).
+        #      when any positive-scored result exists (0.0 < positive_score x threshold -> skip).
         # The caller (context_injection_tier2.py) applies freshness penalty upstream so that
         # post-penalty scores drive both gating and this selection. Do NOT add penalty logic here.
         result_score = result.get("score", 0)

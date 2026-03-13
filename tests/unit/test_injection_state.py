@@ -8,7 +8,6 @@ files that pre-date the error_state and compact_count fields (PLAN-015).
 """
 
 import json
-import os
 from pathlib import Path
 
 from memory.injection import InjectionSessionState
@@ -98,10 +97,10 @@ class TestBackwardCompat:
 
     def _cleanup(self):
         path = self._state_path()
-        try:
+        import contextlib
+
+        with contextlib.suppress(Exception):
             path.unlink(missing_ok=True)
-        except Exception:
-            pass
 
     def test_load_old_json_without_new_fields(self):
         """load() with old JSON missing error_state and compact_count uses defaults."""

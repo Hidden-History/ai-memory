@@ -4,7 +4,6 @@ Tests the access_count field handling and decay bypass logic.
 These are unit tests — they do not require a running Qdrant instance.
 """
 from unittest.mock import MagicMock, patch
-import pytest
 
 
 class TestRememberanceProtectionAccessCount:
@@ -67,8 +66,8 @@ class TestDecayFormulaAccessCountProtection:
 
     def test_build_decay_formula_defaults_contain_access_count(self):
         """build_decay_formula() FormulaQuery defaults include access_count=0."""
-        from memory.decay import build_decay_formula
         from memory.config import MemoryConfig
+        from memory.decay import build_decay_formula
 
         config = MemoryConfig(decay_enabled=True)
         dummy_embedding = [0.0] * 768
@@ -83,9 +82,10 @@ class TestDecayFormulaAccessCountProtection:
 
     def test_build_decay_formula_contains_protection_branch(self):
         """Formula tree contains a MultExpression with Range(gte=3.0) for protection."""
-        from memory.decay import build_decay_formula
-        from memory.config import MemoryConfig
         from qdrant_client import models
+
+        from memory.config import MemoryConfig
+        from memory.decay import build_decay_formula
 
         config = MemoryConfig(decay_enabled=True)
         dummy_embedding = [0.0] * 768
@@ -118,8 +118,8 @@ class TestDecayFormulaAccessCountProtection:
 
     def test_build_decay_formula_disabled_returns_none(self):
         """build_decay_formula() returns None formula when decay_enabled=False."""
-        from memory.decay import build_decay_formula
         from memory.config import MemoryConfig
+        from memory.decay import build_decay_formula
 
         config = MemoryConfig(decay_enabled=False)
         dummy_embedding = [0.0] * 768
