@@ -6,6 +6,7 @@ Covers:
 - Group 3: search.py exclude_expired_freshness parameter (Spec §4.5.3)
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -502,9 +503,9 @@ class TestMustNotTypesFilter:
         import ast
 
         # Read the actual source code of context_injection_tier2.py to verify
-        tier2_path = (
-            "/mnt/e/projects/dev-ai-memory/ai-memory/.claude/hooks/scripts/"
-            "context_injection_tier2.py"
+        tier2_path = str(
+            Path(__file__).resolve().parent.parent.parent
+            / ".claude" / "hooks" / "scripts" / "context_injection_tier2.py"
         )
         with open(tier2_path) as f:
             source = f.read()
