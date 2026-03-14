@@ -5,7 +5,7 @@
 
 Core pipeline:
   1. Load evaluator config + evaluator definitions
-  2. Fetch traces using cursor-based pagination (V3 SDK)
+  2. Fetch traces using page-based pagination (V3 SDK)
   3. Filter traces by evaluator criteria (event_types, tags)
   4. Sample traces per evaluator's sampling_rate
   5. Evaluate each trace via configurable LLM judge
@@ -229,15 +229,13 @@ class EvaluatorRunner:
 
                 print(f"\n--- Running {evaluator.get('id', '?')}: {ev_name} ---")
 
-                cursor = (
-                    None  # V3 cursor-based pagination — NOT page numbers (PM #190 fix)
-                )
+                page = 1  # V3 uses page-based pagination (1-indexed)
 
                 while True:
                     traces_response = langfuse.api.trace.list(
-                        start_time=since,  # PM #190 fix: was from_timestamp
-                        end_time=until,  # PM #190 fix: was to_timestamp
-                        cursor=cursor,  # PM #190 fix: was page (V3 uses cursor)
+                        from_timestamp=since,
+                        to_timestamp=until,
+                        page=page,
                         limit=batch_size,
                     )
                     traces = traces_response.data or []
@@ -274,7 +272,7 @@ class EvaluatorRunner:
                             if not dry_run:
                                 score_id = self._make_score_id(trace.id, ev_name, since)
                                 langfuse.create_score(
-                                    id=score_id,
+                                    score_id=score_id,
                                     trace_id=trace.id,
                                     name=ev_name,
                                     value=result["score"],
@@ -314,12 +312,12 @@ class EvaluatorRunner:
                             )
                             continue
 
-                    # Cursor-based pagination — advance or stop
+                    # Page-based pagination — advance or stop
                     meta = getattr(traces_response, "meta", None)
-                    next_cursor = getattr(meta, "next_cursor", None) if meta else None
-                    if not next_cursor or not traces:
+                    total_pages = getattr(meta, "total_pages", 1) if meta else 1
+                    if page >= total_pages or not traces:
                         break
-                    cursor = next_cursor
+                    page += 1
 
                 print(f"  Evaluated: {total_evaluated} | Scored: {total_scored}")
 

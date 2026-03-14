@@ -94,11 +94,11 @@ def make_mock_trace(
     return trace
 
 
-def make_paginated_response(traces: list, next_cursor=None):
+def make_paginated_response(traces: list, total_pages=1):
     response = MagicMock()
     response.data = traces
     response.meta = MagicMock()
-    response.meta.next_cursor = next_cursor
+    response.meta.total_pages = total_pages
     return response
 
 
@@ -272,17 +272,17 @@ class TestRunnerRun:
         assert result["evaluated"] == 0
         mock_evaluator_config.evaluate.assert_not_called()
 
-    def test_run_uses_cursor_pagination(self, runner, evaluator_yaml):
-        """Should advance cursor when next_cursor is present."""
+    def test_run_uses_page_pagination(self, runner, evaluator_yaml):
+        """Should advance page number when more pages are available."""
         trace1 = make_mock_trace(trace_id="trace_p1", tags=["retrieval"])
         trace2 = make_mock_trace(trace_id="trace_p2", tags=["retrieval"])
 
         mock_langfuse = MagicMock()
-        # First call returns trace1 + next_cursor
-        # Second call returns trace2 + no cursor (end)
+        # First call returns trace1 with total_pages=2
+        # Second call returns trace2 with total_pages=2 (page 2 of 2, stops)
         mock_langfuse.api.trace.list.side_effect = [
-            make_paginated_response([trace1], next_cursor="cursor_abc"),
-            make_paginated_response([trace2], next_cursor=None),
+            make_paginated_response([trace1], total_pages=2),
+            make_paginated_response([trace2], total_pages=2),
         ]
 
         mock_evaluator_config = MagicMock()
@@ -300,9 +300,9 @@ class TestRunnerRun:
             result = runner.run(since=since)
 
         assert result["evaluated"] == 2
-        # Second call must have used the cursor
+        # Second call must have used page=2
         second_call_kwargs = mock_langfuse.api.trace.list.call_args_list[1].kwargs
-        assert second_call_kwargs.get("cursor") == "cursor_abc"
+        assert second_call_kwargs.get("page") == 2
 
     def test_run_calls_flush_after_all_evaluations(self, runner, evaluator_yaml):
         """langfuse.flush() must be called after all evaluations complete."""
