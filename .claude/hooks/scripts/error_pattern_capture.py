@@ -287,7 +287,7 @@ def _fork_fix_to_background(
                     },
                     trace_id=hashlib.md5(error_group_id.encode()).hexdigest()[:32],
                     session_id=session_id,
-                    tags=["capture", "error-fix"],
+                    tags=["capture", "error_detection"],
                 )
             except Exception:
                 pass
@@ -802,7 +802,7 @@ def main() -> int:
                         project_id=(
                             detect_project_func(cwd) if detect_project_func else None
                         ),
-                        tags=["capture", "code-patterns"],
+                        tags=["capture", "error_detection"],
                         start_time=capture_start,
                         end_time=datetime.now(tz=timezone.utc),
                     )
@@ -832,7 +832,7 @@ def main() -> int:
                         project_id=(
                             detect_project_func(cwd) if detect_project_func else None
                         ),
-                        tags=["capture", "error-fix"],
+                        tags=["capture", "error_detection"],
                     )
                 except Exception:
                     pass

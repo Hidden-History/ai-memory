@@ -202,7 +202,7 @@ def build_decay_formula(
                     start_time=_trace_start,
                     end_time=datetime.now(timezone.utc),
                     session_id=os.environ.get("CLAUDE_SESSION_ID"),
-                    tags=["decay", collection],
+                    tags=["search", "decay"],
                 )
         return None, prefetch
 
@@ -369,7 +369,7 @@ def build_decay_formula(
                 start_time=_trace_start,
                 end_time=datetime.now(timezone.utc),
                 session_id=os.environ.get("CLAUDE_SESSION_ID"),
-                tags=["decay", collection],
+                tags=["search", "decay"],
             )
 
     return formula, prefetch

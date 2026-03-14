@@ -678,7 +678,7 @@ class MemorySearch:
                         "metadata": {"path": _search_mode, "collection": collection},
                     },
                     session_id=os.environ.get("CLAUDE_SESSION_ID"),
-                    tags=["search", collection],
+                    tags=["search", "retrieval"],
                 )
 
         # SPEC-021: Emit search trace event
@@ -723,7 +723,7 @@ class MemorySearch:
                     project_id=group_id,
                     start_time=_trace_start,
                     end_time=_trace_end,
-                    tags=["search", collection],
+                    tags=["search", "retrieval"],
                 )
             except Exception:
                 pass
@@ -854,7 +854,7 @@ class MemorySearch:
                                     },
                                 },
                                 session_id=os.environ.get("CLAUDE_SESSION_ID"),
-                                tags=["remembrance_protection", _coll],
+                                tags=["search", "retrieval"],
                                 project_id=group_id,
                             )
         except Exception:
@@ -1338,7 +1338,7 @@ class MemorySearch:
                     project_id=effective_group_id,
                     start_time=_trace_start,
                     end_time=_trace_end,
-                    tags=["search"],
+                    tags=["search", "retrieval"],
                 )
             except Exception:
                 pass
@@ -1468,7 +1468,7 @@ class MemorySearch:
                         project_id=group_id,
                         start_time=_trace_start,
                         end_time=_trace_end,
-                        tags=["search"],
+                        tags=["search", "retrieval"],
                     )
                 except Exception:
                     pass
@@ -1559,7 +1559,7 @@ class MemorySearch:
                     project_id=group_id,
                     start_time=_trace_start,
                     end_time=_trace_end,
-                    tags=["search"],
+                    tags=["search", "retrieval"],
                 )
             except Exception:
                 pass

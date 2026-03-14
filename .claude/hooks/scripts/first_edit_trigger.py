@@ -280,7 +280,7 @@ def main() -> int:
                         trace_id=uuid4().hex,
                         session_id=session_id,
                         project_id=project_name,
-                        tags=["retrieval"],
+                        tags=["capture", "trigger"],
                     )
                 except Exception:
                     logger.debug("trace_event_failed_pattern_retrieval")

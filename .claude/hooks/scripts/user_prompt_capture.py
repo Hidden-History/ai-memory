@@ -273,7 +273,7 @@ def main() -> int:
                     trace_id=trace_id,
                     session_id=hook_input.get("session_id"),
                     project_id=detect_project(cwd) if detect_project else None,
-                    tags=["capture"],
+                    tags=["capture", "user_prompt"],
                     start_time=capture_start,
                     end_time=datetime.now(tz=timezone.utc),
                 )

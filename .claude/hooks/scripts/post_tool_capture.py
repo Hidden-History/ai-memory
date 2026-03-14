@@ -433,7 +433,7 @@ def _fork_fix_to_background_from_post_tool(
                     },
                     trace_id=uuid.uuid4().hex,
                     session_id=session_id,
-                    tags=["capture", "error-fix"],
+                    tags=["capture", "trigger"],
                 )
             except Exception:
                 pass
@@ -610,7 +610,7 @@ def main() -> int:
                             if detect_project_func
                             else None
                         ),
-                        tags=["capture"],
+                        tags=["capture", "trigger"],
                         start_time=capture_start,
                         end_time=datetime.now(tz=timezone.utc),
                     )

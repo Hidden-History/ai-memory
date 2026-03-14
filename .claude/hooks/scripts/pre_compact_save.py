@@ -500,7 +500,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=pc_session_id,
                     project_id=pc_project_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "session_summary"],
                 )
             except Exception:
                 pass
@@ -524,7 +524,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=pc_session_id,
                     project_id=pc_project_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "session_summary"],
                 )
             except Exception:
                 pass
@@ -603,7 +603,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                                     trace_id=trace_id,
                                     session_id=pc_session_id,
                                     project_id=pc_project_id,
-                                    tags=["capture", "discussions"],
+                                    tags=["capture", "session_summary"],
                                 )
                             except Exception:
                                 pass
@@ -627,7 +627,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                                     trace_id=trace_id,
                                     session_id=pc_session_id,
                                     project_id=pc_project_id,
-                                    tags=["capture", "discussions"],
+                                    tags=["capture", "session_summary"],
                                 )
                             except Exception:
                                 pass
@@ -673,7 +673,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=pc_session_id,
                     project_id=pc_project_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "session_summary"],
                 )
             except Exception:
                 pass
@@ -737,7 +737,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=pc_session_id,
                     project_id=pc_project_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "session_summary"],
                 )
             except Exception:
                 pass
@@ -763,7 +763,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=pc_session_id,
                     project_id=pc_project_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "session_summary"],
                 )
             except Exception:
                 pass
@@ -866,7 +866,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=pc_session_id,
                     project_id=pc_project_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "session_summary"],
                 )
             except Exception:
                 pass
@@ -891,7 +891,7 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=pc_session_id,
                     project_id=pc_project_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "session_summary"],
                 )
             except Exception:
                 pass

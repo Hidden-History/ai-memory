@@ -174,7 +174,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=session_id,
                     project_id=group_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "user_prompt"],
                 )
             except Exception:
                 pass
@@ -197,7 +197,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=session_id,
                     project_id=group_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "user_prompt"],
                 )
             except Exception:
                 pass
@@ -290,7 +290,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                         trace_id=trace_id,
                         session_id=session_id,
                         project_id=group_id,
-                        tags=["capture", "discussions"],
+                        tags=["capture", "user_prompt"],
                     )
                 except Exception:
                     pass
@@ -382,7 +382,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                                 trace_id=trace_id,
                                 session_id=session_id,
                                 project_id=group_id,
-                                tags=["capture", "discussions"],
+                                tags=["capture", "user_prompt"],
                             )
                         except Exception:
                             pass
@@ -406,7 +406,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                                 trace_id=trace_id,
                                 session_id=session_id,
                                 project_id=group_id,
-                                tags=["capture", "discussions"],
+                                tags=["capture", "user_prompt"],
                             )
                         except Exception:
                             pass
@@ -471,7 +471,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=session_id,
                     project_id=group_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "user_prompt"],
                 )
             except Exception:
                 pass
@@ -603,7 +603,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=session_id,
                     project_id=group_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "user_prompt"],
                 )
             except Exception:
                 pass
@@ -669,7 +669,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=session_id,
                     project_id=group_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "user_prompt"],
                 )
             except Exception:
                 pass
@@ -737,7 +737,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=session_id,
                     project_id=group_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "user_prompt"],
                 )
             except Exception:
                 pass
@@ -821,7 +821,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                     trace_id=trace_id,
                     session_id=session_id,
                     project_id=group_id,
-                    tags=["capture", "discussions"],
+                    tags=["capture", "user_prompt"],
                 )
             except Exception:
                 pass

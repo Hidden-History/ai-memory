@@ -248,7 +248,7 @@ def main() -> int:
                         parent_span_id=None,
                         session_id=session_id,
                         project_id=project_name,
-                        tags=["retrieval", "injection"],
+                        tags=["injection", "tier2"],
                         start_time=_wall_start,
                     )
                 except Exception:
@@ -294,7 +294,7 @@ def main() -> int:
                         trace_id=_tier2_trace_id,
                         session_id=session_id,
                         project_id=project_name,
-                        tags=["freshness", "injection"],
+                        tags=["injection", "tier2"],
                     )
             if _penalty == 0.0 and _orig_score > 0.0:
                 _freshness_blocked_count += 1
@@ -493,7 +493,7 @@ def main() -> int:
                     parent_span_id=None,
                     session_id=session_id,
                     project_id=project_name,
-                    tags=["retrieval", "injection"],
+                    tags=["injection", "tier2"],
                     start_time=_wall_start,
                 )
             except Exception:
@@ -566,7 +566,7 @@ def main() -> int:
                     parent_span_id=None,
                     session_id=session_id if "session_id" in dir() else "unknown",  # type: ignore[name-defined]
                     project_id=project_name,
-                    tags=["retrieval", "injection"],
+                    tags=["injection", "tier2"],
                     start_time=_wall_start if "_wall_start" in dir() else None,  # type: ignore[name-defined]
                 )
             except Exception:
