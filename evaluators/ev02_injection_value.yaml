@@ -9,13 +9,9 @@ target: observation
 sampling_rate: 0.05
 
 filter:
-  tags:
-    - - injection
-      - tier2
-    - - injection
-      - compact
+  tags: [injection, tier2, compact]
 
-prompt_file: evaluators/ev02_injection_value_prompt.md
+prompt_file: ev02_injection_value_prompt.md
 
 description: >
   Determines whether the context injected into the user's prompt window

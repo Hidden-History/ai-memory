@@ -5,19 +5,11 @@ Your task is to determine whether context injected into a user's prompt window a
 
 ## Data to Evaluate
 
-**User prompt** (what the user asked):
-```
-{{user_prompt}}
-```
+Analyze the trace data provided in the **## Trace to Evaluate** section below.
 
-**Injected context** (what the memory system added):
-```
-{{injected_context}}
-```
-
-**Injection confidence score**: {{confidence_score}}
-
-**Injection tier / source**: {{injection_source}}
+- **Input**: The user's prompt or request that triggered the injection.
+- **Output**: The injected context that was added to the user's prompt window.
+- **Metadata**: Additional context such as injection tier, confidence score, and injection source.
 
 ## Rubric
 

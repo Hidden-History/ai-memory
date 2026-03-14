@@ -5,19 +5,11 @@ Your task is to determine whether a hook capture event collected all expected fi
 
 ## Data to Evaluate
 
-**Hook event type**: {{event_type}}
+Analyze the trace data provided in the **## Trace to Evaluate** section below.
 
-**Captured content**:
-```
-{{captured_content}}
-```
-
-**Expected fields for this event type**: {{expected_fields}}
-
-**Hook metadata** (session_id, trace_id, timestamps):
-```
-{{hook_metadata}}
-```
+- **Input**: The captured content and hook event data (event type, captured fields, and metadata).
+- **Output**: Any processing result or confirmation from the capture system.
+- **Metadata**: Hook metadata including session_id, trace_id, timestamps, and event type.
 
 ## Rubric
 

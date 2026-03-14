@@ -12,11 +12,11 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
+
+from . import TRACE_CONTENT_MAX
 
 logger = logging.getLogger(__name__)
-
-TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 
 @dataclass
@@ -31,6 +31,7 @@ class EvaluatorConfig:
     base_url: str | None = None
     temperature: float = 0.0  # Deterministic for evaluation
     max_tokens: int = 1024
+    _client: Any = field(default=None, init=False, repr=False)
 
     @classmethod
     def from_yaml(cls, path: str) -> "EvaluatorConfig":
@@ -49,7 +50,7 @@ class EvaluatorConfig:
         )
 
     def get_client(self):
-        """Return an LLM client for the configured provider.
+        """Return a cached LLM client for the configured provider.
 
         Keys are read from environment variables ONLY (PM #190 security requirement).
         All cloud providers raise ValueError if the required env var is not set.
@@ -58,10 +59,13 @@ class EvaluatorConfig:
             openai.OpenAI for ollama/openrouter/openai/custom providers
             anthropic.Anthropic for the anthropic provider (native SDK)
         """
+        if self._client:
+            return self._client
+
         if self.provider == "ollama":
             from openai import OpenAI
 
-            return OpenAI(
+            client = OpenAI(
                 base_url=self.base_url or "http://localhost:11434/v1",
                 api_key="ollama",  # Ollama does not require a real API key
             )
@@ -75,7 +79,7 @@ class EvaluatorConfig:
                     "OPENROUTER_API_KEY environment variable not set. "
                     "Set it before using the openrouter provider."
                 )
-            return OpenAI(
+            client = OpenAI(
                 base_url="https://openrouter.ai/api/v1",
                 api_key=api_key,
             )
@@ -90,7 +94,7 @@ class EvaluatorConfig:
                     "ANTHROPIC_API_KEY environment variable not set. "
                     "Set it before using the anthropic provider."
                 )
-            return Anthropic(api_key=api_key)
+            client = Anthropic(api_key=api_key)
 
         elif self.provider == "openai":
             from openai import OpenAI
@@ -101,17 +105,20 @@ class EvaluatorConfig:
                     "OPENAI_API_KEY environment variable not set. "
                     "Set it before using the openai provider."
                 )
-            return OpenAI(api_key=api_key)
+            client = OpenAI(api_key=api_key)
 
         else:  # custom — any OpenAI-compatible endpoint
             from openai import OpenAI
 
             base_url = self.base_url or os.environ.get("EVALUATOR_BASE_URL")
             api_key = os.environ.get("EVALUATOR_API_KEY", "custom")
-            return OpenAI(
+            client = OpenAI(
                 base_url=base_url,
                 api_key=api_key,
             )
+
+        self._client = client
+        return self._client
 
     def evaluate(self, prompt: str) -> dict:
         """Send prompt to LLM and return parsed evaluation result.
@@ -130,7 +137,7 @@ class EvaluatorConfig:
                 model=self.model_name,
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
-                messages=[{"role": "user", "content": prompt[:TRACE_CONTENT_MAX]}],
+                messages=[{"role": "user", "content": prompt}],
             )
             content = response.content[0].text
         else:
@@ -139,7 +146,7 @@ class EvaluatorConfig:
                 model=self.model_name,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
-                messages=[{"role": "user", "content": prompt[:TRACE_CONTENT_MAX]}],
+                messages=[{"role": "user", "content": prompt}],
             )
             content = response.choices[0].message.content
 

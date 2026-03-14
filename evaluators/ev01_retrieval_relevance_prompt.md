@@ -5,19 +5,11 @@ Your task is to assess how relevant a retrieved memory is to the trigger context
 
 ## Data to Evaluate
 
-**Trigger context** (what caused the retrieval):
-```
-{{trigger_context}}
-```
+Analyze the trace data provided in the **## Trace to Evaluate** section below.
 
-**Retrieved memory content**:
-```
-{{retrieved_content}}
-```
-
-**Memory type**: {{memory_type}}
-
-**Collection**: {{collection}}
+- **Input**: The trigger context that caused the memory retrieval (e.g., the user's query or the event that fired the retrieval trigger).
+- **Output**: The retrieved memory content that was returned.
+- **Metadata**: Additional context such as memory type, collection, and retrieval confidence.
 
 ## Rubric
 

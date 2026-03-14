@@ -14,13 +14,9 @@ categories:
   - incorrect
 
 filter:
-  tags:
-    - - classification
-      - queue
-    - - classification
-      - worker
+  tags: [classification, queue, worker]
 
-prompt_file: evaluators/ev04_classification_accuracy_prompt.md
+prompt_file: ev04_classification_accuracy_prompt.md
 
 description: >
   Evaluates whether the LLM classifier correctly assigned the memory type

@@ -9,13 +9,9 @@ target: observation
 sampling_rate: 0.05
 
 filter:
-  tags:
-    - - search
-      - retrieval
-    - - search
-      - best_practices
+  tags: [search, retrieval, best_practices]
 
-prompt_file: evaluators/ev01_retrieval_relevance_prompt.md
+prompt_file: ev01_retrieval_relevance_prompt.md
 
 description: >
   Measures whether the memory retrieved in response to a trigger is

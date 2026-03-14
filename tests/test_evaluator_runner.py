@@ -359,3 +359,24 @@ class TestRunnerRun:
         ]
         non_comment_source = "\n".join(non_comment_lines)
         assert "Langfuse()" not in non_comment_source
+
+
+# ---------------------------------------------------------------------------
+# Tests: _load_prompt
+# ---------------------------------------------------------------------------
+
+
+class TestLoadPrompt:
+    def test_load_prompt_uses_actual_file_not_fallback(self, runner):
+        """_load_prompt() should return the file contents, not the fallback stub."""
+        ev_dir = runner.evaluators_dir
+        ev_dir.mkdir(parents=True, exist_ok=True)
+
+        prompt_content = "This is the actual judge prompt for testing."
+        prompt_file = ev_dir / "test_prompt.md"
+        prompt_file.write_text(prompt_content)
+
+        evaluator = {"prompt_file": "test_prompt.md"}
+        result = runner._load_prompt(evaluator)
+
+        assert result == prompt_content

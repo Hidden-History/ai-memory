@@ -9,14 +9,9 @@ target: trace
 sampling_rate: 1.0
 
 filter:
-  tags:
-    - - injection
-      - tier1
-      - bootstrap
-    - - skill
-      - bootstrap
+  tags: [injection, tier1, bootstrap, skill]
 
-prompt_file: evaluators/ev05_bootstrap_quality_prompt.md
+prompt_file: ev05_bootstrap_quality_prompt.md
 
 description: >
   Measures how valuable the bootstrap context injection was for the new

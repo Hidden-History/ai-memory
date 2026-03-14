@@ -283,7 +283,7 @@ class TestNoHardcodedSecrets:
 
         source = inspect.getsource(provider_module)
         # Should not contain patterns like api_key = "sk-..." or api_key='sk-...'
-        assert "sk-" not in source or "ollama" in source.split("sk-")[0][-20:]
+        assert "sk-" not in source
 
     def test_ollama_key_is_literal_ollama(self):
         """The ONLY hardcoded key is 'ollama' for the local Ollama provider."""

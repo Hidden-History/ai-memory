@@ -9,14 +9,9 @@ target: trace
 sampling_rate: 1.0
 
 filter:
-  tags:
-    - - capture
-      - session_summary
-    - - injection
-      - tier1
-      - bootstrap
+  tags: [capture, session_summary, injection, tier1, bootstrap]
 
-prompt_file: evaluators/ev06_session_coherence_prompt.md
+prompt_file: ev06_session_coherence_prompt.md
 
 description: >
   Evaluates whether the memory system made good decisions throughout a

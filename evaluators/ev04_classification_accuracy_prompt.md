@@ -5,19 +5,11 @@ Your task is to assess whether the LLM classifier correctly assigned a memory ty
 
 ## Data to Evaluate
 
-**Original captured content**:
-```
-{{original_content}}
-```
+Analyze the trace data provided in the **## Trace to Evaluate** section below.
 
-**Assigned memory type**: {{assigned_type}}
-
-**Assigned collection**: {{assigned_collection}}
-
-**Classifier reasoning** (if available):
-```
-{{classifier_reasoning}}
-```
+- **Input**: The original captured content that was submitted to the classifier.
+- **Output**: The classifier's decision including assigned memory type, collection, and reasoning.
+- **Metadata**: Additional context such as classifier confidence, model used, and classification timestamp.
 
 ## Valid Memory Types and Collections
 

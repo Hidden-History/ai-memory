@@ -7,7 +7,9 @@ OpenAI, and custom OpenAI-compatible endpoints.
 PLAN-012 Phase 2: Evaluation Pipeline
 """
 
+TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
+
 from .provider import EvaluatorConfig
 from .runner import EvaluatorRunner
 
-__all__ = ["EvaluatorConfig", "EvaluatorRunner"]
+__all__ = ["EvaluatorConfig", "EvaluatorRunner", "TRACE_CONTENT_MAX"]

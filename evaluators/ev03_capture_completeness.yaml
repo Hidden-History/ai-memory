@@ -9,18 +9,9 @@ target: observation
 sampling_rate: 0.05
 
 filter:
-  tags:
-    - - capture
-    - - capture
-      - user_prompt
-    - - capture
-      - agent_response
-    - - capture
-      - session_summary
-    - - capture
-      - store
+  tags: [capture, user_prompt, agent_response, session_summary, store]
 
-prompt_file: evaluators/ev03_capture_completeness_prompt.md
+prompt_file: ev03_capture_completeness_prompt.md
 
 description: >
   Determines whether a hook capture event collected all expected fields

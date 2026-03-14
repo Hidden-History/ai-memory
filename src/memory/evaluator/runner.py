@@ -6,8 +6,8 @@
 Core pipeline:
   1. Load evaluator config + evaluator definitions
   2. Fetch traces using cursor-based pagination (V3 SDK)
-  3. Sample traces per evaluator's sampling_rate
-  4. Filter traces by evaluator criteria (event_types, tags)
+  3. Filter traces by evaluator criteria (event_types, tags)
+  4. Sample traces per evaluator's sampling_rate
   5. Evaluate each trace via configurable LLM judge
   6. Attach scores to Langfuse via create_score() (idempotent)
   7. Log each evaluation to audit log
@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from . import TRACE_CONTENT_MAX
 from .provider import EvaluatorConfig
 
 logger = logging.getLogger(__name__)
@@ -35,8 +36,6 @@ try:
 except ImportError:  # pragma: no cover
     def get_client():  # type: ignore[misc]
         raise ImportError("langfuse package not installed — pip install 'langfuse>=3.0,<4.0'")
-
-TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
 
 class EvaluatorRunner:
@@ -180,7 +179,8 @@ class EvaluatorRunner:
     def run(
         self,
         evaluator_id: str | None = None,
-        since: datetime | None = None,
+        *,
+        since: datetime,
         until: datetime | None = None,
         dry_run: bool = False,
         batch_size: int = 10,
@@ -189,7 +189,7 @@ class EvaluatorRunner:
 
         Args:
             evaluator_id: Optional evaluator ID to run (e.g., "EV-01")
-            since: Start of evaluation window (default: 24h ago)
+            since: Start of evaluation window (required — CLI provides this)
             until: End of evaluation window (default: now)
             dry_run: If True, evaluate but do not save scores to Langfuse
             batch_size: Number of traces to fetch per page
@@ -200,8 +200,6 @@ class EvaluatorRunner:
         # V3 singleton — NEVER use Langfuse() constructor directly
         langfuse = get_client()
 
-        if since is None:
-            since = datetime.now(tz=timezone.utc) - timedelta(days=1)
         if until is None:
             until = datetime.now(tz=timezone.utc)
 
@@ -215,89 +213,99 @@ class EvaluatorRunner:
         total_evaluated = 0
         total_scored = 0
 
-        for evaluator in evaluators:
-            ev_name = evaluator.get("name", evaluator.get("id", "unknown"))
-            sampling_rate = float(evaluator.get("sampling_rate", 1.0))
-            ev_filter = evaluator.get("filter", {})
+        try:
+            for evaluator in evaluators:
+                ev_name = evaluator.get("name", evaluator.get("id", "unknown"))
+                sampling_rate = float(evaluator.get("sampling_rate", 1.0))
+                ev_filter = evaluator.get("filter", {})
 
-            print(f"\n--- Running {evaluator.get('id', '?')}: {ev_name} ---")
+                print(f"\n--- Running {evaluator.get('id', '?')}: {ev_name} ---")
 
-            cursor = None  # V3 cursor-based pagination — NOT page numbers (PM #190 fix)
+                cursor = None  # V3 cursor-based pagination — NOT page numbers (PM #190 fix)
 
-            while True:
-                traces_response = langfuse.api.trace.list(
-                    start_time=since,   # PM #190 fix: was from_timestamp
-                    end_time=until,     # PM #190 fix: was to_timestamp
-                    cursor=cursor,      # PM #190 fix: was page (V3 uses cursor)
-                    limit=batch_size,
-                )
-                traces = traces_response.data or []
-                total_fetched += len(traces)
-
-                for trace in traces:
-                    # Apply sampling
-                    if random.random() > sampling_rate:
-                        continue
-                    total_sampled += 1
-
-                    # Apply filter
-                    if not self._matches_filter(trace, ev_filter):
-                        continue
-
-                    # Skip traces with no output
-                    if getattr(trace, "output", None) is None:
-                        continue
-
-                    # Build prompt and evaluate
-                    prompt = self._build_prompt(evaluator, trace)
-                    result = self.evaluator_config.evaluate(prompt)
-                    if result.get("score") is None:
-                        logger.warning("Evaluator returned null score for trace %s", trace.id)
-                        continue
-
-                    total_evaluated += 1
-
-                    # Attach score to Langfuse (idempotent via score_id)
-                    if not dry_run:
-                        score_id = self._make_score_id(trace.id, ev_name, since)
-                        langfuse.create_score(
-                            id=score_id,
-                            trace_id=trace.id,
-                            name=ev_name,
-                            value=result["score"],
-                            data_type=evaluator.get("score_type", "NUMERIC"),
-                            comment=str(result.get("reasoning", ""))[:TRACE_CONTENT_MAX],
-                        )
-                        total_scored += 1
-
-                    # Audit log
-                    self._append_audit_log({
-                        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                        "evaluator_id": evaluator.get("id"),
-                        "evaluator_name": ev_name,
-                        "trace_id": trace.id,
-                        "score": result["score"],
-                        "reasoning": str(result.get("reasoning", ""))[:500],
-                        "dry_run": dry_run,
-                    })
-
-                    reasoning_preview = str(result.get("reasoning", ""))[:80]
-                    print(
-                        f"  [{ev_name}] trace={trace.id[:8]}... "
-                        f"score={result['score']} | {reasoning_preview}"
+                while True:
+                    traces_response = langfuse.api.trace.list(
+                        start_time=since,   # PM #190 fix: was from_timestamp
+                        end_time=until,     # PM #190 fix: was to_timestamp
+                        cursor=cursor,      # PM #190 fix: was page (V3 uses cursor)
+                        limit=batch_size,
                     )
+                    traces = traces_response.data or []
+                    total_fetched += len(traces)
 
-                # Cursor-based pagination — advance or stop
-                meta = getattr(traces_response, "meta", None)
-                next_cursor = getattr(meta, "next_cursor", None) if meta else None
-                if not next_cursor or not traces:
-                    break
-                cursor = next_cursor
+                    for trace in traces:
+                        # Filter first, then sample from matching traces only (UF-4)
+                        if not self._matches_filter(trace, ev_filter):
+                            continue
 
-            print(f"  Evaluated: {total_evaluated} | Scored: {total_scored}")
+                        # Apply sampling
+                        if random.random() > sampling_rate:
+                            continue
+                        total_sampled += 1
 
-        # Flush all buffered scores to Langfuse before returning
-        langfuse.flush()
+                        # Skip traces with no output
+                        if getattr(trace, "output", None) is None:
+                            continue
+
+                        # Build prompt and evaluate — isolated per trace (UF-3)
+                        try:
+                            prompt = self._build_prompt(evaluator, trace)
+                            result = self.evaluator_config.evaluate(prompt)
+                            if result.get("score") is None:
+                                logger.warning(
+                                    "Evaluator returned null score for trace %s", trace.id
+                                )
+                                continue
+
+                            total_evaluated += 1
+
+                            # Attach score to Langfuse (idempotent via score_id)
+                            if not dry_run:
+                                score_id = self._make_score_id(trace.id, ev_name, since)
+                                langfuse.create_score(
+                                    id=score_id,
+                                    trace_id=trace.id,
+                                    name=ev_name,
+                                    value=result["score"],
+                                    data_type=evaluator.get("score_type", "NUMERIC"),
+                                    comment=str(result.get("reasoning", ""))[:TRACE_CONTENT_MAX],
+                                )
+                                total_scored += 1
+
+                            # Audit log
+                            self._append_audit_log({
+                                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                                "evaluator_id": evaluator.get("id"),
+                                "evaluator_name": ev_name,
+                                "trace_id": trace.id,
+                                "score": result["score"],
+                                "reasoning": str(result.get("reasoning", ""))[:500],
+                                "dry_run": dry_run,
+                            })
+
+                            reasoning_preview = str(result.get("reasoning", ""))[:80]
+                            print(
+                                f"  [{ev_name}] trace={trace.id[:8]}... "
+                                f"score={result['score']} | {reasoning_preview}"
+                            )
+                        except Exception as exc:
+                            logger.error(
+                                "Error evaluating trace %s with %s: %s", trace.id, ev_name, exc
+                            )
+                            continue
+
+                    # Cursor-based pagination — advance or stop
+                    meta = getattr(traces_response, "meta", None)
+                    next_cursor = getattr(meta, "next_cursor", None) if meta else None
+                    if not next_cursor or not traces:
+                        break
+                    cursor = next_cursor
+
+                print(f"  Evaluated: {total_evaluated} | Scored: {total_scored}")
+
+        finally:
+            # Flush all buffered scores to Langfuse — runs even if an error occurs (UF-5)
+            langfuse.flush()
 
         summary = {
             "fetched": total_fetched,

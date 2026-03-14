@@ -5,26 +5,11 @@ Your task is to assess whether the right memories were captured, classified, and
 
 ## Data to Evaluate
 
-**Session summary** (what happened in this session):
-```
-{{session_summary}}
-```
+Analyze the trace data provided in the **## Trace to Evaluate** section below.
 
-**Memories captured during session**:
-```
-{{captured_memories}}
-```
-
-**Injection events during session** (what was injected, when, and why):
-```
-{{injection_events}}
-```
-
-**Session metadata**:
-- Session ID: {{session_id}}
-- Duration: {{session_duration}}
-- Total captures: {{capture_count}}
-- Total injections: {{injection_count}}
+- **Input**: The session summary describing what work was done during the session.
+- **Output**: A record of memory operations — captures, classifications, and injections — that occurred during the session.
+- **Metadata**: Session metadata including session ID, duration, total captures, and total injections.
 
 ## Rubric
 
