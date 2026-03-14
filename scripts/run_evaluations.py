@@ -64,13 +64,23 @@ def main() -> int:
     # Parse --since
     since: datetime | None = None
     if args.since:
-        try:
-            since = datetime.fromisoformat(args.since.replace("Z", "+00:00"))
-        except ValueError as exc:
-            print(
-                f"ERROR: Invalid --since value '{args.since}': {exc}", file=sys.stderr
-            )
-            return 1
+        # Support duration strings like "24h", "48h", "7d" as well as ISO datetimes
+        import re
+
+        duration_match = re.match(r"^(\d+)([hd])$", args.since.strip())
+        if duration_match:
+            amount, unit = int(duration_match.group(1)), duration_match.group(2)
+            delta = timedelta(hours=amount) if unit == "h" else timedelta(days=amount)
+            since = datetime.now(tz=timezone.utc) - delta
+        else:
+            try:
+                since = datetime.fromisoformat(args.since.replace("Z", "+00:00"))
+            except ValueError as exc:
+                print(
+                    f"ERROR: Invalid --since value '{args.since}': {exc}",
+                    file=sys.stderr,
+                )
+                return 1
     else:
         since = datetime.now(tz=timezone.utc) - timedelta(hours=24)
 
