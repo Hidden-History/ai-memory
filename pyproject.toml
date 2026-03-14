@@ -113,7 +113,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short --strict-markers"
+addopts = "-v --tb=short --strict-markers -m 'not regression'"
 norecursedirs = ["archived", ".git", "__pycache__", ".pytest_cache"]
 markers = [
     "integration: integration tests requiring Docker stack",
@@ -125,6 +125,7 @@ markers = [
     "requires_api: Tests requiring Monitoring API service on port 28000",
     "requires_streamlit: Tests requiring Streamlit dashboard on port 28501",
     "quarantine: Quarantined flaky tests excluded from default CI runs",
+    "regression: Regression tests requiring live Langfuse + Qdrant (excluded from default pytest run)",
 ]
 
 # Coverage configuration
