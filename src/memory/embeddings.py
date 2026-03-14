@@ -242,7 +242,7 @@ class EmbeddingClient:
                         },
                         session_id=os.environ.get("CLAUDE_SESSION_ID"),
                         as_type="generation",
-                        tags=["embedding"],
+                        tags=["search", "embedding"],
                     )
 
             return embeddings
@@ -391,7 +391,7 @@ class EmbeddingClient:
                         },
                         session_id=os.environ.get("CLAUDE_SESSION_ID"),
                         as_type="generation",
-                        tags=["embedding"],
+                        tags=["search", "embedding"],
                     )
 
             return sparse_embeddings
@@ -461,7 +461,7 @@ class EmbeddingClient:
                         },
                         session_id=os.environ.get("CLAUDE_SESSION_ID"),
                         as_type="generation",
-                        tags=["embedding"],
+                        tags=["search", "embedding"],
                     )
 
             return late_embeddings

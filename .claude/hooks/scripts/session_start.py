@@ -928,7 +928,7 @@ def main():
                     if emit_trace_event:
                         try:
                             emit_trace_event(
-                                event_type="memory_retrieval_search",
+                                event_type="memory_retrieval_sessions",
                                 data={
                                     "input": f"get_recent(discussions, type=session, agent_id={_compact_agent_id!r}, limit={_summary_limit}) for {project_name}",
                                     "output": f"Retrieved {len(session_summaries)} session summaries",
@@ -943,7 +943,6 @@ def main():
                                         "top_results": [
                                             {
                                                 "type": s.get("type", "session"),
-                                                "score": 0.0,
                                                 "content_preview": s.get("content", "")[:200],
                                             }
                                             for s in session_summaries[:5]
@@ -992,7 +991,7 @@ def main():
                     if emit_trace_event:
                         try:
                             emit_trace_event(
-                                event_type="memory_retrieval_search",
+                                event_type="memory_retrieval_decisions",
                                 data={
                                     "input": f"get_recent(discussions, type=decision, agent_id={_compact_agent_id!r}, limit=3) for {project_name}",
                                     "output": f"Retrieved {len(decisions)} decisions",
