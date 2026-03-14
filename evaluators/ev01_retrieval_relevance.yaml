@@ -1,0 +1,23 @@
+# Evaluator: EV-01 Retrieval Relevance
+# Scores how relevant retrieved memory is to the trigger context.
+# High-volume path — 5% sampling to stay within judge budget.
+
+id: EV-01
+name: retrieval_relevance
+score_type: NUMERIC
+target: observation
+sampling_rate: 0.05
+
+filter:
+  tags:
+    - - search
+      - retrieval
+    - - search
+      - best_practices
+
+prompt_file: evaluators/ev01_retrieval_relevance_prompt.md
+
+description: >
+  Measures whether the memory retrieved in response to a trigger is
+  genuinely relevant to the user's query or context that fired the trigger.
+  Score range 0.0–1.0 (NUMERIC).

@@ -1,0 +1,25 @@
+# Evaluator: EV-06 Session Coherence
+# Scores overall memory system behaviour across a full session.
+# 100% sampling — one session summary per session (low volume).
+
+id: EV-06
+name: session_coherence
+score_type: NUMERIC
+target: trace
+sampling_rate: 1.0
+
+filter:
+  tags:
+    - - capture
+      - session_summary
+    - - injection
+      - tier1
+      - bootstrap
+
+prompt_file: evaluators/ev06_session_coherence_prompt.md
+
+description: >
+  Evaluates whether the memory system made good decisions throughout a
+  session: were the right memories captured, correctly classified, and
+  injected at the right moments?
+  Score range 0.0–1.0 (NUMERIC). Evaluated on every session close trace.

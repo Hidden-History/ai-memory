@@ -1,0 +1,28 @@
+# Evaluator: EV-04 Classification Accuracy
+# Assesses whether the LLM classifier assigned the correct type to content.
+# 10% sampling — classification is medium volume.
+
+id: EV-04
+name: classification_accuracy
+score_type: CATEGORICAL
+target: observation
+sampling_rate: 0.10
+
+categories:
+  - correct
+  - partially_correct
+  - incorrect
+
+filter:
+  tags:
+    - - classification
+      - queue
+    - - classification
+      - worker
+
+prompt_file: evaluators/ev04_classification_accuracy_prompt.md
+
+description: >
+  Evaluates whether the LLM classifier correctly assigned the memory type
+  and collection for a piece of captured content.
+  Score is CATEGORICAL: correct | partially_correct | incorrect.

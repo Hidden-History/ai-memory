@@ -1,0 +1,23 @@
+# Evaluator: EV-02 Injection Value
+# Scores whether injected context was valuable (true) or noise (false).
+# High-volume path — 5% sampling to stay within judge budget.
+
+id: EV-02
+name: injection_value
+score_type: BOOLEAN
+target: observation
+sampling_rate: 0.05
+
+filter:
+  tags:
+    - - injection
+      - tier2
+    - - injection
+      - compact
+
+prompt_file: evaluators/ev02_injection_value_prompt.md
+
+description: >
+  Determines whether the context injected into the user's prompt window
+  added genuine value (true) or was irrelevant / distracting noise (false).
+  Score is BOOLEAN.

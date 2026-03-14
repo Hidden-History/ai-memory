@@ -1,0 +1,24 @@
+# Evaluator: EV-05 Bootstrap Quality
+# Scores how well cross-session bootstrap context serves the new session.
+# 100% sampling — one bootstrap event per session (low volume).
+
+id: EV-05
+name: bootstrap_quality
+score_type: NUMERIC
+target: trace
+sampling_rate: 1.0
+
+filter:
+  tags:
+    - - injection
+      - tier1
+      - bootstrap
+    - - skill
+      - bootstrap
+
+prompt_file: evaluators/ev05_bootstrap_quality_prompt.md
+
+description: >
+  Measures how valuable the bootstrap context injection was for the new
+  session — coverage, relevance, and token budget efficiency.
+  Score range 0.0–1.0 (NUMERIC). Evaluated on every bootstrap trace.
