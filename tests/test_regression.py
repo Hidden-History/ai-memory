@@ -206,7 +206,6 @@ def test_keyword_routing_regression(langfuse):
 
         user_prompt = inp.get("user_prompt", "")
         expected_trigger = expected.get("expected_trigger", "")
-        expected_collection = expected.get("expected_collection", "")
 
         # Try each detector in order — first match wins (mirrors hook logic)
         detected_trigger = None
@@ -375,7 +374,6 @@ def test_bootstrap_round_trip(langfuse):
     assert scored, "No items were scored — check Qdrant connectivity"
 
     # Bootstrap round-trip: at least one result must be found per item
-    failed = [r for r in scored if not r.get("result", {}).get("passed", r["score"] > 0)]
     assert not any(r["score"] == 0.0 for r in scored), (
         f"Bootstrap round-trip failed for {sum(1 for r in scored if r['score'] == 0.0)} items. "
         f"Handoff content not retrievable — check parzival tenant isolation."

@@ -25,13 +25,15 @@ import sys
 
 def main() -> int:
     try:
-        from langfuse import get_client  # V3 singleton — NEVER use Langfuse() constructor
+        from langfuse import (
+            get_client,  # V3 singleton — NEVER use Langfuse() constructor
+        )
 
         langfuse = get_client()
 
         print("Creating Score Configs in Langfuse...")
 
-        # --- NUMERIC scores (0.0 – 1.0) ---
+        # --- NUMERIC scores (0.0 - 1.0) ---
         numeric_names = ["retrieval_relevance", "bootstrap_quality", "session_coherence"]
         for name in numeric_names:
             try:
@@ -41,7 +43,7 @@ def main() -> int:
                     min_value=0.0,
                     max_value=1.0,
                 )
-                print(f"  [OK] NUMERIC: {name} (0.0 – 1.0)")
+                print(f"  [OK] NUMERIC: {name} (0.0 - 1.0)")
             except Exception as exc:
                 # Idempotent: log but don't fail if config already exists
                 print(f"  [SKIP] {name}: {exc}")

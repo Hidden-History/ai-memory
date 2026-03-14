@@ -10,8 +10,9 @@ Validates:
 PLAN-012 Phase 3 — Section 6.1
 """
 
-import sys
 import os
+import sys
+from typing import ClassVar
 
 import pytest
 
@@ -75,7 +76,7 @@ def triggers_mod():
 # ---------------------------------------------------------------------------
 
 class TestDatasetCompleteness:
-    EXPECTED_DATASET_NAMES = {
+    EXPECTED_DATASET_NAMES: ClassVar[set[str]] = {
         "ds-01-retrieval-golden-set",
         "ds-02-error-pattern-match",
         "ds-03-bootstrap-round-trip",
@@ -121,7 +122,7 @@ class TestDS04KeywordCount:
         """Count all keyword patterns across all TRIGGER_CONFIG entries."""
         config = triggers_mod.TRIGGER_CONFIG
         total = 0
-        for trigger_name, trigger_cfg in config.items():
+        for _trigger_name, trigger_cfg in config.items():
             patterns = trigger_cfg.get("patterns", [])
             total += len(patterns)
         return total
@@ -344,7 +345,7 @@ class TestItemStructure:
 
 class TestNoPlaceholderData:
     # "example" excluded: appears legitimately in filenames (.env.example, README etc.)
-    PLACEHOLDER_STRINGS = {"TODO", "TBD", "placeholder", "FIXME", "PLACEHOLDER"}
+    PLACEHOLDER_STRINGS: ClassVar[set[str]] = {"TODO", "TBD", "placeholder", "FIXME", "PLACEHOLDER"}
 
     def _flatten_value(self, val) -> list[str]:
         """Recursively flatten a value into a list of strings for scanning."""

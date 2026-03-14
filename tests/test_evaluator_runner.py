@@ -11,12 +11,11 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from memory.evaluator.runner import EvaluatorRunner
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -209,9 +208,8 @@ class TestRunnerRun:
 
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse):
-            with patch.object(runner, "evaluator_config", mock_evaluator_config):
-                result = runner.run(since=since)
+        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse), patch.object(runner, "evaluator_config", mock_evaluator_config):
+            result = runner.run(since=since)
 
         assert result["evaluated"] == 1
         assert result["scored"] == 1
@@ -232,9 +230,8 @@ class TestRunnerRun:
 
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse):
-            with patch.object(runner, "evaluator_config", mock_evaluator_config):
-                result = runner.run(since=since, dry_run=True)
+        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse), patch.object(runner, "evaluator_config", mock_evaluator_config):
+            result = runner.run(since=since, dry_run=True)
 
         assert result["evaluated"] == 1
         assert result["scored"] == 0
@@ -249,9 +246,8 @@ class TestRunnerRun:
         mock_evaluator_config = MagicMock()
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse):
-            with patch.object(runner, "evaluator_config", mock_evaluator_config):
-                result = runner.run(since=since)
+        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse), patch.object(runner, "evaluator_config", mock_evaluator_config):
+            result = runner.run(since=since)
 
         assert result["evaluated"] == 0
         mock_evaluator_config.evaluate.assert_not_called()
@@ -274,9 +270,8 @@ class TestRunnerRun:
 
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse):
-            with patch.object(runner, "evaluator_config", mock_evaluator_config):
-                result = runner.run(since=since)
+        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse), patch.object(runner, "evaluator_config", mock_evaluator_config):
+            result = runner.run(since=since)
 
         assert result["evaluated"] == 2
         # Second call must have used the cursor
@@ -333,9 +328,8 @@ class TestRunnerRun:
 
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse):
-            with patch.object(runner, "evaluator_config", mock_evaluator_config):
-                runner.run(since=since)
+        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse), patch.object(runner, "evaluator_config", mock_evaluator_config):
+            runner.run(since=since)
 
         assert runner.audit_log_path.exists()
         lines = runner.audit_log_path.read_text().strip().splitlines()
@@ -346,8 +340,9 @@ class TestRunnerRun:
 
     def test_run_uses_get_client_not_constructor(self, runner, evaluator_yaml):
         """Must use get_client() — never Langfuse() constructor directly in code."""
-        import memory.evaluator.runner as runner_module
         import inspect
+
+        import memory.evaluator.runner as runner_module
 
         source = inspect.getsource(runner_module)
         # Must import/use get_client
@@ -383,10 +378,8 @@ class TestRunnerErrorIsolation:
 
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse):
-            with patch.object(runner, "evaluator_config", mock_evaluator_config):
-                with patch("memory.evaluator.runner.logger") as mock_logger:
-                    result = runner.run(since=since)
+        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse), patch.object(runner, "evaluator_config", mock_evaluator_config), patch("memory.evaluator.runner.logger") as mock_logger:
+            result = runner.run(since=since)
 
         # Second trace must still be evaluated
         assert result["evaluated"] == 1

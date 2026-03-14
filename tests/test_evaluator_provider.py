@@ -8,7 +8,6 @@ PLAN-012 Phase 2 — AC-8
 """
 
 import json
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -142,9 +141,8 @@ class TestOpenRouterProvider:
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         config = EvaluatorConfig(provider="openrouter")
 
-        with patch.dict("sys.modules", {"openai": MagicMock()}):
-            with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
-                config.get_client()
+        with patch.dict("sys.modules", {"openai": MagicMock()}), pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+            config.get_client()
 
 
 class TestAnthropicProvider:
@@ -165,9 +163,8 @@ class TestAnthropicProvider:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         config = EvaluatorConfig(provider="anthropic")
 
-        with patch.dict("sys.modules", {"anthropic": MagicMock()}):
-            with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
-                config.get_client()
+        with patch.dict("sys.modules", {"anthropic": MagicMock()}), pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
+            config.get_client()
 
     def test_anthropic_does_not_use_openai(self, monkeypatch):
         """Verify Anthropic provider never uses OpenAI client."""
@@ -205,9 +202,8 @@ class TestOpenAIProvider:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         config = EvaluatorConfig(provider="openai")
 
-        with patch.dict("sys.modules", {"openai": MagicMock()}):
-            with pytest.raises(ValueError, match="OPENAI_API_KEY"):
-                config.get_client()
+        with patch.dict("sys.modules", {"openai": MagicMock()}), pytest.raises(ValueError, match="OPENAI_API_KEY"):
+            config.get_client()
 
 
 class TestCustomProvider:
@@ -279,6 +275,7 @@ class TestNoHardcodedSecrets:
 
     def test_no_sk_prefix_keys(self):
         import inspect
+
         import memory.evaluator.provider as provider_module
 
         source = inspect.getsource(provider_module)
