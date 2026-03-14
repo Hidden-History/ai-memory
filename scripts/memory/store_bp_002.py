@@ -137,7 +137,7 @@ def main():
                 "context-reconstruction",
                 "memory-management",
             ],
-            source="https://github.com/ai-memory/docs/conversation-memory-best-practices.md",
+            source="https://github.com/Hidden-History/ai-memory/tree/main/docs",
             source_date="2026-02-06",
             auto_seeded=True,
             type="guideline",

@@ -408,5 +408,5 @@ retrieval_duration_seconds
 - [error-pattern-capture.md](error-pattern-capture.md) - PostToolUse error capture system
 - [CLAUDE.md](../CLAUDE.md) - Project overview and conventions
 - [structured-logging.md](structured-logging.md) - Logging patterns
-- [claude-code-hooks-best-practices.md](claude-code-hooks-best-practices.md) - Hook development guide
+- [HOOKS.md](HOOKS.md) - Hook development guide
 - [prometheus-queries.md](prometheus-queries.md) - Metrics and monitoring

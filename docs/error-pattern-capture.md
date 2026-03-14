@@ -289,5 +289,5 @@ memory_captures_total{hook_type="PostToolUse_Error",status="success|failed|queue
 
 - [CLAUDE.md](../CLAUDE.md) - Project overview and conventions
 - [structured-logging.md](structured-logging.md) - Logging patterns
-- [claude-code-hooks-best-practices.md](claude-code-hooks-best-practices.md) - Hook development guide
+- [HOOKS.md](HOOKS.md) - Hook development guide
 - [prometheus-queries.md](prometheus-queries.md) - Metrics and monitoring

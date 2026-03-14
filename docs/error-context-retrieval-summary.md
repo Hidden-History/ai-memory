@@ -257,7 +257,7 @@ def test_query_building():
 - [error-context-retrieval.md](error-context-retrieval.md) - Full documentation
 - [error-pattern-capture.md](error-pattern-capture.md) - Complementary PostToolUse hook
 - [CLAUDE.md](../CLAUDE.md) - Project overview
-- [claude-code-hooks-best-practices.md](claude-code-hooks-best-practices.md) - Hook development guide
+- [HOOKS.md](HOOKS.md) - Hook development guide
 
 ---
 

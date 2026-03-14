@@ -234,5 +234,5 @@ fi
 
 - [CLAUDE.md](../../CLAUDE.md) - Project overview and coding conventions
 - [TROUBLESHOOTING.md](../../TROUBLESHOOTING.md) - Common issues and solutions
-- [docs/claude-code-hooks-best-practices.md](../../docs/claude-code-hooks-best-practices.md) - Hook configuration guide
+- [docs/HOOKS.md](../../docs/HOOKS.md) - Hook configuration guide
 - [docs/structured-logging.md](../../docs/structured-logging.md) - Logging patterns

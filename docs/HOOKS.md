@@ -839,7 +839,7 @@ Benefits:
 
 ### Full Configuration (All Hooks)
 
-See [claude-code-hooks-best-practices.md](claude-code-hooks-best-practices.md) for complete examples.
+See the hook scripts in `.claude/hooks/scripts/` for complete examples.
 
 ---
 
@@ -913,7 +913,6 @@ grep "duration" ~/.ai-memory/logs/hooks.log | tail -20
 
 ## 📚 See Also
 
-- [claude-code-hooks-best-practices.md](claude-code-hooks-best-practices.md) - Complete hook configuration guide
 - [AI_MEMORY_ARCHITECTURE.md](AI_MEMORY_ARCHITECTURE.md) - System architecture
 - [prometheus-queries.md](prometheus-queries.md) - Hook performance metrics
 - [structured-logging.md](structured-logging.md) - Hook logging patterns
