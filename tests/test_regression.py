@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 # Quality thresholds — adjust here only, not inside test functions
 # ---------------------------------------------------------------------------
 
-MIN_RETRIEVAL_RELEVANCE = 0.7   # DS-01: avg score across all items
-MIN_ERROR_MATCH_RATE = 0.80     # DS-02: fraction of items with a hit
+MIN_RETRIEVAL_RELEVANCE = 0.7  # DS-01: avg score across all items
+MIN_ERROR_MATCH_RATE = 0.80  # DS-02: fraction of items with a hit
 KEYWORD_ROUTING_ACCURACY = 1.0  # DS-04: must be 100% (68/68)
 
 # ---------------------------------------------------------------------------
@@ -149,12 +149,18 @@ def test_retrieval_quality_regression(langfuse):
                 limit=5,
             )
         except Exception as exc:
-            return {"score": 0.0, "score_name": "retrieval_relevance",
-                    "reasoning": f"Search failed: {exc}"}
+            return {
+                "score": 0.0,
+                "score_name": "retrieval_relevance",
+                "reasoning": f"Search failed: {exc}",
+            }
 
         if not results:
-            return {"score": 0.0, "score_name": "retrieval_relevance",
-                    "reasoning": "No results returned"}
+            return {
+                "score": 0.0,
+                "score_name": "retrieval_relevance",
+                "reasoning": "No results returned",
+            }
 
         # Use top result score as relevance proxy
         top_score = results[0].score if hasattr(results[0], "score") else 0.0
@@ -272,19 +278,19 @@ def test_error_pattern_match_regression(langfuse):
                 limit=3,
             )
         except Exception as exc:
-            return {"score": 0.0, "score_name": "error_match",
-                    "reasoning": f"Search failed: {exc}"}
+            return {
+                "score": 0.0,
+                "score_name": "error_match",
+                "reasoning": f"Search failed: {exc}",
+            }
 
         # Hit = at least one result with score >= 0.5
-        hit = any(
-            (r.score if hasattr(r, "score") else 0.0) >= 0.5
-            for r in results
-        )
+        hit = any((r.score if hasattr(r, "score") else 0.0) >= 0.5 for r in results)
         return {
             "score": 1.0 if hit else 0.0,
             "score_name": "error_match",
             "reasoning": f"error={error_msg!r} → {'HIT' if hit else 'MISS'} "
-                         f"({len(results)} results returned)",
+            f"({len(results)} results returned)",
             "passed": hit,
         }
 
@@ -331,8 +337,11 @@ def test_bootstrap_round_trip(langfuse):
                 limit=5,
             )
         except Exception as exc:
-            return {"score": 0.0, "score_name": "bootstrap_retrieval",
-                    "reasoning": f"Search failed: {exc}"}
+            return {
+                "score": 0.0,
+                "score_name": "bootstrap_retrieval",
+                "reasoning": f"Search failed: {exc}",
+            }
 
         if not results:
             return {
@@ -350,7 +359,9 @@ def test_bootstrap_round_trip(langfuse):
             top_content = str(results[0].content)
 
         if expected_keywords:
-            matches = sum(1 for kw in expected_keywords if kw.lower() in top_content.lower())
+            matches = sum(
+                1 for kw in expected_keywords if kw.lower() in top_content.lower()
+            )
             score = matches / len(expected_keywords)
         else:
             # No expected keywords — presence of any result is sufficient

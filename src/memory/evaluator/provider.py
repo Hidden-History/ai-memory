@@ -26,7 +26,9 @@ class EvaluatorConfig:
     API keys are NEVER stored here — they are read from os.environ at runtime.
     """
 
-    provider: Literal["ollama", "openrouter", "anthropic", "openai", "custom"] = "ollama"
+    provider: Literal["ollama", "openrouter", "anthropic", "openai", "custom"] = (
+        "ollama"
+    )
     model_name: str = "llama3.2:8b"
     base_url: str | None = None
     temperature: float = 0.0  # Deterministic for evaluation

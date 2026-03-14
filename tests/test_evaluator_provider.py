@@ -141,7 +141,10 @@ class TestOpenRouterProvider:
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         config = EvaluatorConfig(provider="openrouter")
 
-        with patch.dict("sys.modules", {"openai": MagicMock()}), pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+        with (
+            patch.dict("sys.modules", {"openai": MagicMock()}),
+            pytest.raises(ValueError, match="OPENROUTER_API_KEY"),
+        ):
             config.get_client()
 
 
@@ -150,10 +153,14 @@ class TestAnthropicProvider:
 
     def test_anthropic_uses_native_sdk(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
-        config = EvaluatorConfig(provider="anthropic", model_name="claude-3-5-sonnet-20241022")
+        config = EvaluatorConfig(
+            provider="anthropic", model_name="claude-3-5-sonnet-20241022"
+        )
         mock_anthropic_cls = MagicMock()
 
-        with patch.dict("sys.modules", {"anthropic": MagicMock(Anthropic=mock_anthropic_cls)}):
+        with patch.dict(
+            "sys.modules", {"anthropic": MagicMock(Anthropic=mock_anthropic_cls)}
+        ):
             config.get_client()
 
         # Must use Anthropic() — NOT OpenAI()
@@ -163,7 +170,10 @@ class TestAnthropicProvider:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         config = EvaluatorConfig(provider="anthropic")
 
-        with patch.dict("sys.modules", {"anthropic": MagicMock()}), pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
+        with (
+            patch.dict("sys.modules", {"anthropic": MagicMock()}),
+            pytest.raises(ValueError, match="ANTHROPIC_API_KEY"),
+        ):
             config.get_client()
 
     def test_anthropic_does_not_use_openai(self, monkeypatch):
@@ -173,10 +183,13 @@ class TestAnthropicProvider:
         mock_openai_cls = MagicMock()
         mock_anthropic_cls = MagicMock()
 
-        with patch.dict("sys.modules", {
-            "openai": MagicMock(OpenAI=mock_openai_cls),
-            "anthropic": MagicMock(Anthropic=mock_anthropic_cls),
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "openai": MagicMock(OpenAI=mock_openai_cls),
+                "anthropic": MagicMock(Anthropic=mock_anthropic_cls),
+            },
+        ):
             config.get_client()
 
         # Anthropic SDK called, OpenAI SDK NOT called
@@ -202,7 +215,10 @@ class TestOpenAIProvider:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         config = EvaluatorConfig(provider="openai")
 
-        with patch.dict("sys.modules", {"openai": MagicMock()}), pytest.raises(ValueError, match="OPENAI_API_KEY"):
+        with (
+            patch.dict("sys.modules", {"openai": MagicMock()}),
+            pytest.raises(ValueError, match="OPENAI_API_KEY"),
+        ):
             config.get_client()
 
 

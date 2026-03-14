@@ -67,10 +67,13 @@ def evaluator_yaml(tmp_path, minimal_config) -> dict:
 
     ev_file = ev_dir / "ev01_retrieval_relevance.yaml"
     import yaml
+
     ev_file.write_text(yaml.dump(ev_yaml))
 
     prompt_file = ev_dir / "ev01_prompt.md"
-    prompt_file.write_text("Evaluate this retrieval.\n\nInput: {input}\nOutput: {output}")
+    prompt_file.write_text(
+        "Evaluate this retrieval.\n\nInput: {input}\nOutput: {output}"
+    )
 
     return ev_yaml
 
@@ -127,15 +130,21 @@ class TestMatchesFilter:
 
     def test_combined_filter_both_must_match(self, runner):
         trace = make_mock_trace(name="9_classify", tags=["classification"])
-        assert runner._matches_filter(
-            trace, {"tags": ["classification"], "event_types": ["9_classify"]}
-        ) is True
+        assert (
+            runner._matches_filter(
+                trace, {"tags": ["classification"], "event_types": ["9_classify"]}
+            )
+            is True
+        )
 
     def test_combined_filter_fails_if_one_misses(self, runner):
         trace = make_mock_trace(name="9_classify", tags=["capture"])
-        assert runner._matches_filter(
-            trace, {"tags": ["classification"], "event_types": ["9_classify"]}
-        ) is False
+        assert (
+            runner._matches_filter(
+                trace, {"tags": ["classification"], "event_types": ["9_classify"]}
+            )
+            is False
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +183,9 @@ class TestMakeScoreId:
         expected = hashlib.md5(
             f"trace123:retrieval_relevance:{since.isoformat()}".encode()
         ).hexdigest()
-        assert runner._make_score_id("trace123", "retrieval_relevance", since) == expected
+        assert (
+            runner._make_score_id("trace123", "retrieval_relevance", since) == expected
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +219,10 @@ class TestRunnerRun:
 
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse), patch.object(runner, "evaluator_config", mock_evaluator_config):
+        with (
+            patch("memory.evaluator.runner.get_client", return_value=mock_langfuse),
+            patch.object(runner, "evaluator_config", mock_evaluator_config),
+        ):
             result = runner.run(since=since)
 
         assert result["evaluated"] == 1
@@ -230,7 +244,10 @@ class TestRunnerRun:
 
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse), patch.object(runner, "evaluator_config", mock_evaluator_config):
+        with (
+            patch("memory.evaluator.runner.get_client", return_value=mock_langfuse),
+            patch.object(runner, "evaluator_config", mock_evaluator_config),
+        ):
             result = runner.run(since=since, dry_run=True)
 
         assert result["evaluated"] == 1
@@ -246,7 +263,10 @@ class TestRunnerRun:
         mock_evaluator_config = MagicMock()
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse), patch.object(runner, "evaluator_config", mock_evaluator_config):
+        with (
+            patch("memory.evaluator.runner.get_client", return_value=mock_langfuse),
+            patch.object(runner, "evaluator_config", mock_evaluator_config),
+        ):
             result = runner.run(since=since)
 
         assert result["evaluated"] == 0
@@ -266,11 +286,17 @@ class TestRunnerRun:
         ]
 
         mock_evaluator_config = MagicMock()
-        mock_evaluator_config.evaluate.return_value = {"score": 0.8, "reasoning": "Fine"}
+        mock_evaluator_config.evaluate.return_value = {
+            "score": 0.8,
+            "reasoning": "Fine",
+        }
 
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse), patch.object(runner, "evaluator_config", mock_evaluator_config):
+        with (
+            patch("memory.evaluator.runner.get_client", return_value=mock_langfuse),
+            patch.object(runner, "evaluator_config", mock_evaluator_config),
+        ):
             result = runner.run(since=since)
 
         assert result["evaluated"] == 2
@@ -298,10 +324,22 @@ class TestRunnerRun:
         import yaml
 
         # Create two evaluators
-        ev01 = {"id": "EV-01", "name": "retrieval_relevance", "score_type": "NUMERIC",
-                "filter": {}, "sampling_rate": 1.0, "prompt_file": "prompt.md"}
-        ev02 = {"id": "EV-02", "name": "injection_value", "score_type": "BOOLEAN",
-                "filter": {}, "sampling_rate": 1.0, "prompt_file": "prompt.md"}
+        ev01 = {
+            "id": "EV-01",
+            "name": "retrieval_relevance",
+            "score_type": "NUMERIC",
+            "filter": {},
+            "sampling_rate": 1.0,
+            "prompt_file": "prompt.md",
+        }
+        ev02 = {
+            "id": "EV-02",
+            "name": "injection_value",
+            "score_type": "BOOLEAN",
+            "filter": {},
+            "sampling_rate": 1.0,
+            "prompt_file": "prompt.md",
+        }
         (ev_dir / "ev01.yaml").write_text(yaml.dump(ev01))
         (ev_dir / "ev02.yaml").write_text(yaml.dump(ev02))
         (ev_dir / "prompt.md").write_text("Evaluate this.")
@@ -324,11 +362,17 @@ class TestRunnerRun:
         mock_langfuse.api.trace.list.return_value = make_paginated_response([trace])
 
         mock_evaluator_config = MagicMock()
-        mock_evaluator_config.evaluate.return_value = {"score": 0.75, "reasoning": "Logged"}
+        mock_evaluator_config.evaluate.return_value = {
+            "score": 0.75,
+            "reasoning": "Logged",
+        }
 
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse), patch.object(runner, "evaluator_config", mock_evaluator_config):
+        with (
+            patch("memory.evaluator.runner.get_client", return_value=mock_langfuse),
+            patch.object(runner, "evaluator_config", mock_evaluator_config),
+        ):
             runner.run(since=since)
 
         assert runner.audit_log_path.exists()
@@ -349,8 +393,7 @@ class TestRunnerRun:
         assert "get_client" in source
         # Must NOT instantiate Langfuse() directly (excluding comments and strings)
         non_comment_lines = [
-            line for line in source.splitlines()
-            if not line.strip().startswith("#")
+            line for line in source.splitlines() if not line.strip().startswith("#")
         ]
         non_comment_source = "\n".join(non_comment_lines)
         assert "Langfuse()" not in non_comment_source
@@ -368,7 +411,9 @@ class TestRunnerErrorIsolation:
         trace2 = make_mock_trace(trace_id="trace_ok", tags=["retrieval"])
 
         mock_langfuse = MagicMock()
-        mock_langfuse.api.trace.list.return_value = make_paginated_response([trace1, trace2])
+        mock_langfuse.api.trace.list.return_value = make_paginated_response(
+            [trace1, trace2]
+        )
 
         mock_evaluator_config = MagicMock()
         mock_evaluator_config.evaluate.side_effect = [
@@ -378,7 +423,11 @@ class TestRunnerErrorIsolation:
 
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse), patch.object(runner, "evaluator_config", mock_evaluator_config), patch("memory.evaluator.runner.logger") as mock_logger:
+        with (
+            patch("memory.evaluator.runner.get_client", return_value=mock_langfuse),
+            patch.object(runner, "evaluator_config", mock_evaluator_config),
+            patch("memory.evaluator.runner.logger") as mock_logger,
+        ):
             result = runner.run(since=since)
 
         # Second trace must still be evaluated

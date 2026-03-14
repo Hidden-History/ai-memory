@@ -34,7 +34,11 @@ def main() -> int:
         print("Creating Score Configs in Langfuse...")
 
         # --- NUMERIC scores (0.0 - 1.0) ---
-        numeric_names = ["retrieval_relevance", "bootstrap_quality", "session_coherence"]
+        numeric_names = [
+            "retrieval_relevance",
+            "bootstrap_quality",
+            "session_coherence",
+        ]
         for name in numeric_names:
             try:
                 langfuse.create_score_config(
@@ -67,7 +71,9 @@ def main() -> int:
                 data_type="CATEGORICAL",
                 categories=["correct", "partially_correct", "incorrect"],
             )
-            print("  [OK] CATEGORICAL: classification_accuracy (correct|partially_correct|incorrect)")
+            print(
+                "  [OK] CATEGORICAL: classification_accuracy (correct|partially_correct|incorrect)"
+            )
         except Exception as exc:
             print(f"  [SKIP] classification_accuracy: {exc}")
 
@@ -83,6 +89,7 @@ def main() -> int:
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         return 1
 

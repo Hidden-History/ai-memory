@@ -7,7 +7,6 @@ and that the config contains zero secrets.
 PLAN-012 Phase 2 — AC-8
 """
 
-import os
 from pathlib import Path
 
 import pytest
@@ -15,7 +14,6 @@ import yaml
 
 from memory.evaluator.provider import EvaluatorConfig
 from memory.evaluator.runner import EvaluatorRunner
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -88,7 +86,9 @@ class TestYAMLLoading:
 
     def test_runner_loads_evaluators_dir(self, full_config_yaml):
         runner = EvaluatorRunner(config_path=str(full_config_yaml))
-        assert runner.evaluators_dir.exists() or str(runner.evaluators_dir).endswith("evaluators")
+        assert runner.evaluators_dir.exists() or str(runner.evaluators_dir).endswith(
+            "evaluators"
+        )
 
     def test_runner_loads_audit_log_path(self, full_config_yaml, tmp_path):
         runner = EvaluatorRunner(config_path=str(full_config_yaml))
@@ -159,7 +159,9 @@ class TestDefaultConfigFile:
         model_cfg = data.get("evaluator_model", {})
         # These keys must not be present in the parsed YAML values
         for key in ["api_key", "openrouter_key", "anthropic_key", "openai_key"]:
-            assert key not in model_cfg, f"Found secret key '{key}' in evaluator_model config"
+            assert (
+                key not in model_cfg
+            ), f"Found secret key '{key}' in evaluator_model config"
 
     def test_evaluators_dir_defined(self, repo_config):
         with open(repo_config) as f:
@@ -208,7 +210,9 @@ class TestProviderValidation:
 
     def test_explicit_provider_overrides_default(self, tmp_path):
         config_file = tmp_path / "openrouter.yaml"
-        config_file.write_text("evaluator_model:\n  provider: openrouter\n  model_name: openai/gpt-4o\n")
+        config_file.write_text(
+            "evaluator_model:\n  provider: openrouter\n  model_name: openai/gpt-4o\n"
+        )
         config = EvaluatorConfig.from_yaml(str(config_file))
         assert config.provider == "openrouter"
         assert config.model_name == "openai/gpt-4o"
@@ -241,9 +245,18 @@ class TestEvaluatorDefinitionLoading:
     def test_filters_by_evaluator_id(self, tmp_path, full_config_yaml):
         ev_dir = tmp_path / "evaluators"
 
-        for ev_id, ev_name in [("EV-01", "retrieval_relevance"), ("EV-02", "injection_value")]:
-            ev = {"id": ev_id, "name": ev_name, "score_type": "NUMERIC",
-                  "filter": {}, "sampling_rate": 0.05, "prompt_file": "prompt.md"}
+        for ev_id, ev_name in [
+            ("EV-01", "retrieval_relevance"),
+            ("EV-02", "injection_value"),
+        ]:
+            ev = {
+                "id": ev_id,
+                "name": ev_name,
+                "score_type": "NUMERIC",
+                "filter": {},
+                "sampling_rate": 0.05,
+                "prompt_file": "prompt.md",
+            }
             (ev_dir / f"{ev_id.lower()}.yaml").write_text(yaml.dump(ev))
         (ev_dir / "prompt.md").write_text("Evaluate.")
 

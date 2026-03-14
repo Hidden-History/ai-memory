@@ -23,7 +23,6 @@ PLAN-012 Phase 3 — Section 6.1
 import argparse
 import sys
 
-
 # ---------------------------------------------------------------------------
 # Dataset definitions
 # ---------------------------------------------------------------------------
@@ -525,7 +524,14 @@ DS_03_ITEMS = [
             "agent_id": "parzival",
             "retrieved_by_skill": "aim-parzival-bootstrap",
             "content_present": True,
-            "key_terms_required": ["PLAN-012", "WP-1", "WP-2", "evaluator", "Ollama", "feature/v2.2.3-cleanup"],
+            "key_terms_required": [
+                "PLAN-012",
+                "WP-1",
+                "WP-2",
+                "evaluator",
+                "Ollama",
+                "feature/v2.2.3-cleanup",
+            ],
             "min_relevance": 0.85,
         },
     },
@@ -555,7 +561,14 @@ DS_03_ITEMS = [
             "agent_id": "parzival",
             "retrieved_by_skill": "aim-parzival-bootstrap",
             "content_present": True,
-            "key_terms_required": ["PM #145", "Langfuse", "V2", "V3", "get_client", "OTel"],
+            "key_terms_required": [
+                "PM #145",
+                "Langfuse",
+                "V2",
+                "V3",
+                "get_client",
+                "OTel",
+            ],
             "min_relevance": 0.80,
         },
     },
@@ -570,7 +583,14 @@ DS_03_ITEMS = [
             "agent_id": "parzival",
             "retrieved_by_skill": "aim-parzival-bootstrap",
             "content_present": True,
-            "key_terms_required": ["Qdrant", "code-patterns", "conventions", "discussions", "hybrid search", "HNSW"],
+            "key_terms_required": [
+                "Qdrant",
+                "code-patterns",
+                "conventions",
+                "discussions",
+                "hybrid search",
+                "HNSW",
+            ],
             "min_relevance": 0.80,
         },
     },
@@ -585,7 +605,13 @@ DS_03_ITEMS = [
             "agent_id": "parzival",
             "retrieved_by_skill": "aim-parzival-bootstrap",
             "content_present": True,
-            "key_terms_required": ["ClickHouse", "OOM", "WSL2", "max_server_memory_usage", "RESOLVED"],
+            "key_terms_required": [
+                "ClickHouse",
+                "OOM",
+                "WSL2",
+                "max_server_memory_usage",
+                "RESOLVED",
+            ],
             "min_relevance": 0.75,
         },
     },
@@ -600,7 +626,14 @@ DS_03_ITEMS = [
             "agent_id": "parzival",
             "retrieved_by_skill": "aim-parzival-bootstrap",
             "content_present": True,
-            "key_terms_required": ["TD-275", "TD-228", "trace tags", "17 hook", "md5", "idempotency"],
+            "key_terms_required": [
+                "TD-275",
+                "TD-228",
+                "trace tags",
+                "17 hook",
+                "md5",
+                "idempotency",
+            ],
             "min_relevance": 0.80,
         },
     },
@@ -615,7 +648,14 @@ DS_03_ITEMS = [
             "agent_id": "parzival",
             "retrieved_by_skill": "aim-parzival-bootstrap",
             "content_present": True,
-            "key_terms_required": ["DEC-055", "port 26350", "Qdrant", "non-standard", "26351", "gRPC"],
+            "key_terms_required": [
+                "DEC-055",
+                "port 26350",
+                "Qdrant",
+                "non-standard",
+                "26351",
+                "gRPC",
+            ],
             "min_relevance": 0.80,
         },
     },
@@ -633,285 +673,623 @@ DS_04_ITEMS = [
     # Patterns: "Error:", "Exception:", "Traceback", "FAILED:", "error:"
     # -----------------------------------------------------------------------
     {
-        "input": {"user_prompt": "TypeError: 'NoneType' object is not subscriptable when reading hook output"},
-        "expected_output": {"expected_trigger": "error_detection", "expected_collection": "code-patterns"},
+        "input": {
+            "user_prompt": "TypeError: 'NoneType' object is not subscriptable when reading hook output"
+        },
+        "expected_output": {
+            "expected_trigger": "error_detection",
+            "expected_collection": "code-patterns",
+        },
     },
     {
-        "input": {"user_prompt": "RuntimeException: connection pool exhausted after 30s timeout in storage layer"},
-        "expected_output": {"expected_trigger": "error_detection", "expected_collection": "code-patterns"},
+        "input": {
+            "user_prompt": "RuntimeException: connection pool exhausted after 30s timeout in storage layer"
+        },
+        "expected_output": {
+            "expected_trigger": "error_detection",
+            "expected_collection": "code-patterns",
+        },
     },
     {
-        "input": {"user_prompt": "Traceback (most recent call last): MemoryError during large batch embedding"},
-        "expected_output": {"expected_trigger": "error_detection", "expected_collection": "code-patterns"},
+        "input": {
+            "user_prompt": "Traceback (most recent call last): MemoryError during large batch embedding"
+        },
+        "expected_output": {
+            "expected_trigger": "error_detection",
+            "expected_collection": "code-patterns",
+        },
     },
     {
-        "input": {"user_prompt": "FAILED: tests/test_search.py::test_hybrid_search - AssertionError: results empty"},
-        "expected_output": {"expected_trigger": "error_detection", "expected_collection": "code-patterns"},
+        "input": {
+            "user_prompt": "FAILED: tests/test_search.py::test_hybrid_search - AssertionError: results empty"
+        },
+        "expected_output": {
+            "expected_trigger": "error_detection",
+            "expected_collection": "code-patterns",
+        },
     },
     {
-        "input": {"user_prompt": "error: failed to connect to Qdrant at http://localhost:26350 — is the service running?"},
-        "expected_output": {"expected_trigger": "error_detection", "expected_collection": "code-patterns"},
+        "input": {
+            "user_prompt": "error: failed to connect to Qdrant at http://localhost:26350 — is the service running?"
+        },
+        "expected_output": {
+            "expected_trigger": "error_detection",
+            "expected_collection": "code-patterns",
+        },
     },
     # -----------------------------------------------------------------------
     # decision_keywords (20 patterns) → collection: discussions
     # -----------------------------------------------------------------------
     {
-        "input": {"user_prompt": "why did we choose to use Qdrant over Weaviate for this project?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "why did we choose to use Qdrant over Weaviate for this project?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "why do we use port 26350 instead of the default Qdrant port?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "why do we use port 26350 instead of the default Qdrant port?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "what was decided about the Langfuse SDK version we should use?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "what was decided about the Langfuse SDK version we should use?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "what did we decide on the evaluation scoring thresholds?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "what did we decide on the evaluation scoring thresholds?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "remember when we had that ClickHouse OOM crash during tracing?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "remember when we had that ClickHouse OOM crash during tracing?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "remember the decision to standardize on get_client() for Langfuse?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "remember the decision to standardize on get_client() for Langfuse?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "remember what we agreed on for the hook script naming convention?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "remember what we agreed on for the hook script naming convention?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "remember how we solved the thread-safety issue in the storage module?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "remember how we solved the thread-safety issue in the storage module?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "do you remember the architecture decisions we made for the evaluation pipeline?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "do you remember the architecture decisions we made for the evaluation pipeline?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "recall when we switched from synchronous to async embedding calls?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "recall when we switched from synchronous to async embedding calls?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "recall the original design rationale for the dual-collection search approach?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "recall the original design rationale for the dual-collection search approach?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "recall how we implemented the tenant isolation for the parzival agent?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "recall how we implemented the tenant isolation for the parzival agent?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "last session we were working on the evaluator runner implementation"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "last session we were working on the evaluator runner implementation"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "in the previous session we discussed the HNSW index configuration for Qdrant"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "in the previous session we discussed the HNSW index configuration for Qdrant"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "earlier we agreed to use Ollama as the default evaluation provider"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "earlier we agreed to use Ollama as the default evaluation provider"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "before we started PLAN-012, we had decided on the scoring approach"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "before we started PLAN-012, we had decided on the scoring approach"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "previously we tried using the V2 Langfuse SDK and had many failures"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "previously we tried using the V2 Langfuse SDK and had many failures"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "last time we worked on the chunker we left the code review unfinished"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "last time we worked on the chunker we left the code review unfinished"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "what did we do to fix the memory leak in the trace buffer worker?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "what did we do to fix the memory leak in the trace buffer worker?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "where did we leave off with the hybrid vector migration script?"},
-        "expected_output": {"expected_trigger": "decision_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "where did we leave off with the hybrid vector migration script?"
+        },
+        "expected_output": {
+            "expected_trigger": "decision_keywords",
+            "expected_collection": "discussions",
+        },
     },
     # -----------------------------------------------------------------------
     # session_history_keywords (16 patterns) → collection: discussions (type: session)
     # -----------------------------------------------------------------------
     {
-        "input": {"user_prompt": "what have we done on the PLAN-012 evaluation pipeline so far?"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "what have we done on the PLAN-012 evaluation pipeline so far?"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "what did we work on during the last sprint for the memory system?"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "what did we work on during the last sprint for the memory system?"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "what is the project status for the v2.2.3 cleanup sprint?"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "what is the project status for the v2.2.3 cleanup sprint?"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "where were we with the Langfuse integration before the holiday?"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "where were we with the Langfuse integration before the holiday?"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "what's the status of the evaluator engine implementation?"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "what's the status of the evaluator engine implementation?"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "let's continue from where we left off on the regression test suite"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "let's continue from where we left off on the regression test suite"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "can we pick up where we left off with the dataset creation script?"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "can we pick up where we left off with the dataset creation script?"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "continue where we were on the score config Langfuse setup"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "continue where we were on the score config Langfuse setup"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
         "input": {"user_prompt": "what's left to do on the PLAN-012 wave 2 stories?"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "how much remaining work is there for the regression CI gate?"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "how much remaining work is there for the regression CI gate?"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "what's next for the memory system after PLAN-012 completes?"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "what's next for the memory system after PLAN-012 completes?"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "what's next on the backlog after the evaluation pipeline is done?"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "what's next on the backlog after the evaluation pipeline is done?"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "what's next in the sprint after WP-3 golden datasets?"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "what's next in the sprint after WP-3 golden datasets?"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "what are the next steps for the Langfuse evaluation pipeline rollout?"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "what are the next steps for the Langfuse evaluation pipeline rollout?"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "show me the todo items we identified in the last session review"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "show me the todo items we identified in the last session review"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     {
-        "input": {"user_prompt": "how many tasks remaining in the current v2.2.3 sprint?"},
-        "expected_output": {"expected_trigger": "session_history_keywords", "expected_collection": "discussions"},
+        "input": {
+            "user_prompt": "how many tasks remaining in the current v2.2.3 sprint?"
+        },
+        "expected_output": {
+            "expected_trigger": "session_history_keywords",
+            "expected_collection": "discussions",
+        },
     },
     # -----------------------------------------------------------------------
     # best_practices_keywords (27 patterns) → collection: conventions
     # -----------------------------------------------------------------------
     {
-        "input": {"user_prompt": "what is the best practice for Python logging in hook scripts?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what is the best practice for Python logging in hook scripts?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what are the best practices for Qdrant collection schema design?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what are the best practices for Qdrant collection schema design?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what is the coding standard for async functions in the memory module?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what is the coding standard for async functions in the memory module?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what are the coding standards followed in this project for Python?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what are the coding standards followed in this project for Python?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what convention should I follow for naming new agent scripts?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what convention should I follow for naming new agent scripts?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what are the conventions for Python hook naming in Claude Code?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what are the conventions for Python hook naming in Claude Code?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what's the pattern for error handling in async memory operations?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what's the pattern for error handling in async memory operations?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what is the pattern for dependency injection in the memory module?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what is the pattern for dependency injection in the memory module?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "how should I name my hooks when creating a new Claude Code integration?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "how should I name my hooks when creating a new Claude Code integration?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "how do I structure a new submodule under src/memory/?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "how do I structure a new submodule under src/memory/?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what's the right way to handle session IDs in hook pipeline traces?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what's the right way to handle session IDs in hook pipeline traces?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what is the right way to call flush() at the end of a Langfuse script?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what is the right way to call flush() at the end of a Langfuse script?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what naming convention should I use for new pytest fixtures?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what naming convention should I use for new pytest fixtures?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what style guide do we follow for Python formatting in this project?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what style guide do we follow for Python formatting in this project?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "research the pattern for implementing retry with exponential backoff in Python"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "research the pattern for implementing retry with exponential backoff in Python"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "research best practice for embedding model selection for semantic search"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "research best practice for embedding model selection for semantic search"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "should I use dataclasses or TypedDict for configuration objects?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "should I use dataclasses or TypedDict for configuration objects?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what's recommended for chunking long markdown documents for embedding?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what's recommended for chunking long markdown documents for embedding?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what is recommended for structuring evaluator YAML config files?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what is recommended for structuring evaluator YAML config files?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what is the recommended approach for session isolation between agents?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what is the recommended approach for session isolation between agents?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what is the preferred approach for logging structured data in Python?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what is the preferred approach for logging structured data in Python?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what is the preferred way to initialize the Qdrant client in tests?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what is the preferred way to initialize the Qdrant client in tests?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "look up the pattern for using sparse vectors in Qdrant hybrid search"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "look up the pattern for using sparse vectors in Qdrant hybrid search"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "find out about best practices for writing idempotent data migration scripts"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "find out about best practices for writing idempotent data migration scripts"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what do the docs say about Langfuse V3 session ID propagation?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what do the docs say about Langfuse V3 session ID propagation?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what is the industry standard for API versioning in REST services?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what is the industry standard for API versioning in REST services?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
     {
-        "input": {"user_prompt": "what is the common pattern for implementing a circuit breaker in Python?"},
-        "expected_output": {"expected_trigger": "best_practices_keywords", "expected_collection": "conventions"},
+        "input": {
+            "user_prompt": "what is the common pattern for implementing a circuit breaker in Python?"
+        },
+        "expected_output": {
+            "expected_trigger": "best_practices_keywords",
+            "expected_collection": "conventions",
+        },
     },
 ]
 
@@ -938,7 +1316,7 @@ DS_05_ITEMS = [
     },
     {
         "input": {
-            "content": "def search_memories(\n    query: str,\n    collection: str,\n    type_filter: str | None = None,\n    limit: int = 5,\n    score_threshold: float = 0.6,\n) -> list[dict]:\n    \"\"\"Search Qdrant collection with hybrid sparse+dense vectors.\"\"\"\n    client = get_qdrant_client()\n    embedding = EmbeddingClient().embed(query)\n    filters = build_filters(type_filter)\n    results = client.query_points(\n        collection_name=collection,\n        prefetch=[\n            Prefetch(query=embedding.dense, using=\"dense\", limit=limit * 2),\n            Prefetch(query=SparseVector(embedding.sparse), using=\"sparse\", limit=limit * 2),\n        ],\n        query=FusionQuery(fusion=Fusion.RRF),\n        query_filter=filters,\n        limit=limit,\n        score_threshold=score_threshold,\n    )\n    return [point.payload for point in results.points]",
+            "content": 'def search_memories(\n    query: str,\n    collection: str,\n    type_filter: str | None = None,\n    limit: int = 5,\n    score_threshold: float = 0.6,\n) -> list[dict]:\n    """Search Qdrant collection with hybrid sparse+dense vectors."""\n    client = get_qdrant_client()\n    embedding = EmbeddingClient().embed(query)\n    filters = build_filters(type_filter)\n    results = client.query_points(\n        collection_name=collection,\n        prefetch=[\n            Prefetch(query=embedding.dense, using="dense", limit=limit * 2),\n            Prefetch(query=SparseVector(embedding.sparse), using="sparse", limit=limit * 2),\n        ],\n        query=FusionQuery(fusion=Fusion.RRF),\n        query_filter=filters,\n        limit=limit,\n        score_threshold=score_threshold,\n    )\n    return [point.payload for point in results.points]',
             "content_type": "python_function",
             "estimated_tokens": 150,
         },
@@ -994,7 +1372,7 @@ DS_05_ITEMS = [
     },
     {
         "input": {
-            "content": "class EvaluatorRunner:\n    \"\"\"Core evaluation pipeline — fetch traces, evaluate, score.\"\"\"\n\n    def __init__(self, config_path: str) -> None:\n        self.config = EvaluatorConfig.from_yaml(config_path)\n        self.langfuse = get_client()\n\n    def run(\n        self,\n        evaluator_id: str | None,\n        since: datetime,\n        until: datetime,\n        dry_run: bool = False,\n    ) -> dict:\n        \"\"\"Run evaluation pipeline for specified time window.\"\"\"\n        results = []\n        cursor = None\n        while True:\n            page = self.langfuse.api.trace.list(\n                start_time=since,\n                end_time=until,\n                cursor=cursor,\n                limit=self.config.batch_size,\n            )\n            for trace in page.data:\n                if not self._should_evaluate(trace, evaluator_id):\n                    continue\n                score = self._evaluate_trace(trace)\n                if not dry_run:\n                    self._attach_score(trace.id, score)\n                results.append(score)\n            cursor = page.meta.next_cursor\n            if not cursor:\n                break\n        return {\"total\": len(results), \"scores\": results}",
+            "content": 'class EvaluatorRunner:\n    """Core evaluation pipeline — fetch traces, evaluate, score."""\n\n    def __init__(self, config_path: str) -> None:\n        self.config = EvaluatorConfig.from_yaml(config_path)\n        self.langfuse = get_client()\n\n    def run(\n        self,\n        evaluator_id: str | None,\n        since: datetime,\n        until: datetime,\n        dry_run: bool = False,\n    ) -> dict:\n        """Run evaluation pipeline for specified time window."""\n        results = []\n        cursor = None\n        while True:\n            page = self.langfuse.api.trace.list(\n                start_time=since,\n                end_time=until,\n                cursor=cursor,\n                limit=self.config.batch_size,\n            )\n            for trace in page.data:\n                if not self._should_evaluate(trace, evaluator_id):\n                    continue\n                score = self._evaluate_trace(trace)\n                if not dry_run:\n                    self._attach_score(trace.id, score)\n                results.append(score)\n            cursor = page.meta.next_cursor\n            if not cursor:\n                break\n        return {"total": len(results), "scores": results}',
             "content_type": "python_class_method",
             "estimated_tokens": 200,
         },
@@ -1094,7 +1472,11 @@ DATASETS = [
             "Golden set for retrieval quality regression. "
             "25 query-result pairs covering all 5 Qdrant collections."
         ),
-        "metadata": {**DATASET_METADATA, "evaluator": "EV-01", "item_count": len(DS_01_ITEMS)},
+        "metadata": {
+            **DATASET_METADATA,
+            "evaluator": "EV-01",
+            "item_count": len(DS_01_ITEMS),
+        },
         "items": DS_01_ITEMS,
     },
     {
@@ -1103,7 +1485,11 @@ DATASETS = [
             "Error pattern matching dataset. "
             "13 realistic error messages from Python, JavaScript, and bash."
         ),
-        "metadata": {**DATASET_METADATA, "evaluator": "EV-03", "item_count": len(DS_02_ITEMS)},
+        "metadata": {
+            **DATASET_METADATA,
+            "evaluator": "EV-03",
+            "item_count": len(DS_02_ITEMS),
+        },
         "items": DS_02_ITEMS,
     },
     {
@@ -1112,7 +1498,11 @@ DATASETS = [
             "Bootstrap round-trip dataset. "
             "7 handoff documents stored via parzival-save-handoff and retrieved via aim-parzival-bootstrap."
         ),
-        "metadata": {**DATASET_METADATA, "evaluator": "EV-05", "item_count": len(DS_03_ITEMS)},
+        "metadata": {
+            **DATASET_METADATA,
+            "evaluator": "EV-05",
+            "item_count": len(DS_03_ITEMS),
+        },
         "items": DS_03_ITEMS,
     },
     {
@@ -1121,7 +1511,11 @@ DATASETS = [
             "Keyword trigger routing dataset. "
             "68 items — one per keyword pattern in src/memory/triggers.py TRIGGER_CONFIG."
         ),
-        "metadata": {**DATASET_METADATA, "evaluator": "EV-04", "item_count": len(DS_04_ITEMS)},
+        "metadata": {
+            **DATASET_METADATA,
+            "evaluator": "EV-04",
+            "item_count": len(DS_04_ITEMS),
+        },
         "items": DS_04_ITEMS,
     },
     {
@@ -1130,7 +1524,11 @@ DATASETS = [
             "Chunking quality dataset. "
             "10 content samples testing IntelligentChunker routing and boundary quality."
         ),
-        "metadata": {**DATASET_METADATA, "evaluator": "EV-03", "item_count": len(DS_05_ITEMS)},
+        "metadata": {
+            **DATASET_METADATA,
+            "evaluator": "EV-03",
+            "item_count": len(DS_05_ITEMS),
+        },
         "items": DS_05_ITEMS,
     },
 ]
@@ -1139,6 +1537,7 @@ DATASETS = [
 # ---------------------------------------------------------------------------
 # Creation logic
 # ---------------------------------------------------------------------------
+
 
 def create_all_datasets(dry_run: bool = False) -> int:
     """Create all 5 golden datasets in Langfuse.
@@ -1165,7 +1564,9 @@ def create_all_datasets(dry_run: bool = False) -> int:
         return 0
 
     try:
-        from langfuse import get_client  # V3 singleton — NEVER use constructor with explicit creds
+        from langfuse import (
+            get_client,  # V3 singleton — NEVER use constructor with explicit creds
+        )
 
         langfuse = get_client()
     except ImportError as exc:
@@ -1233,6 +1634,7 @@ def create_all_datasets(dry_run: bool = False) -> int:
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(

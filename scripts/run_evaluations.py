@@ -47,7 +47,7 @@ def parse_args() -> argparse.Namespace:
         "--since",
         default=None,
         help="Evaluate traces since this ISO datetime (default: 24h ago). "
-             "Example: 2026-03-12T00:00:00Z",
+        "Example: 2026-03-12T00:00:00Z",
     )
     parser.add_argument(
         "--batch-size",
@@ -67,7 +67,9 @@ def main() -> int:
         try:
             since = datetime.fromisoformat(args.since.replace("Z", "+00:00"))
         except ValueError as exc:
-            print(f"ERROR: Invalid --since value '{args.since}': {exc}", file=sys.stderr)
+            print(
+                f"ERROR: Invalid --since value '{args.since}': {exc}", file=sys.stderr
+            )
             return 1
     else:
         since = datetime.now(tz=timezone.utc) - timedelta(hours=24)
@@ -121,6 +123,7 @@ def main() -> int:
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         return 1
 

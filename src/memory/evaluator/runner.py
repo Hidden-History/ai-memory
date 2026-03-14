@@ -18,9 +18,8 @@ PLAN-012 Phase 2 — Section 5.4
 import hashlib
 import json
 import logging
-import os
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -34,8 +33,11 @@ logger = logging.getLogger(__name__)
 try:
     from langfuse import get_client
 except ImportError:  # pragma: no cover
+
     def get_client():  # type: ignore[misc]
-        raise ImportError("langfuse package not installed — pip install 'langfuse>=3.0,<4.0'")
+        raise ImportError(
+            "langfuse package not installed — pip install 'langfuse>=3.0,<4.0'"
+        )
 
 
 class EvaluatorRunner:
@@ -56,7 +58,9 @@ class EvaluatorRunner:
         self.evaluator_config = EvaluatorConfig.from_yaml(config_path)
         self.evaluators_dir = Path(self.config.get("evaluators_dir", "./evaluators/"))
         self.audit_log_path = Path(
-            self.config.get("audit", {}).get("log_file", ".audit/logs/evaluations.jsonl")
+            self.config.get("audit", {}).get(
+                "log_file", ".audit/logs/evaluations.jsonl"
+            )
         )
 
     def _load_evaluators(self, evaluator_id: str | None = None) -> list[dict]:
@@ -153,7 +157,9 @@ class EvaluatorRunner:
             f"**Metadata**: {trace_metadata}"
         )
 
-    def _make_score_id(self, trace_id: str, evaluator_name: str, since: datetime) -> str:
+    def _make_score_id(
+        self, trace_id: str, evaluator_name: str, since: datetime
+    ) -> str:
         """Generate deterministic score ID for idempotency.
 
         Uses MD5 of f"{trace_id}:{evaluator_name}:{since.isoformat()}"
@@ -205,7 +211,9 @@ class EvaluatorRunner:
 
         evaluators = self._load_evaluators(evaluator_id)
         if not evaluators:
-            logger.warning("No evaluators found (dir=%s, id=%s)", self.evaluators_dir, evaluator_id)
+            logger.warning(
+                "No evaluators found (dir=%s, id=%s)", self.evaluators_dir, evaluator_id
+            )
             return {"fetched": 0, "sampled": 0, "evaluated": 0, "scored": 0}
 
         total_fetched = 0
@@ -221,13 +229,15 @@ class EvaluatorRunner:
 
                 print(f"\n--- Running {evaluator.get('id', '?')}: {ev_name} ---")
 
-                cursor = None  # V3 cursor-based pagination — NOT page numbers (PM #190 fix)
+                cursor = (
+                    None  # V3 cursor-based pagination — NOT page numbers (PM #190 fix)
+                )
 
                 while True:
                     traces_response = langfuse.api.trace.list(
-                        start_time=since,   # PM #190 fix: was from_timestamp
-                        end_time=until,     # PM #190 fix: was to_timestamp
-                        cursor=cursor,      # PM #190 fix: was page (V3 uses cursor)
+                        start_time=since,  # PM #190 fix: was from_timestamp
+                        end_time=until,  # PM #190 fix: was to_timestamp
+                        cursor=cursor,  # PM #190 fix: was page (V3 uses cursor)
                         limit=batch_size,
                     )
                     traces = traces_response.data or []
@@ -253,7 +263,8 @@ class EvaluatorRunner:
                             result = self.evaluator_config.evaluate(prompt)
                             if result.get("score") is None:
                                 logger.warning(
-                                    "Evaluator returned null score for trace %s", trace.id
+                                    "Evaluator returned null score for trace %s",
+                                    trace.id,
                                 )
                                 continue
 
@@ -268,20 +279,26 @@ class EvaluatorRunner:
                                     name=ev_name,
                                     value=result["score"],
                                     data_type=evaluator.get("score_type", "NUMERIC"),
-                                    comment=str(result.get("reasoning", ""))[:TRACE_CONTENT_MAX],
+                                    comment=str(result.get("reasoning", ""))[
+                                        :TRACE_CONTENT_MAX
+                                    ],
                                 )
                                 total_scored += 1
 
                             # Audit log
-                            self._append_audit_log({
-                                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                                "evaluator_id": evaluator.get("id"),
-                                "evaluator_name": ev_name,
-                                "trace_id": trace.id,
-                                "score": result["score"],
-                                "reasoning": str(result.get("reasoning", ""))[:500],
-                                "dry_run": dry_run,
-                            })
+                            self._append_audit_log(
+                                {
+                                    "timestamp": datetime.now(
+                                        tz=timezone.utc
+                                    ).isoformat(),
+                                    "evaluator_id": evaluator.get("id"),
+                                    "evaluator_name": ev_name,
+                                    "trace_id": trace.id,
+                                    "score": result["score"],
+                                    "reasoning": str(result.get("reasoning", ""))[:500],
+                                    "dry_run": dry_run,
+                                }
+                            )
 
                             reasoning_preview = str(result.get("reasoning", ""))[:80]
                             print(
@@ -290,7 +307,10 @@ class EvaluatorRunner:
                             )
                         except Exception as exc:
                             logger.error(
-                                "Error evaluating trace %s with %s: %s", trace.id, ev_name, exc
+                                "Error evaluating trace %s with %s: %s",
+                                trace.id,
+                                ev_name,
+                                exc,
                             )
                             continue
 
