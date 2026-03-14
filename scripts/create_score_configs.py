@@ -28,8 +28,11 @@ def main() -> int:
         from langfuse import (
             get_client,  # V3 singleton — NEVER use Langfuse() constructor
         )
+        from langfuse.api.resources.commons.types import (
+            ConfigCategory,
+            ScoreConfigDataType,
+        )
         from langfuse.api.resources.score_configs.types import CreateScoreConfigRequest
-        from langfuse.api.resources.commons.types import ScoreConfigDataType, ConfigCategory
 
         langfuse = get_client()
 
