@@ -1,0 +1,83 @@
+# evaluator_config.yaml
+# LANGFUSE: V3 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
+#
+# LLM-as-Judge Evaluation Configuration — PLAN-012 Phase 2
+#
+# SECURITY: ZERO API keys or secrets in this file.
+# API keys are read from environment variables at runtime.
+# See .env.example for required env vars per provider.
+
+# ---------------------------------------------------------------------------
+# Model for running evaluations
+# Default: Ollama (local, free, no API key required)
+# ---------------------------------------------------------------------------
+evaluator_model:
+  provider: ollama          # ollama | openrouter | anthropic | openai | custom
+  model_name: llama3.2:8b  # Model identifier for the selected provider
+  temperature: 0.0          # Deterministic evaluation (do not change)
+  max_tokens: 512           # Enough for score + reasoning
+
+  # base_url: Only needed for 'custom' provider.
+  # Ollama uses http://localhost:11434/v1 by default.
+  # base_url: http://localhost:11434/v1
+
+  # API keys per provider — read from environment variables at runtime:
+  #   ollama:      No key needed — uses local Ollama server
+  #   openrouter:  OPENROUTER_API_KEY
+  #   anthropic:   ANTHROPIC_API_KEY
+  #   openai:      OPENAI_API_KEY
+  #   custom:      EVALUATOR_API_KEY, EVALUATOR_BASE_URL
+
+# ---------------------------------------------------------------------------
+# Evaluator definitions directory
+# ---------------------------------------------------------------------------
+evaluators_dir: ./evaluators/
+
+# ---------------------------------------------------------------------------
+# Evaluation schedule (for cron runner)
+# ---------------------------------------------------------------------------
+schedule:
+  enabled: true
+  cron: "0 5 * * *"     # Daily at 05:00 UTC
+  lookback_hours: 24    # Evaluate last 24 hours of traces
+
+# ---------------------------------------------------------------------------
+# Evaluation targets per evaluator
+# observation = score individual spans (faster, more granular)
+# trace       = score whole trace (for session-level metrics)
+# ---------------------------------------------------------------------------
+evaluation_targets:
+  ev01_retrieval_relevance: observation    # Per-retrieval span (high volume)
+  ev02_injection_value: observation        # Per-injection span (high volume)
+  ev03_capture_completeness: observation   # Per-capture span (high volume)
+  ev04_classification_accuracy: observation # Per-classification span
+  ev05_bootstrap_quality: trace            # Per-session trace (low volume, 100%)
+  ev06_session_coherence: trace            # Per-session trace (low volume, 100%)
+
+# ---------------------------------------------------------------------------
+# Scoring thresholds for alerting
+# ---------------------------------------------------------------------------
+thresholds:
+  retrieval_relevance: 0.7     # Alert if avg drops below (NUMERIC 0-1)
+  injection_value: 0.6         # Alert if pass rate drops below 60% (BOOLEAN)
+  capture_completeness: 0.9    # Alert if pass rate drops below 90% (BOOLEAN)
+  classification_accuracy: 0.8 # Alert if accuracy drops below (CATEGORICAL)
+  bootstrap_quality: 0.7       # Alert if avg drops below (NUMERIC 0-1)
+  session_coherence: 0.7       # Alert if avg drops below (NUMERIC 0-1)
+
+# ---------------------------------------------------------------------------
+# Golden datasets (PLAN-012 Phase 3)
+# ---------------------------------------------------------------------------
+datasets:
+  retrieval_golden_set: 20     # DS-01: query → expected retrieval results
+  error_pattern_match: 10      # DS-02: error → expected error_fix matches
+  bootstrap_round_trip: 5      # DS-03: handoff → bootstrap retrieval verify
+  keyword_trigger_routing: 63  # DS-04: all keyword patterns → routing
+  chunking_quality: 10         # DS-05: content → expected chunk boundaries
+
+# ---------------------------------------------------------------------------
+# Audit logging
+# ---------------------------------------------------------------------------
+audit:
+  log_file: .audit/logs/evaluations.jsonl
+  log_level: INFO
