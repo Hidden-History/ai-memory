@@ -1037,6 +1037,13 @@ update_shared_scripts() {
         log_debug "Synced $docker_count Docker files to INSTALL_DIR"
     fi
 
+    # Update templates (new templates added in updates must reach installed dir)
+    if [[ -d "$SCRIPT_DIR/../templates" ]]; then
+        mkdir -p "$INSTALL_DIR/templates"
+        cp -r "$SCRIPT_DIR/../templates/"* "$INSTALL_DIR/templates/" 2>/dev/null || true
+        log_debug "Templates updated"
+    fi
+
     if [[ $updated_count -gt 0 || $hooks_count -gt 0 || $docker_count -gt 0 ]]; then
         log_success "Updated $updated_count shared scripts, $hooks_count hook scripts, $docker_count docker files"
         if [[ $archived_count -gt 0 ]]; then

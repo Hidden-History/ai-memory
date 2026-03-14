@@ -66,10 +66,10 @@
 | [ ] Environment configuration verified | | |
 | [ ] Database migrations ready | | |
 | [ ] Feature flags configured | | |
-| [ ] Monitoring in place | | |
+| [ ] Monitoring in place: Prometheus metrics collecting, Grafana dashboards accessible | | |
 | [ ] Alerting configured | | |
-| [ ] Logging adequate | | |
-| [ ] Observability verified: structured logging, Prometheus metrics, Grafana panels | | |
+| [ ] Logging adequate: structured logging with extra={} pattern, log levels appropriate | | |
+| [ ] Observability verified: traces linked in Langfuse, alerts configured | | |
 
 ---
 

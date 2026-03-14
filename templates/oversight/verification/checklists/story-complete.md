@@ -64,9 +64,9 @@
 
 | Check | Status | Notes |
 |-------|--------|-------|
-| [ ] Structured logging added (`extra={}` pattern, context fields: session_id, operation, duration_ms) | | |
-| [ ] Prometheus metrics added (counter/histogram/gauge as appropriate) | | |
-| [ ] Grafana dashboard updated if new metrics introduced | | |
+| [ ] Structured logging uses `extra={}` pattern | | |
+| [ ] Prometheus metrics added/updated for new functionality | | |
+| [ ] Grafana dashboard updated if new metrics added | | |
 
 ---
 
