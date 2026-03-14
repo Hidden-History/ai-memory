@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.2.2-green?style=flat-square" alt="Version 2.2.2">
+  <img src="https://img.shields.io/badge/version-2.2.3-green?style=flat-square" alt="Version 2.2.3">
   <a href="https://github.com/Hidden-History/ai-memory/stargazers"><img src="https://img.shields.io/github/stars/Hidden-History/ai-memory?color=blue&style=flat-square" alt="Stars"></a>
   <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
   <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
@@ -227,6 +227,20 @@ open http://localhost:23100
 ```
 
 See [docs/LANGFUSE-INTEGRATION.md](docs/LANGFUSE-INTEGRATION.md) for complete setup, architecture, and troubleshooting guide.
+
+---
+
+## ⚖️ Evaluation Pipeline (LLM-as-Judge)
+
+Automated quality evaluation using LLM judges — measure how well the memory system is actually performing, not just whether it runs:
+
+- **6 built-in evaluators**: Retrieval relevance, injection value, capture completeness, classification accuracy, bootstrap quality, and session coherence
+- **Multi-provider support**: Ollama (default — local and free), OpenRouter, Anthropic, OpenAI, or any OpenAI-compatible endpoint
+- **Golden datasets**: 5 curated datasets (123 items) covering key system behaviors for repeatable regression benchmarking
+- **CI quality gate**: GitHub Actions workflow blocks PRs if evaluation scores regress below defined thresholds
+- **Zero-secret config**: All settings in `evaluator_config.yaml`; credentials via environment variables only
+
+Configure via `evaluator_config.yaml`. Run with `python scripts/run_evaluations.py --config evaluator_config.yaml`.
 
 ---
 

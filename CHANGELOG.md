@@ -5,9 +5,47 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.3] - 2026-03-14
+
+Langfuse observability improvements and LLM-as-judge evaluation pipeline: semantic tags on all 108 trace events, per-search trace visibility in the compact injection path, and a complete multi-provider evaluation engine with 6 evaluators, 5 golden datasets (123 items), and a CI quality gate.
+
+### Added
+- **Semantic tags on all trace events**: All 108 `emit_trace_event` calls include canonical dual-element tags (e.g., `["search", "retrieval"]`) for structured Langfuse dashboard filtering
+- **Per-search trace visibility in compact injection path**: Each search call within compact context injection emits its own trace, enabling per-query latency and result visibility in that path
+- **LLM-as-judge evaluation engine**: Multi-provider evaluator (`src/memory/evaluator/`) supporting Ollama (default, local, free), OpenRouter, Anthropic, OpenAI, and custom OpenAI-compatible endpoints
+- **6 evaluator definitions**: Retrieval relevance (EV-01), injection value (EV-02), capture completeness (EV-03), classification accuracy (EV-04), bootstrap quality (EV-05), and session coherence (EV-06) — each with YAML config and LLM judge prompt template
+- **5 golden datasets** (123 items): DS-01 Retrieval (25 items), DS-02 Error Pattern Match (12 items), DS-03 Bootstrap Round-Trip (8 items), DS-04 Keyword Trigger Routing (68 items), DS-05 Chunking Quality (10 items) — for repeatable regression benchmarking
+- **Regression test suite**: `tests/test_regression.py` runs Langfuse experiments against golden datasets with configurable quality thresholds (`@pytest.mark.regression`)
+- **CI quality gate**: `.github/workflows/regression-tests.yml` blocks PRs on score regression when `src/memory/**` or hook scripts change
+- **Evaluator YAML configuration**: `evaluator_config.yaml` — zero secrets in config; all credentials supplied via environment variables with inline documentation
+
+### Changed
+- **`detect-secrets` moved to dev extras**: Removed from default `requirements.txt`; added to `requirements-dev.txt` to reduce production dependency footprint
+- **GitHub Actions versions pinned**: All CI workflow action steps use pinned versions for reproducible builds
+
+### Upgrade Instructions
+
+1. **Update code and reinstall**:
+   ```bash
+   cd /path/to/your/ai-memory-clone
+   git pull origin main
+   ./scripts/install.sh /path/to/your-project
+   # Select Option 1 (Add project to existing installation)
+   ```
+
+2. **Evaluator setup** (optional):
+   - Default: Ollama (local, free, no API key needed)
+   - Configure provider in `evaluator_config.yaml`
+   - Set API keys via environment variables (see config comments)
+   - Run: `python scripts/create_score_configs.py` (one-time Langfuse setup)
+   - Run: `python scripts/create_datasets.py` (one-time golden dataset creation)
+   - Run: `python scripts/run_evaluations.py --config evaluator_config.yaml`
+
+---
+
 ## [2.2.2] - 2026-03-13
 
-AI Memory System Optimization (PLAN-015): Unified behavior specification, per-collection confidence gating, freshness injection blocking, error-to-fix linkage, remembrance protection, and best practices auto-activation. 45+ files modified with 3 adversarial review cycles.
+AI Memory System Optimization: Unified behavior specification, per-collection confidence gating, freshness injection blocking, error-to-fix linkage, remembrance protection, and best practices auto-activation.
 
 ### Added
 - **Per-collection confidence thresholds**: Tier 2 injection uses collection-specific thresholds (conventions: 0.65, code-patterns: 0.55, discussions: 0.60) instead of a single global threshold
