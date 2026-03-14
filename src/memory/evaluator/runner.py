@@ -98,7 +98,7 @@ class EvaluatorRunner:
         if prompt_path.exists():
             return prompt_path.read_text()
         logger.warning("Prompt file not found: %s", prompt_path)
-        return "Evaluate the following trace.\n\nInput: {input}\nOutput: {output}"
+        return "Evaluate the following trace data."
 
     def _matches_filter(self, trace: Any, ev_filter: dict) -> bool:
         """Check if a trace matches the evaluator's filter criteria.

@@ -366,6 +366,35 @@ class TestRunnerRun:
 # ---------------------------------------------------------------------------
 
 
+class TestRunnerErrorIsolation:
+    def test_single_trace_error_does_not_kill_run(self, runner, evaluator_yaml):
+        """An exception on one trace must not prevent subsequent traces from being evaluated."""
+        trace1 = make_mock_trace(trace_id="trace_err", tags=["retrieval"])
+        trace2 = make_mock_trace(trace_id="trace_ok", tags=["retrieval"])
+
+        mock_langfuse = MagicMock()
+        mock_langfuse.api.trace.list.return_value = make_paginated_response([trace1, trace2])
+
+        mock_evaluator_config = MagicMock()
+        mock_evaluator_config.evaluate.side_effect = [
+            Exception("judge exploded"),
+            {"score": 0.85, "reasoning": "Good result"},
+        ]
+
+        since = datetime(2026, 3, 12, tzinfo=timezone.utc)
+
+        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse):
+            with patch.object(runner, "evaluator_config", mock_evaluator_config):
+                with patch("memory.evaluator.runner.logger") as mock_logger:
+                    result = runner.run(since=since)
+
+        # Second trace must still be evaluated
+        assert result["evaluated"] == 1
+        assert result["scored"] == 1
+        # Error must be logged for the first trace
+        mock_logger.error.assert_called_once()
+
+
 class TestLoadPrompt:
     def test_load_prompt_uses_actual_file_not_fallback(self, runner):
         """_load_prompt() should return the file contents, not the fallback stub."""

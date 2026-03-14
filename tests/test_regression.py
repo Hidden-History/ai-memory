@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 MIN_RETRIEVAL_RELEVANCE = 0.7   # DS-01: avg score across all items
 MIN_ERROR_MATCH_RATE = 0.80     # DS-02: fraction of items with a hit
-KEYWORD_ROUTING_ACCURACY = 1.0  # DS-04: must be 100% (63/63)
+KEYWORD_ROUTING_ACCURACY = 1.0  # DS-04: must be 100% (68/68)
 
 # ---------------------------------------------------------------------------
 # Dataset names (must match scripts/create_datasets.py DATASETS list)
@@ -188,7 +188,7 @@ def test_retrieval_quality_regression(langfuse):
 
 @pytest.mark.regression
 def test_keyword_routing_regression(langfuse):
-    """DS-04: all 63 keyword patterns must route to the correct trigger (100%)."""
+    """DS-04: all 68 keyword patterns must route to the correct trigger (100%)."""
     today = date.today().isoformat()
     run_name = f"keyword-routing-regression-{today}"
 
@@ -198,6 +198,7 @@ def test_keyword_routing_regression(langfuse):
             from memory.triggers import (
                 detect_best_practices_keywords,
                 detect_decision_keywords,
+                detect_error_signal,
                 detect_session_history_keywords,
             )
         except ImportError:
@@ -209,12 +210,14 @@ def test_keyword_routing_regression(langfuse):
 
         # Try each detector in order — first match wins (mirrors hook logic)
         detected_trigger = None
-        if detect_best_practices_keywords(user_prompt):
-            detected_trigger = "best_practices"
+        if detect_error_signal(user_prompt):
+            detected_trigger = "error_detection"
+        elif detect_best_practices_keywords(user_prompt):
+            detected_trigger = "best_practices_keywords"
         elif detect_decision_keywords(user_prompt):
             detected_trigger = "decision_keywords"
         elif detect_session_history_keywords(user_prompt):
-            detected_trigger = "session_history"
+            detected_trigger = "session_history_keywords"
 
         matched = detected_trigger == expected_trigger
         score = 1.0 if matched else 0.0
