@@ -15,7 +15,7 @@ evaluator_model:
   provider: ollama          # ollama | openrouter | anthropic | openai | custom
   model_name: llama3.2:8b  # Model identifier for the selected provider
   temperature: 0.0          # Deterministic evaluation (do not change)
-  max_tokens: 1024          # 1024 for chain-of-thought prompts
+  max_tokens: 4096          # 4096 to accommodate thinking models (reasoning + output)
 
   # base_url: Override Ollama endpoint URL.
   #   Local (default): http://localhost:11434/v1

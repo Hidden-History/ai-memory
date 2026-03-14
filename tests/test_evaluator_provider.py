@@ -32,7 +32,7 @@ class TestEvaluatorConfigDefaults:
 
     def test_default_max_tokens(self):
         config = EvaluatorConfig()
-        assert config.max_tokens == 1024
+        assert config.max_tokens == 4096
 
     def test_default_base_url_none(self):
         config = EvaluatorConfig()

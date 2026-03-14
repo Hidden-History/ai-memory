@@ -32,7 +32,9 @@ class EvaluatorConfig:
     model_name: str = "llama3.2:8b"
     base_url: str | None = None
     temperature: float = 0.0  # Deterministic for evaluation
-    max_tokens: int = 1024
+    max_tokens: int = (
+        4096  # Must accommodate thinking tokens + output for reasoning models
+    )
     _client: Any = field(default=None, init=False, repr=False)
 
     @classmethod
@@ -48,7 +50,7 @@ class EvaluatorConfig:
             model_name=model_cfg.get("model_name", "llama3.2:8b"),
             base_url=model_cfg.get("base_url"),
             temperature=model_cfg.get("temperature", 0.0),
-            max_tokens=model_cfg.get("max_tokens", 1024),
+            max_tokens=model_cfg.get("max_tokens", 4096),
         )
 
     def get_client(self):
@@ -152,7 +154,11 @@ class EvaluatorConfig:
                 max_tokens=self.max_tokens,
                 messages=[{"role": "user", "content": prompt}],
             )
-            content = response.choices[0].message.content
+            msg = response.choices[0].message
+            content = msg.content
+            # Thinking models (e.g., Qwen3) may put output in reasoning field
+            if not content and hasattr(msg, "reasoning") and msg.reasoning:
+                content = msg.reasoning
 
         return _parse_evaluation_response(content)
 
