@@ -54,8 +54,6 @@ dependencies = [
     "tiktoken>=0.5.0,<1.0.0",
     # Numpy for vector operations (topic drift computation)
     "numpy>=1.26.0,<3.0.0",
-    # Security scanning - Layer 2 secret detection (SPEC-009)
-    "detect-secrets>=1.4.0",
     # Security scanning - Layer 3 NER-based PII detection (SPEC-009)
     "spacy>=3.8.0,<4.0.0",
     # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
@@ -87,6 +85,7 @@ dev = [
     "mypy>=1.19.0,<2.0.0",
     # Security Scanning
     "bandit[toml]>=1.7.0,<2.0.0",
+    "detect-secrets>=1.4.0",
     # Structured logging
     "python-json-logger>=4.0.0,<5.0.0",
     # YAML processing with format preservation
