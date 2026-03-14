@@ -69,7 +69,7 @@ class EvaluatorConfig:
 
             client = OpenAI(
                 base_url=self.base_url or "http://localhost:11434/v1",
-                api_key="ollama",  # Ollama does not require a real API key
+                api_key=os.environ.get("OLLAMA_API_KEY", "ollama"),  # Cloud: set OLLAMA_API_KEY; local: ignored
             )
 
         elif self.provider == "openrouter":

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # LANGFUSE: V3 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
 # FORBIDDEN: Langfuse() constructor, start_span(), start_generation(), langfuse_context
-# REQUIRED: get_client(), create_score_config(), flush()
+# REQUIRED: get_client(), api.score_configs.create(), flush()
 """Idempotent Score Config setup in Langfuse.
 
 Creates 6 Score Configs that enforce validation schemas on evaluation scores.
@@ -28,6 +28,8 @@ def main() -> int:
         from langfuse import (
             get_client,  # V3 singleton — NEVER use Langfuse() constructor
         )
+        from langfuse.api.resources.score_configs.types import CreateScoreConfigRequest
+        from langfuse.api.resources.commons.types import ScoreConfigDataType, ConfigCategory
 
         langfuse = get_client()
 
@@ -41,11 +43,14 @@ def main() -> int:
         ]
         for name in numeric_names:
             try:
-                langfuse.create_score_config(
-                    name=name,
-                    data_type="NUMERIC",
-                    min_value=0.0,
-                    max_value=1.0,
+                langfuse.api.score_configs.create(
+                    request=CreateScoreConfigRequest(
+                        name=name,
+                        dataType=ScoreConfigDataType.NUMERIC,
+                        minValue=0.0,
+                        maxValue=1.0,
+                        description=f"LLM-as-judge score for {name.replace('_', ' ')} (PLAN-012)",
+                    )
                 )
                 print(f"  [OK] NUMERIC: {name} (0.0 - 1.0)")
             except Exception as exc:
@@ -56,9 +61,12 @@ def main() -> int:
         boolean_names = ["injection_value", "capture_completeness"]
         for name in boolean_names:
             try:
-                langfuse.create_score_config(
-                    name=name,
-                    data_type="BOOLEAN",
+                langfuse.api.score_configs.create(
+                    request=CreateScoreConfigRequest(
+                        name=name,
+                        dataType=ScoreConfigDataType.BOOLEAN,
+                        description=f"LLM-as-judge pass/fail for {name.replace('_', ' ')} (PLAN-012)",
+                    )
                 )
                 print(f"  [OK] BOOLEAN: {name}")
             except Exception as exc:
@@ -66,10 +74,17 @@ def main() -> int:
 
         # --- CATEGORICAL score (PM #190 addition) ---
         try:
-            langfuse.create_score_config(
-                name="classification_accuracy",
-                data_type="CATEGORICAL",
-                categories=["correct", "partially_correct", "incorrect"],
+            langfuse.api.score_configs.create(
+                request=CreateScoreConfigRequest(
+                    name="classification_accuracy",
+                    dataType=ScoreConfigDataType.CATEGORICAL,
+                    categories=[
+                        ConfigCategory(label="correct", value=1.0),
+                        ConfigCategory(label="partially_correct", value=0.5),
+                        ConfigCategory(label="incorrect", value=0.0),
+                    ],
+                    description="LLM-as-judge classification accuracy (PLAN-012)",
+                )
             )
             print(
                 "  [OK] CATEGORICAL: classification_accuracy (correct|partially_correct|incorrect)"
