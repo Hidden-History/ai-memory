@@ -8,7 +8,7 @@ Datasets created:
   DS-01: Retrieval Golden Set     (20-30 items) — query-result pairs across all 5 collections
   DS-02: Error Pattern Match      (10-15 items) — error messages → code-patterns entries
   DS-03: Bootstrap Round-Trip     (5-10 items)  — handoff content stored/retrieved via parzival
-  DS-04: Keyword Trigger Routing  (63 items)    — one item per keyword pattern in triggers.py
+  DS-04: Keyword Trigger Routing  (68 items)    — one item per keyword pattern in triggers.py
   DS-05: Chunking Quality         (10 items)    — content types → chunk counts and boundaries
 
 Usage:
@@ -493,7 +493,7 @@ DS_02_ITEMS = [
     },
     {
         "input": {
-            "error_message": "FAILED: test_create_datasets.py::test_ds04_item_count - AssertionError: assert 60 == 63",
+            "error_message": "FAILED: test_create_datasets.py::test_ds04_item_count - AssertionError: assert 60 == 68",
             "language": "bash",
             "context": "pytest test detecting DS-04 missing 3 keyword patterns from triggers.py",
         },
@@ -501,7 +501,7 @@ DS_02_ITEMS = [
             "collection": "code-patterns",
             "type_filter": "error_pattern",
             "error_type": "AssertionError",
-            "fix_summary": "Count keyword patterns in TRIGGER_CONFIG; best_practices_keywords has 27, decision_keywords 20, session_history_keywords 16 = 63 total",
+            "fix_summary": "Count keyword patterns in TRIGGER_CONFIG; best_practices_keywords has 27, decision_keywords 20, session_history_keywords 16, error_detection 5 = 68 total",
         },
     },
 ]
@@ -622,9 +622,9 @@ DS_03_ITEMS = [
 ]
 
 # ---------------------------------------------------------------------------
-# DS-04: Keyword Trigger Routing (63 items)
+# DS-04: Keyword Trigger Routing (68 items)
 # One item per keyword pattern in src/memory/triggers.py TRIGGER_CONFIG
-# Triggers: decision_keywords (20), session_history_keywords (16), best_practices_keywords (27)
+# Triggers: error_detection (5), decision_keywords (20), session_history_keywords (16), best_practices_keywords (27)
 # ---------------------------------------------------------------------------
 
 DS_04_ITEMS = [
@@ -1119,7 +1119,7 @@ DATASETS = [
         "name": "ds-04-keyword-trigger-routing",
         "description": (
             "Keyword trigger routing dataset. "
-            "63 items — one per keyword pattern in src/memory/triggers.py TRIGGER_CONFIG."
+            "68 items — one per keyword pattern in src/memory/triggers.py TRIGGER_CONFIG."
         ),
         "metadata": {**DATASET_METADATA, "evaluator": "EV-04", "item_count": len(DS_04_ITEMS)},
         "items": DS_04_ITEMS,
@@ -1201,8 +1201,10 @@ def create_all_datasets(dry_run: bool = False) -> int:
         # without it, items are appended; re-running creates duplicates only if items changed)
         item_count = 0
         for i, item in enumerate(ds["items"]):
+            stable_id = f"{name}-item-{i:03d}"
             try:
                 langfuse.create_dataset_item(
+                    id=stable_id,
                     dataset_name=name,
                     input=item["input"],
                     expected_output=item["expected_output"],

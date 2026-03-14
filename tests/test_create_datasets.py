@@ -12,7 +12,6 @@ PLAN-012 Phase 3 — Section 6.1
 
 import sys
 import os
-import importlib
 
 import pytest
 
