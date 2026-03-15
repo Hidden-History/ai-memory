@@ -1,18 +1,26 @@
 # LANGFUSE: V3 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
 # FORBIDDEN: Langfuse() constructor, start_span(), start_generation(), langfuse_context
 # REQUIRED: get_client(), create_score(), flush()
-"""Evaluation runner — fetches traces, evaluates, attaches scores.
+"""Evaluation runner — fetches traces and observations, evaluates, attaches scores.
 
 Core pipeline:
   1. Load evaluator config + evaluator definitions
-  2. Fetch traces using page-based pagination (V3 SDK)
-  3. Filter traces by evaluator criteria (event_types, tags)
-  4. Sample traces per evaluator's sampling_rate
-  5. Evaluate each trace via configurable LLM judge
-  6. Attach scores to Langfuse via create_score() (idempotent)
-  7. Log each evaluation to audit log
+  2. Per evaluator, read target: "trace" or "observation" (per-evaluator YAML field)
+  3. Trace path (EV-05, EV-06): page-based pagination via trace.list()
+     - uses from_timestamp/to_timestamp/page/meta.total_pages (V3 trace API)
+  4. Observation path (EV-01-EV-04): page-based pagination via observations.get_many()
+     - uses from_start_time/to_start_time/page/meta.total_pages (V3 observation API)
+  5. Filter observations by name (event_type) — server-side via name= parameter (Path B)
+  6. Sample traces/observations per evaluator's sampling_rate
+  7. Evaluate each trace/observation via configurable LLM judge
+  8. Attach scores to Langfuse via create_score() (idempotent via score_id=)
+  9. Log each evaluation to audit log
+
+Note: evaluation_targets in evaluator_config.yaml is DEPRECATED.
+      Use the per-evaluator target: field in each evaluator YAML instead.
 
 PLAN-012 Phase 2 — Section 5.4
+S-16.3: Observation-level evaluation + page-based observation pagination
 """
 
 import hashlib
@@ -41,7 +49,7 @@ except ImportError:  # pragma: no cover
 
 
 class EvaluatorRunner:
-    """Core evaluation pipeline for LLM-as-Judge scoring of Langfuse traces."""
+    """Core evaluation pipeline for LLM-as-Judge scoring of Langfuse traces and observations."""
 
     def __init__(self, config_path: str):
         """Load evaluator config and prepare runner.
@@ -157,23 +165,66 @@ class EvaluatorRunner:
             f"**Metadata**: {trace_metadata}"
         )
 
+    def _build_observation_prompt(self, evaluator: dict, observation: Any) -> str:
+        """Build evaluation prompt from template + observation data.
+
+        Do NOT pass observation objects to _build_prompt() — observation schema
+        differs from trace schema (e.g. no tags, name is event_type).
+
+        Args:
+            evaluator: Evaluator definition dict
+            observation: Langfuse ObservationV2 object
+
+        Returns:
+            Formatted evaluation prompt
+        """
+        template = self._load_prompt(evaluator)
+
+        obs_name = str(getattr(observation, "name", "") or "")
+        obs_input = str(getattr(observation, "input", "") or "")[:TRACE_CONTENT_MAX]
+        obs_output = str(getattr(observation, "output", "") or "")[:TRACE_CONTENT_MAX]
+        obs_metadata = str(getattr(observation, "metadata", {}) or {})[
+            :TRACE_CONTENT_MAX
+        ]
+
+        return (
+            f"{template}\n\n"
+            f"## Observation to Evaluate\n\n"
+            f"**Event Type**: {obs_name}\n\n"
+            f"**Input**: {obs_input}\n\n"
+            f"**Output**: {obs_output}\n\n"
+            f"**Metadata**: {obs_metadata}"
+        )
+
     def _make_score_id(
-        self, trace_id: str, evaluator_name: str, since: datetime
+        self,
+        trace_id: str,
+        evaluator_name: str,
+        since: datetime,
+        observation_id: str | None = None,
     ) -> str:
         """Generate deterministic score ID for idempotency.
 
-        Uses MD5 of f"{trace_id}:{evaluator_name}:{since.isoformat()}"
-        so re-running the same evaluation window produces the same score ID.
+        Includes observation_id in the hash when present — without it, multiple
+        observations in the same trace would produce IDENTICAL score_ids (BUG-S163).
+
+        Seed format:
+          - With observation: f"{trace_id}:{observation_id}:{evaluator_name}:{since.isoformat()}"
+          - Without observation: f"{trace_id}:{evaluator_name}:{since.isoformat()}"
 
         Args:
             trace_id: Langfuse trace ID
             evaluator_name: Evaluator name (e.g., "retrieval_relevance")
             since: Start of evaluation window
+            observation_id: Optional Langfuse observation ID (for observation-level scores)
 
         Returns:
             32-character hex MD5 string
         """
-        seed = f"{trace_id}:{evaluator_name}:{since.isoformat()}"
+        if observation_id:
+            seed = f"{trace_id}:{observation_id}:{evaluator_name}:{since.isoformat()}"
+        else:
+            seed = f"{trace_id}:{evaluator_name}:{since.isoformat()}"
         return hashlib.md5(seed.encode()).hexdigest()
 
     def _append_audit_log(self, entry: dict) -> None:
@@ -181,6 +232,328 @@ class EvaluatorRunner:
         self.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.audit_log_path, "a") as f:
             f.write(json.dumps(entry) + "\n")
+
+    def _run_observation_evaluator(
+        self,
+        langfuse: Any,
+        evaluator: dict,
+        ev_name: str,
+        since: datetime,
+        until: datetime,
+        dry_run: bool,
+        batch_size: int,
+    ) -> tuple[int, int, int, int]:
+        """Run observation-level evaluation for a single evaluator.
+
+        Fetches observations via observations.get_many() with page-based pagination
+        (BUG-217). Filters by observation name (event_type) server-side via name=
+        parameter (Path B — tags are trace-level only in V3).
+
+        Args:
+            langfuse: Langfuse client from get_client()
+            evaluator: Evaluator definition dict
+            ev_name: Evaluator name string
+            since: Start of evaluation window
+            until: End of evaluation window
+            dry_run: If True, evaluate but do not save scores
+            batch_size: Number of observations per cursor page
+
+        Returns:
+            Tuple of (fetched, sampled, evaluated, scored)
+        """
+        ev_filter = evaluator.get("filter", {})
+        sampling_rate = float(evaluator.get("sampling_rate", 1.0))
+        score_type = evaluator.get("score_type", "NUMERIC")
+        event_types = ev_filter.get("event_types", [])
+
+        # If no event_types defined, fetch all observations (no name filter).
+        # Otherwise iterate once per event_type using server-side name= filter.
+        name_filters: list[str | None] = event_types if event_types else [None]
+
+        fetched = sampled = evaluated = scored = 0
+
+        try:  # R2-F3: catch fetch-level errors so one evaluator doesn't kill the whole run
+            for name_filter in name_filters:
+                page = 1
+
+                while True:
+                    # Page-based pagination — V3 observations API
+                    obs_response = langfuse.api.observations.get_many(
+                        name=name_filter,
+                        from_start_time=since,
+                        to_start_time=until,
+                        page=page,
+                        limit=batch_size,
+                    )
+                    observations = obs_response.data or []
+                    fetched += len(observations)
+
+                    for obs in observations:
+                        # Apply sampling
+                        if random.random() > sampling_rate:
+                            continue
+
+                        obs_id = obs.id
+                        trace_id = getattr(obs, "trace_id", None) or ""
+
+                        # R2-F5: skip observations with no trace_id
+                        if not trace_id:
+                            logger.warning(
+                                "Observation %s has no trace_id — skipping", obs_id
+                            )
+                            continue
+
+                        # R2-F7: check output BEFORE incrementing sampled
+                        if getattr(obs, "output", None) is None:
+                            continue
+
+                        # Note: 'sampled' counts observations that passed random gate + trace_id + output guards — not raw sampling rate
+                        sampled += 1
+
+                        try:
+                            prompt = self._build_observation_prompt(evaluator, obs)
+                            result = self.evaluator_config.evaluate(prompt)
+                            if result.get("score") is None:
+                                logger.warning(
+                                    "Evaluator returned null score for observation %s",
+                                    obs_id,
+                                )
+                                continue
+
+                            evaluated += 1
+
+                            # Attach score (idempotent via score_id)
+                            if not dry_run:
+                                score_id = self._make_score_id(
+                                    trace_id, ev_name, since, observation_id=obs_id
+                                )
+                                # CATEGORICAL scores use string value; NUMERIC/BOOLEAN use float
+                                score_value = (
+                                    str(result["score"])
+                                    if score_type == "CATEGORICAL"
+                                    else result["score"]
+                                )
+                                # R1-F3: validate categorical value against defined categories
+                                if score_type == "CATEGORICAL":
+                                    valid_categories = evaluator.get("categories", [])
+                                    if (
+                                        valid_categories
+                                        and str(result["score"]) not in valid_categories
+                                    ):
+                                        logger.warning(
+                                            "Observation %s: categorical value %r not in "
+                                            "categories %s — skipping",
+                                            obs_id,
+                                            result["score"],
+                                            valid_categories,
+                                        )
+                                        continue
+                                langfuse.create_score(
+                                    score_id=score_id,
+                                    trace_id=trace_id,
+                                    observation_id=obs_id,
+                                    name=ev_name,
+                                    value=score_value,
+                                    data_type=score_type,
+                                    comment=str(result.get("reasoning", ""))[
+                                        :TRACE_CONTENT_MAX
+                                    ],
+                                )
+                                scored += 1
+
+                                # R2-F2: audit log only written when not dry_run
+                                self._append_audit_log(
+                                    {
+                                        "timestamp": datetime.now(
+                                            tz=timezone.utc
+                                        ).isoformat(),
+                                        "evaluator_id": evaluator.get("id"),
+                                        "evaluator_name": ev_name,
+                                        "trace_id": trace_id,
+                                        "observation_id": obs_id,
+                                        "score": result["score"],
+                                        "reasoning": str(result.get("reasoning", ""))[
+                                            :500
+                                        ],
+                                        "dry_run": dry_run,
+                                    }
+                                )
+
+                            reasoning_preview = str(result.get("reasoning", ""))[:80]
+                            print(
+                                f"  [{ev_name}] obs={obs_id[:8]}... trace={trace_id[:8]}... "
+                                f"score={result['score']} | {reasoning_preview}"
+                            )
+                        except Exception as exc:
+                            logger.error(
+                                "Error evaluating observation %s with %s: %s",
+                                obs_id,
+                                ev_name,
+                                exc,
+                            )
+                            continue
+
+                    # Page-based stop condition
+                    meta = getattr(obs_response, "meta", None)
+                    total_pages = getattr(meta, "total_pages", 1) if meta else 1
+                    if page >= total_pages or not observations:
+                        break
+                    page += 1
+
+        except Exception as exc:
+            logger.error("Evaluator %s: error fetching observations: %s", ev_name, exc)
+
+        return fetched, sampled, evaluated, scored
+
+    def _run_trace_evaluator(
+        self,
+        langfuse: Any,
+        evaluator: dict,
+        ev_name: str,
+        since: datetime,
+        until: datetime,
+        dry_run: bool,
+        batch_size: int,
+    ) -> tuple[int, int, int, int]:
+        """Run trace-level evaluation for a single evaluator.
+
+        Fetches traces via trace.list() with page-based pagination.
+        Uses from_timestamp/to_timestamp/page/meta.total_pages (V3 trace API).
+
+        Args:
+            langfuse: Langfuse client from get_client()
+            evaluator: Evaluator definition dict
+            ev_name: Evaluator name string
+            since: Start of evaluation window
+            until: End of evaluation window
+            dry_run: If True, evaluate but do not save scores
+            batch_size: Number of traces per page
+
+        Returns:
+            Tuple of (fetched, sampled, evaluated, scored)
+        """
+        ev_filter = evaluator.get("filter", {})
+        sampling_rate = float(evaluator.get("sampling_rate", 1.0))
+        score_type = evaluator.get("score_type", "NUMERIC")
+
+        fetched = sampled = evaluated = scored = 0
+        page = 1  # V3 trace.list() is page-based (1-indexed)
+
+        try:  # R2-F3: catch fetch-level errors so one evaluator doesn't kill the whole run
+            while True:
+                traces_response = langfuse.api.trace.list(
+                    from_timestamp=since,
+                    to_timestamp=until,
+                    page=page,
+                    limit=batch_size,
+                )
+                traces = traces_response.data or []
+                fetched += len(traces)
+
+                for trace in traces:
+                    # Filter first, then sample from matching traces only (UF-4)
+                    if not self._matches_filter(trace, ev_filter):
+                        continue
+
+                    # Apply sampling
+                    if random.random() > sampling_rate:
+                        continue
+
+                    # R2-F7: check output BEFORE incrementing sampled
+                    if getattr(trace, "output", None) is None:
+                        continue
+
+                    sampled += 1
+
+                    # Build prompt and evaluate — isolated per trace (UF-3)
+                    try:
+                        prompt = self._build_prompt(evaluator, trace)
+                        result = self.evaluator_config.evaluate(prompt)
+                        if result.get("score") is None:
+                            logger.warning(
+                                "Evaluator returned null score for trace %s",
+                                trace.id,
+                            )
+                            continue
+
+                        evaluated += 1
+
+                        # Attach score to Langfuse (idempotent via score_id)
+                        if not dry_run:
+                            score_id = self._make_score_id(trace.id, ev_name, since)
+                            # CATEGORICAL scores use string value; NUMERIC/BOOLEAN use float
+                            score_value = (
+                                str(result["score"])
+                                if score_type == "CATEGORICAL"
+                                else result["score"]
+                            )
+                            # R1-F3: validate categorical value against defined categories
+                            if score_type == "CATEGORICAL":
+                                valid_categories = evaluator.get("categories", [])
+                                if (
+                                    valid_categories
+                                    and str(result["score"]) not in valid_categories
+                                ):
+                                    logger.warning(
+                                        "Trace %s: categorical value %r not in "
+                                        "categories %s — skipping",
+                                        trace.id,
+                                        result["score"],
+                                        valid_categories,
+                                    )
+                                    continue
+                            langfuse.create_score(
+                                score_id=score_id,
+                                trace_id=trace.id,
+                                name=ev_name,
+                                value=score_value,
+                                data_type=score_type,
+                                comment=str(result.get("reasoning", ""))[
+                                    :TRACE_CONTENT_MAX
+                                ],
+                            )
+                            scored += 1
+
+                            # R2-F2: audit log only written when not dry_run
+                            self._append_audit_log(
+                                {
+                                    "timestamp": datetime.now(
+                                        tz=timezone.utc
+                                    ).isoformat(),
+                                    "evaluator_id": evaluator.get("id"),
+                                    "evaluator_name": ev_name,
+                                    "trace_id": trace.id,
+                                    "score": result["score"],
+                                    "reasoning": str(result.get("reasoning", ""))[:500],
+                                    "dry_run": dry_run,
+                                }
+                            )
+
+                        reasoning_preview = str(result.get("reasoning", ""))[:80]
+                        print(
+                            f"  [{ev_name}] trace={trace.id[:8]}... "
+                            f"score={result['score']} | {reasoning_preview}"
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "Error evaluating trace %s with %s: %s",
+                            trace.id,
+                            ev_name,
+                            exc,
+                        )
+                        continue
+
+                # Page-based pagination — advance or stop (V3 trace.list() API)
+                meta = getattr(traces_response, "meta", None)
+                total_pages = getattr(meta, "total_pages", 1) if meta else 1
+                if page >= total_pages or not traces:
+                    break
+                page += 1
+
+        except Exception as exc:
+            logger.error("Evaluator %s: error fetching traces: %s", ev_name, exc)
+
+        return fetched, sampled, evaluated, scored
 
     def run(
         self,
@@ -193,12 +566,16 @@ class EvaluatorRunner:
     ) -> dict:
         """Run evaluations for all (or one) evaluator.
 
+        Routes each evaluator to the correct path based on the per-evaluator
+        YAML target: field ("trace" or "observation"). The global evaluation_targets
+        section in evaluator_config.yaml is DEPRECATED in favour of per-evaluator target:.
+
         Args:
             evaluator_id: Optional evaluator ID to run (e.g., "EV-01")
             since: Start of evaluation window (required — CLI provides this)
             until: End of evaluation window (default: now)
             dry_run: If True, evaluate but do not save scores to Langfuse
-            batch_size: Number of traces to fetch per page
+            batch_size: Number of traces/observations to fetch per page/cursor
 
         Returns:
             Summary dict with counts: fetched, sampled, evaluated, scored
@@ -224,102 +601,29 @@ class EvaluatorRunner:
         try:
             for evaluator in evaluators:
                 ev_name = evaluator.get("name", evaluator.get("id", "unknown"))
-                sampling_rate = float(evaluator.get("sampling_rate", 1.0))
-                ev_filter = evaluator.get("filter", {})
+                # Per-evaluator target field is source of truth (DEPRECATED: global evaluation_targets)
+                target = evaluator.get("target", "trace")
 
-                print(f"\n--- Running {evaluator.get('id', '?')}: {ev_name} ---")
+                print(
+                    f"\n--- Running {evaluator.get('id', '?')}: {ev_name} (target={target}) ---"
+                )
 
-                page = 1  # V3 uses page-based pagination (1-indexed)
-
-                while True:
-                    traces_response = langfuse.api.trace.list(
-                        from_timestamp=since,
-                        to_timestamp=until,
-                        page=page,
-                        limit=batch_size,
+                if target == "observation":
+                    f, s, e, sc = self._run_observation_evaluator(
+                        langfuse, evaluator, ev_name, since, until, dry_run, batch_size
                     )
-                    traces = traces_response.data or []
-                    total_fetched += len(traces)
+                else:
+                    # Default: trace-level evaluation (EV-05, EV-06)
+                    f, s, e, sc = self._run_trace_evaluator(
+                        langfuse, evaluator, ev_name, since, until, dry_run, batch_size
+                    )
 
-                    for trace in traces:
-                        # Filter first, then sample from matching traces only (UF-4)
-                        if not self._matches_filter(trace, ev_filter):
-                            continue
+                total_fetched += f
+                total_sampled += s
+                total_evaluated += e
+                total_scored += sc
 
-                        # Apply sampling
-                        if random.random() > sampling_rate:
-                            continue
-                        total_sampled += 1
-
-                        # Skip traces with no output
-                        if getattr(trace, "output", None) is None:
-                            continue
-
-                        # Build prompt and evaluate — isolated per trace (UF-3)
-                        try:
-                            prompt = self._build_prompt(evaluator, trace)
-                            result = self.evaluator_config.evaluate(prompt)
-                            if result.get("score") is None:
-                                logger.warning(
-                                    "Evaluator returned null score for trace %s",
-                                    trace.id,
-                                )
-                                continue
-
-                            total_evaluated += 1
-
-                            # Attach score to Langfuse (idempotent via score_id)
-                            if not dry_run:
-                                score_id = self._make_score_id(trace.id, ev_name, since)
-                                langfuse.create_score(
-                                    score_id=score_id,
-                                    trace_id=trace.id,
-                                    name=ev_name,
-                                    value=result["score"],
-                                    data_type=evaluator.get("score_type", "NUMERIC"),
-                                    comment=str(result.get("reasoning", ""))[
-                                        :TRACE_CONTENT_MAX
-                                    ],
-                                )
-                                total_scored += 1
-
-                            # Audit log
-                            self._append_audit_log(
-                                {
-                                    "timestamp": datetime.now(
-                                        tz=timezone.utc
-                                    ).isoformat(),
-                                    "evaluator_id": evaluator.get("id"),
-                                    "evaluator_name": ev_name,
-                                    "trace_id": trace.id,
-                                    "score": result["score"],
-                                    "reasoning": str(result.get("reasoning", ""))[:500],
-                                    "dry_run": dry_run,
-                                }
-                            )
-
-                            reasoning_preview = str(result.get("reasoning", ""))[:80]
-                            print(
-                                f"  [{ev_name}] trace={trace.id[:8]}... "
-                                f"score={result['score']} | {reasoning_preview}"
-                            )
-                        except Exception as exc:
-                            logger.error(
-                                "Error evaluating trace %s with %s: %s",
-                                trace.id,
-                                ev_name,
-                                exc,
-                            )
-                            continue
-
-                    # Page-based pagination — advance or stop
-                    meta = getattr(traces_response, "meta", None)
-                    total_pages = getattr(meta, "total_pages", 1) if meta else 1
-                    if page >= total_pages or not traces:
-                        break
-                    page += 1
-
-                print(f"  Evaluated: {total_evaluated} | Scored: {total_scored}")
+                print(f"  Evaluated: {e} | Scored: {sc}")
 
         finally:
             # Flush all buffered scores to Langfuse — runs even if an error occurs (UF-5)

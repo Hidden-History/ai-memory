@@ -1,6 +1,10 @@
 # Evaluator: EV-04 Classification Accuracy
 # Assesses whether the LLM classifier assigned the correct type to content.
 # 10% sampling — classification is medium volume.
+#
+# PATH B (Langfuse V3): Filter by observation name (event_type).
+# Tags are trace-level only in V3; use event_types for observation filtering.
+# CRITICAL: score_type is CATEGORICAL (NOT BOOLEAN).
 
 id: EV-04
 name: classification_accuracy
@@ -14,7 +18,10 @@ categories:
   - incorrect
 
 filter:
-  tags: [classification, queue, worker]
+  # 9_classify is the event_type for LLM classification observations:
+  #   classification_worker.py, process_classification_queue.py
+  event_types:
+    - "9_classify"
 
 prompt_file: ev04_classification_accuracy_prompt.md
 

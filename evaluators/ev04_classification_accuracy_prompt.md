@@ -5,7 +5,7 @@ Your task is to assess whether the LLM classifier correctly assigned a memory ty
 
 ## Data to Evaluate
 
-Analyze the trace data provided in the **## Trace to Evaluate** section below.
+Analyze the observation data provided in the **## Observation to Evaluate** section below.
 
 - **Input**: The original captured content that was submitted to the classifier.
 - **Output**: The classifier's decision including assigned memory type, collection, and reasoning.

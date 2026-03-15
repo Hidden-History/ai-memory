@@ -1,6 +1,13 @@
 # Evaluator: EV-05 Bootstrap Quality
 # Scores how well cross-session bootstrap context serves the new session.
 # 100% sampling — one bootstrap event per session (low volume).
+#
+# PATH B (Langfuse V3): Filter by trace-level tag.
+# Rationale: EV-05 targets trace-level data (full session context), so tags is
+# the correct filter mechanism — matching the pattern EV-06 uses. event_types
+# applies to observation names and will never match trace-level items, making
+# it a dead filter. session_trace tags are set by langfuse_stop_hook.py on
+# all full-session traces, so this correctly captures bootstrap sessions.
 
 id: EV-05
 name: bootstrap_quality
@@ -9,7 +16,10 @@ target: trace
 sampling_rate: 1.0
 
 filter:
-  tags: [injection, tier1, bootstrap, skill]
+  # Trace-level tags filter — valid for trace-targeted evaluators in V3.
+  # session_trace tag is set on full-session traces by session hooks.
+  tags:
+    - "session_trace"
 
 prompt_file: ev05_bootstrap_quality_prompt.md
 

@@ -201,6 +201,73 @@ All Langfuse services use the `langfuse` profile and join the existing `ai-memor
 | `langfuse-redis` | `redis:7` | Job queue and ephemeral cache |
 | `langfuse-minio` | `cgr.dev/chainguard/minio` | S3-compatible blob storage for event upload |
 | `trace-flush-worker` | Custom (Dockerfile.worker) | Reads trace buffer, flushes to Langfuse |
+| `evaluator-scheduler` | Custom (Dockerfile.evaluator-scheduler) | Cron-based LLM-as-judge evaluation runner |
+
+---
+
+## LLM-as-Judge Evaluation Pipeline
+
+The evaluation pipeline scores memory operations using an LLM judge. Six evaluators run automatically via the `evaluator-scheduler` container (daily at 05:00 UTC by default).
+
+### Evaluators
+
+| ID | Name | Target | Score Type | What it measures |
+|----|------|--------|------------|------------------|
+| EV-01 | `retrieval_relevance` | observation | NUMERIC (0-1) | Was the retrieved memory relevant to the trigger? |
+| EV-02 | `injection_value` | observation | BOOLEAN | Did the injected context add value vs noise? |
+| EV-03 | `capture_completeness` | observation | BOOLEAN | Did the capture preserve all important information? |
+| EV-04 | `classification_accuracy` | observation | CATEGORICAL | Was the memory type classification correct? |
+| EV-05 | `bootstrap_quality` | trace | NUMERIC (0-1) | Was the cross-session bootstrap context useful? |
+| EV-06 | `session_coherence` | trace | NUMERIC (0-1) | Were memory operations during the session coherent? |
+
+### How It Works
+
+1. **Scheduler** wakes at cron time, reads `evaluator_config.yaml`
+2. **Runner** fetches observations/traces from Langfuse matching each evaluator's `filter.event_types`
+3. **Sampling** applies per-evaluator sampling rate (5-100%)
+4. **LLM judge** evaluates each sampled item using the evaluator's prompt template
+5. **Scores** are attached back to the observation/trace in Langfuse via `create_score()`
+
+### Evaluator Configuration
+
+All config in `evaluator_config.yaml` — zero secrets (API keys via environment variables):
+
+```yaml
+evaluator_model:
+  provider: ollama          # ollama | openrouter | anthropic | openai | custom
+  model_name: gemma3:4b    # Ollama cloud model
+  temperature: 0.0
+  max_tokens: 4096
+  max_retries: 3            # Retry on 500/502/503/429 + network errors
+
+schedule:
+  enabled: true
+  cron: "0 5 * * *"         # Daily at 05:00 UTC
+  lookback_hours: 24
+```
+
+### Provider Auto-Detection
+
+- **Ollama cloud**: Set `OLLAMA_API_KEY` env var → auto-uses `https://ollama.com/v1`
+- **Local Ollama**: No key set → uses `http://localhost:11434/v1`
+- **Other providers**: Set `provider:` in config + corresponding env var
+
+### Score Config Setup
+
+Run once to create score validation schemas in Langfuse:
+
+```bash
+python scripts/create_score_configs.py              # Create configs (idempotent)
+python scripts/create_score_configs.py --cleanup-duplicates  # Archive duplicates
+```
+
+### Manual Evaluation
+
+```bash
+python scripts/run_evaluations.py --config evaluator_config.yaml              # Full run
+python scripts/run_evaluations.py --config evaluator_config.yaml --dry-run    # Preview only
+python scripts/run_evaluations.py --config evaluator_config.yaml --evaluator EV-01  # Single evaluator
+```
 
 ---
 

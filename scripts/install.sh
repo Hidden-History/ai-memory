@@ -1037,12 +1037,38 @@ update_shared_scripts() {
         log_debug "Synced $docker_count Docker files to INSTALL_DIR"
     fi
 
+    # Sync evaluator config and definitions (S-16.5, DEC-110)
+    # Required by evaluator-scheduler container at runtime
+    if [[ -f "$SCRIPT_DIR/../evaluator_config.yaml" ]]; then
+        cp "$SCRIPT_DIR/../evaluator_config.yaml" "$INSTALL_DIR/evaluator_config.yaml" || log_warning "Failed to copy evaluator_config.yaml"
+        log_debug "Updated evaluator_config.yaml"
+    fi
+    if [[ -d "$SCRIPT_DIR/../evaluators" ]]; then
+        mkdir -p "$INSTALL_DIR/evaluators"
+        cp -r "$SCRIPT_DIR/../evaluators/"* "$INSTALL_DIR/evaluators/" 2>/dev/null || true
+        log_debug "Updated evaluators/ directory"
+    fi
+
+    # Sync requirements.txt and pyproject.toml (needed by Docker builds)
+    # Always overwrite — new dependencies (e.g. croniter) must reach containers
+    if [[ -f "$SCRIPT_DIR/../requirements.txt" ]]; then
+        cp "$SCRIPT_DIR/../requirements.txt" "$INSTALL_DIR/requirements.txt" || log_warning "Failed to copy requirements.txt"
+        log_debug "Updated requirements.txt"
+    fi
+    if [[ -f "$SCRIPT_DIR/../pyproject.toml" ]]; then
+        cp "$SCRIPT_DIR/../pyproject.toml" "$INSTALL_DIR/pyproject.toml" || log_warning "Failed to copy pyproject.toml"
+        log_debug "Updated pyproject.toml"
+    fi
+
     # Update templates (new templates added in updates must reach installed dir)
     if [[ -d "$SCRIPT_DIR/../templates" ]]; then
         mkdir -p "$INSTALL_DIR/templates"
         cp -r "$SCRIPT_DIR/../templates/"* "$INSTALL_DIR/templates/" 2>/dev/null || true
         log_debug "Templates updated"
     fi
+
+    # Re-import user .env customizations (new env vars from updates, e.g. OLLAMA_API_KEY)
+    import_user_env
 
     if [[ $updated_count -gt 0 || $hooks_count -gt 0 || $docker_count -gt 0 ]]; then
         log_success "Updated $updated_count shared scripts, $hooks_count hook scripts, $docker_count docker files"
@@ -1322,12 +1348,13 @@ install_python_dependencies() {
         return 0
     fi
 
-    # Copy pyproject.toml and requirements.txt to install directory if not already there
-    if [[ ! -f "$INSTALL_DIR/pyproject.toml" ]]; then
+    # Copy pyproject.toml and requirements.txt to install directory
+    # Always overwrite — updated deps (e.g. croniter) must reach Docker builds
+    if [[ -f "$source_dir/pyproject.toml" ]]; then
         cp "$source_dir/pyproject.toml" "$INSTALL_DIR/"
         log_debug "Copied pyproject.toml to $INSTALL_DIR"
     fi
-    if [[ -f "$source_dir/requirements.txt" && ! -f "$INSTALL_DIR/requirements.txt" ]]; then
+    if [[ -f "$source_dir/requirements.txt" ]]; then
         cp "$source_dir/requirements.txt" "$INSTALL_DIR/"
         log_debug "Copied requirements.txt to $INSTALL_DIR"
     fi
@@ -1576,6 +1603,17 @@ copy_files() {
         cp -r "$SOURCE_DIR/templates/"* "$INSTALL_DIR/templates/"
     fi
 
+    # Copy evaluator config and definitions (S-16.5, DEC-110)
+    # Required by evaluator-scheduler container at runtime (../evaluator_config.yaml, ../evaluators/)
+    log_debug "Copying evaluator configuration..."
+    if [[ -f "$SOURCE_DIR/evaluator_config.yaml" ]]; then
+        cp "$SOURCE_DIR/evaluator_config.yaml" "$INSTALL_DIR/evaluator_config.yaml" || log_warning "Failed to copy evaluator_config.yaml"
+    fi
+    if [[ -d "$SOURCE_DIR/evaluators" ]]; then
+        mkdir -p "$INSTALL_DIR/evaluators"
+        cp -r "$SOURCE_DIR/evaluators/"* "$INSTALL_DIR/evaluators/" 2>/dev/null || log_warning "Failed to copy evaluators directory"
+    fi
+
     # Copy CHANGELOG for reference (TD-170)
     if [[ -f "$SOURCE_DIR/CHANGELOG.md" ]]; then
         cp "$SOURCE_DIR/CHANGELOG.md" "$INSTALL_DIR/" || log_warning "Failed to copy CHANGELOG.md"
@@ -1604,7 +1642,9 @@ copy_files() {
 # are present when credential generation checks run.
 import_user_env() {
     local docker_env="$INSTALL_DIR/docker/.env"
-    local user_env="$SOURCE_DIR/.env"
+    # SOURCE_DIR is set during full install; fall back to SCRIPT_DIR parent for Option 1
+    local source_root="${SOURCE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+    local user_env="$source_root/.env"
 
     # Only import if user's .env exists and docker/.env exists
     if [[ ! -f "$user_env" ]] || [[ ! -f "$docker_env" ]]; then

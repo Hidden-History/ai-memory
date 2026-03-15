@@ -48,6 +48,9 @@ detect-secrets>=1.4.0
 # en_core_web_sm model downloaded in install.sh post-install step
 spacy>=3.8.0,<4.0.0
 
+# Cron schedule parsing for evaluator-scheduler daemon (S-16.5, DEC-110)
+croniter>=2.0.0,<3.0.0
+
 # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
 langfuse>=3.0,<4.0.0
 

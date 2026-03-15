@@ -11,6 +11,8 @@ PLAN-012 Phase 2 — Section 5.2
 import json
 import logging
 import os
+import random
+import time
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -29,12 +31,13 @@ class EvaluatorConfig:
     provider: Literal["ollama", "openrouter", "anthropic", "openai", "custom"] = (
         "ollama"
     )
-    model_name: str = "llama3.2:8b"
+    model_name: str = "gemma3:4b"
     base_url: str | None = None
     temperature: float = 0.0  # Deterministic for evaluation
     max_tokens: int = (
         4096  # Must accommodate thinking tokens + output for reasoning models
     )
+    max_retries: int = 3
     _client: Any = field(default=None, init=False, repr=False)
 
     @classmethod
@@ -47,10 +50,11 @@ class EvaluatorConfig:
         model_cfg = data.get("evaluator_model", {})
         return cls(
             provider=model_cfg.get("provider", "ollama"),
-            model_name=model_cfg.get("model_name", "llama3.2:8b"),
+            model_name=model_cfg.get("model_name", "gemma3:4b"),
             base_url=model_cfg.get("base_url"),
             temperature=model_cfg.get("temperature", 0.0),
             max_tokens=model_cfg.get("max_tokens", 4096),
+            max_retries=model_cfg.get("max_retries", 3),
         )
 
     def get_client(self):
@@ -63,17 +67,25 @@ class EvaluatorConfig:
             openai.OpenAI for ollama/openrouter/openai/custom providers
             anthropic.Anthropic for the anthropic provider (native SDK)
         """
-        if self._client:
+        if self._client is not None:
             return self._client
 
         if self.provider == "ollama":
             from openai import OpenAI
 
+            api_key = os.environ.get("OLLAMA_API_KEY", "")
+            # Auto-detect cloud vs local: if API key is set and no explicit
+            # base_url, use Ollama cloud. Otherwise default to local.
+            if self.base_url:
+                base_url = self.base_url
+            elif api_key:
+                base_url = "https://ollama.com/v1"
+            else:
+                base_url = "http://localhost:11434/v1"
+
             client = OpenAI(
-                base_url=self.base_url or "http://localhost:11434/v1",
-                api_key=os.environ.get(
-                    "OLLAMA_API_KEY", "ollama"
-                ),  # Cloud: set OLLAMA_API_KEY; local: ignored
+                base_url=base_url,
+                api_key=api_key or "ollama",  # Local Ollama ignores key
             )
 
         elif self.provider == "openrouter":
@@ -129,38 +141,100 @@ class EvaluatorConfig:
     def evaluate(self, prompt: str) -> dict:
         """Send prompt to LLM and return parsed evaluation result.
 
+        Retries on transient HTTP errors (500, 502, 503, 429) and network
+        errors up to self.max_retries times with exponential backoff + jitter.
+
         Args:
             prompt: The evaluation prompt (with trace input/output embedded)
 
         Returns:
             dict with keys: "score" (float|bool|str) and "reasoning" (str)
         """
-        client = self.get_client()
+        _RETRYABLE_STATUS_CODES = {500, 502, 503, 429}
+        _BASE_DELAY = 1.0
+        last_exc: Exception | None = None
 
-        if self.provider == "anthropic":
-            # Native Anthropic SDK uses client.messages.create()
-            response = client.messages.create(
-                model=self.model_name,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            content = response.content[0].text
-        else:
-            # All other providers use OpenAI-compatible chat.completions.create()
-            response = client.chat.completions.create(
-                model=self.model_name,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            msg = response.choices[0].message
-            content = msg.content
-            # Thinking models (e.g., Qwen3) may put output in reasoning field
-            if not content and hasattr(msg, "reasoning") and msg.reasoning:
-                content = msg.reasoning
+        for attempt in range(self.max_retries + 1):
+            try:
+                client = self.get_client()
 
-        return _parse_evaluation_response(content)
+                if self.provider == "anthropic":
+                    # Native Anthropic SDK uses client.messages.create()
+                    response = client.messages.create(
+                        model=self.model_name,
+                        max_tokens=self.max_tokens,
+                        temperature=self.temperature,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
+                    content = response.content[0].text
+                else:
+                    # All other providers use OpenAI-compatible chat.completions.create()
+                    response = client.chat.completions.create(
+                        model=self.model_name,
+                        temperature=self.temperature,
+                        max_tokens=self.max_tokens,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
+                    msg = response.choices[0].message
+                    content = msg.content
+                    # Thinking models (e.g., Qwen3) may put output in reasoning field
+                    if not content and hasattr(msg, "reasoning") and msg.reasoning:
+                        content = msg.reasoning
+
+                return _parse_evaluation_response(content)
+
+            except (ConnectionError, TimeoutError, OSError) as exc:
+                last_exc = exc
+                if attempt >= self.max_retries:
+                    break
+                delay = _BASE_DELAY * (2**attempt)
+                delay += random.uniform(0, 0.5 * delay)
+                logger.warning(
+                    "Retry %d/%d: network error (%s), waiting %.2fs",
+                    attempt + 1,
+                    self.max_retries,
+                    type(exc).__name__,
+                    delay,
+                )
+                time.sleep(delay)
+
+            except Exception as exc:
+                last_exc = exc
+                status_code = getattr(exc, "status_code", None)
+                if status_code not in _RETRYABLE_STATUS_CODES:
+                    raise
+
+                if attempt >= self.max_retries:
+                    break
+
+                # For 429, honour Retry-After header if present
+                delay = _BASE_DELAY * (2**attempt)
+                if status_code == 429:
+                    try:
+                        retry_after = exc.response.headers.get("Retry-After")
+                        if retry_after is not None:
+                            delay = float(retry_after)
+                    except AttributeError:
+                        pass
+
+                delay += random.uniform(0, 0.5 * delay)
+                logger.warning(
+                    "Retry %d/%d: HTTP %s, waiting %.2fs",
+                    attempt + 1,
+                    self.max_retries,
+                    status_code,
+                    delay,
+                )
+                time.sleep(delay)
+
+        # All retries exhausted — reset client to force fresh connection next call
+        self._client = None
+        logger.error(
+            "Evaluator failed after %d retries. Last error: %s",
+            self.max_retries,
+            last_exc,
+        )
+        raise last_exc
 
 
 def _parse_evaluation_response(content: str) -> dict:

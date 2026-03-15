@@ -1,6 +1,9 @@
 # Evaluator: EV-02 Injection Value
 # Scores whether injected context was valuable (true) or noise (false).
 # High-volume path — 5% sampling to stay within judge budget.
+#
+# PATH B (Langfuse V3): Filter by observation name (event_type).
+# Tags are trace-level only in V3; use event_types for observation filtering.
 
 id: EV-02
 name: injection_value
@@ -9,7 +12,12 @@ target: observation
 sampling_rate: 0.05
 
 filter:
-  tags: [injection, tier2, compact]
+  # event_types that represent the final injected context delivered to the agent
+  # context_retrieval is the primary event from context_injection_tier2.py
+  # error_fix_injection is from error_detection.py (injection into error context)
+  event_types:
+    - "context_retrieval"    # context_injection_tier2.py, session_start.py — tier-2 injections
+    - "error_fix_injection"  # error_detection.py — error fix context injection
 
 prompt_file: ev02_injection_value_prompt.md
 

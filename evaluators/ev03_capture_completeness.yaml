@@ -1,6 +1,9 @@
 # Evaluator: EV-03 Capture Completeness
 # Scores whether hook capture events collected all expected fields.
 # High-volume path — 5% sampling to stay within judge budget.
+#
+# PATH B (Langfuse V3): Filter by observation name (event_type).
+# Tags are trace-level only in V3; use event_types for observation filtering.
 
 id: EV-03
 name: capture_completeness
@@ -9,7 +12,11 @@ target: observation
 sampling_rate: 0.05
 
 filter:
-  tags: [capture, user_prompt, agent_response, session_summary, store]
+  # 1_capture is the primary event_type for capture operations across all hook scripts:
+  #   user_prompt_capture.py, post_tool_capture.py, agent_response_capture.py,
+  #   error_pattern_capture.py
+  event_types:
+    - "1_capture"
 
 prompt_file: ev03_capture_completeness_prompt.md
 

@@ -1,6 +1,10 @@
 # Evaluator: EV-06 Session Coherence
 # Scores overall memory system behaviour across a full session.
 # 100% sampling — one session summary per session (low volume).
+#
+# PATH B NOTE: EV-06 correctly uses trace-level tags filter.
+# This evaluator targets full session TRACES (not individual observations).
+# Trace-level tags ARE supported in Langfuse V3 — this filter is correct.
 
 id: EV-06
 name: session_coherence
@@ -9,7 +13,10 @@ target: trace
 sampling_rate: 1.0
 
 filter:
-  tags: [capture, session_summary, injection, tier1, bootstrap]
+  # Trace-level tags filter — valid for trace-targeted evaluators in V3.
+  # session_trace tag is set on full-session traces by session hooks.
+  tags:
+    - "session_trace"
 
 prompt_file: ev06_session_coherence_prompt.md
 

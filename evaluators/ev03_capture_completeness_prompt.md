@@ -5,7 +5,7 @@ Your task is to determine whether a hook capture event collected all expected fi
 
 ## Data to Evaluate
 
-Analyze the trace data provided in the **## Trace to Evaluate** section below.
+Analyze the observation data provided in the **## Observation to Evaluate** section below.
 
 - **Input**: The captured content and hook event data (event type, captured fields, and metadata).
 - **Output**: Any processing result or confirmation from the capture system.

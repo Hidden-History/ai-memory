@@ -5,27 +5,37 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.2.3] - 2026-03-14
+## [2.2.3] - 2026-03-15
 
-Langfuse observability improvements and LLM-as-judge evaluation pipeline: semantic tags on all 108 trace events, per-search trace visibility in the compact injection path, and a complete multi-provider evaluation engine with 6 evaluators, 5 golden datasets (123 items), and a CI quality gate.
+Complete Langfuse observability pipeline: observation-level evaluation for all 6 evaluators, automated scheduling, exponential backoff retry, and security hardening.
 
 ### Added
-- **Semantic tags on all trace events**: All 108 `emit_trace_event` calls include canonical dual-element tags (e.g., `["search", "retrieval"]`) for structured Langfuse dashboard filtering
-- **Per-search trace visibility in compact injection path**: Each search call within compact context injection emits its own trace, enabling per-query latency and result visibility in that path
-- **LLM-as-judge evaluation engine**: Multi-provider evaluator (`src/memory/evaluator/`) supporting Ollama (default, local, free), OpenRouter, Anthropic, OpenAI, and custom OpenAI-compatible endpoints
-- **6 evaluator definitions**: Retrieval relevance (EV-01), injection value (EV-02), capture completeness (EV-03), classification accuracy (EV-04), bootstrap quality (EV-05), and session coherence (EV-06) — each with YAML config and LLM judge prompt template
-- **5 golden datasets** (123 items): DS-01 Retrieval (25 items), DS-02 Error Pattern Match (12 items), DS-03 Bootstrap Round-Trip (8 items), DS-04 Keyword Trigger Routing (68 items), DS-05 Chunking Quality (10 items) — for repeatable regression benchmarking
-- **Regression test suite**: `tests/test_regression.py` runs Langfuse experiments against golden datasets with configurable quality thresholds (`@pytest.mark.regression`)
-- **CI quality gate**: `.github/workflows/regression-tests.yml` blocks PRs on score regression when `src/memory/**` or hook scripts change
-- **Evaluator YAML configuration**: `evaluator_config.yaml` — zero secrets in config; all credentials supplied via environment variables with inline documentation
+- **Observation-level evaluation**: Runner scores individual Langfuse observations (spans) for EV-01 to EV-04, not just whole traces. Enables per-retrieval, per-injection, per-capture quality scoring
+- **Evaluator-scheduler container**: Automated daily evaluations via `evaluator-scheduler` Docker service with `croniter`-based scheduling, health checks, graceful shutdown, and live config reload
+- **Exponential backoff retry**: Provider retries on HTTP 500/502/503/429 and network errors (ConnectionError, TimeoutError) with configurable `max_retries` (default: 3) and jitter
+- **12 evaluator files on disk**: 6 YAML configs + 6 prompt templates materialized from PLAN-012 spec. Filters aligned to actual `emit_trace_event()` event_types via codebase audit
+- **Score config idempotency**: `create_score_configs.py` pre-checks existing configs via `.get()` API; `--cleanup-duplicates` archives extras via `update(isArchived=True)`
+- **Ollama cloud auto-detection**: Provider automatically uses `https://ollama.com/v1` when `OLLAMA_API_KEY` env var is set (no manual `base_url` config needed)
+- **Installer copies evaluator files**: Both fresh install and Option 1 update paths copy `evaluator_config.yaml`, `evaluators/`, `requirements.txt`, and `pyproject.toml`
+- **Installer imports .env on Option 1**: `import_user_env()` now runs during add-project updates, not just fresh installs — ensures credentials like `OLLAMA_API_KEY` reach the installed `.env`
 
 ### Changed
-- **`detect-secrets` moved to dev extras**: Removed from default `requirements.txt`; added to `requirements-dev.txt` to reduce production dependency footprint
-- **GitHub Actions versions pinned**: All CI workflow action steps use pinned versions for reproducible builds
+- **Default evaluator model**: `gemma3:4b` (Ollama cloud compatible) replaces `llama3.2:8b` (not available on cloud)
+- **Observation filtering**: Path B — evaluators filter observations by `name` (event_type) instead of tags. Langfuse V3 does not support observation-level tags; trace-level tags remain for trace filtering
+- **Pagination**: Both `trace.list()` and `observations.get_many()` use page-based pagination per V3 SDK (`page=`, `total_pages`)
+
+### Fixed
+- **Log injection sanitization**: All `str(e)` in `monitoring/main.py` log statements wrapped with `sanitize_log_input()` inline at call sites (CodeQL `py/log-injection` compliance)
+- **CATEGORICAL score handling**: EV-04 passes string values (`"correct"`, `"partially_correct"`, `"incorrect"`) with validation against allowed categories before submission
+- **Score ID collision**: `_make_score_id()` includes `observation_id` in hash seed — prevents silent overwrites when multiple observations share a trace
+- **Installer `SOURCE_DIR` unbound**: `import_user_env()` falls back to `SCRIPT_DIR/..` in Option 1 path
+
+### Security
+- **7 CodeQL HIGH findings resolved**: `monitoring/main.py` log injection vectors sanitized at every call site with AST-verified test coverage
 
 ### Upgrade Instructions
 
-1. **Update code and reinstall**:
+1. **Pull and run installer**:
    ```bash
    cd /path/to/your/ai-memory-clone
    git pull origin main
@@ -33,13 +43,33 @@ Langfuse observability improvements and LLM-as-judge evaluation pipeline: semant
    # Select Option 1 (Add project to existing installation)
    ```
 
-2. **Evaluator setup** (optional):
-   - Default: Ollama (local, free, no API key needed)
-   - Configure provider in `evaluator_config.yaml`
-   - Set API keys via environment variables (see config comments)
-   - Run: `python scripts/create_score_configs.py` (one-time Langfuse setup)
-   - Run: `python scripts/create_datasets.py` (one-time golden dataset creation)
-   - Run: `python scripts/run_evaluations.py --config evaluator_config.yaml`
+2. **Build and start the evaluator-scheduler container**:
+   ```bash
+   cd ~/.ai-memory/docker
+   unset QDRANT_API_KEY
+   docker compose -f docker-compose.yml -f docker-compose.langfuse.yml build evaluator-scheduler
+   docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse up -d evaluator-scheduler
+   ```
+
+3. **Create score configs** (one-time, idempotent):
+   ```bash
+   cd /path/to/your/ai-memory-clone
+   source .venv/bin/activate
+   cd ~/.ai-memory
+   set -a && source docker/.env && set +a && unset QDRANT_API_KEY
+   python scripts/create_score_configs.py
+   ```
+
+4. **Configure evaluator provider** (optional — defaults to Ollama):
+   - **Ollama cloud**: Set `OLLAMA_API_KEY` in your `.env` (auto-detects cloud endpoint)
+   - **Local Ollama**: No config needed (default `http://localhost:11434/v1`)
+   - **Other providers**: Edit `evaluator_config.yaml` `provider:` field
+   - Model: Edit `evaluator_config.yaml` `model_name:` (default: `gemma3:4b`)
+
+5. **Run evaluations manually** (optional — scheduler runs daily at 05:00 UTC):
+   ```bash
+   python scripts/run_evaluations.py --config evaluator_config.yaml
+   ```
 
 ---
 

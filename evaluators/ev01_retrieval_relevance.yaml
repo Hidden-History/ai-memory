@@ -1,6 +1,9 @@
 # Evaluator: EV-01 Retrieval Relevance
 # Scores how relevant retrieved memory is to the trigger context.
 # High-volume path — 5% sampling to stay within judge budget.
+#
+# PATH B (Langfuse V3): Filter by observation name (event_type).
+# Tags are trace-level only in V3; use event_types for observation filtering.
 
 id: EV-01
 name: retrieval_relevance
@@ -9,7 +12,19 @@ target: observation
 sampling_rate: 0.05
 
 filter:
-  tags: [search, retrieval, best_practices]
+  # All event_types that represent memory retrieval operations across hook scripts
+  # Derived from grep of emit_trace_event() calls in src/memory/ and .claude/hooks/
+  event_types:
+    - "pattern_retrieval"        # first_edit_trigger.py — code pattern lookup
+    - "convention_retrieval"     # new_file_trigger.py — convention lookup
+    - "error_retrieval"          # error_detection.py — error fix lookup
+    - "context_retrieval"        # context_injection_tier2.py, session_start.py
+    - "best_practices_retrieval" # best_practices_retrieval.py
+    - "memory_retrieval_session_summaries"  # session_start.py
+    - "memory_retrieval_decisions"          # session_start.py
+    - "memory_retrieval_sessions"           # session_start.py
+    - "bootstrap_retrieval"      # injection.py — bootstrap context retrieval
+    - "search_query"             # search.py — main hybrid search execution
 
 prompt_file: ev01_retrieval_relevance_prompt.md
 

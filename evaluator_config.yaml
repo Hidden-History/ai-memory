@@ -13,9 +13,10 @@
 # ---------------------------------------------------------------------------
 evaluator_model:
   provider: ollama          # ollama | openrouter | anthropic | openai | custom
-  model_name: llama3.2:8b  # Model identifier for the selected provider
+  model_name: gemma3:4b    # Model identifier for the selected provider
   temperature: 0.0          # Deterministic evaluation (do not change)
   max_tokens: 4096          # 4096 to accommodate thinking models (reasoning + output)
+  max_retries: 3            # Retry on 500/502/503/429 and network errors
 
   # base_url: Override Ollama endpoint URL.
   #   Local (default): http://localhost:11434/v1
@@ -43,9 +44,9 @@ schedule:
   lookback_hours: 24    # Evaluate last 24 hours of traces
 
 # ---------------------------------------------------------------------------
-# Evaluation targets per evaluator
-# observation = score individual spans (faster, more granular)
-# trace       = score whole trace (for session-level metrics)
+# DEPRECATED: evaluation_targets — use per-evaluator target: field instead.
+# Each evaluator YAML now has target: "observation" or target: "trace".
+# This section is no longer read by EvaluatorRunner (S-16.3).
 # ---------------------------------------------------------------------------
 evaluation_targets:
   ev01_retrieval_relevance: observation    # Per-retrieval span (high volume)

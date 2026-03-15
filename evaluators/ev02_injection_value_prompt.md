@@ -5,7 +5,7 @@ Your task is to determine whether context injected into a user's prompt window a
 
 ## Data to Evaluate
 
-Analyze the trace data provided in the **## Trace to Evaluate** section below.
+Analyze the observation data provided in the **## Observation to Evaluate** section below.
 
 - **Input**: The user's prompt or request that triggered the injection.
 - **Output**: The injected context that was added to the user's prompt window.

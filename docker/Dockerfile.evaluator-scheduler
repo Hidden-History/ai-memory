@@ -1,0 +1,28 @@
+FROM python:3.12-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install Python dependencies (includes croniter)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Create non-root user (security hardening 2025)
+RUN useradd -u 1001 -g users -s /usr/sbin/nologin evaluator && \
+    chown -R evaluator:users /app
+
+# Set Python path to include src directory where memory module lives
+# (src/ is volume-mounted read-only at runtime: ../src:/app/src:ro)
+ENV PYTHONPATH=/app/src
+
+# Switch to non-root user
+USER evaluator
+
+# Entry point: evaluator scheduler daemon
+CMD ["python", "scripts/memory/evaluator_scheduler.py"]

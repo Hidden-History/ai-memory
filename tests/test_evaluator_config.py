@@ -26,7 +26,7 @@ def full_config_yaml(tmp_path) -> Path:
     config = {
         "evaluator_model": {
             "provider": "ollama",
-            "model_name": "llama3.2:8b",
+            "model_name": "gemma3:4b",
             "temperature": 0.0,
             "max_tokens": 512,
         },
@@ -74,7 +74,7 @@ class TestYAMLLoading:
 
     def test_loads_model_name(self, full_config_yaml):
         config = EvaluatorConfig.from_yaml(str(full_config_yaml))
-        assert config.model_name == "llama3.2:8b"
+        assert config.model_name == "gemma3:4b"
 
     def test_loads_temperature(self, full_config_yaml):
         config = EvaluatorConfig.from_yaml(str(full_config_yaml))
@@ -112,7 +112,7 @@ class TestDefaults:
         config_file = tmp_path / "minimal.yaml"
         config_file.write_text("evaluator_model: {}\n")
         config = EvaluatorConfig.from_yaml(str(config_file))
-        assert config.model_name == "llama3.2:8b"
+        assert config.model_name == "gemma3:4b"
 
     def test_temperature_defaults_to_zero(self, tmp_path):
         config_file = tmp_path / "minimal.yaml"
@@ -142,7 +142,7 @@ class TestDefaultConfigFile:
 
     def test_default_model_is_llama(self, repo_config):
         config = EvaluatorConfig.from_yaml(str(repo_config))
-        assert config.model_name == "llama3.2:8b"
+        assert config.model_name == "gemma3:4b"
 
     def test_no_secrets_in_config_file(self, repo_config):
         content = repo_config.read_text()
@@ -268,7 +268,7 @@ class TestEvaluatorDefinitionLoading:
 
     def test_returns_empty_list_when_dir_missing(self, tmp_path):
         config_content = {
-            "evaluator_model": {"provider": "ollama", "model_name": "llama3.2:8b"},
+            "evaluator_model": {"provider": "ollama", "model_name": "gemma3:4b"},
             "evaluators_dir": str(tmp_path / "nonexistent_dir"),
             "audit": {"log_file": str(tmp_path / "eval.jsonl")},
         }

@@ -285,6 +285,62 @@ services:
     networks:
       - ai-memory_default
 
+  # ─── Evaluator Scheduler (AI Memory component) ────────────────────────────
+  # Runs LLM-as-Judge evaluation pipeline on a cron schedule.
+  # Schedule configured via evaluator_config.yaml (schedule.cron, lookback_hours).
+  # Requires Langfuse to be healthy so it can post scores via create_score().
+  evaluator-scheduler:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.evaluator-scheduler
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-evaluator-scheduler
+    profiles: ["langfuse"]
+    volumes:
+      - ../src:/app/src:ro
+      - ../scripts:/app/scripts:ro
+      - ../evaluators:/app/evaluators:ro
+      - ../evaluator_config.yaml:/app/evaluator_config.yaml:ro
+      - ${AI_MEMORY_INSTALL_DIR:-.}/.audit:/app/.audit
+    environment:
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:?Run langfuse_setup.sh first to generate API keys}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:?Run langfuse_setup.sh first to generate API keys}
+      # Use internal service name for container-to-container communication
+      - LANGFUSE_BASE_URL=http://langfuse-web:3000
+      # Optional LLM provider API keys (read from env; not all are required)
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # Optional custom LLM provider (provider=custom in evaluator_config.yaml)
+      - EVALUATOR_BASE_URL=${EVALUATOR_BASE_URL:-}
+      - EVALUATOR_API_KEY=${EVALUATOR_API_KEY:-}
+      # NOTE: EVALUATOR_PROVIDER and EVALUATOR_MODEL are NOT set here —
+      # they are read from evaluator_config.yaml (evaluator_model section)
+      - PYTHONPATH=/app/src
+      - AI_MEMORY_LOG_LEVEL=${AI_MEMORY_LOG_LEVEL:-INFO}
+    depends_on:
+      langfuse-web:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - ai-memory_default
+    healthcheck:
+      # File-based heartbeat — scheduler touches health file on startup and after each
+      # successful evaluation run. Check: file exists AND modified within last 90000s (25h).
+      # 25h window accommodates a daily cron + restart without false failure.
+      test: ["CMD-SHELL", "python3 -c \"import os,sys,time; f='/tmp/evaluator-scheduler.health'; sys.exit(0 if os.path.exists(f) and time.time()-os.path.getmtime(f)<90000 else 1)\""]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 90000s
+
 # ─── Network ─────────────────────────────────────────────────────────────────
 # Join the existing ai-memory stack network so Langfuse services can communicate
 # with the classifier-worker, embedding service, and other AI Memory components.
