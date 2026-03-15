@@ -8,8 +8,8 @@ Core pipeline:
   2. Per evaluator, read target: "trace" or "observation" (per-evaluator YAML field)
   3. Trace path (EV-05, EV-06): page-based pagination via trace.list()
      - uses from_timestamp/to_timestamp/page/meta.total_pages (V3 trace API)
-  4. Observation path (EV-01-EV-04): cursor-based pagination via observations.get_many()
-     - uses from_start_time/to_start_time/cursor/meta.next_cursor (V3 observation API, BUG-217)
+  4. Observation path (EV-01-EV-04): page-based pagination via observations.get_many()
+     - uses from_start_time/to_start_time/page/meta.total_pages (V3 observation API)
   5. Filter observations by name (event_type) — server-side via name= parameter (Path B)
   6. Sample traces/observations per evaluator's sampling_rate
   7. Evaluate each trace/observation via configurable LLM judge
@@ -20,7 +20,7 @@ Note: evaluation_targets in evaluator_config.yaml is DEPRECATED.
       Use the per-evaluator target: field in each evaluator YAML instead.
 
 PLAN-012 Phase 2 — Section 5.4
-S-16.3: Observation-level evaluation + cursor-based observation pagination (BUG-217)
+S-16.3: Observation-level evaluation + page-based observation pagination
 """
 
 import hashlib
@@ -245,7 +245,7 @@ class EvaluatorRunner:
     ) -> tuple[int, int, int, int]:
         """Run observation-level evaluation for a single evaluator.
 
-        Fetches observations via observations.get_many() with cursor-based pagination
+        Fetches observations via observations.get_many() with page-based pagination
         (BUG-217). Filters by observation name (event_type) server-side via name=
         parameter (Path B — tags are trace-level only in V3).
 
@@ -274,15 +274,15 @@ class EvaluatorRunner:
 
         try:  # R2-F3: catch fetch-level errors so one evaluator doesn't kill the whole run
             for name_filter in name_filters:
-                cursor: str | None = None
+                page = 1
 
                 while True:
-                    # Cursor-based pagination — V3 observations API (BUG-217)
+                    # Page-based pagination — V3 observations API
                     obs_response = langfuse.api.observations.get_many(
                         name=name_filter,
                         from_start_time=since,
                         to_start_time=until,
-                        cursor=cursor,
+                        page=page,
                         limit=batch_size,
                     )
                     observations = obs_response.data or []
@@ -393,13 +393,12 @@ class EvaluatorRunner:
                             )
                             continue
 
-                    # Cursor-based stop condition — no next cursor means last page
-                    next_cursor = getattr(
-                        obs_response.meta, "next_cursor", None
-                    )  # R2-F1
-                    if not next_cursor or not observations:
+                    # Page-based stop condition
+                    meta = getattr(obs_response, "meta", None)
+                    total_pages = getattr(meta, "total_pages", 1) if meta else 1
+                    if page >= total_pages or not observations:
                         break
-                    cursor = next_cursor
+                    page += 1
 
         except Exception as exc:
             logger.error("Evaluator %s: error fetching observations: %s", ev_name, exc)

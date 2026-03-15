@@ -212,12 +212,12 @@ def make_paginated_response(traces: list, total_pages=1):
     return response
 
 
-def make_observation_response(observations: list, next_cursor: str | None = None):
-    """Cursor-based response for observations.get_many()."""
+def make_observation_response(observations: list, total_pages: int = 1):
+    """Page-based response for observations.get_many()."""
     response = MagicMock()
     response.data = observations
     response.meta = MagicMock()
-    response.meta.next_cursor = next_cursor  # R2-F1: V3 API uses next_cursor not cursor
+    response.meta.total_pages = total_pages
     return response
 
 
@@ -693,22 +693,22 @@ class TestRunnerRunObservationPath:
 # ---------------------------------------------------------------------------
 
 
-class TestCursorPaginationObservations:
-    def test_cursor_pagination_fetches_all_pages(
+class TestPagePaginationObservations:
+    def test_page_pagination_fetches_all_pages(
         self, runner, observation_evaluator_yaml
     ):
-        """observations.get_many() must be called with next_cursor on subsequent pages."""
+        """observations.get_many() must paginate via page= with total_pages."""
         obs1 = make_mock_observation(obs_id="obs_p1", trace_id="t1")
         obs2 = make_mock_observation(obs_id="obs_p2", trace_id="t2")
 
         mock_langfuse = MagicMock()
-        # First call returns obs1 + next_cursor; second call returns obs2 + no cursor
+        # First call returns obs1 with total_pages=2; second returns obs2 with total_pages=2
         mock_langfuse.api.observations.get_many.side_effect = [
-            make_observation_response([obs1], next_cursor="cursor_abc"),
-            make_observation_response([obs2], next_cursor=None),
+            make_observation_response([obs1], total_pages=2),
+            make_observation_response([obs2], total_pages=2),
             # Additional responses for the second event_type
-            make_observation_response([obs1], next_cursor="cursor_abc"),
-            make_observation_response([obs2], next_cursor=None),
+            make_observation_response([obs1], total_pages=2),
+            make_observation_response([obs2], total_pages=2),
         ]
 
         mock_evaluator_config = MagicMock()
@@ -724,22 +724,22 @@ class TestCursorPaginationObservations:
 
         # Each event_type does 2 pages → 4 total calls for 2 event_types
         assert mock_langfuse.api.observations.get_many.call_count == 4
-        # Second call for first event_type must pass cursor
+        # Second call for first event_type must pass page=2
         second_call_kwargs = mock_langfuse.api.observations.get_many.call_args_list[
             1
         ].kwargs
-        assert second_call_kwargs.get("cursor") == "cursor_abc"
+        assert second_call_kwargs.get("page") == 2
 
-    def test_cursor_pagination_stops_when_no_next_cursor(
+    def test_page_pagination_stops_on_single_page(
         self, runner, observation_evaluator_yaml
     ):
-        """Must stop fetching when meta.cursor is None."""
+        """Must stop fetching when total_pages == 1."""
         obs = make_mock_observation(obs_id="obs_single")
 
         mock_langfuse = MagicMock()
-        # No next cursor → single page per event_type
+        # Single page per event_type
         mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs], next_cursor=None)
+            make_observation_response([obs], total_pages=1)
         )
 
         mock_evaluator_config = MagicMock()
