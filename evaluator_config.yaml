@@ -13,7 +13,7 @@
 # ---------------------------------------------------------------------------
 evaluator_model:
   provider: ollama          # ollama | openrouter | anthropic | openai | custom
-  model_name: llama3.2:8b  # Model identifier for the selected provider
+  model_name: gemma3:4b    # Model identifier for the selected provider
   temperature: 0.0          # Deterministic evaluation (do not change)
   max_tokens: 4096          # 4096 to accommodate thinking models (reasoning + output)
   max_retries: 3            # Retry on 500/502/503/429 and network errors
