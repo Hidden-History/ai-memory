@@ -24,7 +24,7 @@ class TestEvaluatorConfigDefaults:
 
     def test_default_model_is_llama(self):
         config = EvaluatorConfig()
-        assert config.model_name == "llama3.2:8b"
+        assert config.model_name == "gemma3:4b"
 
     def test_default_temperature_zero(self):
         config = EvaluatorConfig()
@@ -69,7 +69,7 @@ evaluator_model:
 
         config = EvaluatorConfig.from_yaml(str(config_file))
         assert config.provider == "ollama"
-        assert config.model_name == "llama3.2:8b"
+        assert config.model_name == "gemma3:4b"
         assert config.temperature == 0.0
 
     def test_empty_evaluator_model_uses_defaults(self, tmp_path):
@@ -87,7 +87,7 @@ class TestOllamaProvider:
     """Test Ollama provider client creation."""
 
     def test_ollama_creates_openai_client(self):
-        config = EvaluatorConfig(provider="ollama", model_name="llama3.2:8b")
+        config = EvaluatorConfig(provider="ollama", model_name="gemma3:4b")
         mock_openai_cls = MagicMock()
 
         with patch.dict("sys.modules", {"openai": MagicMock(OpenAI=mock_openai_cls)}):

@@ -38,7 +38,7 @@ def minimal_config(tmp_path) -> Path:
     config_content = """
 evaluator_model:
   provider: ollama
-  model_name: llama3.2:8b
+  model_name: gemma3:4b
   temperature: 0.0
   max_tokens: 4096
 evaluators_dir: {evaluators_dir}
