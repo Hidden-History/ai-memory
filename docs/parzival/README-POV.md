@@ -222,7 +222,7 @@ BEFORE any recommendation:
 
 ### Self-Check System
 
-Parzival performs a **mental self-check every ~10 messages** to prevent behavioral drift. The self-check covers all 17 global constraints across three layers:
+Parzival performs a **mental self-check every ~10 messages** to prevent behavioral drift. The self-check covers all 17 global constraints across two layers:
 
 ```
 Always active (Layer 1):
@@ -469,11 +469,11 @@ chmod +x install.sh
 **Skip this step if you already have an oversight/ folder!**
 
 #### 3. Configure (Optional)
-Edit `your-project/pov/config.yaml`:
+Edit `your-project/_ai-memory/pov/config.yaml`:
 ```yaml
 user_name: "YourName"
 communication_language: "English"
-oversight_folder: "oversight"
+oversight_path: "{project-root}/oversight"
 ```
 
 ### First Use
@@ -485,7 +485,7 @@ claude
 
 Then activate Parzival:
 ```
-/pov:agents:parzival
+/pov:parzival
 ```
 
 Parzival will greet you and show a menu of available commands.
@@ -677,7 +677,7 @@ _ai-memory/pov/                            # POV module definition
 | File | Purpose | When Loaded |
 |------|---------|-------------|
 | `_ai-memory/pov/agents/parzival.md` | Agent definition (persona, menu, rules, constraints) | Agent activation |
-| `_ai-memory/pov/constraints/global/constraints.md` | Global constraints summary + self-check (GC-01 to GC-20) | Activation step 4 |
+| `_ai-memory/pov/constraints/global/constraints.md` | Global constraints summary + self-check (GC-01 through GC-15 + GC-19 + GC-20) | Activation step 4 |
 | `_ai-memory/pov/config.yaml` | Module configuration | Activation step 2 |
 | `_ai-memory/pov/workflows/WORKFLOW-MAP.md` | Master routing decision tree | Activation step 6 |
 | `_ai-memory/pov/skills/*/SKILL.md` | Dispatch skill definitions | On-demand during execution |
@@ -776,7 +776,7 @@ Each dispatch skill has a SKILL.md definition in `_ai-memory/pov/skills/`. Thin 
 - **GC-04 redefined** -- "User Manages Parzival Only -- Parzival Manages All Agents"
 - **15-item menu** -- HP, CH, ST, SU, BL, DC, VE, CR, BR, FR, TP, HO, CL, DA, EX (VI removed)
 - **Removed** -- teams/ directory, team-prompt workflow, instruction.template
-- **Config** -- `teams_enabled: true` field added
+- **Config** -- Module paths consolidated in config.yaml
 - **Identity update** -- Parzival is "boss of all worker agents", manages agents via Claude Code teams
 - See [CHANGELOG-POV.md](./CHANGELOG-POV.md) for full details (DEC-114 through DEC-120)
 
@@ -824,9 +824,9 @@ tree oversight/
 
 **Constraint Updates:**
 When modifying Parzival's behavior, update ALL layers:
-1. `pov/agents/parzival.md` (critical constraints section)
-2. `pov/agents/parzival/CONSTRAINTS.md` (detailed behavioral rules)
-3. `pov/procedures/PROCEDURES.md` (operational procedures)
+1. `_ai-memory/pov/agents/parzival.md` (critical constraints + self-check behavior)
+2. `_ai-memory/pov/constraints/global/constraints.md` (constraint index + self-check schedule)
+3. `_ai-memory/pov/constraints/global/GC-*.md` (individual constraint definitions)
 4. `docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md` (architecture doc)
 5. This README.md (if core identity changes)
 

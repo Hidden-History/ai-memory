@@ -21,11 +21,11 @@
 └─────────────────────────────────────────────────────┘
           ↓
 ┌─────────────────────────────────────────────────────┐
-│ Layer 2: DETAILED CONSTRAINTS (CONSTRAINTS.md)      │
-│ - Full constraint documentation                     │
-│ - Examples of correct/incorrect behavior            │
-│ - Violation response templates                      │
-│ - Loaded at session start                          │
+│ Layer 2: PHASE-SPECIFIC CONSTRAINTS                  │
+│ - Loaded per workflow from constraints/{phase}/     │
+│ - Phase-specific rules layered on global            │
+│ - Dropped on phase exit, replaced by next phase     │
+│ - Loaded when phase is determined                   │
 └─────────────────────────────────────────────────────┘
           ↓
 ┌─────────────────────────────────────────────────────┐
@@ -133,12 +133,14 @@ Reference: `_ai-memory/pov/data/self-check-constraints.md`
 - GC-14: Have I created a bug report without checking for similar prior issues? → Search now
 - GC-15: Have I created an oversight document without using the appropriate template? → Restructure
 
+**Agent Dispatch Constraints (Layer 1)**
+- GC-19: Have I spawned any agent without team_name? → Recreate as teammate
+- GC-20: Have I included instruction in a BMAD activation message? → Re-send separately after menu
+
 #### Layer 3 -- Active During Agent Dispatch
 
 - GC-09: Have I reviewed all agent output before presenting? → Review now
 - GC-11: Have my agent instructions been precise and cited? → Revise
-- GC-19: Have I spawned any agent without team_name? → Recreate as teammate
-- GC-20: Have I included instruction in a BMAD activation message? → Re-send separately after menu
 
 **IF ANY CHECK FAILS → Course-correct IMMEDIATELY**
 
@@ -226,7 +228,7 @@ Reference: `_ai-memory/pov/data/self-check-constraints.md`
 <activation>
   <step n="1">Load persona (includes critical constraints)</step>
   <step n="2">Load config</step>
-  <step n="3">Load skill constraints (CONSTRAINTS.md)</step>
+  <step n="3">Load constraints (constraints/global/constraints.md + phase-specific)</step>
   ...
 </activation>
 ```
@@ -309,7 +311,7 @@ If constraint violated:
 5. **User Authority Respected**
    - Always asks for approval
    - Never makes autonomous decisions
-   - Waits for user to activate agents
+   - Parzival dispatches agents — user manages Parzival only (GC-04)
 
 ---
 
@@ -319,15 +321,15 @@ If constraint violated:
 
 **Solution**:
 1. Check if Layer 1 (critical constraints) loaded
-2. Verify CONSTRAINTS.md is in correct location
-3. Manually remind: "Remember constraint 1 - provide prompt instead"
+2. Verify `constraints/global/constraints.md` is in correct location
+3. Manually remind: "Remember GC-01 - provide prompt instead"
 
 ### Problem: Skipping Reviews
 
 **Solution**:
-1. Check Layer 2 (review cycle constraint)
-2. Manually enforce: "Run review cycle per constraint 2"
-3. Verify PROCEDURES.md loaded
+1. Check Layer 2 (review cycle constraint — GC-07, GC-12)
+2. Manually enforce: "Run review cycle per constraint GC-12"
+3. Verify global constraints loaded from `constraints/global/constraints.md`
 
 ### Problem: Guessing Instead of Checking
 
@@ -399,14 +401,14 @@ Do you want to proceed with this approach?"
 ## 🚀 Deployment
 
 ### Installation
-1. ✅ CONSTRAINTS.md already updated (comprehensive)
-2. ✅ parzival.md already updated (critical constraints added)
-3. ⏳ PROCEDURES.md needs updating (add context-specific reminders)
+1. ✅ `constraints/global/constraints.md` updated (comprehensive, 17 constraints)
+2. ✅ `agents/parzival.md` updated (critical constraints + self-check behavior)
+3. ✅ Workflow step files include context-specific reminders
 
 ### Activation
 Constraints activate automatically on next Parzival session:
 ```
-/parzival-start
+/pov:parzival
 ```
 
 Parzival will now load enhanced constraint system.

@@ -165,7 +165,7 @@ The validator checks: wrappers in PATH, providers.json validity, token file exis
 | Cerebras | `https://api.cerebras.ai/v1` | `llama3.1-70b` | `~/.cerebras-token` | Ultra-fast inference |
 | Mistral | `https://api.mistral.ai/v1` | `mistral-large-2411` | `~/.mistral-token` | Codestral for code tasks |
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o` | `~/.openai-token` | GPT-4o, o1, o3-mini |
-| Vertex AI | Google Cloud | `claude-sonnet-4-5@anthropic` | `~/.vertex-token` | Requires gcloud auth |
+| Vertex AI | `https://aiplatform.googleapis.com/v1/publishers/google/models` | `claude-sonnet-4-5@anthropic` | `~/.vertex-token` | Requires gcloud auth |
 | SiliconFlow | `https://api.siliconflow.cn/v1` | `Qwen/Qwen2.5-72B-Instruct` | `~/.siliconflow-token` | Chinese and open models |
 
 ### Model ID Formats

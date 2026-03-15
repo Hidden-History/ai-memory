@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GC-20: No Instruction in BMAD Activation Message** -- Activation command and instruction must be sent as separate messages (DEC-119)
 - **GC-13 through GC-15** -- Best practices research before acting on new tech (GC-13), similar issue detection before creating bug reports (GC-14), template usage for oversight documents (GC-15) (DEC-117)
 - **Menu items** -- HP (Help), CH (Chat), BR (Best Practices), FR (Freshness Report), TP (Team Builder), DA (Dispatch Agent) added to Parzival menu (DEC-116)
-- **Config field** -- `teams_enabled: true` added to config.yaml
+- **Config field** -- Module paths (`constraints_path`, `workflows_path`, `oversight_path`, `pov_output_folder`) consolidated in config.yaml
 - **Dispatch quick-reference** -- Inline fast-path reference in parzival.md for single-agent dispatches without loading all 5 skill files
 
 ### Changed

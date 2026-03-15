@@ -122,7 +122,7 @@ claude
 
 Then in Claude Code:
 ```
-/parzival-start
+/pov:parzival-start
 ```
 
 ---
@@ -154,8 +154,8 @@ npm --version   # Should show 8.0.0 or higher
 # Verify Claude Code
 claude --version  # Should show version number
 
-# Verify BMAD (check for _bmad folder in your project)
-ls -la _bmad/   # Should show core/ and other modules
+# Verify AI Memory system (check for _ai-memory folder in your project)
+ls -la _ai-memory/   # Should show core/, pov/, and other modules
 ```
 
 ---
@@ -169,7 +169,7 @@ Parzival is installed via the unified **`scripts/install.sh`** installer, which 
 | Core install | Copies module files, commands, agents, skills |
 | `generate_parzival_skill_shims()` | Creates thin shim files in `.claude/skills/` pointing to `_ai-memory/pov/skills/` |
 | `sync_parzival_config_yaml()` | Writes `PARZIVAL_USER_NAME` from `.env` into `pov/config.yaml` |
-| `cleanup_stale_parzival_files()` | Removes old 2.0 files that were moved or renamed in 2.1 |
+| *(inline v2.1 cleanup)* | Removes old 2.0 files that were moved or renamed in 2.1 (inline in installer, not a named function) |
 | `setup_model_dispatch()` | Optional prompt for multi-provider model dispatch (system-level: `~/.config/`, `~/.local/bin/`) |
 
 ### New Projects
@@ -257,7 +257,7 @@ cd /path/to/bmad-parzival-module
 - Installs agent definition to `.claude/agents/pov/`
 - Generates thin skill shims in `.claude/skills/` that point to `_ai-memory/pov/skills/`
 - Syncs `PARZIVAL_USER_NAME` from `.env` into `pov/config.yaml`
-- Cleans up stale 2.0 files (moved templates, deleted workflows, renamed constraints)
+- Cleans up stale 2.0 files inline (moved templates, deleted workflows, renamed constraints)
 - Optionally configures multi-provider model dispatch
 
 #### Step 3: Configure Parzival
@@ -283,7 +283,7 @@ claude
 
 In Claude Code, run:
 ```
-/parzival-start
+/pov:parzival-start
 ```
 
 You should see Parzival introduce itself and scan for context! 🎉
@@ -342,21 +342,21 @@ cp _ai-memory/pov/config.yaml _ai-memory/pov/config.yaml.backup
 
 | Command | Purpose | When to Use |
 |---------|---------|-------------|
-| `/parzival` | Activate Parzival with interactive menu | General oversight interaction |
-| `/parzival-start` | Start session | Beginning of work session |
-| `/parzival-status` | Quick status | Check current state |
-| `/parzival-closeout` | End session | End of work session |
-| `/parzival-handoff` | Mid-session save | Taking a break |
-| `/parzival-blocker` | Analyze blocker | Stuck on something |
-| `/parzival-decision` | Decision support | Need to choose between options |
-| `/parzival-verify` | Run checklist | Quality verification |
-| `/parzival-team` | Design agent team | Parallel work execution |
+| `/pov:parzival` | Activate Parzival with interactive menu | General oversight interaction |
+| `/pov:parzival-start` | Start session | Beginning of work session |
+| `/pov:parzival-status` | Quick status | Check current state |
+| `/pov:parzival-closeout` | End session | End of work session |
+| `/pov:parzival-handoff` | Mid-session save | Taking a break |
+| `/pov:parzival-blocker` | Analyze blocker | Stuck on something |
+| `/pov:parzival-decision` | Decision support | Need to choose between options |
+| `/pov:parzival-verify` | Run checklist | Quality verification |
+| `/pov:parzival-team` | Design agent team | Parallel work execution |
 
 ### Typical Workflow
 
 ```bash
 # Morning - Start your session
-/parzival-start
+/pov:parzival-start
 
 # Parzival loads previous context and shows:
 # - Recent decisions
@@ -365,19 +365,19 @@ cp _ai-memory/pov/config.yaml _ai-memory/pov/config.yaml.backup
 # - Session continuity
 
 # During work - hit a blocker?
-/parzival-blocker
+/pov:parzival-blocker
 # Parzival analyzes and presents resolution options
 
 # During work - need to make a decision?
-/parzival-decision
+/pov:parzival-decision
 # Parzival presents options with tradeoffs
 
 # Taking a break?
-/parzival-handoff
+/pov:parzival-handoff
 # Creates a mid-session snapshot
 
 # End of day
-/parzival-closeout
+/pov:parzival-closeout
 # Creates comprehensive handoff for next session
 ```
 
@@ -398,25 +398,19 @@ Every Parzival recommendation includes a confidence level:
 Parzival coordinates specialized agents for specific tasks:
 
 #### Code Review Agent
-```
-/code-review
-```
+Via Parzival menu item **[CR]**, or invoke `/pov:parzival` and select CR:
 - Adversarial review (finds 3-10 issues minimum)
 - Checks quality, security, architecture compliance
 - Severity-ranked issues with file:line references
 
 #### Verification Agent
-```
-/verify-implementation
-```
+Via Parzival menu item **[VE]**, or invoke `/pov:parzival` and select VE:
 - Validates against acceptance criteria
 - Evidence-based pass/fail per criterion
 - Runs automated tests if available
 
 #### Best Practices Researcher
-```
-/best-practices
-```
+Via Parzival menu item **[BR]**, or invoke `/pov:parzival` and select BR:
 - Researches current (2024-2026) standards
 - Caches findings to avoid repeat research
 - Sources citations for recommendations
@@ -472,6 +466,7 @@ my-project/
 │       ├── agents/
 │       │   └── parzival.md         # Main agent definition
 │       ├── constraints/            # Global + phase constraints
+│       ├── data/                   # Reference data (complexity, confidence, escalation, etc.)
 │       ├── workflows/              # Phase workflows
 │       ├── skills/                 # 7 Parzival dispatch skills (source of truth)
 │       │   ├── aim-parzival-bootstrap/
@@ -596,7 +591,7 @@ principles:
 ### Common Issues
 
 <details>
-<summary><b>🚫 "Command not found" when running `/parzival-start`</b></summary>
+<summary><b>🚫 "Command not found" when running `/pov:parzival-start`</b></summary>
 
 **Cause:** Slash commands not installed correctly.
 
@@ -795,23 +790,23 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ╔════════════════════════════════════════════════════════════════════╗
 ║                   PARZIVAL QUICK REFERENCE                         ║
 ╠════════════════════════════════════════════════════════════════════╣
-║  COMMANDS                                                          ║
+║  SLASH COMMANDS                                                    ║
 ║  ─────────────────────────────────────────────────────────────    ║
-║  /parzival              Interactive menu                           ║
-║  /parzival-start        Start session                              ║
-║  /parzival-status       Check status                               ║
-║  /parzival-closeout     End session                                ║
-║  /parzival-handoff      Mid-session save                           ║
-║  /parzival-blocker      Analyze blocker                            ║
-║  /parzival-decision     Decision support                           ║
-║  /parzival-verify       Run verification                           ║
-║  /parzival-team         Design agent team                          ║
+║  /pov:parzival           Interactive menu                          ║
+║  /pov:parzival-start     Start session                             ║
+║  /pov:parzival-status    Check status                              ║
+║  /pov:parzival-closeout  End session                               ║
+║  /pov:parzival-handoff   Mid-session save                          ║
+║  /pov:parzival-blocker   Analyze blocker                           ║
+║  /pov:parzival-decision  Decision support                          ║
+║  /pov:parzival-verify    Run verification                          ║
+║  /pov:parzival-team      Design agent team                         ║
 ║                                                                    ║
-║  AGENTS                                                            ║
+║  MENU ITEMS (inside Parzival session)                              ║
 ║  ─────────────────────────────────────────────────────────────    ║
-║  /code-review           🔍 Adversarial code review                ║
-║  /verify-implementation ✓  Verify acceptance criteria             ║
-║  /best-practices        📚 Research current standards             ║
+║  [CR] Code Review        🔍 Adversarial code review               ║
+║  [VE] Verification       ✓  Verify acceptance criteria            ║
+║  [BR] Best Practices     📚 Research current standards            ║
 ║                                                                    ║
 ║  CONFIDENCE LEVELS                                                 ║
 ║  ─────────────────────────────────────────────────────────────    ║

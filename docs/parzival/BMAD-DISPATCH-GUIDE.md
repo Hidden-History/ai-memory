@@ -53,8 +53,9 @@ Selection is task-driven, not phase-driven. Identify what needs to be done, then
 | Architecture | Architect, PM | Analyst | Planning |
 | Planning | SM | -- | Planning |
 | Execution | DEV | Architect (if needed) | Execution |
-| Integration | DEV, Architect | -- | Execution |
+| Integration | DEV, Architect | QA | Execution |
 | Release | SM | DEV (if fixes needed) | Execution |
+| Maintenance | DEV | Analyst (if research needed) | Execution |
 
 ### Decision Tree
 
