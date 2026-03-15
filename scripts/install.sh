@@ -1049,6 +1049,17 @@ update_shared_scripts() {
         log_debug "Updated evaluators/ directory"
     fi
 
+    # Sync requirements.txt and pyproject.toml (needed by Docker builds)
+    # Always overwrite — new dependencies (e.g. croniter) must reach containers
+    if [[ -f "$SCRIPT_DIR/../requirements.txt" ]]; then
+        cp "$SCRIPT_DIR/../requirements.txt" "$INSTALL_DIR/requirements.txt" || log_warning "Failed to copy requirements.txt"
+        log_debug "Updated requirements.txt"
+    fi
+    if [[ -f "$SCRIPT_DIR/../pyproject.toml" ]]; then
+        cp "$SCRIPT_DIR/../pyproject.toml" "$INSTALL_DIR/pyproject.toml" || log_warning "Failed to copy pyproject.toml"
+        log_debug "Updated pyproject.toml"
+    fi
+
     # Update templates (new templates added in updates must reach installed dir)
     if [[ -d "$SCRIPT_DIR/../templates" ]]; then
         mkdir -p "$INSTALL_DIR/templates"
@@ -1334,12 +1345,13 @@ install_python_dependencies() {
         return 0
     fi
 
-    # Copy pyproject.toml and requirements.txt to install directory if not already there
-    if [[ ! -f "$INSTALL_DIR/pyproject.toml" ]]; then
+    # Copy pyproject.toml and requirements.txt to install directory
+    # Always overwrite — updated deps (e.g. croniter) must reach Docker builds
+    if [[ -f "$source_dir/pyproject.toml" ]]; then
         cp "$source_dir/pyproject.toml" "$INSTALL_DIR/"
         log_debug "Copied pyproject.toml to $INSTALL_DIR"
     fi
-    if [[ -f "$source_dir/requirements.txt" && ! -f "$INSTALL_DIR/requirements.txt" ]]; then
+    if [[ -f "$source_dir/requirements.txt" ]]; then
         cp "$source_dir/requirements.txt" "$INSTALL_DIR/"
         log_debug "Copied requirements.txt to $INSTALL_DIR"
     fi
