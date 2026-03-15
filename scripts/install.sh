@@ -1642,7 +1642,9 @@ copy_files() {
 # are present when credential generation checks run.
 import_user_env() {
     local docker_env="$INSTALL_DIR/docker/.env"
-    local user_env="$SOURCE_DIR/.env"
+    # SOURCE_DIR is set during full install; fall back to SCRIPT_DIR parent for Option 1
+    local source_root="${SOURCE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+    local user_env="$source_root/.env"
 
     # Only import if user's .env exists and docker/.env exists
     if [[ ! -f "$user_env" ]] || [[ ! -f "$docker_env" ]]; then
