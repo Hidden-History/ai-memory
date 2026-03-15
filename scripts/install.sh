@@ -3353,6 +3353,112 @@ deploy_parzival_shims() {
     log_success "Parzival V2 shims deployed to project"
 }
 
+# Generate thin shim SKILL.md files for Parzival skills that live in _ai-memory/pov/skills/
+# These shims allow Claude Code to discover skills in .claude/skills/ while content lives in _ai-memory/
+# Called from setup_parzival() after deploy_parzival_v2() succeeds
+generate_parzival_skill_shims() {
+    local pov_skills_dir="$PROJECT_PATH/_ai-memory/pov/skills"
+    local claude_skills_dir="$PROJECT_PATH/.claude/skills"
+
+    if [[ ! -d "$pov_skills_dir" ]]; then
+        log_debug "No Parzival skills found in _ai-memory/pov/skills/ — skipping shim generation"
+        return 0
+    fi
+
+    local shim_count=0
+    for skill_dir in "$pov_skills_dir"/*/; do
+        if [[ -d "$skill_dir" ]] && [[ -f "$skill_dir/SKILL.md" ]]; then
+            local skill_name
+            skill_name=$(basename "$skill_dir")
+            local shim_dir="$claude_skills_dir/$skill_name"
+            local real_skill="$skill_dir/SKILL.md"
+
+            # Extract frontmatter and first heading from real SKILL.md
+            local name_line description_line tools_line context_line title_line
+            name_line=$(grep -m1 "^name:" "$real_skill" 2>/dev/null || echo "name: $skill_name")
+            description_line=$(grep -m1 "^description:" "$real_skill" 2>/dev/null || echo "description: Parzival skill")
+            tools_line=$(grep -m1 "^allowed-tools:" "$real_skill" 2>/dev/null || echo "")
+            context_line=$(grep -m1 "^context:" "$real_skill" 2>/dev/null || echo "")
+            title_line=$(grep -m1 "^# " "$real_skill" 2>/dev/null || echo "# $skill_name")
+
+            mkdir -p "$shim_dir"
+
+            # Write thin shim
+            {
+                echo "---"
+                echo "$name_line"
+                echo "$description_line"
+                if [[ -n "$tools_line" ]]; then
+                    echo "$tools_line"
+                fi
+                if [[ -n "$context_line" ]]; then
+                    echo "$context_line"
+                fi
+                echo "---"
+                echo ""
+                echo "$title_line"
+                echo ""
+                echo "**LOAD**: Read and follow \`_ai-memory/pov/skills/$skill_name/SKILL.md\`"
+            } > "$shim_dir/SKILL.md"
+
+            shim_count=$((shim_count + 1))
+        fi
+    done
+
+    if [[ $shim_count -gt 0 ]]; then
+        log_success "Generated $shim_count Parzival skill shim(s) in .claude/skills/"
+    fi
+}
+
+# Optional: Multi-provider model dispatch setup
+# Called at end of setup_parzival() — prompts user if dispatch skill is present and not yet configured
+setup_model_dispatch() {
+    local dispatch_installer="$PROJECT_PATH/_ai-memory/pov/skills/aim-model-dispatch/scripts/install.sh"
+
+    # Fallback to .claude/skills path (pre-shim installs)
+    if [[ ! -f "$dispatch_installer" ]]; then
+        dispatch_installer="$PROJECT_PATH/.claude/skills/aim-model-dispatch/scripts/install.sh"
+    fi
+
+    if [[ ! -f "$dispatch_installer" ]]; then
+        log_debug "Model dispatch skill not found — skipping"
+        return 0
+    fi
+
+    # Skip if already configured
+    if command -v provider-dispatch &>/dev/null; then
+        log_debug "provider-dispatch already configured — skipping model dispatch setup"
+        return 0
+    fi
+
+    echo ""
+    echo "┌─────────────────────────────────────────────────────────┐"
+    echo "│  Multi-Provider Dispatch (Optional)                     │"
+    echo "│                                                         │"
+    echo "│  Enables Parzival to dispatch agents to non-Claude      │"
+    echo "│  models via OpenRouter, Ollama, Gemini, and more.       │"
+    echo "│                                                         │"
+    echo "│  Default Claude dispatch works without this.            │"
+    echo "└─────────────────────────────────────────────────────────┘"
+    echo ""
+
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        log_debug "Non-interactive mode — skipping model dispatch setup"
+        return 0
+    fi
+
+    read -rp "Configure multi-provider dispatch now? [y/N]: " setup_dispatch
+    if [[ "$setup_dispatch" =~ ^[Yy] ]]; then
+        log_info "Launching model dispatch setup..."
+        bash "$dispatch_installer" || {
+            log_warn "Model dispatch setup had issues — you can run it later:"
+            log_warn "  bash $dispatch_installer"
+        }
+    else
+        log_info "Skipped. Run later with: bash $dispatch_installer"
+    fi
+}
+
 # Deploy skill shims from INSTALL_DIR/.claude/skills/ to project
 # Replaces the skill deployment loop formerly in create_project_symlinks()
 # Stale cleanup scoped to ai-memory prefixes only (R2-NF4: never delete user custom skills)
@@ -3566,6 +3672,38 @@ setup_parzival() {
         # Deploy thin shims (.claude/agents/pov/, .claude/commands/pov/)
         deploy_parzival_shims
 
+        # Generate .claude/skills/ shims for Parzival skills in _ai-memory/pov/skills/
+        generate_parzival_skill_shims
+
+        # Clean up files moved/deleted in Parzival 2.1
+        local v21_stale_files=(
+            "$PROJECT_PATH/_ai-memory/pov/templates/instruction.template.md"
+            "$PROJECT_PATH/_ai-memory/pov/templates/team-prompt-2tier.template.md"
+            "$PROJECT_PATH/_ai-memory/pov/templates/team-prompt-3tier.template.md"
+            "$PROJECT_PATH/_ai-memory/pov/data/agent-selection-guide.md"
+            "$PROJECT_PATH/_ai-memory/pov/data/self-check-12-constraints.md"
+            "$PROJECT_PATH/_ai-memory/pov/constraints/execution/EC-02-use-instruction-template.md"
+            "$PROJECT_PATH/_ai-memory/pov/constraints/discovery/DC-08-analyst-before-pm-thin-input.md"
+        )
+        for stale_file in "${v21_stale_files[@]}"; do
+            if [[ -f "$stale_file" ]]; then
+                rm -f "$stale_file"
+                log_debug "Cleaned up stale Parzival 2.0 file: $(basename "$stale_file")"
+            fi
+        done
+
+        # Remove deleted workflow directory (superseded by aim-parzival-team-builder skill)
+        if [[ -d "$PROJECT_PATH/_ai-memory/pov/workflows/session/team-prompt" ]]; then
+            rm -rf "$PROJECT_PATH/_ai-memory/pov/workflows/session/team-prompt"
+            log_debug "Cleaned up stale team-prompt workflow (superseded by aim-parzival-team-builder skill)"
+        fi
+
+        # Remove stale teams archive
+        if [[ -d "$PROJECT_PATH/_ai-memory/pov/teams/archive" ]]; then
+            rm -rf "$PROJECT_PATH/_ai-memory/pov/teams/archive"
+            log_debug "Cleaned up stale teams archive"
+        fi
+
         # Deploy oversight templates (existing function — unchanged)
         deploy_oversight_templates
 
@@ -3587,6 +3725,9 @@ setup_parzival() {
                 log_warning "Failed to update Parzival settings in settings.json"
             }
         fi
+
+        # Optional: multi-provider model dispatch setup
+        setup_model_dispatch
 
         log_success "Parzival V2 enabled"
     else

@@ -1,5 +1,5 @@
 ---
-description: 'Design agent team structure for parallel work execution via Claude Code teams'
+description: 'Design agent team structure for parallel work execution'
 argument-hint: '<description of the work to parallelize>'
 allowed-tools: Read, Grep, Glob, AskUserQuestion
 ---

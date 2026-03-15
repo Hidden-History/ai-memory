@@ -1,13 +1,13 @@
 ---
 name: 'step-03-pm-creates-prd'
-description: 'Activate PM agent to create the Product Requirements Document from gathered inputs'
+description: 'Define PRD requirements and dispatch PM via agent-dispatch cycle'
 nextStepFile: './step-04-parzival-reviews-prd.md'
 ---
 
 # Step 3: PM Creates PRD Draft
 
 ## STEP GOAL
-Activate the PM agent to create a complete Product Requirements Document (PRD.md) from the gathered inputs. The track determines the workflow depth.
+Define the PRD structure requirements and dispatch the PM agent via the agent-dispatch cycle to create a complete Product Requirements Document (PRD.md) from the gathered inputs. The track determines the workflow depth.
 
 ## MANDATORY EXECUTION RULES
 - Read the complete step file before taking any action
@@ -20,7 +20,9 @@ Activate the PM agent to create a complete Product Requirements Document (PRD.md
 
 ## MANDATORY SEQUENCE
 
-### 1. Determine Workflow by Track
+### Parzival's Responsibility (Layer 1)
+
+#### 1. Determine Workflow by Track
 
 **Quick Flow track:**
 - PM uses quick-spec workflow
@@ -34,7 +36,7 @@ Activate the PM agent to create a complete Product Requirements Document (PRD.md
 - PM uses PRD creation workflow
 - Output: PRD.md with additional compliance/security sections
 
-### 2. Prepare PM PRD Creation Instruction
+#### 2. Prepare PM PRD Creation Instruction
 Provide the PM with all necessary inputs:
 
 - goals.md content
@@ -57,10 +59,14 @@ Requirements must be:
 - Implementation-free -- WHAT, not HOW
 - Non-contradictory
 
-### 3. Dispatch PM via Agent Dispatch
+### Execution (via agent-dispatch cycle)
+
+#### 3. Dispatch PM via Agent Dispatch
 Invoke {workflows_path}/cycles/agent-dispatch/workflow.md to activate the PM with the prepared instruction.
 
-### 4. Receive PRD Draft
+### Parzival's Responsibility (Layer 1)
+
+#### 4. Receive PRD Draft
 Receive the completed PRD.md from the PM agent. Do not present to user yet -- Parzival reviews first.
 
 ## CRITICAL STEP COMPLETION NOTE

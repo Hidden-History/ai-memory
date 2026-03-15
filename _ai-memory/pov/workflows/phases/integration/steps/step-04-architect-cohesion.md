@@ -1,13 +1,13 @@
 ---
 name: 'step-04-architect-cohesion'
-description: 'Activate Architect to verify architectural cohesion across the completed milestone'
+description: 'Define cohesion check criteria and dispatch Architect via agent-dispatch cycle'
 nextStepFile: './step-05-review-findings.md'
 ---
 
 # Step 4: Architect Cohesion Check
 
 ## STEP GOAL
-After DEV's review, activate the Architect to verify the architecture is intact across the full feature set. Individual story reviews cannot catch system-level architecture drift.
+Define the cohesion check criteria and dispatch the Architect via the agent-dispatch cycle to verify the architecture is intact across the full feature set. Individual story reviews cannot catch system-level architecture drift.
 
 ## MANDATORY EXECUTION RULES
 - Read the complete step file before taking any action
@@ -20,7 +20,9 @@ After DEV's review, activate the Architect to verify the architecture is intact 
 
 ## MANDATORY SEQUENCE
 
-### 1. Prepare Cohesion Check Instruction
+### Parzival's Responsibility (Layer 1)
+
+#### 1. Prepare Cohesion Check Instruction
 Architect must cover six cohesion areas:
 
 1. **Architectural pattern compliance** -- patterns documented in architecture.md actually used, deviations identified, contradictions found
@@ -30,10 +32,14 @@ Architect must cover six cohesion areas:
 5. **Infrastructure alignment** -- code deployable as specified, no contradicting assumptions
 6. **Technical debt assessment** -- shortcuts that create architectural debt, patterns making future development harder
 
-### 2. Dispatch Architect via Agent Dispatch
+### Execution (via agent-dispatch cycle)
+
+#### 2. Dispatch Architect via Agent Dispatch
 Invoke {workflows_path}/cycles/agent-dispatch/workflow.md to activate the Architect. Provide architecture.md, all modified files, and DEV review report.
 
-### 3. Receive Cohesion Assessment
+### Parzival's Responsibility (Layer 1)
+
+#### 3. Receive Cohesion Assessment
 Architect returns:
 
 **COHESION: CONFIRMED** -- Architecture is intact across milestone.

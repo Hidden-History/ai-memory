@@ -1,13 +1,13 @@
 ---
 name: 'step-06-pm-creates-epics-stories'
-description: 'Activate PM to break down PRD into epics and stories informed by architecture decisions'
+description: 'Define epic/story structure requirements and dispatch PM via agent-dispatch cycle'
 nextStepFile: './step-07-readiness-check.md'
 ---
 
 # Step 6: PM Creates Epics and Stories
 
 ## STEP GOAL
-After architecture is approved by Parzival, activate the PM to break down the PRD into epics and stories. Stories must be informed by architecture decisions -- this is why epics come after architecture, not before.
+After architecture is approved by Parzival, define the epic/story structure requirements and dispatch the PM via the agent-dispatch cycle to break down the PRD into epics and stories. Stories must be informed by architecture decisions -- this is why epics come after architecture, not before.
 
 ## MANDATORY EXECUTION RULES
 - Read the complete step file before taking any action
@@ -20,7 +20,9 @@ After architecture is approved by Parzival, activate the PM to break down the PR
 
 ## MANDATORY SEQUENCE
 
-### 1. Prepare PM Epics and Stories Instruction
+### Parzival's Responsibility (Layer 1)
+
+#### 1. Prepare PM Epics and Stories Instruction
 
 **Epics requirements:**
 - Group stories by feature area or component
@@ -46,10 +48,14 @@ Story sizing:
 - Produces output reviewable in one review cycle
 - If a story cannot be reviewed as a unit -- split it
 
-### 2. Dispatch PM via Agent Dispatch
+### Execution (via agent-dispatch cycle)
+
+#### 2. Dispatch PM via Agent Dispatch
 Invoke {workflows_path}/cycles/agent-dispatch/workflow.md to activate the PM. Provide both PRD.md and architecture.md as critical inputs.
 
-### 3. Review Epics and Stories
+### Parzival's Responsibility (Layer 1)
+
+#### 3. Review Epics and Stories
 Parzival reviews for:
 - Every Must Have PRD feature is covered
 - Stories map to architecture boundaries correctly
@@ -59,8 +65,8 @@ Parzival reviews for:
 - Technical context is accurate per architecture.md
 - No gaps -- no feature in PRD without a story
 
-### 4. Handle Issues
-If stories need correction, send specific issues per story to PM via {workflows_path}/cycles/agent-dispatch/workflow.md. Re-review after corrections.
+#### 4. Handle Issues
+If stories need correction, send specific issues per story via {workflows_path}/cycles/agent-dispatch/workflow.md. Re-review after corrections.
 
 ## CRITICAL STEP COMPLETION NOTE
 ONLY when epics and stories pass Parzival's review, load and read fully {nextStepFile}

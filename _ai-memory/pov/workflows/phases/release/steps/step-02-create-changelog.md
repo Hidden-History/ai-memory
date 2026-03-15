@@ -1,13 +1,13 @@
 ---
 name: 'step-02-create-changelog'
-description: 'Activate SM to create release notes and update CHANGELOG.md'
+description: 'Define changelog requirements and dispatch SM via agent-dispatch cycle'
 nextStepFile: './step-03-deployment-checklist.md'
 ---
 
 # Step 2: SM Creates Release Notes and Changelog
 
 ## STEP GOAL
-Activate the SM agent to create release notes and update CHANGELOG.md. Every changelog entry must trace to a completed story. Nothing implemented is omitted. Nothing not implemented is included.
+Define the changelog requirements and dispatch the SM agent via the agent-dispatch cycle to create release notes and update CHANGELOG.md. Every changelog entry must trace to a completed story. Nothing implemented is omitted. Nothing not implemented is included.
 
 ## MANDATORY EXECUTION RULES
 - Read the complete step file before taking any action
@@ -20,7 +20,9 @@ Activate the SM agent to create release notes and update CHANGELOG.md. Every cha
 
 ## MANDATORY SEQUENCE
 
-### 1. Prepare Changelog Instruction
+### Parzival's Responsibility (Layer 1)
+
+#### 1. Prepare Changelog Instruction
 SM must create or update CHANGELOG.md following Keep a Changelog convention:
 
 - **Added:** New features (user-facing language)
@@ -43,10 +45,14 @@ Accuracy requirements:
 - Existing behavior changes explicitly documented
 - Breaking changes prominently flagged
 
-### 2. Dispatch SM via Agent Dispatch
+### Execution (via agent-dispatch cycle)
+
+#### 2. Dispatch SM via Agent Dispatch
 Invoke {workflows_path}/cycles/agent-dispatch/workflow.md to activate the SM.
 
-### 3. Receive Changelog and Release Notes
+### Parzival's Responsibility (Layer 1)
+
+#### 3. Receive Changelog and Release Notes
 Receive CHANGELOG.md and release notes. Parzival reviews in Step 6.
 
 ## CRITICAL STEP COMPLETION NOTE

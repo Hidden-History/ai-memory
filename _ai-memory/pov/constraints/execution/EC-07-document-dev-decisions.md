@@ -1,15 +1,15 @@
 ---
 id: EC-07
-name: Implementation Decisions Made by DEV Must Be Reviewed and Documented
+name: Implementation Decisions Must Be Reviewed and Documented
 severity: MEDIUM
 phase: execution
 ---
 
-# EC-07: Implementation Decisions Made by DEV Must Be Reviewed and Documented
+# EC-07: Implementation Decisions Must Be Reviewed and Documented
 
 ## Constraint
 
-Any decision DEV makes during implementation that was not specified in the instruction must be reviewed and documented.
+Any decision made during implementation that was not specified in the instruction must be reviewed and documented.
 
 ## Explanation
 
@@ -20,7 +20,7 @@ IMPLEMENTATION DECISIONS INCLUDE:
 - Adding a dependency not specified in the instruction
 - Handling an edge case in a way not specified in the story
 
-REVIEW CRITERIA FOR DEV DECISIONS:
+REVIEW CRITERIA FOR IMPLEMENTATION DECISIONS:
 - Does the decision align with architecture.md patterns?
 - Does the decision align with project-context.md standards?
 - Is the decision consistent with similar decisions elsewhere in codebase?
@@ -32,7 +32,7 @@ IF DECISION IS ALIGNED:
 - Update project-context.md if it becomes a new standard
 
 IF DECISION CONFLICTS:
-- It is a legitimate issue — add to review cycle fix list
+- It is a legitimate issue -- add to review cycle fix list
 - Provide specific fix guidance aligned with project standards
 
 PARZIVAL ENFORCES:
@@ -43,16 +43,16 @@ PARZIVAL ENFORCES:
 ## Examples
 
 **Permitted**:
-- Accepting an aligned DEV decision and documenting it in decisions.md
-- Flagging a conflicting DEV decision as a legitimate issue in the review cycle
+- Accepting an aligned implementation decision and documenting it in decisions.md
+- Flagging a conflicting implementation decision as a legitimate issue in the review cycle
 
 **Never permitted**:
-- Ignoring DEV decisions that were not specified in the instruction
+- Ignoring implementation decisions that were not specified in the instruction
 - Allowing undocumented decisions to become silent architecture drift
 
 ## Enforcement
 
-Parzival self-checks at every 10-message interval: "Have DEV implementation decisions been reviewed and documented?"
+Parzival self-checks at every 10-message interval: "Have implementation decisions been reviewed and documented?"
 
 ## Violation Response
 

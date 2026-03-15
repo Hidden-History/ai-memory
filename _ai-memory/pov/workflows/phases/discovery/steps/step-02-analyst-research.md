@@ -1,13 +1,13 @@
 ---
 name: 'step-02-analyst-research'
-description: 'Activate Analyst agent for requirements research when input is thin or codebase needs documenting'
+description: 'Define Analyst research scope and dispatch via agent-dispatch cycle'
 nextStepFile: './step-03-pm-creates-prd.md'
 ---
 
 # Step 2: Analyst Research
 
 ## STEP GOAL
-Activate the Analyst agent to research and organize the raw material needed for PRD creation. The Analyst gathers and organizes -- the PM will write the PRD in the next step.
+Define the research scope for the Analyst agent, then dispatch via the agent-dispatch cycle. The Analyst gathers and organizes the raw material needed for PRD creation -- the PM will write the PRD in the next step.
 
 ## MANDATORY EXECUTION RULES
 - Read the complete step file before taking any action
@@ -20,7 +20,9 @@ Activate the Analyst agent to research and organize the raw material needed for 
 
 ## MANDATORY SEQUENCE
 
-### 1. Prepare Analyst Research Instruction
+### Parzival's Responsibility (Layer 1)
+
+#### 1. Prepare Analyst Research Instruction
 Build the instruction covering six research areas:
 
 1. **User and stakeholder needs** -- Who are the users? What do they need? Pain points?
@@ -30,10 +32,14 @@ Build the instruction covering six research areas:
 5. **Constraints and boundaries** -- What is out of scope, technical constraints, business constraints
 6. **Existing behavior documentation** (for existing codebase projects) -- What the current system does, what is complete/partial/missing, known issues
 
-### 2. Dispatch Analyst via Agent Dispatch
+### Execution (via agent-dispatch cycle)
+
+#### 2. Dispatch Analyst via Agent Dispatch
 Invoke {workflows_path}/cycles/agent-dispatch/workflow.md to activate the Analyst with the prepared instruction.
 
-### 3. Review Analyst Research Output
+### Parzival's Responsibility (Layer 1)
+
+#### 3. Review Analyst Research Output
 Parzival reviews for:
 - Are all research areas covered?
 - Are requirements sourced (from goals, user input, codebase)?

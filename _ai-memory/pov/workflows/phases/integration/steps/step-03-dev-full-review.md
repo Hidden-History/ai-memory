@@ -1,13 +1,13 @@
 ---
 name: 'step-03-dev-full-review'
-description: 'Activate DEV for comprehensive code review across the entire feature set'
+description: 'Define integration review scope and dispatch DEV via agent-dispatch cycle'
 nextStepFile: './step-04-architect-cohesion.md'
 ---
 
 # Step 3: DEV Full Review Pass
 
 ## STEP GOAL
-DEV performs a comprehensive code review across the entire feature set -- not individual stories. This reviews everything: feature completeness, integration correctness, cross-feature consistency, test coverage, security, and performance.
+Define the integration review scope and dispatch DEV via the agent-dispatch cycle. DEV performs a comprehensive code review across the entire feature set -- not individual stories. This reviews everything: feature completeness, integration correctness, cross-feature consistency, test coverage, security, and performance.
 
 ## MANDATORY EXECUTION RULES
 - Read the complete step file before taking any action
@@ -20,7 +20,9 @@ DEV performs a comprehensive code review across the entire feature set -- not in
 
 ## MANDATORY SEQUENCE
 
-### 1. Prepare DEV Integration Review Instruction
+### Parzival's Responsibility (Layer 1)
+
+#### 1. Prepare DEV Integration Review Instruction
 DEV must cover seven review areas:
 
 1. **Feature completeness** -- all acceptance criteria across all stories satisfied, no PRD gaps, no partial implementations
@@ -33,10 +35,14 @@ DEV must cover seven review areas:
 
 Provide: all story IDs, all files created/modified, all component boundaries, PRD.md, architecture.md, project-context.md, test plan.
 
-### 2. Dispatch DEV via Agent Dispatch
+### Execution (via agent-dispatch cycle)
+
+#### 2. Dispatch DEV via Agent Dispatch
 Invoke {workflows_path}/cycles/agent-dispatch/workflow.md to activate DEV with the review instruction.
 
-### 3. Receive Review Report
+### Parzival's Responsibility (Layer 1)
+
+#### 3. Receive Review Report
 DEV returns:
 - Issues found with location, description, scope, severity
 - Test plan execution results: PASS or FAIL for each item

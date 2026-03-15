@@ -1,13 +1,13 @@
 ---
 name: 'step-05-dev-implements-fix'
-description: 'Activate DEV to implement the maintenance fix within the defined scope'
+description: 'Define fix scope and dispatch DEV via agent-dispatch cycle'
 nextStepFile: './step-06-review-cycle.md'
 ---
 
 # Step 5: DEV Implements Fix
 
 ## STEP GOAL
-Activate the DEV agent to implement the fix as specified in the maintenance task. Scope is tightly defined -- implement only what is listed. Report but do not fix related issues.
+Define the fix scope and dispatch the DEV agent via the agent-dispatch cycle to implement the fix as specified in the maintenance task. Scope is tightly defined -- implement only what is listed. Report but do not fix related issues.
 
 ## MANDATORY EXECUTION RULES
 - Read the complete step file before taking any action
@@ -20,7 +20,9 @@ Activate the DEV agent to implement the fix as specified in the maintenance task
 
 ## MANDATORY SEQUENCE
 
-### 1. Prepare DEV Fix Instruction
+### Parzival's Responsibility (Layer 1)
+
+#### 1. Prepare DEV Fix Instruction
 Include:
 - Issue description from maintenance task
 - Root cause
@@ -36,11 +38,11 @@ Include:
 - Security check (if applicable)
 - Report back with: confirmation, files modified, test results, related issues identified
 
-### 2. Apply Hotfix vs Standard Fix Protocol
+#### 2. Apply Hotfix vs Standard Fix Protocol
 
-**HOTFIX (CRITICAL severity — production down or data at risk):**
-- Skip staging — fix directly in production flow
-- Accelerate review cycle — one focused pass
+**HOTFIX (CRITICAL severity -- production down or data at risk):**
+- Skip staging -- fix directly in production flow
+- Accelerate review cycle -- one focused pass
 - Deploy immediately after approval (no sprint planning)
 - Document hotfix in CHANGELOG.md as patch release
 - Post-hotfix: create story for proper regression test coverage
@@ -51,10 +53,14 @@ Include:
 - Fix goes through full review cycle
 - Deploy with next release or as a patch depending on severity
 
-### 3. Dispatch DEV via Agent Dispatch
+### Execution (via agent-dispatch cycle)
+
+#### 3. Dispatch DEV via Agent Dispatch
 Invoke {workflows_path}/cycles/agent-dispatch/workflow.md to activate DEV. One issue per dispatch -- never combine multiple issues.
 
-### 4. Receive Fix Report
+### Parzival's Responsibility (Layer 1)
+
+#### 4. Receive Fix Report
 DEV reports:
 - Original issue resolved: [yes/no]
 - Files modified

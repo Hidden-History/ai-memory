@@ -1,9 +1,0 @@
-# Parzival Agent Team: Analysis
-bundle:
-  name: Analysis Team
-  description: Analyst and architect agents for discovery and solutioning phases.
-agents:
-  - analyst
-  - architect
-party: null
-dispatch_mode: parallel
