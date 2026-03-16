@@ -540,9 +540,22 @@ def main() -> int:
                 )
 
             # Extract content based on tool type
+            # BUG-226: For Edit, read full file instead of just new_string
             content = ""
             if tool_name == "Edit":
-                content = tool_input.get("new_string", "")
+                # BUG-226: Read full file for richer context, fallback to new_string
+                _MAX_EDIT_READ = 200_000  # 200KB cap
+                if file_path:
+                    try:
+                        _fsize = Path(file_path).stat().st_size
+                        if _fsize <= _MAX_EDIT_READ:
+                            content = Path(file_path).read_text(encoding="utf-8", errors="replace")
+                        else:
+                            content = tool_input.get("new_string", "")
+                    except OSError:
+                        content = tool_input.get("new_string", "")
+                else:
+                    content = tool_input.get("new_string", "")
             elif tool_name == "Write":
                 content = tool_input.get("content", "")
             elif tool_name == "NotebookEdit":

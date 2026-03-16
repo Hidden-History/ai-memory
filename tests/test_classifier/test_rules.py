@@ -20,8 +20,9 @@ class TestRuleClassification:
         assert confidence >= 0.85
 
     def test_error_pattern_pattern_resolved(self):
-        """Test error_pattern pattern with 'resolved' keyword."""
-        content = "Resolved the exception by catching the error properly"
+        """Test error_pattern pattern with specific exception type."""
+        # Tightened regex (BUG-225) requires actual error indicators, not just the word 'error'
+        content = "Resolved the AttributeError by catching the exception properly"
         result = classify_by_rules(content, "code-patterns")
 
         assert result is not None

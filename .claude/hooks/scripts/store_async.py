@@ -168,10 +168,28 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                 extra={"cwd": cwd, "tool_name": tool_name},
             )
 
+        # Extract file path (needed for BUG-226 Edit full-file capture)
+        file_path = tool_input.get("file_path", "unknown")
+
         # Extract the actual code content for hashing and pattern extraction
-        # For Edit tool, extract patterns from new_string (the actual code change)
+        # BUG-226: For Edit tool, read full file instead of just new_string.
+        # new_string is only the diff -- 70-85% of Edits produce no Qdrant point
+        # because a small diff doesn't meet the significance threshold.
         if tool_name == "Edit":
-            code_content = tool_input.get("new_string", "")
+            # BUG-226: Read full file for richer context, fallback to new_string
+            _edit_path = tool_input.get("file_path", "") or (tool_response.get("filePath", "") if tool_response else "")
+            _MAX_EDIT_READ = 200_000  # 200KB cap — large files fall back to diff
+            if _edit_path:
+                try:
+                    _fsize = Path(_edit_path).stat().st_size
+                    if _fsize <= _MAX_EDIT_READ:
+                        code_content = Path(_edit_path).read_text(encoding="utf-8", errors="replace")
+                    else:
+                        code_content = tool_input.get("new_string", "")
+                except OSError:
+                    code_content = tool_input.get("new_string", "")
+            else:
+                code_content = tool_input.get("new_string", "")
         elif tool_name == "Write":
             code_content = tool_input.get("content", "")
         elif tool_name == "NotebookEdit":
@@ -280,7 +298,7 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
             )
 
         # Story 2.3: Extract patterns from the content
-        file_path = tool_input.get("file_path", "unknown")
+        # (file_path already extracted above for BUG-226 full-file capture)
 
         # BUG-013: Apply ImplementationFilter BEFORE extract_patterns()
         # Filter rejects .md, .txt, .json, insignificant changes, generated dirs
@@ -378,7 +396,7 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                     from memory.security_scanner import ScanAction, SecurityScanner
 
                     scanner = SecurityScanner(enable_ner=False)
-                    scan_result = scanner.scan(patterns["content"])
+                    scan_result = scanner.scan(patterns["content"], source_type="user_session")
                     scan_actually_ran = True
                     # SPEC-021: Capture scan outcome for 4_scan span
                     scan_action = (

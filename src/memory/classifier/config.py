@@ -355,7 +355,17 @@ VALID_TYPES: dict[str, list[str]] = {
 }
 
 # Types that should NOT be reclassified
-SKIP_RECLASSIFICATION_TYPES: list[str] = ["session", "error_pattern"]
+SKIP_RECLASSIFICATION_TYPES: frozenset[str] = frozenset({
+    "session",
+    "error_pattern",
+    "agent_response",
+    "agent_handoff",
+    "agent_task",
+    "agent_insight",
+    "decision",
+    "user_message",
+    "blocker",
+})
 
 # =============================================================================
 # RULE-BASED CLASSIFICATION PATTERNS
@@ -363,9 +373,13 @@ SKIP_RECLASSIFICATION_TYPES: list[str] = ["session", "error_pattern"]
 RULE_PATTERNS: dict[str, dict[str, Any]] = {
     "error_pattern": {
         "patterns": [
-            r"(?i)\b(traceback|exception|stack\s*trace)\b",
-            r"(?i)\berror[:\s]+\S",
+            r"(?i)\b(traceback|stack\s*trace)\b",
+            r"(?i)\b\w*Exception\b",
             r"(?i)\b(TypeError|ValueError|KeyError|AttributeError|RuntimeError|ImportError|SyntaxError|IndexError|NameError|OSError|IOError|FileNotFoundError|PermissionError|ConnectionError|TimeoutError)\b",
+            r"(?:exit\s+code|exited\s+with)\s+[1-9]\d*",
+            r"(?i)\bFAILED\b.*(?:test|assert|check)",
+            r"(?i)(?:command\s+not\s+found|No\s+such\s+file|Permission\s+denied)",
+            r"(?i)^error:\s+\S",
         ],
         "confidence": 0.90,
     },

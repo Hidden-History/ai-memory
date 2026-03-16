@@ -1003,6 +1003,14 @@ update_shared_scripts() {
 
         log_info "Syncing Docker files to installation..."
         cp -r "$docker_source/"* "$INSTALL_DIR/docker/" || { log_error "Failed to copy docker files"; return 1; }
+        # BUG-227: Update .env.example on Option 1 (add-project) installs
+        if [[ -f "$docker_source/.env.example" ]]; then
+            cp "$docker_source/.env.example" "$INSTALL_DIR/docker/.env.example" \
+                || log_warn "Failed to copy docker/.env.example (non-fatal)"
+            log_debug "Updated docker/.env.example"
+        else
+            log_warn "docker/.env.example not found in source — skipping"
+        fi
         find "$INSTALL_DIR/docker" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
         # Restore docker/.env if it was backed up (bulk cp may have overwritten with template)
@@ -3383,11 +3391,12 @@ generate_parzival_skill_shims() {
             local real_skill="$skill_dir/SKILL.md"
 
             # Extract frontmatter and first heading from real SKILL.md
-            local name_line description_line tools_line context_line title_line
+            local name_line description_line tools_line context_line trigger_line title_line
             name_line=$(grep -m1 "^name:" "$real_skill" 2>/dev/null || echo "name: $skill_name")
             description_line=$(grep -m1 "^description:" "$real_skill" 2>/dev/null || echo "description: Parzival skill")
             tools_line=$(grep -m1 "^allowed-tools:" "$real_skill" 2>/dev/null || echo "")
             context_line=$(grep -m1 "^context:" "$real_skill" 2>/dev/null || echo "")
+            trigger_line=$(grep -m1 "^trigger:" "$real_skill" 2>/dev/null || echo "")
             title_line=$(grep -m1 "^# " "$real_skill" 2>/dev/null || echo "# $skill_name")
 
             mkdir -p "$shim_dir"
@@ -3402,6 +3411,9 @@ generate_parzival_skill_shims() {
                 fi
                 if [[ -n "$context_line" ]]; then
                     echo "$context_line"
+                fi
+                if [[ -n "$trigger_line" ]]; then
+                    echo "$trigger_line"
                 fi
                 echo "---"
                 echo ""
@@ -3537,6 +3549,14 @@ deploy_ai_memory_skills() {
 
     if [[ $skills_count -gt 0 ]]; then
         log_success "Deployed $skills_count skill(s) to $PROJECT_PATH/.claude/skills/"
+    fi
+
+    # Deploy canonical skill files (required by thin shim LOAD paths)
+    local ai_mem_skills="$INSTALL_DIR/_ai-memory/skills"
+    if [[ -d "$ai_mem_skills" ]]; then
+        mkdir -p "$PROJECT_PATH/_ai-memory/skills"
+        cp -r "$ai_mem_skills/"* "$PROJECT_PATH/_ai-memory/skills/" 2>/dev/null || true
+        log_debug "Deployed _ai-memory/skills/ canonical files to project"
     fi
 }
 
