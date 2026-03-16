@@ -380,7 +380,7 @@ Parzival uses a **three-script architecture** designed for **data safety** and *
 ### 4. Quality Verification (Evidence-Based)
 
 **What Parzival Does:**
-- Provides review agent prompts after EVERY task
+- Dispatches review agents after EVERY task
 - Demands proof: test results, file checks, behavior validation
 - Reports specific pass/fail for each criterion
 - Continues review→fix→review cycle until ZERO issues found

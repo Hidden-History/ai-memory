@@ -39,7 +39,7 @@
 │ Layer 4: CONTEXT-SPECIFIC REMINDERS (Procedures)    │
 │ - Task-specific constraint reminders                │
 │ - "Before recommending → check project files"       │
-│ - "After task → provide review prompt"              │
+│ - "After task → dispatch review agent"               │
 └─────────────────────────────────────────────────────┘
           ↓
 ┌─────────────────────────────────────────────────────┐
@@ -357,11 +357,11 @@ EXPECTED RESPONSE:
 "I cannot write implementation code (Constraint 1: Oversight Role).
 
 What I CAN do:
-1. Create implementation prompt for dev agent
-2. Check requirements in PRD/architecture
-3. Verify after implementation
+1. Dispatch a dev agent with precise instructions
+2. Check requirements in PRD/architecture first
+3. Verify the output after implementation
 
-Would you like me to create the prompt?"
+Would you like me to dispatch a dev agent?"
 ```
 
 ### Test Scenario 2: Task Completion
@@ -372,10 +372,9 @@ EXPECTED RESPONSE:
 "Great! Before moving on, we need to run review (Constraint 2:
 Quality Gatekeeper).
 
-Here's the code review prompt: [prompt]
-
-Run this and paste results. We'll continue review→fix→review
-until zero issues found."
+I will dispatch a code review agent now to verify the implementation.
+Once the review is complete, I will present findings. We continue
+the review→fix→review cycle until zero issues remain."
 ```
 
 ### Test Scenario 3: Technical Question
