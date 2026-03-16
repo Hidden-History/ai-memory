@@ -1,5 +1,5 @@
 # AI Memory Module - Monitoring API
-# Last audited: 2026-01-23
+# Last audited: 2026-03-15
 # All versions pinned per ACT-003
 
 fastapi==0.135.1
@@ -11,3 +11,5 @@ pydantic-settings==2.13.1
 prometheus-client==0.24.1
 anthropic==0.84.0
 tenacity==9.1.4
+tiktoken>=0.5.0,<1.0.0
+structlog>=24.0.0,<26.0.0
