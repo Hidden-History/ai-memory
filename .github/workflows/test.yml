@@ -199,7 +199,6 @@ jobs:
           AI_MEMORY_CONTAINER_PREFIX=ci-ai-memory
           QDRANT_LOG_LEVEL=INFO
           AI_MEMORY_LOG_LEVEL=INFO
-          BMAD_LOG_LEVEL=INFO
           ENVEOF
 
       # Start all E2E services with docker-compose

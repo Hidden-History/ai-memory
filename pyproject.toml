@@ -58,13 +58,15 @@ dependencies = [
     "spacy>=3.8.0,<4.0.0",
     # Cron schedule parsing for evaluator-scheduler daemon (S-16.5, DEC-110)
     "croniter>=2.0.0,<3.0.0",
-    # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
-    "langfuse>=3.0,<4.0.0",
     # Auto-instrumentation for Anthropic SDK calls (SPEC-020 §6)
     "opentelemetry-instrumentation-anthropic>=0.1,<1.0.0",
 ]
 
 [project.optional-dependencies]
+observability = [
+    # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
+    "langfuse>=3.0,<4.0.0",
+]
 dev = [
     # Testing
     "pytest>=9.0.0,<10.0.0",
@@ -94,6 +96,8 @@ dev = [
     "ruamel.yaml>=0.19.0,<1.0.0",
     # YAML parsing (required by tests/unit/test_sops_encryption.py)
     "PyYAML>=6.0,<7.0",
+    # Include observability deps so CI has langfuse for tests
+    "langfuse>=3.0,<4.0.0",
 ]
 
 [project.urls]

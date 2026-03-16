@@ -7,7 +7,6 @@ classification_worker's emit_trace_event (trace buffer path).
 
 from src.memory.classifier.langfuse_instrument import (
     _GenerationWrapper,
-    _NoOpGeneration,
     langfuse_generation,
     reset_client,
 )
@@ -98,23 +97,6 @@ class TestNoLangfuseSDKInteraction:
             if k.startswith("langfuse") and k not in langfuse_modules
         ]
         assert new_langfuse == [], f"Unexpected langfuse imports: {new_langfuse}"
-
-
-class TestNoOpGeneration:
-    """Test _NoOpGeneration for backwards compatibility."""
-
-    def test_noop_update_does_nothing(self):
-        """NoOp generation silently ignores update calls."""
-        noop = _NoOpGeneration()
-        # Should not raise
-        noop.update(
-            input_text="test",
-            output_text="test",
-            input_tokens=100,
-            output_tokens=50,
-            metadata={"key": "value"},
-            level="ERROR",
-        )
 
 
 class TestResetClient:

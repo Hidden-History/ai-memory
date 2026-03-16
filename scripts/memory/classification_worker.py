@@ -141,7 +141,7 @@ async def process_task(task: ClassificationTask, executor: ThreadPoolExecutor) -
                     start_time=classify_start,
                     end_time=classify_end,
                     as_type="generation",  # Wave 1H: GENERATION not SPAN
-                    tags=["classification", "worker"],
+                    tags=["classification"],
                 )
             except Exception as e:
                 logger.debug("emit_classify_trace_failed: %s", e)

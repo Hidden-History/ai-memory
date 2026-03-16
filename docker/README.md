@@ -206,7 +206,8 @@ Both files share the `ai-memory_default` Docker network. The correct order matte
 | `QDRANT_GRPC_PORT` | `26351` | gRPC port (localhost-only binding) |
 | `QDRANT_LOG_LEVEL` | `INFO` | Log level (TRACE, DEBUG, INFO, WARN, ERROR) |
 | `EMBEDDING_PORT` | `28080` | Embedding service HTTP API port (localhost-only) |
-| `BMAD_LOG_LEVEL` | `INFO` | Log level for BMAD services (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
+| `AI_MEMORY_LOG_LEVEL` | `INFO` | Log level for AI Memory services (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
+| `BMAD_LOG_LEVEL` | *(deprecated)* | Deprecated alias for `AI_MEMORY_LOG_LEVEL`; use `AI_MEMORY_LOG_LEVEL` instead |
 
 ## Persistence Behavior
 

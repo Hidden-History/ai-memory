@@ -8,6 +8,7 @@ Tests verify:
 5. Edge cases (None, negative, zero, very large token counts)
 """
 
+import logging
 import sys
 from unittest.mock import patch
 
@@ -58,15 +59,16 @@ class TestClassificationTokenPush:
 
     def test_classification_fork_failure_graceful(self, caplog):
         """Verify fork failures don't crash classification."""
-        with patch("subprocess.Popen", side_effect=OSError("fork failed")):
-            # Should not raise exception
-            push_token_metrics_async(
-                operation="classification",
-                direction="input",
-                project="classifier",
-                token_count=100,
-            )
-            assert "metrics_fork_failed" in caplog.text
+        with caplog.at_level(logging.WARNING, logger="ai_memory.metrics"):
+            with patch("subprocess.Popen", side_effect=OSError("fork failed")):
+                # Should not raise exception
+                push_token_metrics_async(
+                    operation="classification",
+                    direction="input",
+                    project="classifier",
+                    token_count=100,
+                )
+                assert "metrics_fork_failed" in caplog.text
 
 
 class TestCaptureTokenPush:
@@ -89,15 +91,16 @@ class TestCaptureTokenPush:
 
     def test_capture_fork_failure_graceful(self, caplog):
         """Verify fork failures don't crash capture storage."""
-        with patch("subprocess.Popen", side_effect=OSError("fork failed")):
-            # Should not raise exception
-            push_token_metrics_async(
-                operation="capture",
-                direction="stored",
-                project="test-project",
-                token_count=500,
-            )
-            assert "metrics_fork_failed" in caplog.text
+        with caplog.at_level(logging.WARNING, logger="ai_memory.metrics"):
+            with patch("subprocess.Popen", side_effect=OSError("fork failed")):
+                # Should not raise exception
+                push_token_metrics_async(
+                    operation="capture",
+                    direction="stored",
+                    project="test-project",
+                    token_count=500,
+                )
+                assert "metrics_fork_failed" in caplog.text
 
 
 class TestTokenEstimation:
@@ -171,15 +174,17 @@ class TestMetricsLabelsCorrect:
 
     def test_invalid_operation_logged(self, caplog):
         """Verify invalid operations are logged."""
-        result = _validate_label("invalid_op", "operation", VALID_OPERATIONS)
-        assert result == "invalid_op"  # Still allowed but logged
-        assert "unexpected_label_value" in caplog.text
+        with caplog.at_level(logging.WARNING, logger="ai_memory.metrics"):
+            result = _validate_label("invalid_op", "operation", VALID_OPERATIONS)
+            assert result == "invalid_op"  # Still allowed but logged
+            assert "unexpected_label_value" in caplog.text
 
     def test_invalid_direction_logged(self, caplog):
         """Verify invalid directions are logged."""
-        result = _validate_label("invalid_dir", "direction", VALID_DIRECTIONS)
-        assert result == "invalid_dir"  # Still allowed but logged
-        assert "unexpected_label_value" in caplog.text
+        with caplog.at_level(logging.WARNING, logger="ai_memory.metrics"):
+            result = _validate_label("invalid_dir", "direction", VALID_DIRECTIONS)
+            assert result == "invalid_dir"  # Still allowed but logged
+            assert "unexpected_label_value" in caplog.text
 
 
 class TestIntegrationScenarios:
@@ -265,16 +270,17 @@ class TestPerformanceRequirements:
 
     def test_push_failure_does_not_block(self, caplog):
         """Verify push failures are logged but don't block execution."""
-        with patch("subprocess.Popen", side_effect=Exception("Unexpected error")):
-            # Should not raise
-            push_token_metrics_async(
-                operation="classification",
-                direction="input",
-                project="classifier",
-                token_count=100,
-            )
-            # Error should be logged
-            assert "metrics_fork_failed" in caplog.text
+        with caplog.at_level(logging.WARNING, logger="ai_memory.metrics"):
+            with patch("subprocess.Popen", side_effect=Exception("Unexpected error")):
+                # Should not raise
+                push_token_metrics_async(
+                    operation="classification",
+                    direction="input",
+                    project="classifier",
+                    token_count=100,
+                )
+                # Error should be logged
+                assert "metrics_fork_failed" in caplog.text
 
 
 class TestTokenMetricsEdgeCases:

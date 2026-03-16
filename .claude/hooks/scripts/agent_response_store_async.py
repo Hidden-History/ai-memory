@@ -140,6 +140,18 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                     "reason": "too_short_or_low_value",
                 },
             )
+            try:
+                from memory.metrics_push import push_capture_metrics_async
+
+                push_capture_metrics_async(
+                    hook_type="Stop",
+                    status="quality_gate_skip",
+                    project=detect_project(os.getcwd()) or "unknown",
+                    collection="skipped",
+                    count=1,
+                )
+            except ImportError:
+                pass
             return True
 
         # SPEC-021: Read trace_id from capture hook env propagation

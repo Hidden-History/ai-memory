@@ -123,20 +123,19 @@ class TestCheckServices:
         """check_services() should log health check results."""
         import logging
 
-        caplog.set_level(logging.INFO)
-
         mock_get_client.return_value = Mock()
         mock_qdrant_health.return_value = True
         mock_ec_instance = Mock()
         mock_ec_instance.health_check.return_value = False
         mock_embedding_client.return_value = mock_ec_instance
 
-        check_services()
+        with caplog.at_level(logging.INFO, logger="ai_memory"):
+            check_services()
 
-        # Verify logging occurred (structured logging)
-        assert len(caplog.records) > 0
-        # Should have logged the health check results
-        assert any("service_health" in record.message for record in caplog.records)
+            # Verify logging occurred (structured logging)
+            assert len(caplog.records) > 0
+            # Should have logged the health check results
+            assert any("service_health" in record.message for record in caplog.records)
 
     @patch("src.memory.health.get_qdrant_client")
     @patch("src.memory.health.EmbeddingClient")

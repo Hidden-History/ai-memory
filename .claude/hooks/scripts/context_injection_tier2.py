@@ -401,6 +401,7 @@ def main() -> int:
             budget=budget,
             excluded_ids=state.injected_point_ids,
             score_gap_threshold=config.injection_score_gap_threshold,
+            project_id=project_name,
         )
 
         # WP-2: Push freshness-blocked counter if any results were blocked this turn
@@ -437,7 +438,7 @@ def main() -> int:
             return 0
 
         # Format output
-        formatted = format_injection_output(selected, tier=2)
+        formatted = format_injection_output(selected, tier=2, project_id=project_name)
 
         # Update session state
         state.injected_point_ids.extend(str(r.get("id", "")) for r in selected)
