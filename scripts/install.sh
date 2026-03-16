@@ -1426,6 +1426,10 @@ install_python_dependencies() {
         "httpx:HTTP client for embedding service"
         "pydantic:Configuration validation"
         "structlog:Logging"
+        "tiktoken:Token counting for chunking"
+        "anthropic:Claude API client"
+        "langfuse:Observability tracing"
+        "numpy:Embedding operations"
     )
 
     FAILED_PACKAGES=()
@@ -1458,6 +1462,11 @@ install_python_dependencies() {
     OPTIONAL_PACKAGES=(
         "tree_sitter:AST-based code chunking"
         "tree_sitter_python:Python code parsing"
+        "tree_sitter_javascript:JavaScript code parsing"
+        "tree_sitter_typescript:TypeScript code parsing"
+        "tree_sitter_go:Go code parsing"
+        "tree_sitter_rust:Rust code parsing"
+        "spacy:NER-based PII detection (Layer 3)"
     )
 
     for pkg_info in "${OPTIONAL_PACKAGES[@]}"; do
