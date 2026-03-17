@@ -83,9 +83,7 @@ class EvaluatorConfig:
             else:
                 # OLLAMA_BASE_URL env var allows Docker deployments to point to
                 # host.docker.internal without modifying evaluator_config.yaml.
-                base_url = os.environ.get(
-                    "OLLAMA_BASE_URL", "http://localhost:11434"
-                )
+                base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 
             # Ensure /v1 suffix for OpenAI-compatible Ollama API
             if base_url and not base_url.rstrip("/").endswith("/v1"):
