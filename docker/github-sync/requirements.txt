@@ -27,6 +27,9 @@ langfuse>=3.0,<4.0.0
 anthropic>=0.61.0,<1.0.0
 structlog>=24.0.0,<26.0.0
 
+# Token counting (memory.chunking.truncation import chain)
+tiktoken>=0.5.0,<1.0.0
+
 # SPEC-009: Security scanning dependencies
 # Layer 2: detect-secrets for entropy-based secret detection
 detect-secrets>=1.4.0
