@@ -112,10 +112,7 @@ class TestMemoryConfig:
 
     def test_env_file_loading(self, monkeypatch, tmp_path):
         """AC 7.4.1: .env file loading with pydantic-settings SettingsConfigDict."""
-        # Save current directory
         import os
-
-        original_cwd = os.getcwd()
 
         # Clear environment variables
         for key in list(os.environ.keys()):
