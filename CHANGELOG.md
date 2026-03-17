@@ -17,6 +17,8 @@ Parzival V2.1 shim architecture, 7 dispatch skills, and PLAN-018 Zero Debt Sprin
 - **Skill files converted to thin routing shims**: All Parzival skill files refactored to ≤576 bytes each for maintainability
 - **Session start hook simplified**: Removed ambient injection per injection architecture v2.2 (sessions start clean)
 - **pyproject.toml**: `black 26.3.0` formatting applied
+- `.env.example` reorganized into 5 clear sections with all features enabled by default
+- All PLAN/SPEC/BUG references removed from `.env.example` comments
 
 ### Upgrade Instructions
 
@@ -38,6 +40,13 @@ Parzival V2.1 shim architecture, 7 dispatch skills, and PLAN-018 Zero Debt Sprin
    ```
 
 ### Fixed
+- **TD-308**: Single `docker/.env` source of truth — restructured .env architecture
+  - New 5-section `.env.example` layout (API Keys, Auto-Generated, Feature Toggles, Configuration, Internal)
+  - `import_user_env()` deprecated (no longer imports from root `.env`)
+  - Fixed `upgrade.sh` reading `.env` from wrong path (`$INSTALL_DIR/.env` → `$INSTALL_DIR/docker/.env`)
+  - Fixed `rollback.sh` restoring `.env` to wrong location (now restores to `docker/`)
+  - Fixed `classifier/config.py` searching `~/.ai-memory/.env` (now `~/.ai-memory/docker/.env`)
+  - Fixed `config.py` pydantic `env_file` to use absolute path via `AI_MEMORY_INSTALL_DIR`
 - **BUG-218**: RRF score floating-point precision (`0.9500000000000001` exceeds range)
 - **BUG-219**: `store_async.py` missing explicit `source_type="user_session"` on `scanner.scan()` call
 - **BUG-222**: Verified `step-03-create-handoff.md` exists in Parzival close workflow (QA report referenced wrong filename)

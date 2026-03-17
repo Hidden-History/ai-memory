@@ -40,7 +40,7 @@ class TestMemoryConfig:
                 monkeypatch.delenv(key, raising=False)
 
         reset_config()
-        config = get_config()
+        config = MemoryConfig(_env_file=None)
 
         # Core thresholds
         assert config.similarity_threshold == 0.7
@@ -148,13 +148,8 @@ QDRANT_PORT=26351
 LOG_LEVEL=WARNING
         """.strip())
 
-        # Point to the .env file (Note: pydantic-settings looks in current dir)
-        monkeypatch.chdir(tmp_path)
-
-        config = get_config()
-
-        # Restore directory immediately after getting config
-        os.chdir(original_cwd)
+        reset_config()
+        config = MemoryConfig(_env_file=str(env_file))
 
         # Verify .env values loaded
         assert config.similarity_threshold == 0.82

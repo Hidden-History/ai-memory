@@ -1213,7 +1213,7 @@ QDRANT_URL="http://localhost:26350"
 QDRANT_URL=http://localhost:26350
 ```
 
-**File Location:** Must be `~/.ai-memory/.env` (absolute path)
+**File Location:** Must be `~/.ai-memory/docker/.env` (absolute path)
 
 ---
 
@@ -1271,7 +1271,7 @@ python3 --version > /tmp/bmad-diagnostics/python-version.txt
 uname -a > /tmp/bmad-diagnostics/system-info.txt
 
 # Collect config
-cp ~/.ai-memory/.env /tmp/bmad-diagnostics/.env 2>/dev/null || echo "No .env file"
+cp ~/.ai-memory/docker/.env /tmp/bmad-diagnostics/.env 2>/dev/null || echo "No .env file"
 cp .claude/settings.json /tmp/bmad-diagnostics/settings.json 2>/dev/null || echo "No settings.json"
 
 # Create archive

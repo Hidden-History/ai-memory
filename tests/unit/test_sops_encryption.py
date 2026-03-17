@@ -80,15 +80,9 @@ class TestEncryptionConfig:
         env_file = tmp_path / ".env"
         env_file.write_text("SECRETS_BACKEND=keyring\n")
 
-        # Change working directory to tmp_path so pydantic finds .env
-        original_cwd = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            reset_config()
-            config = get_config()
-            assert config.secrets_backend == "keyring"
-        finally:
-            os.chdir(original_cwd)
+        reset_config()
+        config = MemoryConfig(_env_file=str(env_file))
+        assert config.secrets_backend == "keyring"
 
     def test_config_description_mentions_informational(self):
         """Test secrets_backend description clarifies it's informational only."""

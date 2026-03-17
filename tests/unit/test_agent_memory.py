@@ -68,7 +68,7 @@ class TestParzivalConfig:
         monkeypatch.delenv("PARZIVAL_HANDOFF_RETENTION", raising=False)
 
         reset_config()
-        config = MemoryConfig()
+        config = MemoryConfig(_env_file=None)
         assert config.parzival_enabled is False
         assert config.parzival_user_name == "Developer"
         assert config.parzival_language == "English"
