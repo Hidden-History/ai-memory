@@ -57,6 +57,7 @@ except ImportError:
 
         return decorator
 
+
 logger = logging.getLogger("ai_memory.classifier.llm_classifier")
 
 __all__ = ["ClassificationResult", "classify"]

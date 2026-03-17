@@ -355,17 +355,19 @@ VALID_TYPES: dict[str, list[str]] = {
 }
 
 # Types that should NOT be reclassified
-SKIP_RECLASSIFICATION_TYPES: frozenset[str] = frozenset({
-    "session",
-    "error_pattern",
-    "agent_response",
-    "agent_handoff",
-    "agent_task",
-    "agent_insight",
-    "decision",
-    "user_message",
-    "blocker",
-})
+SKIP_RECLASSIFICATION_TYPES: frozenset[str] = frozenset(
+    {
+        "session",
+        "error_pattern",
+        "agent_response",
+        "agent_handoff",
+        "agent_task",
+        "agent_insight",
+        "decision",
+        "user_message",
+        "blocker",
+    }
+)
 
 # =============================================================================
 # RULE-BASED CLASSIFICATION PATTERNS

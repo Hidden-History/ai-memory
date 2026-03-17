@@ -149,7 +149,9 @@ def configure_logging(level: str | None = None) -> None:
 
     # Determine formatter from environment variable
     # Check new name first, fall back to deprecated name
-    log_format = os.getenv("AI_MEMORY_LOG_FORMAT") or os.getenv("BMAD_LOG_FORMAT") or "json"
+    log_format = (
+        os.getenv("AI_MEMORY_LOG_FORMAT") or os.getenv("BMAD_LOG_FORMAT") or "json"
+    )
     if os.getenv("BMAD_LOG_FORMAT") and not os.getenv("AI_MEMORY_LOG_FORMAT"):
         warnings.warn(
             "BMAD_LOG_FORMAT is deprecated, use AI_MEMORY_LOG_FORMAT instead",

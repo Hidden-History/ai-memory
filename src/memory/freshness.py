@@ -417,7 +417,9 @@ def run_freshness_scan(
         )
 
     _trace_start = datetime.now(timezone.utc)
-    scan_session_id = f"freshness_scan_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
+    scan_session_id = (
+        f"freshness_scan_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
+    )
     if emit_trace_event:
         with contextlib.suppress(Exception):
             emit_trace_event(

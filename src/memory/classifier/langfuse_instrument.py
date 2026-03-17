@@ -98,4 +98,3 @@ class _GenerationWrapper:
             self.metadata.update(metadata)
         if level is not None:
             self.level = level
-

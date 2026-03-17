@@ -379,7 +379,9 @@ class TestMemorySearchErrorHandling:
             search.search(query="test", collection="code-patterns", group_id="proj")
 
             # Verify structured logging occurred
-            assert any("search_completed" in record.message for record in caplog.records)
+            assert any(
+                "search_completed" in record.message for record in caplog.records
+            )
 
 
 class TestMemorySearchIntegration:
