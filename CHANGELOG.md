@@ -5,6 +5,56 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-03-17
+
+Parzival V2.1 shim architecture, 7 dispatch skills, and PLAN-018 Zero Debt Sprint: floating-point precision, reclassification protection, log level env var rename, Langfuse optional deps, SQL injection hardening, and full semantic tag coverage across all 108 hook trace calls.
+
+### Added
+- **Parzival V2.1 — shim architecture**: Dispatch skills, GC-19/GC-20 constraints, and POV step-file workflow architecture
+- **7 Parzival skill shims**: `team-builder`, `agent-dispatch`, `bmad-dispatch`, `agent-lifecycle`, `model-dispatch`, `bootstrap`, `constraints` — thin routing shims (≤576 bytes each)
+
+### Changed
+- **Skill files converted to thin routing shims**: All Parzival skill files refactored to ≤576 bytes each for maintainability
+- **Session start hook simplified**: Removed ambient injection per injection architecture v2.2 (sessions start clean)
+- **pyproject.toml**: `black 26.3.0` formatting applied
+
+### Upgrade Instructions
+
+1. **Run Option 1 reinstall**:
+   ```bash
+   cd /path/to/your/ai-memory-clone
+   git pull origin main
+   ./scripts/install.sh /path/to/your-project
+   # Select Option 1 (Add project to existing installation)
+   ```
+
+2. **Rename log level env vars** (old names still work with a deprecation warning):
+   - `BMAD_LOG_LEVEL` → `AI_MEMORY_LOG_LEVEL`
+   - `BMAD_LOG_FORMAT` → `AI_MEMORY_LOG_FORMAT`
+
+3. **Langfuse is now optional**: If you use Langfuse observability, install the extras group:
+   ```bash
+   pip install ai-memory[observability]
+   ```
+
+### Fixed
+- **BUG-218**: RRF score floating-point precision (`0.9500000000000001` exceeds range)
+- **BUG-219**: `store_async.py` missing explicit `source_type="user_session"` on `scanner.scan()` call
+- **BUG-222**: Verified `step-03-create-handoff.md` exists in Parzival close workflow (QA report referenced wrong filename)
+- **BUG-225**: `SKIP_RECLASSIFICATION_TYPES` expanded to protect `agent_response`, `decision`, `agent_handoff`
+- **BUG-227**: Installer Option 1 now updates `docker/.env.example`
+- **BUG-228–235**: Copy-paste tags, hook_type labels, Langfuse port fixes, caplog reliability, log format tests
+- **TD-262**: Log level/format env vars renamed to `AI_MEMORY_*` (`BMAD_*` deprecated with warnings)
+- **TD-189**: Langfuse moved to optional dependencies
+- **TD-275/289**: Semantic tags on all 108 `emit_trace_event` calls in hook scripts
+- **TD-290**: `@observe(as_type="generation")` on classifier LLM calls
+- **TD-291–292**: Freshness naming consistency, quality gate push metrics
+
+### Security
+- **TD-220**: SQL injection fix in `langfuse_setup.sh` (parameterized psql queries)
+
+---
+
 ## [2.2.3] - 2026-03-15
 
 Complete Langfuse observability pipeline: observation-level evaluation for all 6 evaluators, automated scheduling, exponential backoff retry, and security hardening.

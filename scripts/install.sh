@@ -3001,6 +3001,13 @@ setup_audit_directory() {
             echo ".claude/settings.local.json" >> "$PROJECT_PATH/.gitignore"
             log_debug "Added .claude/settings.local.json to .gitignore"
         fi
+        # M-12: _ai-memory/ contains Parzival internals — must be gitignored
+        if ! grep -q "^_ai-memory/" "$PROJECT_PATH/.gitignore" 2>/dev/null; then
+            echo "" >> "$PROJECT_PATH/.gitignore"
+            echo "# AI Memory Parzival internals (do not commit)" >> "$PROJECT_PATH/.gitignore"
+            echo "_ai-memory/" >> "$PROJECT_PATH/.gitignore"
+            log_debug "Added _ai-memory/ to .gitignore"
+        fi
     else
         # Create .gitignore if it doesn't exist
         echo "# AI Memory audit trail (ephemeral/sensitive data)" > "$PROJECT_PATH/.gitignore"
@@ -3008,7 +3015,10 @@ setup_audit_directory() {
         echo "" >> "$PROJECT_PATH/.gitignore"
         echo "# AI Memory local settings (contains API keys — do not commit)" >> "$PROJECT_PATH/.gitignore"
         echo ".claude/settings.local.json" >> "$PROJECT_PATH/.gitignore"
-        log_debug "Created .gitignore with .audit/ and settings.local.json entries"
+        echo "" >> "$PROJECT_PATH/.gitignore"
+        echo "# AI Memory Parzival internals (do not commit)" >> "$PROJECT_PATH/.gitignore"
+        echo "_ai-memory/" >> "$PROJECT_PATH/.gitignore"
+        log_debug "Created .gitignore with .audit/, settings.local.json, and _ai-memory/ entries"
     fi
 
     # Generate README (overwritten on re-install to pick up latest content)

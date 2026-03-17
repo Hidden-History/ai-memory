@@ -378,7 +378,7 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                     from memory.security_scanner import ScanAction, SecurityScanner
 
                     scanner = SecurityScanner(enable_ner=False)
-                    scan_result = scanner.scan(patterns["content"])
+                    scan_result = scanner.scan(patterns["content"], source_type="user_session")
                     scan_actually_ran = True
                     # SPEC-021: Capture scan outcome for 4_scan span
                     scan_action = (
