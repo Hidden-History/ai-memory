@@ -1075,7 +1075,8 @@ update_shared_scripts() {
         log_debug "Templates updated"
     fi
 
-    # Re-import user .env customizations (new env vars from updates, e.g. OLLAMA_API_KEY)
+    # DEPRECATED: import_user_env() is now a no-op (warns if legacy root .env exists)
+    # New env vars must be added manually to $INSTALL_DIR/docker/.env
     import_user_env
 
     if [[ $updated_count -gt 0 || $hooks_count -gt 0 || $docker_count -gt 0 ]]; then
@@ -1654,89 +1655,19 @@ copy_files() {
     log_success "Files copied to $INSTALL_DIR"
 }
 
-# BUG-186: Import user customizations from $SOURCE_DIR/.env into $INSTALL_DIR/docker/.env
-# Called after copy_files and before configure_environment so imported credentials
-# are present when credential generation checks run.
+# DEPRECATED: import_user_env() no longer imports from root .env.
+# docker/.env is the single source of truth for all configuration.
+# This function is kept as a stub to preserve call sites at line 746 and 1078.
 import_user_env() {
-    local docker_env="$INSTALL_DIR/docker/.env"
-    # SOURCE_DIR is set during full install; fall back to SCRIPT_DIR parent for Option 1
     local source_root="${SOURCE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
     local user_env="$source_root/.env"
 
-    # Only import if user's .env exists and docker/.env exists
-    if [[ ! -f "$user_env" ]] || [[ ! -f "$docker_env" ]]; then
-        return 0
+    if [[ -f "$user_env" ]]; then
+        log_warning "Found legacy root .env at $user_env"
+        log_warning "The root .env is no longer used. All configuration lives in docker/.env"
+        log_warning "If you have API keys in $user_env, add them to $INSTALL_DIR/docker/.env Section 1"
     fi
-
-    log_info "Found user .env at $user_env — importing customizations..."
-
-    local imported=0
-    while IFS= read -r line; do
-        # Skip comments and empty lines
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "${line// }" ]] && continue
-
-        # Extract key and value
-        local key="${line%%=*}"
-
-        # Skip lines without = separator
-        [[ "$key" == "$line" ]] && continue
-
-        local value="${line#*=}"
-
-        # Determine raw value (without quotes) for validation checks
-        local raw_value="$value"
-        if [[ "$raw_value" =~ ^\"(.*)\"$ ]]; then
-            raw_value="${BASH_REMATCH[1]}"
-        elif [[ "$raw_value" =~ ^\'(.*)\'$ ]]; then
-            raw_value="${BASH_REMATCH[1]}"
-        fi
-
-        # Skip keys with invalid characters (safety against regex injection)
-        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-
-        # Skip empty values
-        [[ -z "$raw_value" ]] && continue
-
-        # Skip installer-managed keys (paths, ports, container prefix)
-        case "$key" in
-            AI_MEMORY_INSTALL_DIR|AI_MEMORY_CONTAINER_PREFIX|AI_MEMORY_PROJECT_ID)
-                continue ;;
-            *_PORT|*_HOST)
-                continue ;;
-        esac
-
-        # Skip known placeholder values (case-insensitive)
-        local lower_value
-        lower_value=$(echo "$raw_value" | tr '[:upper:]' '[:lower:]')
-        case "$lower_value" in
-            changeme|your-key-here|your-*|change_me|todo|placeholder)
-                continue ;;
-        esac
-
-        # Import: remove old key line (if any) and append new value
-        # Uses grep -v + echo to avoid sed metacharacter issues (|, &, \)
-        local tmp_env
-        tmp_env=$(grep -v "^${key}=" "$docker_env" 2>/dev/null) || true
-        if [[ -n "$tmp_env" ]]; then
-            printf '%s\n' "$tmp_env" > "$docker_env"
-        else
-            : > "$docker_env"
-        fi
-        # Write value: preserve existing quotes, add double quotes if unquoted
-        if [[ "$value" =~ ^\".*\"$ ]] || [[ "$value" =~ ^\'.*\'$ ]]; then
-            echo "${key}=${value}" >> "$docker_env"
-        else
-            echo "${key}=\"${value}\"" >> "$docker_env"
-        fi
-        imported=$((imported + 1))
-    done < "$user_env"
-
-    if [[ $imported -gt 0 ]]; then
-        log_success "Imported $imported customization(s) from user .env"
-    else
-        log_debug "No customizations to import from user .env"
-    fi
+    return 0
 }
 
 # Environment configuration (AC 7.1.6)

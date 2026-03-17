@@ -121,7 +121,16 @@ class MemoryConfig(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(
+            Path(
+                os.environ.get(
+                    "AI_MEMORY_INSTALL_DIR",
+                    str(Path.home() / ".ai-memory"),
+                )
+            )
+            / "docker"
+            / ".env"
+        ),
         env_file_encoding="utf-8",
         env_ignore_empty=True,  # Use defaults instead of empty strings
         case_sensitive=False,  # SIMILARITY_THRESHOLD = similarity_threshold

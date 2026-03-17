@@ -138,10 +138,14 @@ stop_services() {
 restore_backup() {
     log_info "Restoring backup..."
 
-    # Restore .env if present in backup
-    if [[ -f "$SELECTED_BACKUP/.env" ]]; then
-        cp "$SELECTED_BACKUP/.env" "$INSTALL_DIR/"
-        log_info "Restored .env"
+    # Restore docker/.env if present in backup
+    if [[ -f "$SELECTED_BACKUP/docker/.env" ]]; then
+        cp "$SELECTED_BACKUP/docker/.env" "$INSTALL_DIR/docker/"
+        log_info "Restored docker/.env"
+    elif [[ -f "$SELECTED_BACKUP/.env" ]]; then
+        # Legacy backup: .env was at root level
+        cp "$SELECTED_BACKUP/.env" "$INSTALL_DIR/docker/"
+        log_info "Restored .env (legacy location) to docker/.env"
     fi
 
     # Restore settings.json if present

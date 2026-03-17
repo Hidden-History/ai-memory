@@ -170,7 +170,7 @@ else
 fi
 
 # Step 3.6: Ingest historical handoffs (if Parzival enabled)
-if grep -q "^PARZIVAL_ENABLED=true" "$INSTALL_DIR/.env" 2>/dev/null; then
+if grep -q "^PARZIVAL_ENABLED=true" "$INSTALL_DIR/docker/.env" 2>/dev/null; then
     echo -e "${YELLOW}Step 3.6: Ingesting historical handoffs...${NC}"
     if python3 "$SCRIPT_DIR/ingest_historical_handoffs.py"; then
         echo -e "${GREEN}  ✓ Handoff ingestion complete${NC}"

@@ -23,10 +23,11 @@ def _load_env_file() -> None:
     """
     # Try multiple possible locations for .env
     possible_paths = [
+        Path(os.environ.get("AI_MEMORY_INSTALL_DIR", "")) / "docker" / ".env",
         Path(__file__).parent.parent.parent.parent
         / "docker"
         / ".env",  # src/memory/classifier -> project/docker/.env
-        Path.home() / ".ai-memory" / ".env",
+        Path.home() / ".ai-memory" / "docker" / ".env",
         Path("/app/docker/.env"),  # Docker container path
     ]
 
