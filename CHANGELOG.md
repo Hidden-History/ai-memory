@@ -30,16 +30,36 @@ Parzival V2.1 shim architecture, 7 dispatch skills, and PLAN-018 Zero Debt Sprin
    # Select Option 1 (Add project to existing installation)
    ```
 
-2. **Rename log level env vars** (old names still work with a deprecation warning):
+2. **Rebuild github-sync container** (code is baked into the Docker image, not volume-mounted):
+   ```bash
+   cd ~/.ai-memory/docker
+   unset QDRANT_API_KEY  # Prevent shell env overriding .env file
+   docker compose build --no-cache github-sync
+   docker compose up -d github-sync
+   ```
+
+3. **Restart evaluator-scheduler** (picks up new env vars from `.env`):
+   ```bash
+   cd ~/.ai-memory
+   bash scripts/stack.sh restart
+   ```
+
+4. **Rename log level env vars** (old names still work with a deprecation warning):
    - `BMAD_LOG_LEVEL` → `AI_MEMORY_LOG_LEVEL`
    - `BMAD_LOG_FORMAT` → `AI_MEMORY_LOG_FORMAT`
 
-3. **Langfuse is now optional**: If you use Langfuse observability, install the extras group:
+5. **Langfuse is now optional**: If you use Langfuse observability, install the extras group:
    ```bash
    pip install ai-memory[observability]
    ```
 
+**Important notes**:
+- Always run `unset QDRANT_API_KEY` before `docker compose` operations (shell env overrides `.env` file)
+- Always run `docker compose` from `~/.ai-memory/docker/`, never from the source repo
+- Containers with code baked in (github-sync) need rebuild after code updates; volume-mounted containers (evaluator-scheduler, classifier-worker) get updates automatically
+
 ### Fixed
+- **BUG-236**: `docker/github-sync/requirements.txt` missing `tiktoken` — container crash loop after rebuild due to `memory.__init__` → `storage` → `chunking` → `truncation` → `tiktoken` import chain
 - **TD-308**: Single `docker/.env` source of truth — restructured .env architecture
   - New 5-section `.env.example` layout (API Keys, Auto-Generated, Feature Toggles, Configuration, Internal)
   - `import_user_env()` deprecated (no longer imports from root `.env`)
@@ -47,6 +67,7 @@ Parzival V2.1 shim architecture, 7 dispatch skills, and PLAN-018 Zero Debt Sprin
   - Fixed `rollback.sh` restoring `.env` to wrong location (now restores to `docker/`)
   - Fixed `classifier/config.py` searching `~/.ai-memory/.env` (now `~/.ai-memory/docker/.env`)
   - Fixed `config.py` pydantic `env_file` to use absolute path via `AI_MEMORY_INSTALL_DIR`
+  - All compose-referenced vars now uncommented in `.env.example` (11 were previously commented or missing)
 - **BUG-218**: RRF score floating-point precision (`0.9500000000000001` exceeds range)
 - **BUG-219**: `store_async.py` missing explicit `source_type="user_session"` on `scanner.scan()` call
 - **BUG-222**: Verified `step-03-create-handoff.md` exists in Parzival close workflow (QA report referenced wrong filename)
