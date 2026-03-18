@@ -66,34 +66,45 @@ Traditional knowledge bases require upfront schema design and manual curation. A
 
 ---
 
-## 🛡️ Parzival: Technical PM & Quality Gatekeeper
+## Parzival: AI Project Manager
 
-Parzival is your AI project manager embedded in Claude Code. Describe what needs doing, and Parzival orchestrates the work with verified precision — reading your architecture, PRD, and standards before creating prompts, never after.
+Parzival is your AI project manager for Claude Code. He manages your project from first idea through production and beyond — planning the work, activating parallel agent teams, reviewing all output adversarially, and maintaining the project for its lifetime. You talk to Parzival. Parzival manages everything else.
 
-**Core capabilities:**
+**Full project lifecycle:**
 
-- **Agent team orchestration**: `/parzival-team` builds 3-tier parallel team prompts (lead → workers → reviewers) with exact file paths, line numbers, acceptance criteria, and project-specific context — derived from your actual project files, not assumptions
-- **Quality gate enforcement**: Mandatory review→fix→review cycles that continue until zero issues are found. Parzival never accepts "looks good enough"
-- **Verified instructions**: Every recommendation is checked against project files first and rated with a confidence level (Verified/Informed/Inferred/Uncertain/Unknown), with source citations included
-- **False positive catching**: When review agents flag issues, Parzival verifies findings against actual source code before acting — preventing wasted cycles on non-issues
-- **Decision support**: Presents options with pros/cons, tradeoffs, source citations, and confidence levels, then waits for your approval before proceeding
-- **Risk and blocker tracking**: Identifies risks proactively with severity levels and escalation paths; surfaces critical issues immediately
-- **Session continuity**: Handoffs are dual-written to local oversight files and the Qdrant `discussions` collection, enabling automatic cross-session resume at every `SessionStart`
-- **Sprint and task management**: Tracks sprints, tasks, blockers, and decisions across sessions via structured oversight files (`task-tracker.md`, `decisions-log.md`, `SESSION_WORK_INDEX.md`)
+- **Init (new project)**: Parzival walks you through setting up goals, scope, and oversight structure from scratch
+- **Init (existing project)**: Parzival audits what exists — code, docs, planning artifacts — and establishes oversight around it
+- **Discovery**: Analyst researches, PM produces a validated PRD with your sign-off
+- **Architecture**: Architect designs the system, PM breaks it into epics and stories, Architect confirms readiness
+- **Planning**: Scrum Master initializes sprints and creates implementation-ready story files
+- **Execution**: DEV implements, DEV code-reviews, Parzival loops until zero legitimate issues, you approve
+- **Integration**: Full test plan, cohesion check, all modules verified together
+- **Release**: Changelog, rollback plan, deployment verification, your sign-off
+- **Maintenance**: Bug fixes, new features, tech debt — Parzival triages, dispatches, and verifies for the life of the project
 
-**How the workflow works:**
+**How it works:**
 
-1. You describe the work to Parzival
+1. You describe what needs doing
 2. Parzival reads your architecture, PRD, and standards before making any recommendation
-3. Parzival builds a precise agent team prompt — or individual dev prompt — with exact file paths and acceptance criteria
-4. You run the agents; Parzival reviews the results
-5. Review→fix→review continues until zero issues are found, then you approve
+3. Parzival activates parallel agent teams via Claude Code teams, giving each agent precise, file-referenced instructions
+4. Parzival reviews all agent output adversarially before presenting results to you
+5. Review, fix, review continues until zero issues remain, then you approve
 
-**The core principle: Parzival recommends. You decide.** Parzival is the radar operator on the ship — you are the captain who steers. It monitors, navigates, and verifies. It never writes code, makes final decisions, or executes agents autonomously. A 5-layer constraint system prevents the behavioral drift that causes AI agents to forget their role over long conversations.
+**Dispatch skills:**
 
-Parzival is optional — AI Memory's core features (semantic decay, GitHub sync, search skills, freshness detection) work independently without it. For teams managing complex projects across many sessions, Parzival is the orchestration layer that keeps everything on track.
+| Skill | Purpose |
+|-------|---------|
+| **Team Builder** | Designs parallel agent teams (2-tier or 3-tier) based on work complexity, assigns ownership, avoids file conflicts |
+| **Agent Dispatch** | Prepares agent instructions and handles activation (Layer 3a, steps 1-3 of the 9-step pipeline) |
+| **Agent Lifecycle** | Manages the running agent — send, monitor, review, accept/loop, shutdown, summary (steps 4-9) |
+| **BMAD Dispatch** | Selects the right specialized agent for each task (Analyst, PM, Architect, DEV, Scrum Master, UX Designer) |
+| **Model Dispatch** | Optional multi-provider LLM routing (Claude, Ollama, OpenRouter) based on task complexity and agent role |
 
-See [docs/PARZIVAL-SESSION-GUIDE.md](docs/PARZIVAL-SESSION-GUIDE.md) for setup, commands, and the full skills reference.
+**The core principle: Parzival recommends. You decide.** Parzival is the navigator — you are the captain. He plans, delegates, and verifies. He never writes code, never makes final decisions without your approval, and a 17-constraint enforcement system prevents behavioral drift across long sessions.
+
+Parzival is optional but highly recommended — he enables cross-session agent memory, full project lifecycle management, and the quality enforcement that keeps complex multi-session projects on track. AI Memory's core features (semantic search, GitHub sync, skills, freshness detection) work independently, but Parzival is where the system reaches its full potential. To start: `/pov:parzival`
+
+See [docs/parzival/](docs/parzival/) for the full documentation suite.
 
 ---
 

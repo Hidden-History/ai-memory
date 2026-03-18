@@ -19,9 +19,11 @@ evaluator_model:
   max_retries: 3            # Retry on 500/502/503/429 and network errors
 
   # base_url: Override Ollama endpoint URL.
-  #   Local (default): http://localhost:11434/v1
-  #   Cloud (ollama.com): https://ollama.com/v1
-  # base_url: https://ollama.com/v1
+  #   Docker (default): http://host.docker.internal:11434
+  #   Local dev:        http://localhost:11434
+  #   Cloud (ollama.com): https://ollama.com
+  # Override via OLLAMA_BASE_URL env var. Provider automatically appends /v1 for OpenAI compatibility.
+  # base_url: http://host.docker.internal:11434
 
   # API keys per provider — read from environment variables at runtime:
   #   ollama:      OLLAMA_API_KEY (optional for local, required for cloud)

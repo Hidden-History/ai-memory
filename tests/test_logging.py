@@ -172,12 +172,13 @@ class TestEnvironmentVariableControl:
         """Test that AI_MEMORY_LOG_LEVEL environment variable controls log level."""
         from src.memory.logging_config import configure_logging
 
-        with patch.dict(os.environ, {"BMAD_LOG_LEVEL": "DEBUG"}):
+        # Test primary env var: AI_MEMORY_LOG_LEVEL (overrides any pre-existing value)
+        with patch.dict(os.environ, {"AI_MEMORY_LOG_LEVEL": "DEBUG"}):
             configure_logging()
             logger = logging.getLogger("ai_memory")
             assert logger.level == logging.DEBUG
 
-        with patch.dict(os.environ, {"BMAD_LOG_LEVEL": "ERROR"}):
+        with patch.dict(os.environ, {"AI_MEMORY_LOG_LEVEL": "ERROR"}):
             # Need to remove existing handlers to reconfigure
             logger = logging.getLogger("ai_memory")
             logger.handlers.clear()
@@ -188,7 +189,7 @@ class TestEnvironmentVariableControl:
         """Test that AI_MEMORY_LOG_FORMAT=text produces human-readable output."""
         from src.memory.logging_config import configure_logging
 
-        with patch.dict(os.environ, {"BMAD_LOG_FORMAT": "text"}):
+        with patch.dict(os.environ, {"AI_MEMORY_LOG_FORMAT": "text"}):
             # Clear existing handlers
             logger = logging.getLogger("ai_memory")
             logger.handlers.clear()
@@ -446,3 +447,75 @@ class TestConfigureLoggingIdempotency:
 
         # Should still have only 1 handler
         assert len(logger.handlers) == 1
+
+
+class TestDeprecatedEnvVarAliases:
+    """Tests for deprecated BMAD_LOG_* env var backwards-compatibility."""
+
+    def test_deprecated_bmad_log_level_still_works(self):
+        """BMAD_LOG_LEVEL (deprecated) still works when AI_MEMORY_LOG_LEVEL is absent."""
+        with patch.dict(os.environ, {"BMAD_LOG_LEVEL": "WARNING"}, clear=False):
+            # Remove AI_MEMORY_LOG_LEVEL if present
+            os.environ.pop("AI_MEMORY_LOG_LEVEL", None)
+            import warnings
+
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                from src.memory.logging_config import configure_logging
+
+                configure_logging()
+                # Should emit deprecation warning
+                deprecation_warnings = [
+                    x
+                    for x in w
+                    if issubclass(x.category, DeprecationWarning)
+                    and "BMAD_LOG_LEVEL" in str(x.message)
+                ]
+                assert (
+                    len(deprecation_warnings) >= 1
+                ), f"Expected deprecation warning, got {w}"
+
+    def test_new_log_level_suppresses_deprecation_warning(self):
+        """When AI_MEMORY_LOG_LEVEL is set, no deprecation warning even if BMAD_LOG_LEVEL also set."""
+        with patch.dict(
+            os.environ,
+            {"AI_MEMORY_LOG_LEVEL": "DEBUG", "BMAD_LOG_LEVEL": "WARNING"},
+            clear=False,
+        ):
+            import warnings
+
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                from src.memory.logging_config import configure_logging
+
+                configure_logging()
+                deprecation_warnings = [
+                    x
+                    for x in w
+                    if issubclass(x.category, DeprecationWarning)
+                    and "BMAD_LOG_LEVEL" in str(x.message)
+                ]
+                assert (
+                    len(deprecation_warnings) == 0
+                ), f"Should not warn when new var set, got {w}"
+
+    def test_deprecated_bmad_log_format_still_works(self):
+        """BMAD_LOG_FORMAT (deprecated) still works when AI_MEMORY_LOG_FORMAT is absent."""
+        with patch.dict(os.environ, {"BMAD_LOG_FORMAT": "text"}, clear=False):
+            os.environ.pop("AI_MEMORY_LOG_FORMAT", None)
+            import warnings
+
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                from src.memory.logging_config import configure_logging
+
+                configure_logging()
+                deprecation_warnings = [
+                    x
+                    for x in w
+                    if issubclass(x.category, DeprecationWarning)
+                    and "BMAD_LOG_FORMAT" in str(x.message)
+                ]
+                assert (
+                    len(deprecation_warnings) >= 1
+                ), f"Expected deprecation warning, got {w}"

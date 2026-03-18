@@ -14,7 +14,7 @@ This file is not a workflow itself. It is the routing engine. Every session star
 **Session start sequence -- always in this order**:
 ```
 1. parzival.md              -> identity and constraints active
-2. {constraints_path}/global/constraints.md -> GC-1 through GC-12 active
+2. {constraints_path}/global/constraints.md -> GC-1 through GC-20 active
 3. {workflows_path}/WORKFLOW-MAP.md         -> this file -- determine routing
 4. project-status.md        -> read current project state
 5. [phase workflow]          -> load correct workflow file

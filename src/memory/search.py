@@ -641,7 +641,9 @@ class MemorySearch:
                 score_range = max_score - min_score
                 for m in memories:
                     if score_range > 0:
-                        m["score"] = 0.5 + 0.45 * (m["score"] - min_score) / score_range
+                        m["score"] = min(
+                            0.95, 0.5 + 0.45 * (m["score"] - min_score) / score_range
+                        )
                     else:
                         # All same score (or single result) → use midpoint
                         m["score"] = 0.75

@@ -306,6 +306,8 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:?Run langfuse_setup.sh first to generate API keys}
       # Use internal service name for container-to-container communication
       - LANGFUSE_BASE_URL=http://langfuse-web:3000
+      # Ollama base URL — must use host.docker.internal inside Docker (not localhost)
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       # Optional LLM provider API keys (read from env; not all are required)
       - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}

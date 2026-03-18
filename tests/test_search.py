@@ -373,13 +373,15 @@ class TestMemorySearchErrorHandling:
         self, mock_config, mock_qdrant_client, mock_embedding_client, caplog
     ):
         """Test search logs successful operation with structured extras."""
-        caplog.set_level(logging.INFO)  # Required for caplog to capture INFO level
         search = MemorySearch()
 
-        search.search(query="test", collection="code-patterns", group_id="proj")
+        with caplog.at_level(logging.INFO, logger="ai_memory"):
+            search.search(query="test", collection="code-patterns", group_id="proj")
 
-        # Verify structured logging occurred
-        assert any("search_completed" in record.message for record in caplog.records)
+            # Verify structured logging occurred
+            assert any(
+                "search_completed" in record.message for record in caplog.records
+            )
 
 
 class TestMemorySearchIntegration:

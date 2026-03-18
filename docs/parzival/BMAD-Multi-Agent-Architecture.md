@@ -1,8 +1,10 @@
 # BMAD Multi-Agent System - Architecture Specification v2.0
 
-**Last Updated**: 2026-01-21
-**Status**: Design & Planning
-**Target**: Parzival Module v2.0
+**Last Updated**: 2026-03-15
+**Status**: Design & Planning (aspirational web UI); Parzival 2.1 agent dispatch operational via Claude Code teams
+**Target**: Parzival Module v2.0 (web UI); Parzival 2.1 (current CLI-based orchestration)
+
+> **Note -- Parzival 2.1 Current State**: As of v2.1, Parzival operates entirely within Claude Code. He activates and manages all agents himself via Claude Code teams (TeamCreate + Agent with team_name). The user interacts with Parzival only. Agent dispatch uses a skill-based architecture with content in `_ai-memory/pov/skills/` and shims in `.claude/skills/`. The web UI architecture described in this document (React multi-terminal, FastAPI backend, PostgreSQL orchestration) remains the aspirational design for a future standalone module. See `_ai-memory/pov/agents/parzival.md` for the current agent definition and `_ai-memory/pov/constraints/global/constraints.md` for GC-01 through GC-15, GC-19, GC-20.
 
 ---
 
@@ -106,9 +108,9 @@ Phase 4: Parzival Enforces Quality
   Only then: Parzival marks story complete
 ```
 
-**Technology**: Claude Agent SDK instance with orchestration system prompt
+**Technology**: Claude Agent SDK instance with orchestration system prompt. In Parzival 2.1, agents are spawned as Claude Code teammates (GC-19: TeamCreate + Agent with team_name), not standalone subagents. BMAD agent activation and instruction must be separate messages (GC-20).
 
-**Configuration**: `bmad-parzival-module/pov/agents/parzival.md`
+**Configuration**: `_ai-memory/pov/agents/parzival.md`
 
 ---
 
@@ -140,9 +142,9 @@ Phase 4: Parzival Enforces Quality
    - Progress updates in tracking files
    - Updated feature status
 
-**Technology**: Claude Agent SDK instances with role-specific system prompts
+**Technology**: Claude Agent SDK instances with role-specific system prompts. In Parzival 2.1, all agents are spawned as teammates via the aim-parzival-team-builder skill and dispatched through the agent-dispatch workflow.
 
-**Configuration**: `bmad-parzival-module/pov/agents/*.md`
+**Configuration**: `_ai-memory/pov/agents/*.md`
 
 ---
 
@@ -405,8 +407,12 @@ audit_log (id, agent_id, action, metadata, success, timestamp)
 - ✅ State confidence level with recommendations
 - ✅ Ask user when uncertain
 - ✅ Enforce review until zero issues
+- ✅ Spawn agents as teammates, never standalone subagents (GC-19)
+- ✅ Send BMAD activation and instruction as separate messages (GC-20)
+- ✅ Review agent output before surfacing to user (GC-09)
+- ✅ Give agents precise, cited instructions (GC-11)
 
-**Confidence**: **Informed** (based on current Parzival implementation + user requirements)
+**Confidence**: **Informed** (based on current Parzival 2.1 implementation + user requirements)
 
 ---
 
@@ -1086,10 +1092,28 @@ app.mount("/", StaticFiles(directory="dist", html=True))
 
 **Two Independent Modules**:
 
+> **Parzival 2.1 note**: The current project uses a unified repository with the Parzival oversight layer at `_ai-memory/pov/` and skill shims at `.claude/skills/`. The standalone module split below is the aspirational target for the web UI architecture. Teams/ YAML configs have been removed -- team design is now handled by the aim-parzival-team-builder skill. The team-prompt workflow has been superseded by aim-parzival-team-builder as well.
+
+**Current structure (Parzival 2.1)**:
+```
+ai-memory/
+├── _ai-memory/pov/              # Parzival oversight layer
+│   ├── agents/*.md              # Agent definitions (parzival.md, etc.)
+│   ├── constraints/global/      # GC-01 to GC-15, GC-19, GC-20
+│   ├── workflows/               # Step-file workflows
+│   ├── skills/                  # Skill content (aim-agent-dispatch, etc.)
+│   └── templates/               # Oversight document templates
+├── .claude/skills/aim-*/        # Skill shims (load content from _ai-memory/pov/skills/)
+├── src/memory/                  # Python core (storage, search, triggers)
+├── docker/                      # Qdrant, Embedding, Streamlit
+└── docs/parzival/               # Architecture and design docs (this file)
+```
+
+**Aspirational structure (web UI module split)**:
 ```
 /projects/
 ├── bmad-parzival-module/        # Orchestration module
-│   ├── _bmad/
+│   ├── _ai-memory/
 │   │   └── pov/agents/*.md      # Parzival + Worker agent definitions
 │   ├── frontend/
 │   │   └── (React multi-terminal UI)
@@ -1549,8 +1573,8 @@ app.add_middleware(
 
 **Document Status**: ✅ **READY FOR IMPLEMENTATION**
 
-**Last Updated**: 2026-01-21
-**Version**: 2.0
+**Last Updated**: 2026-03-15
+**Version**: 2.1
 **Prepared by**: Parzival (Technical PM & Quality Gatekeeper)
 
 ---

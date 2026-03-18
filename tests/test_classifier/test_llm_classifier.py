@@ -30,7 +30,8 @@ class TestLLMClassifier:
         """Test that rule-based classification bypasses LLM."""
         content = "DEC-031 decided to use PostgreSQL"
 
-        result = classify(content, "discussions", "user_message")
+        # Use unprotected type so rule-based check is reached (user_message is now protected)
+        result = classify(content, "discussions", "guideline")
 
         assert result.classified_type == "decision"
         assert result.was_reclassified is True
@@ -80,10 +81,10 @@ class TestLLMClassifier:
 
         mock_get_chain.return_value = [mock_provider]
 
-        # Content that doesn't match rules
+        # Content that doesn't match rules; use unprotected type (user_message is now protected)
         content = "After discussion, we selected PostgreSQL for the database"
 
-        result = classify(content, "discussions", "user_message")
+        result = classify(content, "discussions", "guideline")
 
         assert result.classified_type == "decision"
         assert result.confidence == 0.85
@@ -115,10 +116,10 @@ class TestLLMClassifier:
 
         mock_get_chain.return_value = [mock_provider1, mock_provider2]
 
-        # Content that doesn't match any rule patterns
+        # Content that doesn't match any rule patterns; use unprotected type
         content = "After evaluating the options, we chose to use PostgreSQL instead of MongoDB"
 
-        result = classify(content, "discussions", "user_message")
+        result = classify(content, "discussions", "guideline")
 
         assert result.classified_type == "decision"
         assert result.provider_used == "provider2"
@@ -143,10 +144,10 @@ class TestLLMClassifier:
 
         content = "Maybe we should consider using Redis"
 
-        result = classify(content, "discussions", "user_message")
+        result = classify(content, "discussions", "guideline")
 
         # Should keep original type due to low confidence
-        assert result.classified_type == "user_message"
+        assert result.classified_type == "guideline"
         assert result.was_reclassified is False
 
     @patch("src.memory.classifier.llm_classifier._get_provider_chain")
@@ -160,9 +161,10 @@ class TestLLMClassifier:
 
         content = "This content won't be classified"
 
-        result = classify(content, "discussions", "user_message")
+        # Use unprotected type so the provider chain is actually reached
+        result = classify(content, "discussions", "guideline")
 
-        assert result.classified_type == "user_message"
+        assert result.classified_type == "guideline"
         assert result.was_reclassified is False
         assert result.provider_used == "fallback"
 
@@ -178,9 +180,10 @@ class TestLLMClassifier:
 
         content = "This content classification will fail"
 
-        result = classify(content, "discussions", "user_message")
+        # Use unprotected type so the provider chain is actually reached
+        result = classify(content, "discussions", "guideline")
 
-        assert result.classified_type == "user_message"
+        assert result.classified_type == "guideline"
         assert result.was_reclassified is False
         assert result.provider_used == "fallback"
 
@@ -191,9 +194,10 @@ class TestLLMClassifier:
 
         content = "No providers available"
 
-        result = classify(content, "discussions", "user_message")
+        # Use a type not in SKIP_RECLASSIFICATION_TYPES so it reaches the provider chain
+        result = classify(content, "discussions", "guideline")
 
-        assert result.classified_type == "user_message"
+        assert result.classified_type == "guideline"
         assert result.was_reclassified is False
         assert result.provider_used == "none"
 

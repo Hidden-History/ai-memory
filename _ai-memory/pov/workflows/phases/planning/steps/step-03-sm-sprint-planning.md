@@ -1,13 +1,13 @@
 ---
 name: 'step-03-sm-sprint-planning'
-description: 'Activate SM to initialize or update sprint planning and select stories for the sprint'
+description: 'Define sprint planning scope and dispatch SM via agent-dispatch cycle'
 nextStepFile: './step-04-sm-creates-story-files.md'
 ---
 
 # Step 3: SM Sprint Planning
 
 ## STEP GOAL
-Activate the SM agent to create or update sprint-status.yaml and select stories for the sprint. First sprint initializes tracking from scratch. Subsequent sprints use velocity and retrospective data.
+Define the sprint planning scope and dispatch the SM agent via the agent-dispatch cycle to create or update sprint-status.yaml and select stories for the sprint. First sprint initializes tracking from scratch. Subsequent sprints use velocity and retrospective data.
 
 ## MANDATORY EXECUTION RULES
 - Read the complete step file before taking any action
@@ -20,7 +20,9 @@ Activate the SM agent to create or update sprint-status.yaml and select stories 
 
 ## MANDATORY SEQUENCE
 
-### 1. Determine Planning Mode
+### Parzival's Responsibility (Layer 1)
+
+#### 1. Determine Planning Mode
 
 **First Sprint -- Initialize:**
 - Create sprint-status.yaml tracking all epics and stories
@@ -42,13 +44,17 @@ Sprint 1 scope criteria:
 - Confirm all selected stories are ready status
 - Flag any blocked stories with reason
 
-### 2. Prepare SM Instruction
+#### 2. Prepare SM Instruction
 Include all relevant inputs (PRD, architecture, epics, retrospective output if available).
 
-### 3. Dispatch SM via Agent Dispatch
+### Execution (via agent-dispatch cycle)
+
+#### 3. Dispatch SM via Agent Dispatch
 Invoke {workflows_path}/cycles/agent-dispatch/workflow.md to activate the SM.
 
-### 4. Receive Sprint Plan
+### Parzival's Responsibility (Layer 1)
+
+#### 4. Receive Sprint Plan
 Receive updated sprint-status.yaml and recommended story list with sequence.
 
 ## CRITICAL STEP COMPLETION NOTE

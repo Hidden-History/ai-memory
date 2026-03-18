@@ -95,6 +95,7 @@ class TestHealthFileCreation:
         """Test that _touch_health_file logs success (F4 fix verification)."""
         from scripts.memory.process_classification_queue import _touch_health_file
 
+        logging.getLogger("ai_memory.classifier.processor").setLevel(logging.DEBUG)
         tmp_path / "worker.health"
 
         with patch("scripts.memory.process_classification_queue.Path") as mock_path:
@@ -111,6 +112,7 @@ class TestHealthFileCreation:
         """Test that _touch_health_file logs failures (F3 fix verification)."""
         from scripts.memory.process_classification_queue import _touch_health_file
 
+        logging.getLogger("ai_memory.classifier.processor").setLevel(logging.DEBUG)
         with patch("scripts.memory.process_classification_queue.Path") as mock_path:
             # Simulate permission error
             mock_path_instance = MagicMock()

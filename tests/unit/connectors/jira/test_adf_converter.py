@@ -7,6 +7,8 @@ Tests Atlassian Document Format (ADF) to plain text conversion with:
 - Edge cases (empty input, nested structures, malformed JSON)
 """
 
+import logging
+
 from src.memory.connectors.jira.adf_converter import _walk_node, adf_to_text
 
 # =============================================================================
@@ -838,11 +840,12 @@ class TestUnknownNodes:
                 }
             ],
         }
-        result = adf_to_text(adf)
-        # Should extract nested text despite unknown parent
-        assert "Nested text" in result
-        # Should log warning
-        assert any("unknown" in record.message.lower() for record in caplog.records)
+        with caplog.at_level(logging.WARNING, logger="ai_memory.jira.adf"):
+            result = adf_to_text(adf)
+            # Should extract nested text despite unknown parent
+            assert "Nested text" in result
+            # Should log warning
+            assert any("unknown" in record.message.lower() for record in caplog.records)
 
     def test_unknown_nested_in_paragraph(self, caplog):
         """Unknown node nested in paragraph should be skipped with warning."""
@@ -859,9 +862,10 @@ class TestUnknownNodes:
                 }
             ],
         }
-        result = adf_to_text(adf)
-        assert "Before" in result
-        assert "After" in result
+        with caplog.at_level(logging.WARNING, logger="ai_memory.jira.adf"):
+            result = adf_to_text(adf)
+            assert "Before" in result
+            assert "After" in result
 
     def test_deeply_nested_unknown(self):
         """Unknown node deeply nested should still extract text."""
@@ -1074,9 +1078,10 @@ class TestMalformedJSON:
                 {"content": [{"type": "text", "text": "orphan"}]},  # Missing type
             ],
         }
-        result = adf_to_text(adf)
-        # Should not crash, may or may not extract content
-        assert isinstance(result, str)
+        with caplog.at_level(logging.WARNING, logger="ai_memory.jira.adf"):
+            result = adf_to_text(adf)
+            # Should not crash, may or may not extract content
+            assert isinstance(result, str)
 
     def test_invalid_node_structure(self):
         """Node with invalid structure should not crash."""

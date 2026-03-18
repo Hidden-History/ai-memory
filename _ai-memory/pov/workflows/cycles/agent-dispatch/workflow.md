@@ -1,12 +1,20 @@
 ---
 name: agent-dispatch
-description: 'Agent dispatch and lifecycle management via Claude Code teams. Defines how Parzival activates, instructs, monitors, and closes BMAD agents.'
+description: 'Agent dispatch and lifecycle management. Defines how Parzival activates, instructs, monitors, and closes agents.'
 firstStep: './steps/step-01-prepare-instruction.md'
 ---
 
 # Agent Dispatch
 
-**Goal:** Define exactly how Parzival activates, instructs, monitors, and closes BMAD agents via Claude Code teams -- the operational backbone of every agent interaction.
+**Goal:** Define exactly how Parzival activates, instructs, monitors, and closes agents -- the operational backbone of every agent interaction.
+
+**Layered Execution:** This cycle is the core execution mechanism. It is invoked by phase workflows and session commands. For team design (multi-agent parallel work), use the aim-parzival-team-builder skill first, which produces context blocks that feed into this cycle.
+
+**Skill Integration:**
+- **Agent selection**: For BMAD agents, consult the aim-bmad-dispatch skill for agent role selection and activation commands
+- **Instruction preparation**: For instruction template and quality checklist, consult the aim-agent-dispatch skill
+- **Model selection**: For model selection criteria, consult the aim-model-dispatch skill
+- **Agent lifecycle**: For steps 4-9 (send, monitor, review, accept/loop, shutdown, summary), consult the aim-agent-lifecycle skill
 
 ---
 
@@ -26,38 +34,13 @@ This uses **step-file architecture** for disciplined execution:
 - NEVER skip steps unless explicitly optional
 - ALWAYS follow exact instructions in step files
 
-### Agent Selection Guide
-When multiple agents could handle a task:
-
-| Task Type | Correct Agent | Wrong Agent |
-|---|---|---|
-| Research current codebase state | Analyst | Architect |
-| Create or update PRD | PM | Analyst |
-| Break down features into stories | PM | SM |
-| Design system architecture | Architect | PM |
-| Check if implementation is ready | Architect | DEV |
-| Plan and initialize a sprint | SM | PM |
-| Create individual story files | SM | PM |
-| Write code / implement a story | DEV | Any other |
-| Review implemented code | DEV | Architect |
-| Design user flows and screens | UX Designer | PM |
-
-### Agent Combination Sequences
-Some phases require agents in sequence:
-
-- **Discovery phase:** Analyst (research) -> PM (PRD creation)
-- **Architecture phase:** Architect (design) -> PM (epics/stories) -> Architect (readiness check)
-- **Execution cycle:** DEV (implement) -> DEV (code review) -> [loop if issues] -> DEV (re-review)
-- **Integration phase:** DEV (full review) -> Architect (cohesion check)
-- **Release phase:** SM (retrospective) -> PM or Analyst (documentation update)
-
 ### Common Dispatch Errors
 
 | Error | Prevention |
 |---|---|
 | Sending vague instruction | Always complete the full instruction template before dispatching |
 | Combining multiple tasks in one instruction | One task per instruction -- always |
-| Activating wrong agent | Use the Agent Selection Guide above |
+| Activating wrong agent | Consult the aim-bmad-dispatch skill for agent role selection |
 | Accepting partial output | Review all DONE WHEN criteria before accepting |
 | Passing raw agent output to user | Always prepare summary -- never copy-paste agent output |
 | Running agents without project file verification | Complete instruction checklist before every dispatch |

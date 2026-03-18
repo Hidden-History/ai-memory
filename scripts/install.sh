@@ -1003,6 +1003,14 @@ update_shared_scripts() {
 
         log_info "Syncing Docker files to installation..."
         cp -r "$docker_source/"* "$INSTALL_DIR/docker/" || { log_error "Failed to copy docker files"; return 1; }
+        # BUG-227: Update .env.example on Option 1 (add-project) installs
+        if [[ -f "$docker_source/.env.example" ]]; then
+            cp "$docker_source/.env.example" "$INSTALL_DIR/docker/.env.example" \
+                || log_warn "Failed to copy docker/.env.example (non-fatal)"
+            log_debug "Updated docker/.env.example"
+        else
+            log_warn "docker/.env.example not found in source — skipping"
+        fi
         find "$INSTALL_DIR/docker" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
         # Restore docker/.env if it was backed up (bulk cp may have overwritten with template)
@@ -1067,7 +1075,8 @@ update_shared_scripts() {
         log_debug "Templates updated"
     fi
 
-    # Re-import user .env customizations (new env vars from updates, e.g. OLLAMA_API_KEY)
+    # DEPRECATED: import_user_env() is now a no-op (warns if legacy root .env exists)
+    # New env vars must be added manually to $INSTALL_DIR/docker/.env
     import_user_env
 
     if [[ $updated_count -gt 0 || $hooks_count -gt 0 || $docker_count -gt 0 ]]; then
@@ -1426,6 +1435,10 @@ install_python_dependencies() {
         "httpx:HTTP client for embedding service"
         "pydantic:Configuration validation"
         "structlog:Logging"
+        "tiktoken:Token counting for chunking"
+        "anthropic:Claude API client"
+        "langfuse:Observability tracing"
+        "numpy:Embedding operations"
     )
 
     FAILED_PACKAGES=()
@@ -1458,6 +1471,11 @@ install_python_dependencies() {
     OPTIONAL_PACKAGES=(
         "tree_sitter:AST-based code chunking"
         "tree_sitter_python:Python code parsing"
+        "tree_sitter_javascript:JavaScript code parsing"
+        "tree_sitter_typescript:TypeScript code parsing"
+        "tree_sitter_go:Go code parsing"
+        "tree_sitter_rust:Rust code parsing"
+        "spacy:NER-based PII detection (Layer 3)"
     )
 
     for pkg_info in "${OPTIONAL_PACKAGES[@]}"; do
@@ -1637,89 +1655,19 @@ copy_files() {
     log_success "Files copied to $INSTALL_DIR"
 }
 
-# BUG-186: Import user customizations from $SOURCE_DIR/.env into $INSTALL_DIR/docker/.env
-# Called after copy_files and before configure_environment so imported credentials
-# are present when credential generation checks run.
+# DEPRECATED: import_user_env() no longer imports from root .env.
+# docker/.env is the single source of truth for all configuration.
+# This function is kept as a stub to preserve call sites at line 746 and 1078.
 import_user_env() {
-    local docker_env="$INSTALL_DIR/docker/.env"
-    # SOURCE_DIR is set during full install; fall back to SCRIPT_DIR parent for Option 1
     local source_root="${SOURCE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
     local user_env="$source_root/.env"
 
-    # Only import if user's .env exists and docker/.env exists
-    if [[ ! -f "$user_env" ]] || [[ ! -f "$docker_env" ]]; then
-        return 0
+    if [[ -f "$user_env" ]]; then
+        log_warning "Found legacy root .env at $user_env"
+        log_warning "The root .env is no longer used. All configuration lives in docker/.env"
+        log_warning "If you have API keys in $user_env, add them to $INSTALL_DIR/docker/.env Section 1"
     fi
-
-    log_info "Found user .env at $user_env — importing customizations..."
-
-    local imported=0
-    while IFS= read -r line; do
-        # Skip comments and empty lines
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "${line// }" ]] && continue
-
-        # Extract key and value
-        local key="${line%%=*}"
-
-        # Skip lines without = separator
-        [[ "$key" == "$line" ]] && continue
-
-        local value="${line#*=}"
-
-        # Determine raw value (without quotes) for validation checks
-        local raw_value="$value"
-        if [[ "$raw_value" =~ ^\"(.*)\"$ ]]; then
-            raw_value="${BASH_REMATCH[1]}"
-        elif [[ "$raw_value" =~ ^\'(.*)\'$ ]]; then
-            raw_value="${BASH_REMATCH[1]}"
-        fi
-
-        # Skip keys with invalid characters (safety against regex injection)
-        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-
-        # Skip empty values
-        [[ -z "$raw_value" ]] && continue
-
-        # Skip installer-managed keys (paths, ports, container prefix)
-        case "$key" in
-            AI_MEMORY_INSTALL_DIR|AI_MEMORY_CONTAINER_PREFIX|AI_MEMORY_PROJECT_ID)
-                continue ;;
-            *_PORT|*_HOST)
-                continue ;;
-        esac
-
-        # Skip known placeholder values (case-insensitive)
-        local lower_value
-        lower_value=$(echo "$raw_value" | tr '[:upper:]' '[:lower:]')
-        case "$lower_value" in
-            changeme|your-key-here|your-*|change_me|todo|placeholder)
-                continue ;;
-        esac
-
-        # Import: remove old key line (if any) and append new value
-        # Uses grep -v + echo to avoid sed metacharacter issues (|, &, \)
-        local tmp_env
-        tmp_env=$(grep -v "^${key}=" "$docker_env" 2>/dev/null) || true
-        if [[ -n "$tmp_env" ]]; then
-            printf '%s\n' "$tmp_env" > "$docker_env"
-        else
-            : > "$docker_env"
-        fi
-        # Write value: preserve existing quotes, add double quotes if unquoted
-        if [[ "$value" =~ ^\".*\"$ ]] || [[ "$value" =~ ^\'.*\'$ ]]; then
-            echo "${key}=${value}" >> "$docker_env"
-        else
-            echo "${key}=\"${value}\"" >> "$docker_env"
-        fi
-        imported=$((imported + 1))
-    done < "$user_env"
-
-    if [[ $imported -gt 0 ]]; then
-        log_success "Imported $imported customization(s) from user .env"
-    else
-        log_debug "No customizations to import from user .env"
-    fi
+    return 0
 }
 
 # Environment configuration (AC 7.1.6)
@@ -2984,6 +2932,13 @@ setup_audit_directory() {
             echo ".claude/settings.local.json" >> "$PROJECT_PATH/.gitignore"
             log_debug "Added .claude/settings.local.json to .gitignore"
         fi
+        # M-12: _ai-memory/ contains Parzival internals — must be gitignored
+        if ! grep -q "^_ai-memory/" "$PROJECT_PATH/.gitignore" 2>/dev/null; then
+            echo "" >> "$PROJECT_PATH/.gitignore"
+            echo "# AI Memory Parzival internals (do not commit)" >> "$PROJECT_PATH/.gitignore"
+            echo "_ai-memory/" >> "$PROJECT_PATH/.gitignore"
+            log_debug "Added _ai-memory/ to .gitignore"
+        fi
     else
         # Create .gitignore if it doesn't exist
         echo "# AI Memory audit trail (ephemeral/sensitive data)" > "$PROJECT_PATH/.gitignore"
@@ -2991,7 +2946,10 @@ setup_audit_directory() {
         echo "" >> "$PROJECT_PATH/.gitignore"
         echo "# AI Memory local settings (contains API keys — do not commit)" >> "$PROJECT_PATH/.gitignore"
         echo ".claude/settings.local.json" >> "$PROJECT_PATH/.gitignore"
-        log_debug "Created .gitignore with .audit/ and settings.local.json entries"
+        echo "" >> "$PROJECT_PATH/.gitignore"
+        echo "# AI Memory Parzival internals (do not commit)" >> "$PROJECT_PATH/.gitignore"
+        echo "_ai-memory/" >> "$PROJECT_PATH/.gitignore"
+        log_debug "Created .gitignore with .audit/, settings.local.json, and _ai-memory/ entries"
     fi
 
     # Generate README (overwritten on re-install to pick up latest content)
@@ -3353,6 +3311,116 @@ deploy_parzival_shims() {
     log_success "Parzival V2 shims deployed to project"
 }
 
+# Generate thin shim SKILL.md files for Parzival skills that live in _ai-memory/pov/skills/
+# These shims allow Claude Code to discover skills in .claude/skills/ while content lives in _ai-memory/
+# Called from setup_parzival() after deploy_parzival_v2() succeeds
+generate_parzival_skill_shims() {
+    local pov_skills_dir="$PROJECT_PATH/_ai-memory/pov/skills"
+    local claude_skills_dir="$PROJECT_PATH/.claude/skills"
+
+    if [[ ! -d "$pov_skills_dir" ]]; then
+        log_debug "No Parzival skills found in _ai-memory/pov/skills/ — skipping shim generation"
+        return 0
+    fi
+
+    local shim_count=0
+    for skill_dir in "$pov_skills_dir"/*/; do
+        if [[ -d "$skill_dir" ]] && [[ -f "$skill_dir/SKILL.md" ]]; then
+            local skill_name
+            skill_name=$(basename "$skill_dir")
+            local shim_dir="$claude_skills_dir/$skill_name"
+            local real_skill="$skill_dir/SKILL.md"
+
+            # Extract frontmatter and first heading from real SKILL.md
+            local name_line description_line tools_line context_line trigger_line title_line
+            name_line=$(grep -m1 "^name:" "$real_skill" 2>/dev/null || echo "name: $skill_name")
+            description_line=$(grep -m1 "^description:" "$real_skill" 2>/dev/null || echo "description: Parzival skill")
+            tools_line=$(grep -m1 "^allowed-tools:" "$real_skill" 2>/dev/null || echo "")
+            context_line=$(grep -m1 "^context:" "$real_skill" 2>/dev/null || echo "")
+            trigger_line=$(grep -m1 "^trigger:" "$real_skill" 2>/dev/null || echo "")
+            title_line=$(grep -m1 "^# " "$real_skill" 2>/dev/null || echo "# $skill_name")
+
+            mkdir -p "$shim_dir"
+
+            # Write thin shim
+            {
+                echo "---"
+                echo "$name_line"
+                echo "$description_line"
+                if [[ -n "$tools_line" ]]; then
+                    echo "$tools_line"
+                fi
+                if [[ -n "$context_line" ]]; then
+                    echo "$context_line"
+                fi
+                if [[ -n "$trigger_line" ]]; then
+                    echo "$trigger_line"
+                fi
+                echo "---"
+                echo ""
+                echo "$title_line"
+                echo ""
+                echo "**LOAD**: Read and follow \`_ai-memory/pov/skills/$skill_name/SKILL.md\`"
+            } > "$shim_dir/SKILL.md"
+
+            shim_count=$((shim_count + 1))
+        fi
+    done
+
+    if [[ $shim_count -gt 0 ]]; then
+        log_success "Generated $shim_count Parzival skill shim(s) in .claude/skills/"
+    fi
+}
+
+# Optional: Multi-provider model dispatch setup
+# Called at end of setup_parzival() — prompts user if dispatch skill is present and not yet configured
+setup_model_dispatch() {
+    local dispatch_installer="$PROJECT_PATH/_ai-memory/pov/skills/aim-model-dispatch/scripts/install.sh"
+
+    # Fallback to .claude/skills path (pre-shim installs)
+    if [[ ! -f "$dispatch_installer" ]]; then
+        dispatch_installer="$PROJECT_PATH/.claude/skills/aim-model-dispatch/scripts/install.sh"
+    fi
+
+    if [[ ! -f "$dispatch_installer" ]]; then
+        log_debug "Model dispatch skill not found — skipping"
+        return 0
+    fi
+
+    # Skip if already configured
+    if command -v provider-dispatch &>/dev/null; then
+        log_debug "provider-dispatch already configured — skipping model dispatch setup"
+        return 0
+    fi
+
+    echo ""
+    echo "┌─────────────────────────────────────────────────────────┐"
+    echo "│  Multi-Provider Dispatch (Optional)                     │"
+    echo "│                                                         │"
+    echo "│  Enables Parzival to dispatch agents to non-Claude      │"
+    echo "│  models via OpenRouter, Ollama, Gemini, and more.       │"
+    echo "│                                                         │"
+    echo "│  Default Claude dispatch works without this.            │"
+    echo "└─────────────────────────────────────────────────────────┘"
+    echo ""
+
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        log_debug "Non-interactive mode — skipping model dispatch setup"
+        return 0
+    fi
+
+    read -rp "Configure multi-provider dispatch now? [y/N]: " setup_dispatch
+    if [[ "$setup_dispatch" =~ ^[Yy] ]]; then
+        log_info "Launching model dispatch setup..."
+        bash "$dispatch_installer" || {
+            log_warn "Model dispatch setup had issues — you can run it later:"
+            log_warn "  bash $dispatch_installer"
+        }
+    else
+        log_info "Skipped. Run later with: bash $dispatch_installer"
+    fi
+}
+
 # Deploy skill shims from INSTALL_DIR/.claude/skills/ to project
 # Replaces the skill deployment loop formerly in create_project_symlinks()
 # Stale cleanup scoped to ai-memory prefixes only (R2-NF4: never delete user custom skills)
@@ -3422,6 +3490,14 @@ deploy_ai_memory_skills() {
 
     if [[ $skills_count -gt 0 ]]; then
         log_success "Deployed $skills_count skill(s) to $PROJECT_PATH/.claude/skills/"
+    fi
+
+    # Deploy canonical skill files (required by thin shim LOAD paths)
+    local ai_mem_skills="$INSTALL_DIR/_ai-memory/skills"
+    if [[ -d "$ai_mem_skills" ]]; then
+        mkdir -p "$PROJECT_PATH/_ai-memory/skills"
+        cp -r "$ai_mem_skills/"* "$PROJECT_PATH/_ai-memory/skills/" 2>/dev/null || true
+        log_debug "Deployed _ai-memory/skills/ canonical files to project"
     fi
 }
 
@@ -3566,6 +3642,38 @@ setup_parzival() {
         # Deploy thin shims (.claude/agents/pov/, .claude/commands/pov/)
         deploy_parzival_shims
 
+        # Generate .claude/skills/ shims for Parzival skills in _ai-memory/pov/skills/
+        generate_parzival_skill_shims
+
+        # Clean up files moved/deleted in Parzival 2.1
+        local v21_stale_files=(
+            "$PROJECT_PATH/_ai-memory/pov/templates/instruction.template.md"
+            "$PROJECT_PATH/_ai-memory/pov/templates/team-prompt-2tier.template.md"
+            "$PROJECT_PATH/_ai-memory/pov/templates/team-prompt-3tier.template.md"
+            "$PROJECT_PATH/_ai-memory/pov/data/agent-selection-guide.md"
+            "$PROJECT_PATH/_ai-memory/pov/data/self-check-12-constraints.md"
+            "$PROJECT_PATH/_ai-memory/pov/constraints/execution/EC-02-use-instruction-template.md"
+            "$PROJECT_PATH/_ai-memory/pov/constraints/discovery/DC-08-analyst-before-pm-thin-input.md"
+        )
+        for stale_file in "${v21_stale_files[@]}"; do
+            if [[ -f "$stale_file" ]]; then
+                rm -f "$stale_file"
+                log_debug "Cleaned up stale Parzival 2.0 file: $(basename "$stale_file")"
+            fi
+        done
+
+        # Remove deleted workflow directory (superseded by aim-parzival-team-builder skill)
+        if [[ -d "$PROJECT_PATH/_ai-memory/pov/workflows/session/team-prompt" ]]; then
+            rm -rf "$PROJECT_PATH/_ai-memory/pov/workflows/session/team-prompt"
+            log_debug "Cleaned up stale team-prompt workflow (superseded by aim-parzival-team-builder skill)"
+        fi
+
+        # Remove stale teams archive
+        if [[ -d "$PROJECT_PATH/_ai-memory/pov/teams/archive" ]]; then
+            rm -rf "$PROJECT_PATH/_ai-memory/pov/teams/archive"
+            log_debug "Cleaned up stale teams archive"
+        fi
+
         # Deploy oversight templates (existing function — unchanged)
         deploy_oversight_templates
 
@@ -3587,6 +3695,9 @@ setup_parzival() {
                 log_warning "Failed to update Parzival settings in settings.json"
             }
         fi
+
+        # Optional: multi-provider model dispatch setup
+        setup_model_dispatch
 
         log_success "Parzival V2 enabled"
     else

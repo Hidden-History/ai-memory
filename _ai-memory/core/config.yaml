@@ -1,9 +1,15 @@
-# CORE Module Configuration
+# CORE Module Configuration — Non-Parzival Defaults
 # AI Memory System
+#
+# NOTE: Parzival agents use _ai-memory/pov/config.yaml (authoritative for Parzival sessions).
+# This file provides defaults for non-Parzival functionality (help system, generic agents).
+# Shared fields (user_name, communication_language) should stay in sync.
+# The installer's sync_parzival_config_yaml() manages pov/config.yaml only.
+#
 # Version: 1.0.0
 # Date: 2026-03-01
 
-user_name: wbsolutions
+user_name: "{USER_NAME}"
 communication_language: English
 document_output_language: English
 output_folder: "{project-root}/_ai-memory-output"

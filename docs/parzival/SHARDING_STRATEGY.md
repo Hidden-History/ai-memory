@@ -1,7 +1,7 @@
 # Oversight Document Sharding Strategy
 
-**Version**: 1.0
-**Last Updated**: 2026-01-21
+**Version**: 1.1
+**Last Updated**: 2026-03-15
 **Status**: Active
 
 ---
@@ -574,9 +574,9 @@ wc -l oversight/**/*.md | sort -n
 
 ## References
 
-- Parzival Procedures: `bmad-parzival-module/pov/procedures/PROCEDURES.md`
-- Template Directory: `bmad-parzival-module/pov/templates/oversight/`
-- Agent Instructions: `bmad-parzival-module/pov/agents/parzival.md`
+- Template Directory: `_ai-memory/pov/templates/`
+- Agent Instructions: `_ai-memory/pov/agents/parzival.md`
+- Skills: `_ai-memory/pov/skills/` (content), `.claude/skills/` (shims)
 
 ---
 
@@ -585,6 +585,7 @@ wc -l oversight/**/*.md | sort -n
 | Date | Version | Changes |
 |------|---------|---------|
 | 2026-01-21 | 1.0 | Initial sharding strategy document |
+| 2026-03-15 | 1.1 | Updated file path references to match Parzival 2.1 structure |
 
 ---
 

@@ -3,7 +3,8 @@
 Implements AC 6.2.1 and AC 6.2.2:
 - JSON structured logging with StructuredFormatter
 - Logger hierarchy under ai_memory namespace
-- Environment variable control (BMAD_LOG_LEVEL, BMAD_LOG_FORMAT)
+- Environment variable control (AI_MEMORY_LOG_LEVEL, AI_MEMORY_LOG_FORMAT)
+  (BMAD_LOG_LEVEL and BMAD_LOG_FORMAT are deprecated aliases)
 
 Research sources:
 - Python Logging Best Practices 2026: https://www.carmatec.com/blog/python-logging-best-practices-complete-guide/
@@ -13,6 +14,7 @@ Research sources:
 import json
 import logging
 import os
+import warnings
 from datetime import datetime, timezone
 
 # Sensitive keys that should be redacted in log output (2026 security best practice)
@@ -103,7 +105,8 @@ class StructuredFormatter(logging.Formatter):
 class TextFormatter(logging.Formatter):
     """Human-readable text formatter for development (AC 6.2.5).
 
-    Used when BMAD_LOG_FORMAT=text for easier local debugging.
+    Used when AI_MEMORY_LOG_FORMAT=text for easier local debugging.
+    (BMAD_LOG_FORMAT is a deprecated alias for AI_MEMORY_LOG_FORMAT)
     """
 
     def __init__(self):
@@ -119,21 +122,43 @@ def configure_logging(level: str | None = None) -> None:
     Implements AC 6.2.1, AC 6.2.2, and AC 6.2.5.
 
     Args:
-        level: Optional log level override. If not provided, uses BMAD_LOG_LEVEL
+        level: Optional log level override. If not provided, uses AI_MEMORY_LOG_LEVEL
                environment variable (default: INFO).
+               BMAD_LOG_LEVEL is a deprecated alias for AI_MEMORY_LOG_LEVEL.
 
     Environment Variables:
-        BMAD_LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR). Default: INFO
-        BMAD_LOG_FORMAT: Output format (json, text). Default: json
+        AI_MEMORY_LOG_LEVEL: Log level (DEBUG, INFO, WARNING, ERROR). Default: INFO
+            (BMAD_LOG_LEVEL is a deprecated alias)
+        AI_MEMORY_LOG_FORMAT: Output format (json, text). Default: json
+            (BMAD_LOG_FORMAT is a deprecated alias)
     """
     # Determine log level from parameter or environment variable
     if level is None:
-        level = os.getenv("BMAD_LOG_LEVEL", "INFO")
+        # Check new name first, fall back to deprecated name
+        level = os.getenv("AI_MEMORY_LOG_LEVEL") or os.getenv("BMAD_LOG_LEVEL")
+        if os.getenv("BMAD_LOG_LEVEL") and not os.getenv("AI_MEMORY_LOG_LEVEL"):
+            warnings.warn(
+                "BMAD_LOG_LEVEL is deprecated, use AI_MEMORY_LOG_LEVEL instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        if level is None:
+            level = "INFO"
 
     log_level = getattr(logging, level.upper(), logging.INFO)
 
     # Determine formatter from environment variable
-    log_format = os.getenv("BMAD_LOG_FORMAT", "json").lower()
+    # Check new name first, fall back to deprecated name
+    log_format = (
+        os.getenv("AI_MEMORY_LOG_FORMAT") or os.getenv("BMAD_LOG_FORMAT") or "json"
+    )
+    if os.getenv("BMAD_LOG_FORMAT") and not os.getenv("AI_MEMORY_LOG_FORMAT"):
+        warnings.warn(
+            "BMAD_LOG_FORMAT is deprecated, use AI_MEMORY_LOG_FORMAT instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    log_format = log_format.lower()
 
     formatter = TextFormatter() if log_format == "text" else StructuredFormatter()
 
@@ -149,6 +174,8 @@ def configure_logging(level: str | None = None) -> None:
         handler = logging.StreamHandler()
         handler.setFormatter(formatter)
         logger.addHandler(handler)
+    else:
+        logger.handlers[0].setFormatter(formatter)
 
     # Per AC 6.2.2: prevent propagation to avoid duplicate logs
     logger.propagate = False

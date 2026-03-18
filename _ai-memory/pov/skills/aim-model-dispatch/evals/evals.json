@@ -1,0 +1,108 @@
+{
+  "skill_name": "model-dispatch",
+  "evals": [
+    {
+      "id": 1,
+      "name": "bmad-dev-openrouter",
+      "prompt": "dispatch a BMAD dev agent to openrouter to do a code review of the file .claude/skills/model-dispatch/scripts/install.sh — use the cheapest model available. Report what the dev agent finds.",
+      "expected_output": "Agent reads the skill, identifies this as a BMAD task, follows bmad-dispatch workflow (not tmux-dispatch), resolves the Dev agent activation command, determines OpenRouter backend, presents model options, and attempts two-phase activation in a tmux pane.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Agent identified the task as requiring BMAD dispatch (not regular tmux-dispatch)",
+          "type": "workflow_routing"
+        },
+        {
+          "text": "Agent read the bmad-dispatch workflow file (workflows/bmad-dispatch/workflow.md)",
+          "type": "workflow_loading"
+        },
+        {
+          "text": "Agent resolved the correct BMAD agent: Dev agent with activation command /bmad-agent-bmm-dev",
+          "type": "agent_resolution"
+        },
+        {
+          "text": "Agent determined the menu code CR (Code Review) for the task",
+          "type": "menu_code"
+        },
+        {
+          "text": "Agent resolved OpenRouter as the backend with provider-dispatch openrouter as wrapper",
+          "type": "backend_resolution"
+        },
+        {
+          "text": "Agent presented model options to the user (did not silently pick a default)",
+          "type": "model_gate"
+        },
+        {
+          "text": "Agent did NOT modify any Claude Code settings files",
+          "type": "settings_safety"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "bmad-pm-ollama",
+      "prompt": "use ollama to dispatch a BMAD PM agent — have it create a mini PRD for a feature that adds a 'status dashboard' to the model-dispatch skill showing which providers are online. Use the default ollama model.",
+      "expected_output": "Agent reads the skill, identifies this as a BMAD task, follows bmad-dispatch workflow, resolves PM agent with CP (Create PRD) menu code, determines Ollama backend, and attempts two-phase activation.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Agent identified the task as requiring BMAD dispatch (not regular tmux-dispatch)",
+          "type": "workflow_routing"
+        },
+        {
+          "text": "Agent resolved the correct BMAD agent: PM agent with activation command /bmad-agent-bmm-pm",
+          "type": "agent_resolution"
+        },
+        {
+          "text": "Agent determined the menu code CP (Create PRD) for the task",
+          "type": "menu_code"
+        },
+        {
+          "text": "Agent resolved Ollama as the backend with provider-dispatch ollama as wrapper",
+          "type": "backend_resolution"
+        },
+        {
+          "text": "Agent attempted two-phase activation (send activation command first, then task after menu appears)",
+          "type": "two_phase"
+        },
+        {
+          "text": "Agent did NOT modify any Claude Code settings files",
+          "type": "settings_safety"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "bmad-analyst-claude",
+      "prompt": "dispatch a BMAD analyst agent using native claude to analyze the model-dispatch skill's directory structure and report what it finds. Focus on how the workflows are organized.",
+      "expected_output": "Agent reads the skill, identifies this as a BMAD task, follows bmad-dispatch workflow, resolves Analyst agent, defaults to Claude backend (native), and attempts two-phase activation with claude-dispatch wrapper.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Agent identified the task as requiring BMAD dispatch (not regular tmux-dispatch)",
+          "type": "workflow_routing"
+        },
+        {
+          "text": "Agent resolved the correct BMAD agent: Analyst with activation command /bmad-agent-bmm-analyst",
+          "type": "agent_resolution"
+        },
+        {
+          "text": "Agent resolved Claude (native) as the backend with claude-dispatch as the wrapper",
+          "type": "backend_resolution"
+        },
+        {
+          "text": "Agent read bmad-dispatch step files in sequence (step-01 through step-04)",
+          "type": "step_sequence"
+        },
+        {
+          "text": "Agent attempted two-phase activation (activation command first, then task after menu)",
+          "type": "two_phase"
+        },
+        {
+          "text": "Agent did NOT modify any Claude Code settings files",
+          "type": "settings_safety"
+        }
+      ]
+    }
+  ]
+}

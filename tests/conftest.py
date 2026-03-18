@@ -39,6 +39,20 @@ if str(tests_dir) not in sys.path:
 
 
 # =============================================================================
+# Isolate tests from real docker/.env (TD-308)
+# =============================================================================
+# config.py model_config evaluates env_file at CLASS DEFINITION TIME (import).
+# We must set AI_MEMORY_INSTALL_DIR BEFORE any memory.config import so the
+# class-level env_file resolves to a nonexistent path and pydantic ignores it.
+# This CANNOT be a fixture (fixtures run after imports).
+
+if "AI_MEMORY_INSTALL_DIR" not in os.environ or os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", ""
+).startswith("/home"):
+    os.environ["AI_MEMORY_INSTALL_DIR"] = "/tmp/_ai_memory_test_nonexistent"
+
+
+# =============================================================================
 # Pytest CLI Options (BP-031: GitHub Actions CI for Docker-Dependent Tests)
 # =============================================================================
 

@@ -98,12 +98,3 @@ class _GenerationWrapper:
             self.metadata.update(metadata)
         if level is not None:
             self.level = level
-
-
-class _NoOpGeneration:
-    """No-op generation that silently ignores all updates."""
-
-    __slots__ = ()
-
-    def update(self, **kwargs):
-        pass

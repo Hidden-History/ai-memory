@@ -1,10 +1,10 @@
-> **Note**: This is preserved reference documentation from the standalone POV Oversight Agent repository. Paths and commands shown may reference the original standalone structure. For current ai-memory installation, see [INSTALL.md](../INSTALL.md).
+> **Note**: This is preserved reference documentation from the standalone POV Oversight Agent repository. Paths and commands shown may reference the original standalone structure. For current ai-memory installation, see [README-INSTALL.md](../../README-INSTALL.md).
 
 # 🎯 Parzival Agent - Installation Guide
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-1.1.0-green.svg)](https://github.com/Hidden-History/pov-oversight-agent)
+[![Version](https://img.shields.io/badge/version-2.1.0-green.svg)](https://github.com/Hidden-History/pov-oversight-agent)
 [![BMAD Compatible](https://img.shields.io/badge/BMAD-6.0.0--alpha.22+-green.svg)](https://bmad-method.org)
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -70,8 +70,8 @@ Parzival operates under **five non-negotiable rules** that prevent behavioral dr
 **Why This Matters:** Over long conversations, AI agents "forget" their core role and start doing implementation work, skipping reviews, and guessing. Parzival uses a **five-layer constraint enforcement system** to maintain consistent oversight behavior even in 50+ message conversations.
 
 📚 **Learn More:**
-- [CONSTRAINTS.md](./pov/agents/parzival/CONSTRAINTS.md) - Complete behavioral rules (394 lines)
-- [CONSTRAINT-ENFORCEMENT-SYSTEM.md](./docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md) - Behavioral architecture
+- [CONSTRAINT-ENFORCEMENT-SYSTEM.md](./CONSTRAINT-ENFORCEMENT-SYSTEM.md) - Behavioral constraint architecture
+- [constraints.md](../../_ai-memory/pov/constraints/global/constraints.md) - Global constraint index (GC-01 through GC-20)
 - [README.md](./README.md) - Source of truth document
 
 ---
@@ -110,23 +110,19 @@ Parzival operates under **five non-negotiable rules** that prevent behavioral dr
 
 ## ⚡ Quick Start
 
-**Already have BMAD installed?** Three commands to get started:
+**Already have the AI Memory system?** Two steps to get started:
 
 ```bash
 # 1. Install Parzival module
-./install.sh /path/to/your/project
+./scripts/install.sh
 
-# 2. Initialize oversight folder (NEW PROJECTS ONLY)
-./scripts/init-oversight.sh /path/to/your/project
-
-# 3. Start using Parzival
-cd /path/to/your/project
+# 2. Start using Parzival
 claude
 ```
 
 Then in Claude Code:
 ```
-/parzival-start
+/pov:parzival-start
 ```
 
 ---
@@ -158,21 +154,23 @@ npm --version   # Should show 8.0.0 or higher
 # Verify Claude Code
 claude --version  # Should show version number
 
-# Verify BMAD (check for _bmad folder in your project)
-ls -la _bmad/   # Should show core/ and other modules
+# Verify AI Memory system (check for _ai-memory folder in your project)
+ls -la _ai-memory/   # Should show core/, pov/, and other modules
 ```
 
 ---
 
 ## 🚀 Installation
 
-Parzival uses a **three-script architecture** for maximum safety:
+Parzival is installed via the unified **`scripts/install.sh`** installer, which handles all setup in a single run:
 
-| Script | Purpose | When to Use |
-|--------|---------|-------------|
-| `install.sh` | Install/update module code | Always (new + existing projects) |
-| `init-oversight.sh` | Create oversight folder | NEW projects only |
-| `update-templates.sh` | Update oversight templates | EXISTING projects only |
+| Function | Purpose |
+|----------|---------|
+| Core install | Copies module files, commands, agents, skills |
+| `generate_parzival_skill_shims()` | Creates thin shim files in `.claude/skills/` pointing to `_ai-memory/pov/skills/` |
+| `sync_parzival_config_yaml()` | Writes `PARZIVAL_USER_NAME` from `.env` into `pov/config.yaml` |
+| *(inline v2.1 cleanup)* | Removes old 2.0 files that were moved or renamed in 2.1 (inline in installer, not a named function) |
+| `setup_model_dispatch()` | Optional prompt for multi-provider model dispatch (system-level: `~/.config/`, `~/.local/bin/`) |
 
 ### New Projects
 
@@ -254,74 +252,28 @@ cd /path/to/bmad-parzival-module
 ```
 
 **What this does:**
-- ✅ Copies module files to `pov/`
-- ✅ Installs slash commands to `.claude/commands/`
-- ✅ Installs skills to `.claude/skills/`
-- ✅ Updates BMAD manifests
-- ✅ Copies customization template
+- Copies module files to `_ai-memory/pov/`
+- Installs slash commands to `.claude/commands/pov/`
+- Installs agent definition to `.claude/agents/pov/`
+- Generates thin skill shims in `.claude/skills/` that point to `_ai-memory/pov/skills/`
+- Syncs `PARZIVAL_USER_NAME` from `.env` into `pov/config.yaml`
+- Cleans up stale 2.0 files inline (moved templates, deleted workflows, renamed constraints)
+- Optionally configures multi-provider model dispatch
 
-**Expected Output:**
-```
-========================================
-  PARZIVAL MODULE INSTALLER v1.1.0
-========================================
+#### Step 3: Configure Parzival
 
-[1/6] Copying POV module files...       ✓ Done
-[2/6] Copying slash commands...         ✓ Done
-[3/6] Copying skills...                 ✓ Done
-[4/6] Updating BMAD manifest...         ✓ Added 'pov' to manifest
-[5/6] Updating agent manifest...        ✓ Added parzival to agent manifest
-[6/6] Copying customization template... ✓ Done
-
-========================================
-  INSTALLATION COMPLETE!
-========================================
-```
-
-#### Step 3: Initialize Oversight Folder
-
-```bash
-# Run the oversight initializer
-./scripts/init-oversight.sh /path/to/your/project
-```
-
-**What this does:**
-- ✅ Creates `oversight/` folder structure
-- ✅ Copies 22 template files
-- ✅ Creates 20 directories for tracking, decisions, knowledge, etc.
-- ✅ Never overwrites existing files
-
-**Expected Output:**
-```
-========================================
-  PARZIVAL OVERSIGHT INITIALIZER v1.0.0
-========================================
-
-[1/4] Copying template files...    ✓ Copied 22 new files
-[2/4] Creating directory structure... ✓ Done
-[3/4] Creating .gitkeep files...   ✓ Done
-[4/4] Verifying structure...       ✓ Created 20 directories and 26 files
-
-========================================
-  INITIALIZATION COMPLETE!
-========================================
-```
-
-#### Step 4: Configure Parzival
-
-Edit the configuration file with your preferences:
+The installer sets `user_name` automatically from the `PARZIVAL_USER_NAME` environment variable in `.env`. To change it manually:
 
 ```bash
 # Open config file
-nano pov/config.yaml
+nano _ai-memory/pov/config.yaml
 
-# Update these values:
-project_name: my-awesome-project
-user_name: Your Name
-communication_language: English
+# Key fields:
+user_name: Your Name                # Set automatically by installer from .env
+communication_language: English     # Preferred language
 ```
 
-#### Step 5: Test Your Installation
+#### Step 4: Test Your Installation
 
 ```bash
 # Start Claude Code
@@ -331,7 +283,7 @@ claude
 
 In Claude Code, run:
 ```
-/parzival-start
+/pov:parzival-start
 ```
 
 You should see Parzival introduce itself and scan for context! 🎉
@@ -343,58 +295,10 @@ If you already have Parzival installed and want to update:
 #### Step 1: Update Module Code
 
 ```bash
-cd /path/to/bmad-parzival-module
-./install.sh /path/to/your/project
+./scripts/install.sh
 ```
 
-This safely updates all module code without touching your oversight data.
-
-#### Step 2: Update Templates (Optional)
-
-```bash
-# Run the interactive template updater
-./scripts/update-templates.sh /path/to/your/project
-```
-
-**What this does:**
-- 🔍 Scans for changed templates
-- 📋 Shows you a diff for each changed file
-- 🤔 Lets you decide: keep, update, or skip
-
-**Interactive Options:**
-```
-[d] Show diff           - View changes between versions
-[k] Keep current        - Skip this file (preserve your version)
-[u] Use new template    - Replace with new version
-[s] Skip all remaining  - Stop prompting, keep all remaining files
-```
-
-**Example Session:**
-```
-========================================
-[CHANGED] README.md
-========================================
-
-Options:
-  [d] Show diff
-  [k] Keep current version (skip update)
-  [u] Use new template (replace current)
-  [s] Skip all remaining (stop prompting)
-
-Choice [d/k/u/s]: d
-
---- Current version
-+++ New template
-@@ -15,3 +15,7 @@
-
- **Parzival recommends. You decide.**
-+
-+## New Feature: Standards Sharding
-+Standards are now split into topic-specific files...
-
-Choice [d/k/u/s]: u
-  ✓ Updated to new template
-```
+This safely updates all module code, regenerates skill shims, cleans up stale 2.0 files, and syncs config — without touching your oversight data.
 
 ---
 
@@ -403,34 +307,29 @@ Choice [d/k/u/s]: u
 ### Update Workflow
 
 ```bash
-# 1. Update module code (safe - never touches your data)
-./install.sh /path/to/your/project
-
-# 2. Optionally update templates (interactive - you control what changes)
-./scripts/update-templates.sh /path/to/your/project
+# Update module code (safe - never touches your data)
+./scripts/install.sh
 ```
 
 ### What Gets Updated
 
 | Component | Update Method | Your Data Safe? |
 |-----------|---------------|-----------------|
-| Module code (`pov/`) | Overwritten | N/A (no user data) |
-| Commands (`.claude/commands/`) | Overwritten | N/A (no user data) |
-| Skills (`.claude/skills/`) | Overwritten | N/A (no user data) |
-| Config (`pov/config.yaml`) | Overwritten | ⚠️ Backup first |
-| Oversight data (`oversight/`) | **NEVER touched by install.sh** | ✅ Always safe |
-| Templates (via `update-templates.sh`) | Interactive - you choose | ✅ You control |
+| Module code (`_ai-memory/pov/`) | Overwritten | N/A (no user data) |
+| Commands (`.claude/commands/pov/`) | Overwritten | N/A (no user data) |
+| Agent def (`.claude/agents/pov/`) | Overwritten | N/A (no user data) |
+| Skill shims (`.claude/skills/aim-*`) | Regenerated from `_ai-memory/pov/skills/` | N/A (auto-generated) |
+| Config (`_ai-memory/pov/config.yaml`) | `user_name` synced from `.env` | ✅ Other fields preserved |
+| Stale 2.0 files | Removed automatically | N/A (obsolete files) |
+| Oversight data (`oversight/`) | **NEVER touched** | ✅ Always safe |
 
 ### Pre-Update Checklist
 
-Before updating, backup these files if you've customized them:
+Before updating, backup your config if you have customized it beyond `user_name`:
 
 ```bash
 # Backup your config
-cp pov/config.yaml pov/config.yaml.backup
-
-# Backup any custom templates (if you've modified them)
-cp oversight/README.md oversight/README.md.backup
+cp _ai-memory/pov/config.yaml _ai-memory/pov/config.yaml.backup
 
 # Your oversight data is ALWAYS safe - install.sh never touches it!
 ```
@@ -443,19 +342,21 @@ cp oversight/README.md oversight/README.md.backup
 
 | Command | Purpose | When to Use |
 |---------|---------|-------------|
-| `/parzival-start` | 🚀 Start session | Beginning of work session |
-| `/parzival-status` | 📊 Quick status | Check current state |
-| `/parzival-closeout` | 🏁 End session | End of work session |
-| `/parzival-handoff` | 💾 Mid-session save | Taking a break |
-| `/parzival-blocker` | 🚧 Analyze blocker | Stuck on something |
-| `/parzival-decision` | 🤔 Decision support | Need to choose between options |
-| `/parzival-verify` | ✅ Run checklist | Quality verification |
+| `/pov:parzival` | Activate Parzival with interactive menu | General oversight interaction |
+| `/pov:parzival-start` | Start session | Beginning of work session |
+| `/pov:parzival-status` | Quick status | Check current state |
+| `/pov:parzival-closeout` | End session | End of work session |
+| `/pov:parzival-handoff` | Mid-session save | Taking a break |
+| `/pov:parzival-blocker` | Analyze blocker | Stuck on something |
+| `/pov:parzival-decision` | Decision support | Need to choose between options |
+| `/pov:parzival-verify` | Run checklist | Quality verification |
+| `/pov:parzival-team` | Design agent team | Parallel work execution |
 
 ### Typical Workflow
 
 ```bash
 # Morning - Start your session
-/parzival-start
+/pov:parzival-start
 
 # Parzival loads previous context and shows:
 # - Recent decisions
@@ -464,19 +365,19 @@ cp oversight/README.md oversight/README.md.backup
 # - Session continuity
 
 # During work - hit a blocker?
-/parzival-blocker
+/pov:parzival-blocker
 # Parzival analyzes and presents resolution options
 
 # During work - need to make a decision?
-/parzival-decision
+/pov:parzival-decision
 # Parzival presents options with tradeoffs
 
 # Taking a break?
-/parzival-handoff
+/pov:parzival-handoff
 # Creates a mid-session snapshot
 
 # End of day
-/parzival-closeout
+/pov:parzival-closeout
 # Creates comprehensive handoff for next session
 ```
 
@@ -497,25 +398,19 @@ Every Parzival recommendation includes a confidence level:
 Parzival coordinates specialized agents for specific tasks:
 
 #### Code Review Agent
-```
-/code-review
-```
+Via Parzival menu item **[CR]**, or invoke `/pov:parzival` and select CR:
 - Adversarial review (finds 3-10 issues minimum)
 - Checks quality, security, architecture compliance
 - Severity-ranked issues with file:line references
 
 #### Verification Agent
-```
-/verify-implementation
-```
+Via Parzival menu item **[VE]**, or invoke `/pov:parzival` and select VE:
 - Validates against acceptance criteria
 - Evidence-based pass/fail per criterion
 - Runs automated tests if available
 
 #### Best Practices Researcher
-```
-/best-practices
-```
+Via Parzival menu item **[BR]**, or invoke `/pov:parzival` and select BR:
 - Researches current (2024-2026) standards
 - Caches findings to avoid repeat research
 - Sources citations for recommendations
@@ -526,50 +421,36 @@ Parzival coordinates specialized agents for specific tasks:
 
 ### 🔐 Data Protection
 
-Parzival's three-script architecture guarantees your data is never accidentally lost:
+The unified `install.sh` guarantees your data is never accidentally lost:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  install.sh                                                  │
-│  - Updates module code only                                 │
-│  - NEVER touches oversight/ folder                          │
+│  - Updates module code in _ai-memory/pov/                   │
+│  - Regenerates skill shims in .claude/skills/               │
+│  - Syncs config from .env (user_name only)                  │
+│  - Cleans up stale 2.0 files automatically                  │
+│  - Deploys oversight templates (no-clobber — never          │
+│    overwrites existing files)                               │
+│  - NEVER touches existing oversight/ data                   │
 │  - Safe to run on existing installations                    │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│  init-oversight.sh                                           │
-│  - Creates oversight/ structure                             │
-│  - NEVER overwrites existing files                          │
-│  - Uses no-clobber copy logic                               │
-│  - Warns if oversight/ already exists                       │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│  update-templates.sh                                         │
-│  - Interactive, per-file decisions                          │
-│  - Shows diff before any change                             │
-│  - Requires explicit confirmation                           │
-│  - Option to skip all remaining files                       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### ✅ Idempotency
 
-All scripts are safe to run multiple times:
+The installer is safe to run multiple times:
 
-- **install.sh**: Detects existing manifest entries, skips duplicates
-- **init-oversight.sh**: Skips files that already exist
-- **update-templates.sh**: Only prompts for changed files
+- **install.sh**: Overwrites module code, regenerates shims, deploys templates with no-clobber (skips existing files), cleans up stale files idempotently
 
 ### 🚨 Safety Guarantees
 
 | Scenario | What Happens | Your Data |
 |----------|--------------|-----------|
-| Run `install.sh` on existing installation | Module code updated | ✅ Preserved |
-| Run `init-oversight.sh` on existing oversight/ | Warning shown, files skipped | ✅ Preserved |
-| Run `update-templates.sh` | Interactive prompts per file | ✅ You control |
-| Accidental re-run of any script | Safe behavior, no data loss | ✅ Preserved |
-| `install.sh` fails mid-execution | Partial update, no data touched | ✅ Preserved |
+| Run `install.sh` on existing installation | Module code updated, shims regenerated | ✅ Preserved |
+| Run `install.sh` with existing oversight/ | Templates deployed with no-clobber (existing files skipped) | ✅ Preserved |
+| Accidental re-run of installer | Safe behavior, no data loss | ✅ Preserved |
+| `install.sh` fails mid-execution | Partial update, no oversight data touched | ✅ Preserved |
 
 ---
 
@@ -579,108 +460,73 @@ After installation, your project will have this structure:
 
 ```
 my-project/
-├── _bmad/                          # BMAD Method structure
-│   ├── _config/
-│   │   ├── manifest.yaml           # Module registry
-│   │   ├── agent-manifest.csv      # Agent registry
-│   │   └── agents/
-│   │       └── pov-parzival.customize.yaml  # Customization template
-│   ├── core/                       # BMAD core module
-│   ├── bmm/                        # Business Method Module (optional)
-│   └── pov/                        # 🎯 Parzival Module
-│       ├── config.yaml             # Parzival configuration
+├── _ai-memory/                     # AI Memory System
+│   └── pov/                        # Parzival Oversight Module
+│       ├── config.yaml             # Module config (user_name synced from .env)
 │       ├── agents/
 │       │   └── parzival.md         # Main agent definition
-│       ├── includes/               # Reusable agent components
-│       ├── templates/              # Oversight templates
-│       │   └── oversight/          # Template files
-│       └── BMAD-AGENT-INDEX.md     # Complete agent reference
+│       ├── constraints/            # Global + phase constraints
+│       ├── data/                   # Reference data (complexity, confidence, escalation, etc.)
+│       ├── workflows/              # Phase workflows
+│       ├── skills/                 # 7 Parzival skills (source of truth)
+│       │   ├── aim-parzival-bootstrap/
+│       │   ├── aim-parzival-constraints/
+│       │   ├── aim-parzival-team-builder/
+│       │   ├── aim-agent-dispatch/
+│       │   ├── aim-bmad-dispatch/
+│       │   ├── aim-agent-lifecycle/
+│       │   └── aim-model-dispatch/
+│       └── templates/              # Oversight templates
 │
 ├── .claude/                        # Claude Code integration
-│   ├── commands/
+│   ├── agents/
 │   │   └── pov/
-│   │       ├── commands/           # 7 slash commands
-│   │       │   ├── parzival-start.md
-│   │       │   ├── parzival-status.md
-│   │       │   ├── parzival-closeout.md
-│   │       │   ├── parzival-handoff.md
-│   │       │   ├── parzival-blocker.md
-│   │       │   ├── parzival-decision.md
-│   │       │   └── parzival-verify.md
-│   │       └── agents/             # 4 agent invocations
-│   │           ├── parzival.md
-│   │           ├── code-reviewer.md
-│   │           ├── verify-implementation.md
-│   │           └── best-practices-researcher.md
+│   │       └── parzival.md         # Agent definition (shim)
+│   ├── commands/
+│   │   └── pov/                    # 9 slash commands
+│   │       ├── parzival.md
+│   │       ├── parzival-start.md
+│   │       ├── parzival-status.md
+│   │       ├── parzival-closeout.md
+│   │       ├── parzival-handoff.md
+│   │       ├── parzival-blocker.md
+│   │       ├── parzival-decision.md
+│   │       ├── parzival-verify.md
+│   │       └── parzival-team.md
 │   └── skills/
-│       └── parzival-oversight/     # Skill definitions
-│           ├── SKILL.md
-│           ├── CONSTRAINTS.md
-│           ├── PROCEDURES.md
-│           └── CODEBASE-MODEL.md
+│       ├── aim-parzival-bootstrap/   # Thin shims (auto-generated)
+│       ├── aim-parzival-constraints/ # Each contains SKILL.md with
+│       ├── aim-parzival-team-builder/# **LOAD** pointer to _ai-memory/pov/skills/
+│       ├── aim-agent-dispatch/
+│       ├── aim-bmad-dispatch/
+│       ├── aim-agent-lifecycle/
+│       ├── aim-model-dispatch/
+│       ├── aim-search/               # Non-Parzival skills (full content, not shims)
+│       ├── aim-save/
+│       ├── aim-status/
+│       └── ...                       # Other aim-* skills
 │
-└── oversight/                      # 📊 Your Session Data (NEVER overwritten)
+└── oversight/                      # Your Session Data (NEVER overwritten)
     ├── README.md                   # Oversight system guide
     ├── SESSION_WORK_INDEX.md       # Quick context (~2K tokens)
-    ├── PARZIVAL_AGENT_IMPROVEMENTS.md  # Agent behavior notes
-    ├── PROJECT_IMPROVEMENTS.md     # Project lessons learned
-    ├── PROJECT_STANDARDS.yaml      # Standards index
-    │
-    ├── tracking/                   # 📋 Project Tracking
-    │   ├── task-tracker.md         # Current sprint/tasks
-    │   ├── risk-register.md        # Risk identification
-    │   ├── blockers-log.md         # Active blockers
-    │   ├── dependencies.md         # External dependencies
-    │   ├── scope-change-log.md     # Scope changes
-    │   └── technical-debt.md       # Tech debt tracking
-    │
-    ├── decisions/                  # 🎯 Decision Log
-    │   └── .gitkeep                # (Populated during sessions)
-    │
-    ├── session-logs/               # 📝 Session History
-    │   └── .gitkeep                # (Handoffs stored here)
-    │
-    ├── knowledge/                  # 🧠 Knowledge Base
-    │   ├── assumption-registry.md  # Tracked assumptions
-    │   ├── confidence-map.md       # What Parzival knows
-    │   └── best-practices/         # Cached research
-    │       ├── index.md
-    │       └── _TEMPLATE.md
-    │
-    ├── learning/                   # 📚 Learning & Patterns
-    │   └── failure-pattern-library.md
-    │
-    ├── research/                   # 🔬 Research
-    │   └── best-practices-log.md
-    │
-    ├── standards/                  # 📐 Standards (Sharded)
-    │   ├── _global/                # Global standards
-    │   │   └── _TEMPLATE.md
-    │   └── _project/               # Project-specific standards
-    │       └── _TEMPLATE.md
-    │
-    ├── verification/               # ✅ Quality Checklists
-    │   └── checklists/
-    │       ├── code-review.md
-    │       ├── production-ready.md
-    │       └── story-complete.md
-    │
-    ├── archive/                    # 🗄️ Archived items
-    ├── audits/                     # 📊 Quality audits
-    ├── plans/                      # 📋 Implementation plans
-    ├── prompts/                    # 🤖 Agent prompts
-    ├── specs/                      # 📄 Technical specifications
-    ├── tasks/                      # ✅ Task breakdowns
-    └── uncertainty/                # ❓ Open questions
+    ├── tracking/                   # Project Tracking
+    ├── decisions/                  # Decision Log
+    ├── session-logs/               # Session History
+    ├── knowledge/                  # Knowledge Base
+    ├── standards/                  # Standards (Sharded)
+    ├── verification/               # Quality Checklists
+    └── ...                         # Additional folders
 ```
 
 ### Key Directories Explained
 
 | Directory | Purpose | Updated By |
 |-----------|---------|-----------|
-| `pov/` | Module code | `install.sh` |
-| `.claude/commands/` | Slash commands | `install.sh` |
-| `.claude/skills/` | Skills | `install.sh` |
+| `_ai-memory/pov/` | Module code + skill source | `install.sh` |
+| `_ai-memory/pov/skills/` | Parzival skill definitions (source of truth) | `install.sh` |
+| `.claude/commands/pov/` | Slash commands | `install.sh` |
+| `.claude/agents/pov/` | Agent definition | `install.sh` |
+| `.claude/skills/aim-*` | Skill shims (Parzival) + full skills (non-Parzival) | `generate_parzival_skill_shims()` |
 | `oversight/` | **Your session data** | **You + Parzival** |
 | `oversight/session-logs/` | Session handoffs | Parzival (auto) |
 | `oversight/tracking/` | Project tracking | You + Parzival |
@@ -693,37 +539,27 @@ my-project/
 
 ### Basic Configuration
 
-Edit `pov/config.yaml`:
+Edit `_ai-memory/pov/config.yaml`:
 
 ```yaml
-# Project settings
-project_name: my-awesome-project    # Your project name
-user_name: Your Name                # Your name
+# Module-specific paths
+pov_output_folder: "{project-root}/_ai-memory-output/pov"
+constraints_path: "{project-root}/_ai-memory/pov/constraints"
+workflows_path: "{project-root}/_ai-memory/pov/workflows"
+oversight_path: "{project-root}/oversight"
+
+# Core Configuration Values
+user_name: "{USER_NAME}"            # Auto-set by installer from PARZIVAL_USER_NAME env var
 communication_language: English     # Preferred language
-
-# Parzival settings
-oversight_folder: oversight         # Oversight folder location (default: ./oversight)
-
-# Agent behavior (advanced - see documentation)
-confidence_levels:
-  - verified
-  - informed
-  - inferred
-  - uncertain
-  - unknown
-
-escalation_levels:
-  - clarifying_question
-  - blocking_issue
-  - architectural_decision
+document_output_language: English
+output_folder: "{project-root}/_ai-memory-output"
 ```
+
+Note: `user_name` is parameterized as `{USER_NAME}` and substituted by `sync_parzival_config_yaml()` from the `PARZIVAL_USER_NAME` variable in your `.env` file.
 
 ### Advanced Customization
 
-Create custom agent behavior by editing:
-```
-_bmad/_config/agents/pov-parzival.customize.yaml
-```
+Create custom agent behavior by editing the customization template (if available in your project):
 
 This allows you to override:
 - Agent persona
@@ -755,17 +591,17 @@ principles:
 ### Common Issues
 
 <details>
-<summary><b>🚫 "Command not found" when running `/parzival-start`</b></summary>
+<summary><b>🚫 "Command not found" when running `/pov:parzival-start`</b></summary>
 
 **Cause:** Slash commands not installed correctly.
 
 **Fix:**
 ```bash
 # Verify commands exist
-ls .claude/commands/pov/commands/
+ls .claude/commands/pov/
 
 # If missing, re-run installer
-./install.sh /path/to/your/project
+./scripts/install.sh
 
 # Restart Claude Code
 exit  # Exit Claude
@@ -783,31 +619,27 @@ claude  # Restart
 # Check if oversight folder exists
 ls oversight/
 
-# If missing, run initializer
-./scripts/init-oversight.sh /path/to/your/project
+# If missing or empty, re-run installer (deploys oversight templates)
+./scripts/install.sh
 
-# If exists but empty
-cp -r pov/templates/oversight/* oversight/
+# Or manually copy templates
+cp -r _ai-memory/pov/templates/oversight/* oversight/
 ```
 </details>
 
 <details>
 <summary><b>⚠️ "Module 'pov' not found" error</b></summary>
 
-**Cause:** Module not registered in BMAD manifest.
+**Cause:** Module files not deployed correctly.
 
 **Fix:**
 ```bash
-# Open manifest
-nano _bmad/_config/manifest.yaml
+# Verify module files exist
+ls _ai-memory/pov/config.yaml
+ls _ai-memory/pov/agents/parzival.md
 
-# Add 'pov' to modules list:
-modules:
-  - core
-  - bmm
-  - pov    # Add this line
-
-# Save and restart Claude Code
+# If missing, re-run installer
+./scripts/install.sh
 ```
 </details>
 
@@ -818,26 +650,22 @@ modules:
 
 **Fix:**
 ```bash
-chmod +x install.sh
-chmod +x scripts/init-oversight.sh
-chmod +x scripts/update-templates.sh
+chmod +x scripts/install.sh
 
 # Then run the script
-./install.sh /path/to/your/project
+./scripts/install.sh
 ```
 </details>
 
 <details>
-<summary><b>📁 "oversight/" folder exists but init-oversight.sh shows warning</b></summary>
+<summary><b>📁 "oversight/" folder exists but templates are outdated</b></summary>
 
-**Cause:** This is expected behavior - init-oversight.sh is for NEW projects only.
+**Cause:** Templates were updated in a new version.
 
 **Fix:**
 ```bash
-# For existing projects, use the template updater instead:
-./scripts/update-templates.sh /path/to/your/project
-
-# Or skip if you don't want to update templates
+# Re-run installer — it deploys oversight templates without overwriting existing files
+./scripts/install.sh
 ```
 </details>
 
@@ -851,12 +679,10 @@ chmod +x scripts/update-templates.sh
 # Create the folder
 mkdir -p oversight/knowledge/best-practices/
 
-# Copy the template
-cp pov/templates/oversight/knowledge/best-practices/_TEMPLATE.md \
+# Copy templates if available
+cp _ai-memory/pov/templates/oversight/knowledge/best-practices/_TEMPLATE.md \
    oversight/knowledge/best-practices/
-
-# Copy the index
-cp pov/templates/oversight/knowledge/best-practices/index.md \
+cp _ai-memory/pov/templates/oversight/knowledge/best-practices/index.md \
    oversight/knowledge/best-practices/
 ```
 </details>
@@ -864,15 +690,15 @@ cp pov/templates/oversight/knowledge/best-practices/index.md \
 <details>
 <summary><b>🎯 BMAD commands work but Parzival doesn't load</b></summary>
 
-**Cause:** Agent not registered in agent manifest.
+**Cause:** Agent definition not deployed to `.claude/agents/pov/`.
 
 **Fix:**
 ```bash
-# Check agent manifest
-cat _bmad/_config/agent-manifest.csv | grep parzival
+# Check agent definition exists
+ls .claude/agents/pov/parzival.md
 
-# If missing, add this line to agent-manifest.csv:
-"parzival","Parzival","Technical PM & Quality Gatekeeper","🎯","Technical Project Manager + Quality Gatekeeper","Parzival is the radar, map reader, and navigator. Deep project understanding enables good recommendations - not task execution. Maintains oversight documentation, tracks risks and blockers, provides well-crafted prompts for agents, and validates completed work through explicit checklists.","Advisory and supportive. Uses confidence levels (Verified/Informed/Inferred/Uncertain/Unknown) with every recommendation. Asks clarifying questions rather than assuming. Surfaces risks and scope changes proactively.","- Parzival recommends. The user decides. - Ask when uncertain, never fabricate. - Surface scope changes when detected. - Write for Future Parzival who knows nothing about this session. - Verification is concrete, not vibes-based.","pov","pov/agents/parzival.md"
+# If missing, re-run installer
+./scripts/install.sh
 ```
 </details>
 
@@ -948,9 +774,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### Official Documentation
 - **[README.md](./README.md)** - Complete source of truth (identity, constraints, duties, architecture)
-- **[CONSTRAINTS.md](./pov/agents/parzival/CONSTRAINTS.md)** - Core behavioral rules (394 lines)
-- **[CONSTRAINT-ENFORCEMENT-SYSTEM.md](./docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md)** - Five-layer behavioral architecture
-- **[PROCEDURES.md](./pov/procedures/PROCEDURES.md)** - Step-by-step operational procedures (878 lines)
+- **[CONSTRAINT-ENFORCEMENT-SYSTEM.md](./CONSTRAINT-ENFORCEMENT-SYSTEM.md)** - Behavioral constraint architecture
+- **[constraints.md](../../_ai-memory/pov/constraints/global/constraints.md)** - Global constraint index (GC-01 through GC-20)
+- **[Workflows](../../_ai-memory/pov/workflows/)** - Step-by-step workflow definitions
 
 ### External Resources
 - [BMAD Method Documentation](https://bmad-method.org/docs)
@@ -964,21 +790,23 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ╔════════════════════════════════════════════════════════════════════╗
 ║                   PARZIVAL QUICK REFERENCE                         ║
 ╠════════════════════════════════════════════════════════════════════╣
-║  COMMANDS                                                          ║
+║  SLASH COMMANDS                                                    ║
 ║  ─────────────────────────────────────────────────────────────    ║
-║  /parzival-start        🚀 Start session                          ║
-║  /parzival-status       📊 Check status                           ║
-║  /parzival-closeout     🏁 End session                            ║
-║  /parzival-handoff      💾 Mid-session save                       ║
-║  /parzival-blocker      🚧 Analyze blocker                        ║
-║  /parzival-decision     🤔 Decision support                       ║
-║  /parzival-verify       ✅ Run verification                       ║
+║  /pov:parzival           Interactive menu                          ║
+║  /pov:parzival-start     Start session                             ║
+║  /pov:parzival-status    Check status                              ║
+║  /pov:parzival-closeout  End session                               ║
+║  /pov:parzival-handoff   Mid-session save                          ║
+║  /pov:parzival-blocker   Analyze blocker                           ║
+║  /pov:parzival-decision  Decision support                          ║
+║  /pov:parzival-verify    Run verification                          ║
+║  /pov:parzival-team      Design agent team                         ║
 ║                                                                    ║
-║  AGENTS                                                            ║
+║  MENU ITEMS (inside Parzival session)                              ║
 ║  ─────────────────────────────────────────────────────────────    ║
-║  /code-review           🔍 Adversarial code review                ║
-║  /verify-implementation ✓  Verify acceptance criteria             ║
-║  /best-practices        📚 Research current standards             ║
+║  [CR] Code Review        🔍 Adversarial code review               ║
+║  [VE] Verification       ✓  Verify acceptance criteria            ║
+║  [BR] Best Practices     📚 Research current standards            ║
 ║                                                                    ║
 ║  CONFIDENCE LEVELS                                                 ║
 ║  ─────────────────────────────────────────────────────────────    ║

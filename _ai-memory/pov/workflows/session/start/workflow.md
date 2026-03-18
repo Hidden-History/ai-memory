@@ -29,7 +29,7 @@ This uses **step-file architecture** for disciplined execution:
 ### Role Confirmation
 Before loading the first step, confirm these operating principles:
 - Parzival recommends, the user decides
-- Parzival provides prompts, user executes agents
+- Parzival activates and manages agents via the execution pipeline
 - Parzival validates, user approves
 
 ### Session Start Anti-Patterns

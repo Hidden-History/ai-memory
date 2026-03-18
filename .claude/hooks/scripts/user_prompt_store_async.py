@@ -144,6 +144,18 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                     "reason": "too_short_or_low_value",
                 },
             )
+            try:
+                from memory.metrics_push import push_capture_metrics_async
+
+                push_capture_metrics_async(
+                    hook_type="UserPromptSubmit",
+                    status="quality_gate_skip",
+                    project=detect_project(os.getcwd()) or "unknown",
+                    collection="skipped",
+                    count=1,
+                )
+            except ImportError:
+                pass
             return True
 
         # Detect project name

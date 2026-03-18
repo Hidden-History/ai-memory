@@ -165,7 +165,10 @@ setup_project_keys() {
     env_set "LANGFUSE_SECRET_KEY"      "$secret_key"
     env_set "LANGFUSE_ENABLED"         "true"
     # Hook tracing config — install.sh reads these to inject into project settings
-    env_set "LANGFUSE_BASE_URL"        "http://localhost:23100"
+    local web_port
+    web_port=$(env_get "LANGFUSE_WEB_PORT")
+    web_port="${web_port:-23100}"
+    env_set "LANGFUSE_BASE_URL"        "http://localhost:${web_port}"
     env_set "LANGFUSE_TRACE_HOOKS"     "true"
     env_set "LANGFUSE_TRACE_SESSIONS"  "true"
 
@@ -368,8 +371,9 @@ except Exception:
         fi
 
         log_info "Fixing up init user: email_verified + admin flag..."
-        docker exec "$pg_container" psql -U langfuse -d langfuse -c \
-            "UPDATE users SET email_verified = NOW(), admin = true WHERE email = '${init_email}' AND email_verified IS NULL;" \
+        docker exec "$pg_container" psql -U "$prefix"langfuse -d "$prefix"langfuse \
+            -v email="$init_email" \
+            -c "UPDATE users SET email_verified = NOW(), admin = true WHERE email = :'email' AND email_verified IS NULL;" \
             2>/dev/null || log_warning "Could not fix up init user (non-critical)"
 
         # Langfuse INIT creates org_membership but NOT project_membership.
@@ -378,12 +382,13 @@ except Exception:
         init_project_id=$(env_get "LANGFUSE_INIT_PROJECT_ID")
         if [[ -n "$init_project_id" ]]; then
             log_info "Ensuring project membership for init user..."
-            docker exec "$pg_container" psql -U langfuse -d langfuse -c "
-                INSERT INTO project_memberships (project_id, user_id, org_membership_id, role)
-                SELECT '${init_project_id}', u.id, om.id, 'OWNER'
+            docker exec "$pg_container" psql -U "$prefix"langfuse -d "$prefix"langfuse \
+                -v email="$init_email" -v project_id="$init_project_id" \
+                -c "INSERT INTO project_memberships (project_id, user_id, org_membership_id, role)
+                SELECT :'project_id', u.id, om.id, 'OWNER'
                 FROM users u
                 JOIN organization_memberships om ON om.user_id = u.id
-                WHERE u.email = '${init_email}'
+                WHERE u.email = :'email'
                 ON CONFLICT (project_id, user_id) DO NOTHING;" \
                 2>/dev/null || log_warning "Could not ensure project membership (non-critical)"
         fi
@@ -601,7 +606,10 @@ main() {
         # Print brief summary even when health check not requested
         echo ""
         log_info "Run with --health-check to verify services and register models."
-        log_info "Langfuse UI: http://localhost:$(env_get "LANGFUSE_WEB_PORT" || echo "23100")"
+        local web_port
+        web_port=$(env_get "LANGFUSE_WEB_PORT")
+        web_port="${web_port:-23100}"
+        log_info "Langfuse UI: http://localhost:${web_port}"
     fi
 }
 

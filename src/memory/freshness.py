@@ -417,6 +417,9 @@ def run_freshness_scan(
         )
 
     _trace_start = datetime.now(timezone.utc)
+    scan_session_id = (
+        f"freshness_scan_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
+    )
     if emit_trace_event:
         with contextlib.suppress(Exception):
             emit_trace_event(
@@ -434,7 +437,7 @@ def run_freshness_scan(
                     },
                 },
                 start_time=_trace_start,
-                session_id="freshness_scan",
+                session_id=scan_session_id,
                 tags=["search", "freshness"],
             )
 
@@ -567,7 +570,7 @@ def run_freshness_scan(
     if emit_trace_event:
         with contextlib.suppress(Exception):
             emit_trace_event(
-                event_type="freshness_scan",
+                event_type="freshness_scan_complete",
                 data={
                     "input": f"Freshness scan for {group_id or 'all projects'}"[
                         :TRACE_CONTENT_MAX
@@ -589,7 +592,7 @@ def run_freshness_scan(
                 },
                 start_time=_trace_start,
                 end_time=datetime.now(timezone.utc),
-                session_id="freshness_scan",
+                session_id=scan_session_id,
                 tags=["search", "freshness"],
             )
 

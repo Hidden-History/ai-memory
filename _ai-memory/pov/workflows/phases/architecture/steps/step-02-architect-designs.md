@@ -1,13 +1,13 @@
 ---
 name: 'step-02-architect-designs'
-description: 'Activate Architect agent to design the complete technical architecture'
+description: 'Define architecture requirements and dispatch Architect via agent-dispatch cycle'
 nextStepFile: './step-03-ux-design.md'
 ---
 
 # Step 2: Architect Designs Architecture
 
 ## STEP GOAL
-Activate the Architect agent to design the complete technical architecture. The track determines depth. Architecture must cover all eight required sections with rationale for every decision.
+Define the architecture requirements and dispatch the Architect agent via the agent-dispatch cycle to design the complete technical architecture. The track determines depth. Architecture must cover all eight required sections with rationale for every decision.
 
 ## MANDATORY EXECUTION RULES
 - Read the complete step file before taking any action
@@ -20,7 +20,9 @@ Activate the Architect agent to design the complete technical architecture. The 
 
 ## MANDATORY SEQUENCE
 
-### 1. Determine Depth by Track
+### Parzival's Responsibility (Layer 1)
+
+#### 1. Determine Depth by Track
 
 **Quick Flow:** Architecture step is simplified. Architect reviews tech-spec and confirms feasibility. No full architecture document required. Skip to Step 6 (stories only, no epics).
 
@@ -28,7 +30,7 @@ Activate the Architect agent to design the complete technical architecture. The 
 
 **Enterprise:** Full architecture.md with additional security, compliance, and DevOps layers.
 
-### 2. Prepare Architect Design Instruction
+#### 2. Prepare Architect Design Instruction
 Architecture must cover eight sections:
 
 1. **Technology stack** -- with rationale for every choice (language, runtime, framework, database, caching, third-party services)
@@ -46,10 +48,14 @@ Requirements:
 - No gold-plating -- architecture must fit project scale
 - Existing tech (if any) must be respected unless explicitly changing
 
-### 3. Dispatch Architect via Agent Dispatch
+### Execution (via agent-dispatch cycle)
+
+#### 3. Dispatch Architect via Agent Dispatch
 Invoke {workflows_path}/cycles/agent-dispatch/workflow.md to activate the Architect with the prepared instruction.
 
-### 4. Receive Architecture Draft
+### Parzival's Responsibility (Layer 1)
+
+#### 4. Receive Architecture Draft
 Receive architecture.md from the Architect. Do not present to user yet.
 
 ## CRITICAL STEP COMPLETION NOTE

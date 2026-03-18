@@ -1189,6 +1189,47 @@ sys.exit(0)  # Returns immediately
 
 ---
 
+## Container Update Procedures
+
+### After Code Updates (Option 1 Install)
+
+Not all containers pick up code changes automatically. Here's what needs manual action:
+
+**Containers with baked-in code** (need rebuild after code updates):
+```bash
+cd ~/.ai-memory/docker
+unset QDRANT_API_KEY  # Prevent shell env overriding .env file
+docker compose build --no-cache github-sync
+docker compose up -d github-sync
+```
+
+**Containers with volume-mounted code** (auto-update, may need restart for env changes):
+- `evaluator-scheduler` — volume-mounts `../src:/app/src:ro`
+- `classifier-worker` — uses root `requirements.txt` (baked) but mounts queue dir
+
+**To pick up new `.env` values**, restart affected containers:
+```bash
+cd ~/.ai-memory
+bash scripts/stack.sh restart
+```
+
+### Common Post-Update Issues
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| github-sync crash loop | Missing Python dependency in Docker image | Rebuild: `docker compose build --no-cache github-sync` |
+| Evaluator not scoring | Empty `OLLAMA_API_KEY` in container | Recreate: `stack.sh restart` |
+| `.audit/logs` permission denied | Container UID (1001) vs host UID (1000) mismatch | `chmod -R o+w ~/.ai-memory/.audit/logs/` |
+| Langfuse compose conflict | Running compose against wrong file | Always use `stack.sh`, not direct `docker compose -f` |
+
+### Critical Rules
+
+- **Always** `unset QDRANT_API_KEY` before `docker compose` operations (shell env overrides `.env`)
+- **Always** run `docker compose` from `~/.ai-memory/docker/`, never from the source repo
+- **Never** edit `~/.ai-memory/docker/.env` in the source repo — edit in the installed location
+
+---
+
 ## ⚙️ Configuration Issues
 
 For comprehensive configuration troubleshooting, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
@@ -1213,7 +1254,7 @@ QDRANT_URL="http://localhost:26350"
 QDRANT_URL=http://localhost:26350
 ```
 
-**File Location:** Must be `~/.ai-memory/.env` (absolute path)
+**File Location:** Must be `~/.ai-memory/docker/.env` (absolute path)
 
 ---
 
@@ -1271,7 +1312,7 @@ python3 --version > /tmp/bmad-diagnostics/python-version.txt
 uname -a > /tmp/bmad-diagnostics/system-info.txt
 
 # Collect config
-cp ~/.ai-memory/.env /tmp/bmad-diagnostics/.env 2>/dev/null || echo "No .env file"
+cp ~/.ai-memory/docker/.env /tmp/bmad-diagnostics/.env 2>/dev/null || echo "No .env file"
 cp .claude/settings.json /tmp/bmad-diagnostics/settings.json 2>/dev/null || echo "No settings.json"
 
 # Create archive

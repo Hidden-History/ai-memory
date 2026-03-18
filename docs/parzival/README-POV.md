@@ -10,11 +10,11 @@
 
 [![BMAD Method](https://img.shields.io/badge/BMAD-Module-blue)](https://github.com/bmad-code-org/BMAD-METHOD)
 [![AI Memory](https://img.shields.io/badge/AI%20Memory-Ecosystem-purple)](https://github.com/Hidden-History/ai-memory)
-[![Version](https://img.shields.io/badge/version-1.1.0-green)](https://github.com/Hidden-History/pov-oversight-agent)
+[![Version](https://img.shields.io/badge/version-2.1.0-green)](https://github.com/Hidden-History/pov-oversight-agent)
 [![License](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-brightgreen)](https://claude.ai/code)
 
-**Parzival is the radar operator, not the pilot. It monitors, navigates, verifies, and documents—but never executes. Your AI oversight agent for context persistence, risk tracking, and enforced quality gates.**
+**Parzival is the radar operator, navigator, and boss of all worker agents. It plans, delegates, verifies, and documents—but never implements directly. Your AI oversight agent for context persistence, risk tracking, enforced quality gates, and structured agent execution.**
 
 [Quick Start](#-quick-start) • [Installation](#-installation) • [Commands](#-commands) • [Architecture](#-architecture) • [Documentation](#-documentation)
 
@@ -70,18 +70,20 @@ Together they provide complete project understanding across sessions—agents th
 
 **Parzival is an oversight agent, NOT an implementation agent.**
 
-Think of Parzival as the **radar operator** on a ship - you are the captain who steers. Parzival:
+Think of Parzival as the **radar operator and boss of all worker agents** on a ship - you are the captain who steers. Parzival:
 - 📡 **Monitors** - Tracks project state, risks, and blockers
 - 🧭 **Navigates** - Provides options and recommendations with confidence levels
 - 🔍 **Verifies** - Runs quality gates and ensures zero issues before proceeding
 - 📋 **Documents** - Maintains session context, decisions, and tradeoffs
-- 🚫 **Never Executes** - Does not write code, make decisions, or run agents
+- 🤖 **Delegates** - Dispatches specialized agents via structured execution pipeline
+- 🚫 **Never Implements** - Does not write code or make final decisions
 
 ### The Core Principle
 
 > **"Parzival recommends. You decide."**
+> **"User manages Parzival. Parzival manages all agents."** (GC-04)
 
-Parzival's value comes from **deep project understanding** that enables good recommendations - not from task execution. It maintains comprehensive oversight documentation, tracks risks and blockers, provides well-crafted prompts for implementation agents, and validates completed work through explicit checklists.
+Parzival's value comes from **deep project understanding** that enables good recommendations and precise execution delegation. It designs agent teams, crafts precise instructions, reviews all agent output adversarially, maintains comprehensive oversight documentation, tracks risks and blockers, and validates completed work through explicit checklists.
 
 ---
 
@@ -136,16 +138,16 @@ Parzival operates under **five non-negotiable constraints** that define its role
 - Update oversight/ documentation
 ```
 
-**If asked to code:** "I cannot write implementation code (Constraint: Oversight Role). What I CAN do: create a complete implementation prompt for a dev agent, break down the work into steps, and verify it after completion. Would you like me to create the prompt?"
+**If asked to code:** "I cannot write implementation code (Constraint: Oversight Role). What I CAN do: activate a dev agent with precise instructions, break down the work into steps, and verify the output after completion. Would you like me to dispatch a dev agent?"
 
 #### 2. ✅🔁 ALWAYS Review Until Zero Issues
 ```
 MANDATORY CYCLE:
-1. Provide review agent prompt after EVERY task
-2. User runs review
-3. If issues found → provide fix prompt → re-review
+1. Dispatch review agent after EVERY task
+2. Parzival reviews agent output adversarially
+3. If issues found → dispatch fix → re-review
 4. Repeat until review finds ZERO issues
-5. Only then suggest moving to next task
+5. Only then present results and suggest moving to next task
 
 ❌ NEVER:
 - Accept work with known issues
@@ -199,18 +201,18 @@ BEFORE any recommendation:
 - **Uncertain**: Insufficient information
 - **Unknown**: No basis for position
 
-#### 5. 👤✓ ALWAYS Let User Decide
+#### 5. 👤✓ User Manages Parzival — Parzival Manages All Agents (GC-04)
 ```
 ❌ NEVER:
 - Make final decisions
 - Approve work as "done"
-- Execute agents autonomously
 - Override user's judgment
+- Ask the user to run or activate agents
 
 ✅ ALWAYS:
 - Present options with "Do you approve?"
 - Wait for explicit approval
-- Let user activate all agents
+- Dispatch and manage agents yourself (user manages Parzival only)
 - Defer to user's decision even when you disagree
 ```
 
@@ -220,21 +222,30 @@ BEFORE any recommendation:
 
 ### Self-Check System
 
-Parzival performs a **mental self-check every ~10 messages** to prevent behavioral drift:
+Parzival performs a **mental self-check every ~10 messages** to prevent behavioral drift. The self-check covers all 17 global constraints across two layers:
 
 ```
-☐ Am I trying to do implementation work? → STOP if yes
-☐ Did I verify against project files? → Check if no
-☐ Am I guessing or stating verified facts? → Admit if guessing
-☐ Did I suggest review for completed work? → Required
-☐ Am I presenting options or making decisions? → Must present options
+Always active (Layer 1):
+☐ GC-01: Have I done any implementation work?
+☐ GC-02: Have I stated anything without verification?
+☐ GC-03: Have I checked project files before instructing agents?
+☐ GC-04: Have I asked the user to run an agent? (Parzival manages agents)
+☐ GC-05 through GC-08: Quality gates (verify fixes, classify issues, no known issues, no debt)
+☐ GC-10, GC-12: Communication (summaries not raw output, loop until zero issues)
+☐ GC-13 through GC-15: Process (best practices research, similar issue check, template usage)
+☐ GC-19: Have I spawned any agent without team_name?
+☐ GC-20: Have I included instruction in a BMAD activation message?
+
+Active during agent work (Layer 3):
+☐ GC-09: Have I reviewed all agent output before presenting?
+☐ GC-11: Have agent instructions been precise and cited?
 
 IF ANY CHECK FAILS → Course-correct IMMEDIATELY
 ```
 
-For complete constraint documentation, see [`pov/agents/parzival/CONSTRAINTS.md`](./pov/agents/parzival/CONSTRAINTS.md).
+For complete constraint documentation, see [`_ai-memory/pov/constraints/global/constraints.md`](./_ai-memory/pov/constraints/global/constraints.md).
 
-> **Two Constraint Systems:** Parzival uses (1) **5 Behavioral Constraints** above that define the oversight role, and (2) **7 Operational Constraints (C1-C7)** in `pov/agents/parzival/CONSTRAINTS.md` that define work procedures (bug tracking, verification, observability)
+> **Constraint System:** Parzival operates under **17 Global Constraints (GC-01 through GC-15 + GC-19 + GC-20)** defined in `constraints/global/constraints.md`. These cover identity (never implement, never guess, user manages Parzival, spawn agents as teammates), quality (verify fixes, zero issues, best practices research, template usage), and communication (review agent output, present summaries, precise instructions, loop until zero issues). Phase-specific constraints are loaded additionally per workflow.
 
 ---
 
@@ -369,22 +380,21 @@ Parzival uses a **three-script architecture** designed for **data safety** and *
 ### 4. Quality Verification (Evidence-Based)
 
 **What Parzival Does:**
-- Provides review agent prompts after EVERY task
+- Dispatches review agents after EVERY task
 - Demands proof: test results, file checks, behavior validation
 - Reports specific pass/fail for each criterion
 - Continues review→fix→review cycle until ZERO issues found
 
 **Verification Protocol:**
 ```
-1. Task completed
-2. Provide review agent prompt
-3. User runs review → agent reports findings
+1. Task completed by dev agent
+2. Parzival dispatches review agent
+3. Review agent reports findings → Parzival reviews output
 4. IF issues found:
-   - Provide fix prompt
-   - User fixes
+   - Parzival dispatches fix agent with correction instruction
    - Return to step 2 (re-review)
 5. IF zero issues:
-   - Present findings to user
+   - Present summary to user
    - Ask: "Do you approve marking this complete?"
 6. Only proceed after user approval
 ```
@@ -395,39 +405,28 @@ Parzival uses a **three-script architecture** designed for **data safety** and *
 - Approve work without user consent
 - Skip verification steps
 
-### 5. Agent Coordination (Provide Prompts, Not Execute)
+### 5. Agent Dispatch and Management (GC-04)
 
 **What Parzival Does:**
-- Creates complete implementation prompts for dev agents
-- Provides review prompts for quality verification
-- Suggests which agent should handle which task
-- Breaks down work into clear, testable steps
+- Activates and manages all agents via Claude Code teams
+- Gives each agent precise, file-referenced instructions verified against project requirements
+- Reviews all agent output adversarially before presenting to user
+- Loops the review cycle until zero legitimate issues remain
 
-**Example Prompt Structure:**
+**Instruction Template:**
 ```markdown
-## Implementation Prompt for Dev Agent
-
-**Context:** [What needs to be done and why]
-
-**Requirements:**
-1. [Specific requirement from architecture.md:42]
-2. [Specific requirement from PRD:section-3]
-
-**Acceptance Criteria:**
-- [ ] [Testable criterion 1]
-- [ ] [Testable criterion 2]
-
-**Files to Modify:**
-- `src/module.py` - Add function X
-- `tests/test_module.py` - Add test for X
-
-**Reference:**
-- Architecture: `architecture.md:42-45`
-- Similar pattern: `src/existing.py:120-140`
+AGENT: [agent role]
+TASK: [specific task description]
+REQUIREMENTS: [cite PRD section X, architecture.md section Y]
+SCOPE: [what is included / what is excluded]
+OUTPUT EXPECTED: [exactly what the agent should produce]
+DONE WHEN: [measurable completion criteria]
+STANDARDS: [cite project-context.md section Z]
+IF YOU ENCOUNTER A BLOCKER: [escalation path]
 ```
 
 **What Parzival Does NOT Do:**
-- Execute dev agents
+- Ask the user to run or activate agents
 - Write implementation code
 - Make code changes directly
 
@@ -458,11 +457,11 @@ chmod +x install.sh
 **Skip this step if you already have an oversight/ folder!**
 
 #### 3. Configure (Optional)
-Edit `your-project/pov/config.yaml`:
+Edit `your-project/_ai-memory/pov/config.yaml`:
 ```yaml
 user_name: "YourName"
 communication_language: "English"
-oversight_folder: "oversight"
+oversight_path: "{project-root}/oversight"
 ```
 
 ### First Use
@@ -474,7 +473,7 @@ claude
 
 Then activate Parzival:
 ```
-/pov:agents:parzival
+/pov:parzival
 ```
 
 Parzival will greet you and show a menu of available commands.
@@ -483,59 +482,53 @@ Parzival will greet you and show a menu of available commands.
 
 ## 📋 Commands
 
-All commands use the `/pov:commands:` or `/pov:agents:` prefix.
+Parzival presents an interactive menu with 15 items. Commands are accessed by number, code (e.g. ST, BL), or fuzzy text match. The menu is displayed at activation and can be redisplayed at any time.
 
-### Session Management
+### Menu Items (15 total)
 
-| Command | Description | When to Use |
-|---------|-------------|-------------|
-| `/pov:commands:parzival-start` | Start session - load context | Beginning of work session |
-| `/pov:commands:parzival-status` | Quick status check | Check current state without full context load |
-| `/pov:commands:parzival-closeout` | End session - create handoff | End of work session, before break |
-| `/pov:commands:parzival-handoff` | Mid-session snapshot | After completing significant work |
+| Code | Label | Description | When to Use |
+|------|-------|-------------|-------------|
+| HP | Help | Get help with Parzival workflows | When unsure how to proceed |
+| CH | Chat | Talk with Parzival about anything | General project discussion |
+| ST | Session Start | Load context and present status | Beginning of work session |
+| SU | Quick Status | Check current project state | Quick state check without full load |
+| BL | Blocker Analysis | Analyze and resolve blockers | When stuck on a problem |
+| DC | Decision Support | Structure a decision with options | Need to choose between options |
+| VE | Verification | Run verification protocol | After completing implementation |
+| CR | Code Review | Invoke Code Reviewer agent | After implementation, before approval |
+| BR | Best Practices | Research best practices (AI memory system) | Research current standards |
+| FR | Freshness Report | Scan code-patterns for stale memories | Check memory currency |
+| TP | Team Builder | Design agent team for parallel execution | When parallel agent work is needed |
+| HO | Handoff | Create mid-session state snapshot | After completing significant work |
+| CL | Session Close | Full closeout with handoff creation | End of work session, before break |
+| DA | Dispatch Agent | Activate an agent for a task | When agent execution is needed |
+| EX | Exit | Dismiss Parzival and end session | Done working |
 
-### Problem Solving
-
-| Command | Description | When to Use |
-|---------|-------------|-------------|
-| `/pov:commands:parzival-blocker` | Analyze blocker | When stuck on a problem |
-| `/pov:commands:parzival-decision` | Decision support | Need to choose between options |
-| `/pov:commands:parzival-verify` | Run verification checklist | After completing implementation |
-
-### Quality Gates (2 Subagents)
-
-| Command | Description | When to Use |
-|---------|-------------|-------------|
-| `/pov:agents:code-reviewer` | Invoke Code Reviewer | After implementation, before approval |
-| `/pov:agents:verify-implementation` | Verify against acceptance criteria | After code review passes |
-
-> **Note:** For best practices research, use the `best-practices-researcher` skill from the [AI Memory Module](https://github.com/Hidden-History/ai-memory) which includes database integration.
-
-### General
+### Activation
 
 | Command | Description |
 |---------|-------------|
-| `/pov:agents:parzival` | Activate Parzival agent with full menu |
+| `/pov:parzival` | Activate Parzival agent with full menu |
 
 ### Usage Examples
 
 **Starting a Session:**
 ```
-/pov:commands:parzival-start
+/pov:parzival-start
 ```
-*Expected:* Parzival loads context from `SESSION_WORK_INDEX.md` and presents current task status, active blockers, and session summary.
+*Expected:* Parzival loads context from oversight files, bootstraps cross-session memory, and presents current task status, active blockers, and session summary.
 
 **Analyzing a Blocker:**
 ```
-/pov:commands:parzival-blocker
+/pov:parzival-blocker
 ```
 *Expected:* Parzival asks for blocker details, analyzes the issue, and presents resolution options with tradeoffs and confidence levels.
 
 **Creating a Handoff:**
 ```
-/pov:commands:parzival-closeout
+/pov:parzival-closeout
 ```
-*Expected:* Parzival creates a detailed `SESSION_HANDOFF_*.md` file with work completed, decisions made, next steps, and context for future sessions.
+*Expected:* Parzival creates a detailed handoff document with work completed, decisions made, next steps, and context for future sessions.
 
 ---
 
@@ -557,48 +550,49 @@ Parzival uses a **five-layer constraint enforcement system** to maintain consist
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Layer 1: CRITICAL CONSTRAINTS (Agent Definition)            │
-│ • Loaded immediately at agent activation                    │
-│ • Highest prominence in parzival.md                         │
-│ • 5 core rules + self-check checklist                       │
+│ Layer 1: GLOBAL CONSTRAINTS (Always Active)                 │
+│ • GC-01 through GC-15 + GC-19 + GC-20 (17 constraints)    │
+│ • Loaded at activation step 4, before any user interaction  │
+│ • Identity, quality, and communication rules                │
+│ • Cannot be overridden by workflow-specific rules           │
 └─────────────────────────────────────────────────────────────┘
           ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ Layer 2: DETAILED CONSTRAINTS (CONSTRAINTS.md)              │
-│ • Full constraint documentation (390 lines)                 │
-│ • Examples of correct/incorrect behavior                    │
-│ • Violation response templates                              │
+│ Layer 2: PHASE-SPECIFIC CONSTRAINTS                         │
+│ • Loaded per workflow from constraints/{phase}/             │
+│ • Discovery (DC), Architecture (AC), Planning (PC), etc.   │
+│ • Dropped on phase exit, replaced by next phase constraints │
 └─────────────────────────────────────────────────────────────┘
           ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ Layer 3: PERIODIC SELF-CHECKS (Every 10 Messages)           │
-│ • Automatic constraint verification                         │
-│ • 5-point checklist after every ~10 responses               │
+│ • 17-point checklist covering all global constraints        │
+│ • Layer 1 checks always active, Layer 3 during agent work  │
 │ • Course-correct immediately if any fail                    │
 └─────────────────────────────────────────────────────────────┘
           ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ Layer 4: CONTEXT-SPECIFIC REMINDERS (Procedures)            │
-│ • Task-specific constraint reminders                        │
-│ • "Before recommending → check project files"               │
-│ • "After task → provide review prompt"                      │
+│ Layer 4: CONTEXT-SPECIFIC REMINDERS (Workflows)             │
+│ • Workflow steps include constraint reminders at key points │
+│ • "Before dispatching → check project files"                │
+│ • "After task → review cycle until zero issues"             │
 └─────────────────────────────────────────────────────────────┘
           ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ Layer 5: VIOLATION DETECTION & CORRECTION                   │
 │ • Severity-based response (Critical/High/Medium)            │
-│ • Immediate correction protocols                            │
-│ • User-facing explanation templates                         │
+│ • Immediate correction protocols per constraint             │
+│ • Violation severity reference in constraints.md            │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Enforcement Mechanisms
 
-1. **Load Order Prioritization** - Critical constraints loaded FIRST, before any user interaction
-2. **Inline Reminders** - Constraints repeated throughout agent definition
-3. **Behavior-Embedded Checks** - Procedures include constraint checks at key steps
-4. **Self-Check Schedule** - Every 10 messages, run verification checklist
-5. **Violation Detection** - Immediate correction with severity-based response
+1. **Load Order Prioritization** - Global constraints loaded at activation step 4, before any user interaction
+2. **Layered Loading** - Phase constraints layered on top of always-active global constraints
+3. **Workflow-Embedded Checks** - Workflow steps include constraint reminders at key points
+4. **Self-Check Schedule** - Every 10 messages, run 17-point verification checklist
+5. **Violation Detection** - Immediate correction with severity-based response (Critical/High/Medium)
 
 **Result:** Parzival maintains oversight role consistency throughout long conversations, even 50+ messages deep.
 
@@ -608,74 +602,78 @@ Parzival uses a **five-layer constraint enforcement system** to maintain consist
 
 ## 🏛️ Architecture
 
-### Project Structure
+### Project Structure (v2.1)
 
 ```
-bmad-parzival-module/
-├── .claude/
-│   └── commands/
-│       └── pov/
-│           ├── commands/                  # 7 action commands
-│           │   ├── parzival-start.md
-│           │   ├── parzival-status.md
-│           │   ├── parzival-closeout.md
-│           │   ├── parzival-handoff.md
-│           │   ├── parzival-blocker.md
-│           │   ├── parzival-decision.md
-│           │   └── parzival-verify.md
-│           └── agents/                    # 2 subagent invocations
-│               ├── parzival.md            # Main agent activation
-│               ├── code-reviewer.md       # Code review subagent
-│               └── verify-implementation.md # Verification subagent
-│
-├── pov/                                   # Module definition
-│   ├── config.yaml                        # Module configuration
-│   ├── agents/
-│   │   ├── parzival.md                    # Main agent definition (with critical constraints)
-│   │   └── parzival/
-│   │       └── CONSTRAINTS.md             # Core behavioral rules (394 lines)
-│   ├── procedures/
-│   │   └── PROCEDURES.md                  # Step-by-step operational procedures (878 lines)
-│   ├── includes/
-│   │   └── ESCALATION-PROTOCOL.md         # Escalation guidelines
-│   └── templates/
-│       └── oversight/                     # Oversight folder templates (37 files)
-│           ├── SESSION_WORK_INDEX.md
-│           ├── tracking/
-│           ├── session-logs/
-│           ├── decisions/
-│           ├── knowledge/
-│           └── standards/
-│
-├── docs/
-│   ├── CONSTRAINT-ENFORCEMENT-SYSTEM.md   # Behavioral design architecture
-│   ├── SHARDING_STRATEGY.md               # Document sharding strategy
-│   └── BMAD-Multi-Agent-Architecture.md   # Future multi-agent research
-│
-├── scripts/
-│   ├── init-oversight.sh                  # New project oversight setup
-│   └── update-templates.sh                # Existing project template sync
-│
-├── install.sh                             # Main installer (safe, no-clobber)
-├── install-windows.bat                    # Windows installer
-├── INSTALL-GUIDE.md                       # Complete installation guide
-└── README.md                              # This file (source of truth)
+_ai-memory/pov/                            # POV module definition
+├── agents/
+│   └── parzival.md                        # Main agent definition (persona, menu, rules)
+├── config.yaml                            # Module configuration (v2.1.0)
+├── constraints/                           # Layered constraint system
+│   ├── global/                            # GC-01 through GC-15 + GC-19 + GC-20
+│   │   ├── constraints.md                 # Summary + self-check schedule
+│   │   ├── GC-01-never-implement.md
+│   │   ├── GC-04-user-manages-parzival.md
+│   │   ├── GC-19-spawn-agents-as-teammates.md
+│   │   ├── GC-20-no-instruction-in-activation.md
+│   │   └── ...                            # One file per constraint
+│   ├── discovery/                         # Phase-specific: DC-01 through DC-07
+│   ├── architecture/                      # Phase-specific: AC-01 through AC-08
+│   ├── planning/                          # Phase-specific: PC-01 through PC-08
+│   ├── execution/                         # Phase-specific: EC-01 through EC-09
+│   ├── integration/                       # Phase-specific: IC-01 through IC-07
+│   ├── release/                           # Phase-specific: RC-01 through RC-07
+│   ├── maintenance/                       # Phase-specific: MC-01 through MC-08
+│   └── init/                              # Init phase: IN-01 through IN-05
+├── data/                                  # Reference data (escalation, confidence, etc.)
+├── skills/                                # Full skill definitions (loaded on-demand)
+│   ├── aim-parzival-bootstrap/            # Cross-session memory bootstrap
+│   ├── aim-parzival-constraints/          # Constraint loading
+│   ├── aim-parzival-team-builder/         # Team design for parallel execution
+│   ├── aim-agent-dispatch/                # Agent instruction preparation (Layer 3a)
+│   ├── aim-agent-lifecycle/               # Agent lifecycle management
+│   ├── aim-bmad-dispatch/                 # BMAD agent activation (Layer 3b)
+│   └── aim-model-dispatch/                # Model selection + multi-provider dispatch
+├── templates/                             # Oversight document templates (7 files)
+│   ├── bug-report.template.md
+│   ├── correction.template.md
+│   ├── decision-log.template.md
+│   ├── session-handoff.template.md
+│   ├── verification-code.template.md
+│   ├── verification-production.template.md
+│   └── verification-story.template.md
+└── workflows/                             # Workflow engine
+    ├── WORKFLOW-MAP.md                    # Master router (routing decision tree)
+    ├── cycles/                            # Reusable atomic cycles
+    │   ├── agent-dispatch/                # Agent team management (9 steps)
+    │   ├── approval-gate/                 # User approval protocol
+    │   ├── legitimacy-check/              # Issue triage
+    │   ├── research-protocol/             # Verified research
+    │   └── review-cycle/                  # Dev-review loop
+    ├── init/                              # Init workflows (new + existing)
+    ├── phases/                            # Phase workflows (7 phases)
+    └── session/                           # Session workflows (start, status, close, etc.)
+
+.claude/skills/                            # Thin shims (load full skills from _ai-memory/pov/skills/)
+├── aim-parzival-bootstrap/SKILL.md
+├── aim-parzival-constraints/SKILL.md
+└── aim-parzival-team-builder/SKILL.md
 ```
 
 ### Key Files Explained
 
 | File | Purpose | When Loaded |
 |------|---------|-------------|
-| `pov/agents/parzival.md` | Agent definition with critical constraints | Agent activation |
-| `pov/agents/parzival/CONSTRAINTS.md` | Complete behavioral rules (394 lines) | Session start (activation step 3) |
-| `pov/procedures/PROCEDURES.md` | Step-by-step procedures (878 lines) | As needed during operations |
-| `.claude/commands/pov/commands/*.md` | Slash command implementations | When command invoked |
-| `pov/config.yaml` | Module configuration | Session start (Step 2 of activation) |
-| `docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md` | Behavioral design documentation | Reference only |
+| `_ai-memory/pov/agents/parzival.md` | Agent definition (persona, menu, rules, constraints) | Agent activation |
+| `_ai-memory/pov/constraints/global/constraints.md` | Global constraints summary + self-check (GC-01 through GC-15 + GC-19 + GC-20) | Activation step 4 |
+| `_ai-memory/pov/config.yaml` | Module configuration | Activation step 2 |
+| `_ai-memory/pov/workflows/WORKFLOW-MAP.md` | Master routing decision tree | Activation step 6 |
+| `_ai-memory/pov/skills/*/SKILL.md` | Dispatch skill definitions | On-demand during execution |
+| `.claude/skills/aim-*/SKILL.md` | Thin shims pointing to full skill files | When skill invoked |
 
 ### Multi-Agent Architecture Research
 
-Comprehensive research documentation for future Parzival multi-agent system:
+Comprehensive research documentation for the Parzival multi-agent system (now active via Claude Code teams):
 
 | Document | Purpose | Status |
 |----------|---------|--------|
@@ -730,26 +728,23 @@ your-project/oversight/
 
 | Document | Purpose | Audience |
 |----------|---------|----------|
-| **[docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md](./docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md)** | Five-layer behavioral design architecture | Module developers |
+| **[docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md](./docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md)** | Behavioral design architecture | Module developers |
 | **[docs/SHARDING_STRATEGY.md](./docs/SHARDING_STRATEGY.md)** | Document sharding for long-term projects | Module developers |
-| **[pov/agents/parzival/CONSTRAINTS.md](./pov/agents/parzival/CONSTRAINTS.md)** | Complete behavioral constraints (394 lines) | Parzival itself |
-| **[pov/procedures/PROCEDURES.md](./pov/procedures/PROCEDURES.md)** | Step-by-step operational procedures (878 lines) | Parzival itself |
-| **[pov/agents/parzival.md](./pov/agents/parzival.md)** | Agent definition with activation sequence | BMAD system |
+| **`_ai-memory/pov/constraints/global/constraints.md`** | Global constraints (GC-01 to GC-20) | Parzival itself |
+| **`_ai-memory/pov/workflows/WORKFLOW-MAP.md`** | Master routing decision tree | Parzival itself |
+| **`_ai-memory/pov/agents/parzival.md`** | Agent definition with activation sequence | BMAD system |
 
-### Command Documentation
+### Skill Documentation
 
-Each command has inline documentation. View with:
-```bash
-cat .claude/commands/pov/commands/parzival-start.md
-```
+Each dispatch skill has a SKILL.md definition in `_ai-memory/pov/skills/`. Thin shims in `.claude/skills/` load the full definitions on demand.
 
 ---
 
 ## 📦 Version & Compatibility
 
 ### Current Version
-- **Module Version**: 1.1.0
-- **Release Date**: 2026-01-18
+- **Module Version**: 2.1.0
+- **Release Date**: 2026-03-15
 
 ### Compatibility
 
@@ -762,22 +757,25 @@ cat .claude/commands/pov/commands/parzival-start.md
 
 ### Changelog
 
-#### v1.1.0 (2026-01-18)
-- ✅ **Three-script architecture** for data safety (install.sh, init-oversight.sh, update-templates.sh)
-- ✅ **Five-layer constraint system** for behavioral drift prevention
-- ✅ **CONSTRAINTS.md rewrite** (390 lines) with self-check system
-- ✅ **Critical constraints** added to parzival.md (lines 46-70)
-- ✅ **Complete INSTALL-GUIDE.md** with modern GitHub formatting
-- ✅ **Architecture documentation** (CONSTRAINT-ENFORCEMENT-SYSTEM.md)
-- 🐛 **Fixed:** Arithmetic syntax for `set -e` compatibility
-- 🐛 **Fixed:** EOF handling in update-templates.sh
-- 🐛 **Fixed:** Removed oversight init from install.sh (data safety)
+#### v2.1.0 (2026-03-15)
+- **Shim architecture** -- Skills live in `_ai-memory/pov/skills/`, thin shims in `.claude/skills/`
+- **Dispatch skills** -- aim-agent-dispatch, aim-agent-lifecycle, aim-bmad-dispatch, aim-model-dispatch, aim-parzival-team-builder
+- **17 Global Constraints** -- GC-01 through GC-15 + GC-19 (spawn as teammates) + GC-20 (no instruction in activation)
+- **GC-04 redefined** -- "User Manages Parzival Only -- Parzival Manages All Agents"
+- **15-item menu** -- HP, CH, ST, SU, BL, DC, VE, CR, BR, FR, TP, HO, CL, DA, EX (VI removed)
+- **Removed** -- teams/ directory, team-prompt workflow, instruction.template
+- **Config** -- Module paths consolidated in config.yaml
+- **Identity update** -- Parzival is "boss of all worker agents", manages agents via Claude Code teams
+- See [CHANGELOG-POV.md](./CHANGELOG-POV.md) for full details (DEC-114 through DEC-120)
 
-#### v1.0.0 (Initial Release)
+#### v1.1.0 (2026-01-27)
+- Three-script architecture for data safety
+- Five-layer constraint system for behavioral drift prevention
+- C7 observability, task tracking, ecosystem docs
+
+#### v1.0.0 (2026-01-18)
 - Initial Parzival agent implementation
-- Basic installer
-- Session management commands
-- Quality gate subagents
+- Basic installer, session management commands, quality gate subagents
 
 ---
 
@@ -814,9 +812,9 @@ tree oversight/
 
 **Constraint Updates:**
 When modifying Parzival's behavior, update ALL layers:
-1. `pov/agents/parzival.md` (critical constraints section)
-2. `pov/agents/parzival/CONSTRAINTS.md` (detailed behavioral rules)
-3. `pov/procedures/PROCEDURES.md` (operational procedures)
+1. `_ai-memory/pov/agents/parzival.md` (critical constraints + self-check behavior)
+2. `_ai-memory/pov/constraints/global/constraints.md` (constraint index + self-check schedule)
+3. `_ai-memory/pov/constraints/global/GC-*.md` (individual constraint definitions)
 4. `docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md` (architecture doc)
 5. This README.md (if core identity changes)
 

@@ -86,7 +86,9 @@ evaluator_model: {}
 class TestOllamaProvider:
     """Test Ollama provider client creation."""
 
-    def test_ollama_creates_openai_client(self):
+    def test_ollama_creates_openai_client(self, monkeypatch):
+        monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         config = EvaluatorConfig(provider="ollama", model_name="gemma3:4b")
         mock_openai_cls = MagicMock()
 
@@ -113,6 +115,8 @@ class TestOllamaProvider:
 
     def test_ollama_does_not_require_env_var(self, monkeypatch):
         """Ollama should never raise ValueError — it uses a dummy 'ollama' key."""
+        monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         config = EvaluatorConfig(provider="ollama")
         mock_openai_cls = MagicMock()
@@ -298,8 +302,10 @@ class TestNoHardcodedSecrets:
         # Should not contain patterns like api_key = "sk-..." or api_key='sk-...'
         assert "sk-" not in source
 
-    def test_ollama_key_is_literal_ollama(self):
+    def test_ollama_key_is_literal_ollama(self, monkeypatch):
         """The ONLY hardcoded key is 'ollama' for the local Ollama provider."""
+        monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         config = EvaluatorConfig(provider="ollama")
         mock_openai_cls = MagicMock()
 

@@ -7,6 +7,8 @@ TECH-DEBT-069: LLM-based memory classification system.
 
 import hashlib
 import logging
+import os
+import sys
 import time
 from dataclasses import dataclass
 
@@ -34,9 +36,6 @@ from .significance import Significance, check_significance
 
 # TECH-DEBT-071: Import token metrics push for Pushgateway
 try:
-    import os
-    import sys
-
     # Add src to path for metrics_push import
     src_path = os.path.join(os.path.dirname(__file__), "..", "..")
     if src_path not in sys.path:
@@ -46,6 +45,18 @@ try:
 except ImportError:
     push_token_metrics_async = None
     detect_project = None
+
+# TD-290: Langfuse V3 @observe decorator for generation tracing
+try:
+    from langfuse import observe
+except ImportError:
+
+    def observe(**kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
+
 
 logger = logging.getLogger("ai_memory.classifier.llm_classifier")
 
@@ -262,6 +273,7 @@ def classify(
     return _classify_with_llm(content, collection, current_type, file_path)
 
 
+@observe(as_type="generation")
 def _classify_with_llm(
     content: str,
     collection: str,
@@ -555,7 +567,7 @@ def _build_provider_chain() -> list[BaseProvider]:
     if PRIMARY_PROVIDER in provider_map:
         try:
             providers.append(provider_map[PRIMARY_PROVIDER](timeout=TIMEOUT_SECONDS))
-        except Exception as e:
+        except (ValueError, TypeError, ImportError) as e:
             logger.warning(
                 "primary_provider_init_failed",
                 extra={"provider": PRIMARY_PROVIDER, "error": str(e)},
@@ -567,7 +579,7 @@ def _build_provider_chain() -> list[BaseProvider]:
         if provider_name in provider_map and provider_name != PRIMARY_PROVIDER:
             try:
                 providers.append(provider_map[provider_name](timeout=TIMEOUT_SECONDS))
-            except Exception as e:
+            except (ValueError, TypeError, ImportError) as e:
                 logger.warning(
                     "fallback_provider_init_failed",
                     extra={"provider": provider_name, "error": str(e)},

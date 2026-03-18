@@ -1,8 +1,10 @@
 ---
 name: parzival-save-handoff
 description: "Save Parzival session handoff document to Qdrant for cross-session memory"
+allowed-tools: Bash
 ---
 
+```python
 """Save Parzival handoff to Qdrant: /parzival-save-handoff
 
 Called by parzival-closeout command after creating the handoff file.
@@ -100,3 +102,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```

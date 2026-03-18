@@ -392,7 +392,7 @@ def retrieve_bootstrap_context(
                 session_id=os.environ.get("CLAUDE_SESSION_ID"),
                 start_time=_trace_start,
                 end_time=datetime.now(tz=timezone.utc),
-                tags=["injection", "greedy_fill"],
+                tags=["injection", "bootstrap"],
             )
         except Exception:
             pass
@@ -574,6 +574,7 @@ def select_results_greedy(
     budget: int,
     excluded_ids: list[str] | None = None,
     score_gap_threshold: float = _SCORE_GAP_THRESHOLD_DEFAULT,
+    project_id: str | None = None,
 ) -> tuple[list[dict], int]:
     """Select results using greedy fill until budget exhausted.
 
@@ -691,6 +692,7 @@ def select_results_greedy(
                         "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                     },
                 },
+                project_id=project_id,
                 session_id=os.environ.get("CLAUDE_SESSION_ID"),
                 start_time=_trace_start,
                 end_time=datetime.now(tz=timezone.utc),
@@ -705,6 +707,7 @@ def select_results_greedy(
 def format_injection_output(
     results: list[dict],
     tier: int,
+    project_id: str | None = None,
 ) -> str:
     """Format selected results for Claude context injection.
 
@@ -755,10 +758,11 @@ def format_injection_output(
                         "agent_role": os.environ.get("CLAUDE_AGENT_ROLE", "user"),
                     },
                 },
+                project_id=project_id,
                 session_id=os.environ.get("CLAUDE_SESSION_ID"),
                 start_time=_trace_start,
                 end_time=datetime.now(tz=timezone.utc),
-                tags=["injection", "greedy_fill"],
+                tags=["injection", "format"],
             )
 
     return formatted

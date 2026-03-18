@@ -749,7 +749,7 @@ class TestFreshnessLangfuseTraces:
     @patch("memory.freshness.emit_trace_event")
     @patch("memory.freshness.get_qdrant_client")
     def test_freshness_scan_trace_name(self, mock_get_client, mock_emit):
-        """L-7: Langfuse trace should use event_type='freshness_scan' (not 'freshness_scan_complete')."""
+        """L-7: Langfuse trace should use event_type='freshness_scan_complete' (TD-291)."""
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
@@ -783,13 +783,10 @@ class TestFreshnessLangfuseTraces:
             call.kwargs.get("event_type", call.args[0] if call.args else None)
             for call in mock_emit.call_args_list
         ]
-        # Should have freshness_scan_start and freshness_scan (not freshness_scan_complete)
+        # Should have freshness_scan_complete (TD-291: aligned with jira_sync_complete convention)
         assert (
-            "freshness_scan" in trace_event_types
-        ), f"Expected 'freshness_scan' trace event, got: {trace_event_types}"
-        assert (
-            "freshness_scan_complete" not in trace_event_types
-        ), "Old trace name 'freshness_scan_complete' should be renamed to 'freshness_scan'"
+            "freshness_scan_complete" in trace_event_types
+        ), f"Expected 'freshness_scan_complete' trace event, got: {trace_event_types}"
 
     @patch("memory.freshness.emit_trace_event")
     @patch("memory.freshness.get_qdrant_client")

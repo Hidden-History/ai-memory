@@ -37,7 +37,7 @@ services:
       - MODEL_NAME_EN=${MODEL_NAME_EN:-jinaai/jina-embeddings-v2-base-en}
       - MODEL_NAME_CODE=${MODEL_NAME_CODE:-jinaai/jina-embeddings-v2-base-code}
       - VECTOR_DIMENSIONS=768
-      - LOG_LEVEL=${BMAD_LOG_LEVEL:-INFO}
+      - LOG_LEVEL=${AI_MEMORY_LOG_LEVEL:-INFO}
       # PLAN-013: ColBERT late interaction model (opt-in, ~400MB download)
       - COLBERT_ENABLED=${COLBERT_ENABLED:-false}
       # Set fastembed cache to persistent volume location
@@ -419,7 +419,7 @@ services:
       - AI_MEMORY_PROJECT_ID=${AI_MEMORY_PROJECT_ID}
       - SECURITY_SCAN_GITHUB_MODE=${SECURITY_SCAN_GITHUB_MODE:-relaxed}
       - SECURITY_SCAN_SESSION_MODE=${SECURITY_SCAN_SESSION_MODE:-relaxed}
-      - LOG_LEVEL=${BMAD_LOG_LEVEL:-INFO}
+      - LOG_LEVEL=${AI_MEMORY_LOG_LEVEL:-INFO}
       # Langfuse observability (Wave 3, PLAN-011)
       - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
       - LANGFUSE_TRACING_ENABLED=${LANGFUSE_ENABLED:-false}

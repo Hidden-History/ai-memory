@@ -1,8 +1,10 @@
 ---
 name: parzival-save-insight
 description: "Save a Parzival insight or learning to Qdrant for cross-session memory"
+allowed-tools: Bash
 ---
 
+```python
 """Save Parzival insight to Qdrant: /parzival-save-insight
 
 Store an insight, learning, or pattern discovered during a session.
@@ -84,3 +86,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```

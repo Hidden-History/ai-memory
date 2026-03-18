@@ -60,13 +60,17 @@ Flag if:
 
 Note these as items to mention during presentation, not as recommendations.
 
-### 4. Check Shared Task List
+### 4. Check Shared Task List (Informational)
 
 Call TaskList to display current Claude Code task state:
 - If tasks exist: include count, in-progress items, and blocked items in the status report
-- If empty: note "Task list is empty — no in-progress CC tasks"
+- If empty: note "Task list is empty -- no in-progress CC tasks"
 - If CLAUDE_CODE_TASK_LIST_ID is not configured: note "Cross-session task persistence
-  requires CLAUDE_CODE_TASK_LIST_ID — tracking via oversight docs only"
+  requires CLAUDE_CODE_TASK_LIST_ID -- tracking via oversight docs only"
+
+**Note**: TaskList is an informational read-only check. It provides supplemental visibility into
+active Claude Code tasks but does not replace the project-status.md and oversight tracking
+files as the authoritative source of project state.
 
 Include task list state alongside project-status.md summary in the compiled report.
 

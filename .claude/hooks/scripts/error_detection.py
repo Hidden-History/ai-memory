@@ -540,7 +540,7 @@ def main() -> int:
                             trace_id=uuid4().hex,
                             session_id=_err_session_id,
                             project_id=project_name,
-                            tags=["injection", "error_detection"],
+                            tags=["capture", "error_detection"],
                         )
                 except Exception:
                     logger.debug("trace_event_failed_error_fix_injection")

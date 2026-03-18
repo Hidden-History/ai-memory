@@ -1,13 +1,13 @@
 ---
 name: 'step-05-dev-deployment-verification'
-description: 'Activate DEV to verify the deployment checklist is complete, accurate, and executable'
+description: 'Define deployment verification scope and dispatch DEV via agent-dispatch cycle'
 nextStepFile: './step-06-parzival-reviews-artifacts.md'
 ---
 
 # Step 5: DEV Deployment Verification
 
 ## STEP GOAL
-Before release sign-off, DEV verifies the deployment checklist and rollback plan are executable. DEV performs a dry-run or verification to confirm all items can be followed.
+Define the deployment verification scope and dispatch DEV via the agent-dispatch cycle. Before release sign-off, DEV verifies the deployment checklist and rollback plan are executable. DEV performs a dry-run or verification to confirm all items can be followed.
 
 ## MANDATORY EXECUTION RULES
 - Read the complete step file before taking any action
@@ -20,7 +20,9 @@ Before release sign-off, DEV verifies the deployment checklist and rollback plan
 
 ## MANDATORY SEQUENCE
 
-### 1. Prepare Verification Instruction
+### Parzival's Responsibility (Layer 1)
+
+#### 1. Prepare Verification Instruction
 DEV must verify five areas:
 
 1. **Deployment steps executable** -- Can each step be followed without additional info? Are commands correct? Are expected results achievable?
@@ -29,10 +31,14 @@ DEV must verify five areas:
 4. **Post-deployment verification** -- Are checks specific enough? Can each confirm pass/fail clearly?
 5. **Rollback steps executable** -- Can steps be followed? Database rollback tested?
 
-### 2. Dispatch DEV via Agent Dispatch
+### Execution (via agent-dispatch cycle)
+
+#### 2. Dispatch DEV via Agent Dispatch
 Invoke {workflows_path}/cycles/agent-dispatch/workflow.md with the verification instruction.
 
-### 3. Receive Verification Assessment
+### Parzival's Responsibility (Layer 1)
+
+#### 3. Receive Verification Assessment
 DEV returns: **DEPLOYMENT READY** or **NOT READY** with specific issues.
 
 For each issue:
@@ -40,7 +46,7 @@ For each issue:
 - Problem: [what is wrong or missing]
 - Fix: [what needs to be corrected]
 
-### 4. Handle NOT READY
+#### 4. Handle NOT READY
 If DEV returns issues:
 1. Classify each issue (legitimate gap vs false alarm)
 2. Fix legitimate gaps (correct commands, add missing steps, update verification)

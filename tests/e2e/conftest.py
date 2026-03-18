@@ -20,7 +20,8 @@ except ImportError:
 @pytest.fixture(scope="session", autouse=True)
 def _ensure_screenshot_dirs():
     """Create output directories required by E2E tests (TD-219)."""
-    os.makedirs("tests/e2e/screenshots", exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(__file__), "screenshots"), exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(__file__), "videos"), exist_ok=True)
 
 
 @pytest.fixture(scope="session")
@@ -31,7 +32,7 @@ def browser_context_args():
     return {
         "viewport": {"width": 1920, "height": 1080},
         "ignore_https_errors": True,
-        "record_video_dir": "tests/e2e/videos",
+        "record_video_dir": os.path.join(os.path.dirname(__file__), "videos"),
         "record_video_size": {"width": 1920, "height": 1080},
     }
 

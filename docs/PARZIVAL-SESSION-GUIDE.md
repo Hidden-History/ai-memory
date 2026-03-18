@@ -16,11 +16,11 @@ Tracks sprints, tasks, blockers, risks, and decisions across sessions. Maintains
 
 ### 2. Quality Gatekeeper
 
-Enforces mandatory review-then-fix cycles until review finds zero issues. Parzival does not accept "looks good enough." After every task, it provides a review agent prompt. If issues are found, it provides a fix prompt. The cycle repeats until the review is clean. Only then does Parzival surface findings for your decision.
+Enforces mandatory review-then-fix cycles until review finds zero issues. Parzival does not accept "looks good enough." After every task, it dispatches a review agent. If issues are found, it dispatches a fix agent. The cycle repeats until the review is clean. Only then does Parzival surface findings for your decision.
 
 ### 3. Agent Team Orchestrator
 
-You describe the work. Parzival reads your project files — architecture docs, PRD, standards, existing code — then builds precise agent prompts or 3-tier hierarchical team prompts with exact file paths, line numbers, acceptance criteria, and project-specific constraints. The `/parzival-team` command generates these prompts. Parzival never executes the agents — you do.
+You describe the work. Parzival reads your project files — architecture docs, PRD, standards, existing code — then designs agent teams and dispatches them via Claude Code teams. Each agent receives precise instructions with exact file paths, line numbers, acceptance criteria, and project-specific constraints. Parzival activates and manages all agents himself — you interact with Parzival only (GC-04).
 
 ### 4. False Positive Catcher
 
@@ -55,7 +55,7 @@ Proactively identifies risks. Maintains a risk register and blockers log. Escala
 
 ### 8. Session Continuity
 
-Session handoffs are dual-written to local oversight files and Qdrant vector search. At session start, the automatic SessionStart hook queries Qdrant for bootstrap context. Running `/parzival-start` loads local oversight files for PM-level project status. Both layers work together to restore full context.
+Session handoffs are dual-written to local oversight files and Qdrant vector search. At session start, the automatic SessionStart hook queries Qdrant for bootstrap context. Running `/pov:parzival-start` loads local oversight files for PM-level project status. Both layers work together to restore full context.
 
 ---
 
@@ -64,7 +64,7 @@ Session handoffs are dual-written to local oversight files and Qdrant vector sea
 ### Starting a Session
 
 1. Start Claude Code — the SessionStart hook runs automatically and queries Qdrant for bootstrap context (recent session summaries, relevant decisions, active patterns, applicable conventions).
-2. Run `/parzival-start` — Parzival reads local oversight files and presents:
+2. Run `/pov:parzival-start` — Parzival reads local oversight files and presents:
    - Last session summary (what was completed)
    - Current task and its status
    - Active blockers
@@ -76,32 +76,32 @@ Session handoffs are dual-written to local oversight files and Qdrant vector sea
 
 1. Describe what needs to be done.
 2. Parzival analyzes requirements — reads architecture docs, PRD, standards, and existing code before responding.
-3. Parzival creates agent prompts with:
+3. Parzival designs and dispatches agents via Claude Code teams with:
    - Exact file paths and line numbers
    - Acceptance criteria derived from your project specs
    - Project-specific context and constraints
    - Review requirements
-4. You execute the agents. Parzival never executes them.
+4. Parzival activates and manages all agents himself (GC-04). You interact with Parzival only.
 5. Parzival reviews results:
    - Checks for issues
    - Verifies review findings against actual code (catches false positives)
-   - Provides fix prompts for confirmed issues
+   - Dispatches fix agents for confirmed issues
 6. Review → fix → re-review cycle continues until zero issues remain.
 7. You approve the work. Parzival never marks work complete on its own.
 
-### Building Agent Teams (`/parzival-team`)
+### Building Agent Teams (`/pov:parzival-team`)
 
-For parallel work, Parzival generates a 3-tier hierarchical team prompt:
+For parallel work, Parzival designs and dispatches a 3-tier hierarchical team:
 
 - **Tier 1 — Team Lead**: Coordinates workers, manages task distribution, aggregates results
 - **Tier 2 — Parallel Workers**: Dev agents with specific, scoped tasks and verified acceptance criteria
 - **Tier 3 — Reviewers**: Adversarial code review agents that challenge the workers' output
 
-All prompts include verified project context pulled from your actual project files. A typical team might be 4 Sonnet dev workers with 2 rounds of Opus adversarial review. You paste the generated prompt into a new Claude Code session.
+All instructions include verified project context pulled from your actual project files. A typical team might be 4 Sonnet dev workers with 2 rounds of Opus adversarial review. Parzival spawns agents as teammates (GC-19), selects appropriate models, and manages the full agent lifecycle.
 
 ### Ending a Session
 
-1. Run `/parzival-closeout`
+1. Run `/pov:parzival-closeout`
 2. Parzival creates a handoff file in `oversight/session-logs/`
 3. Dual-writes the handoff to Qdrant `discussions` collection
 4. Updates `SESSION_WORK_INDEX.md`
@@ -132,7 +132,7 @@ Calls `retrieve_bootstrap_context()` via `MemorySearch`, querying Qdrant for con
 
 Outputs empty context and logs a warning. Claude continues without memory injection.
 
-### Layer 2 — Manual: `/parzival-start` Command
+### Layer 2 — Manual: `/pov:parzival-start` Command
 
 Reads local oversight files for PM-level project status. Always reads from the filesystem — does not require Qdrant:
 
@@ -148,37 +148,37 @@ This provides the PM-level status view independently of Qdrant availability.
 
 ## Commands Reference
 
-Commands live in `.claude/commands/parzival/` and are invoked with `/`.
+Commands live in `.claude/commands/pov/` and are invoked with `/pov:parzival-*`.
 
 ### Session Management
 
 | Command | When to Use | What It Does |
 |---------|------------|--------------|
-| `/parzival-start` | Beginning of every work session | Loads local oversight files, presents session summary, current task, blockers, and risks |
-| `/parzival-closeout` | End of session or before a break | Creates handoff file, dual-writes to Qdrant, updates work index |
-| `/parzival-status` | Quick check mid-session | Shows current state without full context reload — faster than start |
-| `/parzival-handoff` | After completing significant work during a session | Creates a mid-session snapshot without ending the session |
+| `/pov:parzival-start` | Beginning of every work session | Loads local oversight files, presents session summary, current task, blockers, and risks |
+| `/pov:parzival-closeout` | End of session or before a break | Creates handoff file, dual-writes to Qdrant, updates work index |
+| `/pov:parzival-status` | Quick check mid-session | Shows current state without full context reload — faster than start |
+| `/pov:parzival-handoff` | After completing significant work during a session | Creates a mid-session snapshot without ending the session |
 
 ### Problem Solving
 
 | Command | When to Use | What It Does |
 |---------|------------|--------------|
-| `/parzival-blocker` | Stuck on a problem | Analyzes the blocker, presents resolution options with tradeoffs and confidence levels |
-| `/parzival-decision` | Choosing between approaches | Presents options with pros, cons, source citations, and a recommendation |
+| `/pov:parzival-blocker` | Stuck on a problem | Analyzes the blocker, presents resolution options with tradeoffs and confidence levels |
+| `/pov:parzival-decision` | Choosing between approaches | Presents options with pros, cons, source citations, and a recommendation |
 
 ### Quality Gates
 
 | Command | When to Use | What It Does |
 |---------|------------|--------------|
-| `/parzival-verify` | After implementation is complete | Runs the verification checklist against acceptance criteria |
-| `/pov:agents:code-reviewer` | After any implementation | Invokes the Code Reviewer subagent for adversarial code review |
-| `/pov:agents:verify-implementation` | After code review passes | Verifies implementation against acceptance criteria end-to-end |
+| `/pov:parzival-verify` | After implementation is complete | Runs the verification checklist against acceptance criteria |
+
+Code review (CR) and verification (VE) are available as menu items within the Parzival agent session. Parzival dispatches these agents directly.
 
 ### Agent Coordination
 
 | Command | When to Use | What It Does |
 |---------|------------|--------------|
-| `/parzival-team` | Complex work requiring parallel agents | Generates a complete 3-tier hierarchical team prompt with verified project context |
+| `/pov:parzival-team` | Complex work requiring parallel agents | Designs and dispatches a 3-tier hierarchical agent team with verified project context |
 
 ---
 
@@ -188,7 +188,7 @@ Skills provide direct Qdrant storage operations and are invoked as Claude Code s
 
 | Skill | Description |
 |-------|-------------|
-| `/parzival-save-handoff` | Manually store handoff content to Qdrant (used internally by `/parzival-closeout`) |
+| `/parzival-save-handoff` | Manually store handoff content to Qdrant (used internally by `/pov:parzival-closeout`) |
 | `/parzival-save-insight` | Store a learned insight to Qdrant for future retrieval |
 
 ### Saving an Insight Mid-Session
@@ -212,17 +212,16 @@ Parzival enforces quality gates — it does not suggest them. The cycle is non-n
 After every task completion:
 
 ```
-1. Parzival provides a review agent prompt
-2. You run the review (code-reviewer or verify-implementation subagent)
-3. Review agent reports findings
-4. Parzival checks each finding against actual project files
+1. Parzival dispatches a review agent (code-reviewer or verification)
+2. Review agent reports findings
+3. Parzival checks each finding against actual project files
       └─ False positive? → Flag it, skip the fix
-      └─ Confirmed issue? → Provide fix prompt
-5. You apply confirmed fixes
-6. Return to step 1 (re-review)
-7. Repeat until review finds ZERO issues
-8. Parzival presents clean findings for your approval
-9. You decide whether to mark work complete
+      └─ Confirmed issue? → Dispatch fix agent
+4. Fix agent applies confirmed fixes
+5. Return to step 1 (re-review)
+6. Repeat until review finds ZERO issues
+7. Parzival presents clean findings for your approval
+8. You decide whether to mark work complete
 ```
 
 ### False Positive Verification
@@ -241,9 +240,7 @@ If you try to skip the review cycle:
 
 ```
 Parzival: "I cannot approve moving forward without verification (Quality Gatekeeper
-Constraint). We need to run code review before proceeding.
-
-Review agent prompt: [prompt provided]
+Constraint). I will dispatch a code review agent before we proceed.
 
 This is non-negotiable for quality gates."
 ```
@@ -272,8 +269,8 @@ The installer deploys a set of template directories to `oversight/` that Parziva
 
 ```
 oversight/
-├── SESSION_WORK_INDEX.md          ← Running log of sessions and sprint state; loaded at /parzival-start
-├── session-logs/                  ← One handoff file per /parzival-closeout run; complete session history
+├── SESSION_WORK_INDEX.md          ← Running log of sessions and sprint state; loaded at /pov:parzival-start
+├── session-logs/                  ← One handoff file per /pov:parzival-closeout run; complete session history
 │   └── YYYY-MM-DD-HH-MM-session-handoff.md
 ├── tracking/
 │   ├── task-tracker.md            ← Current sprint tasks, statuses, assignees
@@ -306,8 +303,9 @@ Preferred language [English]:
 ```
 
 On confirmation, the installer deploys:
-- Commands to `.claude/commands/parzival/`
-- Agent files to `.claude/agents/parzival/`
+- Commands to `.claude/commands/pov/`
+- Agent shim to `.claude/agents/pov/` (loads full definition from `_ai-memory/pov/agents/`)
+- Skill shims to `.claude/skills/` (load full definitions from `_ai-memory/pov/skills/`)
 - Oversight directory templates to `oversight/`
 
 ### Manual Enable
@@ -336,7 +334,7 @@ claude
 Then activate Parzival with the slash command:
 
 ```
-/pov:agents:parzival
+/pov:parzival
 ```
 
 Parzival loads its configuration, greets you by name, and displays its command menu.
@@ -349,7 +347,7 @@ All core AI Memory features work independently of Parzival. What you lose is the
 
 | Capability | Without Parzival |
 |------------|-----------------|
-| Agent team orchestration | Not available — you write team prompts manually |
+| Agent team orchestration | Not available — no structured team design or agent dispatch pipeline |
 | Quality gate enforcement | Not available — review cycles are optional, not enforced |
 | Verified instructions | Not available — agents work from their own assumptions |
 | False positive catching | Not available — all review findings acted on without verification |

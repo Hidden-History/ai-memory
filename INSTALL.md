@@ -856,7 +856,7 @@ python scripts/health-check.py
 
 ### 🌍 Environment Variables
 
-Create `~/.ai-memory/.env` to override defaults:
+Create `~/.ai-memory/docker/.env` to override defaults:
 
 ```bash
 # Service endpoints

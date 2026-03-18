@@ -47,7 +47,7 @@ Defaults → Environment Variables → Runtime Overrides
 
 | File/Location | Purpose | Tracked in Git |
 |---------------|---------|----------------|
-| `~/.ai-memory/.env` | User environment variables | ❌ No (gitignored) |
+| `~/.ai-memory/docker/.env` | User environment variables | ❌ No (gitignored) |
 | `.claude/settings.json` | Hook configuration | ✅ Yes (project-specific) |
 | `docker/docker-compose.yml` | Docker service config | ✅ Yes |
 | `docker/.env` | Docker environment overrides | ❌ No (gitignored) |
@@ -57,11 +57,11 @@ Defaults → Environment Variables → Runtime Overrides
 
 ## 📁 Configuration Files
 
-### ~/.ai-memory/.env
+### ~/.ai-memory/docker/.env
 
 **Purpose:** User-level environment variables (highest priority)
 
-**Location:** `~/.ai-memory/.env`
+**Location:** `~/.ai-memory/docker/.env`
 
 **Format:**
 ```bash
@@ -273,7 +273,7 @@ export QDRANT_API_KEY=your-api-key-here
 
 **Security:**
 ⚠️ **Never commit API keys to git!**
-- Use `~/.ai-memory/.env` (gitignored)
+- Use `~/.ai-memory/docker/.env` (gitignored)
 - Use environment variables
 - Use secrets management (Vault, AWS Secrets Manager)
 
@@ -708,7 +708,7 @@ export GITHUB_TOKEN=github_pat_xxxxxxxxxxxxxxxxxxxx
 
 **Security:**
 ⚠️ **Never commit tokens to git!**
-- Use `~/.ai-memory/.env` (gitignored)
+- Use `~/.ai-memory/docker/.env` (gitignored)
 - Use your OS keychain or secrets manager
 - Rotate tokens regularly and set expiry dates in GitHub settings
 
@@ -1753,7 +1753,7 @@ python3 -c "from memory.config import get_config; c = get_config(); print(c.get_
 ```
 
 **Solutions:**
-1. **File location**: Must be `~/.ai-memory/.env` (absolute path)
+1. **File location**: Must be `~/.ai-memory/docker/.env` (absolute path)
 2. **Format**: No quotes around values
    ```bash
    # Correct
