@@ -21,34 +21,40 @@ Verify that the _ai-memory/ directory structure is fully installed and all requi
 ## MANDATORY SEQUENCE
 
 ### 1. Load Constraint IN-04
-Read {constraints_path}/init/IN-04-installation-verification.md for the complete installation verification checklist.
+Read {constraints_path}/init/IN-04-validate-installation.md for the complete installation verification checklist.
 
-### 2. Verify Directory Structure
-Confirm the following directories exist under {project-root}/_ai-memory/:
-- pov/ (point-of-view agent directory)
-- pov/workflows/ (workflow definitions)
-- pov/workflows/cycles/ (cycle workflows)
-- pov/workflows/init/ (initialization workflows)
-- pov/workflows/phases/ (phase workflows)
-- pov/constraints/ (constraint files)
-- data/ (project data files)
+### 2. Verify Parzival Directory Structure
+Confirm the following directories exist under {project-root}/_ai-memory/pov/:
+- agents/ (agent definition files)
+- constraints/ (behavioral constraint system)
+- constraints/global/ (always-active constraints)
+- workflows/ (workflow definitions)
+- workflows/cycles/ (reusable cycle workflows)
+- workflows/init/ (initialization workflows)
+- workflows/phases/ (phase workflows)
+- workflows/session/ (session lifecycle workflows)
+- data/ (reference data files)
+- templates/ (document templates)
 
 ### 3. Verify Core Configuration Files
 Confirm these files exist and are readable:
-- _ai-memory/config.yaml (core configuration)
-- _ai-memory/pov/pov-config.yaml (POV agent configuration)
-- _ai-memory/WORKFLOW-MAP.md (workflow routing map)
+- _ai-memory/pov/config.yaml (Parzival configuration -- paths, user_name, language)
+- _ai-memory/pov/agents/parzival.md (agent definition)
+- _ai-memory/pov/constraints/global/constraints.md (global constraints index)
+- _ai-memory/pov/workflows/WORKFLOW-MAP.md (workflow routing map)
+- _ai-memory/_config/manifest.yaml (installation manifest)
 
 ### 4. Verify Workflow Files Present
-Confirm key workflow files exist:
-- Cycle workflows (agent-dispatch, review-cycle, approval-gate)
+Confirm key workflow entry points exist (each must have a workflow.md):
+- Cycle workflows (agent-dispatch, review-cycle, approval-gate, legitimacy-check, research-protocol)
 - Init workflows (new, existing)
-- Phase workflows (discovery through maintenance)
+- Phase workflows (discovery, architecture, planning, execution, integration, release, maintenance)
+- All workflow.md files have valid firstStep references to existing step files
 
 ### 5. Verify Constraint Files Present
-Confirm constraint files exist:
-- Global constraints
-- Phase-specific constraints (init, discovery, architecture, planning, execution, integration, release, maintenance)
+Confirm constraint directories and index files exist:
+- Global constraints (constraints/global/constraints.md)
+- Phase-specific constraints: init, discovery, architecture, planning, execution, integration, release, maintenance (each with constraints.md index)
 
 ### 6. Report Verification Results
 

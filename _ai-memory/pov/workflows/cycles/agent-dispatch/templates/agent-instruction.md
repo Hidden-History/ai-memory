@@ -47,6 +47,24 @@ STANDARDS TO FOLLOW:
 [Specific coding standards, patterns, naming conventions from project-context.md]
 
 IF YOU ENCOUNTER A BLOCKER:
-Stop and report immediately. Do not guess or proceed on assumptions.
-Report: what the blocker is, what you tried, what you need to continue.
+Stop immediately. Do not guess or proceed on assumptions.
+
+Escalate when you encounter ANY of these situations:
+- Architectural decisions not covered in documentation
+- Constraint conflicts you cannot resolve (e.g., version incompatibilities)
+- Pattern choices that would affect multiple components
+- Uncertainty about project conventions or naming
+- Need to verify against project history or past decisions
+- Missing context required to make a correct decision
+
+Report using this exact format:
+
+  BLOCKER REPORT
+  Agent: [your agent name]
+  Task: [what you are currently working on]
+  Blocker: [what you do not know or cannot determine]
+  Considered: [options you evaluated and why each was insufficient]
+  Need: [specific information or decision required to proceed]
+
+Do not continue work until the blocker is resolved.
 ```

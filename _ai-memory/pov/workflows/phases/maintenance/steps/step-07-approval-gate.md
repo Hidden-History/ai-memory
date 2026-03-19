@@ -73,7 +73,10 @@ Options:
 
 **IF NO MORE ISSUES:**
 - Remain in Maintenance (passive) until next issue
-- Or route to WF-PLANNING if new feature work is needed
+- Or route to WF-PLANNING if new feature work is needed:
+  - Load: {workflows_path}/phases/planning/workflow.md
+  - Load: {constraints_path}/planning/ constraints
+  - Drop: {constraints_path}/maintenance/ constraints
 
 **IF REJECTED:** Address feedback and re-submit.
 

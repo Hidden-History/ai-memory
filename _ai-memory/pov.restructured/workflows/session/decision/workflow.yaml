@@ -1,0 +1,27 @@
+# Session Decision Workflow
+name: session-decision
+description: "Structure a decision with options, tradeoffs, and recommendation. Present using approval gate format and log the outcome."
+author: "Parzival POV Module"
+
+# Critical variables from config
+config_source: "{project-root}/_ai-memory/pov/config.yaml"
+user_name: "{config_source}:user_name"
+communication_language: "{config_source}:communication_language"
+document_output_language: "{config_source}:document_output_language"
+date: system-generated
+oversight_path: "{config_source}:oversight_path"
+output_folder: "{config_source}:pov_output_folder"
+
+# Workflow components
+installed_path: "{project-root}/_ai-memory/pov/workflows/session/decision"
+instructions: "{installed_path}/instructions.md"
+validation: "{installed_path}/checklist.md"
+template: false
+
+variables:
+  constraints_path: "{config_source}:constraints_path"
+  workflows_path: "{config_source}:workflows_path"
+  decision_log_template: "{project-root}/_ai-memory/pov/templates/decision-log.template.md"
+
+tags: ["pov", "session", "session-decision"]
+standalone: true

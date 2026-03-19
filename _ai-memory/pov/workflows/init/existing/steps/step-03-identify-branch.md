@@ -80,10 +80,10 @@ No changes will be made until we have a complete picture."
 ### 4. Route to Branch-Specific Steps
 Load the appropriate branch file:
 
-- **Branch A:** Load `./branches/branch-a-active-sprint/branch-steps.md`
-- **Branch B:** Load `./branches/branch-b-messy-undocumented/branch-steps.md`
-- **Branch C:** Load `./branches/branch-c-paused-restarting/branch-steps.md`
-- **Branch D:** Load `./branches/branch-d-handoff-from-team/branch-steps.md`
+- **Branch A:** Load `{workflows_path}/init/existing/branches/branch-a-active-sprint/branch-steps.md`
+- **Branch B:** Load `{workflows_path}/init/existing/branches/branch-b-messy-undocumented/branch-steps.md`
+- **Branch C:** Load `{workflows_path}/init/existing/branches/branch-c-paused-restarting/branch-steps.md`
+- **Branch D:** Load `{workflows_path}/init/existing/branches/branch-d-handoff-from-team/branch-steps.md`
 
 ### 5. After Branch Work Completes
 When the branch-specific steps are complete, continue to:

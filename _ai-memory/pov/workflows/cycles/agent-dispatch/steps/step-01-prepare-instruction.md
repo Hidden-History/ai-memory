@@ -42,7 +42,7 @@ Using {instructionTemplate}, construct the instruction containing:
 - **OUTPUT EXPECTED:** Exactly what the agent should produce (file names, formats, contents)
 - **DONE WHEN:** Measurable, specific criteria the agent can self-assess
 - **STANDARDS TO FOLLOW:** Specific coding standards, patterns, naming conventions
-- **IF YOU ENCOUNTER A BLOCKER:** Stop and report immediately. Do not guess.
+- **IF YOU ENCOUNTER A BLOCKER:** Structured blocker report with Agent/Task/Blocker/Considered/Need fields (see template for full format and escalation triggers)
 
 ### 3. Verify Instruction Quality
 Read the complete instruction through. Verify it is:

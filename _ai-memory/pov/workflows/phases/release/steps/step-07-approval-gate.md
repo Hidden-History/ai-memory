@@ -63,9 +63,17 @@ Options:
 4. Note post-deployment verification steps for user
 
 Route based on project state:
-- **A) Project continues:** Load WF-PLANNING for next sprint
-- **B) Project enters maintenance:** Load {workflows_path}/phases/maintenance/workflow.md
-- **C) Project is complete:** Archive, confirm completion
+- **A) Project continues:**
+  - Load: {workflows_path}/phases/planning/workflow.md
+  - Load: {constraints_path}/planning/ constraints
+  - Drop: {constraints_path}/release/ constraints
+- **B) Project enters maintenance:**
+  - Load: {workflows_path}/phases/maintenance/workflow.md
+  - Load: {constraints_path}/maintenance/ constraints
+  - Drop: {constraints_path}/release/ constraints
+- **C) Project is complete:**
+  - Drop: {constraints_path}/release/ constraints
+  - Archive, confirm completion
 
 **IF REJECTED:**
 - Documentation issue: return to SM for corrections

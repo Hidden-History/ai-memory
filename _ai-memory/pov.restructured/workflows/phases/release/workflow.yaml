@@ -1,0 +1,26 @@
+# Release Phase Workflow
+name: release
+description: "Release phase. Final gate before production -- documents changes, verifies deployment, ensures rollback capability."
+author: "Parzival POV Module"
+
+# Critical variables from config
+config_source: "{project-root}/_ai-memory/pov/config.yaml"
+user_name: "{config_source}:user_name"
+communication_language: "{config_source}:communication_language"
+document_output_language: "{config_source}:document_output_language"
+date: system-generated
+oversight_path: "{config_source}:oversight_path"
+output_folder: "{config_source}:pov_output_folder"
+
+# Workflow components
+installed_path: "{project-root}/_ai-memory/pov/workflows/phases/release"
+instructions: "{installed_path}/instructions.md"
+validation: "{installed_path}/checklist.md"
+template: false
+
+variables:
+  constraints_path: "{config_source}:constraints_path"
+  workflows_path: "{config_source}:workflows_path"
+
+tags: ["pov", "phases", "release"]
+standalone: true
