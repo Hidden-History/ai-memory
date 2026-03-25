@@ -217,17 +217,22 @@ class TestLogOutputFormat:
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
 
-        # Time a 100ms operation
+        # Measure independently so we test timed_operation accuracy,
+        # not time.sleep accuracy (which varies on CI runners)
+        wall_start = time.perf_counter()
         with timed_operation("test_timing", logger):
             time.sleep(0.1)
+        wall_ms = (time.perf_counter() - wall_start) * 1000
 
         output = stream.getvalue().strip()
         log_data = json.loads(output)
 
         duration = log_data["context"]["duration_ms"]
 
-        # Should be approximately 100ms (within 50ms tolerance)
-        assert 90 < duration < 150, f"Duration {duration}ms outside expected range"
+        # timed_operation should agree with independent measurement within 10ms
+        assert abs(duration - wall_ms) < 10, (
+            f"timed_operation reported {duration}ms but wall clock measured {wall_ms:.1f}ms"
+        )
 
     def test_exception_logging_format(self):
         """Test that exceptions are logged with proper error context."""
