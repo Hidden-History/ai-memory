@@ -1,7 +1,7 @@
 ---
 name: maintenance
 description: 'Maintenance phase. Handles bugs, performance issues, security vulnerabilities, and minor enhancements after release. Reactive, tightly scoped.'
-firstStep: './steps/step-01-triage-issue.md'
+firstStep: './steps-c/step-01-triage-issue.md'
 ---
 
 # Maintenance Phase

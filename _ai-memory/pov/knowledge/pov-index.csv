@@ -1,0 +1,10 @@
+id,name,description,tags,fragment_file
+complexity-assessment,Complexity Assessment,How to judge task complexity — Straightforward/Moderate/Significant/Complex,assessment;planning;triage,knowledge/complexity-assessment.md
+confidence-levels,Confidence Levels,How to express certainty — Verified/Informed/Inferred/Uncertain/Unknown,communication;identity;reporting,knowledge/confidence-levels.md
+document-maintenance,Document Maintenance,How to keep oversight docs current across sessions,documentation;process;maintenance,knowledge/document-maintenance.md
+escalation-protocol,Escalation Protocol,When and how to escalate issues to user — Critical/High/Medium/Low,communication;escalation;triage,knowledge/escalation-protocol.md
+issue-classification-criteria,Issue Classification Criteria,How to classify bugs design issues tech debt and improvements,triage;classification;quality,knowledge/issue-classification-criteria.md
+parzival-master-plan,Parzival Master Plan,Complete Parzival design philosophy and reference architecture,architecture;identity;reference,knowledge/parzival-master-plan.md
+self-check-constraints,Self-Check Constraints,Periodic constraint verification checklist — run every 10 messages,constraints;self-check;quality,knowledge/self-check-constraints.md
+bug-status-workflow,Bug Status Workflow,Bug lifecycle states and transition rules for BUG-XXX tracking,bugs;lifecycle;tracking,knowledge/bug-status-workflow.md
+decision-status-workflow,Decision Status Workflow,Decision lifecycle states and transition rules for DEC-XXX tracking,decisions;lifecycle;tracking,knowledge/decision-status-workflow.md

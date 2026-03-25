@@ -1,7 +1,7 @@
 ---
 name: release
 description: 'Release phase. Final gate before production -- documents changes, verifies deployment, ensures rollback capability.'
-firstStep: './steps/step-01-compile-release.md'
+firstStep: './steps-c/step-01-compile-release.md'
 ---
 
 # Release Phase

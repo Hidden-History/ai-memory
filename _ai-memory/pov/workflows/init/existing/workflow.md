@@ -1,7 +1,7 @@
 ---
 name: init-existing
 description: 'Existing project onboarding. Audits project state, classifies into one of four branches, and establishes verified baseline before any work begins.'
-firstStep: './steps/step-01-read-existing-files.md'
+firstStep: './steps-c/step-01-read-existing-files.md'
 ---
 
 # Init Existing Project

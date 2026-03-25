@@ -1,7 +1,7 @@
 ---
 name: review-cycle
 description: 'Dev-review loop that enforces quality on every implementation. Cycles until zero legitimate issues remain.'
-firstStep: './steps/step-01-verify-completeness.md'
+firstStep: './steps-c/step-01-verify-completeness.md'
 ---
 
 # Review Cycle

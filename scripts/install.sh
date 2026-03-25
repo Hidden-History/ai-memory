@@ -3674,6 +3674,12 @@ setup_parzival() {
             log_debug "Cleaned up stale teams archive"
         fi
 
+        # Remove stale data/ directory (renamed to knowledge/ in Parzival 2.2)
+        if [[ -d "$PROJECT_PATH/_ai-memory/pov/data" ]]; then
+            rm -rf "$PROJECT_PATH/_ai-memory/pov/data"
+            log_debug "Cleaned up stale pov/data/ directory (renamed to knowledge/ in Parzival 2.2)"
+        fi
+
         # Deploy oversight templates (existing function — unchanged)
         deploy_oversight_templates
 

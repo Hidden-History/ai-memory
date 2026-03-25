@@ -1,7 +1,7 @@
 ---
 name: session-blocker
 description: 'Analyze a blocker, propose resolution options, and log it to the blockers tracking file.'
-firstStep: './steps/step-01-capture-blocker.md'
+firstStep: './steps-c/step-01-capture-blocker.md'
 ---
 
 # Blocker Analysis

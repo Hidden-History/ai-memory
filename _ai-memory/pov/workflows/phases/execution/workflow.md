@@ -1,7 +1,7 @@
 ---
 name: execution
 description: 'Execution phase. Primary operating mode -- every story passes through implementation, review cycle, and user approval. Repeats until sprint is complete.'
-firstStep: './steps/step-01-verify-story-requirements.md'
+firstStep: './steps-c/step-01-verify-story-requirements.md'
 ---
 
 # Execution Phase

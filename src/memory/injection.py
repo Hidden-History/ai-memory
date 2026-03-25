@@ -879,7 +879,7 @@ def load_parzival_constraints(
     sections = []
 
     # Always load global constraints
-    global_file = constraints_dir / "global" / "CONSTRAINTS.md"
+    global_file = constraints_dir / "global" / "constraints.md"
     if global_file.exists():
         sections.append(global_file.read_text())
 
@@ -898,7 +898,7 @@ def load_parzival_constraints(
         return ""
 
     result = "\n\n---\n\n".join(sections)
-    global_count = 1 if (constraints_dir / "global" / "CONSTRAINTS.md").exists() else 0
+    global_count = 1 if (constraints_dir / "global" / "constraints.md").exists() else 0
     footer = f"\n\n---\nConstraints loaded: {global_count} global + {phase_count} phase-specific"
 
     return result + footer

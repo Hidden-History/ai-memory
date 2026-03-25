@@ -1,7 +1,7 @@
 ---
 name: session-start
 description: 'Full session start protocol. Loads all context, compiles status, and presents to user for direction.'
-firstStep: './steps/step-01-load-context.md'
+firstStep: './steps-c/step-01-load-context.md'
 ---
 
 # Session Start

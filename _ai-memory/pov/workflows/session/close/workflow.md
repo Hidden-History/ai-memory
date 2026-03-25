@@ -1,7 +1,7 @@
 ---
 name: session-close
 description: 'Full session closeout protocol. Summarizes work, updates all tracking files, creates handoff, and saves to Qdrant with graceful degradation.'
-firstStep: './steps/step-01-summarize-session.md'
+firstStep: './steps-c/step-01-summarize-session.md'
 handoffTemplate: '{project-root}/_ai-memory/pov/templates/session-handoff.template.md'
 ---
 

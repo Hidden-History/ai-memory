@@ -1,7 +1,7 @@
 ---
 name: approval-gate
 description: 'User approval protocol. Every completed unit of work passes through this gate. Nothing proceeds on assumption, nothing auto-advances.'
-firstStep: './steps/step-01-prepare-package.md'
+firstStep: './steps-c/step-01-prepare-package.md'
 ---
 
 # Approval Gate

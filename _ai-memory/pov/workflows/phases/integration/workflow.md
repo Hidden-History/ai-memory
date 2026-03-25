@@ -1,7 +1,7 @@
 ---
 name: integration
 description: 'Integration and quality gate phase. Full review across the entire feature set to verify everything works together before release.'
-firstStep: './steps/step-01-establish-scope.md'
+firstStep: './steps-c/step-01-establish-scope.md'
 ---
 
 # Integration Phase

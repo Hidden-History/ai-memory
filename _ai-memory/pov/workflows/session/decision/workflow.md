@@ -1,7 +1,7 @@
 ---
 name: session-decision
 description: 'Structure a decision with options, tradeoffs, and recommendation. Present using approval gate format and log the outcome.'
-firstStep: './steps/step-01-structure-decision.md'
+firstStep: './steps-c/step-01-structure-decision.md'
 decisionLogTemplate: '{project-root}/_ai-memory/pov/templates/decision-log.template.md'
 ---
 
@@ -34,6 +34,13 @@ This uses **step-file architecture** for disciplined execution:
 - Never make the decision on behalf of the user
 - Never log a decision outcome the user did not explicitly choose
 - Never present a decision without stating what constraints apply
+
+---
+
+## Supporting References
+
+- Decision lifecycle states and transitions: `knowledge/decision-status-workflow.md`
+- Decision log template: `{project-root}/_ai-memory/pov/templates/decision-log.template.md`
 
 ---
 

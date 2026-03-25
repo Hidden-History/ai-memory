@@ -91,3 +91,7 @@ scripts/_migration_state.json
 
 # age private key — NEVER commit (default SOPS/age key location)
 **/.config/sops/age/keys.txt
+
+# Backup/verification directories (user-local, not for repo)
+_ai-memory/_ai-memory.restructred/
+_ai-memory/pov.v1.bak/

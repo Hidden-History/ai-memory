@@ -83,5 +83,5 @@ description: "Template for bug fix verification tracking pre-fix reproduction, r
 - GC-05: Four-source verification
 - GC-12: Loop until zero legitimate issues
 - GC-16: Bug tracking protocol
-- Bug status workflow: `{data_path}/bug-status-workflow.md`
+- Bug status workflow: `knowledge/bug-status-workflow.md`
 - Review cycle: `{workflows_path}/cycles/review-cycle/workflow.md`

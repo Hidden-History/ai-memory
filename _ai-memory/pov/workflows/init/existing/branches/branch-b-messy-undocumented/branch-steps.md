@@ -5,10 +5,10 @@ description: 'Onboarding steps for a legacy or undocumented project. Document re
 
 # Branch B: Legacy / Undocumented
 
-## BRANCH GOAL
+## BRANCH GOAL:
 Document the actual current state of the project before any work can be directed. Cannot act without documentation.
 
-## MANDATORY SEQUENCE
+## Sequence of Instructions (Do not deviate, skip, or optimize)
 
 ### 1. Generate Project Context
 Activate Analyst via {workflows_path}/cycles/agent-dispatch/workflow.md to generate project-context.md by scanning the codebase:
@@ -18,12 +18,16 @@ Activate Analyst via {workflows_path}/cycles/agent-dispatch/workflow.md to gener
 - Testing approaches
 - Framework-specific patterns
 
+---
+
 ### 2. Review and Verify Generated Context
 Parzival reviews the generated project-context.md:
 - Is the stack correctly identified?
 - Are patterns accurately described?
 - Are there patterns the scan missed?
 - Correct any inaccuracies before using
+
+---
 
 ### 3. Assess PRD State
 **IF no PRD exists:**
@@ -36,6 +40,8 @@ Parzival reviews the generated project-context.md:
 - Activate PM via agent dispatch to update PRD based on audit findings
 - User must approve updated PRD before proceeding
 
+---
+
 ### 4. Assess Architecture State
 **IF no architecture.md:**
 - Must run WF-ARCHITECTURE after Discovery is complete
@@ -45,16 +51,22 @@ Parzival reviews the generated project-context.md:
 - Identify specific discrepancies from Analyst audit
 - Flag for Architect to update in Architecture phase
 
+---
+
 ### 5. Verify _ai-memory/ Installation
 Check for _ai-memory/ directory:
 - If present and complete: verify against constraint IN-04
 - If missing or incomplete: alert user that installation is needed
+
+---
 
 ### 6. Create Missing Baseline Files
 Create any missing required files:
 - project-status.md (if missing)
 - goals.md (if missing -- extract from existing docs + user input)
 - decisions.md (if missing -- initialize empty)
+
+---
 
 ### 7. Determine Exit Route
 Based on documentation state:
@@ -66,3 +78,20 @@ Record the confirmed exit route for use in step-06 approval package.
 
 ## BRANCH COMPLETION
 When all branch steps are complete, return to the common path: step-04-establish-baseline.md
+
+## 🚨 SYSTEM SUCCESS/FAILURE METRICS
+
+### ✅ SUCCESS:
+
+- Project context generated and verified against actual codebase
+- PRD and architecture state assessed, missing or outdated files addressed
+- Missing baseline files (project-status.md, goals.md, decisions.md) created
+- Exit route is clearly determined and recorded
+
+### ❌ SYSTEM FAILURE:
+
+- Skipping Analyst audit and accepting generated context without verification
+- Accepting unverified generated context as accurate without review
+- Proceeding without confirming findings with user
+
+**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

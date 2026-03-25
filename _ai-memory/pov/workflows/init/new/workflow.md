@@ -1,7 +1,7 @@
 ---
 name: init-new
 description: 'New project initialization. Establishes project baseline from scratch when no prior project files exist.'
-firstStep: './steps/step-01-gather-project-info.md'
+firstStep: './steps-c/step-01-gather-project-info.md'
 ---
 
 # Init New Project

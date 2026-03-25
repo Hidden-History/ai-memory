@@ -190,7 +190,11 @@ Before executing, verify:
 
 The team design document (Steps 1-6) is the deliverable. It feeds into the agent-dispatch cycle.
 
-**Do NOT assemble a copy-paste team prompt in the output.** The design document contains the context blocks (Step 4) and the templates in `templates/` are reference formats for dispatch. Prompt assembly happens at dispatch time — not here.
+**Do NOT assemble a copy-paste team prompt in the output.** The design document contains the context blocks (Step 4) and the templates are reference formats for dispatch. Prompt assembly happens at dispatch time — not here.
+
+**Templates:**
+- [`templates/team-prompt-2tier.template.md`](templates/team-prompt-2tier.template.md) — 2-tier team prompt format (lead + workers)
+- [`templates/team-prompt-3tier.template.md`](templates/team-prompt-3tier.template.md) — 3-tier team prompt format (lead + managers + workers)
 
 Parzival activates all agents himself — the user does not run agents.
 

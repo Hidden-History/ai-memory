@@ -20,8 +20,8 @@ description: BMAD agent selection, activation commands, and persona loading -- L
 ## When to Use This Skill
 
 Use aim-bmad-dispatch when:
-- The task requires a BMAD agent role (Analyst, PM, Architect, DEV, SM, UX Designer)
-- The agent requires persona activation via /bmad-agent-bmm-* commands
+- The task requires ANY BMAD agent role (see full activation table below)
+- The agent requires persona activation via `/bmad-agent-*` commands
 
 Use aim-agent-dispatch instead when:
 - The agent does NOT need a BMAD persona
@@ -31,7 +31,7 @@ Use aim-agent-dispatch instead when:
 
 ## Agent Selection Guide
 
-Consult `data/agent-selection-guide.md` for detailed role descriptions, selection criteria, and dispatch decision tree.
+See [agent-selection-guide.md](data/agent-selection-guide.md) for detailed role descriptions, selection criteria, and dispatch decision tree.
 
 ### Quick Selection Matrix
 
@@ -47,6 +47,20 @@ Consult `data/agent-selection-guide.md` for detailed role descriptions, selectio
 | Write code / implement a story | DEV | Any other | Execution |
 | Review implemented code | DEV | Architect | Execution |
 | Design user flows and screens | UX Designer | PM | Planning |
+| Write or review documentation | Tech Writer | PM | Execution |
+| Write and run tests | QA Engineer | DEV | Execution |
+| Design test architecture/strategy | Test Architect (TEA) | QA Engineer | Planning |
+| Small feature, solo workflow | Quick Flow Solo Dev | DEV | Execution |
+| Build new BMAD agents | Agent Builder | DEV | Execution |
+| Build new BMAD modules | Module Builder | DEV | Execution |
+| Build new BMAD workflows | Workflow Builder | DEV | Execution |
+| BMAD framework guidance | BMAD Master | PM | Planning |
+| Brainstorming / ideation session | Brainstorming Coach | Analyst | Planning |
+| Creative problem solving | Creative Problem Solver | Analyst | Planning |
+| Design thinking facilitation | Design Thinking Coach | UX Designer | Planning |
+| Innovation strategy | Innovation Strategist | PM | Planning |
+| Presentation creation/coaching | Presentation Master | Tech Writer | Execution |
+| Narrative and storytelling | Storyteller | Tech Writer | Execution |
 
 ### Agent Combination Sequences
 
@@ -136,14 +150,52 @@ Spawn the BMAD agent as a teammate in parallel (Agent tool with team_name), then
 
 **Non-Claude provider**: When the user specifies a non-Claude provider (e.g., "use openrouter"), delegate the terminal launch to the model-dispatch skill. It handles tmux panes, wrapper scripts, and two-phase activation for that provider. Parzival still manages the agent as a teammate.
 
-| Agent | Activation Command |
-|-------|-------------------|
-| Analyst | /bmad-agent-bmm-analyst |
-| PM | /bmad-agent-bmm-pm |
-| Architect | /bmad-agent-bmm-architect |
-| DEV | /bmad-agent-bmm-dev |
-| SM | /bmad-agent-bmm-sm |
-| UX Designer | /bmad-agent-bmm-ux-designer |
+> **DEC-123**: aim-bmad-dispatch is the single entry point for all BMAD agent dispatch. aim-model-dispatch/bmad-dispatch provides implementation-level routing (backend selection, model selection, tmux launch) after initial dispatch.
+
+#### Core Project Agents (bmm-)
+
+| Agent | Activation Command | Description |
+|-------|-------------------|-------------|
+| Analyst | `/bmad-agent-bmm-analyst` | Research, codebase analysis, domain investigation |
+| PM (Product Manager) | `/bmad-agent-bmm-pm` | PRD creation/validation, epics and stories |
+| Architect | `/bmad-agent-bmm-architect` | System architecture design, readiness checks |
+| Developer (DEV) | `/bmad-agent-bmm-dev` | Code implementation, code review |
+| Scrum Master (SM) | `/bmad-agent-bmm-sm` | Sprint planning, story creation, retrospectives |
+| QA Engineer | `/bmad-agent-bmm-qa` | Test planning, test execution, quality validation |
+| UX Designer | `/bmad-agent-bmm-ux-designer` | User flows, screen design, UX research |
+| Tech Writer | `/bmad-agent-bmm-tech-writer` | Documentation writing and validation |
+| Quick Flow Solo Dev | `/bmad-agent-bmm-quick-flow-solo-dev` | Lightweight single-dev flow (analysis through implementation) |
+
+#### BMAD Framework Agents
+
+| Agent | Activation Command | Description |
+|-------|-------------------|-------------|
+| BMAD Master | `/bmad-agent-bmad-master` | BMAD framework orchestration and guidance |
+
+#### Builder Agents (bmb-)
+
+| Agent | Activation Command | Description |
+|-------|-------------------|-------------|
+| Agent Builder | `/bmad-agent-bmb-agent-builder` | Build new BMAD agent definitions |
+| Module Builder | `/bmad-agent-bmb-module-builder` | Build new BMAD modules |
+| Workflow Builder | `/bmad-agent-bmb-workflow-builder` | Build new BMAD workflows |
+
+#### CIS Coaches (cis-)
+
+| Agent | Activation Command | Description |
+|-------|-------------------|-------------|
+| Brainstorming Coach | `/bmad-agent-cis-brainstorming-coach` | Facilitated brainstorming sessions |
+| Creative Problem Solver | `/bmad-agent-cis-creative-problem-solver` | Creative approaches to complex problems |
+| Design Thinking Coach | `/bmad-agent-cis-design-thinking-coach` | Design thinking methodology facilitation |
+| Innovation Strategist | `/bmad-agent-cis-innovation-strategist` | Innovation strategy and ideation |
+| Presentation Master | `/bmad-agent-cis-presentation-master` | Presentation creation and coaching |
+| Storyteller | `/bmad-agent-cis-storyteller` | Narrative crafting and storytelling |
+
+#### Test Agents (tea-)
+
+| Agent | Activation Command | Description |
+|-------|-------------------|-------------|
+| Test Architect (TEA) | `/bmad-agent-tea-tea` | Test architecture and strategy design |
 
 **Workflow commands by phase** (sent AFTER activation, when in planning mode):
 

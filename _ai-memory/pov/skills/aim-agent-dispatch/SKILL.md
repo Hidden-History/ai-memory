@@ -77,4 +77,6 @@ After the agent is spawned and confirmed ready, proceed with aim-agent-lifecycle
 
 ## Instruction Template Reference
 
+> **Convention**: All POV skill templates use the `.template.md` extension to distinguish them from step files and other markdown documents.
+
 The full instruction template is at: `templates/agent-instruction.template.md`

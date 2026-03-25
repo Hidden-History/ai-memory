@@ -1,7 +1,7 @@
 ---
 name: agent-dispatch
 description: 'Agent dispatch and lifecycle management. Defines how Parzival activates, instructs, monitors, and closes agents.'
-firstStep: './steps/step-01-prepare-instruction.md'
+firstStep: './steps-c/step-01-prepare-instruction.md'
 ---
 
 # Agent Dispatch
@@ -11,6 +11,7 @@ firstStep: './steps/step-01-prepare-instruction.md'
 **Layered Execution:** This cycle is the core execution mechanism. It is invoked by phase workflows and session commands. For team design (multi-agent parallel work), use the aim-parzival-team-builder skill first, which produces context blocks that feed into this cycle.
 
 **Skill Integration:**
+- **Team design**: For multi-agent parallel work, use the aim-parzival-team-builder skill to design team structure and context blocks before dispatch
 - **Agent selection**: For BMAD agents, consult the aim-bmad-dispatch skill for agent role selection and activation commands
 - **Instruction preparation**: For instruction template and quality checklist, consult the aim-agent-dispatch skill
 - **Model selection**: For model selection criteria, consult the aim-model-dispatch skill

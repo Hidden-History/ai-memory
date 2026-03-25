@@ -1,7 +1,7 @@
 ---
 name: architecture
 description: 'Architecture phase. Translates the approved PRD into a technical blueprint, produces epics/stories, and confirms implementation readiness.'
-firstStep: './steps/step-01-assess-inputs.md'
+firstStep: './steps-c/step-01-assess-inputs.md'
 ---
 
 # Architecture Phase

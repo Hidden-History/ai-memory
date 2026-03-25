@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: 'Create a mid-session handoff document (state snapshot) without ending the session. Preserves context for recovery.'
-firstStep: './steps/step-01-capture-state.md'
+firstStep: './steps-c/step-01-capture-state.md'
 handoffTemplate: '{project-root}/_ai-memory/pov/templates/session-handoff.template.md'
 ---
 

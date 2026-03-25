@@ -1,7 +1,7 @@
 ---
 name: legitimacy-check
 description: 'Issue triage and classification. Every issue surfaced during review, audit, or maintenance is classified as LEGITIMATE, NON-ISSUE, or UNCERTAIN before any action is taken.'
-firstStep: './steps/step-01-read-issue.md'
+firstStep: './steps-c/step-01-read-issue.md'
 ---
 
 # Legitimacy Check

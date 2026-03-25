@@ -1,7 +1,7 @@
 ---
 name: discovery
 description: 'Discovery phase. Produces the PRD -- the single source of truth for all requirements. Everything built in subsequent phases traces back to this document.'
-firstStep: './steps/step-01-assess-existing-inputs.md'
+firstStep: './steps-c/step-01-assess-existing-inputs.md'
 ---
 
 # Discovery Phase

@@ -1,7 +1,7 @@
 ---
 name: planning
 description: 'Sprint Planning phase. Transforms approved epics and stories into an executable sprint with implementation-ready story files.'
-firstStep: './steps/step-01-review-project-state.md'
+firstStep: './steps-c/step-01-review-project-state.md'
 ---
 
 # Sprint Planning Phase

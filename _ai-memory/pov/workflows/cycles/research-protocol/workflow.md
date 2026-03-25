@@ -1,7 +1,7 @@
 ---
 name: research-protocol
 description: 'Verified research process for resolving uncertainty. Three-layer research with escalation to user when all layers are exhausted.'
-firstStep: './steps/step-01-define-question.md'
+firstStep: './steps-c/step-01-define-question.md'
 ---
 
 # Research Protocol

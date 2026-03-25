@@ -1,7 +1,7 @@
 ---
 name: session-verify
 description: 'Run verification protocol on completed work. Supports story, code, and production verification types.'
-firstStep: './steps/step-01-determine-type.md'
+firstStep: './steps-c/step-01-determine-type.md'
 storyTemplate: '{project-root}/_ai-memory/pov/templates/verification-story.template.md'
 codeTemplate: '{project-root}/_ai-memory/pov/templates/verification-code.template.md'
 productionTemplate: '{project-root}/_ai-memory/pov/templates/verification-production.template.md'

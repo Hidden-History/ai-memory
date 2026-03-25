@@ -26,6 +26,7 @@ be referenced across sessions.
 | System audit | `{oversight_path}/audits/AUDIT_TEMPLATE.md` |
 | Validation report | `{oversight_path}/validation/VALIDATION_TEMPLATE.md` |
 | Verification report | `{oversight_path}/verification/checklists/` (story/code/production) |
+| Fix verification | `{project-root}/_ai-memory/pov/templates/verification-fix.template.md` |
 
 ## Applies To
 
