@@ -285,8 +285,12 @@ def test_main_orchestration_function(installer_script):
             "main() {" in content or "main () {" in content
         ), "Missing main() function"
 
-        # Verify key steps in order
-        main_section = content[content.find("main") :]
+        # Verify key steps in order — search within main() body, not from
+        # first "main" substring (which may appear in earlier functions/comments)
+        main_start = content.find("main() {")
+        if main_start == -1:
+            main_start = content.find("main () {")
+        main_section = content[main_start:]
 
         steps = [
             "check_prerequisites",
