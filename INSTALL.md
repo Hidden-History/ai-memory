@@ -882,6 +882,12 @@ JIRA_SYNC_DELAY_MS=100
 
 > **Note:** Jira environment variables are automatically set by the installer when Jira sync is enabled. See [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for details.
 
+### Environment Variables for Non-Interactive Install
+
+**JIRA_PROJECTS** must be a JSON array:
+- Correct: `JIRA_PROJECTS='["PROJ1","PROJ2"]'`
+- Legacy: `JIRA_PROJECTS='PROJ1,PROJ2'` (auto-converted to JSON array; prefer JSON format above)
+
 ### 🔧 Hook Configuration
 
 Edit `.claude/settings.json` in your target project to customize hook behavior:

@@ -87,6 +87,12 @@ Parzival V2.1 shim architecture, 7 dispatch skills, and PLAN-018 Zero Debt Sprin
 - **injection.py case-sensitivity**: Fixed `CONSTRAINTS.md` → `constraints.md` path references (lines 882, 901) for Linux filesystem compatibility
 - **Installer stale cleanup**: Added `pov/data/` directory removal for users upgrading from pre-v2.3.0 installations
 - **BUG-237**: 9 test-ordering isolation flakes documented (pre-existing BUG-209/BUG-234 pattern — tests pass individually)
+- **BUG-238**: Langfuse RAM check crashes on macOS — `/proc/meminfo` replaced with OS-aware check (`sysctl -n hw.memsize` on macOS, `/proc/meminfo` on Linux) (GitHub #71)
+- **BUG-239**: `set -e` + `result=$(...)` silent installer abort — full audit of `install.sh`, all non-subshell-safe command substitutions corrected (GitHub #71)
+- **BUG-240**: `JIRA_PROJECTS` non-interactive `JSONDecodeError` — comma-separated value now normalized to JSON array in non-interactive install path (GitHub #71)
+- **BUG-241**: Stale `docker/.env` on `add-project` — non-interactive `add-project` now runs `configure_environment` for project-specific vars (GitHub #71)
+- **BUG-242**: `GITHUB_REPO` format not validated — `owner/repo` format check added before GitHub API calls (GitHub #71)
+- **BUG-243**: `register_project_sync`/`projects.d` skipped in non-interactive path — wired into non-interactive flow; `INSTALL.md` updated with non-interactive multi-project instructions (GitHub #71)
 
 ### Security
 - **TD-220**: SQL injection fix in `langfuse_setup.sh` (parameterized psql queries)

@@ -99,6 +99,7 @@ EMBEDDING_PORT="${AI_MEMORY_EMBEDDING_PORT:-28080}"
 MONITORING_PORT="${AI_MEMORY_MONITORING_PORT:-28000}"
 STREAMLIT_PORT="${AI_MEMORY_STREAMLIT_PORT:-28501}"
 CONTAINER_PREFIX="${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}"
+INSTALLER_VERSION="2.3.0"
 
 # Logging functions
 log_info() {
@@ -133,6 +134,26 @@ step() {
     CURRENT_STEP=$((CURRENT_STEP + 1))
     echo ""
     echo -e "${BLUE}━━━ [Step ${CURRENT_STEP}/${TOTAL_STEPS}] $1 ━━━${NC}"
+}
+
+# Cross-platform total RAM detection (BUG-238)
+# Self-contained: calls `uname -s` directly, no dependency on detect_platform.
+# Returns integer GiB. Falls back to 0 on unknown OS (conservative — triggers warning).
+get_total_ram_gb() {
+    local os
+    os="$(uname -s)"
+    case "$os" in
+        Linux)
+            awk '/MemTotal/ { printf "%d", $2/1024/1024 }' /proc/meminfo
+            ;;
+        Darwin)
+            sysctl -n hw.memsize | awk '{ printf "%d", $1/1024/1024/1024 }'
+            ;;
+        *)
+            log_warning "Unknown OS '$os' — cannot detect RAM, returning 0"
+            echo "0"
+            ;;
+    esac
 }
 
 # Convert comma-separated Jira project keys to JSON array for .env file
@@ -216,6 +237,24 @@ JIRA_INSTANCE_URL="${JIRA_INSTANCE_URL:-}"
 JIRA_EMAIL="${JIRA_EMAIL:-}"
 JIRA_API_TOKEN="${JIRA_API_TOKEN:-}"
 JIRA_PROJECTS="${JIRA_PROJECTS:-}"
+# BUG-240: Normalize JIRA_PROJECTS to JSON array for pydantic-settings
+# Interactive mode normalizes via configure_environment; non-interactive needs this
+if [[ -n "$JIRA_PROJECTS" && "$JIRA_PROJECTS" != "["* ]]; then
+    if command -v python3 &>/dev/null; then
+        # Comma-separated → JSON array: "A,B" → '["A","B"]'
+        _orig_jira_projects="$JIRA_PROJECTS"
+        JIRA_PROJECTS=$(echo "$JIRA_PROJECTS" | python3 -c "
+import sys, json
+raw = sys.stdin.read().strip()
+items = [item.strip() for item in raw.split(',') if item.strip()]
+print(json.dumps(items))
+" 2>/dev/null) || {
+            JIRA_PROJECTS="$_orig_jira_projects"
+            log_warning "Failed to normalize JIRA_PROJECTS to JSON, leaving as-is"
+        }
+        unset _orig_jira_projects
+    fi
+fi
 JIRA_INITIAL_SYNC="${JIRA_INITIAL_SYNC:-}"
 
 # GitHub sync configuration (PLAN-006 Phase 1a)
@@ -509,6 +548,9 @@ print(','.join(keys))
                 GITHUB_REPO="${github_owner}/${github_name}"
             fi
 
+            # BUG-242: Validate GITHUB_REPO format before calling API
+            validate_github_repo "$GITHUB_REPO" || GITHUB_SYNC_ENABLED="false"
+
             # Validate PAT via GitHub API
             echo ""
             log_info "Testing GitHub connection..."
@@ -522,9 +564,6 @@ print(','.join(keys))
 
             if [[ "$http_code" == "200" ]]; then
                 log_success "GitHub connection verified (HTTP 200) — repo: $GITHUB_REPO"
-
-                # Register project in projects.d/ for multi-project support (PLAN-009)
-                register_project_sync "$GITHUB_REPO" "$GITHUB_REPO" "$(pwd)" "${GITHUB_BRANCH:-main}"
 
                 # Prompt for initial sync
                 echo ""
@@ -565,7 +604,8 @@ print(','.join(keys))
 
     # RAM check when Langfuse is selected
     if [[ "$LANGFUSE_ENABLED" == "true" ]]; then
-        TOTAL_RAM_GIB=$(awk '/MemTotal/ { printf "%d", $2/1024/1024 }' /proc/meminfo)
+        TOTAL_RAM_GIB=$(get_total_ram_gb) || TOTAL_RAM_GIB=0
+        [[ -z "$TOTAL_RAM_GIB" ]] && TOTAL_RAM_GIB=0
         if [[ "$TOTAL_RAM_GIB" -lt 32 ]]; then
             echo ""
             log_warning "Langfuse recommends 32 GiB RAM. Detected: ${TOTAL_RAM_GIB} GiB total."
@@ -767,6 +807,8 @@ main() {
             seed_best_practices
             run_initial_jira_sync
             setup_jira_cron
+            # BUG-242: Validate GITHUB_REPO format (non-interactive path)
+            validate_github_repo "$GITHUB_REPO" || { log_warning "Disabling GitHub sync due to invalid GITHUB_REPO"; GITHUB_SYNC_ENABLED="false"; }
             setup_github_indexes
             run_initial_github_sync
             setup_langfuse
@@ -776,6 +818,18 @@ main() {
         fi
     else
         log_info "Skipping shared infrastructure setup (add-project mode)"
+        # BUG-241: Detect stale .env from prior project
+        # SOURCE_DIR not set in add-project mode (copy_files skipped), derive from SCRIPT_DIR
+        SOURCE_DIR="${SOURCE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+        if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
+            local installed_for
+            installed_for=$(grep '^# AIM_INSTALLED_FOR=' "$INSTALL_DIR/docker/.env" | cut -d= -f2- || true)
+            if [[ -n "$installed_for" && "$installed_for" != "$SOURCE_DIR" ]]; then
+                log_warning "Existing .env was configured for '$installed_for'"
+                log_warning "You are now installing for '$SOURCE_DIR'"
+                log_warning "Review GITHUB_REPO, AI_MEMORY_PROJECT_ID in ~/.ai-memory/docker/.env"
+            fi
+        fi
         # BUG-028: Update shared scripts to ensure compatibility with this installer version
         update_shared_scripts
         # Verify services are running in add-project mode
@@ -791,6 +845,11 @@ main() {
 
     # Parzival session agent (optional, SPEC-015)
     setup_parzival
+
+    # BUG-243: Register project for GitHub sync — parity between interactive and non-interactive
+    if [[ "$GITHUB_SYNC_ENABLED" == "true" && -n "$GITHUB_REPO" ]]; then
+        register_project_sync "$PROJECT_NAME" "$GITHUB_REPO" "$PROJECT_PATH" "${GITHUB_BRANCH:-main}"
+    fi
 
     # Record project in manifest for cross-filesystem recovery discovery
     record_installed_project
@@ -1670,6 +1729,39 @@ import_user_env() {
     return 0
 }
 
+# Validate GitHub owner/repo format (BUG-242)
+validate_github_repo() {
+    local repo="$1"
+    if [[ -z "$repo" ]]; then
+        return 0  # Empty is OK — means GitHub sync disabled
+    fi
+    # Must contain exactly one slash
+    if [[ "$repo" != */* ]] || [[ "$repo" == */*/* ]]; then
+        log_error "GITHUB_REPO must be in 'owner/repo' format (got: '$repo')"
+        log_error "Example: GITHUB_REPO='myorg/myrepo'"
+        return 1
+    fi
+    local owner="${repo%%/*}"
+    local name="${repo#*/}"
+    if [[ -z "$owner" || -z "$name" ]]; then
+        log_error "GITHUB_REPO must have both owner and repo name (got: '$repo')"
+        return 1
+    fi
+    if [[ ${#owner} -gt 39 ]]; then
+        log_error "GitHub owner name too long (max 39 chars, got ${#owner})"
+        return 1
+    fi
+    if [[ ! "$owner" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$ ]]; then
+        log_error "GitHub owner contains invalid characters (got: '$owner')"
+        return 1
+    fi
+    if [[ ! "$name" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+        log_error "GitHub repo name contains invalid characters (got: '$name')"
+        return 1
+    fi
+    return 0
+}
+
 # Environment configuration (AC 7.1.6)
 # BUG-040: Docker Compose runs from $INSTALL_DIR/docker/ and needs .env there
 configure_environment() {
@@ -1722,6 +1814,13 @@ configure_environment() {
             log_debug "Added Jira configuration to .env"
         fi
 
+        # BUG-239: Preflight — fail fast if GitHub sync enabled without token
+        if [[ "$GITHUB_SYNC_ENABLED" == "true" && -z "$GITHUB_TOKEN" ]]; then
+            log_error "GITHUB_SYNC_ENABLED=true requires GITHUB_TOKEN to be set"
+            log_error "Set GITHUB_TOKEN in your environment or disable GitHub sync"
+            exit 1
+        fi
+
         # Add GitHub config if not present and GitHub is enabled
         if [[ "$GITHUB_SYNC_ENABLED" == "true" ]] && ! grep -q "^GITHUB_SYNC_ENABLED=" "$docker_env"; then
             echo "" >> "$docker_env"
@@ -1760,6 +1859,16 @@ configure_environment() {
             log_debug "Added AI_MEMORY_PROJECT_ID=$PROJECT_NAME to .env"
         fi
 
+        # BUG-241: Write installer metadata if not already present
+        if ! grep -q '^# AIM_INSTALLED_FOR=' "$docker_env"; then
+            echo "" >> "$docker_env"
+            echo "# --- AI-MEMORY INSTALLER METADATA (DO NOT EDIT) ---" >> "$docker_env"
+            echo "# AIM_INSTALLED_FOR=${SOURCE_DIR}" >> "$docker_env"
+            echo "# AIM_INSTALLED_VERSION=${INSTALLER_VERSION}" >> "$docker_env"
+            echo "# AIM_INSTALLED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$docker_env"
+            echo "# --- END METADATA ---" >> "$docker_env"
+        fi
+
         log_success "Environment configured at $docker_env"
     else
         # No source .env - create minimal template (user needs to add credentials)
@@ -1769,6 +1878,11 @@ configure_environment() {
         cat > "$docker_env" <<EOF
 # AI Memory Module Configuration
 # Generated by install.sh on $(date)
+# --- AI-MEMORY INSTALLER METADATA (DO NOT EDIT) ---
+# AIM_INSTALLED_FOR=${SOURCE_DIR}
+# AIM_INSTALLED_VERSION=${INSTALLER_VERSION}
+# AIM_INSTALLED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+# --- END METADATA ---
 #
 # WARNING: This is a minimal template. For full functionality, copy your
 # configured .env from the source repository to this location.
@@ -1845,7 +1959,7 @@ EOF
         # Prefer environment variable (e.g., CI sets QDRANT_API_KEY=test-ci-key)
         local gen_key="${QDRANT_API_KEY:-}"
         if [[ -z "$gen_key" ]]; then
-            gen_key=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
+            gen_key=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret") || { log_error "Failed to generate secret"; exit 1; }
         fi
         if [[ -n "$gen_key" ]]; then
             if grep -q "^QDRANT_API_KEY=" "$docker_env" 2>/dev/null; then
@@ -1863,7 +1977,7 @@ EOF
 
     if ! grep -q "^GRAFANA_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null || grep -q "^GRAFANA_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
         local gen_gf
-        gen_gf=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
+        gen_gf=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret") || { log_error "Failed to generate secret"; exit 1; }
         if [[ -n "$gen_gf" ]]; then
             if grep -q "^GRAFANA_ADMIN_PASSWORD=" "$docker_env" 2>/dev/null; then
                 sed -i.bak "s|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=$gen_gf|" "$docker_env" && rm -f "$docker_env.bak"
@@ -1882,7 +1996,7 @@ EOF
 
     if ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null || grep -q "^PROMETHEUS_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
         local gen_prom
-        gen_prom=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret")
+        gen_prom=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret") || { log_error "Failed to generate secret"; exit 1; }
         if [[ -n "$gen_prom" ]]; then
             if grep -q "^PROMETHEUS_ADMIN_PASSWORD=" "$docker_env" 2>/dev/null; then
                 sed -i.bak "s|^PROMETHEUS_ADMIN_PASSWORD=.*|PROMETHEUS_ADMIN_PASSWORD=$gen_prom|" "$docker_env" && rm -f "$docker_env.bak"
@@ -1895,7 +2009,7 @@ EOF
 
     if ! grep -q "^GRAFANA_SECRET_KEY=.\+" "$docker_env" 2>/dev/null || grep -q "^GRAFANA_SECRET_KEY=changeme$" "$docker_env" 2>/dev/null; then
         local gen_gsk
-        gen_gsk=$("$INSTALL_DIR/.venv/bin/python" -c "import secrets; print(secrets.token_hex(32))")
+        gen_gsk=$("$INSTALL_DIR/.venv/bin/python" -c "import secrets; print(secrets.token_hex(32))") || { log_error "Failed to generate secret"; exit 1; }
         if [[ -n "$gen_gsk" ]]; then
             if grep -q "^GRAFANA_SECRET_KEY=" "$docker_env" 2>/dev/null; then
                 sed -i.bak "s|^GRAFANA_SECRET_KEY=.*|GRAFANA_SECRET_KEY=$gen_gsk|" "$docker_env" && rm -f "$docker_env.bak"
@@ -2821,7 +2935,7 @@ setup_github_indexes() {
 
     log_debug "Creating GitHub payload indexes on discussions collection..."
 
-    local result
+    local result rc=0
     # BUG-098: Source .env so pydantic MemoryConfig reads env vars even when
     # env_file=".env" doesn't resolve (CWD is docker/ but pydantic may not find it)
     result=$(cd "$INSTALL_DIR/docker" && [[ -f .env ]] || { echo "FAILED: docker/.env not found"; exit 1; } && set -a && source .env && set +a && "$INSTALL_DIR/.venv/bin/python" -c "
@@ -2834,8 +2948,7 @@ counts = create_github_indexes(client)
 created = counts.get('created', 0)
 existing = counts.get('skipped', 0)
 print(f'OK: {created} created, {existing} already existed')
-" 2>&1)
-    local rc=$?
+" 2>&1) || rc=$?
     if [[ $rc -ne 0 || -z "$result" ]]; then
         result="FAILED (exit=$rc): ${result:-no output}"
     fi
