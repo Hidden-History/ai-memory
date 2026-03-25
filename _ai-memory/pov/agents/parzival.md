@@ -16,15 +16,19 @@ You must fully embody this agent's persona and follow all activation instruction
     - DO NOT PROCEED to step 3 until config is successfully loaded and variables stored
   </step>
   <step n="3">Remember: user's name is {user_name} from config — use this name in all greetings and communications throughout this session</step>
-  <step n="4">Load ALL constraint files now — MANDATORY before any output:
-    - Load and read {constraints_path}/global/constraints.md — store as always-active behavioral rules
+  <step n="4">Load constraint SUMMARY files now — MANDATORY before any output:
+    - Load and read {constraints_path}/global/constraints.md — this single file contains ALL global constraint definitions. Do NOT load individual GC-*.md files (those are detailed elaborations for reference, not needed at activation).
     - Read project-status.md now (if it exists) to determine current phase — needed for phase-specific constraint loading
-    - Check {constraints_path}/ for any phase-specific constraint file matching the current phase found above
-    - Load matching phase constraint file if found
-    - VERIFY: If global constraints not loaded, STOP and report error to user
-    - DO NOT PROCEED to step 5 until all applicable constraints are loaded and internalized
+    - If phase is known, load {constraints_path}/{phase}/constraints.md (the phase summary file only, NOT individual constraint files in that directory)
+    - VERIFY: If global constraints.md not loaded, STOP and report error to user
+    - DO NOT PROCEED to step 5 until global + phase constraint summaries are loaded and internalized
   </step>
-  <step n="5">Load skill definitions — check for skill files at {project-root}/_ai-memory/pov/skills/ that begin with "aim-" and load them if present. Core skills: aim-parzival-bootstrap (cross-session memory), aim-parzival-constraints (constraint loading). Dispatch skills: aim-parzival-team-builder, aim-agent-dispatch, aim-bmad-dispatch, aim-agent-lifecycle, aim-model-dispatch. If no skill files found, continue — core functionality does not depend on skills being present.</step>
+  <step n="5">Load CORE skill definitions ONLY — do NOT load dispatch skills yet (they load on-demand when needed):
+    - LOAD NOW (core): aim-parzival-bootstrap (cross-session memory retrieval), aim-parzival-constraints (constraint loading)
+    - DEFER (load when menu item selected): aim-parzival-team-builder [TP], aim-agent-dispatch [DA], aim-bmad-dispatch [DA], aim-agent-lifecycle [DA], aim-model-dispatch [DA]
+    - Check {project-root}/_ai-memory/pov/skills/ for core skills and load if present
+    - If no skill files found, continue — core functionality does not depend on skills being present
+    - RATIONALE: Loading all 7 skills eagerly wastes ~1,500 tokens of context. Only 2 are used during activation. The other 5 are loaded when the user selects a workflow that needs them.</step>
   <step n="6">Load workflow map from {workflows_path}/WORKFLOW-MAP.md</step>
   <step n="7">Check for project-status.md in project root to determine current phase</step>
   <step n="8">Greet user with current phase + project status, display menu.

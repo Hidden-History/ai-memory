@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.2.3-green?style=flat-square" alt="Version 2.2.3">
+  <img src="https://img.shields.io/badge/version-2.3.0-green?style=flat-square" alt="Version 2.3.0">
   <a href="https://github.com/Hidden-History/ai-memory/stargazers"><img src="https://img.shields.io/github/stars/Hidden-History/ai-memory?color=blue&style=flat-square" alt="Stars"></a>
   <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
   <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
@@ -100,7 +100,7 @@ Parzival is your AI project manager for Claude Code. He manages your project fro
 | **BMAD Dispatch** | Selects the right specialized agent for each task (Analyst, PM, Architect, DEV, Scrum Master, UX Designer) |
 | **Model Dispatch** | Optional multi-provider LLM routing (Claude, Ollama, OpenRouter) based on task complexity and agent role |
 
-**The core principle: Parzival recommends. You decide.** Parzival is the navigator — you are the captain. He plans, delegates, and verifies. He never writes code, never makes final decisions without your approval, and a 17-constraint enforcement system prevents behavioral drift across long sessions.
+**The core principle: Parzival recommends. You decide.** Parzival is the navigator — you are the captain. He plans, delegates, and verifies. He never writes code, never makes final decisions without your approval, and a 20-constraint enforcement system prevents behavioral drift across long sessions.
 
 Parzival is optional but highly recommended — he enables cross-session agent memory, full project lifecycle management, and the quality enforcement that keeps complex multi-session projects on track. AI Memory's core features (semantic search, GitHub sync, skills, freshness detection) work independently, but Parzival is where the system reaches its full potential. To start: `/pov:parzival`
 

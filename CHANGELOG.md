@@ -12,6 +12,9 @@ Parzival V2.1 shim architecture, 7 dispatch skills, and PLAN-018 Zero Debt Sprin
 ### Added
 - **Parzival V2.1 — shim architecture**: Dispatch skills, GC-19/GC-20 constraints, and POV step-file workflow architecture
 - **7 Parzival skill shims**: `team-builder`, `agent-dispatch`, `bmad-dispatch`, `agent-lifecycle`, `model-dispatch`, `bootstrap`, `constraints` — thin routing shims (≤576 bytes each)
+- **PLAN-019 Phase 6 — POV restructure swap**: `pov.restructured/` promoted to `pov/`, completing BMAD-compliant directory restructure (TD-306)
+- **`knowledge/` directory**: POV reference data migrated from `data/` to `knowledge/` with 10 files including new `pov-index.csv` and status workflow docs
+- **Step-file tri-modal architecture**: All 21 workflows now have `steps-c/` (create), `steps-e/` (edit), `steps-v/` (validate) directories with `checklist.md`, `instructions.md`, `workflow.yaml` per workflow
 
 ### Changed
 - **Skill files converted to thin routing shims**: All Parzival skill files refactored to ≤576 bytes each for maintainability
@@ -19,6 +22,8 @@ Parzival V2.1 shim architecture, 7 dispatch skills, and PLAN-018 Zero Debt Sprin
 - **pyproject.toml**: `black 26.3.0` formatting applied
 - `.env.example` reorganized into 5 clear sections with all features enabled by default
 - All PLAN/SPEC/BUG references removed from `.env.example` comments
+- **36 audit findings resolved** (PM #211/212): 4 CRITICAL, 7 HIGH, 14 MEDIUM+LOW findings across skills, workflows, constraints, and knowledge docs
+- **Constraint count**: 17 → 20 global constraints (GC-16 mandatory bug tracking, GC-17 complex bug unified spec, GC-18 oversight document sharding)
 
 ### Upgrade Instructions
 
@@ -79,6 +84,9 @@ Parzival V2.1 shim architecture, 7 dispatch skills, and PLAN-018 Zero Debt Sprin
 - **TD-275/289**: Semantic tags on all 108 `emit_trace_event` calls in hook scripts
 - **TD-290**: `@observe(as_type="generation")` on classifier LLM calls
 - **TD-291–292**: Freshness naming consistency, quality gate push metrics
+- **injection.py case-sensitivity**: Fixed `CONSTRAINTS.md` → `constraints.md` path references (lines 882, 901) for Linux filesystem compatibility
+- **Installer stale cleanup**: Added `pov/data/` directory removal for users upgrading from pre-v2.3.0 installations
+- **BUG-237**: 9 test-ordering isolation flakes documented (pre-existing BUG-209/BUG-234 pattern — tests pass individually)
 
 ### Security
 - **TD-220**: SQL injection fix in `langfuse_setup.sh` (parameterized psql queries)

@@ -1,16 +1,16 @@
 ---
-name: 'step-01-read-existing-files'
-description: 'Read all existing project files personally before activating any agent'
+name: 'step-01-read-routing-files'
+description: 'Read routing-critical project files to determine onboarding branch — defer deep audit to Analyst in Step 2'
 nextStepFile: './step-02-run-analyst-audit.md'
 ---
 
-# Step 1: Read Everything Available
+# Step 1: Read Routing-Critical Files
 
 **Progress: Step 1 of 6** — Next: Run Analyst Audit
 
 ## STEP GOAL:
 
-Before activating any agent, Parzival reads all existing project files personally. Build a comprehensive understanding of what exists, what is missing, what appears current, and what appears outdated.
+Read ONLY the files needed to determine project state and routing branch. The Analyst agent in Step 2 performs the deep audit — Parzival should NOT read the full codebase here. Context budget matters.
 
 ## MANDATORY EXECUTION RULES (READ FIRST):
 
@@ -32,85 +32,86 @@ Before activating any agent, Parzival reads all existing project files personall
 
 ### Step-Specific Rules:
 
-- 🎯 Focus only on reading and recording findings — no analysis or recommendations yet
+- 🎯 Focus on reading ROUTING files only — deep audit is the Analyst's job in Step 2
 - 🚫 FORBIDDEN to activate any agents or modify any files during this step
-- 💬 Approach: Systematic reading of every available project file in order
-- 📋 Treat all documentation as "possibly outdated until verified"
+- 🚫 FORBIDDEN to read the full codebase, all docs, or all config files — that wastes context
+- 💬 Approach: Targeted reads of routing-critical files, existence checks for the rest
+- 📋 Treat all documentation as "possibly outdated until verified by Analyst"
 
 ## EXECUTION PROTOCOLS:
 
-- 🎯 Read all project files in the specified order and record findings
-- 💾 Record specific findings per file: content summary, last updated, current/outdated, gaps
-- 📖 Load next step only after ALL available files read and findings compiled
-- 🚫 FORBIDDEN to proceed before reading every available file
+- 🎯 Read only routing-critical files (3 files max) and record findings
+- 💾 Check existence of key project files without reading their full content
+- 📖 Load next step only after routing findings compiled and branch signal identified
+- 🚫 FORBIDDEN to read files beyond the routing set — the Analyst handles everything else
 
 ## CONTEXT BOUNDARIES:
 
-- Available context: All files in the project workspace
-- Focus: Reading and recording findings only — no analysis or recommendations
-- Limits: Do not activate any agents. Do not modify any files. Only read and record findings.
+- Available context: Routing-critical files only (project-status.md, sprint-status.yaml, README.md)
+- Focus: Determine branch signal for Step 3 routing
+- Limits: Do NOT read PRD, architecture, epics, stories, or source code. The Analyst agent in Step 2 does the deep audit.
 - Dependencies: None — this is the first step of the init-existing workflow
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
-### 1. Read Project Files in Order
+### 1. Read Routing-Critical Files (3 files max)
 
-Read and assess each of the following (note what exists and what is missing):
+Read these files IN FULL if they exist:
 
-- project-status.md -- Current phase, active task, open issues
-- PRD.md -- Requirements, features, acceptance criteria
-- architecture.md -- Tech decisions, patterns, stack
-- project-context.md -- Coding standards, conventions, rules
-- sprint-status.yaml -- Sprint state, story assignments
-- epics/ and stories/ -- Current epic and story files
-- decisions.md -- Prior decisions and reasoning
-- goals.md -- Project goals and constraints
-- docs/ -- Any other project documentation
-- README.md -- High-level project overview
-- Package files -- package.json, requirements.txt, etc. (stack evidence)
-- CI/CD config -- workflow files, Dockerfile, etc.
-- Test files -- What testing exists
+- **project-status.md** — Current phase, active task, baseline status, last updated date
+- **sprint-status.yaml** — Sprint state, story assignments (if exists, indicates active development)
+- **README.md** — High-level overview, stack evidence, project purpose
 
 ---
 
-### 2. Record Findings for Each File Found
+### 2. Quick Existence Checks (DO NOT read content)
 
-For each file that exists, record:
-- What it contains (summary)
+Check whether these files/directories exist. Note present or absent — do NOT read their content:
+
+- PRD.md
+- architecture.md
+- project-context.md
+- epics/ or stories/ directories
+- goals.md
+- docs/ directory
+- Package files (package.json, requirements.txt, pyproject.toml)
+
+---
+
+### 3. Record Routing Findings
+
+For the 3 routing files read:
+- What it contains (brief summary)
 - When it was last updated (if datestamped)
-- Whether it appears current, outdated, or contradictory
-- Gaps -- what it should contain but does not
+- Whether it appears current or stale
+
+For the existence checks:
+- Present or absent — this determines branch routing in Step 3
 
 ---
 
-### 3. Record Missing Files
+### 4. Determine Initial Branch Signal
 
-For files not found, note:
-- File is missing
-- Criticality: required for current phase / nice to have / can be generated
+Based on findings, note the likely branch (confirmed in Step 3):
 
----
-
-### 4. Identify Contradictions
-
-Note any contradictions between documents:
-- Documentation vs. what package files suggest about the stack
-- PRD requirements vs. what appears to actually be built
-- Architecture decisions vs. actual code patterns
+- **Branch A signal**: sprint-status.yaml exists with incomplete stories → Active mid-sprint
+- **Branch B signal**: Code/README exists but PRD, architecture, or project-context missing → Legacy/undocumented
+- **Branch C signal**: project-status.md shows stale last_updated, work incomplete → Paused/restarting
+- **Branch D signal**: Documentation exists but Parzival has no prior context → Handoff from team
 
 ---
 
 ### 5. Apply Reading Rules
 
 - NEVER assume a file is accurate because it exists
-- NEVER assume documentation reflects current code
-- NEVER assume sprint-status.yaml is current
-- ALWAYS treat documentation as "possibly outdated until verified"
-- ALWAYS note contradictions between documents
+- NEVER read the full codebase — that is the Analyst's job in Step 2
+- NEVER load files beyond routing-critical — context budget matters
+- ALWAYS treat documentation as "possibly outdated until verified by Analyst"
+- ALWAYS note obvious contradictions between the routing files
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY when all available files have been read and findings recorded, load and read fully {nextStepFile}
+ONLY when routing files have been read and branch signal identified, load and read fully {nextStepFile}
 
 ---
 
@@ -118,17 +119,18 @@ ONLY when all available files have been read and findings recorded, load and rea
 
 ### ✅ SUCCESS:
 
-- Every available project file was read (not skimmed)
-- Findings are specific for each file (not vague summaries)
-- Missing files are identified with criticality assessment
-- Contradictions between documents are explicitly noted
+- Routing-critical files were read (project-status.md, sprint-status.yaml, README.md)
+- Existence checks completed for key project files
+- Branch signal identified with reasoning
+- Context budget preserved for Analyst audit in Step 2
 - No agents were activated during this step
 
 ### ❌ SYSTEM FAILURE:
 
-- Skimming files instead of reading in full
-- Activating an agent before reading is complete
-- Assuming documentation is accurate without noting it needs verification
-- Missing obvious contradictions between files
+- Reading the full codebase, all docs, or all config files (context waste)
+- Activating an agent before routing is determined
+- Skipping the existence checks
+- Proceeding without a branch signal
+- Assuming documentation is accurate without noting it needs Analyst verification
 
 **Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.
