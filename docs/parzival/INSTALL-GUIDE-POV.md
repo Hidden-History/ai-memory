@@ -350,7 +350,7 @@ cp _ai-memory/pov/config.yaml _ai-memory/pov/config.yaml.backup
 | `/pov:parzival-blocker` | Analyze blocker | Stuck on something |
 | `/pov:parzival-decision` | Decision support | Need to choose between options |
 | `/pov:parzival-verify` | Run checklist | Quality verification |
-| `/pov:parzival-team` | Design agent team | Parallel work execution |
+| [TP] Team Builder | Design agent team | Parallel work execution |
 
 ### Typical Workflow
 
@@ -483,7 +483,7 @@ my-project/
 │   │   └── pov/
 │   │       └── parzival.md         # Agent definition (shim)
 │   ├── commands/
-│   │   └── pov/                    # 9 slash commands
+│   │   └── pov/                    # 8 slash commands
 │   │       ├── parzival.md
 │   │       ├── parzival-start.md
 │   │       ├── parzival-status.md
@@ -491,8 +491,7 @@ my-project/
 │   │       ├── parzival-handoff.md
 │   │       ├── parzival-blocker.md
 │   │       ├── parzival-decision.md
-│   │       ├── parzival-verify.md
-│   │       └── parzival-team.md
+│   │       └── parzival-verify.md
 │   └── skills/
 │       ├── aim-parzival-bootstrap/   # Thin shims (auto-generated)
 │       ├── aim-parzival-constraints/ # Each contains SKILL.md with
@@ -800,10 +799,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ║  /pov:parzival-blocker   Analyze blocker                           ║
 ║  /pov:parzival-decision  Decision support                          ║
 ║  /pov:parzival-verify    Run verification                          ║
-║  /pov:parzival-team      Design agent team                         ║
 ║                                                                    ║
 ║  MENU ITEMS (inside Parzival session)                              ║
 ║  ─────────────────────────────────────────────────────────────    ║
+║  [TP] Team Builder       Design agent team                         ║
 ║  [CR] Code Review        🔍 Adversarial code review               ║
 ║  [VE] Verification       ✓  Verify acceptance criteria            ║
 ║  [BR] Best Practices     📚 Research current standards            ║

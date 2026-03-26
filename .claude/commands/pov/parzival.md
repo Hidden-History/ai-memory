@@ -16,4 +16,4 @@ Follow ALL activation instructions exactly as specified:
 6. Display the interactive menu
 7. WAIT for user input — do NOT auto-proceed
 
-This is the full Parzival agent with interactive menu. For individual workflow shortcuts, use the specific commands (parzival-start, parzival-team, etc.).
+This is the full Parzival agent with interactive menu. For individual workflow shortcuts, use the specific commands (parzival-start, parzival-status, etc.).

@@ -5,6 +5,119 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.6] - 2026-03-26 — Multi-Project Installer Fix
+
+Fixed the installer's add-project mode which silently registered new projects with the wrong GitHub repository (stale value from `.env`) and no Jira support.
+
+### Fixed
+- **Installer add-project registers wrong GitHub repo** (#85): The `add-project` flow (Option 1 on existing installation) skipped `configure_options()`, causing new projects to inherit the stale `GITHUB_REPO` from `.env` instead of prompting for project-specific values. New `configure_project_sources()` function auto-detects the GitHub repo from the project's `.git/config`, prompts for confirmation, and optionally configures Jira project keys.
+- **github-sync not restarted after add-project**: New project registrations now automatically restart the github-sync container so the new project is picked up immediately.
+
+### Added
+- **7 Parzival dispatch skill shims**: `aim-agent-dispatch`, `aim-agent-lifecycle`, `aim-bmad-dispatch`, `aim-model-dispatch`, `aim-parzival-bootstrap`, `aim-parzival-constraints`, `aim-parzival-team-builder` — thin routing shims in `.claude/skills/` now ship with the installer. These were generated dynamically in v2.2.4 but never committed to the source repo, causing them to be missing from add-project installations.
+- **Stale reference cleanup**: Removed deleted `/pov:parzival-team` command references from SESSION-GUIDE, INSTALL-GUIDE-POV, and aim-help.csv.
+- **`docs/DISPATCH-SKILLS.md`**: New user guide for the Parzival dispatch skill suite — multi-provider LLM routing, team design, and agent lifecycle management.
+
+### Upgrade Instructions
+
+Three releases were published on 2026-03-26. Your upgrade steps depend on which version you're coming from:
+
+#### From v2.2.3 or earlier → v2.2.6 (full upgrade)
+
+You need container rebuilds (v2.2.4 code changes) + new features (v2.2.5) + this fix:
+
+```bash
+# Step 1: Pull latest code
+cd /path/to/your/ai-memory-clone
+git pull origin main
+
+# Step 2: Run installer Option 1 on your project
+./scripts/install.sh /path/to/your-project
+# Select Option 1 (Add project to existing installation)
+
+# Step 3: Rebuild ALL baked-code containers (required for v2.2.4 + v2.2.5 changes)
+cd ~/.ai-memory/docker
+unset QDRANT_API_KEY  # Prevent shell env overriding .env file
+
+docker compose build --no-cache github-sync classifier-worker monitoring-api
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml \
+  build --no-cache trace-flush-worker
+
+# Step 4: Recreate baked containers + restart volume-mounted
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml up -d \
+  github-sync classifier-worker monitoring-api trace-flush-worker
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml restart \
+  streamlit evaluator-scheduler
+
+# Step 5: Verify
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml ps
+```
+
+See [v2.2.4](#224---2026-03-26) and [v2.2.5](#225---2026-03-26--batch-github-sync--include-overrides) entries below for details on new features and environment variables added in those releases.
+
+#### From v2.2.4 → v2.2.6
+
+You need v2.2.5 container rebuilds + this fix:
+
+```bash
+cd /path/to/your/ai-memory-clone
+git pull origin main
+./scripts/install.sh /path/to/your-project  # Option 1
+
+cd ~/.ai-memory/docker
+unset QDRANT_API_KEY
+docker compose build --no-cache github-sync classifier-worker monitoring-api
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml \
+  build --no-cache trace-flush-worker
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml up -d \
+  github-sync classifier-worker monitoring-api trace-flush-worker
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml restart \
+  streamlit evaluator-scheduler
+```
+
+See [v2.2.5](#225---2026-03-26--batch-github-sync--include-overrides) for new optional environment variables.
+
+#### From v2.2.5 → v2.2.6 (minimal upgrade)
+
+This is a pure installer script fix — **no container rebuild needed**:
+
+```bash
+cd /path/to/your/ai-memory-clone
+git pull origin main
+./scripts/install.sh /path/to/your-project  # Option 1
+```
+
+The installer now prompts for project-specific GitHub repo and Jira config during add-project. github-sync restarts automatically.
+
+#### Adding a new project to an existing installation (any version)
+
+After upgrading to v2.2.6, adding additional projects now properly prompts for each project's GitHub repository:
+
+```bash
+cd /path/to/your/ai-memory-clone
+./scripts/install.sh /path/to/new-project  # Option 1 auto-detected
+
+# Installer will:
+# 1. Auto-detect GitHub repo from project's .git/config
+# 2. Prompt for confirmation (or manual entry)
+# 3. Optionally configure Jira project keys
+# 4. Register project in ~/.ai-memory/config/projects.d/
+# 5. Restart github-sync to pick up new project
+```
+
+#### Verifying multi-project setup
+
+```bash
+# Check registered projects
+ls ~/.ai-memory/config/projects.d/
+cat ~/.ai-memory/config/projects.d/*.yaml
+
+# Check github-sync is syncing all projects
+cd ~/.ai-memory/docker
+unset QDRANT_API_KEY
+docker compose logs --tail=50 github-sync | grep "Syncing project"
+```
+
 ## [2.2.5] - 2026-03-26 — Batch GitHub Sync + Include Overrides
 
 Batched code blob sync with bounded concurrency and path-level include/exclude overrides for GitHub code blob indexing. Cherry-picked from contributor fork ([thecontstruct/ai-memory](https://github.com/thecontstruct/ai-memory)) with 36 code review findings resolved.

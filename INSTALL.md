@@ -297,6 +297,10 @@ cd /path/to/ai-memory
 # - Skips Docker setup (already running)
 # - Skips port checks (services are expected to be running)
 # - Prompts for project name
+# - Prompts for project-specific GitHub repo (auto-detected from .git/config)
+# - Optionally configures Jira project keys
+# - Registers project in ~/.ai-memory/config/projects.d/
+# - Restarts github-sync to pick up new project
 # - Copies hooks to the new project
 ```
 

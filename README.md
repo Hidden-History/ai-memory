@@ -100,11 +100,13 @@ Parzival is your AI project manager for Claude Code. He manages your project fro
 | **BMAD Dispatch** | Selects the right specialized agent for each task (Analyst, PM, Architect, DEV, Scrum Master, UX Designer) |
 | **Model Dispatch** | Optional multi-provider LLM routing (Claude, Ollama, OpenRouter) based on task complexity and agent role |
 
+See [docs/DISPATCH-SKILLS.md](docs/DISPATCH-SKILLS.md) for setup and usage of the dispatch skill suite.
+
 **The core principle: Parzival recommends. You decide.** Parzival is the navigator — you are the captain. He plans, delegates, and verifies. He never writes code, never makes final decisions without your approval, and a 20-constraint enforcement system prevents behavioral drift across long sessions.
 
 Parzival is optional but highly recommended — he enables cross-session agent memory, full project lifecycle management, and the quality enforcement that keeps complex multi-session projects on track. AI Memory's core features (semantic search, GitHub sync, skills, freshness detection) work independently, but Parzival is where the system reaches its full potential. To start: `/pov:parzival`
 
-See [docs/parzival/](docs/parzival/) for the full documentation suite.
+See [docs/parzival/](docs/parzival/) for the full documentation suite and [docs/DISPATCH-SKILLS.md](docs/DISPATCH-SKILLS.md) for multi-provider dispatch setup.
 
 ---
 

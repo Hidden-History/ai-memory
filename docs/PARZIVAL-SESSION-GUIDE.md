@@ -89,7 +89,7 @@ Session handoffs are dual-written to local oversight files and Qdrant vector sea
 6. Review → fix → re-review cycle continues until zero issues remain.
 7. You approve the work. Parzival never marks work complete on its own.
 
-### Building Agent Teams (`/pov:parzival-team`)
+### Building Agent Teams ([TP] Team Builder)
 
 For parallel work, Parzival designs and dispatches a 3-tier hierarchical team:
 
@@ -178,7 +178,7 @@ Code review (CR) and verification (VE) are available as menu items within the Pa
 
 | Command | When to Use | What It Does |
 |---------|------------|--------------|
-| `/pov:parzival-team` | Complex work requiring parallel agents | Designs and dispatches a 3-tier hierarchical agent team with verified project context |
+| [TP] Team Builder (`aim-parzival-team-builder` skill) | Complex work requiring parallel agents | Designs and dispatches a 3-tier hierarchical agent team with verified project context |
 
 ---
 

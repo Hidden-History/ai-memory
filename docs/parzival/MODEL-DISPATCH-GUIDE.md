@@ -530,10 +530,13 @@ All critical checks should pass. Warnings (like missing `inotify-tools`) are non
 | `~/.local/bin/provider-dispatch` | Unified provider wrapper (all non-native providers) |
 | `~/.config/claude-code-router/providers.json` | Provider configuration |
 | `~/.<provider>-token` | API tokens (one per provider, chmod 600) |
-| `.claude/skills/model-dispatch/` | Skill directory in your project |
-| `.claude/skills/model-dispatch/scripts/` | Support scripts |
-| `.claude/skills/model-dispatch/scripts/openrouter-api/` | Direct API Python scripts |
+| `.claude/skills/aim-model-dispatch/SKILL.md` | Thin routing shim (Claude Code discovers this) |
+| `_ai-memory/pov/skills/aim-model-dispatch/` | Full skill directory with scripts, references, workflows |
+| `_ai-memory/pov/skills/aim-model-dispatch/scripts/` | Support scripts |
+| `_ai-memory/pov/skills/aim-model-dispatch/scripts/openrouter-api/` | Direct API Python scripts |
 | `/tmp/model-dispatch-result-*.txt` | Captured agent outputs |
+
+**Two-layer architecture:** Model Dispatch uses a shim-and-payload pattern. `.claude/skills/aim-model-dispatch/SKILL.md` is a thin routing shim that Claude Code discovers during project indexing. It loads the full skill from `_ai-memory/pov/skills/aim-model-dispatch/`, which contains the actual scripts, provider references, and dispatch workflows. Edits to skill logic go in the `_ai-memory/pov/` payload; the `.claude/skills/` shim is only updated when the routing target changes.
 
 ### Permissions
 
