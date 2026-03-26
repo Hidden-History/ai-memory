@@ -1014,6 +1014,7 @@ VALID_AGENTS = [k for k in AGENTS if k != "default"]
 AGENT_TOKEN_BUDGETS = {k: v["budget"] for k, v in AGENTS.items()}
 
 
+# SYNC: standalone copy exists in scripts/list_projects.py — update both when changing fields
 @dataclass
 class ProjectSyncConfig:
     """Per-project sync configuration loaded from projects.d/ YAML."""

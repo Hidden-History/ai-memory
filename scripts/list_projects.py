@@ -5,6 +5,7 @@ Usage:
     python3 scripts/list_projects.py
     python3 scripts/list_projects.py --config-dir /path/to/projects.d
     python3 scripts/list_projects.py --json
+    python3 scripts/list_projects.py --count
 
 No virtualenv required — uses only stdlib plus PyYAML.
 
@@ -25,6 +26,7 @@ except ImportError:
     sys.exit(1)
 
 
+# SYNC: keep in sync with src/memory/config.py:ProjectSyncConfig
 @dataclass
 class ProjectSyncConfig:
     """Per-project sync configuration loaded from projects.d/ YAML."""
@@ -49,6 +51,9 @@ def discover_projects(config_dir: Path | None = None) -> dict[str, ProjectSyncCo
 
     Falls back to legacy GITHUB_REPO env var if the resolved directory yields
     no valid configs.
+
+    Note: AI_MEMORY_PROJECTS_DIR is needed because Path.home() inside Docker
+    containers resolves to /root, not /config where projects.d/ lives.
     """
     if config_dir is None:
         env_dir = os.environ.get("AI_MEMORY_PROJECTS_DIR")
@@ -73,14 +78,14 @@ def discover_projects(config_dir: Path | None = None) -> dict[str, ProjectSyncCo
                 continue
             seen_stems.add(path.stem)
             try:
-                raw = yaml.safe_load(path.read_text())
+                raw = yaml.safe_load(path.read_text(encoding="utf-8"))
                 if not raw or not raw.get("project_id"):
                     print(
                         f"Warning: skipping {path.name}: missing project_id",
                         file=sys.stderr,
                     )
                     continue
-                github = raw.get("github", {})
+                github = raw.get("github") or {}
                 jira = raw.get("jira", {})
                 jira_proj_raw = jira.get("projects", [])
                 if isinstance(jira_proj_raw, str):
