@@ -38,6 +38,7 @@ except ImportError:
 EXPECTED_EMBEDDING_DIMENSIONS = int(os.environ.get("VECTOR_DIMENSIONS", "768"))
 MONITORING_PORT = int(os.environ.get("AI_MEMORY_MONITORING_PORT", "28000"))
 SKIP_DOCKER_CHECKS = os.environ.get("SKIP_DOCKER_CHECKS", "").lower() == "true"
+MONITORING_ENABLED = os.environ.get("MONITORING_ENABLED", "true").lower() not in ("false", "0", "no")
 
 
 @dataclass
@@ -376,12 +377,18 @@ def check_hook_scripts() -> HealthCheckResult:
 def check_monitoring_api(
     host: str = "localhost", port: int = None, timeout: int = 5
 ) -> HealthCheckResult:
-    """
-    Check monitoring API is running (optional service).
+    """Check monitoring API is running (optional service).
 
-    2026 Best Practice: Verify all documented endpoints.
-    Source: CLAUDE.md service port assignments
+    Returns healthy with skip message when MONITORING_ENABLED=false.
     """
+    if not MONITORING_ENABLED:
+        return HealthCheckResult(
+            "monitoring",
+            "healthy",
+            "Monitoring disabled (profile inactive) - skipped",
+            None,
+        )
+
     if port is None:
         port = MONITORING_PORT
 

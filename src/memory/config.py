@@ -355,20 +355,20 @@ class MemoryConfig(BaseSettings):
     github_sync_total_timeout: int = Field(
         default=1800,
         ge=60,
-        le=7200,
-        description="Total timeout for code blob sync in service mode (seconds, default: 30 min)",
+        le=604800,
+        description="Total timeout for code blob sync in service mode (seconds; default 30 min, max 7d)",
     )
     github_sync_install_timeout: int = Field(
         default=600,
         ge=60,
         le=3600,
-        description="Total timeout for code blob sync during install (seconds, default: 10 min)",
+        description="Total timeout for code blob sync during install (seconds; default 10 min, max 1h)",
     )
     github_sync_per_file_timeout: int = Field(
         default=60,
         ge=10,
         le=300,
-        description="Per-file timeout covering fetch+chunk+embed+store (seconds, default: 60)",
+        description="Per-file timeout covering fetch+chunk+embed+store (seconds; default 60s, max 5 min)",
     )
     github_sync_circuit_breaker_threshold: int = Field(
         default=5,
@@ -1014,6 +1014,7 @@ VALID_AGENTS = [k for k in AGENTS if k != "default"]
 AGENT_TOKEN_BUDGETS = {k: v["budget"] for k, v in AGENTS.items()}
 
 
+# SYNC: standalone copy exists in scripts/list_projects.py — update both when changing fields
 @dataclass
 class ProjectSyncConfig:
     """Per-project sync configuration loaded from projects.d/ YAML."""
@@ -1066,12 +1067,12 @@ def discover_projects(config_dir: Path | None = None) -> dict[str, ProjectSyncCo
                 continue
             seen_stems.add(path.stem)
             try:
-                raw = yaml.safe_load(path.read_text())
+                raw = yaml.safe_load(path.read_text(encoding="utf-8"))
                 if not raw or not raw.get("project_id"):
                     logger.warning("Skipping %s: missing project_id", path.name)
                     continue
-                github = raw.get("github", {})
-                jira = raw.get("jira", {})
+                github = raw.get("github") or {}
+                jira = raw.get("jira") or {}
                 # Coerce jira.projects to list — a scalar YAML string
                 # ("projects: PROJ") arrives as str, not list.
                 jira_proj_raw = jira.get("projects", [])
