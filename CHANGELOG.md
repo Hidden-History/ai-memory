@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] — Batch GitHub Sync + Include Overrides
 
-Batched code blob sync with bounded concurrency and path-level include/exclude overrides for GitHub code blob indexing. Cherry-picked from contributor fork ([thecontstruct/ai-memory](https://github.com/thecontstruct/ai-memory)) with 36 adversarial review findings resolved across 2 review waves.
+Batched code blob sync with bounded concurrency and path-level include/exclude overrides for GitHub code blob indexing. Cherry-picked from contributor fork ([thecontstruct/ai-memory](https://github.com/thecontstruct/ai-memory)) with 36 code review findings resolved.
 
 ### Added
 - **Batched code blob sync** (#76): Bounded file concurrency and batched embed+store for GitHub code blob ingestion. Configurable `file_concurrency` and `chunk_batch_size`. Supersede correctness (prior blob hash only), partial-batch rollback with `PointIdsList`, circuit-breaker consistency.
@@ -90,7 +90,7 @@ docker compose logs --tail=30 github-sync
 Look for: no `invalid_include_pattern_ignored` warnings, successful sync messages with included file types.
 
 ### Fixed
-- **36 adversarial review findings**: 7 CRITICAL (rollback dead code, PointIdsList wrapper, supersede guards, pattern wildcards), 9 HIGH (thread safety, event loop blocking, config ceiling, embedding guards), 12 MEDIUM, 8 LOW across 2 review waves (Opus + Sonnet adversarial).
+- **36 code review findings resolved**: Rollback correctness (dead code, PointIdsList wrapper), supersede guards (completeness + embedding check), pattern validation (bare wildcard rejection), thread safety (circuit breaker RLock), event loop blocking (asyncio.to_thread wrapping), config ceiling (10MB cap), embedding guards (None fallback), and language map regressions.
 - **Language map regressions**: Restored `"bash"` value (was changed to `"shell"`), added `.dockerfile` extension, case-insensitive Dockerfile detection.
 
 ---
