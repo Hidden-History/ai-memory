@@ -51,9 +51,9 @@ LANGUAGE_MAP = {
     ".yaml": "yaml",
     ".yml": "yaml",
     ".json": "json",
-    ".sh": "shell",
-    ".bash": "shell",
-    ".zsh": "shell",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".zsh": "bash",
     ".groovy": "groovy",
     ".less": "less",
     ".xml": "xml",
@@ -73,6 +73,7 @@ LANGUAGE_MAP = {
     ".dockerignore": "text",
     ".gitignore": "text",
     ".editorconfig": "editorconfig",
+    ".dockerfile": "dockerfile",
     "Dockerfile": "dockerfile",
     "dockerfile": "dockerfile",
 }
@@ -202,7 +203,12 @@ def detect_language(file_path: str) -> str:
     suffix = path.suffix.lower()
     language = LANGUAGE_MAP.get(suffix)
     if language is None:
-        language = LANGUAGE_MAP.get(path.name, "unknown")
+        # Try exact name first, then case-insensitive for Dockerfile variants
+        language = LANGUAGE_MAP.get(path.name)
+        if language is None and path.name.lower() == "dockerfile":
+            language = "dockerfile"
+        elif language is None:
+            language = "unknown"
 
     logger.debug(
         "language_detected",

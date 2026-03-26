@@ -841,7 +841,7 @@ export GITHUB_CODE_BLOB_INCLUDE="*.sh,*.groovy,Makefile,CODEOWNERS,.dockerignore
 #### GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE
 **Purpose:** Hard ceiling for explicitly included files
 
-**Default:** `5 × GITHUB_CODE_BLOB_MAX_SIZE`
+**Default:** 512000 bytes (5 × default GITHUB_CODE_BLOB_MAX_SIZE of 102400). Hard ceiling: 10MB.
 
 **Format:** Integer (bytes)
 

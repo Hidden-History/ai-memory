@@ -51,9 +51,9 @@ class TestLanguageDetection:
             (".yaml", "yaml"),
             (".yml", "yaml"),
             (".json", "json"),
-            (".sh", "shell"),
-            (".bash", "shell"),
-            (".zsh", "shell"),
+            (".sh", "bash"),
+            (".bash", "bash"),
+            (".zsh", "bash"),
             (".groovy", "groovy"),
             (".less", "less"),
             (".xml", "xml"),
@@ -103,7 +103,7 @@ class TestLanguageDetection:
     def test_language_map_contains_new_blob_include_entries(self):
         """Plan-specific language additions are present with exact values."""
         expected_entries = {
-            ".sh": "shell",
+            ".sh": "bash",
             ".groovy": "groovy",
             ".less": "less",
             ".xml": "xml",
@@ -121,8 +121,8 @@ class TestLanguageDetection:
         "path,expected",
         [
             ("/path/dockerfile", "dockerfile"),
-            ("/path/file.bash", "shell"),
-            ("/path/file.zsh", "shell"),
+            ("/path/file.bash", "bash"),
+            ("/path/file.zsh", "bash"),
             ("/path/file.toml", "toml"),
             ("/path/file.ini", "ini"),
             ("/path/file.cfg", "ini"),

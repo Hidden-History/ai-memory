@@ -199,6 +199,7 @@ def _parse_filter_patterns(raw_patterns: str, *, setting_name: str) -> list[str]
                 "invalid_include_pattern_ignored",
                 extra={
                     "context": {
+                        "setting": setting_name,
                         "pattern": pattern,
                         "reason": "pattern too short — use e.g. *.py, *.yaml",
                     }
@@ -211,6 +212,7 @@ def _parse_filter_patterns(raw_patterns: str, *, setting_name: str) -> list[str]
                 "invalid_include_pattern_ignored",
                 extra={
                     "context": {
+                        "setting": setting_name,
                         "pattern": pattern,
                         "reason": "path patterns with / not supported — use *.py or bare tokens like Makefile",
                     }
@@ -1223,7 +1225,9 @@ class CodeBlobSync:
                     and stored_count == len(chunks)
                     and has_real_embeddings
                 ):
-                    self._supersede_old_blobs(file_path, old_blob_hash)
+                    await asyncio.to_thread(
+                        self._supersede_old_blobs, file_path, old_blob_hash
+                    )
                 elif old_blob_hash:
                     logger.warning(
                         "skipping_supersede",
@@ -1273,7 +1277,7 @@ class CodeBlobSync:
                 )
 
         if stored_count == len(chunks) and old_blob_hash:
-            self._supersede_old_blobs(file_path, old_blob_hash)
+            await asyncio.to_thread(self._supersede_old_blobs, file_path, old_blob_hash)
 
         return stored_count
 

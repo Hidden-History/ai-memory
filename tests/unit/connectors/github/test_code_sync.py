@@ -58,7 +58,7 @@ def test_detect_yaml():
 
 
 def test_detect_shell():
-    assert detect_language("scripts/setup.sh") == "shell"
+    assert detect_language("scripts/setup.sh") == "bash"
 
 
 def test_detect_dockerfile():
@@ -408,8 +408,8 @@ def test_code_blob_sync_init_skips_invalid_patterns_and_keeps_valid_ones(caplog)
 
     assert sync._include_patterns == ["*.foo", "Makefile"]
     assert sync._exclude_patterns == ["dist", "*.min.js"]
-    assert "invalid_include_pattern_ignored" in caplog.text
-    assert "invalid_include_pattern_ignored" in caplog.text
+    # Both include ("nested/path") and exclude ("vendor/generated") invalid patterns should warn
+    assert caplog.text.count("invalid_include_pattern_ignored") >= 2
     assert sync._should_sync_file({"path": "folder/file.foo", "size": 100}) is True
     assert sync._should_sync_file({"path": "dist/app.min.js", "size": 100}) is False
 
