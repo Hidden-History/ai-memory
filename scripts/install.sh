@@ -375,7 +375,7 @@ configure_project_sources() {
     local detected_repo=""
     if [[ -d "$PROJECT_PATH/.git" ]]; then
         detected_repo=$(cd "$PROJECT_PATH" && git remote get-url origin 2>/dev/null \
-            | sed -E 's|.*github\.com[:/](.+/[^.]+)(\.git)?$|\1|' || true)
+            | sed -E 's|.*[:/]([^/]+/[^/.]+)(\.git)?$|\1|' || true)
     fi
 
     # If no .git at root, check one level deep for subdirectory repos
@@ -384,7 +384,7 @@ configure_project_sources() {
         for subdir in "$PROJECT_PATH"/*/; do
             if [[ -d "${subdir}.git" ]]; then
                 detected_repo=$(cd "$subdir" && git remote get-url origin 2>/dev/null \
-                    | sed -E 's|.*github\.com[:/](.+/[^.]+)(\.git)?$|\1|' || true)
+                    | sed -E 's|.*[:/]([^/]+/[^/.]+)(\.git)?$|\1|' || true)
                 if [[ -n "$detected_repo" ]]; then
                     log_info "Detected repo from subdirectory: $(basename "$subdir")"
                     break
