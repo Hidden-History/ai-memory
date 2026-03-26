@@ -192,8 +192,7 @@ register_project_sync() {
     local config_file="${config_dir}/${safe_name}.yaml"
     mkdir -p "$config_dir"
     if [[ -f "$config_file" ]]; then
-        echo "  Project already registered: ${config_file}"
-        return 0
+        log_info "Updating existing project config: ${config_file}"
     fi
     # Write via python so arbitrary paths/repo names are safe YAML regardless
     # of special characters (colons, quotes, backslashes, etc.).
@@ -331,6 +330,72 @@ configure_project_sources() {
     PROJECT_JIRA_ENABLED="false"
     PROJECT_JIRA_PROJECTS=""
 
+    # Read existing project config if already registered (show current values as defaults)
+    local safe_name
+    safe_name=$(echo "$PROJECT_NAME" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
+    local existing_config="${HOME}/.ai-memory/config/projects.d/${safe_name}.yaml"
+    local existing_repo="" existing_branch="" existing_jira_enabled="" existing_jira_projects=""
+    if [[ -f "$existing_config" ]]; then
+        local py_bin="${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/venv/bin/python3"
+        [[ -x "$py_bin" ]] || py_bin="python3"
+        existing_repo=$("$py_bin" -c "
+import yaml, sys
+with open(sys.argv[1]) as f:
+    d = yaml.safe_load(f)
+gh = d.get('github', {})
+print(gh.get('repo', ''))
+" "$existing_config" 2>/dev/null || true)
+        existing_branch=$("$py_bin" -c "
+import yaml, sys
+with open(sys.argv[1]) as f:
+    d = yaml.safe_load(f)
+gh = d.get('github', {})
+print(gh.get('branch', 'main'))
+" "$existing_config" 2>/dev/null || true)
+        existing_jira_enabled=$("$py_bin" -c "
+import yaml, sys
+with open(sys.argv[1]) as f:
+    d = yaml.safe_load(f)
+j = d.get('jira', {})
+print('true' if j.get('enabled') else 'false')
+" "$existing_config" 2>/dev/null || true)
+        existing_jira_projects=$("$py_bin" -c "
+import yaml, sys
+with open(sys.argv[1]) as f:
+    d = yaml.safe_load(f)
+j = d.get('jira', {})
+p = j.get('projects', [])
+if isinstance(p, list):
+    print(','.join(p))
+elif isinstance(p, str):
+    print(p)
+else:
+    print('')
+" "$existing_config" 2>/dev/null || true)
+
+        # Use existing values as defaults
+        if [[ -n "$existing_repo" ]]; then
+            PROJECT_GITHUB_REPO="$existing_repo"
+        fi
+        if [[ -n "$existing_branch" ]]; then
+            PROJECT_GITHUB_BRANCH="$existing_branch"
+        fi
+        if [[ "$existing_jira_enabled" == "true" ]]; then
+            PROJECT_JIRA_ENABLED="true"
+            PROJECT_JIRA_PROJECTS="$existing_jira_projects"
+        fi
+
+        echo "   Current configuration (from previous install):"
+        echo "     GitHub: ${existing_repo:-none}"
+        echo "     Branch: ${existing_branch:-main}"
+        if [[ "$existing_jira_enabled" == "true" ]]; then
+            echo "     Jira:   ${existing_jira_projects:-enabled, no keys}"
+        else
+            echo "     Jira:   disabled"
+        fi
+        echo ""
+    fi
+
     # --- GitHub repo for this project ---
     if [[ "${GITHUB_SYNC_ENABLED:-}" != "true" ]]; then
         log_info "GitHub sync is not enabled — skipping project repo configuration"
@@ -395,6 +460,9 @@ configure_project_sources() {
 
     if [[ -n "$detected_repo" ]]; then
         echo "   Detected GitHub repository: $detected_repo"
+        if [[ -n "$existing_repo" && "$existing_repo" != "$detected_repo" ]]; then
+            echo "   Previously configured: $existing_repo"
+        fi
         read -p "   Use this repo? [Y/n]: " use_detected
         if [[ ! "$use_detected" =~ ^[Nn]$ ]]; then
             PROJECT_GITHUB_REPO="$detected_repo"
@@ -416,7 +484,7 @@ configure_project_sources() {
     fi
 
     # Prompt for branch
-    read -p "   Branch to sync [main]: " branch_input
+    read -p "   Branch to sync [$PROJECT_GITHUB_BRANCH]: " branch_input
     if [[ -n "$branch_input" ]]; then
         PROJECT_GITHUB_BRANCH="$branch_input"
     fi
@@ -444,15 +512,30 @@ configure_project_sources() {
 
     # --- Jira for this project ---
     echo ""
-    read -p "   Does this project have Jira boards? [y/N]: " jira_choice
-    if [[ "$jira_choice" =~ ^[Yy]$ ]]; then
-        read -p "   Jira project keys (comma-separated, e.g. PROJ,BACKEND): " jira_keys
-        if [[ -n "$jira_keys" ]]; then
-            PROJECT_JIRA_ENABLED="true"
-            PROJECT_JIRA_PROJECTS="$jira_keys"
-            log_success "Jira projects for this project: $PROJECT_JIRA_PROJECTS"
+    if [[ "$PROJECT_JIRA_ENABLED" == "true" ]]; then
+        read -p "   Jira is currently enabled (keys: $PROJECT_JIRA_PROJECTS). Keep? [Y/n]: " jira_choice
+        if [[ "$jira_choice" =~ ^[Nn]$ ]]; then
+            PROJECT_JIRA_ENABLED="false"
+            PROJECT_JIRA_PROJECTS=""
+            log_info "Jira disabled for this project"
         else
-            log_warning "No Jira keys entered — Jira disabled for this project"
+            read -p "   Jira project keys [$PROJECT_JIRA_PROJECTS]: " jira_keys
+            if [[ -n "$jira_keys" ]]; then
+                PROJECT_JIRA_PROJECTS="$jira_keys"
+            fi
+            log_success "Jira projects for this project: $PROJECT_JIRA_PROJECTS"
+        fi
+    else
+        read -p "   Does this project have Jira boards? [y/N]: " jira_choice
+        if [[ "$jira_choice" =~ ^[Yy]$ ]]; then
+            read -p "   Jira project keys (comma-separated, e.g. PROJ,BACKEND): " jira_keys
+            if [[ -n "$jira_keys" ]]; then
+                PROJECT_JIRA_ENABLED="true"
+                PROJECT_JIRA_PROJECTS="$jira_keys"
+                log_success "Jira projects for this project: $PROJECT_JIRA_PROJECTS"
+            else
+                log_warning "No Jira keys entered — Jira disabled for this project"
+            fi
         fi
     fi
     echo ""
