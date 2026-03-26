@@ -5,7 +5,7 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.3.0] - 2026-03-17
+## [2.2.4] - 2026-03-26
 
 Parzival V2.1 shim architecture, 7 dispatch skills, and PLAN-018 Zero Debt Sprint: floating-point precision, reclassification protection, log level env var rename, Langfuse optional deps, SQL injection hardening, and full semantic tag coverage across all 108 hook trace calls.
 
@@ -127,7 +127,7 @@ pip install ai-memory[observability]
 - **TD-290**: `@observe(as_type="generation")` on classifier LLM calls
 - **TD-291–292**: Freshness naming consistency, quality gate push metrics
 - **injection.py case-sensitivity**: Fixed `CONSTRAINTS.md` → `constraints.md` path references (lines 882, 901) for Linux filesystem compatibility
-- **Installer stale cleanup**: Added `pov/data/` directory removal for users upgrading from pre-v2.3.0 installations
+- **Installer stale cleanup**: Added `pov/data/` directory removal for users upgrading from pre-v2.2.4 installations
 - **BUG-237**: 9 test-ordering isolation flakes documented (pre-existing BUG-209/BUG-234 pattern — tests pass individually)
 - **BUG-238**: Langfuse RAM check crashes on macOS — `/proc/meminfo` replaced with OS-aware check (`sysctl -n hw.memsize` on macOS, `/proc/meminfo` on Linux) (GitHub #71)
 - **BUG-239**: `set -e` + `result=$(...)` silent installer abort — full audit of `install.sh`, all non-subshell-safe command substitutions corrected (GitHub #71)
