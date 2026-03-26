@@ -213,9 +213,9 @@ def test_github_batch_embedding_count_mismatch_still_degrades(
 def test_github_batch_rolls_back_partial_sub_batch_failure(
     gh_storage: MemoryStorage,
 ) -> None:
-    gh_storage.embedding_client.embed.side_effect = (
-        lambda texts, model=None: [[0.1] * 768 for _ in texts]
-    )
+    gh_storage.embedding_client.embed.side_effect = lambda texts, model=None: [
+        [0.1] * 768 for _ in texts
+    ]
     gh_storage.qdrant_client.upsert.side_effect = [None, RuntimeError("boom")]
 
     with pytest.raises(QdrantUnavailable):

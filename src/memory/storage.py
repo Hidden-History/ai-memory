@@ -1271,7 +1271,9 @@ class MemoryStorage:
         all_out: list[dict] = []
         stored_point_ids: list[str] = []
         sub_batch_size = max(1, chunk_batch_size)
-        payload_field_names = {field.name for field in dataclasses.fields(MemoryPayload)}
+        payload_field_names = {
+            field.name for field in dataclasses.fields(MemoryPayload)
+        }
         reserved_keys = {
             "timestamp",
             "created_at",
@@ -1396,9 +1398,9 @@ class MemoryStorage:
                 batch_out: list[dict] = []
                 for i, row in enumerate(prepared_rows):
                     content = row["content"]
-                    created_at = row.get("created_at") or datetime.now(
-                        timezone.utc
-                    ).isoformat()
+                    created_at = (
+                        row.get("created_at") or datetime.now(timezone.utc).isoformat()
+                    )
                     gid = row["group_id"]
                     content_hash = row["content_hash"]
                     payload_kwargs, extra_payload = _split_row_fields(row)
@@ -1430,7 +1432,9 @@ class MemoryStorage:
                     points.append(
                         PointStruct(
                             id=memory_id,
-                            vector=_build_point_vector(embeddings[i], sparse_for_sub, i),
+                            vector=_build_point_vector(
+                                embeddings[i], sparse_for_sub, i
+                            ),
                             payload=payload_dict,
                         )
                     )
@@ -1497,7 +1501,10 @@ class MemoryStorage:
                     )
                     logger.warning(
                         "github_code_blob_batch_rolled_back",
-                        extra={"count": len(stored_point_ids), "collection": collection},
+                        extra={
+                            "count": len(stored_point_ids),
+                            "collection": collection,
+                        },
                     )
             raise
 

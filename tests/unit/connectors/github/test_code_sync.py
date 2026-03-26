@@ -375,14 +375,18 @@ def test_should_allow_excluded_path_when_explicitly_included():
 def test_should_allow_oversize_file_when_explicitly_included_below_hard_ceiling():
     sync = _make_filtering_sync()
     sync._include_patterns = ["*.xml"]
-    assert sync._should_sync_file({"path": "config/catalog.xml", "size": 200000}) is True
+    assert (
+        sync._should_sync_file({"path": "config/catalog.xml", "size": 200000}) is True
+    )
 
 
 def test_should_reject_explicit_include_above_hard_ceiling(caplog):
     sync = _make_filtering_sync()
     sync._include_patterns = ["*.xml"]
     caplog.set_level("WARNING")
-    assert sync._should_sync_file({"path": "config/catalog.xml", "size": 600000}) is False
+    assert (
+        sync._should_sync_file({"path": "config/catalog.xml", "size": 600000}) is False
+    )
     assert "exceeds include hard ceiling" in caplog.text
 
 

@@ -70,12 +70,12 @@ from memory.connectors.github.client import (  # noqa: E402
     GitHubClient,
     GitHubClientError,
 )
-from memory.extraction import detect_language as detect_language_from_path  # noqa: E402
 from memory.connectors.github.schema import (  # noqa: E402
     GITHUB_COLLECTION,
     SOURCE_AUTHORITY_MAP,
     compute_content_hash,
 )
+from memory.extraction import detect_language as detect_language_from_path  # noqa: E402
 from memory.models import MemoryType  # noqa: E402
 from memory.qdrant_client import get_qdrant_client  # noqa: E402
 from memory.storage import MemoryStorage  # noqa: E402
@@ -1135,7 +1135,9 @@ class CodeBlobSync:
 
         now_iso = datetime.now(timezone.utc).isoformat()
         source_authority = SOURCE_AUTHORITY_MAP.get("github_code_blob", 1.0)
-        file_url = f"https://github.com/{self._group_id}/blob/{self._branch}/{file_path}"
+        file_url = (
+            f"https://github.com/{self._group_id}/blob/{self._branch}/{file_path}"
+        )
         base_chunk_payload = {
             "source": "github",
             "github_id": 0,
@@ -1158,7 +1160,9 @@ class CodeBlobSync:
             "content_type": "github_code_blob",
         }
 
-        def _build_chunk_payload(chunk: Any, *, include_content: bool) -> dict[str, Any]:
+        def _build_chunk_payload(
+            chunk: Any, *, include_content: bool
+        ) -> dict[str, Any]:
             payload = {
                 **base_chunk_payload,
                 "content_hash": compute_content_hash(chunk.content),
@@ -1187,11 +1191,7 @@ class CodeBlobSync:
                 )
                 if old_blob_hash:
                     self._supersede_old_blobs(file_path, old_blob_hash)
-                return sum(
-                    1
-                    for r in batch_results
-                    if r.get("status") == "stored"
-                )
+                return sum(1 for r in batch_results if r.get("status") == "stored")
             except Exception as e:
                 logger.error(
                     "Failed to batch-store chunks for %s: %s",
@@ -1349,7 +1349,9 @@ class CodeBlobSync:
         except Exception as e:
             logger.warning("Failed to update last_synced for %s: %s", file_path, e)
 
-    def _supersede_old_blobs(self, file_path: str, blob_hash: str | None = None) -> None:
+    def _supersede_old_blobs(
+        self, file_path: str, blob_hash: str | None = None
+    ) -> None:
         """Mark existing blobs for a file as superseded.
 
         Args:
