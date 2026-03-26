@@ -27,43 +27,85 @@ Parzival V2.1 shim architecture, 7 dispatch skills, and PLAN-018 Zero Debt Sprin
 
 ### Upgrade Instructions
 
-1. **Run Option 1 reinstall**:
-   ```bash
-   cd /path/to/your/ai-memory-clone
-   git pull origin main
-   ./scripts/install.sh /path/to/your-project
-   # Select Option 1 (Add project to existing installation)
-   ```
+#### Step 1: Pull latest and run Option 1 installer
 
-2. **Rebuild github-sync container** (code is baked into the Docker image, not volume-mounted):
-   ```bash
-   cd ~/.ai-memory/docker
-   unset QDRANT_API_KEY  # Prevent shell env overriding .env file
-   docker compose build --no-cache github-sync
-   docker compose up -d github-sync
-   ```
+```bash
+cd /path/to/your/ai-memory-clone
+git pull origin main
+./scripts/install.sh /path/to/your-project
+# Select Option 1 (Add project to existing installation)
+```
 
-3. **Restart evaluator-scheduler** (picks up new env vars from `.env`):
-   ```bash
-   cd ~/.ai-memory
-   bash scripts/stack.sh restart
-   ```
+This syncs all code, scripts, monitoring, Docker files, skills, evaluators, and Parzival V2 package to your installation. Your `docker/.env` credentials are preserved automatically.
 
-4. **Rename log level env vars** (old names still work with a deprecation warning):
-   - `BMAD_LOG_LEVEL` → `AI_MEMORY_LOG_LEVEL`
-   - `BMAD_LOG_FORMAT` → `AI_MEMORY_LOG_FORMAT`
+#### Step 2: Rebuild containers with baked-in code
 
-5. **Langfuse is now optional**: If you use Langfuse observability, install the extras group:
-   ```bash
-   pip install ai-memory[observability]
-   ```
+Four containers have code copied into their Docker images at build time and must be rebuilt after any code update:
 
-**Important notes**:
-- Always run `unset QDRANT_API_KEY` before `docker compose` operations (shell env overrides `.env` file)
-- Always run `docker compose` from `~/.ai-memory/docker/`, never from the source repo
-- Containers with code baked in (github-sync) need rebuild after code updates; volume-mounted containers (evaluator-scheduler, classifier-worker) get updates automatically
+```bash
+cd ~/.ai-memory/docker
+unset QDRANT_API_KEY  # Prevent shell env overriding .env file
+
+# Rebuild baked-code containers (main compose)
+docker compose build --no-cache github-sync classifier-worker monitoring-api
+
+# Rebuild baked-code containers (Langfuse compose)
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml \
+  build --no-cache trace-flush-worker
+```
+
+#### Step 3: Recreate rebuilt containers and restart volume-mounted containers
+
+```bash
+# Recreate containers with new images
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml up -d \
+  github-sync classifier-worker monitoring-api trace-flush-worker
+
+# Restart volume-mounted containers to reload Python modules
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml restart \
+  streamlit evaluator-scheduler
+```
+
+#### Step 4: Verify all containers are healthy
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml ps
+# All containers should show "(healthy)"
+```
+
+#### Step 5: Update environment variables
+
+Rename log level env vars in `~/.ai-memory/docker/.env` (old names still work with a deprecation warning):
+- `BMAD_LOG_LEVEL` → `AI_MEMORY_LOG_LEVEL`
+- `BMAD_LOG_FORMAT` → `AI_MEMORY_LOG_FORMAT`
+
+#### Step 6: Langfuse (optional)
+
+If you use Langfuse observability, install the extras group:
+```bash
+pip install ai-memory[observability]
+```
+
+#### Container reference
+
+| Container | Code Delivery | After Update |
+|-----------|--------------|--------------|
+| github-sync | Baked (COPY in Dockerfile) | Rebuild + recreate |
+| classifier-worker | Baked (COPY in Dockerfile) | Rebuild + recreate |
+| monitoring-api | Baked (COPY in Dockerfile) | Rebuild + recreate |
+| trace-flush-worker | Baked (COPY in Dockerfile) | Rebuild + recreate |
+| streamlit | Volume-mounted (`../src:/app/src:ro`) | Restart only |
+| evaluator-scheduler | Volume-mounted (`../src:/app/src:ro`) | Restart only |
+| qdrant, embedding, prometheus, grafana, pushgateway, langfuse-* | Third-party images | No action needed |
+
+#### Important notes
+
+- **Always** run `unset QDRANT_API_KEY` before any `docker compose` operation — shell env vars override the `.env` file (pydantic-settings precedence)
+- **Always** run `docker compose` from `~/.ai-memory/docker/`, never from the source repo (source `.env` has template values, installed `.env` has real credentials)
+- Option 1 now syncs all directories including Docker files, monitoring, evaluators, and docs (BUG-244 fix)
 
 ### Fixed
+- **BUG-244**: Installer Option 1 (`update_shared_scripts`) only synced 4 of 13 directories — extracted shared `sync_installed_files()` function used by both fresh install and Option 1. Also added Docker file sync with `.env` backup/restore to Option 1 path. Fixed pre-existing `log_warn` → `log_warning` typos.
 - **BUG-236**: `docker/github-sync/requirements.txt` missing `tiktoken` — container crash loop after rebuild due to `memory.__init__` → `storage` → `chunking` → `truncation` → `tiktoken` import chain
 - **TD-308**: Single `docker/.env` source of truth — restructured .env architecture
   - New 5-section `.env.example` layout (API Keys, Auto-Generated, Feature Toggles, Configuration, Internal)
