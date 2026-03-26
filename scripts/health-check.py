@@ -38,6 +38,7 @@ except ImportError:
 EXPECTED_EMBEDDING_DIMENSIONS = int(os.environ.get("VECTOR_DIMENSIONS", "768"))
 MONITORING_PORT = int(os.environ.get("AI_MEMORY_MONITORING_PORT", "28000"))
 SKIP_DOCKER_CHECKS = os.environ.get("SKIP_DOCKER_CHECKS", "").lower() == "true"
+MONITORING_ENABLED = os.environ.get("MONITORING_ENABLED", "true").lower() in ("true", "1", "yes")
 
 
 @dataclass
@@ -382,6 +383,14 @@ def check_monitoring_api(
     2026 Best Practice: Verify all documented endpoints.
     Source: CLAUDE.md service port assignments
     """
+    if not MONITORING_ENABLED:
+        return HealthCheckResult(
+            "monitoring",
+            "healthy",
+            "Monitoring disabled (profile inactive) — skipped",
+            0.0,
+        )
+
     if port is None:
         port = MONITORING_PORT
 
