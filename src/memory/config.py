@@ -355,8 +355,8 @@ class MemoryConfig(BaseSettings):
     github_sync_total_timeout: int = Field(
         default=1800,
         ge=60,
-        le=7200,
-        description="Total timeout for code blob sync in service mode (seconds, default: 30 min)",
+        le=604800,
+        description="Total timeout for code blob sync in service mode (seconds; default 30 min, max 7d)",
     )
     github_sync_install_timeout: int = Field(
         default=600,
