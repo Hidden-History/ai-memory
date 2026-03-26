@@ -948,34 +948,133 @@ handle_reinstall() {
     log_info "Proceeding with reinstallation..."
 }
 
+# BUG-244: Shared file sync function for both fresh install (copy_files) and
+# Option 1 add-project (update_shared_scripts). Previously these two paths diverged:
+# copy_files() synced 13+ directories but update_shared_scripts() only synced 4,
+# causing Option 1 upgrades to miss monitoring/, templates/, evaluators/, .claude/skills/,
+# CHANGELOG.md, docs/, and others — leading to crashes from stale requirements.txt.
+sync_installed_files() {
+    local src_dir="$1"
+    local dst_dir="$2"
+
+    log_debug "Syncing installed files from $src_dir to $dst_dir..."
+
+    # src/memory/ — core Python modules (critical)
+    log_debug "Copying Python memory modules..."
+    mkdir -p "$dst_dir/src/memory"
+    cp -r "$src_dir/src/memory/"* "$dst_dir/src/memory/" || { log_error "Failed to copy Python memory modules"; exit 1; }
+
+    # scripts/ — installer, utilities, hooks (critical)
+    log_debug "Copying scripts..."
+    mkdir -p "$dst_dir/scripts"
+    mkdir -p "$dst_dir/scripts/memory"
+    cp -r "$src_dir/scripts/"* "$dst_dir/scripts/" || { log_error "Failed to copy scripts"; exit 1; }
+    # Remove __pycache__ directories from target (clean install)
+    find "$dst_dir/scripts" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
+    # monitoring/ — monitoring module (optional)
+    if [[ -d "$src_dir/monitoring" ]]; then
+        log_debug "Copying monitoring module..."
+        mkdir -p "$dst_dir/monitoring"
+        cp -r "$src_dir/monitoring/"* "$dst_dir/monitoring/"
+    fi
+
+    # .claude/hooks/ — Claude Code hooks (critical)
+    log_debug "Copying Claude Code hooks..."
+    mkdir -p "$dst_dir/.claude/hooks/scripts"
+    cp -r "$src_dir/.claude/hooks/"* "$dst_dir/.claude/hooks/" || { log_error "Failed to copy Claude Code hooks"; exit 1; }
+
+    # .claude/skills/ — Claude Code skills (optional)
+    if [[ -d "$src_dir/.claude/skills" ]]; then
+        log_debug "Copying Claude Code skills..."
+        cp -r "$src_dir/.claude/skills/"* "$dst_dir/.claude/skills/" 2>/dev/null || true
+    fi
+
+    # .claude/agents/ — Claude Code agents (optional)
+    if [[ -d "$src_dir/.claude/agents" ]]; then
+        log_debug "Copying Claude Code agents..."
+        cp -r "$src_dir/.claude/agents/"* "$dst_dir/.claude/agents/" 2>/dev/null || true
+    fi
+
+    # .claude/commands/ — Claude Code commands (optional, BUG-107)
+    if [[ -d "$src_dir/.claude/commands" ]]; then
+        log_debug "Copying Claude Code commands..."
+        mkdir -p "$dst_dir/.claude/commands"
+        cp -r "$src_dir/.claude/commands/"* "$dst_dir/.claude/commands/" 2>/dev/null || true
+    fi
+
+    # _ai-memory/ — deployable package (full replace: removes stale files not in source)
+    # INSTALL_DIR/_ai-memory/ is an installer-owned package cache — no user data lives here
+    if [[ -d "$src_dir/_ai-memory" ]]; then
+        log_debug "Copying _ai-memory/ deployable package..."
+        rm -rf "$dst_dir/_ai-memory"
+        mkdir -p "$dst_dir/_ai-memory"
+        if compgen -G "$src_dir/_ai-memory/*" > /dev/null 2>&1; then
+            cp -r "$src_dir/_ai-memory/"* "$dst_dir/_ai-memory/"
+            find "$dst_dir/_ai-memory" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+            log_debug "Synced _ai-memory/ package"
+        fi
+    fi
+
+    # templates/ — best practices seeding templates (optional)
+    if [[ -d "$src_dir/templates" ]]; then
+        log_debug "Copying templates..."
+        mkdir -p "$dst_dir/templates"
+        cp -r "$src_dir/templates/"* "$dst_dir/templates/"
+    fi
+
+    # evaluator_config.yaml + evaluators/ — evaluator definitions (optional, S-16.5, DEC-110)
+    # Required by evaluator-scheduler container at runtime
+    log_debug "Copying evaluator configuration..."
+    if [[ -f "$src_dir/evaluator_config.yaml" ]]; then
+        cp "$src_dir/evaluator_config.yaml" "$dst_dir/evaluator_config.yaml" || log_warning "Failed to copy evaluator_config.yaml"
+    fi
+    if [[ -d "$src_dir/evaluators" ]]; then
+        mkdir -p "$dst_dir/evaluators"
+        cp -r "$src_dir/evaluators/"* "$dst_dir/evaluators/" 2>/dev/null || log_warning "Failed to copy evaluators directory"
+    fi
+
+    # CHANGELOG.md — release notes reference (optional, TD-170)
+    if [[ -f "$src_dir/CHANGELOG.md" ]]; then
+        cp "$src_dir/CHANGELOG.md" "$dst_dir/" || log_warning "Failed to copy CHANGELOG.md"
+    fi
+
+    # docs/ — documentation (optional)
+    if [[ -d "$src_dir/docs" ]]; then
+        log_debug "Copying documentation..."
+        mkdir -p "$dst_dir/docs"
+        cp -r "$src_dir/docs/"* "$dst_dir/docs/"
+    fi
+
+    # Make scripts executable (both .py and .sh files)
+    log_debug "Making scripts executable..."
+    chmod +x "$dst_dir/scripts/"*.{py,sh} 2>/dev/null || true
+    chmod +x "$dst_dir/.claude/hooks/scripts/"*.py 2>/dev/null || true
+    # F14/TD-240: chmod subdirectories missed by top-level glob
+    find "$dst_dir/scripts/memory" -name "*.py" -exec chmod +x {} + 2>/dev/null || true
+    find "$dst_dir/scripts/monitoring" -name "*.py" -exec chmod +x {} + 2>/dev/null || true
+
+    log_debug "File sync complete"
+}
+
 # Update shared scripts for add-project mode compatibility (BUG-028, BUG-034)
 # When adding a project to an existing installation, ensure the shared
 # scripts AND hook scripts are compatible with the installer version being used.
 update_shared_scripts() {
     log_info "Updating shared scripts for compatibility..."
 
-    # Ensure directories exist
+    # Ensure critical directories exist before sync
+    mkdir -p "$INSTALL_DIR/src/memory"
     mkdir -p "$INSTALL_DIR/scripts"
+    mkdir -p "$INSTALL_DIR/scripts/memory"
     mkdir -p "$INSTALL_DIR/.claude/hooks/scripts"
 
-    # BUG-205: Fixed non-recursive copy that missed scripts/memory/ subdirectory (33 files)
-    # and all .sh files. Old code used "for script in $SCRIPT_DIR/*.py" — top-level .py only.
-    # New code: recursive copy matching copy_files() pattern (line 1436).
-    local updated_count=0
-    mkdir -p "$INSTALL_DIR/scripts/memory"
-    cp -r "$SCRIPT_DIR/"* "$INSTALL_DIR/scripts/" || { log_error "Failed to copy shared scripts"; return 1; }
-    # Remove __pycache__ directories from target (clean install)
-    find "$INSTALL_DIR/scripts" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-    chmod +x "$INSTALL_DIR/scripts/"*.{py,sh} 2>/dev/null || true
-    # F14/TD-240: chmod subdirectories missed by top-level glob
-    find "$INSTALL_DIR/scripts/memory" -name "*.py" -exec chmod +x {} + 2>/dev/null || true
-    find "$INSTALL_DIR/scripts/monitoring" -name "*.py" -exec chmod +x {} + 2>/dev/null || true
-    updated_count=$(find "$SCRIPT_DIR" -type f -not -path "*/__pycache__/*" | wc -l)
+    # BUG-244: Use shared sync function for all non-Docker file syncing
+    # SOURCE_DIR is set at line 823 in add-project mode before this function is called
+    sync_installed_files "$SOURCE_DIR" "$INSTALL_DIR"
 
-    # BUG-034: Also update hook scripts in shared installation
-    # This ensures projects get the latest hooks when added
-    local hooks_source="$SCRIPT_DIR/../.claude/hooks/scripts"
-    local hooks_count=0
+    # BUG-034: Archive stale hooks not in source (unique to Option 1 add-project)
+    local hooks_source="$SOURCE_DIR/.claude/hooks/scripts"
     local archived_count=0
     if [[ -d "$hooks_source" ]]; then
         # Build list of source hook names for stale detection
@@ -983,8 +1082,6 @@ update_shared_scripts() {
         for hook in "$hooks_source"/*.py; do
             if [[ -f "$hook" ]]; then
                 source_hooks+=("$(basename "$hook")")
-                cp "$hook" "$INSTALL_DIR/.claude/hooks/scripts/"
-                hooks_count=$((hooks_count + 1))
             fi
         done
 
@@ -1008,47 +1105,14 @@ update_shared_scripts() {
                 fi
             fi
         done
-
-        # Also sync src/memory modules
-        if [[ -d "$SCRIPT_DIR/../src/memory" ]]; then
-            cp -r "$SCRIPT_DIR/../src/memory" "$INSTALL_DIR/src/" 2>/dev/null || true
-        fi
     fi
-
-    # Sync _ai-memory/ deployable package (PLAN-011a Phase 4)
-    # Full replace — removes stale files not in source (mirrors deploy_parzival_v2 pattern)
-    # INSTALL_DIR/_ai-memory/ is an installer-owned package cache — no user data lives here
-    local aim_source="$SCRIPT_DIR/../_ai-memory"
-    if [[ -d "$aim_source" ]]; then
-        rm -rf "$INSTALL_DIR/_ai-memory"
-        mkdir -p "$INSTALL_DIR/_ai-memory"
-        if compgen -G "$aim_source/*" > /dev/null 2>&1; then
-            cp -r "$aim_source/"* "$INSTALL_DIR/_ai-memory/"
-            find "$INSTALL_DIR/_ai-memory" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-            log_debug "Synced _ai-memory/ package to INSTALL_DIR"
-        fi
+    if [[ $archived_count -gt 0 ]]; then
+        log_info "Archived $archived_count stale hook scripts to .archived/"
     fi
-
-    # Sync .claude/{skills,agents,commands} shims to INSTALL_DIR (PLAN-011a Phase 4)
-    # Full replace per subdirectory — removes stale files not in source
-    # INSTALL_DIR/.claude/ is installer-owned; user custom skills/agents/commands live in
-    # PROJECT_PATH/.claude/ and are protected by prefix/subdirectory scoping in deploy_* functions
-    for subdir in skills agents commands; do
-        local sub_src="$SCRIPT_DIR/../.claude/$subdir"
-        if [[ -d "$sub_src" ]]; then
-            rm -rf "$INSTALL_DIR/.claude/$subdir"
-            mkdir -p "$INSTALL_DIR/.claude/$subdir"
-            if compgen -G "$sub_src/*" > /dev/null 2>&1; then
-                cp -r "$sub_src/"* "$INSTALL_DIR/.claude/$subdir/" 2>/dev/null || true
-            fi
-        fi
-    done
-    log_debug "Synced .claude/ shims to INSTALL_DIR"
 
     # Sync Docker files (Dockerfiles, main.py, requirements.txt, docker-compose.yml, etc.)
     # In add-project mode, copy_files() is skipped — Docker changes must be synced here
-    local docker_source="$SCRIPT_DIR/../docker"
-    local docker_count=0
+    local docker_source="$SOURCE_DIR/docker"
     if [[ -d "$docker_source" ]]; then
         mkdir -p "$INSTALL_DIR/docker"
 
@@ -1065,10 +1129,10 @@ update_shared_scripts() {
         # BUG-227: Update .env.example on Option 1 (add-project) installs
         if [[ -f "$docker_source/.env.example" ]]; then
             cp "$docker_source/.env.example" "$INSTALL_DIR/docker/.env.example" \
-                || log_warn "Failed to copy docker/.env.example (non-fatal)"
+                || log_warning "Failed to copy docker/.env.example (non-fatal)"
             log_debug "Updated docker/.env.example"
         else
-            log_warn "docker/.env.example not found in source — skipping"
+            log_warning "docker/.env.example not found in source — skipping"
         fi
         find "$INSTALL_DIR/docker" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
@@ -1100,52 +1164,25 @@ update_shared_scripts() {
             fi
         fi
 
-        docker_count=$(find "$docker_source" -type f -not -path "*/__pycache__/*" | wc -l)
-        log_debug "Synced $docker_count Docker files to INSTALL_DIR"
-    fi
-
-    # Sync evaluator config and definitions (S-16.5, DEC-110)
-    # Required by evaluator-scheduler container at runtime
-    if [[ -f "$SCRIPT_DIR/../evaluator_config.yaml" ]]; then
-        cp "$SCRIPT_DIR/../evaluator_config.yaml" "$INSTALL_DIR/evaluator_config.yaml" || log_warning "Failed to copy evaluator_config.yaml"
-        log_debug "Updated evaluator_config.yaml"
-    fi
-    if [[ -d "$SCRIPT_DIR/../evaluators" ]]; then
-        mkdir -p "$INSTALL_DIR/evaluators"
-        cp -r "$SCRIPT_DIR/../evaluators/"* "$INSTALL_DIR/evaluators/" 2>/dev/null || true
-        log_debug "Updated evaluators/ directory"
+        log_debug "Synced Docker files to INSTALL_DIR"
     fi
 
     # Sync requirements.txt and pyproject.toml (needed by Docker builds)
     # Always overwrite — new dependencies (e.g. croniter) must reach containers
-    if [[ -f "$SCRIPT_DIR/../requirements.txt" ]]; then
-        cp "$SCRIPT_DIR/../requirements.txt" "$INSTALL_DIR/requirements.txt" || log_warning "Failed to copy requirements.txt"
+    if [[ -f "$SOURCE_DIR/requirements.txt" ]]; then
+        cp "$SOURCE_DIR/requirements.txt" "$INSTALL_DIR/requirements.txt" || log_warning "Failed to copy requirements.txt"
         log_debug "Updated requirements.txt"
     fi
-    if [[ -f "$SCRIPT_DIR/../pyproject.toml" ]]; then
-        cp "$SCRIPT_DIR/../pyproject.toml" "$INSTALL_DIR/pyproject.toml" || log_warning "Failed to copy pyproject.toml"
+    if [[ -f "$SOURCE_DIR/pyproject.toml" ]]; then
+        cp "$SOURCE_DIR/pyproject.toml" "$INSTALL_DIR/pyproject.toml" || log_warning "Failed to copy pyproject.toml"
         log_debug "Updated pyproject.toml"
-    fi
-
-    # Update templates (new templates added in updates must reach installed dir)
-    if [[ -d "$SCRIPT_DIR/../templates" ]]; then
-        mkdir -p "$INSTALL_DIR/templates"
-        cp -r "$SCRIPT_DIR/../templates/"* "$INSTALL_DIR/templates/" 2>/dev/null || true
-        log_debug "Templates updated"
     fi
 
     # DEPRECATED: import_user_env() is now a no-op (warns if legacy root .env exists)
     # New env vars must be added manually to $INSTALL_DIR/docker/.env
     import_user_env
 
-    if [[ $updated_count -gt 0 || $hooks_count -gt 0 || $docker_count -gt 0 ]]; then
-        log_success "Updated $updated_count shared scripts, $hooks_count hook scripts, $docker_count docker files"
-        if [[ $archived_count -gt 0 ]]; then
-            log_info "Archived $archived_count stale hook scripts to .archived/"
-        fi
-    else
-        log_warning "No scripts found to update"
-    fi
+    log_success "Updated shared scripts and files"
 }
 
 # Prerequisite checking (AC 7.1.3)
@@ -1626,90 +1663,8 @@ copy_files() {
         fi
     fi
 
-    log_debug "Copying Python memory modules..."
-    cp -r "$SOURCE_DIR/src/memory/"* "$INSTALL_DIR/src/memory/" || { log_error "Failed to copy Python memory modules"; exit 1; }
-
-    log_debug "Copying scripts..."
-    cp -r "$SOURCE_DIR/scripts/"* "$INSTALL_DIR/scripts/" || { log_error "Failed to copy scripts"; exit 1; }
-
-    log_debug "Copying monitoring module..."
-    if [[ -d "$SOURCE_DIR/monitoring" ]]; then
-        mkdir -p "$INSTALL_DIR/monitoring"
-        cp -r "$SOURCE_DIR/monitoring/"* "$INSTALL_DIR/monitoring/"
-    fi
-
-    log_debug "Copying Claude Code hooks..."
-    cp -r "$SOURCE_DIR/.claude/hooks/"* "$INSTALL_DIR/.claude/hooks/" || { log_error "Failed to copy Claude Code hooks"; exit 1; }
-
-    # Copy Claude Code skills (core ai-memory functionality)
-    if [[ -d "$SOURCE_DIR/.claude/skills" ]]; then
-        log_debug "Copying Claude Code skills..."
-        cp -r "$SOURCE_DIR/.claude/skills/"* "$INSTALL_DIR/.claude/skills/" 2>/dev/null || true
-    fi
-
-    # Copy Claude Code agents (core ai-memory functionality)
-    if [[ -d "$SOURCE_DIR/.claude/agents" ]]; then
-        log_debug "Copying Claude Code agents..."
-        cp -r "$SOURCE_DIR/.claude/agents/"* "$INSTALL_DIR/.claude/agents/" 2>/dev/null || true
-    fi
-
-    # BUG-107: Copy Claude Code commands (Parzival session commands)
-    if [[ -d "$SOURCE_DIR/.claude/commands" ]]; then
-        log_debug "Copying Claude Code commands..."
-        mkdir -p "$INSTALL_DIR/.claude/commands"
-        cp -r "$SOURCE_DIR/.claude/commands/"* "$INSTALL_DIR/.claude/commands/" 2>/dev/null || true
-    fi
-
-    # Copy _ai-memory/ deployable package (Parzival V2 + skills + agents)
-    if [[ -d "$SOURCE_DIR/_ai-memory" ]]; then
-        log_debug "Copying _ai-memory/ deployable package..."
-        mkdir -p "$INSTALL_DIR/_ai-memory"
-        if compgen -G "$SOURCE_DIR/_ai-memory/*" > /dev/null 2>&1; then
-            cp -r "$SOURCE_DIR/_ai-memory/"* "$INSTALL_DIR/_ai-memory/"
-            find "$INSTALL_DIR/_ai-memory" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-            local aim_count
-            aim_count=$(find "$INSTALL_DIR/_ai-memory" -type f | wc -l)
-            log_debug "Copied $aim_count files to $INSTALL_DIR/_ai-memory/"
-        fi
-    fi
-
-    # Copy templates for best practices seeding
-    if [[ -d "$SOURCE_DIR/templates" ]]; then
-        log_debug "Copying templates..."
-        mkdir -p "$INSTALL_DIR/templates"
-        cp -r "$SOURCE_DIR/templates/"* "$INSTALL_DIR/templates/"
-    fi
-
-    # Copy evaluator config and definitions (S-16.5, DEC-110)
-    # Required by evaluator-scheduler container at runtime (../evaluator_config.yaml, ../evaluators/)
-    log_debug "Copying evaluator configuration..."
-    if [[ -f "$SOURCE_DIR/evaluator_config.yaml" ]]; then
-        cp "$SOURCE_DIR/evaluator_config.yaml" "$INSTALL_DIR/evaluator_config.yaml" || log_warning "Failed to copy evaluator_config.yaml"
-    fi
-    if [[ -d "$SOURCE_DIR/evaluators" ]]; then
-        mkdir -p "$INSTALL_DIR/evaluators"
-        cp -r "$SOURCE_DIR/evaluators/"* "$INSTALL_DIR/evaluators/" 2>/dev/null || log_warning "Failed to copy evaluators directory"
-    fi
-
-    # Copy CHANGELOG for reference (TD-170)
-    if [[ -f "$SOURCE_DIR/CHANGELOG.md" ]]; then
-        cp "$SOURCE_DIR/CHANGELOG.md" "$INSTALL_DIR/" || log_warning "Failed to copy CHANGELOG.md"
-    fi
-
-    # Copy documentation
-    if [[ -d "$SOURCE_DIR/docs" ]]; then
-        log_debug "Copying documentation..."
-        mkdir -p "$INSTALL_DIR/docs"
-        cp -r "$SOURCE_DIR/docs/"* "$INSTALL_DIR/docs/"
-    fi
-
-    # Make scripts executable (both .py and .sh files)
-    log_debug "Making scripts executable..."
-    chmod +x "$INSTALL_DIR/scripts/"*.{py,sh} 2>/dev/null || true
-    chmod +x "$INSTALL_DIR/.claude/hooks/scripts/"*.py 2>/dev/null || true
-    # F14/TD-240: chmod subdirectories missed by top-level glob
-    find "$INSTALL_DIR/scripts/memory" -name "*.py" -exec chmod +x {} + 2>/dev/null || true
-    find "$INSTALL_DIR/scripts/monitoring" -name "*.py" -exec chmod +x {} + 2>/dev/null || true
+    # BUG-244: Use shared sync function for all non-Docker file syncing
+    sync_installed_files "$SOURCE_DIR" "$INSTALL_DIR"
 
     log_success "Files copied to $INSTALL_DIR"
 }
@@ -3526,8 +3481,8 @@ setup_model_dispatch() {
     if [[ "$setup_dispatch" =~ ^[Yy] ]]; then
         log_info "Launching model dispatch setup..."
         bash "$dispatch_installer" || {
-            log_warn "Model dispatch setup had issues — you can run it later:"
-            log_warn "  bash $dispatch_installer"
+            log_warning "Model dispatch setup had issues — you can run it later:"
+            log_warning "  bash $dispatch_installer"
         }
     else
         log_info "Skipped. Run later with: bash $dispatch_installer"
