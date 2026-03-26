@@ -817,9 +817,14 @@ export GITHUB_CODE_BLOB_MAX_SIZE=204800
 
 **Format:** Comma-separated patterns
 
-**Pattern rules:**
 - Patterns starting with `*` match as suffixes against the full path, for example `*.sh`
 - Bare tokens match exact path-segment names, for example `Makefile`
+
+**Pattern rules:**
+- `*.ext` — matches files ending with `.ext` (e.g., `*.py`, `*.yaml`)
+- `token` — matches files containing `token` as a path segment (e.g., `Makefile`, `Dockerfile`)
+- Bare `*` and `*.` are rejected (too broad — use explicit extensions)
+- Path patterns with `/` are not supported (e.g., `src/*.py` won't work — use `*.py` instead)
 
 **Example:**
 ```bash

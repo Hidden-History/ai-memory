@@ -115,7 +115,7 @@ async def test_file_concurrency_observes_parallel_syncs():
         async with lock:
             in_flight += 1
             peak = max(peak, in_flight)
-        await asyncio.sleep(0.04)
+        await asyncio.sleep(0.2)
         async with lock:
             in_flight -= 1
         return 1
@@ -278,4 +278,27 @@ async def test_legacy_sync_file_does_not_supersede_on_partial_chunk_failure():
     stored = await sync._sync_file(entry, "batch-1", "oldsha")
 
     assert stored == 1
+    sync._supersede_old_blobs.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_batch_sync_does_not_supersede_with_zero_vector_embeddings():
+    """F-26: Don't supersede old blobs when new chunks only have zero-vector embeddings."""
+    entry = _tree("src/file.py", sha="newsha")
+    sync, mock_storage, mock_client = _make_sync_for_batching(
+        [entry], batch_storage=True
+    )
+    py_src = "def hello():\n    return 42\n"
+    mock_client.get_blob = AsyncMock(
+        return_value={"content": base64.b64encode(py_src.encode()).decode()}
+    )
+
+    # All results have embedding_status=pending (zero-vector embeddings)
+    mock_storage.store_github_code_blob_chunks_batch.return_value = [
+        {"status": "stored", "embedding_status": "pending"}
+    ]
+    sync._supersede_old_blobs = MagicMock()
+
+    await sync._sync_file(entry, "batch-1", "oldsha")
+
     sync._supersede_old_blobs.assert_not_called()

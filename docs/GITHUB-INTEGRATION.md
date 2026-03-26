@@ -56,7 +56,7 @@ GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE=512000
 | `GITHUB_CODE_BLOB_ENABLED` | No | `true` | Enable syncing of code blobs separately from PRs/issues/commits |
 | `GITHUB_CODE_BLOB_MAX_SIZE` | No | `102400` | Standard max file size for code blob sync before include overrides |
 | `GITHUB_CODE_BLOB_INCLUDE` | No | *(empty)* | Comma-separated include patterns that can override exclude, unknown-language, and standard size skips |
-| `GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE` | No | `5 × GITHUB_CODE_BLOB_MAX_SIZE` | Hard ceiling for explicitly included files |
+| `GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE` | No | `512000 bytes (5 × default GITHUB_CODE_BLOB_MAX_SIZE of 102400). Hard ceiling: 10MB.` | Hard ceiling for explicitly included files |
 | `GITHUB_CODE_BLOB_EXCLUDE` | No | `node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info` | Comma-separated exclude patterns for code blob sync |
 
 *Required when `GITHUB_SYNC_ENABLED=true`
@@ -67,6 +67,12 @@ GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE=512000
 - Include patterns use the same matching model as exclude patterns:
   - `*.sh` matches by full-path suffix
   - `Makefile` matches an exact path segment
+
+**Pattern rules:**
+- `*.ext` — matches files ending with `.ext` (e.g., `*.py`, `*.yaml`)
+- `token` — matches files containing `token` as a path segment (e.g., `Makefile`, `Dockerfile`)
+- Bare `*` and `*.` are rejected (too broad — use explicit extensions)
+- Path patterns with `/` are not supported (e.g., `src/*.py` won't work — use `*.py` instead)
 - Explicit include can override:
   - `GITHUB_CODE_BLOB_MAX_SIZE`
   - `GITHUB_CODE_BLOB_EXCLUDE`

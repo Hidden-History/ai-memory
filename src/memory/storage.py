@@ -11,7 +11,6 @@ Implements Story 1.5 (Storage Module).
 Architecture Reference: architecture.md:516-690 (Storage & Graceful Degradation)
 """
 
-import contextlib
 import dataclasses
 import logging
 import uuid
@@ -22,6 +21,7 @@ from qdrant_client.models import (
     FieldCondition,
     Filter,
     MatchValue,
+    PointIdsList,
     PointStruct,
     SparseVector,
 )
@@ -700,6 +700,9 @@ class MemoryStorage:
         if not memories:
             return []
 
+        # Shallow copy to avoid mutating caller's dicts (F-15)
+        memories = [dict(m) for m in memories]
+
         points = []
         results = []
 
@@ -866,6 +869,21 @@ class MemoryStorage:
 
             embeddings = [[0.0] * 768 for _ in memories]  # DEC-010: 768d placeholder
             embedding_status = EmbeddingStatus.PENDING
+
+        # F-14: Guard against None embeddings from partial service responses
+        for idx, emb in enumerate(embeddings):
+            if emb is None:
+                logger.warning(
+                    "embedding_missing_in_batch",
+                    extra={
+                        "context": {
+                            "index": idx,
+                            "memory_type": memories[idx].get("type", "unknown"),
+                        }
+                    },
+                )
+                embeddings[idx] = [0.0] * 768
+                embedding_status = EmbeddingStatus.PENDING
 
         # Collect chunk data for batch embedding (avoid N+1 API calls)
         pending_chunks = []
@@ -1171,9 +1189,12 @@ class MemoryStorage:
                     )
                 )
 
-        # Store all in single upsert
+        # Store in sub-batches to avoid Qdrant gRPC 64MB limit (F-13)
+        _UPSERT_BATCH_SIZE = 64
         try:
-            self.qdrant_client.upsert(collection_name=collection, points=points)
+            for i in range(0, len(points), _UPSERT_BATCH_SIZE):
+                sub_batch = points[i : i + _UPSERT_BATCH_SIZE]
+                self.qdrant_client.upsert(collection_name=collection, points=sub_batch)
 
             logger.info(
                 "batch_stored",
@@ -1441,7 +1462,7 @@ class MemoryStorage:
                     batch_out.append(
                         {
                             "memory_id": memory_id,
-                            "status": "stored",
+                            "status": "pending",
                             "embedding_status": batch_embedding_status.value,
                         }
                     )
@@ -1449,6 +1470,8 @@ class MemoryStorage:
                 try:
                     self.qdrant_client.upsert(collection_name=collection, points=points)
                     stored_point_ids.extend(str(point.id) for point in points)
+                    for item in batch_out:
+                        item["status"] = "stored"
                     logger.info(
                         "github_code_blob_batch_stored",
                         extra={
@@ -1494,16 +1517,31 @@ class MemoryStorage:
                     ) from e
         except Exception:
             if stored_point_ids:
-                with contextlib.suppress(Exception):
+                try:
                     self.qdrant_client.delete(
                         collection_name=collection,
-                        points_selector=stored_point_ids,
+                        points_selector=PointIdsList(
+                            points=stored_point_ids,
+                        ),
                     )
                     logger.warning(
                         "github_code_blob_batch_rolled_back",
                         extra={
-                            "count": len(stored_point_ids),
-                            "collection": collection,
+                            "context": {
+                                "count": len(stored_point_ids),
+                                "collection": collection,
+                            }
+                        },
+                    )
+                except Exception as rollback_err:
+                    logger.error(
+                        "github_code_blob_batch_rollback_failed",
+                        extra={
+                            "context": {
+                                "error": str(rollback_err),
+                                "point_ids_count": len(stored_point_ids),
+                                "collection": collection,
+                            }
                         },
                     )
             raise

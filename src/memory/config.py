@@ -354,6 +354,7 @@ class MemoryConfig(BaseSettings):
     github_code_blob_include_max_size: int | None = Field(
         default=None,
         ge=1024,
+        le=10485760,  # 10MB hard ceiling
         description="Hard ceiling for explicitly included files (bytes). Defaults to 5x GITHUB_CODE_BLOB_MAX_SIZE when unset.",
     )
     github_code_blob_exclude: str = Field(

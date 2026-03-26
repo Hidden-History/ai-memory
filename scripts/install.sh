@@ -1143,6 +1143,8 @@ update_shared_scripts() {
         # Merge new keys from .env.example into restored .env (TD-198)
         if [[ -f "$docker_source/.env.example" ]] && [[ -f "$INSTALL_DIR/docker/.env" ]]; then
             local _new_keys=0
+            # Note: commented-out keys in .env.example are intentionally skipped —
+            # they are optional settings the user adds manually when needed.
             while IFS= read -r line; do
                 # Skip comments and empty lines
                 [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -1796,8 +1798,8 @@ configure_environment() {
             echo "GITHUB_BRANCH=${GITHUB_BRANCH:-main}" >> "$docker_env"
             echo "GITHUB_CODE_BLOB_ENABLED=${GITHUB_CODE_BLOB_ENABLED:-true}" >> "$docker_env"
             echo "GITHUB_CODE_BLOB_MAX_SIZE=${GITHUB_CODE_BLOB_MAX_SIZE:-102400}" >> "$docker_env"
-            echo "GITHUB_CODE_BLOB_INCLUDE=${GITHUB_CODE_BLOB_INCLUDE:-}" >> "$docker_env"
-            echo "GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE=${GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE:-}" >> "$docker_env"
+            printf '%s\n' "GITHUB_CODE_BLOB_INCLUDE=${GITHUB_CODE_BLOB_INCLUDE:-}" >> "$docker_env"
+            printf '%s\n' "GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE=${GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE:-}" >> "$docker_env"
             echo "GITHUB_CODE_BLOB_EXCLUDE=${GITHUB_CODE_BLOB_EXCLUDE:-node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info}" >> "$docker_env"
             echo "GITHUB_SYNC_ON_START=${GITHUB_SYNC_ON_START:-true}" >> "$docker_env"
             log_debug "Added GitHub configuration to .env"

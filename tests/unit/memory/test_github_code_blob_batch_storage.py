@@ -231,5 +231,13 @@ def test_github_batch_rolls_back_partial_sub_batch_failure(
         )
 
     gh_storage.qdrant_client.delete.assert_called_once()
-    delete_ids = gh_storage.qdrant_client.delete.call_args.kwargs["points_selector"]
-    assert len(delete_ids) == 2
+    delete_call = gh_storage.qdrant_client.delete.call_args
+    selector = delete_call.kwargs.get("points_selector") or delete_call[1].get(
+        "points_selector"
+    )
+    assert len(selector.points) == 2
+
+    # Verify deleted IDs exactly match the first sub-batch's stored point IDs
+    first_upsert_call = gh_storage.qdrant_client.upsert.call_args_list[0]
+    first_batch_ids = {p.id for p in first_upsert_call.kwargs["points"]}
+    assert set(selector.points) == first_batch_ids

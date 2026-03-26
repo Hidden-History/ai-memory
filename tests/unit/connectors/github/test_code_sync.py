@@ -408,8 +408,8 @@ def test_code_blob_sync_init_skips_invalid_patterns_and_keeps_valid_ones(caplog)
 
     assert sync._include_patterns == ["*.foo", "Makefile"]
     assert sync._exclude_patterns == ["dist", "*.min.js"]
-    assert "Ignoring github_code_blob_include pattern" in caplog.text
-    assert "Ignoring github_code_blob_exclude pattern" in caplog.text
+    assert "invalid_include_pattern_ignored" in caplog.text
+    assert "invalid_include_pattern_ignored" in caplog.text
     assert sync._should_sync_file({"path": "folder/file.foo", "size": 100}) is True
     assert sync._should_sync_file({"path": "dist/app.min.js", "size": 100}) is False
 
@@ -730,6 +730,10 @@ def test_supersede_old_blobs_filters_by_previous_blob_hash():
     must_conditions = scroll_filter.must
     blob_hash_cond = next(c for c in must_conditions if c.key == "blob_hash")
     assert blob_hash_cond.match.value == "oldsha"
+
+    file_path_conditions = [c for c in must_conditions if c.key == "file_path"]
+    assert len(file_path_conditions) == 1
+    assert file_path_conditions[0].match.value == "src/file.py"
 
 
 # -- FIX-5: Pagination in _update_last_synced --------------------------

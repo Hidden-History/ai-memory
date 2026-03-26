@@ -75,7 +75,7 @@ class CircuitBreaker:
         self.reset_timeout = reset_timeout
         self.half_open_max_attempts = half_open_max_attempts
         self._states: dict[str, ProviderState] = {}
-        self._lock = threading.Lock()  # Thread-safe state creation
+        self._lock = threading.RLock()  # Thread-safe state mutation (reentrant)
 
         logger.info(
             "circuit_breaker_initialized",
@@ -118,62 +118,63 @@ class CircuitBreaker:
         Returns:
             True if requests should be allowed, False if circuit is open
         """
-        state = self._get_state(provider)
+        with self._lock:
+            state = self._get_state(provider)
 
-        # CLOSED state: always available
-        if state.state == CircuitState.CLOSED:
-            return True
-
-        # OPEN state: check if timeout has passed
-        if state.state == CircuitState.OPEN:
-            elapsed = time.time() - state.last_failure_time
-
-            if elapsed > self.reset_timeout:
-                # Transition to HALF_OPEN
-                state.state = CircuitState.HALF_OPEN
-                state.half_open_attempts = 0
-
-                logger.info(
-                    "circuit_half_open",
-                    extra={
-                        "provider": provider,
-                        "timeout_seconds": self.reset_timeout,
-                        "elapsed_seconds": elapsed,
-                    },
-                )
+            # CLOSED state: always available
+            if state.state == CircuitState.CLOSED:
                 return True
-            else:
-                # Still open, reject request
-                logger.debug(
-                    "circuit_open_request_rejected",
-                    extra={
-                        "provider": provider,
-                        "time_until_reset": self.reset_timeout - elapsed,
-                    },
-                )
-                return False
 
-        # HALF_OPEN state: allow limited test requests
-        if state.state == CircuitState.HALF_OPEN:
-            if state.half_open_attempts < self.half_open_max_attempts:
-                state.half_open_attempts += 1
-                logger.debug(
-                    "circuit_half_open_test",
-                    extra={
-                        "provider": provider,
-                        "attempt": state.half_open_attempts,
-                        "max_attempts": self.half_open_max_attempts,
-                    },
-                )
-                return True
-            else:
-                # Max attempts reached in HALF_OPEN, still failing
-                logger.warning(
-                    "circuit_half_open_max_attempts", extra={"provider": provider}
-                )
-                return False
+            # OPEN state: check if timeout has passed
+            if state.state == CircuitState.OPEN:
+                elapsed = time.time() - state.last_failure_time
 
-        return False
+                if elapsed > self.reset_timeout:
+                    # Transition to HALF_OPEN
+                    state.state = CircuitState.HALF_OPEN
+                    state.half_open_attempts = 0
+
+                    logger.info(
+                        "circuit_half_open",
+                        extra={
+                            "provider": provider,
+                            "timeout_seconds": self.reset_timeout,
+                            "elapsed_seconds": elapsed,
+                        },
+                    )
+                    return True
+                else:
+                    # Still open, reject request
+                    logger.debug(
+                        "circuit_open_request_rejected",
+                        extra={
+                            "provider": provider,
+                            "time_until_reset": self.reset_timeout - elapsed,
+                        },
+                    )
+                    return False
+
+            # HALF_OPEN state: allow limited test requests
+            if state.state == CircuitState.HALF_OPEN:
+                if state.half_open_attempts < self.half_open_max_attempts:
+                    state.half_open_attempts += 1
+                    logger.debug(
+                        "circuit_half_open_test",
+                        extra={
+                            "provider": provider,
+                            "attempt": state.half_open_attempts,
+                            "max_attempts": self.half_open_max_attempts,
+                        },
+                    )
+                    return True
+                else:
+                    # Max attempts reached in HALF_OPEN, still failing
+                    logger.warning(
+                        "circuit_half_open_max_attempts", extra={"provider": provider}
+                    )
+                    return False
+
+            return False
 
     def record_success(self, provider: str):
         """Record successful request, potentially close circuit.
@@ -181,23 +182,24 @@ class CircuitBreaker:
         Args:
             provider: Provider name
         """
-        state = self._get_state(provider)
-        prev_state = state.state
+        with self._lock:
+            state = self._get_state(provider)
+            prev_state = state.state
 
-        # Reset failure counter and close circuit
-        state.consecutive_failures = 0
-        state.last_success_time = time.time()
-        state.state = CircuitState.CLOSED
-        state.half_open_attempts = 0
+            # Reset failure counter and close circuit
+            state.consecutive_failures = 0
+            state.last_success_time = time.time()
+            state.state = CircuitState.CLOSED
+            state.half_open_attempts = 0
 
-        if prev_state != CircuitState.CLOSED:
-            logger.info(
-                "circuit_closed",
-                extra={
-                    "provider": provider,
-                    "previous_state": prev_state.value,
-                },
-            )
+            if prev_state != CircuitState.CLOSED:
+                logger.info(
+                    "circuit_closed",
+                    extra={
+                        "provider": provider,
+                        "previous_state": prev_state.value,
+                    },
+                )
 
     def record_failure(self, provider: str, error_type: str = "unknown"):
         """Record failed request, potentially open circuit.
@@ -206,34 +208,35 @@ class CircuitBreaker:
             provider: Provider name
             error_type: Type of error (timeout, connection, parse, etc.)
         """
-        state = self._get_state(provider)
-        state.consecutive_failures += 1
-        state.last_failure_time = time.time()
+        with self._lock:
+            state = self._get_state(provider)
+            state.consecutive_failures += 1
+            state.last_failure_time = time.time()
 
-        logger.debug(
-            "circuit_failure_recorded",
-            extra={
-                "provider": provider,
-                "consecutive_failures": state.consecutive_failures,
-                "error_type": error_type,
-            },
-        )
-
-        # Check if we should open the circuit
-        if (
-            state.consecutive_failures >= self.failure_threshold
-            and state.state != CircuitState.OPEN
-        ):
-            state.state = CircuitState.OPEN
-            logger.warning(
-                "circuit_opened",
+            logger.debug(
+                "circuit_failure_recorded",
                 extra={
                     "provider": provider,
-                    "failures": state.consecutive_failures,
-                    "threshold": self.failure_threshold,
-                    "timeout_seconds": self.reset_timeout,
+                    "consecutive_failures": state.consecutive_failures,
+                    "error_type": error_type,
                 },
             )
+
+            # Check if we should open the circuit
+            if (
+                state.consecutive_failures >= self.failure_threshold
+                and state.state != CircuitState.OPEN
+            ):
+                state.state = CircuitState.OPEN
+                logger.warning(
+                    "circuit_opened",
+                    extra={
+                        "provider": provider,
+                        "failures": state.consecutive_failures,
+                        "threshold": self.failure_threshold,
+                        "timeout_seconds": self.reset_timeout,
+                    },
+                )
 
     def get_status(self, provider: str) -> dict:
         """Get current circuit status for provider.

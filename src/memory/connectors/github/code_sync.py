@@ -192,11 +192,29 @@ def _parse_filter_patterns(raw_patterns: str, *, setting_name: str) -> list[str]
         if not pattern:
             continue
 
+        # F-09/F-11: Reject bare wildcards and too-short patterns
+        # "*" → endswith("") always True; "*." → matches extensionless files
+        if pattern.startswith("*") and len(pattern) < 3:
+            logger.warning(
+                "invalid_include_pattern_ignored",
+                extra={
+                    "context": {
+                        "pattern": pattern,
+                        "reason": "pattern too short — use e.g. *.py, *.yaml",
+                    }
+                },
+            )
+            continue
+
         if "/" in pattern and not pattern.startswith("*"):
             logger.warning(
-                "Ignoring %s pattern %r: bare tokens must be exact path-segment names",
-                setting_name,
-                pattern,
+                "invalid_include_pattern_ignored",
+                extra={
+                    "context": {
+                        "pattern": pattern,
+                        "reason": "path patterns with / not supported — use *.py or bare tokens like Makefile",
+                    }
+                },
             )
             continue
 
@@ -779,7 +797,7 @@ class CodeBlobSync:
                     return result
 
                 # Step 2: Build stored blob lookup map (BP-066 batch lookup)
-                stored_map = self._get_stored_blob_map()
+                stored_map = await asyncio.to_thread(self._get_stored_blob_map)
 
                 # Step 3: Pre-filter eligible files for accurate progress counts
                 current_paths: set[str] = set()
@@ -796,7 +814,7 @@ class CodeBlobSync:
 
                     stored_hash = stored_map.get(file_path)
                     if stored_hash == entry["sha"]:
-                        self._update_last_synced(file_path)
+                        await asyncio.to_thread(self._update_last_synced, file_path)
                         result.files_skipped += 1
                         continue
 
@@ -823,10 +841,15 @@ class CodeBlobSync:
                 def _remaining_files() -> int:
                     return total_eligible - completed_files
 
+                total_timeout_recorded = False
+
                 def _record_total_timeout(elapsed: float) -> None:
-                    result.error_details.append(
-                        f"total_timeout: stopped after {completed_files}/{total_eligible} files ({elapsed:.0f}s)"
-                    )
+                    nonlocal total_timeout_recorded
+                    if not total_timeout_recorded:
+                        result.error_details.append(
+                            f"total_timeout: stopped after {completed_files}/{total_eligible} files ({elapsed:.0f}s)"
+                        )
+                        total_timeout_recorded = True
 
                 def _record_circuit_breaker_open() -> None:
                     result.error_details.append(
@@ -1189,9 +1212,31 @@ class CodeBlobSync:
                     session_id=batch_id,
                     chunk_batch_size=self.config.github_code_blob_chunk_batch_size,
                 )
-                if old_blob_hash:
+                stored_count = sum(
+                    1 for r in batch_results if r.get("status") == "stored"
+                )
+                has_real_embeddings = any(
+                    r.get("embedding_status") != "pending" for r in batch_results
+                )
+                if (
+                    old_blob_hash
+                    and stored_count == len(chunks)
+                    and has_real_embeddings
+                ):
                     self._supersede_old_blobs(file_path, old_blob_hash)
-                return sum(1 for r in batch_results if r.get("status") == "stored")
+                elif old_blob_hash:
+                    logger.warning(
+                        "skipping_supersede",
+                        extra={
+                            "context": {
+                                "file_path": file_path,
+                                "stored": stored_count,
+                                "total": len(chunks),
+                                "has_embeddings": has_real_embeddings,
+                            }
+                        },
+                    )
+                return stored_count
             except Exception as e:
                 logger.error(
                     "Failed to batch-store chunks for %s: %s",
@@ -1266,6 +1311,9 @@ class CodeBlobSync:
                                 key="is_current",
                                 match=models.MatchValue(value=True),
                             ),
+                            # NOTE: Only queries chunk_index=0 for efficiency. Files that lost their
+                            # index-0 chunk in a prior partial failure appear as new on next sync,
+                            # causing re-ingestion (self-healing behavior).
                             models.FieldCondition(
                                 key="chunk_index",
                                 match=models.MatchValue(value=0),
@@ -1414,7 +1462,16 @@ class CodeBlobSync:
                     "Superseded %d chunks for %s", len(all_point_ids), file_path
                 )
         except Exception as e:
-            logger.warning("Failed to supersede blobs for %s: %s", file_path, e)
+            logger.error(
+                "supersede_old_blobs_failed",
+                extra={
+                    "context": {
+                        "file_path": file_path,
+                        "blob_hash": blob_hash,
+                        "error": str(e),
+                    }
+                },
+            )
 
     async def _detect_deleted_files(
         self,
