@@ -184,6 +184,8 @@ register_project_sync() {
     # 4th arg overrides; falls back to GITHUB_BRANCH variable already in scope,
     # then to "main" as last resort.
     local branch="${4:-${GITHUB_BRANCH:-main}}"
+    local jira_enabled="${5:-false}"
+    local jira_projects="${6:-}"
     local config_dir="${HOME}/.ai-memory/config/projects.d"
     local safe_name
     safe_name=$(echo "$project_id" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
@@ -203,7 +205,14 @@ register_project_sync() {
     # Write to temp file first — avoids empty file if python fails (PyYAML missing)
     local tmp_file="${config_file}.tmp"
     if ! "$py_bin" -c "
-import yaml, sys
+import yaml, sys, json
+jira_enabled = sys.argv[6].lower() == 'true'
+jira_projects_raw = sys.argv[7] if len(sys.argv) > 7 else ''
+jira_data = {'enabled': jira_enabled}
+if jira_enabled and jira_projects_raw:
+    keys = [k.strip() for k in jira_projects_raw.split(',') if k.strip()]
+    if keys:
+        jira_data['projects'] = keys
 data = {
     'project_id': sys.argv[1],
     'source_directory': sys.argv[2],
@@ -213,10 +222,10 @@ data = {
         'repo': sys.argv[4],
         'branch': sys.argv[5],
     },
-    'jira': {'enabled': False},
+    'jira': jira_data,
 }
 print(yaml.dump(data, default_flow_style=False, allow_unicode=True), end='')
-" "$project_id" "$source_dir" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$github_repo" "$branch" > "$tmp_file"; then
+" "$project_id" "$source_dir" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$github_repo" "$branch" "$jira_enabled" "$jira_projects" > "$tmp_file"; then
         echo "  ✗ Failed to register project (python/PyYAML error)" >&2
         rm -f "$tmp_file"
         return 1
@@ -290,6 +299,163 @@ configure_project_name() {
     fi
     echo ""
     log_info "Project name set to: $PROJECT_NAME"
+}
+
+# Configure project-specific GitHub repo and Jira settings (add-project mode)
+# Sets: PROJECT_GITHUB_REPO, PROJECT_GITHUB_BRANCH, PROJECT_JIRA_ENABLED, PROJECT_JIRA_PROJECTS
+# Side-effects: may set GITHUB_TOKEN and GITHUB_SYNC_ENABLED from .env if unset
+configure_project_sources() {
+    local env_file="$INSTALL_DIR/docker/.env"
+    local use_detected github_owner github_name branch_input jira_choice jira_keys
+
+    # Load GITHUB_TOKEN and GITHUB_SYNC_ENABLED from existing .env if not already set
+    if [[ -f "$env_file" ]]; then
+        local _val
+        if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+            _val=$(grep '^GITHUB_TOKEN=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            if [[ -n "$_val" ]]; then
+                GITHUB_TOKEN="$_val"
+            fi
+        fi
+        if [[ -z "${GITHUB_SYNC_ENABLED:-}" ]]; then
+            _val=$(grep '^GITHUB_SYNC_ENABLED=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            if [[ -n "$_val" ]]; then
+                GITHUB_SYNC_ENABLED="$_val"
+            fi
+        fi
+    fi
+
+    # Default output variables
+    PROJECT_GITHUB_REPO=""
+    PROJECT_GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
+    PROJECT_JIRA_ENABLED="false"
+    PROJECT_JIRA_PROJECTS=""
+
+    # --- GitHub repo for this project ---
+    if [[ "${GITHUB_SYNC_ENABLED:-}" != "true" ]]; then
+        log_info "GitHub sync is not enabled — skipping project repo configuration"
+        return 0
+    fi
+
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        # Non-interactive: use GITHUB_REPO env var (caller must set it for the new project)
+        if [[ -n "${GITHUB_REPO:-}" ]]; then
+            PROJECT_GITHUB_REPO="$GITHUB_REPO"
+            if validate_github_repo "$PROJECT_GITHUB_REPO"; then
+                log_info "Using GitHub repo from environment: $PROJECT_GITHUB_REPO"
+            else
+                log_warning "Invalid GITHUB_REPO format — skipping GitHub registration"
+                PROJECT_GITHUB_REPO=""
+            fi
+        else
+            log_warning "GITHUB_REPO not set in non-interactive mode — skipping GitHub registration"
+        fi
+        # Non-interactive Jira: use JIRA_PROJECTS env var
+        # JIRA_PROJECTS may already be a JSON array (["PROJ","TEAM"]) from startup normalization;
+        # register_project_sync expects comma-separated, so de-normalize if needed.
+        if [[ -n "${JIRA_PROJECTS:-}" ]]; then
+            PROJECT_JIRA_ENABLED="true"
+            if [[ "${JIRA_PROJECTS:-}" == "["* ]]; then
+                PROJECT_JIRA_PROJECTS=$(echo "$JIRA_PROJECTS" | python3 -c "import sys,json; print(','.join(json.loads(sys.stdin.read())))" 2>/dev/null || echo "$JIRA_PROJECTS")
+            else
+                PROJECT_JIRA_PROJECTS="$JIRA_PROJECTS"
+            fi
+            log_info "Using Jira projects from environment: $PROJECT_JIRA_PROJECTS"
+        fi
+        return 0
+    fi
+
+    echo ""
+    echo "┌─────────────────────────────────────────────────────────────┐"
+    echo "│  Project Source Configuration                               │"
+    echo "└─────────────────────────────────────────────────────────────┘"
+    echo ""
+
+    # Auto-detect GitHub repo from .git remote
+    local detected_repo=""
+    if [[ -d "$PROJECT_PATH/.git" ]]; then
+        detected_repo=$(cd "$PROJECT_PATH" && git remote get-url origin 2>/dev/null \
+            | sed -E 's|.*github\.com[:/](.+/[^.]+)(\.git)?$|\1|' || true)
+    fi
+
+    # If no .git at root, check one level deep for subdirectory repos
+    if [[ -z "$detected_repo" ]]; then
+        local subdir
+        for subdir in "$PROJECT_PATH"/*/; do
+            if [[ -d "${subdir}.git" ]]; then
+                detected_repo=$(cd "$subdir" && git remote get-url origin 2>/dev/null \
+                    | sed -E 's|.*github\.com[:/](.+/[^.]+)(\.git)?$|\1|' || true)
+                if [[ -n "$detected_repo" ]]; then
+                    log_info "Detected repo from subdirectory: $(basename "$subdir")"
+                    break
+                fi
+            fi
+        done
+    fi
+
+    if [[ -n "$detected_repo" ]]; then
+        echo "   Detected GitHub repository: $detected_repo"
+        read -p "   Use this repo? [Y/n]: " use_detected
+        if [[ ! "$use_detected" =~ ^[Nn]$ ]]; then
+            PROJECT_GITHUB_REPO="$detected_repo"
+        fi
+    fi
+
+    if [[ -z "$PROJECT_GITHUB_REPO" ]]; then
+        echo ""
+        read -p "   GitHub owner/org: " github_owner
+        read -p "   Repository name: " github_name
+        PROJECT_GITHUB_REPO="${github_owner}/${github_name}"
+    fi
+
+    # Validate format
+    if ! validate_github_repo "$PROJECT_GITHUB_REPO"; then
+        log_warning "Invalid repo format — skipping GitHub registration for this project"
+        PROJECT_GITHUB_REPO=""
+        return 0
+    fi
+
+    # Prompt for branch
+    read -p "   Branch to sync [main]: " branch_input
+    if [[ -n "$branch_input" ]]; then
+        PROJECT_GITHUB_BRANCH="$branch_input"
+    fi
+
+    # Test connection with existing token (do NOT prompt for a new one)
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        echo ""
+        log_info "Testing GitHub connection for $PROJECT_GITHUB_REPO..."
+        local http_code
+        http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${PROJECT_GITHUB_REPO}" \
+            --connect-timeout 10 --max-time 15 2>/dev/null) || http_code="000"
+
+        if [[ "$http_code" == "200" ]]; then
+            log_success "GitHub connection verified (HTTP 200) — repo: $PROJECT_GITHUB_REPO"
+        else
+            log_warning "GitHub connection test returned HTTP $http_code for $PROJECT_GITHUB_REPO"
+            log_info "The project will be registered but sync may fail — verify PAT has access to this repo"
+        fi
+    else
+        log_warning "No GITHUB_TOKEN found — cannot verify repo access (project will still be registered)"
+    fi
+
+    # --- Jira for this project ---
+    echo ""
+    read -p "   Does this project have Jira boards? [y/N]: " jira_choice
+    if [[ "$jira_choice" =~ ^[Yy]$ ]]; then
+        read -p "   Jira project keys (comma-separated, e.g. PROJ,BACKEND): " jira_keys
+        if [[ -n "$jira_keys" ]]; then
+            PROJECT_JIRA_ENABLED="true"
+            PROJECT_JIRA_PROJECTS="$jira_keys"
+            log_success "Jira projects for this project: $PROJECT_JIRA_PROJECTS"
+        else
+            log_warning "No Jira keys entered — Jira disabled for this project"
+        fi
+    fi
+    echo ""
 }
 
 # Interactive configuration prompts
@@ -830,6 +996,8 @@ main() {
         update_shared_scripts
         # Verify services are running in add-project mode
         verify_services_running
+        # Prompt for project-specific GitHub repo and Jira config
+        configure_project_sources
     fi
 
     # Project-level setup - runs for both modes
@@ -843,7 +1011,17 @@ main() {
     setup_parzival
 
     # BUG-243: Register project for GitHub sync — parity between interactive and non-interactive
-    if [[ "$GITHUB_SYNC_ENABLED" == "true" && -n "$GITHUB_REPO" ]]; then
+    if [[ "$INSTALL_MODE" == "add-project" && "$GITHUB_SYNC_ENABLED" == "true" && -n "${PROJECT_GITHUB_REPO:-}" ]]; then
+        # Add-project mode: use project-specific repo/Jira from configure_project_sources
+        register_project_sync "$PROJECT_NAME" "$PROJECT_GITHUB_REPO" "$PROJECT_PATH" \
+            "${PROJECT_GITHUB_BRANCH:-main}" "${PROJECT_JIRA_ENABLED:-false}" "${PROJECT_JIRA_PROJECTS:-}"
+        # Restart github-sync container to pick up new project config
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "github-sync"; then
+            log_info "Restarting github-sync to pick up new project..."
+            docker restart "${CONTAINER_PREFIX}-github-sync" 2>/dev/null || true
+        fi
+    elif [[ "$GITHUB_SYNC_ENABLED" == "true" && -n "$GITHUB_REPO" ]]; then
+        # Full install mode: use global GITHUB_REPO
         register_project_sync "$PROJECT_NAME" "$GITHUB_REPO" "$PROJECT_PATH" "${GITHUB_BRANCH:-main}"
     fi
 
