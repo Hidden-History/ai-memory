@@ -4152,6 +4152,12 @@ setup_parzival() {
             log_debug "Cleaned up stale team-prompt workflow (superseded by aim-parzival-team-builder skill)"
         fi
 
+        # Remove deleted parzival-team command (DEC-148, v2.2.6 — replaced by [TP] menu item)
+        if [[ -f "$PROJECT_PATH/.claude/commands/pov/parzival-team.md" ]]; then
+            rm -f "$PROJECT_PATH/.claude/commands/pov/parzival-team.md"
+            log_debug "Cleaned up stale parzival-team.md command (replaced by aim-parzival-team-builder skill)"
+        fi
+
         # Remove stale teams archive
         if [[ -d "$PROJECT_PATH/_ai-memory/pov/teams/archive" ]]; then
             rm -rf "$PROJECT_PATH/_ai-memory/pov/teams/archive"
