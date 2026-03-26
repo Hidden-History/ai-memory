@@ -5,6 +5,66 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Batch GitHub Sync + Include Overrides
+
+Batched code blob sync with bounded concurrency and path-level include/exclude overrides for GitHub code blob indexing. Cherry-picked from contributor fork ([thecontstruct/ai-memory](https://github.com/thecontstruct/ai-memory)) with 36 adversarial review findings resolved across 2 review waves.
+
+### Added
+- **Batched code blob sync** (#76): Bounded file concurrency and batched embed+store for GitHub code blob ingestion. Configurable `file_concurrency` and `chunk_batch_size`. Supersede correctness (prior blob hash only), partial-batch rollback with `PointIdsList`, circuit-breaker consistency.
+- **Path-level include overrides** (#77): `GITHUB_CODE_BLOB_INCLUDE` env var — comma-separated glob patterns to force-include files that would normally be filtered. Binary protection always wins. `GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE` sets a hard ceiling (default: 5x `GITHUB_CODE_BLOB_MAX_SIZE`, max: 10MB).
+- **`store_code_blobs_batch()`**: New batch storage method in `MemoryStorage` with sub-batch upserts, embedding count validation, and deterministic point IDs.
+- **Shared `detect_language()`**: Language detection moved from `code_sync.py` to `extraction.py` for reuse. Case-insensitive Dockerfile detection. `.dockerfile` extension supported.
+- **766 lines of new tests**: 2 new test files (`test_code_sync_batching.py`, `test_github_code_blob_batch_storage.py`) + 4 modified test files.
+
+### Changed
+- **Circuit breaker thread safety**: `RLock` protects all `ProviderState` mutations (safe with `asyncio.to_thread` concurrency).
+- **Event loop safety**: `_get_stored_blob_map`, `_update_last_synced`, and `_supersede_old_blobs` wrapped in `asyncio.to_thread` (were blocking the event loop).
+- **Supersede guard**: Batch path requires both full chunk completeness AND real embeddings before superseding old blobs (prevents replacing good data with zero-vector fallbacks).
+- **`store_memories_batch()`**: Now uses sub-batch upserts (64-point cap) to avoid Qdrant gRPC 64MB limit. Shallow-copies input dicts to prevent caller mutation. Guards against `None` embeddings.
+- **Pattern validation**: Bare `*` and `*.` patterns rejected (were matching everything via `endswith("")`). Structured logging with `setting_name` context.
+
+### Activation Instructions
+
+These features are **opt-in**. To activate include overrides:
+
+#### Step 1: Add environment variables
+
+Add to your `~/.ai-memory/docker/.env`:
+
+```bash
+# Force-include specific file patterns (bypasses standard filter skips, NOT binary protection)
+# Supported: *.ext (extension match) or bare-token (path segment match, e.g. Makefile)
+# NOT supported: path patterns with / (e.g. src/*.py), bare * or *. (too broad)
+GITHUB_CODE_BLOB_INCLUDE=*.yaml,*.toml,Makefile,Dockerfile
+
+# Hard ceiling for explicitly included files (default: 512000 = 5x base, max: 10MB)
+# GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE=512000
+```
+
+#### Step 2: Rebuild and recreate github-sync
+
+```bash
+cd ~/.ai-memory/docker
+unset QDRANT_API_KEY
+docker compose build --no-cache github-sync
+docker compose up -d github-sync
+```
+
+#### Step 3: Verify
+
+Check logs for include pattern parsing:
+```bash
+docker compose logs --tail=30 github-sync
+```
+
+Look for successful sync messages with included file types. No `invalid_include_pattern_ignored` warnings should appear for valid patterns.
+
+### Fixed
+- **36 adversarial review findings**: 7 CRITICAL (rollback dead code, PointIdsList wrapper, supersede guards, pattern wildcards), 9 HIGH (thread safety, event loop blocking, config ceiling, embedding guards), 12 MEDIUM, 8 LOW across 2 review waves (Opus + Sonnet adversarial).
+- **Language map regressions**: Restored `"bash"` value (was changed to `"shell"`), added `.dockerfile` extension, case-insensitive Dockerfile detection.
+
+---
+
 ## [2.2.4] - 2026-03-26
 
 Parzival V2.1 shim architecture, 7 dispatch skills, and PLAN-018 Zero Debt Sprint: floating-point precision, reclassification protection, log level env var rename, Langfuse optional deps, SQL injection hardening, and full semantic tag coverage across all 108 hook trace calls.
