@@ -300,6 +300,156 @@ configure_project_name() {
     log_info "Project name set to: $PROJECT_NAME"
 }
 
+# Discover Jira projects via API and let user select by number (add-project mode helper)
+# Reads JIRA_INSTANCE_URL, JIRA_EMAIL, JIRA_API_TOKEN from env or .env file
+# Sets globals: PROJECT_JIRA_ENABLED, PROJECT_JIRA_PROJECTS
+# Returns 0 on success (projects selected), 1 on cancel/failure/no credentials
+discover_jira_projects() {
+    local env_file="$INSTALL_DIR/docker/.env"
+    local jira_url jira_email jira_token
+
+    # Load Jira credentials from environment, falling back to .env file
+    jira_url="${JIRA_INSTANCE_URL:-}"
+    jira_email="${JIRA_EMAIL:-}"
+    jira_token="${JIRA_API_TOKEN:-}"
+
+    if [[ -f "$env_file" ]]; then
+        local _val
+        if [[ -z "$jira_url" ]]; then
+            _val=$(grep '^JIRA_INSTANCE_URL=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            [[ -n "$_val" ]] && jira_url="$_val"
+        fi
+        if [[ -z "$jira_email" ]]; then
+            _val=$(grep '^JIRA_EMAIL=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            [[ -n "$_val" ]] && jira_email="$_val"
+        fi
+        if [[ -z "$jira_token" ]]; then
+            _val=$(grep '^JIRA_API_TOKEN=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            [[ -n "$_val" ]] && jira_token="$_val"
+        fi
+    fi
+
+    # Bail if credentials are missing
+    if [[ -z "$jira_url" || -z "$jira_email" || -z "$jira_token" ]]; then
+        log_warning "Jira credentials not configured -- run fresh install to set up Jira"
+        PROJECT_JIRA_ENABLED="false"
+        PROJECT_JIRA_PROJECTS=""
+        return 1
+    fi
+
+    # Strip trailing slash for consistent URL handling
+    jira_url="${jira_url%/}"
+
+    # Build Basic auth header (same as fresh install path)
+    local jira_auth
+    jira_auth=$(printf '%s:%s' "$jira_email" "$jira_token" | base64 | tr -d '\n')
+
+    # Fetch project list from Jira API
+    log_info "Fetching available Jira projects..."
+    local projects_json
+    projects_json=$(curl -s \
+        -H "Authorization: Basic $jira_auth" \
+        -H "Content-Type: application/json" \
+        "${jira_url}/rest/api/3/project/search?maxResults=100" \
+        --connect-timeout 10 --max-time 15 2>/dev/null) || projects_json=""
+
+    if [[ -z "$projects_json" ]]; then
+        log_warning "Could not reach Jira API -- falling back to manual entry"
+        read -p "   Jira project keys (comma-separated, e.g. PROJ,BACKEND): " jira_keys
+        if [[ -n "$jira_keys" ]]; then
+            PROJECT_JIRA_ENABLED="true"
+            PROJECT_JIRA_PROJECTS="$jira_keys"
+            log_success "Jira projects for this project: $PROJECT_JIRA_PROJECTS"
+            return 0
+        else
+            log_warning "No Jira keys entered -- Jira disabled for this project"
+            PROJECT_JIRA_ENABLED="false"
+            PROJECT_JIRA_PROJECTS=""
+            return 1
+        fi
+    fi
+
+    # Parse and display project list
+    local project_list
+    project_list=$(python3 -c "
+import json, sys
+try:
+    data = json.loads(sys.stdin.read())
+    projects = data.get('values', data) if isinstance(data, dict) else data
+    if not isinstance(projects, list) or len(projects) == 0:
+        print('EMPTY')
+        sys.exit(0)
+    for i, p in enumerate(projects, 1):
+        print(f\"{i}. {p['key']}: {p.get('name', p['key'])}\")
+except Exception:
+    print('ERROR')
+" <<< "$projects_json" 2>/dev/null) || project_list="ERROR"
+
+    if [[ "$project_list" == "EMPTY" || "$project_list" == "ERROR" || -z "$project_list" ]]; then
+        log_warning "Could not parse project list -- falling back to manual entry"
+        read -p "   Jira project keys (comma-separated, e.g. PROJ,BACKEND): " jira_keys
+        if [[ -n "$jira_keys" ]]; then
+            PROJECT_JIRA_ENABLED="true"
+            PROJECT_JIRA_PROJECTS="$jira_keys"
+            log_success "Jira projects for this project: $PROJECT_JIRA_PROJECTS"
+            return 0
+        else
+            log_warning "No Jira keys entered -- Jira disabled for this project"
+            PROJECT_JIRA_ENABLED="false"
+            PROJECT_JIRA_PROJECTS=""
+            return 1
+        fi
+    fi
+
+    # Show numbered list and let user select
+    echo ""
+    echo "   Available projects on ${jira_url#https://}:"
+    echo "$project_list" | while IFS= read -r line; do
+        echo "     $line"
+    done
+    echo ""
+    read -p "   Which projects to sync? (comma-separated numbers, or 'all'): " project_selection
+
+    if [[ -z "$project_selection" ]]; then
+        log_warning "No projects selected -- Jira disabled for this project"
+        PROJECT_JIRA_ENABLED="false"
+        PROJECT_JIRA_PROJECTS=""
+        return 1
+    fi
+
+    local selected_keys=""
+    if [[ "$project_selection" == "all" ]]; then
+        selected_keys=$(python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+projects = data.get('values', data) if isinstance(data, dict) else data
+print(','.join(p['key'] for p in projects))
+" <<< "$projects_json" 2>/dev/null) || selected_keys=""
+    else
+        selected_keys=$(_PROJ_SEL="$project_selection" python3 -c "
+import json, sys, os
+data = json.loads(sys.stdin.read())
+projects = data.get('values', data) if isinstance(data, dict) else data
+sel_input = os.environ.get('_PROJ_SEL', '')
+selections = [int(s.strip()) for s in sel_input.split(',') if s.strip().isdigit()]
+keys = [projects[i-1]['key'] for i in selections if 0 < i <= len(projects)]
+print(','.join(keys))
+" <<< "$projects_json" 2>/dev/null) || selected_keys=""
+    fi
+
+    if [[ -n "$selected_keys" ]]; then
+        PROJECT_JIRA_ENABLED="true"
+        PROJECT_JIRA_PROJECTS="$selected_keys"
+        log_success "Jira projects for this project: $PROJECT_JIRA_PROJECTS"
+        return 0
+    else
+        log_warning "No valid projects selected -- Jira disabled for this project"
+        PROJECT_JIRA_ENABLED="false"
+        PROJECT_JIRA_PROJECTS=""
+        return 1
+    fi
+}
+
 # Configure project-specific GitHub repo and Jira settings (add-project mode)
 # Sets: PROJECT_GITHUB_REPO, PROJECT_GITHUB_BRANCH, PROJECT_JIRA_ENABLED, PROJECT_JIRA_PROJECTS
 # Side-effects: may set GITHUB_TOKEN and GITHUB_SYNC_ENABLED from .env if unset
@@ -510,32 +660,20 @@ else:
         log_warning "No GITHUB_TOKEN found — cannot verify repo access (project will still be registered)"
     fi
 
-    # --- Jira for this project ---
+    # --- Jira for this project (auto-discovery via API) ---
     echo ""
     if [[ "$PROJECT_JIRA_ENABLED" == "true" ]]; then
-        read -p "   Jira is currently enabled (keys: $PROJECT_JIRA_PROJECTS). Keep? [Y/n]: " jira_choice
-        if [[ "$jira_choice" =~ ^[Nn]$ ]]; then
-            PROJECT_JIRA_ENABLED="false"
-            PROJECT_JIRA_PROJECTS=""
-            log_info "Jira disabled for this project"
+        echo "   Jira is currently enabled (keys: $PROJECT_JIRA_PROJECTS)"
+        read -p "   Update Jira projects? [y/N]: " jira_choice
+        if [[ "$jira_choice" =~ ^[Yy]$ ]]; then
+            discover_jira_projects || true
         else
-            read -p "   Jira project keys [$PROJECT_JIRA_PROJECTS]: " jira_keys
-            if [[ -n "$jira_keys" ]]; then
-                PROJECT_JIRA_PROJECTS="$jira_keys"
-            fi
-            log_success "Jira projects for this project: $PROJECT_JIRA_PROJECTS"
+            log_success "Keeping existing Jira projects: $PROJECT_JIRA_PROJECTS"
         fi
     else
         read -p "   Does this project have Jira boards? [y/N]: " jira_choice
         if [[ "$jira_choice" =~ ^[Yy]$ ]]; then
-            read -p "   Jira project keys (comma-separated, e.g. PROJ,BACKEND): " jira_keys
-            if [[ -n "$jira_keys" ]]; then
-                PROJECT_JIRA_ENABLED="true"
-                PROJECT_JIRA_PROJECTS="$jira_keys"
-                log_success "Jira projects for this project: $PROJECT_JIRA_PROJECTS"
-            else
-                log_warning "No Jira keys entered — Jira disabled for this project"
-            fi
+            discover_jira_projects || true
         fi
     fi
     echo ""
