@@ -1067,12 +1067,12 @@ def discover_projects(config_dir: Path | None = None) -> dict[str, ProjectSyncCo
                 continue
             seen_stems.add(path.stem)
             try:
-                raw = yaml.safe_load(path.read_text())
+                raw = yaml.safe_load(path.read_text(encoding="utf-8"))
                 if not raw or not raw.get("project_id"):
                     logger.warning("Skipping %s: missing project_id", path.name)
                     continue
-                github = raw.get("github", {})
-                jira = raw.get("jira", {})
+                github = raw.get("github") or {}
+                jira = raw.get("jira") or {}
                 # Coerce jira.projects to list — a scalar YAML string
                 # ("projects: PROJ") arrives as str, not list.
                 jira_proj_raw = jira.get("projects", [])
