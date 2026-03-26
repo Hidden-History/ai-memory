@@ -49,7 +49,7 @@ detect-secrets>=1.4.0
 spacy>=3.8.0,<4.0.0
 
 # Cron schedule parsing for evaluator-scheduler daemon (S-16.5, DEC-110)
-croniter>=2.0.0,<3.0.0
+croniter>=2.0.0,<7.0.0
 
 # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
 langfuse>=3.0,<4.0.0

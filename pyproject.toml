@@ -57,7 +57,7 @@ dependencies = [
     # Security scanning - Layer 3 NER-based PII detection (SPEC-009)
     "spacy>=3.8.0,<4.0.0",
     # Cron schedule parsing for evaluator-scheduler daemon (S-16.5, DEC-110)
-    "croniter>=2.0.0,<3.0.0",
+    "croniter>=2.0.0,<7.0.0",
     # Auto-instrumentation for Anthropic SDK calls (SPEC-020 §6)
     "opentelemetry-instrumentation-anthropic>=0.1,<1.0.0",
 ]
