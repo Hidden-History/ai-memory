@@ -27,18 +27,54 @@ Parzival V2.1 shim architecture, 7 dispatch skills, and PLAN-018 Zero Debt Sprin
 
 ### Upgrade Instructions
 
-#### Step 1: Pull latest and run Option 1 installer
+> **Important**: The installer updates `docker/.env.example` but does **not** modify your `docker/.env`. You must add any new environment variables to your `.env` **before** running the installer.
+
+#### Step 1: Pull latest code
 
 ```bash
 cd /path/to/your/ai-memory-clone
 git pull origin main
+```
+
+#### Step 2: Update your environment variables
+
+Compare `docker/.env.example` (updated by pull) with your `~/.ai-memory/docker/.env` and add any new keys. The installer preserves your existing `.env` but does not add new variables from `.env.example`.
+
+**New in v2.2.4** — add these to your `~/.ai-memory/docker/.env` if missing:
+
+```bash
+# Section 3 — Feature Toggles (after SECURITY_SCANNING_ENABLED):
+MONITORING_ENABLED=true
+
+# Section 4.7 — GitHub Sync (uncomment if still commented):
+GITHUB_SYNC_TOTAL_TIMEOUT=1800
+GITHUB_SYNC_INSTALL_TIMEOUT=600
+GITHUB_SYNC_PER_FILE_TIMEOUT=60
+GITHUB_SYNC_CIRCUIT_BREAKER_THRESHOLD=5
+GITHUB_SYNC_CIRCUIT_BREAKER_RESET=60
+
+# Section 5 — Internal (after EMBEDDING_PORT):
+QDRANT_TIMEOUT=30
+QDRANT_USE_HTTPS=false
+
+# Section 5 — Internal (before GRAFANA_ADMIN_USER):
+AI_MEMORY_QUEUE_DIR=~/.ai-memory/queue
+```
+
+**If upgrading from pre-v2.2.4** — also rename these (old names still work with deprecation warning):
+- `BMAD_LOG_LEVEL` → `AI_MEMORY_LOG_LEVEL`
+- `BMAD_LOG_FORMAT` → `AI_MEMORY_LOG_FORMAT`
+
+#### Step 3: Run Option 1 installer
+
+```bash
 ./scripts/install.sh /path/to/your-project
 # Select Option 1 (Add project to existing installation)
 ```
 
-This syncs all code, scripts, monitoring, Docker files, skills, evaluators, and Parzival V2 package to your installation. Your `docker/.env` credentials are preserved automatically.
+This syncs all code, scripts, monitoring, Docker files, skills, evaluators, and Parzival V2 package to your installation. Your `docker/.env` credentials are preserved.
 
-#### Step 2: Rebuild containers with baked-in code
+#### Step 4: Rebuild containers with baked-in code
 
 Four containers have code copied into their Docker images at build time and must be rebuilt after any code update:
 
@@ -54,7 +90,7 @@ docker compose -f docker-compose.yml -f docker-compose.langfuse.yml \
   build --no-cache trace-flush-worker
 ```
 
-#### Step 3: Recreate rebuilt containers and restart volume-mounted containers
+#### Step 5: Recreate rebuilt containers and restart volume-mounted containers
 
 ```bash
 # Recreate containers with new images
@@ -66,20 +102,14 @@ docker compose -f docker-compose.yml -f docker-compose.langfuse.yml restart \
   streamlit evaluator-scheduler
 ```
 
-#### Step 4: Verify all containers are healthy
+#### Step 6: Verify all containers are healthy
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.langfuse.yml ps
 # All containers should show "(healthy)"
 ```
 
-#### Step 5: Update environment variables
-
-Rename log level env vars in `~/.ai-memory/docker/.env` (old names still work with a deprecation warning):
-- `BMAD_LOG_LEVEL` → `AI_MEMORY_LOG_LEVEL`
-- `BMAD_LOG_FORMAT` → `AI_MEMORY_LOG_FORMAT`
-
-#### Step 6: Langfuse (optional)
+#### Step 7: Langfuse (optional)
 
 If you use Langfuse observability, install the extras group:
 ```bash
