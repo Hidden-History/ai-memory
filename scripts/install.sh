@@ -1182,6 +1182,18 @@ update_shared_scripts() {
     # New env vars must be added manually to $INSTALL_DIR/docker/.env
     import_user_env
 
+    # Re-install Python deps in venv to pick up new/updated packages (e.g. croniter)
+    # Option 1 skips install_python_dependencies() — this ensures the venv stays current
+    local venv_dir="$INSTALL_DIR/.venv"
+    if [[ -d "$venv_dir" ]] && [[ -f "$INSTALL_DIR/pyproject.toml" ]]; then
+        log_info "Updating Python dependencies in venv..."
+        if "$venv_dir/bin/pip" install --retries 3 --timeout 120 -q -e "$INSTALL_DIR[dev]" 2>/dev/null; then
+            log_success "Python dependencies updated"
+        else
+            log_warning "Python dependency update failed — run manually: $venv_dir/bin/pip install -e \"$INSTALL_DIR[dev]\""
+        fi
+    fi
+
     log_success "Updated shared scripts and files"
 }
 

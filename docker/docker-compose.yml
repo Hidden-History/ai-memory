@@ -433,6 +433,8 @@ services:
       # Persist sync state across container restarts
       # Engine writes to Path.cwd()/.audit/state/ = /app/.audit/state/
       - ${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/github-state:/app/.audit/state
+      # Freshness scanner log directory (read_only: true blocks writes otherwise)
+      - ${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/github-state/logs:/app/.audit/logs
       # Multi-project config directory (PLAN-009)
       - ${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/config/projects.d:/config/projects.d:ro
     depends_on:
