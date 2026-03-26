@@ -37,6 +37,8 @@ LANGUAGE_MAP = {
     ".rs": "rust",
     ".java": "java",
     ".kt": "kotlin",
+    ".scala": "scala",
+    ".r": "r",
     ".rb": "ruby",
     ".php": "php",
     ".c": "c",
@@ -49,9 +51,30 @@ LANGUAGE_MAP = {
     ".yaml": "yaml",
     ".yml": "yaml",
     ".json": "json",
+    ".sh": "shell",
+    ".bash": "shell",
+    ".zsh": "shell",
+    ".groovy": "groovy",
+    ".less": "less",
+    ".xml": "xml",
+    ".properties": "properties",
+    ".toml": "toml",
+    ".ini": "ini",
+    ".cfg": "ini",
     ".html": "html",
     ".css": "css",
+    ".scss": "scss",
     ".sql": "sql",
+    ".rst": "rst",
+    ".tf": "terraform",
+    ".hcl": "hcl",
+    "Makefile": "makefile",
+    "CODEOWNERS": "text",
+    ".dockerignore": "text",
+    ".gitignore": "text",
+    ".editorconfig": "editorconfig",
+    "Dockerfile": "dockerfile",
+    "dockerfile": "dockerfile",
 }
 
 # High importance pattern indicators
@@ -175,8 +198,11 @@ def detect_language(file_path: str) -> str:
     Returns:
         Language name from LANGUAGE_MAP, or "unknown" if not recognized
     """
-    suffix = Path(file_path).suffix.lower()
-    language = LANGUAGE_MAP.get(suffix, "unknown")
+    path = Path(file_path)
+    suffix = path.suffix.lower()
+    language = LANGUAGE_MAP.get(suffix)
+    if language is None:
+        language = LANGUAGE_MAP.get(path.name, "unknown")
 
     logger.debug(
         "language_detected",

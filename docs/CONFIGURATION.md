@@ -791,6 +791,80 @@ export GITHUB_CODE_BLOB_ENABLED=false
 
 ---
 
+#### GITHUB_CODE_BLOB_MAX_SIZE
+**Purpose:** Standard size limit for code blob sync before include overrides are considered
+
+**Default:** `102400` (100 KB)
+
+**Format:** Integer (bytes)
+
+**Example:**
+```bash
+export GITHUB_CODE_BLOB_MAX_SIZE=102400
+export GITHUB_CODE_BLOB_MAX_SIZE=204800
+```
+
+**When to change:**
+- **Lower**: To reduce ingestion cost for large repositories
+- **Higher**: When moderately larger source/config files should sync by default
+
+---
+
+#### GITHUB_CODE_BLOB_INCLUDE
+**Purpose:** Explicitly include selected files even when exclude-pattern, unknown-language, or standard max-size filters would normally skip them
+
+**Default:** *(empty)*
+
+**Format:** Comma-separated patterns
+
+**Pattern rules:**
+- Patterns starting with `*` match as suffixes against the full path, for example `*.sh`
+- Bare tokens match exact path-segment names, for example `Makefile`
+
+**Example:**
+```bash
+export GITHUB_CODE_BLOB_INCLUDE="*.sh,*.groovy,Makefile,CODEOWNERS,.dockerignore"
+```
+
+**Precedence:**
+1. Binary-file skips always win
+2. Explicit include can override `GITHUB_CODE_BLOB_MAX_SIZE`, `GITHUB_CODE_BLOB_EXCLUDE`, and unknown-language rejection
+3. `GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE` remains the hard ceiling for explicitly included files
+
+---
+
+#### GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE
+**Purpose:** Hard ceiling for explicitly included files
+
+**Default:** `5 × GITHUB_CODE_BLOB_MAX_SIZE`
+
+**Format:** Integer (bytes)
+
+**Example:**
+```bash
+export GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE=512000
+```
+
+**When to change:**
+- **Lower**: To keep explicitly included large files from inflating embedding cost
+- **Higher**: When selected oversized text files should still sync
+
+---
+
+#### GITHUB_CODE_BLOB_EXCLUDE
+**Purpose:** Skip matching paths during code blob sync unless an explicit include overrides them
+
+**Default:** `node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info`
+
+**Format:** Comma-separated patterns using the same matching rules as `GITHUB_CODE_BLOB_INCLUDE`
+
+**Example:**
+```bash
+export GITHUB_CODE_BLOB_EXCLUDE="node_modules,dist,*.min.js"
+```
+
+---
+
 ## 🤖 Feature Configuration
 
 ### Parzival Session Agent

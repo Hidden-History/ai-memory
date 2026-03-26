@@ -22,7 +22,11 @@ from typing import Any
 
 from qdrant_client import models
 
-from memory.config import MemoryConfig, get_config
+from memory.config import (
+    GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE_MULTIPLIER,
+    MemoryConfig,
+    get_config,
+)
 
 # LANGFUSE: Uses direct SDK (Path B). See LANGFUSE-INTEGRATION-SPEC.md §3.2, §7.3
 # SDK VERSION: V3 ONLY. Use get_client(), observe(), propagate_attributes().
@@ -66,6 +70,7 @@ from memory.connectors.github.client import (  # noqa: E402
     GitHubClient,
     GitHubClientError,
 )
+from memory.extraction import detect_language as detect_language_from_path  # noqa: E402
 from memory.connectors.github.schema import (  # noqa: E402
     GITHUB_COLLECTION,
     SOURCE_AUTHORITY_MAP,
@@ -105,48 +110,6 @@ class CodeSyncResult:
 # ---------------------------------------------------------------------------
 # 3.2  Language Detection
 # ---------------------------------------------------------------------------
-
-# File extension -> language mapping
-LANGUAGE_MAP: dict[str, str] = {
-    ".py": "python",
-    ".js": "javascript",
-    ".ts": "typescript",
-    ".jsx": "javascript",
-    ".tsx": "typescript",
-    ".java": "java",
-    ".go": "go",
-    ".rs": "rust",
-    ".rb": "ruby",
-    ".php": "php",
-    ".c": "c",
-    ".cpp": "cpp",
-    ".h": "c",
-    ".hpp": "cpp",
-    ".cs": "csharp",
-    ".swift": "swift",
-    ".kt": "kotlin",
-    ".scala": "scala",
-    ".r": "r",
-    ".sql": "sql",
-    ".sh": "bash",
-    ".bash": "bash",
-    ".zsh": "bash",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".json": "json",
-    ".toml": "toml",
-    ".ini": "ini",
-    ".cfg": "ini",
-    ".xml": "xml",
-    ".html": "html",
-    ".css": "css",
-    ".scss": "scss",
-    ".md": "markdown",
-    ".rst": "rst",
-    ".dockerfile": "dockerfile",
-    ".tf": "terraform",
-    ".hcl": "hcl",
-}
 
 # Binary file extensions to always skip
 BINARY_EXTENSIONS: set[str] = {
@@ -197,7 +160,7 @@ BINARY_EXTENSIONS: set[str] = {
 
 
 def detect_language(file_path: str) -> str:
-    """Detect programming language from file extension.
+    """Detect programming language from the shared extraction classifier.
 
     Args:
         file_path: File path in repository
@@ -205,11 +168,7 @@ def detect_language(file_path: str) -> str:
     Returns:
         Language name string, or "unknown" if not recognized
     """
-    ext = PurePosixPath(file_path).suffix.lower()
-    # Handle Dockerfile (no extension)
-    if PurePosixPath(file_path).name.lower() == "dockerfile":
-        return "dockerfile"
-    return LANGUAGE_MAP.get(ext, "unknown")
+    return detect_language_from_path(file_path)
 
 
 def is_binary_file(file_path: str) -> bool:
@@ -223,6 +182,49 @@ def is_binary_file(file_path: str) -> bool:
     """
     ext = PurePosixPath(file_path).suffix.lower()
     return ext in BINARY_EXTENSIONS
+
+
+def _parse_filter_patterns(raw_patterns: str, *, setting_name: str) -> list[str]:
+    """Parse comma-separated include/exclude patterns with basic validation."""
+    patterns: list[str] = []
+    for raw_pattern in raw_patterns.split(","):
+        pattern = raw_pattern.strip()
+        if not pattern:
+            continue
+
+        if "/" in pattern and not pattern.startswith("*"):
+            logger.warning(
+                "Ignoring %s pattern %r: bare tokens must be exact path-segment names",
+                setting_name,
+                pattern,
+            )
+            continue
+
+        patterns.append(pattern)
+    return patterns
+
+
+def _path_matches_pattern(file_path: str, pattern: str) -> bool:
+    """Match patterns using the same two-mode rules as exclude filters."""
+    if pattern.startswith("*"):
+        return file_path.endswith(pattern[1:])
+    return pattern in PurePosixPath(file_path).parts
+
+
+def _matches_any_pattern(file_path: str, patterns: list[str]) -> bool:
+    """Return True when file_path matches any configured filter pattern."""
+    return any(_path_matches_pattern(file_path, pattern) for pattern in patterns)
+
+
+def _resolve_include_max_size(config: MemoryConfig) -> int:
+    """Return the effective hard ceiling for explicitly included files."""
+    include_max_size = getattr(config, "github_code_blob_include_max_size", None)
+    if include_max_size is None:
+        return (
+            config.github_code_blob_max_size
+            * GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE_MULTIPLIER
+        )
+    return include_max_size
 
 
 # ---------------------------------------------------------------------------
@@ -693,11 +695,15 @@ class CodeBlobSync:
         if not self._group_id:
             raise ValueError("No repo specified and GITHUB_REPO not configured")
         self._branch = branch or self.config.github_branch
-        self._exclude_patterns = [
-            p.strip()
-            for p in self.config.github_code_blob_exclude.split(",")
-            if p.strip()
-        ]
+        self._exclude_patterns = _parse_filter_patterns(
+            getattr(self.config, "github_code_blob_exclude", "") or "",
+            setting_name="github_code_blob_exclude",
+        )
+        self._include_patterns = _parse_filter_patterns(
+            getattr(self.config, "github_code_blob_include", "") or "",
+            setting_name="github_code_blob_include",
+        )
+        self._include_max_size = _resolve_include_max_size(self.config)
 
         # BUG-112: Circuit breaker for code blob sync resilience
         from memory.classifier.circuit_breaker import CircuitBreaker
@@ -803,15 +809,117 @@ class CodeBlobSync:
                     len(tree_entries),
                 )
 
-                # Step 4: Sync each eligible file with timeouts and circuit breaker
+                # Step 4: Sync eligible files with bounded concurrency, timeouts, CB
                 cb_provider = "code_blob_sync"  # Circuit breaker provider key
-                for idx, (entry, stored_hash) in enumerate(eligible_entries):
-                    file_path = entry["path"]
+                file_concurrency = max(1, self.config.github_code_blob_file_concurrency)
+                next_entry_index = 0
+                completed_files = 0
+                next_progress_log = 10
+                pending_tasks: dict[
+                    asyncio.Task[tuple[float, int | Exception]],
+                    tuple[dict[str, Any], str | None],
+                ] = {}
 
-                    # BUG-112: Total timeout check
-                    elapsed = time.monotonic() - start
-                    if elapsed >= total_timeout:
-                        remaining = total_eligible - idx
+                def _remaining_files() -> int:
+                    return total_eligible - completed_files
+
+                def _record_total_timeout(elapsed: float) -> None:
+                    result.error_details.append(
+                        f"total_timeout: stopped after {completed_files}/{total_eligible} files ({elapsed:.0f}s)"
+                    )
+
+                def _record_circuit_breaker_open() -> None:
+                    result.error_details.append(
+                        f"circuit_breaker_open: stopped after {completed_files}/{total_eligible} files"
+                    )
+
+                async def _sync_entry(
+                    entry_pair: tuple[dict[str, Any], str | None],
+                ) -> int:
+                    entry, stored_hash = entry_pair
+                    return await self._sync_file(entry, batch_id, stored_hash)
+
+                async def _run_sync_entry(
+                    entry_pair: tuple[dict[str, Any], str | None],
+                ) -> tuple[float, int | Exception]:
+                    try:
+                        outcome = await asyncio.wait_for(
+                            _sync_entry(entry_pair), timeout=per_file_timeout
+                        )
+                    except Exception as e:
+                        return (time.monotonic(), e)
+                    return (time.monotonic(), outcome)
+
+                async def _cancel_pending(cancel_reason: str) -> None:
+                    cancelled = len(pending_tasks)
+                    for task in pending_tasks:
+                        task.cancel()
+                    if not pending_tasks:
+                        return
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+                    pending_tasks.clear()
+                    logger.warning(
+                        "Cancelled %d in-flight code blob task(s) %s",
+                        cancelled,
+                        cancel_reason,
+                    )
+
+                while next_entry_index < total_eligible or pending_tasks:
+                    while (
+                        next_entry_index < total_eligible
+                        and len(pending_tasks) < file_concurrency
+                    ):
+                        elapsed = time.monotonic() - start
+                        if elapsed >= total_timeout:
+                            remaining = _remaining_files()
+                            logger.warning(
+                                "Code blob sync total timeout reached (%.0fs >= %ds). "
+                                "Stopping with %d files remaining.",
+                                elapsed,
+                                total_timeout,
+                                remaining,
+                            )
+                            await _cancel_pending("due to total timeout")
+                            _record_total_timeout(elapsed)
+                            next_entry_index = total_eligible
+                            break
+
+                        if not self._circuit_breaker.is_available(cb_provider):
+                            remaining = _remaining_files()
+                            logger.warning(
+                                "Code blob sync circuit breaker OPEN after %d consecutive failures. "
+                                "Stopping with %d files remaining.",
+                                self._circuit_breaker.failure_threshold,
+                                remaining,
+                            )
+                            await _cancel_pending("after circuit breaker opened")
+                            _record_circuit_breaker_open()
+                            next_entry_index = total_eligible
+                            break
+
+                        entry_pair = eligible_entries[next_entry_index]
+                        task = asyncio.create_task(_run_sync_entry(entry_pair))
+                        pending_tasks[task] = entry_pair
+                        next_entry_index += 1
+
+                    if not pending_tasks:
+                        continue
+
+                    remaining_total = total_timeout - (time.monotonic() - start)
+                    if remaining_total <= 0:
+                        await _cancel_pending("due to total timeout")
+                        _record_total_timeout(time.monotonic() - start)
+                        break
+
+                    done, _ = await asyncio.wait(
+                        set(pending_tasks),
+                        timeout=remaining_total,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+
+                    if not done:
+                        elapsed = time.monotonic() - start
+                        remaining = _remaining_files()
                         logger.warning(
                             "Code blob sync total timeout reached (%.0fs >= %ds). "
                             "Stopping with %d files remaining.",
@@ -819,59 +927,81 @@ class CodeBlobSync:
                             total_timeout,
                             remaining,
                         )
-                        result.error_details.append(
-                            f"total_timeout: stopped after {idx}/{total_eligible} files ({elapsed:.0f}s)"
-                        )
+                        await _cancel_pending("due to total timeout")
+                        _record_total_timeout(elapsed)
                         break
 
-                    # BUG-112: Circuit breaker check
+                    completed_outcomes: list[
+                        tuple[float, dict[str, Any], int | Exception]
+                    ] = []
+                    for task in done:
+                        entry, _ = pending_tasks.pop(task)
+                        try:
+                            finished_at, outcome = task.result()
+                        except asyncio.CancelledError:
+                            logger.warning("Cancelled sync for %s", entry["path"])
+                            continue
+                        completed_outcomes.append((finished_at, entry, outcome))
+
+                    breaker_opened_in_cycle = False
+                    for _, entry, outcome in sorted(
+                        completed_outcomes, key=lambda item: item[0]
+                    ):
+                        file_path = entry["path"]
+                        completed_files += 1
+                        if isinstance(outcome, asyncio.TimeoutError):
+                            logger.error(
+                                "Per-file timeout (%ds) for %s",
+                                per_file_timeout,
+                                file_path,
+                            )
+                            result.errors += 1
+                            result.error_details.append(
+                                f"{file_path}: per_file_timeout ({per_file_timeout}s)"
+                            )
+                            self._circuit_breaker.record_failure(cb_provider, "timeout")
+                            if not self._circuit_breaker.is_available(cb_provider):
+                                breaker_opened_in_cycle = True
+                        elif isinstance(outcome, Exception):
+                            logger.error(
+                                "Failed to sync file %s: %s", file_path, outcome
+                            )
+                            result.errors += 1
+                            result.error_details.append(f"{file_path}: {outcome}")
+                            self._circuit_breaker.record_failure(
+                                cb_provider, type(outcome).__name__
+                            )
+                            if not self._circuit_breaker.is_available(cb_provider):
+                                breaker_opened_in_cycle = True
+                        else:
+                            result.files_synced += 1
+                            result.chunks_created += int(outcome)
+                            if not breaker_opened_in_cycle:
+                                self._circuit_breaker.record_success(cb_provider)
+
+                    if (
+                        completed_files >= next_progress_log
+                        and completed_files < total_eligible
+                    ):
+                        logger.info(
+                            "Code blob sync progress: %d/%d files (%.0fs elapsed)",
+                            completed_files,
+                            total_eligible,
+                            time.monotonic() - start,
+                        )
+                        next_progress_log += 10
+
                     if not self._circuit_breaker.is_available(cb_provider):
-                        remaining = total_eligible - idx
+                        remaining = _remaining_files()
                         logger.warning(
                             "Code blob sync circuit breaker OPEN after %d consecutive failures. "
                             "Stopping with %d files remaining.",
                             self._circuit_breaker.failure_threshold,
                             remaining,
                         )
-                        result.error_details.append(
-                            f"circuit_breaker_open: stopped after {idx}/{total_eligible} files"
-                        )
+                        await _cancel_pending("after circuit breaker opened")
+                        _record_circuit_breaker_open()
                         break
-
-                    # BUG-112: Progress logging every 10 files
-                    if idx > 0 and idx % 10 == 0:
-                        logger.info(
-                            "Code blob sync progress: %d/%d files (%.0fs elapsed)",
-                            idx,
-                            total_eligible,
-                            time.monotonic() - start,
-                        )
-
-                    # BUG-112: Per-file timeout via asyncio.wait_for
-                    try:
-                        chunks_stored = await asyncio.wait_for(
-                            self._sync_file(entry, batch_id, stored_hash),
-                            timeout=per_file_timeout,
-                        )
-                        result.files_synced += 1
-                        result.chunks_created += chunks_stored
-                        self._circuit_breaker.record_success(cb_provider)
-                    except asyncio.TimeoutError:
-                        logger.error(
-                            "Per-file timeout (%ds) for %s", per_file_timeout, file_path
-                        )
-                        result.errors += 1
-                        result.error_details.append(
-                            f"{file_path}: per_file_timeout ({per_file_timeout}s)"
-                        )
-                        self._circuit_breaker.record_failure(cb_provider, "timeout")
-                    except Exception as e:
-                        logger.error("Failed to sync file %s: %s", file_path, e)
-                        result.errors += 1
-                        result.error_details.append(f"{file_path}: {e}")
-                        self._circuit_breaker.record_failure(
-                            cb_provider, type(e).__name__
-                        )
 
                 # Step 5: Detect deleted files
                 deleted = await self._detect_deleted_files(
@@ -929,28 +1059,29 @@ class CodeBlobSync:
         """
         file_path = entry["path"]
         size = entry.get("size", 0)
+        is_explicitly_included = _matches_any_pattern(file_path, self._include_patterns)
 
         # Skip binary files
         if is_binary_file(file_path):
             return False
 
-        # Skip files exceeding size limit
-        if size > self.config.github_code_blob_max_size:
-            return False
-
-        # Skip excluded patterns
-        for pattern in self._exclude_patterns:
-            if pattern.startswith("*"):
-                # Extension pattern (e.g., *.min.js)
-                if file_path.endswith(pattern[1:]):
-                    return False
-            elif pattern in file_path.split("/"):
-                # Directory pattern (e.g., node_modules)
+        if is_explicitly_included:
+            if size > self._include_max_size:
+                logger.warning(
+                    "Skipping explicitly included file %s: size %d exceeds include hard ceiling %d",
+                    file_path,
+                    size,
+                    self._include_max_size,
+                )
+                return False
+        else:
+            if size > self.config.github_code_blob_max_size:
+                return False
+            if _matches_any_pattern(file_path, self._exclude_patterns):
                 return False
 
-        # Skip unknown languages (no value in embedding unrecognized files)
         language = detect_language(file_path)
-        return language != "unknown"
+        return is_explicitly_included or language != "unknown"
 
     async def _sync_file(
         self,
@@ -1002,42 +1133,76 @@ class CodeBlobSync:
         if not chunks:
             return 0
 
-        # Mark old versions as superseded (if updating)
-        if old_blob_hash:
-            self._supersede_old_blobs(file_path)
-
-        # Store each chunk via store_memory()
         now_iso = datetime.now(timezone.utc).isoformat()
-        stored_count = 0
+        source_authority = SOURCE_AUTHORITY_MAP.get("github_code_blob", 1.0)
+        file_url = f"https://github.com/{self._group_id}/blob/{self._branch}/{file_path}"
+        base_chunk_payload = {
+            "source": "github",
+            "github_id": 0,
+            "repo": self._group_id,
+            "timestamp": now_iso,
+            "last_synced": now_iso,
+            "url": file_url,
+            "version": 1,
+            "is_current": True,
+            "supersedes": None,
+            "update_batch_id": batch_id,
+            "source_authority": source_authority,
+            "decay_score": 1.0,
+            "freshness_status": "unverified",
+            "file_path": file_path,
+            "language": language,
+            "last_commit_sha": blob_sha,
+            "symbols": symbols,
+            "blob_hash": blob_sha,
+            "content_type": "github_code_blob",
+        }
 
-        for chunk in chunks:
-            content_hash = compute_content_hash(chunk.content)
-            source_authority = SOURCE_AUTHORITY_MAP.get("github_code_blob", 1.0)
-
+        def _build_chunk_payload(chunk: Any, *, include_content: bool) -> dict[str, Any]:
             payload = {
-                "source": "github",
-                "github_id": 0,  # Code blobs don't have issue/PR numbers
-                "repo": self._group_id,
-                "timestamp": now_iso,
-                "content_hash": content_hash,
-                "last_synced": now_iso,
-                "url": f"https://github.com/{self._group_id}/blob/"
-                f"{self._branch}/{file_path}",
-                "version": 1,
-                "is_current": True,
-                "supersedes": None,
-                "update_batch_id": batch_id,
-                "source_authority": source_authority,
-                "decay_score": 1.0,
-                "freshness_status": "unverified",
-                "file_path": file_path,
-                "language": language,
-                "last_commit_sha": blob_sha,
-                "symbols": symbols,
-                "blob_hash": blob_sha,
+                **base_chunk_payload,
+                "content_hash": compute_content_hash(chunk.content),
                 "chunk_index": chunk.chunk_index,
                 "total_chunks": chunk.total_chunks,
             }
+            if include_content:
+                payload["content"] = chunk.content
+            return payload
+
+        if self.config.github_code_blob_batch_storage_enabled:
+            chunk_items = [
+                _build_chunk_payload(chunk, include_content=True) for chunk in chunks
+            ]
+            try:
+                batch_results = await asyncio.to_thread(
+                    self.storage.store_github_code_blob_chunks_batch,
+                    chunk_items,
+                    cwd=str(Path.cwd()),
+                    collection=GITHUB_COLLECTION,
+                    group_id=self._group_id,
+                    memory_type=MemoryType.GITHUB_CODE_BLOB,
+                    source_hook="github_code_sync",
+                    session_id=batch_id,
+                    chunk_batch_size=self.config.github_code_blob_chunk_batch_size,
+                )
+                if old_blob_hash:
+                    self._supersede_old_blobs(file_path, old_blob_hash)
+                return sum(
+                    1
+                    for r in batch_results
+                    if r.get("status") == "stored"
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to batch-store chunks for %s: %s",
+                    file_path,
+                    e,
+                )
+                raise RuntimeError(f"batch store failed for {file_path}: {e}") from e
+
+        stored_count = 0
+        for chunk in chunks:
+            payload = _build_chunk_payload(chunk, include_content=False)
 
             try:
                 store_result = await asyncio.to_thread(
@@ -1061,6 +1226,9 @@ class CodeBlobSync:
                     file_path,
                     e,
                 )
+
+        if stored_count == len(chunks) and old_blob_hash:
+            self._supersede_old_blobs(file_path, old_blob_hash)
 
         return stored_count
 
@@ -1181,43 +1349,50 @@ class CodeBlobSync:
         except Exception as e:
             logger.warning("Failed to update last_synced for %s: %s", file_path, e)
 
-    def _supersede_old_blobs(self, file_path: str) -> None:
+    def _supersede_old_blobs(self, file_path: str, blob_hash: str | None = None) -> None:
         """Mark existing blobs for a file as superseded.
 
         Args:
             file_path: File path to supersede
+            blob_hash: Optional previous blob hash to limit superseding scope
         """
         try:
             # Paginate to collect all chunk point IDs
             offset = None
             all_point_ids = []
             while True:
+                must_filters = [
+                    models.FieldCondition(
+                        key="group_id",
+                        match=models.MatchValue(value=self._group_id),
+                    ),
+                    models.FieldCondition(
+                        key="source",
+                        match=models.MatchValue(value="github"),
+                    ),
+                    models.FieldCondition(
+                        key="type",
+                        match=models.MatchValue(value="github_code_blob"),
+                    ),
+                    models.FieldCondition(
+                        key="file_path",
+                        match=models.MatchValue(value=file_path),
+                    ),
+                    models.FieldCondition(
+                        key="is_current",
+                        match=models.MatchValue(value=True),
+                    ),
+                ]
+                if blob_hash:
+                    must_filters.append(
+                        models.FieldCondition(
+                            key="blob_hash",
+                            match=models.MatchValue(value=blob_hash),
+                        )
+                    )
                 points, next_offset = self.qdrant.scroll(
                     collection_name=GITHUB_COLLECTION,
-                    scroll_filter=models.Filter(
-                        must=[
-                            models.FieldCondition(
-                                key="group_id",
-                                match=models.MatchValue(value=self._group_id),
-                            ),
-                            models.FieldCondition(
-                                key="source",
-                                match=models.MatchValue(value="github"),
-                            ),
-                            models.FieldCondition(
-                                key="type",
-                                match=models.MatchValue(value="github_code_blob"),
-                            ),
-                            models.FieldCondition(
-                                key="file_path",
-                                match=models.MatchValue(value=file_path),
-                            ),
-                            models.FieldCondition(
-                                key="is_current",
-                                match=models.MatchValue(value=True),
-                            ),
-                        ]
-                    ),
+                    scroll_filter=models.Filter(must=must_filters),
                     limit=100,
                     offset=offset,
                     with_payload=False,

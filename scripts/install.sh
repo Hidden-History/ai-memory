@@ -521,13 +521,9 @@ print(','.join(keys))
             fi
 
             # Auto-detect repo from .git remote
-            local detected_repo="" detected_owner="" detected_name=""
+            local detected_repo=""
             if [[ -d "$PROJECT_PATH/.git" ]]; then
                 detected_repo=$(cd "$PROJECT_PATH" && git remote get-url origin 2>/dev/null | sed -E 's|.*github\.com[:/](.+/[^.]+)(\.git)?$|\1|' || true)
-                if [[ -n "$detected_repo" ]]; then
-                    detected_owner="${detected_repo%%/*}"
-                    detected_name="${detected_repo##*/}"
-                fi
             fi
 
             if [[ -n "$detected_repo" ]]; then
@@ -1090,7 +1086,8 @@ update_shared_scripts() {
         local archive_dir="$INSTALL_DIR/.claude/hooks/scripts/.archived"
         for existing in "$hooks_dest"/*.py; do
             if [[ -f "$existing" ]]; then
-                local basename_hook=$(basename "$existing")
+                local basename_hook
+                basename_hook=$(basename "$existing")
                 local is_source=false
                 for src in "${source_hooks[@]}"; do
                     if [[ "$src" == "$basename_hook" ]]; then
@@ -1498,7 +1495,7 @@ install_python_dependencies() {
             log_info "To install manually:"
             log_info "  python3 -m venv $venv_dir"
             log_info "  source $venv_dir/bin/activate"
-            log_info "  pip install -e \"$INSTALL_DIR[dev]\""
+            log_info "  pip install -e \"${INSTALL_DIR}[dev]\""
             return 0  # Don't fail install
         fi
         log_success "Virtual environment created"
@@ -1506,7 +1503,7 @@ install_python_dependencies() {
 
     # Install in the installation venv (not user's venv)
     log_info "Installing with pip install -e \".[dev]\"..."
-    if "$venv_dir/bin/pip" install --retries 3 --timeout 120 -e "$INSTALL_DIR[dev]"; then
+    if "$venv_dir/bin/pip" install --retries 3 --timeout 120 -e "${INSTALL_DIR}[dev]"; then
         log_success "Python dependencies installed successfully"
         log_info "Hooks will use: $venv_dir/bin/python"
     fi
@@ -1799,6 +1796,8 @@ configure_environment() {
             echo "GITHUB_BRANCH=${GITHUB_BRANCH:-main}" >> "$docker_env"
             echo "GITHUB_CODE_BLOB_ENABLED=${GITHUB_CODE_BLOB_ENABLED:-true}" >> "$docker_env"
             echo "GITHUB_CODE_BLOB_MAX_SIZE=${GITHUB_CODE_BLOB_MAX_SIZE:-102400}" >> "$docker_env"
+            echo "GITHUB_CODE_BLOB_INCLUDE=${GITHUB_CODE_BLOB_INCLUDE:-}" >> "$docker_env"
+            echo "GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE=${GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE:-}" >> "$docker_env"
             echo "GITHUB_CODE_BLOB_EXCLUDE=${GITHUB_CODE_BLOB_EXCLUDE:-node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info}" >> "$docker_env"
             echo "GITHUB_SYNC_ON_START=${GITHUB_SYNC_ON_START:-true}" >> "$docker_env"
             log_debug "Added GitHub configuration to .env"
@@ -1906,6 +1905,8 @@ GITHUB_SYNC_INTERVAL=${GITHUB_SYNC_INTERVAL:-1800}
 GITHUB_BRANCH=${GITHUB_BRANCH:-main}
 GITHUB_CODE_BLOB_ENABLED=${GITHUB_CODE_BLOB_ENABLED:-true}
 GITHUB_CODE_BLOB_MAX_SIZE=${GITHUB_CODE_BLOB_MAX_SIZE:-102400}
+GITHUB_CODE_BLOB_INCLUDE=${GITHUB_CODE_BLOB_INCLUDE:-}
+GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE=${GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE:-}
 GITHUB_CODE_BLOB_EXCLUDE=${GITHUB_CODE_BLOB_EXCLUDE:-node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info}
 GITHUB_SYNC_ON_START=${GITHUB_SYNC_ON_START:-true}
 EOF
@@ -2503,7 +2504,8 @@ create_project_symlinks() {
         if [[ -L "$existing" && ! -e "$existing" ]]; then
             rm -f "$existing"  # broken symlink
         elif [[ -f "$existing" && ! -L "$existing" ]]; then
-            local bn=$(basename "$existing")
+            local bn
+            bn=$(basename "$existing")
             if [[ ! -f "$INSTALL_DIR/.claude/hooks/scripts/$bn" ]]; then
                 rm -f "$existing"  # stale regular file from prior copy-mode install
             fi
@@ -2543,7 +2545,8 @@ create_project_symlinks() {
         local archive_dir="$PROJECT_PATH/.claude/hooks/scripts/.archived"
         for existing in "$PROJECT_PATH/.claude/hooks/scripts"/*.py; do
             if [[ -f "$existing" ]]; then
-                local basename_hook=$(basename "$existing")
+                local basename_hook
+                basename_hook=$(basename "$existing")
                 # Check if this file exists in the shared install (source of truth)
                 if [[ ! -f "$INSTALL_DIR/.claude/hooks/scripts/$basename_hook" ]]; then
                     mkdir -p "$archive_dir"
@@ -3809,7 +3812,8 @@ deploy_oversight_templates() {
     while read -r tmpl_file; do
         local rel_path="${tmpl_file#$tmpl_source/}"
         local dest_file="$oversight_dest/$rel_path"
-        local dest_dir="$(dirname "$dest_file")"
+        local dest_dir
+        dest_dir="$(dirname "$dest_file")"
 
         mkdir -p "$dest_dir"
 

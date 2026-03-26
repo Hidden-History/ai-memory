@@ -804,6 +804,8 @@ class TestGitHubConfig:
         assert config.github_branch == "main"
         assert config.github_code_blob_enabled is True
         assert config.github_code_blob_max_size == 102400
+        assert config.github_code_blob_include == ""
+        assert config.github_code_blob_include_max_size == 512000
 
     def test_github_config_required_when_enabled(self):
         """Token and repo required when sync enabled."""
@@ -869,6 +871,23 @@ class TestGitHubConfig:
 
         with pytest.raises(ValueError):
             MemoryConfig(github_code_blob_max_size=500)  # Too low
+
+    def test_github_code_blob_include_max_size_can_be_overridden(self):
+        """Include ceiling honors explicit override when valid."""
+        from src.memory.config import MemoryConfig
+
+        config = MemoryConfig(github_code_blob_include_max_size=10 * 1024 * 1024)
+        assert config.github_code_blob_include_max_size == 10 * 1024 * 1024
+
+    def test_github_code_blob_include_max_size_must_cover_base_limit(self):
+        """Include ceiling must be >= base max size."""
+        from src.memory.config import MemoryConfig
+
+        with pytest.raises(ValueError):
+            MemoryConfig(
+                github_code_blob_max_size=200000,
+                github_code_blob_include_max_size=150000,
+            )
 
 
 # =============================================================================

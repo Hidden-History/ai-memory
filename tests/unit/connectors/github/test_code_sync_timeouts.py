@@ -38,12 +38,17 @@ def _make_sync(
     config.github_repo = "owner/repo"
     config.github_code_blob_enabled = True
     config.github_code_blob_max_size = 102400
+    config.github_code_blob_include = ""
+    config.github_code_blob_include_max_size = 512000
     config.github_code_blob_exclude = ""
     config.github_sync_total_timeout = total_timeout
     config.github_sync_install_timeout = 600
     config.github_sync_per_file_timeout = per_file_timeout
     config.github_sync_circuit_breaker_threshold = cb_threshold
     config.github_sync_circuit_breaker_reset = cb_reset
+    config.github_code_blob_file_concurrency = 1
+    config.github_code_blob_chunk_batch_size = 8
+    config.github_code_blob_batch_storage_enabled = False
     config.security_scanning_enabled = False
     config.github_token = MagicMock()
     config.github_token.get_secret_value.return_value = "ghp_test"

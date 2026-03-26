@@ -11,10 +11,12 @@ Implements Story 1.5 (Storage Module).
 Architecture Reference: architecture.md:516-690 (Storage & Graceful Degradation)
 """
 
+import contextlib
 import dataclasses
 import logging
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from qdrant_client.models import (
     FieldCondition,
@@ -1207,6 +1209,299 @@ class MemoryStorage:
                 ).inc()
 
             raise QdrantUnavailable(f"Failed to batch store memories: {e}") from e
+
+    def store_github_code_blob_chunks_batch(
+        self,
+        chunk_items: list[dict[str, Any]],
+        *,
+        cwd: str,
+        collection: str,
+        group_id: str,
+        memory_type: MemoryType,
+        source_hook: str,
+        session_id: str,
+        chunk_batch_size: int = 8,
+    ) -> list[dict]:
+        """Store pre-chunked GitHub code blobs with batched embeddings and upserts.
+
+        Skips IntelligentChunker and duplicate checks (callers already chunked;
+        code_sync performs security scan). Sub-batches embedding so one slow
+        batch degrades to pending vectors without failing prior sub-batches.
+
+        Args:
+            chunk_items: One dict per chunk; must include ``content`` and GitHub
+                payload fields (``file_path``, ``blob_hash``, ``chunk_index``, etc.).
+            cwd: Working directory for project detection when ``group_id`` omitted
+                on an item (items still default to ``group_id`` argument).
+            collection: Qdrant collection (typically ``github``).
+            group_id: Repository / project id for all points unless overridden per item.
+            memory_type: ``MemoryType.GITHUB_CODE_BLOB``.
+            source_hook: e.g. ``github_code_sync``.
+            session_id: Sync batch / session id.
+            chunk_batch_size: Max chunks per embed + upsert sub-batch.
+
+        Returns:
+            One result dict per input chunk (``memory_id``, ``status``, ``embedding_status``).
+        """
+        if not chunk_items:
+            return []
+
+        if cwd is None:
+            raise ValueError("cwd parameter is required for project-scoped storage")
+
+        default_group_id = group_id
+        if default_group_id is None:
+            try:
+                from .project import detect_project
+
+                default_group_id = detect_project(cwd)
+            except Exception as e:
+                logger.warning(
+                    "github_batch_project_detection_failed",
+                    extra={"cwd": cwd, "error": str(e)},
+                )
+                default_group_id = "unknown-project"
+
+        memory_type_enum = (
+            memory_type
+            if isinstance(memory_type, MemoryType)
+            else MemoryType(memory_type)
+        )
+
+        all_out: list[dict] = []
+        stored_point_ids: list[str] = []
+        sub_batch_size = max(1, chunk_batch_size)
+        payload_field_names = {field.name for field in dataclasses.fields(MemoryPayload)}
+        reserved_keys = {
+            "timestamp",
+            "created_at",
+            "content",
+            "content_hash",
+            "type",
+            "source_hook",
+            "session_id",
+            "group_id",
+            "collection",
+        }
+
+        def _split_row_fields(
+            row: dict[str, Any],
+        ) -> tuple[dict[str, Any], dict[str, Any]]:
+            payload_kwargs: dict[str, Any] = {}
+            extra_payload: dict[str, Any] = {}
+            for key, value in row.items():
+                if key in reserved_keys:
+                    continue
+                target = payload_kwargs if key in payload_field_names else extra_payload
+                target[key] = value
+            return payload_kwargs, extra_payload
+
+        def _build_chunking_metadata(
+            content: str, row: dict[str, Any]
+        ) -> dict[str, Any]:
+            token_count = len(content.split())
+            return {
+                "chunk_type": "whole",
+                "chunk_index": row.get("chunk_index", 0),
+                "total_chunks": row.get("total_chunks", 1),
+                "chunk_size_tokens": token_count,
+                "overlap_tokens": 0,
+                "original_size_tokens": token_count,
+                "truncated": False,
+            }
+
+        def _build_point_vector(
+            embedding: list[float], sparse_results: list | None, index: int
+        ) -> list[float] | dict[str, Any]:
+            if not (
+                isinstance(sparse_results, list)
+                and index < len(sparse_results)
+                and sparse_results[index]
+            ):
+                return embedding
+
+            sparse_row = sparse_results[index]
+            return {
+                "": embedding,
+                "bm25": SparseVector(
+                    indices=sparse_row["indices"], values=sparse_row["values"]
+                ),
+            }
+
+        try:
+            for start in range(0, len(chunk_items), sub_batch_size):
+                sub_batch = chunk_items[start : start + sub_batch_size]
+                prepared_rows: list[dict[str, Any]] = []
+
+                for raw in sub_batch:
+                    row = dict(raw)
+                    if row.get("group_id") is None:
+                        row["group_id"] = default_group_id
+                    row["type"] = memory_type_enum.value
+                    row["source_hook"] = source_hook
+                    row["session_id"] = session_id
+                    row.setdefault("content_type", "github_code_blob")
+                    if not row.get("content_hash"):
+                        row["content_hash"] = compute_content_hash(row["content"])
+
+                    errs = validate_payload(row)
+                    if errs:
+                        logger.error(
+                            "github_code_blob_batch_validation_failed",
+                            extra={"errors": errs, "group_id": row.get("group_id")},
+                        )
+                        raise ValueError(
+                            f"GitHub code blob batch validation failed: {errs}"
+                        )
+                    prepared_rows.append(row)
+
+                contents = [r["content"] for r in prepared_rows]
+                batch_embedding_status = EmbeddingStatus.COMPLETE
+                try:
+                    embeddings = self.embedding_client.embed(contents, model="code")
+                    if len(embeddings) != len(prepared_rows):
+                        raise EmbeddingError(
+                            "Embedding count mismatch for GitHub code blob batch"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "github_code_blob_batch_embedding_failed",
+                        extra={
+                            "error": str(e),
+                            "count": len(contents),
+                            "group_id": default_group_id,
+                        },
+                    )
+                    if failure_events_total:
+                        failure_events_total.labels(
+                            component="embedding",
+                            error_code="EMBEDDING_TIMEOUT",
+                            project=default_group_id,
+                        ).inc()
+                    embeddings = [[0.0] * 768 for _ in contents]
+                    batch_embedding_status = EmbeddingStatus.PENDING
+
+                sparse_for_sub: list | None = None
+                if self.config.hybrid_search_enabled:
+                    try:
+                        sparse_for_sub = self.embedding_client.embed_sparse(contents)
+                    except Exception as e:
+                        logger.warning(
+                            "github_code_blob_batch_sparse_failed",
+                            extra={"error": str(e), "count": len(contents)},
+                        )
+                        sparse_for_sub = None
+
+                points: list[PointStruct] = []
+                batch_out: list[dict] = []
+                for i, row in enumerate(prepared_rows):
+                    content = row["content"]
+                    created_at = row.get("created_at") or datetime.now(
+                        timezone.utc
+                    ).isoformat()
+                    gid = row["group_id"]
+                    content_hash = row["content_hash"]
+                    payload_kwargs, extra_payload = _split_row_fields(row)
+
+                    payload = MemoryPayload(
+                        content=content,
+                        content_hash=content_hash,
+                        group_id=gid,
+                        type=memory_type_enum,
+                        source_hook=source_hook,
+                        session_id=session_id,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        created_at=created_at,
+                        embedding_status=batch_embedding_status,
+                        **payload_kwargs,
+                    )
+
+                    payload_dict = {
+                        **payload.to_dict(),
+                        **extra_payload,
+                        "chunking_metadata": _build_chunking_metadata(content, row),
+                    }
+
+                    memory_key = (
+                        f"{gid}:{row.get('file_path', '')}:{row.get('blob_hash', '')}:"
+                        f"{content_hash}:{row.get('chunk_index', 0)}"
+                    )
+                    memory_id = str(uuid.uuid5(uuid.NAMESPACE_URL, memory_key))
+                    points.append(
+                        PointStruct(
+                            id=memory_id,
+                            vector=_build_point_vector(embeddings[i], sparse_for_sub, i),
+                            payload=payload_dict,
+                        )
+                    )
+                    batch_out.append(
+                        {
+                            "memory_id": memory_id,
+                            "status": "stored",
+                            "embedding_status": batch_embedding_status.value,
+                        }
+                    )
+
+                try:
+                    self.qdrant_client.upsert(collection_name=collection, points=points)
+                    stored_point_ids.extend(str(point.id) for point in points)
+                    logger.info(
+                        "github_code_blob_batch_stored",
+                        extra={
+                            "count": len(points),
+                            "collection": collection,
+                            "embedding_status": batch_embedding_status.value,
+                        },
+                    )
+                    all_out.extend(batch_out)
+                    if memory_captures_total:
+                        for _ in points:
+                            memory_captures_total.labels(
+                                hook_type=source_hook,
+                                status="success",
+                                project=default_group_id,
+                                collection=collection,
+                            ).inc()
+                except Exception as e:
+                    logger.error(
+                        "github_code_blob_batch_qdrant_failed",
+                        extra={
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                            "count": len(points),
+                        },
+                    )
+                    if failure_events_total:
+                        failure_events_total.labels(
+                            component="qdrant",
+                            error_code="QDRANT_UNAVAILABLE",
+                            project=default_group_id,
+                        ).inc()
+                    if memory_captures_total:
+                        for _ in points:
+                            memory_captures_total.labels(
+                                hook_type=source_hook,
+                                status="failed",
+                                project=default_group_id,
+                                collection=collection,
+                            ).inc()
+                    raise QdrantUnavailable(
+                        f"Failed to batch store GitHub code blobs: {e}"
+                    ) from e
+        except Exception:
+            if stored_point_ids:
+                with contextlib.suppress(Exception):
+                    self.qdrant_client.delete(
+                        collection_name=collection,
+                        points_selector=stored_point_ids,
+                    )
+                    logger.warning(
+                        "github_code_blob_batch_rolled_back",
+                        extra={"count": len(stored_point_ids), "collection": collection},
+                    )
+            raise
+
+        return all_out
 
     def get_by_id(self, memory_id: str, collection: str = "discussions") -> dict | None:
         """Retrieve a memory by its Qdrant point ID.

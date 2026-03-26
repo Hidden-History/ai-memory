@@ -15,6 +15,7 @@ Story: 2.3 - Pattern Extraction Logic
 import pytest
 
 from memory.extraction import (
+    LANGUAGE_MAP,
     assess_importance,
     build_enriched_content,
     detect_framework,
@@ -50,9 +51,23 @@ class TestLanguageDetection:
             (".yaml", "yaml"),
             (".yml", "yaml"),
             (".json", "json"),
+            (".sh", "shell"),
+            (".bash", "shell"),
+            (".zsh", "shell"),
+            (".groovy", "groovy"),
+            (".less", "less"),
+            (".xml", "xml"),
+            (".properties", "properties"),
+            (".toml", "toml"),
+            (".ini", "ini"),
+            (".cfg", "ini"),
             (".html", "html"),
             (".css", "css"),
+            (".scss", "scss"),
             (".sql", "sql"),
+            (".rst", "rst"),
+            (".tf", "terraform"),
+            (".hcl", "hcl"),
         ],
     )
     def test_detect_language_known_extensions(self, ext, expected):
@@ -70,10 +85,58 @@ class TestLanguageDetection:
         result = detect_language("/path/file.PY")
         assert result == "python"
 
-    def test_detect_language_no_extension(self):
-        """File without extension returns 'unknown'."""
-        result = detect_language("/path/Makefile")
-        assert result == "unknown"
+    @pytest.mark.parametrize(
+        "path,expected",
+        [
+            ("/path/Makefile", "makefile"),
+            ("/path/CODEOWNERS", "text"),
+            ("/path/.dockerignore", "text"),
+            ("/path/.gitignore", "text"),
+            ("/path/.editorconfig", "editorconfig"),
+        ],
+    )
+    def test_detect_language_special_files(self, path, expected):
+        """Supported special files resolve via basename lookup."""
+        result = detect_language(path)
+        assert result == expected
+
+    def test_language_map_contains_new_blob_include_entries(self):
+        """Plan-specific language additions are present with exact values."""
+        expected_entries = {
+            ".sh": "shell",
+            ".groovy": "groovy",
+            ".less": "less",
+            ".xml": "xml",
+            ".properties": "properties",
+            "Makefile": "makefile",
+            "CODEOWNERS": "text",
+            ".dockerignore": "text",
+            ".gitignore": "text",
+            ".editorconfig": "editorconfig",
+        }
+        for key, value in expected_entries.items():
+            assert LANGUAGE_MAP[key] == value
+
+    @pytest.mark.parametrize(
+        "path,expected",
+        [
+            ("/path/dockerfile", "dockerfile"),
+            ("/path/file.bash", "shell"),
+            ("/path/file.zsh", "shell"),
+            ("/path/file.toml", "toml"),
+            ("/path/file.ini", "ini"),
+            ("/path/file.cfg", "ini"),
+            ("/path/file.scss", "scss"),
+            ("/path/file.rst", "rst"),
+            ("/path/file.tf", "terraform"),
+            ("/path/file.hcl", "hcl"),
+            ("/path/file.scala", "scala"),
+            ("/path/file.r", "r"),
+        ],
+    )
+    def test_detect_language_preserves_existing_code_sync_support(self, path, expected):
+        """Shared classifier keeps legacy code-sync file support intact."""
+        assert detect_language(path) == expected
 
 
 class TestFrameworkDetection:

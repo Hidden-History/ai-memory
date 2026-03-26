@@ -43,6 +43,8 @@ GITHUB_SYNC_ENABLED=true
 GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 GITHUB_REPO=owner/repo-name
 GITHUB_SYNC_INTERVAL=1800
+GITHUB_CODE_BLOB_INCLUDE=*.sh,*.groovy,Makefile,CODEOWNERS,.dockerignore
+GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE=512000
 ```
 
 | Variable | Required | Default | Description |
@@ -51,11 +53,36 @@ GITHUB_SYNC_INTERVAL=1800
 | `GITHUB_TOKEN` | Yes* | *(empty)* | Personal Access Token (classic or fine-grained) |
 | `GITHUB_REPO` | Yes* | *(empty)* | Repository in `owner/repo` format |
 | `GITHUB_SYNC_INTERVAL` | No | `1800` | Sync frequency in seconds (default 30 minutes) |
-| `GITHUB_CODE_SYNC_ENABLED` | No | `true` | Enable syncing of code blobs separately from PRs/issues/commits |
-| `GITHUB_SYNC_LOOKBACK_DAYS` | No | `90` | How far back (in days) the initial full sync fetches history |
-| `GITHUB_SYNC_LOG_LEVEL` | No | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `GITHUB_CODE_BLOB_ENABLED` | No | `true` | Enable syncing of code blobs separately from PRs/issues/commits |
+| `GITHUB_CODE_BLOB_MAX_SIZE` | No | `102400` | Standard max file size for code blob sync before include overrides |
+| `GITHUB_CODE_BLOB_INCLUDE` | No | *(empty)* | Comma-separated include patterns that can override exclude, unknown-language, and standard size skips |
+| `GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE` | No | `5 × GITHUB_CODE_BLOB_MAX_SIZE` | Hard ceiling for explicitly included files |
+| `GITHUB_CODE_BLOB_EXCLUDE` | No | `node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info` | Comma-separated exclude patterns for code blob sync |
 
 *Required when `GITHUB_SYNC_ENABLED=true`
+
+### Code Blob Include Rules
+
+- Binary files are never included, even if they match `GITHUB_CODE_BLOB_INCLUDE`
+- Include patterns use the same matching model as exclude patterns:
+  - `*.sh` matches by full-path suffix
+  - `Makefile` matches an exact path segment
+- Explicit include can override:
+  - `GITHUB_CODE_BLOB_MAX_SIZE`
+  - `GITHUB_CODE_BLOB_EXCLUDE`
+  - unknown-language rejection
+- Explicit include cannot override:
+  - binary-file rejection
+  - `GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE`
+
+### First-Pass Native File Support
+
+The first implementation round adds native language/classification support for:
+
+- `.sh`, `.groovy`, `.less`, `.xml`, `.properties`
+- `Makefile`
+- `CODEOWNERS`
+- `.dockerignore`, `.gitignore`, `.editorconfig`
 
 ### Automated Setup (via Installer)
 

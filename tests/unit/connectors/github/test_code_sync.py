@@ -11,6 +11,7 @@ from memory.connectors.github.code_sync import (
     _build_context_header,
     _chunk_semantic,
     _extract_import_lines,
+    _path_matches_pattern,
     chunk_python_ast,
     detect_language,
     extract_python_imports,
@@ -56,9 +57,27 @@ def test_detect_yaml():
     assert detect_language("config.yml") == "yaml"
 
 
+def test_detect_shell():
+    assert detect_language("scripts/setup.sh") == "shell"
+
+
 def test_detect_dockerfile():
     assert detect_language("Dockerfile") == "dockerfile"
     assert detect_language("docker/Dockerfile") == "dockerfile"
+
+
+@pytest.mark.parametrize(
+    "file_path,expected",
+    [
+        ("Makefile", "makefile"),
+        ("CODEOWNERS", "text"),
+        (".dockerignore", "text"),
+        (".gitignore", "text"),
+        (".editorconfig", "editorconfig"),
+    ],
+)
+def test_detect_special_files(file_path, expected):
+    assert detect_language(file_path) == expected
 
 
 def test_detect_unknown():
@@ -245,34 +264,66 @@ def test_semantic_chunk_overlap():
 # -- File Filtering Tests --------------------------------------------
 
 
-def test_should_sync_python():
+def _make_initialized_sync(
+    *,
+    include: str = "",
+    exclude: str = "",
+    max_size: int = 102400,
+    include_max_size: int = 512000,
+):
+    mock_client = MagicMock()
+    config = MagicMock()
+    config.github_branch = "main"
+    config.github_repo = "owner/repo"
+    config.github_code_blob_max_size = max_size
+    config.github_code_blob_include = include
+    config.github_code_blob_include_max_size = include_max_size
+    config.github_code_blob_exclude = exclude
+    config.github_sync_circuit_breaker_threshold = 5
+    config.github_sync_circuit_breaker_reset = 60
+    config.security_scanning_enabled = False
+
+    with (
+        patch("memory.connectors.github.code_sync.MemoryStorage"),
+        patch("memory.connectors.github.code_sync.get_qdrant_client"),
+    ):
+        return CodeBlobSync(mock_client, config)
+
+
+def _make_filtering_sync():
     sync = CodeBlobSync.__new__(CodeBlobSync)
     sync.config = MagicMock()
     sync.config.github_code_blob_max_size = 102400
+    sync.config.github_code_blob_include_max_size = 512000
+    sync._exclude_patterns = []
+    sync._include_patterns = []
+    sync._include_max_size = 512000
+    return sync
+
+
+def test_should_sync_python():
+    sync = _make_filtering_sync()
     sync._exclude_patterns = ["node_modules", "__pycache__"]
     assert sync._should_sync_file({"path": "src/app.py", "size": 5000}) is True
 
 
 def test_should_skip_binary():
-    sync = CodeBlobSync.__new__(CodeBlobSync)
-    sync.config = MagicMock()
-    sync.config.github_code_blob_max_size = 102400
-    sync._exclude_patterns = []
+    sync = _make_filtering_sync()
+    assert sync._should_sync_file({"path": "icon.png", "size": 1000}) is False
+
+
+def test_should_reject_binary_even_when_explicitly_included():
+    sync = _make_initialized_sync(include="*.png")
     assert sync._should_sync_file({"path": "icon.png", "size": 1000}) is False
 
 
 def test_should_skip_large_file():
-    sync = CodeBlobSync.__new__(CodeBlobSync)
-    sync.config = MagicMock()
-    sync.config.github_code_blob_max_size = 102400
-    sync._exclude_patterns = []
+    sync = _make_filtering_sync()
     assert sync._should_sync_file({"path": "big.py", "size": 200000}) is False
 
 
 def test_should_skip_excluded_dir():
-    sync = CodeBlobSync.__new__(CodeBlobSync)
-    sync.config = MagicMock()
-    sync.config.github_code_blob_max_size = 102400
+    sync = _make_filtering_sync()
     sync._exclude_patterns = ["node_modules", "__pycache__"]
     assert (
         sync._should_sync_file({"path": "node_modules/pkg/index.js", "size": 100})
@@ -281,19 +332,88 @@ def test_should_skip_excluded_dir():
 
 
 def test_should_skip_excluded_extension():
-    sync = CodeBlobSync.__new__(CodeBlobSync)
-    sync.config = MagicMock()
-    sync.config.github_code_blob_max_size = 102400
+    sync = _make_filtering_sync()
     sync._exclude_patterns = ["*.min.js"]
     assert sync._should_sync_file({"path": "dist/app.min.js", "size": 100}) is False
 
 
 def test_should_skip_unknown_language():
-    sync = CodeBlobSync.__new__(CodeBlobSync)
-    sync.config = MagicMock()
-    sync.config.github_code_blob_max_size = 102400
-    sync._exclude_patterns = []
+    sync = _make_filtering_sync()
     assert sync._should_sync_file({"path": "data.xyz", "size": 100}) is False
+
+
+@pytest.mark.parametrize(
+    "file_path,bare_pattern,suffix_pattern,expected",
+    [
+        ("Makefile", "Makefile", "*Makefile", True),
+        ("infra/Makefile", "Makefile", "*Makefile", True),
+        ("dist/app.min.js", "dist", "*.min.js", True),
+        ("src/app.js", "dist", "*.min.js", False),
+    ],
+)
+def test_filter_pattern_modes_match_for_include_and_exclude(
+    file_path, bare_pattern, suffix_pattern, expected
+):
+    """Bare-token and suffix rules are shared across include and exclude matching."""
+    assert _path_matches_pattern(file_path, bare_pattern) is expected
+    assert _path_matches_pattern(file_path, suffix_pattern) is expected
+
+
+def test_should_allow_unknown_language_when_explicitly_included():
+    sync = _make_filtering_sync()
+    sync._include_patterns = ["*.foo"]
+    assert sync._should_sync_file({"path": "data.foo", "size": 100}) is True
+
+
+def test_should_allow_excluded_path_when_explicitly_included():
+    sync = _make_filtering_sync()
+    sync._exclude_patterns = ["dist"]
+    sync._include_patterns = ["*.js"]
+    assert sync._should_sync_file({"path": "dist/app.js", "size": 100}) is True
+
+
+def test_should_allow_oversize_file_when_explicitly_included_below_hard_ceiling():
+    sync = _make_filtering_sync()
+    sync._include_patterns = ["*.xml"]
+    assert sync._should_sync_file({"path": "config/catalog.xml", "size": 200000}) is True
+
+
+def test_should_reject_explicit_include_above_hard_ceiling(caplog):
+    sync = _make_filtering_sync()
+    sync._include_patterns = ["*.xml"]
+    caplog.set_level("WARNING")
+    assert sync._should_sync_file({"path": "config/catalog.xml", "size": 600000}) is False
+    assert "exceeds include hard ceiling" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "file_path",
+    ["Makefile", "CODEOWNERS", ".dockerignore", ".gitignore", ".editorconfig"],
+)
+def test_should_sync_supported_special_files_without_include(file_path):
+    sync = _make_filtering_sync()
+    assert sync._should_sync_file({"path": file_path, "size": 100}) is True
+
+
+def test_code_blob_sync_init_skips_invalid_patterns_and_keeps_valid_ones(caplog):
+    caplog.set_level("WARNING")
+    sync = _make_initialized_sync(
+        include="nested/path,*.foo,Makefile",
+        exclude="vendor/generated,dist,*.min.js",
+    )
+
+    assert sync._include_patterns == ["*.foo", "Makefile"]
+    assert sync._exclude_patterns == ["dist", "*.min.js"]
+    assert "Ignoring github_code_blob_include pattern" in caplog.text
+    assert "Ignoring github_code_blob_exclude pattern" in caplog.text
+    assert sync._should_sync_file({"path": "folder/file.foo", "size": 100}) is True
+    assert sync._should_sync_file({"path": "dist/app.min.js", "size": 100}) is False
+
+
+@pytest.mark.parametrize("file_path", [".env", ".DS_Store"])
+def test_should_reject_unlisted_dotfiles_without_include(file_path):
+    sync = _make_filtering_sync()
+    assert sync._should_sync_file({"path": file_path, "size": 100}) is False
 
 
 # -- Sync Integration Tests ------------------------------------------
@@ -306,14 +426,21 @@ def _make_sync_instance():
     sync.config.github_branch = "main"
     sync.config.github_repo = "owner/repo"
     sync.config.github_code_blob_max_size = 102400
+    sync.config.github_code_blob_include = ""
+    sync.config.github_code_blob_include_max_size = 512000
     sync.config.github_sync_total_timeout = 1800
     sync.config.github_sync_per_file_timeout = 60
     sync.config.github_sync_circuit_breaker_threshold = 5
     sync.config.github_sync_circuit_breaker_reset = 60
+    sync.config.github_code_blob_file_concurrency = 2
+    sync.config.github_code_blob_chunk_batch_size = 8
+    sync.config.github_code_blob_batch_storage_enabled = True
     sync.client = AsyncMock()
     sync._group_id = "owner/repo"
     sync._branch = "main"
     sync._exclude_patterns = []
+    sync._include_patterns = []
+    sync._include_max_size = 512000
     sync.storage = MagicMock()
 
     # BUG-112: Circuit breaker required by sync_code_blobs
@@ -583,6 +710,22 @@ async def test_detect_deleted_files_with_source_filter():
     type_cond = next(c for c in must_conditions if c.key == "type")
     assert source_cond.match.value == "github"
     assert type_cond.match.value == "github_code_blob"
+
+
+def test_supersede_old_blobs_filters_by_previous_blob_hash():
+    sync = _make_sync_instance()
+    sync.qdrant = MagicMock()
+    sync.qdrant.scroll.return_value = ([], None)
+
+    sync._supersede_old_blobs("src/file.py", "oldsha")
+
+    call_args = sync.qdrant.scroll.call_args
+    scroll_filter = call_args.kwargs.get("scroll_filter") or call_args[1].get(
+        "scroll_filter"
+    )
+    must_conditions = scroll_filter.must
+    blob_hash_cond = next(c for c in must_conditions if c.key == "blob_hash")
+    assert blob_hash_cond.match.value == "oldsha"
 
 
 # -- FIX-5: Pagination in _update_last_synced --------------------------

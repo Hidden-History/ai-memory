@@ -81,6 +81,7 @@ EMBEDDING_MODEL = (
 )
 EMBEDDING_MODEL_EN = "jina-embeddings-v2-base-en"  # Prose model
 EMBEDDING_MODEL_CODE = "jina-embeddings-v2-base-code"  # Code model
+GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE_MULTIPLIER = 5
 
 
 class MemoryConfig(BaseSettings):
@@ -346,6 +347,15 @@ class MemoryConfig(BaseSettings):
         le=1048576,
         description="Skip files larger than this (bytes, default: 102400 = 100KB)",
     )
+    github_code_blob_include: str = Field(
+        default="",
+        description="Comma-separated patterns to explicitly include in code blob sync, even when exclude, unknown-language, or max-size filters would normally skip them.",
+    )
+    github_code_blob_include_max_size: int | None = Field(
+        default=None,
+        ge=1024,
+        description="Hard ceiling for explicitly included files (bytes). Defaults to 5x GITHUB_CODE_BLOB_MAX_SIZE when unset.",
+    )
     github_code_blob_exclude: str = Field(
         default="node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info",
         description="Comma-separated glob patterns to exclude from code blob sync",
@@ -381,6 +391,24 @@ class MemoryConfig(BaseSettings):
         ge=10,
         le=300,
         description="Seconds before circuit breaker transitions OPEN -> HALF_OPEN",
+    )
+
+    # --- GitHub code blob sync throughput (batch embedding + bounded file concurrency) ---
+    github_code_blob_file_concurrency: int = Field(
+        default=2,
+        ge=1,
+        le=16,
+        description="Max concurrent files during code blob sync (bounded parallelism).",
+    )
+    github_code_blob_chunk_batch_size: int = Field(
+        default=8,
+        ge=1,
+        le=128,
+        description="Chunks per embedding/Qdrant batch for GitHub code blobs (sub-batches inside each file).",
+    )
+    github_code_blob_batch_storage_enabled: bool = Field(
+        default=True,
+        description="Use batched storage/embed path for GitHub code chunks; disable to force legacy per-chunk store_memory.",
     )
 
     # =========================================================================
@@ -875,6 +903,26 @@ class MemoryConfig(BaseSettings):
                 raise ValueError("GITHUB_REPO required when GITHUB_SYNC_ENABLED=true")
             if "/" not in self.github_repo:
                 raise ValueError("GITHUB_REPO must be in owner/repo format")
+        return self
+
+    @model_validator(mode="after")
+    def validate_github_code_blob_limits(self) -> "MemoryConfig":
+        """Derive and validate GitHub code blob include size limits."""
+        default_include_max_size = (
+            self.github_code_blob_max_size
+            * GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE_MULTIPLIER
+        )
+        include_max_size = self.github_code_blob_include_max_size
+        if include_max_size is None:
+            include_max_size = default_include_max_size
+            object.__setattr__(
+                self, "github_code_blob_include_max_size", include_max_size
+            )
+
+        if include_max_size < self.github_code_blob_max_size:
+            raise ValueError(
+                "GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE must be >= GITHUB_CODE_BLOB_MAX_SIZE"
+            )
         return self
 
     @model_validator(mode="after")
