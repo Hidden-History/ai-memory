@@ -362,13 +362,13 @@ class MemoryConfig(BaseSettings):
         default=600,
         ge=60,
         le=3600,
-        description="Total timeout for code blob sync during install (seconds, default: 10 min)",
+        description="Total timeout for code blob sync during install (seconds; default 10 min, max 1h)",
     )
     github_sync_per_file_timeout: int = Field(
         default=60,
         ge=10,
         le=300,
-        description="Per-file timeout covering fetch+chunk+embed+store (seconds, default: 60)",
+        description="Per-file timeout covering fetch+chunk+embed+store (seconds; default 60s, max 5 min)",
     )
     github_sync_circuit_breaker_threshold: int = Field(
         default=5,
