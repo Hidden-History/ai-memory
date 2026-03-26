@@ -41,23 +41,53 @@ GITHUB_CODE_BLOB_INCLUDE=*.yaml,*.toml,Makefile,Dockerfile
 # GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE=512000
 ```
 
-#### Step 2: Rebuild and recreate github-sync
+#### Step 2: Run Option 1 installer
+
+```bash
+cd /path/to/your/ai-memory-clone
+git pull origin main
+./scripts/install.sh /path/to/your-project
+# Select Option 1 (Add project to existing installation)
+```
+
+#### Step 3: Rebuild and restart all containers
+
+The batch sync changes are baked into the github-sync Docker image. All 4 baked-code containers should be rebuilt to pick up code changes, and volume-mounted containers restarted:
 
 ```bash
 cd ~/.ai-memory/docker
-unset QDRANT_API_KEY
-docker compose build --no-cache github-sync
-docker compose up -d github-sync
+unset QDRANT_API_KEY  # Prevent shell env overriding .env file
+
+# Rebuild baked-code containers
+docker compose build --no-cache github-sync classifier-worker monitoring-api
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml \
+  build --no-cache trace-flush-worker
+
+# Recreate baked containers (picks up new env vars from .env)
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml up -d \
+  github-sync classifier-worker monitoring-api trace-flush-worker
+
+# Restart volume-mounted containers
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml restart \
+  streamlit evaluator-scheduler
 ```
 
-#### Step 3: Verify
+> **Important**: `docker compose restart` does NOT reload `.env` values. You must use `up -d` (recreate) for new environment variables to take effect.
 
-Check logs for include pattern parsing:
+#### Step 4: Verify
+
 ```bash
+# Check all containers healthy
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml ps
+
+# Verify include vars reached the container
+docker inspect ai-memory-github-sync --format '{{range .Config.Env}}{{println .}}{{end}}' | grep INCLUDE
+
+# Check logs for successful sync with included patterns
 docker compose logs --tail=30 github-sync
 ```
 
-Look for successful sync messages with included file types. No `invalid_include_pattern_ignored` warnings should appear for valid patterns.
+Look for: no `invalid_include_pattern_ignored` warnings, successful sync messages with included file types.
 
 ### Fixed
 - **36 adversarial review findings**: 7 CRITICAL (rollback dead code, PointIdsList wrapper, supersede guards, pattern wildcards), 9 HIGH (thread safety, event loop blocking, config ceiling, embedding guards), 12 MEDIUM, 8 LOW across 2 review waves (Opus + Sonnet adversarial).
