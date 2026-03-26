@@ -2,7 +2,7 @@
 # Last audited: 2026-02-15
 # All versions pinned per ACT-003
 
-streamlit==1.52.2
+streamlit==1.54.0
 qdrant-client==1.16.2
 httpx==0.28.1
 
