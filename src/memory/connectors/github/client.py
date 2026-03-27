@@ -26,9 +26,14 @@ class GitHubClientError(Exception):
     """Raised when GitHub API request fails.
 
     Wraps httpx errors and HTTP errors for consistent error handling.
+
+    Attributes:
+        status_code: HTTP status code (0 if not applicable, e.g. timeout/network error).
     """
 
-    pass
+    def __init__(self, message: str, status_code: int = 0) -> None:
+        self.status_code = status_code
+        super().__init__(message)
 
 
 class RateLimitExceeded(GitHubClientError):
@@ -194,16 +199,7 @@ class GitHubClient:
                 "repo": response.get("full_name", self.repo),
             }
         except GitHubClientError as e:
-            error_str = str(e)
-            # Extract HTTP status code from error message if present
-            status = 0
-            if "401" in error_str:
-                status = 401
-            elif "403" in error_str:
-                status = 403
-            elif "404" in error_str:
-                status = 404
-            return {"success": False, "status": status, "repo": self.repo, "error": error_str}
+            return {"success": False, "status": e.status_code, "repo": self.repo, "error": str(e)}
 
     # --- Repository Data Endpoints ---
 
@@ -687,7 +683,8 @@ class GitHubClient:
                         except (ValueError, UnicodeDecodeError):
                             error_body = {}
                         raise GitHubClientError(
-                            f"GitHub API error 403: {error_body.get('message', response.text)}"
+                            f"GitHub API error 403: {error_body.get('message', response.text)}",
+                            status_code=403,
                         )
 
                 # Secondary rate limit (Retry-After header)
@@ -717,7 +714,8 @@ class GitHubClient:
                         error_body = {}
                     raise GitHubClientError(
                         f"GitHub API error {response.status_code}: "
-                        f"{error_body.get('message', response.text)}"
+                        f"{error_body.get('message', response.text)}",
+                        status_code=response.status_code,
                     )
 
                 # Server errors (retryable)
@@ -740,7 +738,8 @@ class GitHubClient:
                         continue
                     raise GitHubClientError(
                         f"GitHub API server error {response.status_code} after "
-                        f"{self.MAX_RETRIES} retries"
+                        f"{self.MAX_RETRIES} retries",
+                        status_code=response.status_code,
                     )
 
                 # Success (2xx or 304)

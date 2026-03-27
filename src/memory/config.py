@@ -1073,7 +1073,7 @@ class ProjectSyncConfig:
     github_repo: str | None = None
     github_branch: str = "main"
     github_enabled: bool = True
-    github_token: str | None = None  # BUG-245: per-project token override
+    github_token: str | None = dataclass_field(default=None, repr=False)  # BUG-245: per-project token override
     jira_enabled: bool = False
     jira_instance_url: str | None = None
     jira_projects: list[str] = dataclass_field(default_factory=list)

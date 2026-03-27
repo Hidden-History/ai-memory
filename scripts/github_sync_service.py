@@ -121,10 +121,11 @@ async def validate_project_tokens(config) -> set[str]:
             failed_projects.add(pid)
         except Exception as e:
             logger.warning(
-                "Project '%s' — token validation failed for %s: %s (using %s token)",
+                "Project '%s' — token validation failed for %s: %s: %s (using %s token)",
                 pid,
                 project.github_repo,
                 type(e).__name__,
+                e,
                 token_type,
             )
             failed_projects.add(pid)
