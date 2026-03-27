@@ -173,6 +173,38 @@ class GitHubClient:
         except GitHubClientError as e:
             return {"success": False, "error": str(e)}
 
+    async def test_repo_access(self) -> dict[str, Any]:
+        """Validate token has access to the configured repository.
+
+        Calls GET /repos/{owner}/{repo} to verify the token can access
+        the specific repo, not just authenticate to GitHub. This catches
+        fine-grained PATs that are valid for auth but lack repo scope.
+
+        Matches the installer's validation: curl .../repos/${PROJECT_GITHUB_REPO}
+
+        Returns:
+            dict with keys: success (bool), status (int), repo (str).
+            On failure, includes error (str) with the HTTP error message.
+        """
+        try:
+            response = await self._request("GET", f"/repos/{self.repo}", point_cost=1)
+            return {
+                "success": True,
+                "status": 200,
+                "repo": response.get("full_name", self.repo),
+            }
+        except GitHubClientError as e:
+            error_str = str(e)
+            # Extract HTTP status code from error message if present
+            status = 0
+            if "401" in error_str:
+                status = 401
+            elif "403" in error_str:
+                status = 403
+            elif "404" in error_str:
+                status = 404
+            return {"success": False, "status": status, "repo": self.repo, "error": error_str}
+
     # --- Repository Data Endpoints ---
 
     async def list_issues(

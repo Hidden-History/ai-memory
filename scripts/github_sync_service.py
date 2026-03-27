@@ -92,7 +92,7 @@ async def validate_project_tokens(config) -> set[str]:
         try:
             client = GitHubClient(token=token, repo=project.github_repo)
             async with client:
-                result = await client.test_connection()
+                result = await client.test_repo_access()
                 if result.get("success"):
                     logger.info(
                         "Token validation OK: project=%s repo=%s (using %s token)",
@@ -111,13 +111,20 @@ async def validate_project_tokens(config) -> set[str]:
                         token_type,
                     )
                     failed_projects.add(pid)
-        except Exception as e:
+        except asyncio.TimeoutError:
             logger.warning(
-                "Project '%s' — GitHub token validation failed for %s: %s. "
-                "Sync will be skipped until token is fixed. (using %s token)",
+                "Project '%s' — token validation timed out for %s (using %s token)",
                 pid,
                 project.github_repo,
-                e,
+                token_type,
+            )
+            failed_projects.add(pid)
+        except Exception as e:
+            logger.warning(
+                "Project '%s' — token validation failed for %s: %s (using %s token)",
+                pid,
+                project.github_repo,
+                type(e).__name__,
                 token_type,
             )
             failed_projects.add(pid)

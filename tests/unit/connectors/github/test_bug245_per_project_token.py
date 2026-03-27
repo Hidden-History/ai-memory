@@ -9,14 +9,17 @@ Covers:
 - GitHubSyncEngine token parameter
 - github_sync_service._resolve_project_token()
 - github_sync_service.run_sync_cycle() passes resolved token
+- validate_project_tokens() uses repo access check (H-1, M-1, M-6)
 """
 
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncio
+
 import github_sync_service
 import pytest
-from github_sync_service import _resolve_project_token, run_sync_cycle
+from github_sync_service import _resolve_project_token, run_sync_cycle, validate_project_tokens
 
 from memory.config import ProjectSyncConfig, discover_projects
 from memory.connectors.github.sync import GitHubSyncEngine
@@ -332,3 +335,155 @@ async def test_sync_cycle_code_blob_uses_project_token():
         token="github_pat_CODE_TOKEN",
         repo="org/other-repo",
     )
+
+
+# ---------------------------------------------------------------------------
+# M-1: validate_project_tokens() tests (H-1: uses test_repo_access, M-6: specific exceptions)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_validate_project_tokens_success():
+    """validate_project_tokens returns empty set when all projects validate OK (M-1)."""
+    config = MagicMock()
+    config.github_token.get_secret_value.return_value = "ghp_GLOBAL"
+
+    project = MagicMock()
+    project.github_enabled = True
+    project.github_repo = "org/repo"
+    project.github_token = None
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.test_repo_access = AsyncMock(
+        return_value={"success": True, "status": 200, "repo": "org/repo"}
+    )
+
+    with (
+        patch(
+            "memory.config.discover_projects",
+            create=True,
+            return_value={"proj-ok": project},
+        ),
+        patch(
+            "github_sync_service.GitHubClient",
+            return_value=mock_client,
+        ),
+    ):
+        failed = await validate_project_tokens(config)
+
+    assert failed == set()
+    mock_client.test_repo_access.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_validate_project_tokens_failure_adds_to_set():
+    """validate_project_tokens returns project ID in failed set when HTTP check fails (M-1)."""
+    config = MagicMock()
+    config.github_token.get_secret_value.return_value = "ghp_GLOBAL"
+
+    project = MagicMock()
+    project.github_enabled = True
+    project.github_repo = "org/private-repo"
+    project.github_token = None
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.test_repo_access = AsyncMock(
+        return_value={"success": False, "status": 404, "repo": "org/private-repo", "error": "GitHub API error 404: Not Found"}
+    )
+
+    with (
+        patch(
+            "memory.config.discover_projects",
+            create=True,
+            return_value={"proj-fail": project},
+        ),
+        patch(
+            "github_sync_service.GitHubClient",
+            return_value=mock_client,
+        ),
+    ):
+        failed = await validate_project_tokens(config)
+
+    assert "proj-fail" in failed
+    assert len(failed) == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_project_tokens_disabled_project_skipped():
+    """validate_project_tokens skips projects with github_enabled=False (M-1)."""
+    config = MagicMock()
+    config.github_token.get_secret_value.return_value = "ghp_GLOBAL"
+
+    project = MagicMock()
+    project.github_enabled = False
+    project.github_repo = "org/repo"
+    project.github_token = None
+
+    with (
+        patch(
+            "memory.config.discover_projects",
+            create=True,
+            return_value={"disabled-proj": project},
+        ),
+        patch(
+            "github_sync_service.GitHubClient",
+        ) as MockGHClient,
+    ):
+        failed = await validate_project_tokens(config)
+
+    assert failed == set()
+    MockGHClient.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_validate_project_tokens_exception_adds_to_set():
+    """validate_project_tokens adds project to failed set on unexpected exception (M-1, M-6)."""
+    config = MagicMock()
+    config.github_token.get_secret_value.return_value = "ghp_GLOBAL"
+
+    project = MagicMock()
+    project.github_enabled = True
+    project.github_repo = "org/repo"
+    project.github_token = None
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.test_repo_access = AsyncMock(
+        side_effect=ConnectionError("Network unreachable")
+    )
+
+    with (
+        patch(
+            "memory.config.discover_projects",
+            create=True,
+            return_value={"exc-proj": project},
+        ),
+        patch(
+            "github_sync_service.GitHubClient",
+            return_value=mock_client,
+        ),
+    ):
+        failed = await validate_project_tokens(config)
+
+    assert "exc-proj" in failed
+    assert len(failed) == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_project_tokens_empty_projects():
+    """validate_project_tokens returns empty set when no projects configured (M-1)."""
+    config = MagicMock()
+
+    with patch(
+        "memory.config.discover_projects",
+        create=True,
+        return_value={},
+    ):
+        failed = await validate_project_tokens(config)
+
+    assert failed == set()
