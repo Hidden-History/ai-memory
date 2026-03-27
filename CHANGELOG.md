@@ -25,6 +25,14 @@ Adds two-tier credential model for GitHub PATs: a shared token as default with o
 - **INSTALL.md auth failure description corrected** (M-4): Recovery flow description now says "non-200 HTTP response (e.g., 401, 403, 404)" instead of the inaccurate "HTTP 404" — any non-200 triggers recovery, not just 404.
 - **INSTALL.md `GITHUB_PROJECT_TOKEN` scope clarified** (L-4): Added note that `GITHUB_PROJECT_TOKEN` only applies in add-project mode (Option 1); initial setup uses `GITHUB_TOKEN`.
 
+### Code Review Round 3 Fixes
+- **File permission hardening on project YAML** (R3-1): `register_project_sync()` now runs `chmod 600` on the written `projects.d/*.yaml` after `mv` to ensure token-bearing YAML files are not world-readable.
+- **Indentation fix in `configure_project_sources()`** (R3-2): The inner `if [[ -n "${GITHUB_TOKEN:-}" ]]` block and all its contents were not indented under the outer `if [[ "$NON_INTERACTIVE" != "true" ]]` guard. Fixed to proper nesting depth.
+- **Remove premature `docker compose restart` from Option 2 handler** (R3-3): The shared-token update path in `configure_project_sources()` restarted the github-sync container immediately after writing the token to `.env`. This was redundant — `main()` already restarts the container after `register_project_sync()` completes. Removed the early restart; the one in `main()` at line ~1387 is sufficient.
+- **Remove unused `import asyncio` from test module** (R3-4): Dropped the module-level `import asyncio` from `test_bug245_per_project_token.py` that was not referenced by any existing test.
+- **Add `asyncio.TimeoutError` path test** (R3-5): New test `test_validate_project_tokens_timeout_adds_to_set` covers the M-6 requirement: `validate_project_tokens()` must add a project to the failed set when the context-manager entry raises `asyncio.TimeoutError`.
+- **`RateLimitExceeded` now carries `status_code=429`** (R3-6): `RateLimitExceeded.__init__` now passes `status_code=429` to the parent `GitHubClientError.__init__`, so callers inspecting `error.status_code` get the correct HTTP status instead of the default `0`.
+
 ## [2.2.6] - 2026-03-26 — Multi-Project Installer Fix
 
 Fixed the installer's add-project mode which silently registered new projects with the wrong GitHub repository (stale value from `.env`) and no Jira support.

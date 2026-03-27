@@ -15,8 +15,6 @@ Covers:
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import asyncio
-
 import github_sync_service
 import pytest
 from github_sync_service import _resolve_project_token, run_sync_cycle, validate_project_tokens
@@ -488,3 +486,24 @@ async def test_validate_project_tokens_empty_projects():
         failed = await validate_project_tokens(config)
 
     assert failed == set()
+
+
+@pytest.mark.asyncio
+async def test_validate_project_tokens_timeout_adds_to_set():
+    """validate_project_tokens returns project ID when validation times out (M-6)."""
+    import asyncio
+    config = MagicMock()
+    config.github_token.get_secret_value.return_value = "ghp_GLOBAL"
+    project = MagicMock()
+    project.github_enabled = True
+    project.github_repo = "org/slow-repo"
+    project.github_token = None
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(side_effect=asyncio.TimeoutError())
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    with (
+        patch("memory.config.discover_projects", create=True, return_value={"timeout-proj": project}),
+        patch("github_sync_service.GitHubClient", return_value=mock_client),
+    ):
+        failed = await validate_project_tokens(config)
+    assert "timeout-proj" in failed

@@ -240,6 +240,7 @@ print(yaml.dump(data, default_flow_style=False, allow_unicode=True), end='')
         return 1
     fi
     mv "$tmp_file" "$config_file"
+    chmod 600 "$config_file" 2>/dev/null || true
     echo "  ✓ Project registered: ${config_file}"
 }
 
@@ -665,136 +666,127 @@ else:
     # BUG-245: Test connection with token-aware error handling and recovery menu
     # L-5: Explicit NON_INTERACTIVE guard — defense-in-depth (early return above still works)
     if [[ "$NON_INTERACTIVE" != "true" ]]; then
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        echo ""
-        log_info "Testing GitHub connection for $PROJECT_GITHUB_REPO..."
-        local http_code
-        http_code=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${PROJECT_GITHUB_REPO}" \
-            --connect-timeout 10 --max-time 15 2>/dev/null) || http_code="000"
-
-        if [[ "$http_code" == "200" ]]; then
-            log_success "GitHub connection verified (HTTP 200) — repo: $PROJECT_GITHUB_REPO"
-        else
-            # BUG-245: Token-type-aware error message
-            log_warning "GitHub connection test returned HTTP $http_code for $PROJECT_GITHUB_REPO"
-            if [[ "$GITHUB_TOKEN" == github_pat_* ]]; then
-                echo ""
-                echo "   Your token is a fine-grained PAT scoped to specific repositories."
-                echo "   It may not include access to ${PROJECT_GITHUB_REPO}."
-                echo ""
-                echo "   NOTE: Do NOT edit the existing token on GitHub — a known bug"
-                echo "   can silently revert scope changes. Create a new token instead."
-            elif [[ "$GITHUB_TOKEN" == ghp_* ]]; then
-                echo ""
-                echo "   Could not access ${PROJECT_GITHUB_REPO}."
-                echo "   Verify the repository exists and your token has the 'repo' scope."
+        if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+            echo ""
+            log_info "Testing GitHub connection for $PROJECT_GITHUB_REPO..."
+            local http_code
+            http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+                -H "Authorization: Bearer $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${PROJECT_GITHUB_REPO}" \
+                --connect-timeout 10 --max-time 15 2>/dev/null) || http_code="000"
+    
+            if [[ "$http_code" == "200" ]]; then
+                log_success "GitHub connection verified (HTTP 200) — repo: $PROJECT_GITHUB_REPO"
             else
+                # BUG-245: Token-type-aware error message
+                log_warning "GitHub connection test returned HTTP $http_code for $PROJECT_GITHUB_REPO"
+                if [[ "$GITHUB_TOKEN" == github_pat_* ]]; then
+                    echo ""
+                    echo "   Your token is a fine-grained PAT scoped to specific repositories."
+                    echo "   It may not include access to ${PROJECT_GITHUB_REPO}."
+                    echo ""
+                    echo "   NOTE: Do NOT edit the existing token on GitHub — a known bug"
+                    echo "   can silently revert scope changes. Create a new token instead."
+                elif [[ "$GITHUB_TOKEN" == ghp_* ]]; then
+                    echo ""
+                    echo "   Could not access ${PROJECT_GITHUB_REPO}."
+                    echo "   Verify the repository exists and your token has the 'repo' scope."
+                else
+                    echo ""
+                    echo "   Could not access ${PROJECT_GITHUB_REPO} with the current token."
+                fi
+    
+                # BUG-245: Interactive recovery menu
                 echo ""
-                echo "   Could not access ${PROJECT_GITHUB_REPO} with the current token."
+                echo "   Options:"
+                echo "     [1] Enter a token for this project only (stored in projects.d/)"
+                echo "     [2] Enter a new shared token (replaces current for all projects)"
+                echo "     [3] Skip GitHub sync for this project"
+                echo "     [4] Continue anyway (I'll fix the token later)"
+                echo ""
+                local token_choice
+                read -p "   Choose [1-4]: " token_choice
+                case "$token_choice" in
+                    1)
+                        # Option 1: Per-project token
+                        local new_project_token
+                        echo ""
+                        read -sp "   Enter GitHub token for ${PROJECT_GITHUB_REPO}: " new_project_token
+                        echo ""
+                        if [[ -z "$new_project_token" ]]; then
+                            log_warning "Empty token — continuing without per-project token"
+                        elif [[ "$new_project_token" != github_pat_* && "$new_project_token" != ghp_* && \
+                              "$new_project_token" != gho_* && "$new_project_token" != ghs_* && \
+                              "$new_project_token" != ghr_* ]]; then
+                            log_warning "Token does not match known GitHub PAT formats (github_pat_*, ghp_*, etc.) — using it anyway"
+                        fi
+                        if [[ -n "$new_project_token" ]]; then
+                            # Test the new token
+                            test_code=$(curl -s -o /dev/null -w "%{http_code}" \
+                                -H "Authorization: Bearer $new_project_token" \
+                                -H "Accept: application/vnd.github+json" \
+                                "https://api.github.com/repos/${PROJECT_GITHUB_REPO}" \
+                                --connect-timeout 10 --max-time 15 2>/dev/null) || test_code="000"
+                            if [[ "$test_code" == "200" ]]; then
+                                log_success "Per-project token verified (HTTP 200) for $PROJECT_GITHUB_REPO"
+                                PROJECT_GITHUB_TOKEN="$new_project_token"
+                            else
+                                log_warning "Per-project token also returned HTTP $test_code — storing it anyway"
+                                PROJECT_GITHUB_TOKEN="$new_project_token"
+                            fi
+                        fi
+                        ;;
+                    2)
+                        # Option 2: Replace shared token
+                        local new_shared_token
+                        echo ""
+                        read -sp "   Enter new shared GitHub token: " new_shared_token
+                        echo ""
+                        if [[ -n "$new_shared_token" ]]; then
+                            # Test the new shared token
+                            test_code=$(curl -s -o /dev/null -w "%{http_code}" \
+                                -H "Authorization: Bearer $new_shared_token" \
+                                -H "Accept: application/vnd.github+json" \
+                                "https://api.github.com/repos/${PROJECT_GITHUB_REPO}" \
+                                --connect-timeout 10 --max-time 15 2>/dev/null) || test_code="000"
+                            if [[ "$test_code" == "200" ]]; then
+                                log_success "New shared token verified (HTTP 200) for $PROJECT_GITHUB_REPO"
+                            else
+                                log_warning "New shared token returned HTTP $test_code — updating anyway"
+                            fi
+                            # Update docker/.env with new shared token
+                            local env_file="$INSTALL_DIR/docker/.env"
+                            if [[ -f "$env_file" ]]; then
+                                # BSD-safe sed: replace the GITHUB_TOKEN line
+                                local tmp_env="${env_file}.tmp"
+                                grep -v '^GITHUB_TOKEN=' "$env_file" > "$tmp_env" || true
+                                echo "GITHUB_TOKEN=\"${new_shared_token}\"" >> "$tmp_env"
+                                mv "$tmp_env" "$env_file"
+                                chmod 600 "$env_file" 2>/dev/null || true
+                                log_success "Updated shared GITHUB_TOKEN in ${env_file}"
+                            fi
+                            GITHUB_TOKEN="$new_shared_token"
+                        else
+                            log_warning "Empty token — keeping existing shared token"
+                        fi
+                        ;;
+                    3)
+                        # H-2: Option 3 — register project with github.enabled=false
+                        # Do NOT clear PROJECT_GITHUB_REPO; set skip flag so registration
+                        # still runs and overwrites any stale github.enabled=true in YAML.
+                        log_info "Skipping GitHub sync for this project — will register with github.enabled=false"
+                        PROJECT_GITHUB_SKIP="true"
+                        ;;
+                    4|*)
+                        # Option 4: Continue anyway (default)
+                        log_info "Continuing with current token — sync may fail until token is fixed"
+                        ;;
+                esac
             fi
-
-            # BUG-245: Interactive recovery menu
-            echo ""
-            echo "   Options:"
-            echo "     [1] Enter a token for this project only (stored in projects.d/)"
-            echo "     [2] Enter a new shared token (replaces current for all projects)"
-            echo "     [3] Skip GitHub sync for this project"
-            echo "     [4] Continue anyway (I'll fix the token later)"
-            echo ""
-            local token_choice
-            read -p "   Choose [1-4]: " token_choice
-            case "$token_choice" in
-                1)
-                    # Option 1: Per-project token
-                    local new_project_token
-                    echo ""
-                    read -sp "   Enter GitHub token for ${PROJECT_GITHUB_REPO}: " new_project_token
-                    echo ""
-                    if [[ -z "$new_project_token" ]]; then
-                        log_warning "Empty token — continuing without per-project token"
-                    elif [[ "$new_project_token" != github_pat_* && "$new_project_token" != ghp_* && \
-                          "$new_project_token" != gho_* && "$new_project_token" != ghs_* && \
-                          "$new_project_token" != ghr_* ]]; then
-                        log_warning "Token does not match known GitHub PAT formats (github_pat_*, ghp_*, etc.) — using it anyway"
-                    fi
-                    if [[ -n "$new_project_token" ]]; then
-                        # Test the new token
-                        test_code=$(curl -s -o /dev/null -w "%{http_code}" \
-                            -H "Authorization: Bearer $new_project_token" \
-                            -H "Accept: application/vnd.github+json" \
-                            "https://api.github.com/repos/${PROJECT_GITHUB_REPO}" \
-                            --connect-timeout 10 --max-time 15 2>/dev/null) || test_code="000"
-                        if [[ "$test_code" == "200" ]]; then
-                            log_success "Per-project token verified (HTTP 200) for $PROJECT_GITHUB_REPO"
-                            PROJECT_GITHUB_TOKEN="$new_project_token"
-                        else
-                            log_warning "Per-project token also returned HTTP $test_code — storing it anyway"
-                            PROJECT_GITHUB_TOKEN="$new_project_token"
-                        fi
-                    fi
-                    ;;
-                2)
-                    # Option 2: Replace shared token
-                    local new_shared_token
-                    echo ""
-                    read -sp "   Enter new shared GitHub token: " new_shared_token
-                    echo ""
-                    if [[ -n "$new_shared_token" ]]; then
-                        # Test the new shared token
-                        test_code=$(curl -s -o /dev/null -w "%{http_code}" \
-                            -H "Authorization: Bearer $new_shared_token" \
-                            -H "Accept: application/vnd.github+json" \
-                            "https://api.github.com/repos/${PROJECT_GITHUB_REPO}" \
-                            --connect-timeout 10 --max-time 15 2>/dev/null) || test_code="000"
-                        if [[ "$test_code" == "200" ]]; then
-                            log_success "New shared token verified (HTTP 200) for $PROJECT_GITHUB_REPO"
-                        else
-                            log_warning "New shared token returned HTTP $test_code — updating anyway"
-                        fi
-                        # Update docker/.env with new shared token
-                        local env_file="$INSTALL_DIR/docker/.env"
-                        if [[ -f "$env_file" ]]; then
-                            # BSD-safe sed: replace the GITHUB_TOKEN line
-                            local tmp_env="${env_file}.tmp"
-                            grep -v '^GITHUB_TOKEN=' "$env_file" > "$tmp_env" || true
-                            echo "GITHUB_TOKEN=\"${new_shared_token}\"" >> "$tmp_env"
-                            mv "$tmp_env" "$env_file"
-                            chmod 600 "$env_file" 2>/dev/null || true
-                            log_success "Updated shared GITHUB_TOKEN in ${env_file}"
-                        fi
-                        GITHUB_TOKEN="$new_shared_token"
-                        # Restart github-sync container to pick up new token
-                        local docker_dir="$INSTALL_DIR/docker"
-                        if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "github-sync"; then
-                            log_info "Restarting github-sync container to pick up new token..."
-                            (cd "$docker_dir" && docker compose restart github-sync 2>/dev/null) || \
-                                log_warning "Could not restart github-sync — restart manually: cd $docker_dir && docker compose restart github-sync"
-                        else
-                            log_info "github-sync container not running — new token will be used on next start"
-                        fi
-                    else
-                        log_warning "Empty token — keeping existing shared token"
-                    fi
-                    ;;
-                3)
-                    # H-2: Option 3 — register project with github.enabled=false
-                    # Do NOT clear PROJECT_GITHUB_REPO; set skip flag so registration
-                    # still runs and overwrites any stale github.enabled=true in YAML.
-                    log_info "Skipping GitHub sync for this project — will register with github.enabled=false"
-                    PROJECT_GITHUB_SKIP="true"
-                    ;;
-                4|*)
-                    # Option 4: Continue anyway (default)
-                    log_info "Continuing with current token — sync may fail until token is fixed"
-                    ;;
-            esac
+        else
+            log_warning "No GITHUB_TOKEN found — cannot verify repo access (project will still be registered)"
         fi
-    else
-        log_warning "No GITHUB_TOKEN found — cannot verify repo access (project will still be registered)"
-    fi
     fi  # end NON_INTERACTIVE guard (L-5)
 
     # --- Jira for this project (auto-discovery via API) ---

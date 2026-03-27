@@ -41,7 +41,7 @@ class RateLimitExceeded(GitHubClientError):
 
     def __init__(self, reset_at: datetime, message: str = "Rate limit exceeded"):
         self.reset_at = reset_at
-        super().__init__(f"{message}. Resets at {reset_at.isoformat()}")
+        super().__init__(f"{message}. Resets at {reset_at.isoformat()}", status_code=429)
 
 
 class GitHubClient:
