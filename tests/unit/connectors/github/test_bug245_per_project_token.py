@@ -154,6 +154,7 @@ def test_token_resolution_empty_string_fallback():
 
     resolved = _resolve_project_token(config, project)
     assert resolved == "ghp_GLOBAL_TOKEN"
+    config.github_token.get_secret_value.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
