@@ -52,6 +52,7 @@ async def test_run_sync_cycle_both_engines():
     project = MagicMock()
     project.github_enabled = True
     project.github_repo = "owner/repo"
+    project.github_token = None  # BUG-245: no per-project token — uses global
 
     with (
         patch(
@@ -72,8 +73,10 @@ async def test_run_sync_cycle_both_engines():
         result = await run_sync_cycle(config)
 
     assert result is True
+    # BUG-245: token resolved via _resolve_project_token (falls back to global)
     mock_eng_cls.assert_called_once_with(
-        config, repo="owner/repo", branch=project.github_branch
+        config, repo="owner/repo", branch=project.github_branch,
+        token="ghp_test",
     )
     mock_engine.sync.assert_awaited_once()
     mock_cs_cls.assert_called_once_with(
@@ -102,6 +105,7 @@ async def test_run_sync_cycle_code_disabled():
     project = MagicMock()
     project.github_enabled = True
     project.github_repo = "owner/repo"
+    project.github_token = None  # BUG-245: no per-project token
 
     with (
         patch(
@@ -148,6 +152,7 @@ async def test_run_sync_cycle_engine_failure_continues():
     project = MagicMock()
     project.github_enabled = True
     project.github_repo = "owner/repo"
+    project.github_token = None  # BUG-245: no per-project token
 
     with (
         patch(
@@ -190,10 +195,16 @@ def test_health_file_written_on_success():
     config.github_sync_interval = 1
     config.github_repo = "owner/repo"
 
+    # BUG-245: main() now calls asyncio.run twice: validate_project_tokens + run_sync_cycle
+    call_count = [0]
+
     def mock_asyncio_run(coro):
         if hasattr(coro, "close"):
             coro.close()
-        return True
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return set()  # validate_project_tokens returns empty set (all OK)
+        return True  # run_sync_cycle returns True
 
     with (
         patch.object(github_sync_service, "get_config", return_value=config),
@@ -220,10 +231,16 @@ def test_health_file_written_on_failure():
     config.github_sync_interval = 1
     config.github_repo = "owner/repo"
 
+    # BUG-245: main() now calls asyncio.run twice: validate_project_tokens + run_sync_cycle
+    call_count = [0]
+
     def mock_asyncio_run(coro):
         if hasattr(coro, "close"):
             coro.close()
-        return False
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return set()  # validate_project_tokens returns empty set
+        return False  # run_sync_cycle returns False (failure)
 
     with (
         patch.object(github_sync_service, "get_config", return_value=config),
@@ -250,10 +267,16 @@ def test_warning_logged_on_sync_failure():
     config.github_sync_interval = 1
     config.github_repo = "owner/repo"
 
+    # BUG-245: main() now calls asyncio.run twice: validate_project_tokens + run_sync_cycle
+    call_count = [0]
+
     def mock_asyncio_run(coro):
         if hasattr(coro, "close"):
             coro.close()
-        return False
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return set()  # validate_project_tokens returns empty set
+        return False  # run_sync_cycle returns False (failure)
 
     with (
         patch.object(github_sync_service, "get_config", return_value=config),

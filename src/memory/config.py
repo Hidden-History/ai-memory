@@ -1073,6 +1073,7 @@ class ProjectSyncConfig:
     github_repo: str | None = None
     github_branch: str = "main"
     github_enabled: bool = True
+    github_token: str | None = None  # BUG-245: per-project token override
     jira_enabled: bool = False
     jira_instance_url: str | None = None
     jira_projects: list[str] = dataclass_field(default_factory=list)
@@ -1137,6 +1138,7 @@ def discover_projects(config_dir: Path | None = None) -> dict[str, ProjectSyncCo
                     github_repo=github.get("repo"),
                     github_branch=github.get("branch", "main"),
                     github_enabled=github.get("enabled", True),
+                    github_token=github.get("token"),  # BUG-245: per-project token
                     jira_enabled=jira.get("enabled", False),
                     jira_instance_url=jira.get("instance_url"),
                     jira_projects=jira_proj_raw,

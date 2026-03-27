@@ -348,6 +348,67 @@ cd /path/to/ai-memory
 
 Each project has completely isolated memories while sharing the same Docker infrastructure.
 
+### GitHub Authentication for Multi-Project Setups
+
+By default, all projects share the `GITHUB_TOKEN` configured during initial installation. This works when the token has access to all repositories (e.g., classic PATs with `repo` scope, or fine-grained PATs scoped to "All repositories").
+
+**Per-Project Tokens (Fine-Grained PATs)**
+
+If you use fine-grained PATs scoped to specific repositories, each project may need its own token. The installer handles this automatically:
+
+1. When adding a project, the installer tests connectivity with the shared token
+2. If the test fails (HTTP 404), it detects the token type and explains the issue
+3. You get four recovery options:
+   - **Enter a per-project token** -- stored in `projects.d/*.yaml`, used only for this project
+   - **Replace the shared token** -- updates `docker/.env` for all projects
+   - **Skip GitHub sync** -- disables sync for this project
+   - **Continue anyway** -- register the project and fix the token later
+
+**Manual Per-Project Token Configuration**
+
+You can also manually add a per-project token by editing the YAML config:
+
+```yaml
+# ~/.ai-memory/config/projects.d/my-project.yaml
+project_id: my-project
+source_directory: /home/user/projects/my-project
+github:
+  repo: my-org/my-project
+  branch: main
+  enabled: true
+  token: github_pat_XXXXXXXXXXXX  # Per-project token override
+jira:
+  enabled: false
+```
+
+After editing, restart the github-sync container:
+
+```bash
+cd ~/.ai-memory/docker
+docker compose restart github-sync
+```
+
+**Non-Interactive Mode (CI/Automation)**
+
+For automated setups, use the `GITHUB_PROJECT_TOKEN` environment variable:
+
+```bash
+GITHUB_PROJECT_TOKEN=github_pat_XXXX \
+GITHUB_REPO=my-org/my-project \
+NON_INTERACTIVE=true \
+./scripts/install.sh ~/projects/my-project
+```
+
+**Token Resolution Order**
+
+The sync engine resolves tokens in this order:
+1. Per-project token from `projects.d/*.yaml` (`github.token` field)
+2. Shared `GITHUB_TOKEN` from `docker/.env`
+
+**Startup Validation**
+
+On container startup, the github-sync service validates each project's token. Projects with invalid tokens are logged as warnings and skipped during sync (they do not crash the service). Fix the token and restart the container to resume sync.
+
 ### Method 2: Manual Installation (Advanced)
 
 For advanced users who want full control:

@@ -5,6 +5,21 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — v2.2.7 — Per-Project GitHub Token Support
+
+Adds two-tier credential model for GitHub PATs: a shared token as default with optional per-project token overrides in `projects.d/*.yaml`. Enables fine-grained PATs scoped to specific repositories to work across multi-project setups.
+
+### Fixed
+- **Add-project flow silent auth failure** (BUG-245): Fine-grained PATs (`github_pat_*`) scoped to specific repos caused HTTP 404 when adding new projects, with no recovery path. Now shows token-type-aware error message and interactive 4-option recovery menu (per-project token, replace shared token, skip sync, continue anyway).
+
+### Added
+- **Per-project GitHub token support**: Optional `github.token` field in `projects.d/*.yaml` overrides the shared `GITHUB_TOKEN` for individual projects. Existing configs without the field continue to use the shared token (full backward compatibility).
+- **Token-aware error handling**: Installer detects token type (fine-grained vs classic) and shows targeted guidance on auth failures. Warns against editing existing fine-grained PATs (known GitHub bug).
+- **Interactive recovery menu**: 4 recovery options on auth failure — enter per-project token, replace shared token, skip GitHub sync, or continue anyway.
+- **Non-interactive `GITHUB_PROJECT_TOKEN` env var**: CI/automation support for per-project tokens without interactive prompts.
+- **Startup token validation**: github-sync container validates each project's token on startup, logs warnings for failures, and skips sync for projects with invalid tokens instead of crashing.
+- **Sync engine per-project token resolution**: `GitHubSyncEngine` and code blob sync resolve per-project token before falling back to global `GITHUB_TOKEN`.
+
 ## [2.2.6] - 2026-03-26 — Multi-Project Installer Fix
 
 Fixed the installer's add-project mode which silently registered new projects with the wrong GitHub repository (stale value from `.env`) and no Jira support.

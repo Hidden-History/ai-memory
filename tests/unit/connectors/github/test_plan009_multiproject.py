@@ -49,6 +49,7 @@ def _make_project(repo: str = "owner/repo", github_enabled: bool = True) -> Magi
     p = MagicMock()
     p.github_enabled = github_enabled
     p.github_repo = repo
+    p.github_token = None  # BUG-245: default no per-project token
     return p
 
 
@@ -268,7 +269,7 @@ async def test_run_sync_cycle_iterates_all_github_projects():
 
     engine_repos: list[str] = []
 
-    def make_engine(cfg, repo=None, branch=None):
+    def make_engine(cfg, repo=None, branch=None, token=None):
         engine_repos.append(repo)
         return mock_engine
 
@@ -300,7 +301,7 @@ async def test_run_sync_cycle_skips_github_disabled_projects():
 
     engine_repos: list[str] = []
 
-    def make_engine(cfg, repo=None, branch=None):
+    def make_engine(cfg, repo=None, branch=None, token=None):
         engine_repos.append(repo)
         return mock_engine
 

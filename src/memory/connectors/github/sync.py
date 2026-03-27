@@ -159,12 +159,16 @@ class GitHubSyncEngine:
         config: MemoryConfig | None = None,
         repo: str | None = None,
         branch: str | None = None,
+        token: str | None = None,
     ) -> None:
         """Initialize sync engine with config validation.
 
         Args:
             config: Memory configuration. Uses get_config() if None.
             repo: Repository in "owner/repo" format. Overrides config.github_repo.
+            branch: Branch to sync. Overrides config.github_branch.
+            token: Per-project token override (BUG-245). Falls back to
+                config.github_token when not provided.
 
         Raises:
             ValueError: If GitHub sync not enabled or config incomplete
@@ -178,8 +182,10 @@ class GitHubSyncEngine:
             raise ValueError("No repo specified and GITHUB_REPO not configured")
         self._branch = branch or self.config.github_branch
 
+        # BUG-245: per-project token > global token
+        resolved_token = token or self.config.github_token.get_secret_value()
         self.client = GitHubClient(
-            token=self.config.github_token.get_secret_value(),
+            token=resolved_token,
             repo=self.repo,
         )
         self.storage = MemoryStorage(self.config)
