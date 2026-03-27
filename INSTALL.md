@@ -400,7 +400,7 @@ NON_INTERACTIVE=true \
 ```
 
 > **Note:** `GITHUB_PROJECT_TOKEN` only applies when adding a project to an existing
-> installation (Option 1). For initial setup, use `GITHUB_TOKEN` instead.
+> installation (the installer's 'Add project' option). For initial setup, use `GITHUB_TOKEN` instead.
 
 **Token Resolution Order**
 

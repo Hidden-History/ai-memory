@@ -715,8 +715,10 @@ else:
                     echo ""
                     if [[ -z "$new_project_token" ]]; then
                         log_warning "Empty token — continuing without per-project token"
-                    elif [[ "$new_project_token" != ghp_* && "$new_project_token" != github_pat_* ]]; then
-                        log_warning "Token does not match expected format (ghp_* or github_pat_*) — using it anyway"
+                    elif [[ "$new_project_token" != github_pat_* && "$new_project_token" != ghp_* && \
+                          "$new_project_token" != gho_* && "$new_project_token" != ghs_* && \
+                          "$new_project_token" != ghr_* ]]; then
+                        log_warning "Token does not match known GitHub PAT formats (github_pat_*, ghp_*, etc.) — using it anyway"
                     fi
                     if [[ -n "$new_project_token" ]]; then
                         # Test the new token
@@ -760,6 +762,7 @@ else:
                             grep -v '^GITHUB_TOKEN=' "$env_file" > "$tmp_env" || true
                             echo "GITHUB_TOKEN=\"${new_shared_token}\"" >> "$tmp_env"
                             mv "$tmp_env" "$env_file"
+                            chmod 600 "$env_file" 2>/dev/null || true
                             log_success "Updated shared GITHUB_TOKEN in ${env_file}"
                         fi
                         GITHUB_TOKEN="$new_shared_token"
