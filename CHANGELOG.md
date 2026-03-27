@@ -11,6 +11,8 @@ Adds two-tier credential model for GitHub PATs: a shared token as default with o
 
 ### Fixed
 - **Add-project flow silent auth failure** (BUG-245): Fine-grained PATs (`github_pat_*`) scoped to specific repos caused HTTP 404 when adding new projects, with no recovery path. Now shows token-type-aware error message and interactive 4-option recovery menu (per-project token, replace shared token, skip sync, continue anyway).
+- **Backup script missing `github` collection** (BUG-246): `backup_qdrant.py` only backed up 4 of 5 collections — the `github` collection (13K+ points, largest collection) was missing. A `stack.sh nuke` without manual backup would lose all GitHub sync data. Added `github` to the COLLECTIONS list.
+- **Classifier queue path not expanded** (BUG-247): `AI_MEMORY_QUEUE_DIR=~/.ai-memory/queue` in `.env` was read literally by Python (tilde not expanded), causing hooks to write to a `~` directory under CWD instead of `$HOME/.ai-memory/queue`. The classifier container read from the correct path but found an empty queue — classification was silently broken. Added `os.path.expanduser()` to queue path resolution.
 
 ### Added
 - **Per-project GitHub token support**: Optional `github.token` field in `projects.d/*.yaml` overrides the shared `GITHUB_TOKEN` for individual projects. Existing configs without the field continue to use the shared token (full backward compatibility).
@@ -24,6 +26,13 @@ Adds two-tier credential model for GitHub PATs: a shared token as default with o
 ### Documentation
 - **INSTALL.md auth failure description corrected** (M-4): Recovery flow description now says "non-200 HTTP response (e.g., 401, 403, 404)" instead of the inaccurate "HTTP 404" — any non-200 triggers recovery, not just 404.
 - **INSTALL.md `GITHUB_PROJECT_TOKEN` scope clarified** (L-4): Added note that `GITHUB_PROJECT_TOKEN` only applies in add-project mode (Option 1); initial setup uses `GITHUB_TOKEN`.
+
+### Update Instructions
+After pulling v2.2.7:
+1. Run `./scripts/install.sh <your-project-dir>` and choose Option 1 (Add project to existing installation) — this updates all Python source files including the queue.py fix.
+2. Rebuild the github-sync container (code baked into image): `cd ~/.ai-memory/docker && docker compose build --no-cache github-sync`
+3. Restart the classifier-worker to pick up the queue path fix: `cd ~/.ai-memory/docker && docker compose restart classifier-worker`
+4. If you have stranded queue items in a `~/.ai-memory/queue/` directory under your project folder (literal `~`), move them: `cat <project-dir>/\~/.ai-memory/queue/classification_queue.jsonl >> ~/.ai-memory/queue/classification_queue.jsonl`
 
 ### Code Review Round 3 Fixes
 - **File permission hardening on project YAML** (R3-1): `register_project_sync()` now runs `chmod 600` on the written `projects.d/*.yaml` after `mv` to ensure token-bearing YAML files are not world-readable.
