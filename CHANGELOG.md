@@ -19,6 +19,11 @@ Adds two-tier credential model for GitHub PATs: a shared token as default with o
 - **Non-interactive `GITHUB_PROJECT_TOKEN` env var**: CI/automation support for per-project tokens without interactive prompts.
 - **Startup token validation**: github-sync container validates each project's token on startup, logs warnings for failures, and skips sync for projects with invalid tokens instead of crashing.
 - **Sync engine per-project token resolution**: `GitHubSyncEngine` and code blob sync resolve per-project token before falling back to global `GITHUB_TOKEN`.
+- **`list_projects.py` token visibility**: JSON output includes `has_per_project_token` boolean per project; table output adds a `TOKEN` column showing `project` or `shared` for each entry.
+
+### Documentation
+- **INSTALL.md auth failure description corrected** (M-4): Recovery flow description now says "non-200 HTTP response (e.g., 401, 403, 404)" instead of the inaccurate "HTTP 404" — any non-200 triggers recovery, not just 404.
+- **INSTALL.md `GITHUB_PROJECT_TOKEN` scope clarified** (L-4): Added note that `GITHUB_PROJECT_TOKEN` only applies in add-project mode (Option 1); initial setup uses `GITHUB_TOKEN`.
 
 ## [2.2.6] - 2026-03-26 — Multi-Project Installer Fix
 
@@ -382,6 +387,9 @@ pip install ai-memory[observability]
 - **TD-290**: `@observe(as_type="generation")` on classifier LLM calls
 - **TD-291–292**: Freshness naming consistency, quality gate push metrics
 - **injection.py case-sensitivity**: Fixed `CONSTRAINTS.md` → `constraints.md` path references (lines 882, 901) for Linux filesystem compatibility
+- **Issue #73**: `github_sync_total_timeout` ceiling raised from 2 hours to 7 days — supports large-repo initial syncs without source patching
+- **Issue #74**: `scripts/list_projects.py` rewritten to work without importing `memory` package — runs with system Python, no venv required
+- **Issue #75**: `health-check.py` skips monitoring checks when `MONITORING_ENABLED=false` — shows "skipped" instead of noisy "connection refused" warnings
 - **Installer stale cleanup**: Added `pov/data/` directory removal for users upgrading from pre-v2.2.4 installations
 - **BUG-237**: 9 test-ordering isolation flakes documented (pre-existing BUG-209/BUG-234 pattern — tests pass individually)
 - **BUG-238**: Langfuse RAM check crashes on macOS — `/proc/meminfo` replaced with OS-aware check (`sysctl -n hw.memsize` on macOS, `/proc/meminfo` on Linux) (GitHub #71)

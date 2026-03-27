@@ -357,7 +357,7 @@ By default, all projects share the `GITHUB_TOKEN` configured during initial inst
 If you use fine-grained PATs scoped to specific repositories, each project may need its own token. The installer handles this automatically:
 
 1. When adding a project, the installer tests connectivity with the shared token
-2. If the test fails (HTTP 404), it detects the token type and explains the issue
+2. If the test fails (non-200 HTTP response, e.g., 401, 403, 404), it detects the token type and explains the issue
 3. You get four recovery options:
    - **Enter a per-project token** -- stored in `projects.d/*.yaml`, used only for this project
    - **Replace the shared token** -- updates `docker/.env` for all projects
@@ -398,6 +398,9 @@ GITHUB_REPO=my-org/my-project \
 NON_INTERACTIVE=true \
 ./scripts/install.sh ~/projects/my-project
 ```
+
+> **Note:** `GITHUB_PROJECT_TOKEN` only applies when adding a project to an existing
+> installation (Option 1). For initial setup, use `GITHUB_TOKEN` instead.
 
 **Token Resolution Order**
 
