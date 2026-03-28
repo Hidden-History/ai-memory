@@ -60,3 +60,61 @@ groups:
             This may indicate a stalled or failing LLM call.
         labels:
           severity: warning
+
+  - orgId: 1
+    name: ai-memory-evaluation-alerts
+    folder: AI Memory
+    interval: 5m
+    rules:
+      - uid: evaluation-threshold-breach
+        title: "Evaluator Threshold Breach"
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: aimemory_evaluation_threshold_breach
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              expression: A
+              reducer: last
+              type: reduce
+              refId: B
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: gte
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+              expression: B
+              type: threshold
+              refId: C
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: >-
+            Evaluator {{ $labels.evaluator }} threshold breach.
+            Score dropped below configured threshold.
+          description: >-
+            The evaluator '{{ $labels.evaluator }}' has reported aimemory_evaluation_threshold_breach=1
+            for 5 minutes. Check the evaluation score trend in the Evaluator Health dashboard.
+        labels:
+          severity: critical

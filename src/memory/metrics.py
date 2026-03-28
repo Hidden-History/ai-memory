@@ -281,6 +281,35 @@ context_injection_tokens = Histogram(
 )
 
 # ==============================================================================
+# EVALUATION - LLM-as-Judge scoring metrics (TD-284)
+# ==============================================================================
+
+evaluation_score = Gauge(
+    "aimemory_evaluation_score",
+    "Average evaluation score for the last run of each evaluator (0.0–1.0)",
+    ["evaluator_name"],
+)
+
+evaluation_runs_total = Counter(
+    "aimemory_evaluation_runs_total",
+    "Total number of individual evaluations completed",
+    ["evaluator_name", "status"],
+)
+
+evaluation_duration_seconds = Histogram(
+    "aimemory_evaluation_duration_seconds",
+    "Wall-clock duration of a single evaluator run in seconds",
+    ["evaluator_name"],
+    buckets=[1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0],
+)
+
+evaluation_threshold_breach = Gauge(
+    "aimemory_evaluation_threshold_breach",
+    "1 if evaluator avg score is below configured threshold, 0 otherwise",
+    ["evaluator_name"],
+)
+
+# ==============================================================================
 # INFO - Static metadata about the system
 # ==============================================================================
 

@@ -20,8 +20,10 @@ from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedR
 
 from src.memory.config import reset_config
 from src.memory.deduplication import (
+    CrossCollectionDuplicateResult,
     DuplicationCheckResult,
     compute_content_hash,
+    cross_collection_duplicate_check,
     is_duplicate,
 )
 
@@ -426,3 +428,129 @@ class TestDuplicationCheckResult:
         assert result.is_duplicate is False
         assert result.reason is None
         assert result.existing_id is None
+
+
+class TestCrossCollectionDuplicateResult:
+    """Tests for CrossCollectionDuplicateResult dataclass (TD-060)."""
+
+    def test_result_duplicate(self):
+        """Verify structure when duplicate found."""
+        result = CrossCollectionDuplicateResult(
+            is_duplicate=True,
+            found_collection="conventions",
+            existing_id="uuid-123",
+        )
+        assert result.is_duplicate is True
+        assert result.found_collection == "conventions"
+        assert result.existing_id == "uuid-123"
+
+    def test_result_not_duplicate(self):
+        """Verify structure when no duplicate found."""
+        result = CrossCollectionDuplicateResult(is_duplicate=False)
+        assert result.is_duplicate is False
+        assert result.found_collection is None
+        assert result.existing_id is None
+
+
+class TestCrossCollectionDuplicateCheck:
+    """Tests for cross_collection_duplicate_check() function (TD-060)."""
+
+    def _make_point(self, point_id="existing-uuid-999"):
+        point = MagicMock()
+        point.id = point_id
+        return point
+
+    def test_returns_duplicate_when_found_in_other_collection(self):
+        """Returns is_duplicate=True when hash found in a non-target collection."""
+        mock_client = MagicMock()
+        # First collection returns a match
+        mock_client.scroll.return_value = ([self._make_point()], None)
+
+        result = cross_collection_duplicate_check(
+            "sha256:abc123",
+            "my-project",
+            "code-patterns",
+            client=mock_client,
+        )
+
+        assert result.is_duplicate is True
+        assert result.existing_id == "existing-uuid-999"
+        assert result.found_collection is not None
+
+    def test_returns_not_duplicate_when_no_match(self):
+        """Returns is_duplicate=False when hash not found in any collection."""
+        mock_client = MagicMock()
+        mock_client.scroll.return_value = ([], None)
+
+        result = cross_collection_duplicate_check(
+            "sha256:abc123",
+            "my-project",
+            "code-patterns",
+            client=mock_client,
+        )
+
+        assert result.is_duplicate is False
+        assert result.found_collection is None
+        assert result.existing_id is None
+
+    def test_excludes_target_collection(self):
+        """Does not check the target collection."""
+        mock_client = MagicMock()
+        mock_client.scroll.return_value = ([], None)
+
+        cross_collection_duplicate_check(
+            "sha256:abc123",
+            "my-project",
+            "conventions",
+            client=mock_client,
+        )
+
+        checked_collections = [
+            call.kwargs["collection_name"]
+            for call in mock_client.scroll.call_args_list
+        ]
+        assert "conventions" not in checked_collections
+
+    def test_checks_all_five_collections_minus_target(self):
+        """Checks exactly 4 collections when target is one of the 5."""
+        mock_client = MagicMock()
+        mock_client.scroll.return_value = ([], None)
+
+        cross_collection_duplicate_check(
+            "sha256:abc123",
+            "my-project",
+            "discussions",
+            client=mock_client,
+        )
+
+        assert mock_client.scroll.call_count == 4
+
+    def test_fails_open_on_collection_error(self):
+        """Skips failed collections and continues; returns not-duplicate on all failures."""
+        mock_client = MagicMock()
+        mock_client.scroll.side_effect = Exception("Qdrant unavailable")
+
+        result = cross_collection_duplicate_check(
+            "sha256:abc123",
+            "my-project",
+            "code-patterns",
+            client=mock_client,
+        )
+
+        assert result.is_duplicate is False
+
+    def test_stops_on_first_duplicate_found(self):
+        """Returns immediately on first match; does not check remaining collections."""
+        mock_client = MagicMock()
+        mock_client.scroll.return_value = ([self._make_point()], None)
+
+        result = cross_collection_duplicate_check(
+            "sha256:abc123",
+            "my-project",
+            "code-patterns",
+            client=mock_client,
+        )
+
+        assert result.is_duplicate is True
+        # Only one collection checked before returning
+        assert mock_client.scroll.call_count == 1

@@ -8,6 +8,7 @@ Best Practices: https://softlandia.com/articles/deploying-qdrant-with-grpc-auth-
 """
 
 import logging
+import os
 import warnings
 
 from qdrant_client import QdrantClient
@@ -79,13 +80,36 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
         warnings.filterwarnings(
             "ignore", message="Api key is used with an insecure connection"
         )
-    client = QdrantClient(
-        host=config.qdrant_host,
-        port=config.qdrant_port,
-        api_key=config.qdrant_api_key,
-        https=config.qdrant_use_https,
-        timeout=config.qdrant_timeout,
-    )
+
+    # TD-107: prefer gRPC for lower latency; fall back to HTTP if unavailable.
+    # NOTE: QdrantClient construction does not establish a connection, so we
+    # probe with get_collections() to detect gRPC unavailability at init time.
+    grpc_port = int(os.getenv("QDRANT_GRPC_PORT", "6334"))
+    try:
+        client = QdrantClient(
+            host=config.qdrant_host,
+            port=config.qdrant_port,
+            api_key=config.qdrant_api_key,
+            https=config.qdrant_use_https,
+            timeout=config.qdrant_timeout,
+            prefer_grpc=True,
+            grpc_port=grpc_port,
+        )
+        # Probe to verify gRPC is reachable (construction alone does not connect)
+        client.get_collections()
+        logger.debug("qdrant_client_grpc", extra={"grpc_port": grpc_port})
+    except Exception as grpc_error:
+        logger.warning(
+            "grpc_unavailable_falling_back_to_http",
+            extra={"error": str(grpc_error)},
+        )
+        client = QdrantClient(
+            host=config.qdrant_host,
+            port=config.qdrant_port,
+            api_key=config.qdrant_api_key,
+            https=config.qdrant_use_https,
+            timeout=config.qdrant_timeout,
+        )
 
     _client_cache[cache_key] = client
     return client

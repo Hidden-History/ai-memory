@@ -155,6 +155,11 @@ class MemoryConfig(BaseSettings):
         description="Similarity threshold for deduplication (0.80-0.99). Higher = stricter dedup, fewer similar memories stored.",
     )
 
+    cross_dedup_enabled: bool = Field(
+        default=True,
+        description="Enable cross-collection duplicate detection (TD-060). Env var: CROSS_DEDUP_ENABLED.",
+    )
+
     max_retrievals: int = Field(
         default=10, ge=1, le=50, description="Maximum memories to retrieve per session"
     )

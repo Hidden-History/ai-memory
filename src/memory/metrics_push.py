@@ -1740,3 +1740,113 @@ except Exception as e:
         logger.warning(
             "metrics_fork_failed", extra={"error": str(e), "metric": "langfuse_buffer"}
         )
+
+
+def push_evaluation_metrics_async(
+    evaluator_name: str,
+    avg_score: float,
+    runs_count: int,
+    duration_seconds: float,
+    threshold_breach: int = 0,
+    status: str = "success",
+):
+    """Push LLM-as-Judge evaluation metrics asynchronously (fire-and-forget).
+
+    Uses subprocess fork pattern to avoid blocking evaluator runs.
+    Tracks score, run count, duration, and threshold breach state per evaluator.
+
+    TD-284: Evaluation threshold alerting.
+
+    Args:
+        evaluator_name: Evaluator name (e.g., "retrieval_relevance")
+        avg_score: Average score for this evaluator run (0.0–1.0)
+        runs_count: Number of individual evaluations completed
+        duration_seconds: Wall-clock duration of the evaluator run
+        threshold_breach: 1 if avg_score < configured threshold, 0 otherwise
+        status: success or error
+    """
+    if not PUSHGATEWAY_ENABLED:
+        return
+
+    evaluator_name = _validate_label(evaluator_name, "evaluator_name")
+    status = _validate_label(status, "status", VALID_STATUSES)
+
+    try:
+        metrics_data = {
+            "evaluator_name": evaluator_name,
+            "avg_score": avg_score,
+            "runs_count": runs_count,
+            "duration_seconds": duration_seconds,
+            "threshold_breach": threshold_breach,
+            "status": status,
+        }
+
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                f"""
+import json, os
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, pushadd_to_gateway
+
+data = json.loads({json.dumps(metrics_data)!r})
+registry = CollectorRegistry()
+
+score_gauge = Gauge(
+    "aimemory_evaluation_score",
+    "Average evaluation score for the last run of each evaluator (0.0-1.0)",
+    ["evaluator_name"],
+    registry=registry
+)
+score_gauge.labels(evaluator_name=data["evaluator_name"]).set(data["avg_score"])
+
+if data["runs_count"] > 0:
+    runs = Counter(
+        "aimemory_evaluation_runs_total",
+        "Total number of individual evaluations completed",
+        ["evaluator_name", "status"],
+        registry=registry
+    )
+    runs.labels(evaluator_name=data["evaluator_name"], status=data["status"]).inc(data["runs_count"])
+
+duration = Histogram(
+    "aimemory_evaluation_duration_seconds",
+    "Wall-clock duration of a single evaluator run in seconds",
+    ["evaluator_name"],
+    registry=registry,
+    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0)
+)
+duration.labels(evaluator_name=data["evaluator_name"]).observe(data["duration_seconds"])
+
+breach = Gauge(
+    "aimemory_evaluation_threshold_breach",
+    "1 if evaluator avg score is below configured threshold, 0 otherwise",
+    ["evaluator_name"],
+    registry=registry
+)
+breach.labels(evaluator_name=data["evaluator_name"]).set(data["threshold_breach"])
+
+try:
+    pushadd_to_gateway(
+        os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
+        job="ai_memory_hooks",
+        grouping_key={{"instance": f"eval_{{data['evaluator_name']}}"}},
+        registry=registry,
+        timeout=0.5
+    )
+except Exception as e:
+    import logging
+    logging.getLogger("ai_memory.metrics").warning(
+        "pushgateway_async_failed",
+        extra={{"error": str(e), "metric": "evaluation"}}
+    )
+""",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "metrics_fork_failed", extra={"error": str(e), "metric": "evaluation"}
+        )

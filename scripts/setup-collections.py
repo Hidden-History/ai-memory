@@ -146,11 +146,14 @@ def create_collections(dry_run: bool = False, force: bool = False) -> None:
             # no HNSW graph was built yet. Search works via brute-force scan for any
             # points that have real (non-zero) embeddings.
             # Reference: https://qdrant.tech/documentation/concepts/indexing/#vector-index
+            # TD-106: inline_storage=True (v1.16.3) stores vectors inline in HNSW graph
+            # nodes for improved CPU cache efficiency during ANN traversal.
             hnsw_config = HnswConfigDiff(
                 m=16,
                 ef_construct=100,
                 full_scan_threshold=10000,
                 on_disk=True,
+                inline_storage=True,
             )
 
             # BP-038 Section 2.1: Scalar int8 quantization for 4x compression
@@ -338,6 +341,50 @@ def create_collections(dry_run: bool = False, force: bool = False) -> None:
         sys.exit(1)
 
 
+def migrate_inline_storage() -> tuple[list[str], list[str]]:
+    """Update existing collections to enable inline_storage in HNSW config.
+
+    TD-106: Qdrant v1.16.3 supports inline_storage for improved HNSW graph
+    cache efficiency. Updates existing collections without recreating them.
+
+    Returns:
+        Tuple of (updated_collections, skipped_collections).
+    """
+    config = get_config()
+    client = get_qdrant_client(config)
+
+    collection_names = [
+        COLLECTION_CODE_PATTERNS,
+        COLLECTION_CONVENTIONS,
+        COLLECTION_DISCUSSIONS,
+        COLLECTION_GITHUB,
+    ]
+    if config.jira_sync_enabled:
+        collection_names.append(COLLECTION_JIRA_DATA)
+
+    updated: list[str] = []
+    skipped: list[str] = []
+
+    for name in collection_names:
+        if not client.collection_exists(name):
+            logger.info("Collection does not exist, skipping migration: %s", name)
+            skipped.append(name)
+            continue
+        try:
+            client.update_collection(
+                collection_name=name,
+                hnsw_config=HnswConfigDiff(inline_storage=True),
+            )
+            updated.append(name)
+            print(f"Migrated inline_storage: {name}")
+        except Exception as e:
+            logger.warning("Failed to migrate %s: %s", name, e)
+            skipped.append(name)
+
+    print(f"Migration complete: {len(updated)} updated, {len(skipped)} skipped")
+    return updated, skipped
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -346,6 +393,30 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Create Qdrant collections for AI Memory Module (V2.0)"
     )
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Default command: create collections
+    create_parser = subparsers.add_parser(
+        "create", help="Create Qdrant collections (default)"
+    )
+    create_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview what would be created without making changes",
+    )
+    create_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Delete and recreate existing collections (DATA LOSS)",
+    )
+
+    # TD-106: migrate existing collections to enable inline_storage
+    subparsers.add_parser(
+        "migrate-inline-storage",
+        help="Update existing collections to enable inline_storage in HNSW config (TD-106)",
+    )
+
+    # Legacy: no subcommand → behave as 'create' for backwards compatibility
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -356,5 +427,10 @@ if __name__ == "__main__":
         action="store_true",
         help="Delete and recreate existing collections (DATA LOSS)",
     )
+
     args = parser.parse_args()
-    create_collections(dry_run=args.dry_run, force=args.force)
+
+    if args.command == "migrate-inline-storage":
+        migrate_inline_storage()
+    else:
+        create_collections(dry_run=args.dry_run, force=args.force)

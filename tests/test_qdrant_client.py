@@ -4,7 +4,7 @@ Tests AC 1.4.3 - Qdrant Client Wrapper functionality.
 """
 
 import sys
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from src.memory.config import MemoryConfig
 from src.memory.qdrant_client import (
@@ -111,6 +111,99 @@ class TestQdrantClient:
             raise QdrantUnavailable("Test error")
         except QdrantUnavailable as e:
             assert "Test error" in str(e)
+
+    def test_get_qdrant_client_uses_grpc(self):
+        """TD-107: get_qdrant_client() passes prefer_grpc=True and grpc_port."""
+        with patch("src.memory.qdrant_client.QdrantClient") as MockQdrantClient:
+            mock_instance = Mock()
+            MockQdrantClient.return_value = mock_instance
+
+            config = MemoryConfig()
+            get_qdrant_client(config)
+
+            call_kwargs = MockQdrantClient.call_args.kwargs
+            assert call_kwargs.get("prefer_grpc") is True
+            assert "grpc_port" in call_kwargs
+
+    def test_get_qdrant_client_grpc_port_default(self, monkeypatch):
+        """TD-107: Default gRPC port is 6334."""
+        monkeypatch.delenv("QDRANT_GRPC_PORT", raising=False)
+        with patch("src.memory.qdrant_client.QdrantClient") as MockQdrantClient:
+            mock_instance = Mock()
+            MockQdrantClient.return_value = mock_instance
+
+            config = MemoryConfig()
+            get_qdrant_client(config)
+
+            call_kwargs = MockQdrantClient.call_args.kwargs
+            assert call_kwargs["grpc_port"] == 6334
+
+    def test_get_qdrant_client_grpc_port_from_env(self):
+        """TD-107: gRPC port is read from QDRANT_GRPC_PORT env var."""
+        with (
+            patch("src.memory.qdrant_client.QdrantClient") as MockQdrantClient,
+            patch.dict("os.environ", {"QDRANT_GRPC_PORT": "6335"}),
+        ):
+            mock_instance = Mock()
+            MockQdrantClient.return_value = mock_instance
+
+            config = MemoryConfig()
+            get_qdrant_client(config)
+
+            call_kwargs = MockQdrantClient.call_args.kwargs
+            assert call_kwargs["grpc_port"] == 6335
+
+    def test_get_qdrant_client_falls_back_on_grpc_error(self):
+        """TD-107: Falls back to HTTP client when gRPC init raises."""
+        call_count = 0
+
+        def side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if kwargs.get("prefer_grpc"):
+                raise RuntimeError("gRPC not available")
+            return Mock()
+
+        with patch("src.memory.qdrant_client.QdrantClient", side_effect=side_effect):
+            config = MemoryConfig()
+            client = get_qdrant_client(config)
+
+            # Two calls: first with gRPC (fails), second without (succeeds)
+            assert call_count == 2
+            assert client is not None
+
+    def test_get_qdrant_client_fallback_has_no_grpc(self):
+        """TD-107: HTTP fallback client is created without prefer_grpc."""
+        calls_kwargs = []
+
+        def side_effect(**kwargs):
+            calls_kwargs.append(kwargs)
+            if kwargs.get("prefer_grpc"):
+                raise RuntimeError("gRPC not available")
+            return Mock()
+
+        with patch("src.memory.qdrant_client.QdrantClient", side_effect=side_effect):
+            config = MemoryConfig()
+            get_qdrant_client(config)
+
+            # Second call (fallback) must not include prefer_grpc
+            assert len(calls_kwargs) == 2
+            assert "prefer_grpc" not in calls_kwargs[1]
+
+    def test_get_qdrant_client_falls_back_on_grpc_probe_error(self):
+        """TD-107: Falls back to HTTP when gRPC probe (get_collections) raises."""
+        http_client = Mock()
+        grpc_client = Mock()
+        grpc_client.get_collections.side_effect = RuntimeError("gRPC connection refused")
+
+        def side_effect(**kwargs):
+            return grpc_client if kwargs.get("prefer_grpc") else http_client
+
+        with patch("src.memory.qdrant_client.QdrantClient", side_effect=side_effect):
+            config = MemoryConfig()
+            result = get_qdrant_client(config)
+
+        assert result is http_client
 
     def test_module_has_all_exports(self):
         """AC 1.4.3: Module exports required functions."""

@@ -12,8 +12,11 @@ import pytest
 @pytest.fixture(autouse=True)
 def _capture_processor_logs(caplog):
     """Ensure caplog captures logs from classifier.processor despite propagate=False."""
+    processor_logger = logging.getLogger("ai_memory.classifier.processor")
+    processor_logger.addHandler(caplog.handler)
     with caplog.at_level(logging.DEBUG, logger="ai_memory.classifier.processor"):
         yield
+    processor_logger.removeHandler(caplog.handler)
 
 
 @pytest.fixture

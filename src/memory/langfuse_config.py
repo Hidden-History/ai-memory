@@ -12,7 +12,37 @@ import logging
 import os
 import threading
 
+from tenacity import (
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Retry on transient errors; do not retry if langfuse package is missing."""
+    return not isinstance(exc, ImportError)
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=1, max=16),
+    retry=retry_if_exception(_is_retryable),
+    reraise=True,
+)
+def _create_langfuse_client_with_retry():
+    """Create Langfuse V3 client with exponential backoff retry (TD-206).
+
+    5 attempts, backoff 1s–16s. ImportError is not retried (langfuse not installed).
+    NOTE: Local import so tests can patch sys.modules["langfuse"] at runtime.
+    """
+    from langfuse import get_client as _get_client  # noqa: PLC0415
+
+    return _get_client()
+
 
 _client = None
 _client_lock = threading.Lock()
@@ -61,11 +91,8 @@ def get_langfuse_client():
             # V3 SDK: get_client() is a singleton that reads env vars automatically.
             # We set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL
             # in the environment above, so get_client() picks them up.
-            # NOTE: Local import (not module-level _langfuse_get_client) because tests
-            # patch sys.modules["langfuse"] at runtime, after module-level vars are set.
-            from langfuse import get_client as _get_client
-
-            client = _get_client()
+            # TD-206: wrapped in _create_langfuse_client_with_retry for exponential backoff.
+            client = _create_langfuse_client_with_retry()
             logger.info(
                 "Langfuse client initialized via V3 get_client() (host=%s)",
                 os.environ.get("LANGFUSE_BASE_URL", "http://localhost:23100"),
@@ -77,7 +104,7 @@ def get_langfuse_client():
             logger.warning("langfuse package not installed — pip install langfuse")
             return None
         except Exception as e:
-            logger.error("Failed to initialize Langfuse client: %s", e)
+            logger.error("Failed to initialize Langfuse client after retries: %s", e)
             return None
 
 

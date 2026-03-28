@@ -14,7 +14,7 @@ import logging
 import time
 from dataclasses import dataclass
 
-from qdrant_client import AsyncQdrantClient
+from qdrant_client import AsyncQdrantClient, QdrantClient
 from qdrant_client.http.exceptions import (
     ApiException,
     ResponseHandlingException,
@@ -22,7 +22,7 @@ from qdrant_client.http.exceptions import (
 )
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-from .config import get_config
+from .config import COLLECTION_JIRA_DATA, COLLECTION_NAMES, get_config
 from .embeddings import EmbeddingClient, EmbeddingError
 
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
@@ -39,9 +39,30 @@ except ImportError:
     push_dedup_duration_metrics_async = None
     push_deduplication_metrics_async = None
 
-__all__ = ["DuplicationCheckResult", "compute_content_hash", "is_duplicate"]
+__all__ = [
+    "CrossCollectionDuplicateResult",
+    "DuplicationCheckResult",
+    "compute_content_hash",
+    "cross_collection_duplicate_check",
+    "is_duplicate",
+]
 
 logger = logging.getLogger("ai_memory.dedup")
+
+
+@dataclass
+class CrossCollectionDuplicateResult:
+    """Result of cross-collection deduplication check (TD-060).
+
+    Attributes:
+        is_duplicate: True if content hash found in another collection
+        found_collection: Collection where duplicate was found (if any)
+        existing_id: ID of existing duplicate point (if found)
+    """
+
+    is_duplicate: bool
+    found_collection: str | None = None
+    existing_id: str | None = None
 
 
 @dataclass
@@ -96,6 +117,105 @@ def compute_content_hash(content: str | bytes) -> str:
         hash_obj.update(chunk)
 
     return f"sha256:{hash_obj.hexdigest()}"
+
+
+def cross_collection_duplicate_check(
+    content_hash: str,
+    group_id: str,
+    target_collection: str,
+    client: QdrantClient | None = None,
+) -> CrossCollectionDuplicateResult:
+    """Check content_hash across all collections except the target (TD-060).
+
+    Checks all 5 collections (code-patterns, conventions, discussions, github,
+    jira-data) except target_collection to prevent cross-collection duplicates.
+
+    Uses sync QdrantClient.scroll() with content_hash + group_id filter.
+    Fails open: a failed collection check is logged and skipped, not raised.
+
+    Args:
+        content_hash: SHA-256 hash to check
+        group_id: Project identifier for multi-tenancy filtering
+        target_collection: Collection being written to (excluded from check)
+        client: Optional sync QdrantClient. Created from config if not provided.
+
+    Returns:
+        CrossCollectionDuplicateResult with is_duplicate flag and metadata
+    """
+    all_collections = list(COLLECTION_NAMES) + [COLLECTION_JIRA_DATA]
+    collections_to_check = [c for c in all_collections if c != target_collection]
+
+    owns_client = client is None
+    if owns_client:
+        config = get_config()
+        protocol = "https" if config.qdrant_use_https else "http"
+        client = QdrantClient(
+            url=f"{protocol}://{config.qdrant_host}:{config.qdrant_port}",
+            api_key=config.qdrant_api_key,
+        )
+
+    try:
+        for collection in collections_to_check:
+            try:
+                results, _ = client.scroll(
+                    collection_name=collection,
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="group_id", match=MatchValue(value=group_id)
+                            ),
+                            FieldCondition(
+                                key="content_hash",
+                                match=MatchValue(value=content_hash),
+                            ),
+                        ]
+                    ),
+                    limit=1,
+                )
+                if results:
+                    existing_id = str(results[0].id)
+                    logger.info(
+                        "cross_collection_duplicate_detected",
+                        extra={
+                            "content_hash": content_hash,
+                            "group_id": group_id,
+                            "found_collection": collection,
+                            "existing_id": existing_id,
+                        },
+                    )
+                    return CrossCollectionDuplicateResult(
+                        is_duplicate=True,
+                        found_collection=collection,
+                        existing_id=existing_id,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "cross_dedup_collection_check_failed",
+                    extra={
+                        "collection": collection,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
+
+        return CrossCollectionDuplicateResult(is_duplicate=False)
+
+    except Exception as e:
+        logger.warning(
+            "cross_dedup_failed",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
+        return CrossCollectionDuplicateResult(is_duplicate=False)
+
+    finally:
+        if owns_client and client is not None:
+            try:
+                client.close()
+            except Exception as e:
+                logger.debug(
+                    "cross_dedup_client_close_failed",
+                    extra={"error": str(e)},
+                )
 
 
 async def is_duplicate(

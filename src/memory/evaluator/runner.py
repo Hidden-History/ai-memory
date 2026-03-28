@@ -27,12 +27,18 @@ import hashlib
 import json
 import logging
 import random
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from . import TRACE_CONTENT_MAX
 from .provider import EvaluatorConfig
+
+try:
+    from ..metrics_push import push_evaluation_metrics_async
+except ImportError:  # pragma: no cover
+    push_evaluation_metrics_async = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +76,7 @@ class EvaluatorRunner:
                 "log_file", ".audit/logs/evaluations.jsonl"
             )
         )
+        self._ev_scores: dict[str, list[float]] = {}
 
     def _load_evaluators(self, evaluator_id: str | None = None) -> list[dict]:
         """Load evaluator definitions from YAML files.
@@ -233,6 +240,13 @@ class EvaluatorRunner:
         with open(self.audit_log_path, "a") as f:
             f.write(json.dumps(entry) + "\n")
 
+    def _compute_avg_score(self, ev_name: str) -> float | None:
+        """Return average of accumulated scores for ev_name, or None if no scores."""
+        scores = self._ev_scores.get(ev_name, [])
+        if not scores:
+            return None
+        return sum(scores) / len(scores)
+
     def _run_observation_evaluator(
         self,
         langfuse: Any,
@@ -321,6 +335,12 @@ class EvaluatorRunner:
                                 continue
 
                             evaluated += 1
+
+                            # Track score for metrics (TD-284)
+                            if isinstance(result["score"], (int, float)):
+                                self._ev_scores.setdefault(ev_name, []).append(
+                                    float(result["score"])
+                                )
 
                             # Attach score (idempotent via score_id)
                             if not dry_run:
@@ -478,6 +498,12 @@ class EvaluatorRunner:
 
                         evaluated += 1
 
+                        # Track score for metrics (TD-284)
+                        if isinstance(result["score"], (int, float)):
+                            self._ev_scores.setdefault(ev_name, []).append(
+                                float(result["score"])
+                            )
+
                         # Attach score to Langfuse (idempotent via score_id)
                         if not dry_run:
                             score_id = self._make_score_id(trace.id, ev_name, since)
@@ -580,6 +606,9 @@ class EvaluatorRunner:
         Returns:
             Summary dict with counts: fetched, sampled, evaluated, scored
         """
+        # Reset per-run score accumulator (C-1: avoid cross-run average corruption)
+        self._ev_scores = {}
+
         # V3 singleton — NEVER use Langfuse() constructor directly
         langfuse = get_client()
 
@@ -608,6 +637,7 @@ class EvaluatorRunner:
                     f"\n--- Running {evaluator.get('id', '?')}: {ev_name} (target={target}) ---"
                 )
 
+                ev_start = time.time()
                 if target == "observation":
                     f, s, e, sc = self._run_observation_evaluator(
                         langfuse, evaluator, ev_name, since, until, dry_run, batch_size
@@ -617,11 +647,31 @@ class EvaluatorRunner:
                     f, s, e, sc = self._run_trace_evaluator(
                         langfuse, evaluator, ev_name, since, until, dry_run, batch_size
                     )
+                ev_duration = time.time() - ev_start
 
                 total_fetched += f
                 total_sampled += s
                 total_evaluated += e
                 total_scored += sc
+
+                # Push metrics and check threshold (TD-284)
+                avg_score = self._compute_avg_score(ev_name)
+                threshold = self.config.get("thresholds", {}).get(ev_name)
+                breach = (
+                    1
+                    if avg_score is not None
+                    and threshold is not None
+                    and avg_score < threshold
+                    else 0
+                )
+                if push_evaluation_metrics_async is not None:
+                    push_evaluation_metrics_async(
+                        evaluator_name=ev_name,
+                        avg_score=avg_score if avg_score is not None else 0.0,
+                        runs_count=e,
+                        duration_seconds=ev_duration,
+                        threshold_breach=breach,
+                    )
 
                 print(f"  Evaluated: {e} | Scored: {sc}")
 

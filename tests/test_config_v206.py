@@ -339,3 +339,32 @@ class TestFieldDescriptions:
             assert (
                 len(field_info.description) > 0
             ), f"Field '{field_name}' has empty description"
+
+
+class TestCrossDeduplicationConfig:
+    """Tests for cross_dedup_enabled config field (TD-060)."""
+
+    def test_cross_dedup_enabled_default_true(self):
+        """cross_dedup_enabled defaults to True."""
+        config = MemoryConfig(_env_file=None)
+        assert config.cross_dedup_enabled is True
+
+    def test_cross_dedup_enabled_env_override(self, monkeypatch):
+        """cross_dedup_enabled can be disabled via env var."""
+        monkeypatch.setenv("CROSS_DEDUP_ENABLED", "false")
+        reset_config()
+        try:
+            config = MemoryConfig(_env_file=None)
+            assert config.cross_dedup_enabled is False
+        finally:
+            reset_config()
+
+    def test_cross_dedup_enabled_accepts_true(self, monkeypatch):
+        """cross_dedup_enabled accepts true via env var."""
+        monkeypatch.setenv("CROSS_DEDUP_ENABLED", "true")
+        reset_config()
+        try:
+            config = MemoryConfig(_env_file=None)
+            assert config.cross_dedup_enabled is True
+        finally:
+            reset_config()

@@ -1229,3 +1229,144 @@ class TestCategoricalValidation:
 
         assert result["scored"] == 1
         mock_langfuse.create_score.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# TD-284: Evaluation metrics — score accumulation, threshold breach, metrics push
+# ---------------------------------------------------------------------------
+
+
+class TestEvalScoreAccumulation:
+    """_ev_scores tracks per-evaluator scores and resets between run() calls."""
+
+    def test_ev_scores_reset_between_runs(self, runner, trace_evaluator_yaml):
+        """C-1: _ev_scores must be empty at the start of each run() call."""
+        mock_langfuse = MagicMock()
+        mock_langfuse.api.trace.list.return_value = MagicMock(data=[], meta=MagicMock(next_page=None))
+        since = datetime(2026, 3, 1, tzinfo=timezone.utc)
+
+        with (
+            patch("memory.evaluator.runner.get_client", return_value=mock_langfuse),
+            patch("memory.evaluator.runner.push_evaluation_metrics_async", None),
+        ):
+            # First run — no scores (empty result set)
+            runner.run(since=since)
+            # Manually inject stale scores to simulate corrupted state
+            runner._ev_scores["bootstrap_quality"] = [0.1, 0.2, 0.3]
+
+            # Second run must reset _ev_scores before processing
+            runner.run(since=since)
+
+        assert runner._ev_scores == {}, "_ev_scores not reset between run() calls"
+
+    def test_compute_avg_score_returns_none_when_empty(self, runner):
+        """_compute_avg_score returns None when no scores accumulated."""
+        result = runner._compute_avg_score("nonexistent_evaluator")
+        assert result is None
+
+    def test_compute_avg_score_returns_correct_average(self, runner):
+        """_compute_avg_score returns mean of accumulated scores."""
+        runner._ev_scores["test_ev"] = [0.8, 0.6, 1.0]
+        result = runner._compute_avg_score("test_ev")
+        assert result == pytest.approx(0.8)
+
+    def test_compute_avg_score_single_value(self, runner):
+        """_compute_avg_score with a single score returns that score."""
+        runner._ev_scores["test_ev"] = [0.75]
+        assert runner._compute_avg_score("test_ev") == pytest.approx(0.75)
+
+
+class TestEvalThresholdBreach:
+    """TD-284: threshold breach detection and metrics push in run()."""
+
+    def _run_with_score(self, runner, score, threshold=None, ev_name="retrieval_relevance"):
+        """Run runner with a mock evaluator that returns the given score."""
+        mock_langfuse = MagicMock()
+        trace = MagicMock()
+        trace.id = "trace-001"
+        trace.name = "session_bootstrap"  # matches trace_evaluator_yaml filter
+        trace.input = "test input"
+        trace.output = "test output"
+        trace.metadata = {}
+        trace.tags = []
+
+        mock_langfuse.api.trace.list.return_value = make_paginated_response([trace])
+
+        mock_evaluator_config = MagicMock()
+        mock_evaluator_config.evaluate.return_value = {
+            "score": score,
+            "reasoning": "test",
+        }
+
+        config_override = {}
+        if threshold is not None:
+            config_override = {"thresholds": {ev_name: threshold}}
+
+        since = datetime(2026, 3, 1, tzinfo=timezone.utc)
+
+        with (
+            patch("memory.evaluator.runner.get_client", return_value=mock_langfuse),
+            patch.object(runner, "evaluator_config", mock_evaluator_config),
+            patch.object(runner, "config", {**runner.config, **config_override}),
+        ):
+            return runner.run(since=since)
+
+    def test_threshold_breach_detected_when_score_below_threshold(self, runner, trace_evaluator_yaml):
+        """TD-284: breach=1 when avg_score < threshold."""
+        breach_calls = []
+
+        def capture_push(**kwargs):
+            breach_calls.append(kwargs)
+
+        with patch("memory.evaluator.runner.push_evaluation_metrics_async", capture_push):
+            self._run_with_score(runner, score=0.4, threshold=0.7, ev_name="bootstrap_quality")
+
+        assert len(breach_calls) == 1
+        assert breach_calls[0]["threshold_breach"] == 1
+        assert breach_calls[0]["avg_score"] == pytest.approx(0.4)
+
+    def test_no_breach_when_score_meets_threshold(self, runner, trace_evaluator_yaml):
+        """TD-284: breach=0 when avg_score >= threshold."""
+        breach_calls = []
+
+        def capture_push(**kwargs):
+            breach_calls.append(kwargs)
+
+        with patch("memory.evaluator.runner.push_evaluation_metrics_async", capture_push):
+            self._run_with_score(runner, score=0.8, threshold=0.7, ev_name="bootstrap_quality")
+
+        assert len(breach_calls) == 1
+        assert breach_calls[0]["threshold_breach"] == 0
+
+    def test_no_breach_when_no_threshold_configured(self, runner, trace_evaluator_yaml):
+        """TD-284: breach=0 when no threshold configured for evaluator."""
+        breach_calls = []
+
+        def capture_push(**kwargs):
+            breach_calls.append(kwargs)
+
+        with patch("memory.evaluator.runner.push_evaluation_metrics_async", capture_push):
+            self._run_with_score(runner, score=0.1, threshold=None, ev_name="bootstrap_quality")
+
+        assert len(breach_calls) == 1
+        assert breach_calls[0]["threshold_breach"] == 0
+
+    def test_push_skipped_when_push_fn_is_none(self, runner, trace_evaluator_yaml):
+        """TD-284: no error when push_evaluation_metrics_async is None (not installed)."""
+        with (
+            patch("memory.evaluator.runner.push_evaluation_metrics_async", None),
+        ):
+            # Must not raise
+            self._run_with_score(runner, score=0.5, threshold=0.7, ev_name="bootstrap_quality")
+
+    def test_push_called_with_evaluator_name(self, runner, trace_evaluator_yaml):
+        """TD-284: push call includes correct evaluator_name."""
+        push_calls = []
+
+        with patch("memory.evaluator.runner.push_evaluation_metrics_async", lambda **kw: push_calls.append(kw)):
+            self._run_with_score(runner, score=0.9, ev_name="bootstrap_quality")
+
+        assert len(push_calls) == 1
+        assert push_calls[0]["evaluator_name"] == "bootstrap_quality"
+        assert "duration_seconds" in push_calls[0]
+        assert "runs_count" in push_calls[0]

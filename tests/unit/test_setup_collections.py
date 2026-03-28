@@ -8,10 +8,11 @@ Tests verify:
 
 import importlib.util
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from qdrant_client.models import (
+    HnswConfigDiff,
     PayloadSchemaType,
 )
 
@@ -143,6 +144,132 @@ class TestSetupCollectionsV206Indexes:
         _run_setup_collections(mock_client)
         calls = _get_index_calls(mock_client)
         assert ("code-patterns", "version", PayloadSchemaType.INTEGER) in calls
+
+
+# ─── TD-106: inline_storage tests ────────────────────────────────────────────
+
+
+class TestInlineStorageInHnswConfig:
+    """Verify create_collections() sets inline_storage=True in HNSW config."""
+
+    @pytest.fixture
+    def mock_client(self):
+        client = MagicMock()
+        client.collection_exists.return_value = False
+        return client
+
+    def test_create_collections_sets_inline_storage(self, mock_client):
+        """TD-106: create_collection is called with HnswConfigDiff(inline_storage=True)."""
+        _run_setup_collections(mock_client)
+
+        for c in mock_client.create_collection.call_args_list:
+            hnsw = c.kwargs.get("hnsw_config") or (c.args[1] if len(c.args) > 1 else None)
+            assert hnsw is not None, "hnsw_config not passed to create_collection"
+            assert getattr(hnsw, "inline_storage", None) is True, (
+                f"inline_storage not True in hnsw_config: {hnsw}"
+            )
+
+
+class TestMigrateInlineStorage:
+    """Verify migrate_inline_storage() updates existing collections."""
+
+    def _run_migrate(self, mock_client):
+        spec = importlib.util.spec_from_file_location("setup_collections", SETUP_SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        with (
+            patch("memory.qdrant_client.get_qdrant_client", return_value=mock_client),
+            patch("memory.config.get_config") as mock_cfg,
+        ):
+            mock_cfg.return_value = MagicMock(
+                qdrant_host="localhost",
+                qdrant_port=6333,
+                qdrant_api_key=None,
+                qdrant_use_https=False,
+                jira_sync_enabled=False,
+            )
+            spec.loader.exec_module(module)
+            return module.migrate_inline_storage()
+
+    def test_migrate_calls_update_collection_for_existing(self):
+        """migrate_inline_storage calls update_collection for each existing collection."""
+        mock_client = MagicMock()
+        mock_client.collection_exists.return_value = True
+
+        updated, skipped = self._run_migrate(mock_client)
+
+        assert len(updated) == 4  # 4 base collections (jira disabled)
+        assert skipped == []
+        assert mock_client.update_collection.call_count == 4
+
+    def test_migrate_passes_inline_storage_true(self):
+        """migrate_inline_storage passes HnswConfigDiff(inline_storage=True) to update_collection."""
+        mock_client = MagicMock()
+        mock_client.collection_exists.return_value = True
+
+        self._run_migrate(mock_client)
+
+        for c in mock_client.update_collection.call_args_list:
+            hnsw = c.kwargs.get("hnsw_config")
+            assert hnsw is not None, "hnsw_config not passed to update_collection"
+            assert getattr(hnsw, "inline_storage", None) is True
+
+    def test_migrate_skips_nonexistent_collections(self):
+        """migrate_inline_storage skips collections that don't exist."""
+        mock_client = MagicMock()
+        mock_client.collection_exists.return_value = False
+
+        updated, skipped = self._run_migrate(mock_client)
+
+        assert updated == []
+        assert len(skipped) == 4
+        mock_client.update_collection.assert_not_called()
+
+    def test_migrate_skips_on_update_error(self):
+        """migrate_inline_storage skips collections where update_collection raises."""
+        mock_client = MagicMock()
+        mock_client.collection_exists.return_value = True
+        mock_client.update_collection.side_effect = Exception("Connection reset")
+
+        updated, skipped = self._run_migrate(mock_client)
+
+        assert updated == []
+        assert len(skipped) == 4
+
+    def test_migrate_returns_tuple_of_lists(self):
+        """migrate_inline_storage returns (updated, skipped) tuple."""
+        mock_client = MagicMock()
+        mock_client.collection_exists.return_value = True
+
+        result = self._run_migrate(mock_client)
+
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        updated, skipped = result
+        assert isinstance(updated, list)
+        assert isinstance(skipped, list)
+
+    def test_migrate_includes_jira_when_enabled(self):
+        """migrate_inline_storage includes jira-data collection when jira_sync_enabled."""
+        mock_client = MagicMock()
+        mock_client.collection_exists.return_value = True
+
+        spec = importlib.util.spec_from_file_location("setup_collections_jira", SETUP_SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        with (
+            patch("memory.qdrant_client.get_qdrant_client", return_value=mock_client),
+            patch("memory.config.get_config") as mock_cfg,
+        ):
+            mock_cfg.return_value = MagicMock(
+                qdrant_host="localhost",
+                qdrant_port=6333,
+                qdrant_api_key=None,
+                qdrant_use_https=False,
+                jira_sync_enabled=True,
+            )
+            spec.loader.exec_module(module)
+            updated, skipped = module.migrate_inline_storage()
+
+        assert len(updated) == 5  # 4 base + jira-data
 
 
 # ─── migrate_v205_to_v206.py tests ───────────────────────────────────────────

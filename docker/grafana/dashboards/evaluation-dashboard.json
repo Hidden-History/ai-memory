@@ -1,0 +1,554 @@
+{
+  "uid": "ai-memory-evaluation-v1",
+  "title": "AI Memory Evaluator Health",
+  "tags": [
+    "ai-memory",
+    "evaluator",
+    "v1"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "evaluator",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(aimemory_evaluation_score, evaluator)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Evaluation Score Trend per Evaluator",
+      "description": "**Metric:** `aimemory_evaluation_score`\n**Groups by:** `evaluator` label\n**Shows:** Score (0.0–1.0) trend over time for each evaluator\n**Expected:** Scores stable at or above their thresholds\n**Action:** Downward trend → investigate evaluator inputs or model drift",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "expr": "aimemory_evaluation_score{evaluator=~\"$evaluator\"}",
+          "refId": "A",
+          "legendFormat": "{{evaluator}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#F2495C"
+              },
+              {
+                "value": 0.5,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 0.8,
+                "color": "#73BF69"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ]
+        }
+      },
+      "maxDataPoints": 5000,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Threshold Breach Status",
+      "description": "**Metric:** `aimemory_evaluation_threshold_breach`\n**Shows:** 0 = OK (green), 1 = BREACH (red) per evaluator\n**Action:** Red = evaluator score dropped below its configured threshold\n**Thresholds:** 0 → green | 1 → red",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "aimemory_evaluation_threshold_breach{evaluator=~\"$evaluator\"}",
+          "refId": "A",
+          "legendFormat": "{{evaluator}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "No data",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "OK",
+                  "color": "#73BF69"
+                },
+                "1": {
+                  "text": "BREACH",
+                  "color": "#F2495C"
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 1,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value_and_name",
+        "colorMode": "background",
+        "graphMode": "none",
+        "orientation": "auto"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 3,
+      "type": "barchart",
+      "title": "Evaluation Run Count per Evaluator",
+      "description": "**Metric:** `aimemory_evaluation_runs_total`\n**Groups by:** `evaluator` label\n**Shows:** Total runs executed per evaluator\n**Note:** Pushgateway counter — do NOT use rate(). Use raw values.\n**Expected:** Growing monotonically as evaluations run",
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "aimemory_evaluation_runs_total{evaluator=~\"$evaluator\"}",
+          "refId": "A",
+          "legendFormat": "{{evaluator}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "options": {
+        "orientation": "auto",
+        "xTickLabelRotation": 0,
+        "groupWidth": 0.7,
+        "barWidth": 0.97,
+        "fillOpacity": 80,
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Evaluation Duration (p50 / p95 / p99)",
+      "description": "**Metric:** `aimemory_evaluation_duration_seconds_bucket`\n**Shows:** Latency percentiles for evaluation runs\n**Target:** p95 < 30s for batch evaluations\n**Thresholds:** Green <10s | Yellow 10-30s | Red >30s\n**Action:** Spikes may indicate slow LLM calls or large batch sizes",
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, evaluator) (aimemory_evaluation_duration_seconds_bucket{evaluator=~\"$evaluator\"}))",
+          "refId": "A",
+          "legendFormat": "{{evaluator}} p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, evaluator) (aimemory_evaluation_duration_seconds_bucket{evaluator=~\"$evaluator\"}))",
+          "refId": "B",
+          "legendFormat": "{{evaluator}} p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, evaluator) (aimemory_evaluation_duration_seconds_bucket{evaluator=~\"$evaluator\"}))",
+          "refId": "C",
+          "legendFormat": "{{evaluator}} p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#73BF69"
+              },
+              {
+                "value": 10,
+                "color": "#FADE2A"
+              },
+              {
+                "value": 30,
+                "color": "#F2495C"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "maxDataPoints": 5000,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 5,
+      "type": "heatmap",
+      "title": "Score Heatmap (All Evaluators)",
+      "description": "**Metric:** `aimemory_evaluation_score`\n**Shows:** Score distribution over time — Grafana calculates density buckets from raw gauge values\n**Y-axis:** Score value (0.0–1.0)\n**Purpose:** Visualise score stability and detect degradation patterns\n**Expected:** Dense band near 0.8–1.0 for healthy evaluators",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "expr": "aimemory_evaluation_score{evaluator=~\"$evaluator\"}",
+          "refId": "A",
+          "legendFormat": "{{evaluator}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {}
+      },
+      "options": {
+        "calculate": true,
+        "calculation": {
+          "yBuckets": {
+            "mode": "size",
+            "value": "0.05"
+          }
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "color": {
+          "scheme": "Greens",
+          "mode": "scheme",
+          "fill": "dark-green"
+        },
+        "cellGap": 1,
+        "tooltip": {
+          "show": true,
+          "yHistogram": false
+        },
+        "legend": {
+          "show": true
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Latest Scores — All Evaluators",
+      "description": "**Metric:** `aimemory_evaluation_score`\n**Shows:** Most recent score for every evaluator (instant query)\n**Columns:** evaluator, score, threshold_breach\n**Purpose:** At-a-glance health for all evaluators in one view",
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "expr": "aimemory_evaluation_score{evaluator=~\"$evaluator\"}",
+          "refId": "A",
+          "legendFormat": "Score",
+          "instant": true
+        },
+        {
+          "expr": "aimemory_evaluation_threshold_breach{evaluator=~\"$evaluator\"}",
+          "refId": "B",
+          "legendFormat": "Threshold Breach",
+          "instant": true
+        },
+        {
+          "expr": "aimemory_evaluation_runs_total{evaluator=~\"$evaluator\"}",
+          "refId": "C",
+          "legendFormat": "Run Count",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 3,
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Score"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "value": null,
+                      "color": "#F2495C"
+                    },
+                    {
+                      "value": 0.5,
+                      "color": "#FADE2A"
+                    },
+                    {
+                      "value": 0.8,
+                      "color": "#73BF69"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Breach"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "OK",
+                        "color": "#73BF69"
+                      },
+                      "1": {
+                        "text": "BREACH",
+                        "color": "#F2495C"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Runs"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "evaluator",
+            "desc": false
+          }
+        ],
+        "footer": {
+          "show": false
+        }
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "evaluator": "Evaluator"
+            }
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
+    }
+  ],
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "liveNow": false,
+  "style": "dark"
+}

@@ -629,3 +629,97 @@ class TestMemoryStorageStats:
         result = storage.get_last_updated("code-patterns")
 
         assert result is None
+
+
+class TestCrossCollectionDedupIntegration:
+    """Integration tests for TD-060 cross-collection deduplication in store_memory()."""
+
+    def test_store_memory_cross_dedup_returns_duplicate(
+        self, mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+    ):
+        """store_memory returns status=duplicate when cross-dedup finds hash in other collection."""
+        monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
+        mock_config.cross_dedup_enabled = True
+
+        existing_point = MagicMock()
+        existing_point.id = "cross-dedup-uuid-555"
+
+        # Patch cross_collection_duplicate_check directly to avoid coupling to
+        # internal scroll call ordering (M-3: fragile side_effect ordering fix).
+        from src.memory.deduplication import CrossCollectionDuplicateResult
+
+        cross_result = CrossCollectionDuplicateResult(
+            is_duplicate=True,
+            found_collection="conventions",
+            existing_id="cross-dedup-uuid-555",
+        )
+        monkeypatch.setattr(
+            "src.memory.deduplication.cross_collection_duplicate_check",
+            lambda *_args, **_kwargs: cross_result,
+        )
+        mock_qdrant_client.scroll.return_value = ([], None)  # same-coll: no match
+
+        storage = MemoryStorage()
+        result = storage.store_memory(
+            content="Some content for cross dedup test",
+            cwd=str(tmp_path),
+            group_id="test-project",
+            memory_type=MemoryType.IMPLEMENTATION,
+            source_hook="PostToolUse",
+            session_id="sess-cross-001",
+            collection="code-patterns",
+        )
+
+        assert result["status"] == "duplicate"
+        assert result["memory_id"] == "cross-dedup-uuid-555"
+        assert result["embedding_status"] == "n/a"
+        mock_qdrant_client.upsert.assert_not_called()
+
+    def test_store_memory_cross_dedup_disabled_skips_check(
+        self, mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+    ):
+        """store_memory skips cross-dedup when cross_dedup_enabled=False."""
+        monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
+        mock_config.cross_dedup_enabled = False
+        mock_config.security_scanning_enabled = False
+
+        mock_qdrant_client.scroll.return_value = ([], None)
+
+        storage = MemoryStorage()
+        result = storage.store_memory(
+            content="Content when cross dedup disabled",
+            cwd=str(tmp_path),
+            group_id="test-project",
+            memory_type=MemoryType.IMPLEMENTATION,
+            source_hook="PostToolUse",
+            session_id="sess-cross-002",
+            collection="code-patterns",
+        )
+
+        assert result["status"] == "stored"
+        # Only one scroll call: the same-collection _check_duplicate
+        assert mock_qdrant_client.scroll.call_count == 1
+
+    def test_store_memory_cross_dedup_no_match_proceeds_to_store(
+        self, mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+    ):
+        """store_memory proceeds to store when cross-dedup finds no match."""
+        monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
+        mock_config.cross_dedup_enabled = True
+        mock_config.security_scanning_enabled = False
+
+        mock_qdrant_client.scroll.return_value = ([], None)
+
+        storage = MemoryStorage()
+        result = storage.store_memory(
+            content="Unique content across all collections",
+            cwd=str(tmp_path),
+            group_id="test-project",
+            memory_type=MemoryType.IMPLEMENTATION,
+            source_hook="PostToolUse",
+            session_id="sess-cross-003",
+            collection="code-patterns",
+        )
+
+        assert result["status"] == "stored"
+        mock_qdrant_client.upsert.assert_called_once()

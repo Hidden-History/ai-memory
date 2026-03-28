@@ -8,6 +8,7 @@ Stores user messages to discussions collection with proper deduplication.
 # SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
+import asyncio
 import json
 import os
 import sys
@@ -314,6 +315,42 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                     collection="discussions",
                 ).inc()
             return True
+
+        # TD-049: Semantic dedup — catch near-duplicates the hash check misses
+        try:
+            from memory.deduplication import is_duplicate as _is_duplicate
+
+            _dedup_result = asyncio.run(
+                _is_duplicate(
+                    prompt,
+                    group_id,
+                    collection=COLLECTION_DISCUSSIONS,
+                    threshold=0.92,
+                )
+            )
+            if _dedup_result.is_duplicate:
+                log_to_activity(
+                    f"⏭️  UserPrompt skipped: Semantic dedup [{group_id}]", INSTALL_DIR
+                )
+                logger.info(
+                    "semantic_dedup_skip",
+                    extra={
+                        "reason": _dedup_result.reason,
+                        "existing_id": _dedup_result.existing_id,
+                        "similarity_score": _dedup_result.similarity_score,
+                        "session_id": session_id,
+                        "group_id": group_id,
+                    },
+                )
+                return True
+        except Exception as _dedup_err:
+            logger.debug(
+                "semantic_dedup_check_failed",
+                extra={
+                    "error": str(_dedup_err),
+                    "error_type": type(_dedup_err).__name__,
+                },
+            )
 
         # Generate deterministic UUID scoped to session (Fix #2: makes upsert idempotent)
         # Session-scoped: same session + same content = same ID (prevents TOCTOU race)

@@ -383,6 +383,29 @@ class MemoryStorage:
                 "embedding_status": "n/a",
             }
 
+        # TD-060: Cross-collection duplicate check
+        if self.config.cross_dedup_enabled:
+            from .deduplication import cross_collection_duplicate_check
+
+            cross_result = cross_collection_duplicate_check(
+                content_hash, group_id, collection, client=self.qdrant_client
+            )
+            if cross_result.is_duplicate:
+                logger.info(
+                    "cross_collection_duplicate_skipped",
+                    extra={
+                        "content_hash": content_hash,
+                        "group_id": group_id,
+                        "found_collection": cross_result.found_collection,
+                        "existing_id": cross_result.existing_id,
+                    },
+                )
+                return {
+                    "memory_id": cross_result.existing_id,
+                    "status": "duplicate",
+                    "embedding_status": "n/a",
+                }
+
         # Generate embedding with graceful degradation (AC 1.5.4)
         # SPEC-010: Route to appropriate model based on collection and content type
         embedding_model = self._get_embedding_model(

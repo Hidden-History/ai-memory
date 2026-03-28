@@ -370,37 +370,49 @@ def main():
     global shutdown_requested
 
     langfuse = get_langfuse_client()
-    if langfuse is None:
-        logger.warning("Langfuse client unavailable — trace flush worker exiting")
-        sys.exit(1)
+    degraded = langfuse is None
 
     BUFFER_DIR.mkdir(parents=True, exist_ok=True)
-    logger.info(
-        "Trace flush worker started (buffer=%s, interval=%ss, max_buffer=%sMB)",
-        BUFFER_DIR,
-        FLUSH_INTERVAL,
-        MAX_BUFFER_MB,
-    )
+
+    if degraded:
+        logger.warning(
+            "Langfuse client unavailable — trace flush worker running in degraded mode "
+            "(evict + heartbeat only, no flushing)"
+        )
+    else:
+        logger.info(
+            "Trace flush worker started (buffer=%s, interval=%ss, max_buffer=%sMB)",
+            BUFFER_DIR,
+            FLUSH_INTERVAL,
+            MAX_BUFFER_MB,
+        )
 
     total_processed = 0
     total_errors = 0
 
     while not shutdown_requested:
         evicted = evict_oldest_traces()
-        processed, errors = process_buffer_files(langfuse)
 
-        total_errors += errors
-        if processed > 0:
-            try:
-                langfuse.flush()
-            except Exception as e:
-                logger.warning("Langfuse flush failed: %s", e)
-            total_processed += processed
-            logger.info("Flushed %s events (%s errors)", processed, errors)
+        processed = 0
+        errors = 0
+        if not degraded:
+            processed, errors = process_buffer_files(langfuse)
 
-        # Push metrics
+            total_errors += errors
+            if processed > 0:
+                try:
+                    langfuse.flush()
+                except Exception as e:
+                    logger.warning("Langfuse flush failed: %s", e)
+                total_processed += processed
+                logger.info("Flushed %s events (%s errors)", processed, errors)
+
+        # Push metrics regardless of degraded state (M-1: keep observability when
+        # Langfuse is down — evictions still happen and buffer still grows)
         try:
-            buffer_size_bytes = sum(f.stat().st_size for f in BUFFER_DIR.glob("*.json"))
+            buffer_size_bytes = sum(
+                f.stat().st_size for f in BUFFER_DIR.glob("*.json")
+            )
         except OSError:
             buffer_size_bytes = 0
 
@@ -423,25 +435,29 @@ def main():
         "Shutdown requested — flushing remaining buffer (%s total processed)",
         total_processed,
     )
-    evict_oldest_traces()
-    processed, errors = process_buffer_files(langfuse)
-    total_errors += errors
-    if processed > 0:
-        try:
-            langfuse.flush()
-        except Exception as e:
-            logger.warning("Langfuse flush failed during shutdown: %s", e)
-        total_processed += processed
+
+    if not degraded:
+        evict_oldest_traces()
+        processed, errors = process_buffer_files(langfuse)
+        total_errors += errors
+        if processed > 0:
+            try:
+                langfuse.flush()
+            except Exception as e:
+                logger.warning("Langfuse flush failed during shutdown: %s", e)
+            total_processed += processed
 
     logger.info(
         "Trace flush worker stopped (total_processed=%s, total_errors=%s)",
         total_processed,
         total_errors,
     )
-    try:
-        langfuse.shutdown()
-    except Exception as e:
-        logger.warning("Langfuse shutdown error: %s", e)
+
+    if not degraded:
+        try:
+            langfuse.shutdown()
+        except Exception as e:
+            logger.warning("Langfuse shutdown error: %s", e)
 
 
 if __name__ == "__main__":

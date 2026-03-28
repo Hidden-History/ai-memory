@@ -10,6 +10,7 @@ Stores agent responses to discussions collection with proper deduplication.
 
 import json
 import os
+import re
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -70,6 +71,14 @@ except ImportError:
 
 TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
+# TD-048: Acknowledgment pattern for quality gate (module-level for single compilation)
+_ACK_PATTERN = re.compile(
+    r"^(i\s+understand|got\s+it|sure|ok|understood|will\s+do|noted|"
+    r"acknowledged|thanks|thank\s+you|yes|no|agreed|right|correct|"
+    r"done|nothing\s+to\s+add)\s*$",
+    re.IGNORECASE,
+)
+
 # Import metrics for Prometheus instrumentation
 try:
     from memory.metrics import memory_captures_total
@@ -112,32 +121,19 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
         response_text = store_data["response_text"]
         turn_number = store_data.get("turn_number", 0)
 
-        # PLAN-010 (P10-10): Skip low-value short messages
-        import re as _re
-
-        _LOW_VALUE_MESSAGES = {
-            "ok",
-            "yes",
-            "no",
-            "done",
-            "sure",
-            "thanks",
-            "got it",
-            "nothing to add",
-            "looks good",
-            "lgtm",
-        }
-        _content_stripped = response_text.strip().lower()
-        _content_stripped_nopunct = _re.sub(r"[^\w\s]", "", _content_stripped)
-        if (
-            len(_content_stripped.split()) < 4
-            or _content_stripped_nopunct in _LOW_VALUE_MESSAGES
-        ):
+        # TD-048: Acknowledgment pattern filter + 50-char minimum (replaces 4-word check)
+        _content_stripped = response_text.strip()
+        _quality_gate_reason = None
+        if _ACK_PATTERN.match(_content_stripped):
+            _quality_gate_reason = "acknowledgment_pattern"
+        elif len(_content_stripped) < 50:
+            _quality_gate_reason = "too_short"
+        if _quality_gate_reason:
             logger.info(
                 "quality_gate_skip",
                 extra={
                     "content_preview": _content_stripped[:50],
-                    "reason": "too_short_or_low_value",
+                    "reason": _quality_gate_reason,
                 },
             )
             try:
