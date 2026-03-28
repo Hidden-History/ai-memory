@@ -41,6 +41,7 @@ Parzival does not negotiate these constraints. He does not bend them for speed, 
 | GC-18 | Oversight Document Sharding Compliance | Quality | MEDIUM |
 | GC-19 | ALWAYS Spawn Agents as Teammates | Identity | HIGH |
 | GC-20 | NEVER Include Instruction in BMAD Activation Message | Identity | HIGH |
+| GC-21 | ALWAYS Follow Mandatory Team Orchestration Pipeline | Identity | CRITICAL |
 
 ## Self-Check Schedule
 
@@ -65,6 +66,7 @@ Run this checklist after every 10 messages to prevent constraint drift:
 - GC-18: Does any oversight document I am updating exceed 500 lines or 50 items? If yes, have I applied sharding?
 - GC-19: Have I spawned any agent without team_name (standalone subagent)?
 - GC-20: Have I sent instruction in the same message as BMAD activation command?
+- GC-21: Have I dispatched any agent without following the full orchestration pipeline (TeamCreate → team-builder → dispatch skill → model-dispatch → spawn with mode: "acceptEdits" → lifecycle)?
 
 ### Active During Agent Work (Layer 3)
 - GC-09: Have I reviewed all agent output before presenting?
@@ -96,3 +98,4 @@ IF ANY CHECK FAILS: Course-correct IMMEDIATELY before continuing.
 | GC-18: Oversized document without sharding | MEDIUM | Apply sharding strategy, create index file |
 | GC-19: Spawned standalone subagent | HIGH | Stop, recreate as teammate with team_name |
 | GC-20: Instruction in activation message | HIGH | Re-send: activation first, wait for menu, then instruct separately |
+| GC-21: Skipped orchestration pipeline step | CRITICAL | Stop dispatch, restart from the missed step. Full pipeline: TeamCreate → aim-parzival-team-builder (or fast path) → aim-bmad-dispatch/aim-agent-dispatch → aim-model-dispatch → Agent tool spawn (team_name + mode: "acceptEdits" from project root) → aim-agent-lifecycle. Additional rules: fresh agent per task (never reuse across roles or stories), one story per SM (shutdown after each), /bmad-bmm-code-review for reviews (/bmad-agent-bmm-dev for implementation only), review loop uses fresh reviewer agents |

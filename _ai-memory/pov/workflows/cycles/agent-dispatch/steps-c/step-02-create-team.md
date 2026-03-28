@@ -75,9 +75,15 @@ Use TeamCreate to create the team if it does not already exist for this project.
 
 ### 3. Spawn Teammate via Agent Tool
 
-Use the Agent tool to spawn the appropriate teammate:
+Use the Agent tool to spawn the appropriate teammate with these MANDATORY parameters:
+- `team_name`: the team created in step 2
+- `name`: unique per task (e.g., "dev-1-4", "rev-s-1415", "sm-7-3")
+- `mode`: "acceptEdits" (MUST -- enables permission delegation, prevents blocking prompts)
+- MUST verify working directory is the **project root** (directory containing `_ai-memory/`) before spawning -- agents inherit CWD and need access to BMAD skills
 - Each teammate spawn starts with fresh context
 - This prevents context contamination between tasks
+- MUST spawn a fresh agent for every task -- never reuse an agent across roles or stories
+- MUST shutdown SM agents after each story -- one story per SM dispatch
 
 ---
 

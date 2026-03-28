@@ -61,7 +61,13 @@ Use the appropriate agent activation command within the teammate context:
 - Architect: /bmad-agent-bmm-architect
 - UX Designer: /bmad-agent-bmm-ux-designer
 - SM: /bmad-agent-bmm-sm
-- DEV: /bmad-agent-bmm-dev
+- DEV (implementation): /bmad-agent-bmm-dev
+- DEV (code review): /bmad-bmm-code-review
+- Tech Writer: /bmad-agent-bmm-tech-writer
+
+MUST use /bmad-bmm-code-review for ALL review agents. /bmad-agent-bmm-dev is for implementation ONLY.
+MUST use /bmad-agent-bmm-tech-writer for ALL documentation tasks (writing, updating, reviewing docs).
+MUST use /bmad-help whenever unsure which BMAD agent or workflow to use -- the list above is NOT exhaustive. Many more agents and workflows are available.
 
 ---
 

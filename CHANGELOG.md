@@ -35,6 +35,9 @@ Adds two-tier credential model for GitHub PATs, LLM-as-Judge eval visibility wit
 - **HNSW inline_storage enabled** (TD-106): `setup-collections.py` now creates all collections with `hnsw_config.on_disk=False` and `quantization_config.always_ram=True`, keeping quantized vectors in RAM. Benchmarks show ~10x QPS improvement for quantized vector search. Existing collections are not migrated automatically — rebuild to benefit.
 - **gRPC client with HTTP fallback** (TD-107): `qdrant_client.py` prefers gRPC (`prefer_grpc=True`, port `QDRANT_GRPC_PORT`, default `6334`) for all Qdrant operations. A probe on init detects gRPC unavailability and transparently falls back to HTTP, so deployments without gRPC exposed continue to work without config changes.
 
+### Parzival Oversight
+- **Mandatory team orchestration pipeline** (TD-316, GC-21): New global constraint requiring every agent dispatch to follow the full orchestration pipeline: TeamCreate → aim-parzival-team-builder → aim-bmad-dispatch/aim-agent-dispatch → aim-model-dispatch → Agent tool spawn (with `mode: "acceptEdits"` from project root) → aim-agent-lifecycle. Enforces fresh agent per task, one story per SM dispatch, `/bmad-bmm-code-review` for all review agents, `/bmad-agent-bmm-tech-writer` for all documentation tasks, and `/bmad-help` when unsure of available agents/workflows. Applied across 10 Parzival workflow and skill files.
+
 ### Documentation
 - **INSTALL.md auth failure description corrected** (M-4): Recovery flow description now says "non-200 HTTP response (e.g., 401, 403, 404)" instead of the inaccurate "HTTP 404" — any non-200 triggers recovery, not just 404.
 - **INSTALL.md `GITHUB_PROJECT_TOKEN` scope clarified** (L-4): Added note that `GITHUB_PROJECT_TOKEN` only applies in add-project mode (Option 1); initial setup uses `GITHUB_TOKEN`.

@@ -220,18 +220,44 @@ You must fully embody this agent's persona and follow all activation instruction
       DEV (implement/review) → Sonnet | Architect → Opus | Analyst/PM/SM/UX → Sonnet
       Override to Opus: architectural changes, complex refactoring, failed correction escalation.
 
+    MANDATORY orchestration pipeline (GC-21) -- every dispatch, no exceptions:
+      1. TeamCreate → create team + shared task list
+      2. aim-parzival-team-builder → design team (or fast path for single agent)
+      3. aim-bmad-dispatch OR aim-agent-dispatch → select agent, prepare instruction
+      4. aim-model-dispatch → select model
+      5. Agent tool spawn → team_name + name + mode: "acceptEdits" from project root
+      6. aim-agent-lifecycle → send, monitor, review, accept/loop, shutdown, summary
+      Skipping any step is a GC-21 violation.
+
     BMAD activation sequence (GC-19, GC-20):
-      1. Spawn as teammate (Agent tool with team_name)
-      2. Send activation command (/bmad-agent-bmm-[role])
-      3. Wait for menu (do not send instruction in same message)
+      1. Spawn as teammate (Agent tool with team_name + mode: "acceptEdits")
+      2. Send activation command -- see role table below (do NOT send instruction)
+      3. Wait for menu/ready confirmation
       4. Send instruction or select workflow as separate message
+
+    Role-specific activation commands (common -- NOT exhaustive):
+      DEV (implement):  /bmad-agent-bmm-dev
+      DEV (review):     /bmad-bmm-code-review
+      Tech Writer:      /bmad-agent-bmm-tech-writer (MUST for all doc tasks)
+      SM:               /bmad-agent-bmm-sm
+      Analyst:          /bmad-agent-bmm-analyst
+      PM:               /bmad-agent-bmm-pm
+      Architect:        /bmad-agent-bmm-architect
+      UX Designer:      /bmad-agent-bmm-ux-designer
+      MUST use /bmad-help when unsure -- many more agents and workflows available.
+
+    Fresh agent rules (GC-21):
+      - Fresh agent per task -- never reuse across roles or stories
+      - One story per SM dispatch -- shutdown after each story, spawn fresh
+      - Review loop: fresh reviewer agents for each review pass
+      - Fixes: fresh DEV agent for fixes, not corrections to same agent
 
     Execution mode (one-shot): DEV implementing, DEV reviewing, SM creating stories
     Planning mode (relay protocol): PM creating PRD, Architect designing, Analyst researching
 
     Lifecycle after dispatch: Send → Monitor → Review against DONE WHEN → Accept or Loop (max 3) → Shutdown → Summary in own words
 
-    Dispatch skill files (loaded from {project-root}/_ai-memory/pov/skills/ when present):
+    Dispatch skill files (MUST be used per GC-21 pipeline):
       aim-parzival-team-builder: Multi-agent team design and spawn orchestration
       aim-agent-dispatch: Single-agent dispatch with instruction template
       aim-bmad-dispatch: BMAD-specific agent activation (menu → workflow → instruction)

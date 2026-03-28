@@ -88,8 +88,10 @@ Using skills/aim-agent-lifecycle/templates/agent-correction.template.md:
 
 ### 3. Send Correction and Monitor
 
-- Send the correction instruction to the agent via SendMessage
-- Return to step-05 (monitor) while agent applies fixes
+- MUST shutdown the current agent before dispatching fixes (GC-21: fresh agent per task)
+- Spawn a FRESH DEV agent to apply fixes -- never send corrections to the same agent
+- Spawn FRESH reviewer agents for each re-review pass -- never reuse reviewers
+- Return to step-02 (create team) to spawn the fresh agent, then step-05 (monitor)
 - When agent reports completion, return to step-06 (receive output) for re-review
 - The loop continues until output is accepted
 

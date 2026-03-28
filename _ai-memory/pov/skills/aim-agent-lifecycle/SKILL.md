@@ -114,7 +114,7 @@ Build correction instruction using the correction template:
 - Action required: fix all issues, re-review, report back with zero issues
 - DO NOT: fix only some issues, introduce new changes outside scope
 
-Send correction via SendMessage, then return to Step 5 (monitor) while agent applies fixes. When done, return to Step 6 (review) for re-review. Loop continues until accepted.
+MUST shutdown the current agent and spawn a FRESH DEV agent to apply fixes -- never send corrections to the same agent (GC-21). MUST spawn FRESH reviewer agents for each re-review pass. Return to Step 5 (monitor) while the fresh agent applies fixes. When done, return to Step 6 (review) with fresh reviewers for re-review. Loop continues until accepted.
 
 **Track correction loops:**
 - Number of loops for this dispatch
@@ -129,10 +129,12 @@ Send correction via SendMessage, then return to Step 5 (monitor) while agent app
 - Agent task is fully complete and accepted
 - Agent is no longer needed for current phase
 - Session is ending
+- Before dispatching fixes or re-reviews (GC-21: fresh agent per task)
 
 **Keep active when:**
-- Agent will be needed again within the same session
-- Agent is in a review-fix loop and will be called back
+- Agent is waiting for Parzival's review decision within the SAME task (step 6/7 loop only)
+
+MUST shutdown and spawn fresh for: new tasks, role changes, fix dispatches, re-review passes. Never reuse an agent across tasks or roles (GC-21).
 
 To shut down:
 - Use SendMessage with type: "shutdown_request"

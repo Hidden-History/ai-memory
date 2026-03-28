@@ -61,12 +61,16 @@ IF ANY CHECK FAILS: fix the instruction before proceeding.
 Consult aim-model-dispatch for the appropriate model based on task complexity and agent role.
 
 ### 5. Spawn Agent as Teammate
-Spawn the agent as a teammate in parallel using the Agent tool with `team_name`:
-- Use `team_name` parameter to add agent to the team
+Spawn the agent as a teammate in parallel using the Agent tool with these MANDATORY parameters:
+- `team_name`: MUST be set to add agent to the team (GC-19)
+- `mode`: MUST be "acceptEdits" (enables permission delegation, prevents blocking prompts)
+- `name`: unique per task (e.g., "dev-1-4", "rev-s-1415")
 - Set `AI_MEMORY_AGENT_ID` environment variable
 - Use the model from Step 4
+- MUST verify working directory is the **project root** (directory containing `_ai-memory/`) before spawning
 - Spawn multiple teammates in the same turn for parallel execution
 - Start with fresh context (no contamination from prior tasks)
+- MUST spawn fresh agent for every task -- never reuse across roles or stories (GC-21)
 
 **Non-Claude provider**: When the user specifies a non-Claude provider, delegate the terminal launch to the model-dispatch skill.
 

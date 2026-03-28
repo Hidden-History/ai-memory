@@ -10,12 +10,15 @@ firstStep: './steps-c/step-01-prepare-instruction.md'
 
 **Layered Execution:** This cycle is the core execution mechanism. It is invoked by phase workflows and session commands. For team design (multi-agent parallel work), use the aim-parzival-team-builder skill first, which produces context blocks that feed into this cycle.
 
-**Skill Integration:**
-- **Team design**: For multi-agent parallel work, use the aim-parzival-team-builder skill to design team structure and context blocks before dispatch
-- **Agent selection**: For BMAD agents, consult the aim-bmad-dispatch skill for agent role selection and activation commands
-- **Instruction preparation**: For instruction template and quality checklist, consult the aim-agent-dispatch skill
-- **Model selection**: For model selection criteria, consult the aim-model-dispatch skill
-- **Agent lifecycle**: For steps 4-9 (send, monitor, review, accept/loop, shutdown, summary), consult the aim-agent-lifecycle skill
+**MANDATORY Orchestration Pipeline (GC-21) -- every dispatch MUST follow this sequence:**
+1. **TeamCreate** → create team + shared task list (MUST)
+2. **aim-parzival-team-builder** → design team structure or fast path for single agent (MUST)
+3. **aim-bmad-dispatch** OR **aim-agent-dispatch** → select agent, prepare instruction (MUST)
+4. **aim-model-dispatch** → select model (MUST)
+5. **Agent tool spawn** → team_name + name + mode: "acceptEdits" from project root (MUST)
+6. **aim-agent-lifecycle** → send, monitor, review, accept/loop, shutdown, summary (MUST)
+
+Skipping any step is a GC-21 violation. These are not optional consultations.
 
 ---
 

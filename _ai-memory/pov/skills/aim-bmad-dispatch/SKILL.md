@@ -146,7 +146,7 @@ Extends the generic instruction template (from aim-agent-dispatch) with:
 Consult aim-model-dispatch for the appropriate model based on task complexity and agent role.
 
 ### 4. Spawn and Activate Agent
-Spawn the BMAD agent as a teammate in parallel (Agent tool with team_name), then activate the BMAD persona. All BMAD agents are teammates.
+Spawn the BMAD agent as a teammate in parallel using the Agent tool with MANDATORY parameters: `team_name`, `mode: "acceptEdits"`, unique `name` per task. MUST verify working directory is the **project root** (directory containing `_ai-memory/`) before spawning. Then activate the BMAD persona. All BMAD agents are teammates. MUST spawn fresh agent for every task -- never reuse across roles or stories (GC-21).
 
 **Non-Claude provider**: When the user specifies a non-Claude provider (e.g., "use openrouter"), delegate the terminal launch to the model-dispatch skill. It handles tmux panes, wrapper scripts, and two-phase activation for that provider. Parzival still manages the agent as a teammate.
 
@@ -159,12 +159,15 @@ Spawn the BMAD agent as a teammate in parallel (Agent tool with team_name), then
 | Analyst | `/bmad-agent-bmm-analyst` | Research, codebase analysis, domain investigation |
 | PM (Product Manager) | `/bmad-agent-bmm-pm` | PRD creation/validation, epics and stories |
 | Architect | `/bmad-agent-bmm-architect` | System architecture design, readiness checks |
-| Developer (DEV) | `/bmad-agent-bmm-dev` | Code implementation, code review |
+| Developer (DEV) | `/bmad-agent-bmm-dev` | Code implementation ONLY |
+| Developer (review) | `/bmad-bmm-code-review` | Code review ONLY -- MUST use this for ALL review agents, never /bmad-agent-bmm-dev |
 | Scrum Master (SM) | `/bmad-agent-bmm-sm` | Sprint planning, story creation, retrospectives |
 | QA Engineer | `/bmad-agent-bmm-qa` | Test planning, test execution, quality validation |
 | UX Designer | `/bmad-agent-bmm-ux-designer` | User flows, screen design, UX research |
 | Tech Writer | `/bmad-agent-bmm-tech-writer` | Documentation writing and validation |
 | Quick Flow Solo Dev | `/bmad-agent-bmm-quick-flow-solo-dev` | Lightweight single-dev flow (analysis through implementation) |
+
+MUST use `/bmad-agent-bmm-tech-writer` for ALL documentation tasks (writing, updating, reviewing docs). MUST use `/bmad-bmm-code-review` for ALL review agents (never `/bmad-agent-bmm-dev`). MUST use `/bmad-help` whenever unsure which agent or workflow to use -- the tables above are NOT exhaustive.
 
 #### BMAD Framework Agents
 

@@ -61,8 +61,9 @@ When an agent's task is fully complete and output is accepted, gracefully shut d
 - Session is ending
 
 **Keep teammate active when:**
-- Agent will be needed again within the same session
-- Agent is in a review-fix loop and will be called back
+- Agent is waiting for Parzival's review decision within the SAME task (step-06/step-07 loop)
+
+MUST shutdown and spawn fresh for: new tasks, role changes, fix dispatches after review, re-review passes. Never reuse an agent across tasks or roles (GC-21).
 
 ---
 
