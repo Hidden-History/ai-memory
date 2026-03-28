@@ -46,18 +46,15 @@ Adds two-tier credential model for GitHub PATs, LLM-as-Judge eval visibility wit
 
 ### Update Instructions
 After pulling v2.2.7:
-1. Run `./scripts/install.sh <your-project-dir>` and choose Option 1 (Add project to existing installation) — this updates all Python source files including the queue.py fix.
-2. Rebuild the github-sync container (code baked into image): `cd ~/.ai-memory/docker && docker compose build --no-cache github-sync`
+1. Run `./scripts/install.sh <your-project-dir>` and choose Option 1 (Add project to existing installation) for each registered project — this updates all Python source files, deploys Parzival V2 with GC-21, and auto-cleans the stale BUG-247 tilde directory.
+2. Rebuild the github-sync container (code baked into image, not volume-mounted):
+   ```
+   unset QDRANT_API_KEY
+   cd ~/.ai-memory/docker
+   docker compose build --no-cache github-sync
+   docker compose up -d github-sync
+   ```
 3. Restart the classifier-worker to pick up the queue path fix: `cd ~/.ai-memory/docker && docker compose restart classifier-worker`
-4. If you have stranded queue items in a `~/.ai-memory/queue/` directory under your project folder (literal `~`), move them: `cat <project-dir>/\~/.ai-memory/queue/classification_queue.jsonl >> ~/.ai-memory/queue/classification_queue.jsonl`
-
-### Code Review Round 3 Fixes
-- **File permission hardening on project YAML** (R3-1): `register_project_sync()` now runs `chmod 600` on the written `projects.d/*.yaml` after `mv` to ensure token-bearing YAML files are not world-readable.
-- **Indentation fix in `configure_project_sources()`** (R3-2): The inner `if [[ -n "${GITHUB_TOKEN:-}" ]]` block and all its contents were not indented under the outer `if [[ "$NON_INTERACTIVE" != "true" ]]` guard. Fixed to proper nesting depth.
-- **Remove premature `docker compose restart` from Option 2 handler** (R3-3): The shared-token update path in `configure_project_sources()` restarted the github-sync container immediately after writing the token to `.env`. This was redundant — `main()` already restarts the container after `register_project_sync()` completes. Removed the early restart; the one in `main()` at line ~1387 is sufficient.
-- **Remove unused `import asyncio` from test module** (R3-4): Dropped the module-level `import asyncio` from `test_bug245_per_project_token.py` that was not referenced by any existing test.
-- **Add `asyncio.TimeoutError` path test** (R3-5): New test `test_validate_project_tokens_timeout_adds_to_set` covers the M-6 requirement: `validate_project_tokens()` must add a project to the failed set when the context-manager entry raises `asyncio.TimeoutError`.
-- **`RateLimitExceeded` now carries `status_code=429`** (R3-6): `RateLimitExceeded.__init__` now passes `status_code=429` to the parent `GitHubClientError.__init__`, so callers inspecting `error.status_code` get the correct HTTP status instead of the default `0`.
 
 ## [2.2.6] - 2026-03-26 — Multi-Project Installer Fix
 
