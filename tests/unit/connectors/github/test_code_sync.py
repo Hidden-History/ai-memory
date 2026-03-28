@@ -1,8 +1,18 @@
 # Location: ai-memory/tests/unit/connectors/github/test_code_sync.py
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_code_sync_logger(caplog):
+    """Ensure caplog captures logs from code_sync despite propagate=False."""
+    logger = logging.getLogger("ai_memory.github.code_sync")
+    logger.addHandler(caplog.handler)
+    yield
+    logger.removeHandler(caplog.handler)
 
 from memory.connectors.github.client import GitHubClientError
 from memory.connectors.github.code_sync import (

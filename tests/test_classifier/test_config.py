@@ -12,7 +12,8 @@ from src.memory.classifier import config
 
 @pytest.fixture(autouse=True)
 def _reload_classifier_config():
-    """Reload classifier config module after each test to reset module-level state."""
+    """Reload classifier config module before and after each test to reset module-level state."""
+    importlib.reload(config)
     yield
     importlib.reload(config)
 
