@@ -506,8 +506,7 @@ class TestCrossCollectionDuplicateCheck:
         )
 
         checked_collections = [
-            call.kwargs["collection_name"]
-            for call in mock_client.scroll.call_args_list
+            call.kwargs["collection_name"] for call in mock_client.scroll.call_args_list
         ]
         assert "conventions" not in checked_collections
 

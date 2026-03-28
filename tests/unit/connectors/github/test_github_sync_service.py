@@ -75,7 +75,9 @@ async def test_run_sync_cycle_both_engines():
     assert result is True
     # BUG-245: token resolved via _resolve_project_token (falls back to global)
     mock_eng_cls.assert_called_once_with(
-        config, repo="owner/repo", branch=project.github_branch,
+        config,
+        repo="owner/repo",
+        branch=project.github_branch,
         token="ghp_test",
     )
     mock_engine.sync.assert_awaited_once()

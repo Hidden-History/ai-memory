@@ -14,6 +14,7 @@ def _reset_code_sync_logger(caplog):
     yield
     logger.removeHandler(caplog.handler)
 
+
 from memory.connectors.github.client import GitHubClientError
 from memory.connectors.github.code_sync import (
     CodeBlobSync,

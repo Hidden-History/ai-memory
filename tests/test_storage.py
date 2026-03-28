@@ -635,10 +635,17 @@ class TestCrossCollectionDedupIntegration:
     """Integration tests for TD-060 cross-collection deduplication in store_memory()."""
 
     def test_store_memory_cross_dedup_returns_duplicate(
-        self, mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+        self,
+        mock_config,
+        mock_qdrant_client,
+        mock_embedding_client,
+        tmp_path,
+        monkeypatch,
     ):
         """store_memory returns status=duplicate when cross-dedup finds hash in other collection."""
-        monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
+        monkeypatch.setattr(
+            "src.memory.project.detect_project", lambda cwd: "test-project"
+        )
         mock_config.cross_dedup_enabled = True
 
         existing_point = MagicMock()
@@ -676,10 +683,17 @@ class TestCrossCollectionDedupIntegration:
         mock_qdrant_client.upsert.assert_not_called()
 
     def test_store_memory_cross_dedup_disabled_skips_check(
-        self, mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+        self,
+        mock_config,
+        mock_qdrant_client,
+        mock_embedding_client,
+        tmp_path,
+        monkeypatch,
     ):
         """store_memory skips cross-dedup when cross_dedup_enabled=False."""
-        monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
+        monkeypatch.setattr(
+            "src.memory.project.detect_project", lambda cwd: "test-project"
+        )
         mock_config.cross_dedup_enabled = False
         mock_config.security_scanning_enabled = False
 
@@ -701,10 +715,17 @@ class TestCrossCollectionDedupIntegration:
         assert mock_qdrant_client.scroll.call_count == 1
 
     def test_store_memory_cross_dedup_no_match_proceeds_to_store(
-        self, mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+        self,
+        mock_config,
+        mock_qdrant_client,
+        mock_embedding_client,
+        tmp_path,
+        monkeypatch,
     ):
         """store_memory proceeds to store when cross-dedup finds no match."""
-        monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
+        monkeypatch.setattr(
+            "src.memory.project.detect_project", lambda cwd: "test-project"
+        )
         mock_config.cross_dedup_enabled = True
         mock_config.security_scanning_enabled = False
 

@@ -194,7 +194,9 @@ class TestQdrantClient:
         """TD-107: Falls back to HTTP when gRPC probe (get_collections) raises."""
         http_client = Mock()
         grpc_client = Mock()
-        grpc_client.get_collections.side_effect = RuntimeError("gRPC connection refused")
+        grpc_client.get_collections.side_effect = RuntimeError(
+            "gRPC connection refused"
+        )
 
         def side_effect(**kwargs):
             return grpc_client if kwargs.get("prefer_grpc") else http_client

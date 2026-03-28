@@ -21,7 +21,9 @@ logger = logging.getLogger("ai_memory.classifier.queue")
 
 # Queue location (configurable via env for Docker deployment)
 _default_queue_dir = os.path.expanduser("~/.ai-memory/queue")
-QUEUE_DIR = Path(os.path.expanduser(os.environ.get("AI_MEMORY_QUEUE_DIR", _default_queue_dir)))
+QUEUE_DIR = Path(
+    os.path.expanduser(os.environ.get("AI_MEMORY_QUEUE_DIR", _default_queue_dir))
+)
 QUEUE_FILE = QUEUE_DIR / "classification_queue.jsonl"
 
 # Resource limits

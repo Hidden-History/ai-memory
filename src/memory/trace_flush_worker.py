@@ -410,9 +410,7 @@ def main():
         # Push metrics regardless of degraded state (M-1: keep observability when
         # Langfuse is down — evictions still happen and buffer still grows)
         try:
-            buffer_size_bytes = sum(
-                f.stat().st_size for f in BUFFER_DIR.glob("*.json")
-            )
+            buffer_size_bytes = sum(f.stat().st_size for f in BUFFER_DIR.glob("*.json"))
         except OSError:
             buffer_size_bytes = 0
 

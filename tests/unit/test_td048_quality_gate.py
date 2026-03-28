@@ -46,7 +46,9 @@ class TestCharMinimum:
         with caplog.at_level(logging.INFO, logger="ai_memory.hooks"):
             result = agent_store_mod.store_agent_response(_make_store_data(text))
         assert result is True
-        gate_records = [r for r in caplog.records if "quality_gate_skip" in r.getMessage()]
+        gate_records = [
+            r for r in caplog.records if "quality_gate_skip" in r.getMessage()
+        ]
         assert gate_records, "Expected quality_gate_skip to be logged"
         assert gate_records[0].__dict__.get("reason") == "too_short"
 
@@ -55,7 +57,9 @@ class TestCharMinimum:
         mock_client = MagicMock()
         mock_client.scroll.return_value = ([], None)
         mock_client.upsert.return_value = MagicMock(status="completed")
-        mocker.patch.object(agent_store_mod, "get_qdrant_client", return_value=mock_client)
+        mocker.patch.object(
+            agent_store_mod, "get_qdrant_client", return_value=mock_client
+        )
 
         # Also mock embedding so the function doesn't fail trying to reach embedding service
         mock_embed = MagicMock()
@@ -76,7 +80,9 @@ class TestCharMinimum:
         with caplog.at_level(logging.INFO, logger="ai_memory.hooks"):
             result = agent_store_mod.store_agent_response(_make_store_data(text))
         assert result is True
-        gate_records = [r for r in caplog.records if "quality_gate_skip" in r.getMessage()]
+        gate_records = [
+            r for r in caplog.records if "quality_gate_skip" in r.getMessage()
+        ]
         assert gate_records, "Expected quality_gate_skip for short 4-word response"
         assert gate_records[0].__dict__.get("reason") == "too_short"
 
@@ -85,7 +91,9 @@ class TestCharMinimum:
         with caplog.at_level(logging.INFO, logger="ai_memory.hooks"):
             result = agent_store_mod.store_agent_response(_make_store_data(""))
         assert result is True
-        gate_records = [r for r in caplog.records if "quality_gate_skip" in r.getMessage()]
+        gate_records = [
+            r for r in caplog.records if "quality_gate_skip" in r.getMessage()
+        ]
         assert gate_records
         assert gate_records[0].__dict__.get("reason") == "too_short"
 
@@ -94,7 +102,9 @@ class TestCharMinimum:
         with caplog.at_level(logging.INFO, logger="ai_memory.hooks"):
             result = agent_store_mod.store_agent_response(_make_store_data("   \n\t  "))
         assert result is True
-        gate_records = [r for r in caplog.records if "quality_gate_skip" in r.getMessage()]
+        gate_records = [
+            r for r in caplog.records if "quality_gate_skip" in r.getMessage()
+        ]
         assert gate_records
         assert gate_records[0].__dict__.get("reason") == "too_short"
 
@@ -134,7 +144,9 @@ class TestAckPatternFilter:
         with caplog.at_level(logging.INFO, logger="ai_memory.hooks"):
             result = agent_store_mod.store_agent_response(_make_store_data(phrase))
         assert result is True
-        gate_records = [r for r in caplog.records if "quality_gate_skip" in r.getMessage()]
+        gate_records = [
+            r for r in caplog.records if "quality_gate_skip" in r.getMessage()
+        ]
         assert gate_records, f"Expected quality_gate_skip for phrase: {phrase!r}"
         assert gate_records[0].__dict__.get("reason") == "acknowledgment_pattern"
 
@@ -144,7 +156,9 @@ class TestAckPatternFilter:
             caplog.clear()
             with caplog.at_level(logging.INFO, logger="ai_memory.hooks"):
                 agent_store_mod.store_agent_response(_make_store_data(variant))
-            gate_records = [r for r in caplog.records if "quality_gate_skip" in r.getMessage()]
+            gate_records = [
+                r for r in caplog.records if "quality_gate_skip" in r.getMessage()
+            ]
             assert gate_records, f"Expected filter for variant {variant!r}"
             assert gate_records[0].__dict__.get("reason") == "acknowledgment_pattern"
 
@@ -154,7 +168,9 @@ class TestAckPatternFilter:
             result = agent_store_mod.store_agent_response(_make_store_data("Noted."))
         assert result is True
         # May be too_short (6 chars) — both are valid; verify it IS filtered
-        gate_records = [r for r in caplog.records if "quality_gate_skip" in r.getMessage()]
+        gate_records = [
+            r for r in caplog.records if "quality_gate_skip" in r.getMessage()
+        ]
         assert gate_records
 
     def test_substantive_content_passes_ack_gate(self, agent_store_mod, mocker):
@@ -162,7 +178,9 @@ class TestAckPatternFilter:
         mock_client = MagicMock()
         mock_client.scroll.return_value = ([], None)
         mock_client.upsert.return_value = MagicMock(status="completed")
-        mocker.patch.object(agent_store_mod, "get_qdrant_client", return_value=mock_client)
+        mocker.patch.object(
+            agent_store_mod, "get_qdrant_client", return_value=mock_client
+        )
 
         mock_embed = MagicMock()
         mock_embed.__enter__ = MagicMock(return_value=mock_embed)
@@ -181,7 +199,9 @@ class TestAckPatternFilter:
         mock_client = MagicMock()
         mock_client.scroll.return_value = ([], None)
         mock_client.upsert.return_value = MagicMock(status="completed")
-        mocker.patch.object(agent_store_mod, "get_qdrant_client", return_value=mock_client)
+        mocker.patch.object(
+            agent_store_mod, "get_qdrant_client", return_value=mock_client
+        )
 
         mock_embed = MagicMock()
         mock_embed.__enter__ = MagicMock(return_value=mock_embed)
@@ -190,6 +210,8 @@ class TestAckPatternFilter:
         mock_embed.embed_sparse.return_value = None
         mocker.patch("memory.embeddings.EmbeddingClient", return_value=mock_embed)
 
-        text = "I understand your requirements and will implement the feature accordingly"
+        text = (
+            "I understand your requirements and will implement the feature accordingly"
+        )
         agent_store_mod.store_agent_response(_make_store_data(text))
         mock_client.scroll.assert_called_once()

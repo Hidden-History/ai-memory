@@ -1242,7 +1242,9 @@ class TestEvalScoreAccumulation:
     def test_ev_scores_reset_between_runs(self, runner, trace_evaluator_yaml):
         """C-1: _ev_scores must be empty at the start of each run() call."""
         mock_langfuse = MagicMock()
-        mock_langfuse.api.trace.list.return_value = MagicMock(data=[], meta=MagicMock(next_page=None))
+        mock_langfuse.api.trace.list.return_value = MagicMock(
+            data=[], meta=MagicMock(next_page=None)
+        )
         since = datetime(2026, 3, 1, tzinfo=timezone.utc)
 
         with (
@@ -1279,7 +1281,9 @@ class TestEvalScoreAccumulation:
 class TestEvalThresholdBreach:
     """TD-284: threshold breach detection and metrics push in run()."""
 
-    def _run_with_score(self, runner, score, threshold=None, ev_name="retrieval_relevance"):
+    def _run_with_score(
+        self, runner, score, threshold=None, ev_name="retrieval_relevance"
+    ):
         """Run runner with a mock evaluator that returns the given score."""
         mock_langfuse = MagicMock()
         trace = MagicMock()
@@ -1311,15 +1315,21 @@ class TestEvalThresholdBreach:
         ):
             return runner.run(since=since)
 
-    def test_threshold_breach_detected_when_score_below_threshold(self, runner, trace_evaluator_yaml):
+    def test_threshold_breach_detected_when_score_below_threshold(
+        self, runner, trace_evaluator_yaml
+    ):
         """TD-284: breach=1 when avg_score < threshold."""
         breach_calls = []
 
         def capture_push(**kwargs):
             breach_calls.append(kwargs)
 
-        with patch("memory.evaluator.runner.push_evaluation_metrics_async", capture_push):
-            self._run_with_score(runner, score=0.4, threshold=0.7, ev_name="bootstrap_quality")
+        with patch(
+            "memory.evaluator.runner.push_evaluation_metrics_async", capture_push
+        ):
+            self._run_with_score(
+                runner, score=0.4, threshold=0.7, ev_name="bootstrap_quality"
+            )
 
         assert len(breach_calls) == 1
         assert breach_calls[0]["threshold_breach"] == 1
@@ -1332,8 +1342,12 @@ class TestEvalThresholdBreach:
         def capture_push(**kwargs):
             breach_calls.append(kwargs)
 
-        with patch("memory.evaluator.runner.push_evaluation_metrics_async", capture_push):
-            self._run_with_score(runner, score=0.8, threshold=0.7, ev_name="bootstrap_quality")
+        with patch(
+            "memory.evaluator.runner.push_evaluation_metrics_async", capture_push
+        ):
+            self._run_with_score(
+                runner, score=0.8, threshold=0.7, ev_name="bootstrap_quality"
+            )
 
         assert len(breach_calls) == 1
         assert breach_calls[0]["threshold_breach"] == 0
@@ -1345,25 +1359,32 @@ class TestEvalThresholdBreach:
         def capture_push(**kwargs):
             breach_calls.append(kwargs)
 
-        with patch("memory.evaluator.runner.push_evaluation_metrics_async", capture_push):
-            self._run_with_score(runner, score=0.1, threshold=None, ev_name="bootstrap_quality")
+        with patch(
+            "memory.evaluator.runner.push_evaluation_metrics_async", capture_push
+        ):
+            self._run_with_score(
+                runner, score=0.1, threshold=None, ev_name="bootstrap_quality"
+            )
 
         assert len(breach_calls) == 1
         assert breach_calls[0]["threshold_breach"] == 0
 
     def test_push_skipped_when_push_fn_is_none(self, runner, trace_evaluator_yaml):
         """TD-284: no error when push_evaluation_metrics_async is None (not installed)."""
-        with (
-            patch("memory.evaluator.runner.push_evaluation_metrics_async", None),
-        ):
+        with (patch("memory.evaluator.runner.push_evaluation_metrics_async", None),):
             # Must not raise
-            self._run_with_score(runner, score=0.5, threshold=0.7, ev_name="bootstrap_quality")
+            self._run_with_score(
+                runner, score=0.5, threshold=0.7, ev_name="bootstrap_quality"
+            )
 
     def test_push_called_with_evaluator_name(self, runner, trace_evaluator_yaml):
         """TD-284: push call includes correct evaluator_name."""
         push_calls = []
 
-        with patch("memory.evaluator.runner.push_evaluation_metrics_async", lambda **kw: push_calls.append(kw)):
+        with patch(
+            "memory.evaluator.runner.push_evaluation_metrics_async",
+            lambda **kw: push_calls.append(kw),
+        ):
             self._run_with_score(runner, score=0.9, ev_name="bootstrap_quality")
 
         assert len(push_calls) == 1

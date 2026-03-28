@@ -223,8 +223,11 @@ async def test_sync_cycle_passes_project_token():
 
     mock_engine = AsyncMock()
     mock_engine.sync.return_value = MagicMock(
-        issues_synced=1, prs_synced=0, commits_synced=0,
-        ci_results_synced=0, errors=0,
+        issues_synced=1,
+        prs_synced=0,
+        commits_synced=0,
+        ci_results_synced=0,
+        errors=0,
     )
 
     with (
@@ -296,12 +299,18 @@ async def test_sync_cycle_code_blob_uses_project_token():
 
     mock_engine = AsyncMock()
     mock_engine.sync.return_value = MagicMock(
-        issues_synced=0, prs_synced=0, commits_synced=0,
-        ci_results_synced=0, errors=0,
+        issues_synced=0,
+        prs_synced=0,
+        commits_synced=0,
+        ci_results_synced=0,
+        errors=0,
     )
 
     mock_code_result = MagicMock(
-        files_synced=5, files_skipped=0, files_deleted=0, errors=0,
+        files_synced=5,
+        files_skipped=0,
+        files_deleted=0,
+        errors=0,
     )
     mock_code_sync = AsyncMock()
     mock_code_sync.sync_code_blobs.return_value = mock_code_result
@@ -394,7 +403,12 @@ async def test_validate_project_tokens_failure_adds_to_set():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.test_repo_access = AsyncMock(
-        return_value={"success": False, "status": 404, "repo": "org/private-repo", "error": "GitHub API error 404: Not Found"}
+        return_value={
+            "success": False,
+            "status": 404,
+            "repo": "org/private-repo",
+            "error": "GitHub API error 404: Not Found",
+        }
     )
 
     with (
@@ -495,6 +509,7 @@ async def test_validate_project_tokens_empty_projects():
 async def test_validate_project_tokens_timeout_adds_to_set():
     """validate_project_tokens returns project ID when validation times out (M-6)."""
     import asyncio
+
     config = MagicMock()
     config.github_token.get_secret_value.return_value = "ghp_GLOBAL"
     project = MagicMock()
@@ -505,7 +520,11 @@ async def test_validate_project_tokens_timeout_adds_to_set():
     mock_client.__aenter__ = AsyncMock(side_effect=asyncio.TimeoutError())
     mock_client.__aexit__ = AsyncMock(return_value=False)
     with (
-        patch("memory.config.discover_projects", create=True, return_value={"timeout-proj": project}),
+        patch(
+            "memory.config.discover_projects",
+            create=True,
+            return_value={"timeout-proj": project},
+        ),
         patch("github_sync_service.GitHubClient", return_value=mock_client),
     ):
         failed = await validate_project_tokens(config)

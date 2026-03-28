@@ -162,11 +162,13 @@ class TestInlineStorageInHnswConfig:
         _run_setup_collections(mock_client)
 
         for c in mock_client.create_collection.call_args_list:
-            hnsw = c.kwargs.get("hnsw_config") or (c.args[1] if len(c.args) > 1 else None)
-            assert hnsw is not None, "hnsw_config not passed to create_collection"
-            assert getattr(hnsw, "inline_storage", None) is True, (
-                f"inline_storage not True in hnsw_config: {hnsw}"
+            hnsw = c.kwargs.get("hnsw_config") or (
+                c.args[1] if len(c.args) > 1 else None
             )
+            assert hnsw is not None, "hnsw_config not passed to create_collection"
+            assert (
+                getattr(hnsw, "inline_storage", None) is True
+            ), f"inline_storage not True in hnsw_config: {hnsw}"
 
 
 class TestMigrateInlineStorage:
@@ -252,7 +254,9 @@ class TestMigrateInlineStorage:
         mock_client = MagicMock()
         mock_client.collection_exists.return_value = True
 
-        spec = importlib.util.spec_from_file_location("setup_collections_jira", SETUP_SCRIPT)
+        spec = importlib.util.spec_from_file_location(
+            "setup_collections_jira", SETUP_SCRIPT
+        )
         module = importlib.util.module_from_spec(spec)
         with (
             patch("memory.qdrant_client.get_qdrant_client", return_value=mock_client),

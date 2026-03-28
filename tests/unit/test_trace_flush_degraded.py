@@ -28,9 +28,13 @@ class TestDegradedMode:
             tfw.shutdown_requested = True
 
         patches = {
-            "memory.trace_flush_worker.get_langfuse_client": MagicMock(return_value=None),
+            "memory.trace_flush_worker.get_langfuse_client": MagicMock(
+                return_value=None
+            ),
             "memory.trace_flush_worker.evict_oldest_traces": MagicMock(return_value=0),
-            "memory.trace_flush_worker.process_buffer_files": MagicMock(return_value=(0, 0)),
+            "memory.trace_flush_worker.process_buffer_files": MagicMock(
+                return_value=(0, 0)
+            ),
             "time.sleep": MagicMock(side_effect=set_shutdown),
         }
         if extra_patches:
@@ -109,9 +113,7 @@ class TestDegradedMode:
                 "memory.trace_flush_worker.get_langfuse_client",
                 return_value=mock_client,
             ),
-            patch(
-                "memory.trace_flush_worker.evict_oldest_traces", return_value=0
-            ),
+            patch("memory.trace_flush_worker.evict_oldest_traces", return_value=0),
             patch(
                 "memory.trace_flush_worker.process_buffer_files", return_value=(0, 0)
             ) as mock_process,
