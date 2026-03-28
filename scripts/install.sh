@@ -3846,6 +3846,30 @@ cleanup_parzival_v1() {
     log_success "V1 Parzival files backed up to $backup_dir and removed"
 }
 
+# BUG-247 cleanup: remove stale literal tilde directory from project root
+# Prior to v2.2.7, AI_MEMORY_QUEUE_DIR=~/.ai-memory/queue was not expanded by Python,
+# causing hooks to write to a literal "~" directory under PROJECT_PATH.
+# The fix (os.path.expanduser) prevents new writes, but stale data may remain.
+cleanup_stale_tilde_dir() {
+    local stale_dir="$PROJECT_PATH/~"
+    if [[ ! -d "$stale_dir" ]]; then
+        return 0
+    fi
+
+    local queue_file="$stale_dir/.ai-memory/queue/classification_queue.jsonl"
+    local correct_queue="$INSTALL_DIR/queue/classification_queue.jsonl"
+
+    if [[ -f "$queue_file" ]] && [[ -s "$queue_file" ]]; then
+        log_info "Found stale queue data from BUG-247 at $stale_dir"
+        # Append any stranded items to the correct queue location
+        cat "$queue_file" >> "$correct_queue" 2>/dev/null || true
+        log_info "Migrated $(wc -l < "$queue_file" 2>/dev/null || echo 0) queue items to $correct_queue"
+    fi
+
+    rm -rf "$stale_dir"
+    log_success "Removed stale tilde directory: $stale_dir (BUG-247 cleanup)"
+}
+
 # Deploy _ai-memory/ package to target project
 # On V2->V2 update: removes stale files, preserves _memory/ user-created data
 deploy_parzival_v2() {
@@ -4250,6 +4274,9 @@ setup_parzival() {
             log_info "Upgrading Parzival V1 -> V2..."
             cleanup_parzival_v1
         fi
+
+        # BUG-247 cleanup: remove stale literal "~" directory from project root
+        cleanup_stale_tilde_dir
 
         # Deploy _ai-memory/ package (must be before shims)
         # Wrapped with error handler (R2-NF1: return 1 would crash under set -e)
