@@ -2,7 +2,7 @@
 """Unit tests for TD-206: trace_flush_worker degraded mode when Langfuse is unavailable."""
 
 import contextlib
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -86,7 +86,7 @@ class TestDegradedMode:
         operator visibility must not go dark at exactly the wrong moment.
         """
         mock_push_fn = MagicMock()
-        mocks = self._run_one_cycle(
+        self._run_one_cycle(
             extra_patches={"memory.trace_flush_worker.push_metrics_fn": mock_push_fn}
         )
         mock_push_fn.assert_called_once()

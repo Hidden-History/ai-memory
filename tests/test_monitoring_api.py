@@ -73,7 +73,7 @@ if _monitoring_path not in sys.path:
 if "main" in sys.modules:
     del sys.modules["main"]
 
-import main as _monitoring_main  # noqa: E402  (monitoring/main.py)
+import main as _monitoring_main
 
 sanitize_log_input = _monitoring_main.sanitize_log_input
 

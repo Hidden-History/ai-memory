@@ -8,11 +8,10 @@ Tests verify:
 
 import importlib.util
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from qdrant_client.models import (
-    HnswConfigDiff,
     PayloadSchemaType,
 )
 
@@ -267,7 +266,7 @@ class TestMigrateInlineStorage:
                 jira_sync_enabled=True,
             )
             spec.loader.exec_module(module)
-            updated, skipped = module.migrate_inline_storage()
+            updated, _skipped = module.migrate_inline_storage()
 
         assert len(updated) == 5  # 4 base + jira-data
 

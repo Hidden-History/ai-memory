@@ -66,8 +66,8 @@ def _langfuse_shutdown():
 if _langfuse_get_client is not None:
     atexit.register(_langfuse_shutdown)
 
-from .client import JiraClient  # noqa: E402
-from .composer import compose_comment_document, compose_issue_document  # noqa: E402
+from .client import JiraClient
+from .composer import compose_comment_document, compose_issue_document
 
 logger = logging.getLogger(__name__)
 

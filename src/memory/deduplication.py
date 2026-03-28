@@ -142,7 +142,7 @@ def cross_collection_duplicate_check(
     Returns:
         CrossCollectionDuplicateResult with is_duplicate flag and metadata
     """
-    all_collections = list(COLLECTION_NAMES) + [COLLECTION_JIRA_DATA]
+    all_collections = [*list(COLLECTION_NAMES), COLLECTION_JIRA_DATA]
     collections_to_check = [c for c in all_collections if c != target_collection]
 
     owns_client = client is None

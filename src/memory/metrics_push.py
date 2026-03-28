@@ -1759,7 +1759,7 @@ def push_evaluation_metrics_async(
 
     Args:
         evaluator_name: Evaluator name (e.g., "retrieval_relevance")
-        avg_score: Average score for this evaluator run (0.0–1.0)
+        avg_score: Average score for this evaluator run (0.0-1.0)
         runs_count: Number of individual evaluations completed
         duration_seconds: Wall-clock duration of the evaluator run
         threshold_breach: 1 if avg_score < configured threshold, 0 otherwise

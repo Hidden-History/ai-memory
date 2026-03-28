@@ -12,12 +12,15 @@ Covers:
 - validate_project_tokens() uses repo access check (H-1, M-1, M-6)
 """
 
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import github_sync_service
 import pytest
-from github_sync_service import _resolve_project_token, run_sync_cycle, validate_project_tokens
+from github_sync_service import (
+    _resolve_project_token,
+    run_sync_cycle,
+    validate_project_tokens,
+)
 
 from memory.config import ProjectSyncConfig, discover_projects
 from memory.connectors.github.sync import GitHubSyncEngine
@@ -174,7 +177,7 @@ def test_engine_uses_project_token_when_provided(tmp_path):
         patch("memory.connectors.github.sync.get_qdrant_client"),
         patch("memory.connectors.github.sync.GitHubClient") as MockClient,
     ):
-        engine = GitHubSyncEngine(config, repo="org/repo", token="github_pat_PROJECT")
+        GitHubSyncEngine(config, repo="org/repo", token="github_pat_PROJECT")
 
     # Verify GitHubClient was called with the project token, not the global one
     MockClient.assert_called_once_with(token="github_pat_PROJECT", repo="org/repo")
@@ -195,7 +198,7 @@ def test_engine_falls_back_to_global_token(tmp_path):
         patch("memory.connectors.github.sync.get_qdrant_client"),
         patch("memory.connectors.github.sync.GitHubClient") as MockClient,
     ):
-        engine = GitHubSyncEngine(config, repo="org/repo")
+        GitHubSyncEngine(config, repo="org/repo")
 
     MockClient.assert_called_once_with(token="ghp_GLOBAL", repo="org/repo")
 

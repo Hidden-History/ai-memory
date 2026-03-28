@@ -9,7 +9,7 @@ PLAN-012 Phase 2: Evaluation Pipeline
 
 TRACE_CONTENT_MAX = 10000  # Max chars for Langfuse input/output fields
 
-from .provider import EvaluatorConfig  # noqa: E402
-from .runner import EvaluatorRunner  # noqa: E402
+from .provider import EvaluatorConfig
+from .runner import EvaluatorRunner
 
 __all__ = ["TRACE_CONTENT_MAX", "EvaluatorConfig", "EvaluatorRunner"]

@@ -66,7 +66,7 @@ class TestCharMinimum:
         mocker.patch("memory.embeddings.EmbeddingClient", return_value=mock_embed)
 
         text = "A" * 50  # Exactly 50 non-ack chars
-        result = agent_store_mod.store_agent_response(_make_store_data(text))
+        agent_store_mod.store_agent_response(_make_store_data(text))
         # Function should NOT return early from quality gate; Qdrant was called
         mock_client.scroll.assert_called_once()
 
@@ -172,7 +172,7 @@ class TestAckPatternFilter:
         mocker.patch("memory.embeddings.EmbeddingClient", return_value=mock_embed)
 
         text = "The implementation uses a retry decorator with exponential backoff for resilience"
-        result = agent_store_mod.store_agent_response(_make_store_data(text))
+        agent_store_mod.store_agent_response(_make_store_data(text))
         # Qdrant was consulted — quality gate passed
         mock_client.scroll.assert_called_once()
 
@@ -191,5 +191,5 @@ class TestAckPatternFilter:
         mocker.patch("memory.embeddings.EmbeddingClient", return_value=mock_embed)
 
         text = "I understand your requirements and will implement the feature accordingly"
-        result = agent_store_mod.store_agent_response(_make_store_data(text))
+        agent_store_mod.store_agent_response(_make_store_data(text))
         mock_client.scroll.assert_called_once()

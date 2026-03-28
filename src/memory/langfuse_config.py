@@ -36,10 +36,10 @@ def _is_retryable(exc: BaseException) -> bool:
 def _create_langfuse_client_with_retry():
     """Create Langfuse V3 client with exponential backoff retry (TD-206).
 
-    5 attempts, backoff 1s–16s. ImportError is not retried (langfuse not installed).
+    5 attempts, backoff 1s-16s. ImportError is not retried (langfuse not installed).
     NOTE: Local import so tests can patch sys.modules["langfuse"] at runtime.
     """
-    from langfuse import get_client as _get_client  # noqa: PLC0415
+    from langfuse import get_client as _get_client
 
     return _get_client()
 

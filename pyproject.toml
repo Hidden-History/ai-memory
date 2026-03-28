@@ -171,6 +171,17 @@ ignore = ["E501"]  # Line length handled by black
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "ARG"]
 "src/memory/__init__.py" = ["E402", "RUF022"]  # E402: configure_logging() before imports; RUF022: __all__ grouped by story
+"src/memory/connectors/**/*.py" = ["E402"]  # E402: atexit.register(langfuse_shutdown) before imports (by design)
+"src/memory/evaluator/__init__.py" = ["E402"]  # E402: TRACE_CONTENT_MAX constant before relative imports
+"src/memory/trace_flush_worker.py" = ["E402"]  # E402: sys.path.insert before imports
+"tests/test_monitoring_api.py" = ["E402"]  # E402: sys.modules mock before imports
+"tests/test_agent_sdk_wrapper.py" = ["E402"]  # E402: sys.modules mock before imports
+"tests/test_best_practices_auto_activation.py" = ["E402"]  # E402: sys.path.insert before imports
+"tests/test_enable_quantization.py" = ["E402"]  # E402: sys.path.insert before imports
+"tests/test_ingest_markdown.py" = ["E402"]  # E402: sys.path.insert before imports
+"tests/test_search_cli.py" = ["E402"]  # E402: sys.path.insert before imports
+"tests/integration/test_sdk_integration.py" = ["E402"]  # E402: sys.modules mock before imports
+"tests/unit/connectors/**/*.py" = ["E402"]  # E402: conftest logger setup before imports
 
 # Black configuration
 [tool.black]

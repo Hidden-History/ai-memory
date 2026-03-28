@@ -66,19 +66,19 @@ def _langfuse_shutdown():
 
 atexit.register(_langfuse_shutdown)
 
-from memory.connectors.github.client import (  # noqa: E402
+from memory.connectors.github.client import (
     GitHubClient,
     GitHubClientError,
 )
-from memory.connectors.github.schema import (  # noqa: E402
+from memory.connectors.github.schema import (
     GITHUB_COLLECTION,
     SOURCE_AUTHORITY_MAP,
     compute_content_hash,
 )
-from memory.extraction import detect_language as detect_language_from_path  # noqa: E402
-from memory.models import MemoryType  # noqa: E402
-from memory.qdrant_client import get_qdrant_client  # noqa: E402
-from memory.storage import MemoryStorage  # noqa: E402
+from memory.extraction import detect_language as detect_language_from_path
+from memory.models import MemoryType
+from memory.qdrant_client import get_qdrant_client
+from memory.storage import MemoryStorage
 
 logger = logging.getLogger("ai_memory.github.code_sync")
 

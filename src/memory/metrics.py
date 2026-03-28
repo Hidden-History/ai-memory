@@ -286,7 +286,7 @@ context_injection_tokens = Histogram(
 
 evaluation_score = Gauge(
     "aimemory_evaluation_score",
-    "Average evaluation score for the last run of each evaluator (0.0–1.0)",
+    "Average evaluation score for the last run of each evaluator (0.0-1.0)",
     ["evaluator_name"],
 )
 

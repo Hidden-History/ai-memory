@@ -10,7 +10,7 @@ import importlib.util
 import logging
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -207,7 +207,7 @@ class TestSemanticDedupFailOpen:
         mocker.patch("memory.embeddings.EmbeddingClient", return_value=mock_embed)
 
         with caplog.at_level(logging.DEBUG, logger="ai_memory.hooks"):
-            result = user_prompt_store_mod.store_user_message(
+            user_prompt_store_mod.store_user_message(
                 _make_hook_input(_long_prompt())
             )
 
@@ -238,7 +238,7 @@ class TestSemanticDedupFailOpen:
         mock_embed.embed_sparse.return_value = None
         mocker.patch("memory.embeddings.EmbeddingClient", return_value=mock_embed)
 
-        result = user_prompt_store_mod.store_user_message(_make_hook_input(_long_prompt()))
+        user_prompt_store_mod.store_user_message(_make_hook_input(_long_prompt()))
 
         # Storage must not be blocked by a dedup import failure
         mock_client.upsert.assert_called_once()

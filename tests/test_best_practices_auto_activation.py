@@ -23,7 +23,7 @@ sys.path.insert(0, str(HOOK_SCRIPT_DIR))
 sys.path.insert(0, str(SRC_DIR))
 
 # Import the functions under test (after sys.path setup above)
-from best_practices_retrieval import (  # noqa: E402
+from best_practices_retrieval import (
     AUTO_ACTIVATION_CONFIDENCE_THRESHOLD,
     STRUGGLING_EDIT_THRESHOLD,
     _check_auto_activation,

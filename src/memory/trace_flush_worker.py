@@ -37,7 +37,7 @@ INSTALL_DIR = os.environ.get(
 )
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
-from memory.langfuse_config import get_langfuse_client  # noqa: E402
+from memory.langfuse_config import get_langfuse_client
 
 
 def _dt_to_ns(iso_str: str) -> int:

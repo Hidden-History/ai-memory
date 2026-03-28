@@ -13,17 +13,17 @@ import pytest
 # Mock claude_agent_sdk before importing AgentSDKWrapper
 sys.modules["claude_agent_sdk"] = MagicMock()
 
-import contextlib  # noqa: E402
+import contextlib
 
-from src.memory.agent_sdk_wrapper import (  # noqa: E402
+from src.memory.agent_sdk_wrapper import (
     AgentSDKWrapper,
     create_memory_enhanced_client,
 )
-from src.memory.config import (  # noqa: E402
+from src.memory.config import (
     COLLECTION_CODE_PATTERNS,
     COLLECTION_DISCUSSIONS,
 )
-from src.memory.models import MemoryType  # noqa: E402
+from src.memory.models import MemoryType
 
 
 @pytest.fixture

@@ -6,7 +6,7 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
-from tenacity import stop_after_attempt, wait_exponential
+from tenacity import stop_after_attempt
 
 
 @pytest.fixture(autouse=True)
