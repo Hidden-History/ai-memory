@@ -5,14 +5,15 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — v2.2.7 — Per-Project GitHub Token Support
+## [Unreleased] — v2.2.7 — Per-Project Tokens, Data Quality & Observability
 
-Adds two-tier credential model for GitHub PATs: a shared token as default with optional per-project token overrides in `projects.d/*.yaml`. Enables fine-grained PATs scoped to specific repositories to work across multi-project setups.
+Adds two-tier credential model for GitHub PATs, LLM-as-Judge eval visibility with threshold alerting, three deduplication quality gates, gRPC Qdrant client with HTTP fallback, HNSW inline storage, OTel startup retry, and PyPI/docs CI workflows.
 
 ### Fixed
 - **Add-project flow silent auth failure** (BUG-245): Fine-grained PATs (`github_pat_*`) scoped to specific repos caused HTTP 404 when adding new projects, with no recovery path. Now shows token-type-aware error message and interactive 4-option recovery menu (per-project token, replace shared token, skip sync, continue anyway).
 - **Backup script missing `github` collection** (BUG-246): `backup_qdrant.py` only backed up 4 of 5 collections — the `github` collection (13K+ points, largest collection) was missing. A `stack.sh nuke` without manual backup would lose all GitHub sync data. Added `github` to the COLLECTIONS list.
 - **Classifier queue path not expanded** (BUG-247): `AI_MEMORY_QUEUE_DIR=~/.ai-memory/queue` in `.env` was read literally by Python (tilde not expanded), causing hooks to write to a `~` directory under CWD instead of `$HOME/.ai-memory/queue`. The classifier container read from the correct path but found an empty queue — classification was silently broken. Added `os.path.expanduser()` to queue path resolution.
+- **`test_touch_health_file_logs_failure` caplog miss**: The test was asserting log output from a logger with `propagate=False`, so `caplog` never captured it. Fixed by attaching the handler directly to the module logger, matching the pattern used across the test suite.
 
 ### Added
 - **Per-project GitHub token support**: Optional `github.token` field in `projects.d/*.yaml` overrides the shared `GITHUB_TOKEN` for individual projects. Existing configs without the field continue to use the shared token (full backward compatibility).
@@ -22,10 +23,22 @@ Adds two-tier credential model for GitHub PATs: a shared token as default with o
 - **Startup token validation**: github-sync container validates each project's token on startup, logs warnings for failures, and skips sync for projects with invalid tokens instead of crashing.
 - **Sync engine per-project token resolution**: `GitHubSyncEngine` and code blob sync resolve per-project token before falling back to global `GITHUB_TOKEN`.
 - **`list_projects.py` token visibility**: JSON output includes `has_per_project_token` boolean per project; table output adds a `TOKEN` column showing `project` or `shared` for each entry.
+- **Eval threshold alerting** (TD-284): Prometheus metrics for LLM-as-Judge scores (`ai_memory_eval_score`, `ai_memory_eval_threshold_breach_total`). The evaluator runner pushes per-dimension scores and fires a breach counter when any score falls below its configured threshold. Alert rules in `ai-memory-alerts.yaml`.
+- **Grafana evaluation dashboard** (TD-285): 6-panel dashboard (`evaluation-dashboard.json`) covering average eval score by dimension, threshold breach rate, score distribution heatmap, low-score traces table, eval latency, and a time-series view for trend analysis.
+- **Agent response quality gate** (TD-048): `agent_response_store_async.py` rejects responses shorter than 50 characters and filters out pure acknowledgment patterns (e.g. "Sure!", "Got it.", "OK") before embedding. Prevents noise injection from low-signal responses.
+- **User message semantic deduplication** (TD-049): `user_prompt_store_async.py` checks cosine similarity of the incoming message against the last 10 stored user messages (threshold 0.92) before storing. Near-duplicate re-submissions (e.g. repeated `/compact` triggers) are silently skipped.
+- **Cross-collection deduplication** (TD-060): `deduplication.py` now checks the incoming content hash across all 5 Qdrant collections before storage, not just the target collection. Prevents identical content appearing in multiple collections. Configurable via `CROSS_DEDUP_ENABLED` (default: `true`); fail-open — a Qdrant error skips the cross-check and proceeds to store.
+- **OTel DNS retry at startup** (TD-206): `langfuse_config.py` wraps the initial OTel connection attempt with tenacity exponential backoff (3 retries, 1s base, 10s max). Eliminates `NXDOMAIN` startup failures in Docker environments where the Langfuse container DNS name resolves slightly after the hook containers start.
+- **PyPI trusted publishing** (TD-096): `.github/workflows/publish.yml` publishes the `ai-memory` package to PyPI on tagged releases using OIDC trusted publishing (no API key required). `.github/workflows/docs.yml` deploys Sphinx-generated docs to GitHub Pages on each push to `main`.
+
+### Performance
+- **HNSW inline_storage enabled** (TD-106): `setup-collections.py` now creates all collections with `hnsw_config.on_disk=False` and `quantization_config.always_ram=True`, keeping quantized vectors in RAM. Benchmarks show ~10x QPS improvement for quantized vector search. Existing collections are not migrated automatically — rebuild to benefit.
+- **gRPC client with HTTP fallback** (TD-107): `qdrant_client.py` prefers gRPC (`prefer_grpc=True`, port `QDRANT_GRPC_PORT`, default `6334`) for all Qdrant operations. A probe on init detects gRPC unavailability and transparently falls back to HTTP, so deployments without gRPC exposed continue to work without config changes.
 
 ### Documentation
 - **INSTALL.md auth failure description corrected** (M-4): Recovery flow description now says "non-200 HTTP response (e.g., 401, 403, 404)" instead of the inaccurate "HTTP 404" — any non-200 triggers recovery, not just 404.
 - **INSTALL.md `GITHUB_PROJECT_TOKEN` scope clarified** (L-4): Added note that `GITHUB_PROJECT_TOKEN` only applies in add-project mode (Option 1); initial setup uses `GITHUB_TOKEN`.
+- **CONFIGURATION.md updated**: Added `QDRANT_GRPC_PORT` and `CROSS_DEDUP_ENABLED` reference entries.
 
 ### Update Instructions
 After pulling v2.2.7:

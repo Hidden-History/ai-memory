@@ -308,6 +308,37 @@ export QDRANT_USE_HTTPS=false
 
 ---
 
+#### QDRANT_GRPC_PORT
+**Purpose:** Qdrant gRPC port for high-throughput vector operations (TD-107)
+
+**Default:** `6334`
+
+**Format:** Integer (port number)
+
+**Example:**
+```bash
+# Default (matches Qdrant's default gRPC port)
+export QDRANT_GRPC_PORT=6334
+
+# Custom port
+export QDRANT_GRPC_PORT=16334
+```
+
+**When to change:**
+- **Custom gRPC port**: When Qdrant is configured to listen on a non-default gRPC port
+- **gRPC unavailable**: If your Qdrant deployment does not expose gRPC, the client automatically falls back to HTTP — no config change needed
+
+**Notes:**
+- The client probes gRPC on startup; if the probe fails, it transparently falls back to HTTP
+- Local Docker deployment: Qdrant's gRPC port is not exposed by default — the fallback handles this automatically
+- Qdrant Cloud: gRPC is available on port 6334
+
+**Related:**
+- `QDRANT_PORT` - HTTP port
+- `QDRANT_HOST` - Qdrant server hostname
+
+---
+
 ### Embedding Configuration
 
 #### EMBEDDING_HOST
@@ -452,6 +483,66 @@ export SIMILARITY_THRESHOLD=0.3
 - **0.5-0.7**: Moderately relevant
 - **0.3-0.5**: Loosely related
 - **0.0-0.3**: Barely related (usually filtered)
+
+---
+
+#### DEDUP_THRESHOLD
+**Purpose:** Similarity cutoff for same-collection duplicate detection
+
+**Default:** `0.95` (95%)
+
+**Format:** Float (0.80 to 0.99)
+
+**Example:**
+```bash
+# Strict — only exact duplicates suppressed
+export DEDUP_THRESHOLD=0.98
+
+# Default
+export DEDUP_THRESHOLD=0.95
+
+# Permissive — suppress near-duplicates
+export DEDUP_THRESHOLD=0.85
+```
+
+**When to change:**
+- **Reduce noise**: Lower to suppress more near-duplicate memories
+- **Preserve nuance**: Raise if too many distinct memories are being filtered
+
+**Related:**
+- `CROSS_DEDUP_ENABLED` - Enable cross-collection duplicate check
+
+---
+
+#### CROSS_DEDUP_ENABLED
+**Purpose:** Enable cross-collection duplicate detection before storage (TD-060)
+
+**Default:** `true`
+
+**Options:** `true`, `false`
+
+**Format:** Boolean (`true`/`false`)
+
+**Example:**
+```bash
+# Default — check all 5 collections for duplicates before storing
+export CROSS_DEDUP_ENABLED=true
+
+# Disable — only check within the target collection (pre-v2.2.7 behavior)
+export CROSS_DEDUP_ENABLED=false
+```
+
+**When to change:**
+- **Disable**: If you are intentionally storing the same content in multiple collections (unusual)
+- **Performance testing**: Disable to measure storage latency without cross-collection overhead
+
+**Notes:**
+- Fail-open: if a Qdrant error occurs during the cross-collection check, the content is stored anyway
+- Uses the same `DEDUP_THRESHOLD` for all cross-collection comparisons
+
+**Related:**
+- `DEDUP_THRESHOLD` - Similarity threshold for duplicate detection
+- `SIMILARITY_THRESHOLD` - Search result threshold (different use)
 
 ---
 
