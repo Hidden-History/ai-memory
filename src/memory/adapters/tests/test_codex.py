@@ -41,9 +41,9 @@ class TestNormalizeCodexEvent:
             if codex_name == "UserPromptSubmit":
                 raw["prompt"] = "test prompt"
             event = normalize_codex_event(raw, codex_name)
-            assert event["hook_event_name"] == canonical_name, (
-                f"{codex_name} -> {canonical_name}"
-            )
+            assert (
+                event["hook_event_name"] == canonical_name
+            ), f"{codex_name} -> {canonical_name}"
 
     def test_bash_tool_mapping(self):
         raw = {
@@ -164,16 +164,16 @@ class TestCodexSkillTemplates:
         assert len(parts) >= 3, f"No valid YAML frontmatter in {skill_name}/SKILL.md"
         frontmatter = yaml.safe_load(parts[1])
 
-        assert "name" in frontmatter, (
-            f"Missing 'name' in {skill_name}/SKILL.md frontmatter"
-        )
-        assert "description" in frontmatter, (
-            f"Missing 'description' in {skill_name}/SKILL.md frontmatter"
-        )
+        assert (
+            "name" in frontmatter
+        ), f"Missing 'name' in {skill_name}/SKILL.md frontmatter"
+        assert (
+            "description" in frontmatter
+        ), f"Missing 'description' in {skill_name}/SKILL.md frontmatter"
         assert frontmatter["name"], f"'name' is empty in {skill_name}/SKILL.md"
-        assert frontmatter["description"], (
-            f"'description' is empty in {skill_name}/SKILL.md"
-        )
+        assert frontmatter[
+            "description"
+        ], f"'description' is empty in {skill_name}/SKILL.md"
 
     @pytest.mark.parametrize("skill_name", ["search-memory", "memory-status"])
     def test_skill_allowed_tools_is_shell(self, skill_name):
@@ -181,9 +181,9 @@ class TestCodexSkillTemplates:
         content = skill_path.read_text()
         parts = content.split("---", 2)
         frontmatter = yaml.safe_load(parts[1])
-        assert frontmatter.get("allowed-tools") == "shell", (
-            f"allowed-tools must be 'shell' in {skill_name}/SKILL.md"
-        )
+        assert (
+            frontmatter.get("allowed-tools") == "shell"
+        ), f"allowed-tools must be 'shell' in {skill_name}/SKILL.md"
 
     def test_search_memory_references_install_dir(self):
         skill_path = self.TEMPLATES_BASE / "search-memory" / "SKILL.md"

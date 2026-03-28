@@ -193,9 +193,9 @@ def normalize_claude_event(raw: dict, hook_event_name: str) -> dict:
         "tool_input": raw.get("tool_input"),
         "tool_response": raw.get("tool_response"),
         "transcript_path": raw.get("transcript_path"),
-        "user_prompt": raw.get("prompt")
-        if hook_event_name == "UserPromptSubmit"
-        else None,
+        "user_prompt": (
+            raw.get("prompt") if hook_event_name == "UserPromptSubmit" else None
+        ),
         "ide_source": "claude",
         "trigger": raw.get("trigger"),
         "is_background_agent": False,
@@ -248,9 +248,9 @@ def normalize_gemini_event(raw: dict, native_hook_name: str) -> dict:
         "tool_input": raw.get("tool_input"),
         "tool_response": tool_response,
         "transcript_path": raw.get("transcript_path"),
-        "user_prompt": raw.get("prompt")
-        if canonical_hook == "UserPromptSubmit"
-        else None,
+        "user_prompt": (
+            raw.get("prompt") if canonical_hook == "UserPromptSubmit" else None
+        ),
         "ide_source": "gemini",
         "trigger": raw.get("trigger"),
         "is_background_agent": raw.get("is_background_agent", False),
@@ -311,9 +311,9 @@ def normalize_cursor_event(raw: dict, native_hook_name: str) -> dict:
         "tool_input": raw.get("tool_input"),
         "tool_response": tool_response,
         "transcript_path": raw.get("transcript_path"),
-        "user_prompt": raw.get("prompt")
-        if canonical_hook == "UserPromptSubmit"
-        else None,
+        "user_prompt": (
+            raw.get("prompt") if canonical_hook == "UserPromptSubmit" else None
+        ),
         "ide_source": "cursor",
         "trigger": raw.get("trigger"),
         "is_background_agent": raw.get("is_background_agent", False),
@@ -362,9 +362,9 @@ def normalize_codex_event(raw: dict, hook_event_name: str) -> dict:
         "tool_input": raw.get("tool_input"),
         "tool_response": raw.get("tool_response"),
         "transcript_path": raw.get("transcript_path"),
-        "user_prompt": raw.get("prompt")
-        if canonical_hook == "UserPromptSubmit"
-        else None,
+        "user_prompt": (
+            raw.get("prompt") if canonical_hook == "UserPromptSubmit" else None
+        ),
         "ide_source": "codex",
         "trigger": raw.get("trigger"),
         "is_background_agent": False,

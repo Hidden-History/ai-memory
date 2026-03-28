@@ -76,9 +76,9 @@ class TestNormalizeCursorEvent:
             if cursor_name == "beforeSubmitPrompt":
                 raw["prompt"] = "test prompt"
             event = normalize_cursor_event(raw, cursor_name)
-            assert event["hook_event_name"] == canonical_name, (
-                f"{cursor_name} -> {canonical_name}"
-            )
+            assert (
+                event["hook_event_name"] == canonical_name
+            ), f"{cursor_name} -> {canonical_name}"
 
     def test_tool_name_mapping(self):
         cases = {
@@ -93,9 +93,9 @@ class TestNormalizeCursorEvent:
         for cursor_name, canonical_name in cases.items():
             raw = {"session_id": "s", "cwd": "/p", "tool_name": cursor_name}
             event = normalize_cursor_event(raw, "postToolUse")
-            assert event["tool_name"] == canonical_name, (
-                f"{cursor_name} -> {canonical_name}"
-            )
+            assert (
+                event["tool_name"] == canonical_name
+            ), f"{cursor_name} -> {canonical_name}"
 
     def test_mcp_tool_normalized(self):
         raw = {
@@ -204,16 +204,16 @@ class TestCursorSkillTemplates:
         assert len(parts) >= 3, f"No valid YAML frontmatter in {skill_name}/SKILL.md"
         frontmatter = yaml.safe_load(parts[1])
 
-        assert "name" in frontmatter, (
-            f"Missing 'name' in {skill_name}/SKILL.md frontmatter"
-        )
-        assert "description" in frontmatter, (
-            f"Missing 'description' in {skill_name}/SKILL.md frontmatter"
-        )
+        assert (
+            "name" in frontmatter
+        ), f"Missing 'name' in {skill_name}/SKILL.md frontmatter"
+        assert (
+            "description" in frontmatter
+        ), f"Missing 'description' in {skill_name}/SKILL.md frontmatter"
         assert frontmatter["name"], f"'name' is empty in {skill_name}/SKILL.md"
-        assert frontmatter["description"], (
-            f"'description' is empty in {skill_name}/SKILL.md"
-        )
+        assert frontmatter[
+            "description"
+        ], f"'description' is empty in {skill_name}/SKILL.md"
 
     @pytest.mark.parametrize(
         "skill_name", ["search-memory", "memory-status", "save-memory"]
@@ -223,9 +223,9 @@ class TestCursorSkillTemplates:
         content = skill_path.read_text()
         parts = content.split("---", 2)
         frontmatter = yaml.safe_load(parts[1])
-        assert frontmatter.get("allowed-tools") == "Bash", (
-            f"allowed-tools must be 'Bash' in {skill_name}/SKILL.md"
-        )
+        assert (
+            frontmatter.get("allowed-tools") == "Bash"
+        ), f"allowed-tools must be 'Bash' in {skill_name}/SKILL.md"
 
     def test_search_memory_references_install_dir(self):
         skill_path = self.TEMPLATES_BASE / "search-memory" / "SKILL.md"

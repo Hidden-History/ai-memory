@@ -237,7 +237,13 @@ class TestInstallerConfigGeneration:
             ],
             capture_output=True,
             text=True,
-            cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))),
+            cwd=os.path.dirname(
+                os.path.dirname(
+                    os.path.dirname(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    )
+                )
+            ),
         )
         return result
 

@@ -54,7 +54,9 @@ class TestNormalizeGeminiEvent:
         for gemini_name, canonical_name in cases.items():
             raw = {"session_id": "s", "cwd": "/p", "tool_name": gemini_name}
             event = normalize_gemini_event(raw, "AfterTool")
-            assert event["tool_name"] == canonical_name, f"{gemini_name} -> {canonical_name}"
+            assert (
+                event["tool_name"] == canonical_name
+            ), f"{gemini_name} -> {canonical_name}"
 
     def test_mcp_tool_normalized(self):
         raw = {
