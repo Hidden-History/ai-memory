@@ -10,6 +10,7 @@
   <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
   <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" alt="PRs Welcome">
+  <img src="https://img.shields.io/badge/Claude_Code-Supported-6B4FBB?style=flat-square" alt="Claude Code">  <img src="https://img.shields.io/badge/Gemini_CLI-Supported-4285F4?style=flat-square&logo=google" alt="Gemini CLI">  <img src="https://img.shields.io/badge/Cursor-Supported-00D4AA?style=flat-square" alt="Cursor">  <img src="https://img.shields.io/badge/Codex_CLI-Supported-412991?style=flat-square&logo=openai" alt="Codex CLI">
   <img src="https://img.shields.io/badge/GitHub-Sync-2088FF?style=flat-square&logo=github" alt="GitHub Sync">  <img src="https://img.shields.io/badge/Jira-Cloud-0052CC?style=flat-square&logo=jira" alt="Jira Cloud">  <img src="https://img.shields.io/badge/Langfuse-Observability-FF6B35?style=flat-square&logo=langfuse" alt="Langfuse">  <img src="https://img.shields.io/badge/Qdrant-Vector_DB-DC382D?style=flat-square&logo=qdrant" alt="Qdrant">  <img src="https://img.shields.io/badge/Parzival-Project_Manager-8B5CF6?style=flat-square" alt="Parzival">
 </p>
 
@@ -24,7 +25,8 @@
 
 ## 🚀 Key Features
 
-* **🧠 Cross-Session Memory:** Claude remembers your last session automatically — no re-explaining needed.
+* **🧠 Cross-Session Memory:** Your AI agent remembers your last session automatically — no re-explaining needed.
+* **🔌 Multi-IDE Support:** Works with Claude Code, Gemini CLI, Cursor IDE, and Codex CLI through a unified adapter layer.
 * **⏳ Semantic Decay:** Memories age naturally — recent patterns rank higher than stale ones.
 * **🛡️ 3-Layer Security:** PII and secrets caught before storage via regex + detect-secrets + SpaCy NER.
 * **🐙 GitHub History Sync:** PRs, issues, commits, CI results searchable by meaning.

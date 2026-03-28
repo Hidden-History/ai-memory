@@ -5,6 +5,31 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Multi-IDE Adapter Support
+
+Adds native lifecycle hook support for Gemini CLI, Cursor IDE, and Codex CLI alongside existing Claude Code integration. All four IDEs share the same memory pipeline through a canonical event schema — memories created in one IDE are available in all others.
+
+### Added
+- **Multi-IDE adapter layer** (FEATURE-001): Canonical event schema (`src/memory/adapters/schema.py`) normalizes hook events from Claude Code, Gemini CLI, Cursor IDE, and Codex CLI into a unified format. Each IDE has dedicated adapter scripts that translate native events and fork to the existing storage pipeline. Claude Code hooks remain unchanged — the adapter layer is purely additive.
+- **Gemini CLI support**: 5 adapter scripts (session_start, after_tool_capture, error_detection, error_pattern_capture, pre_compress) + 3 TOML command templates (search-memory, memory-status, save-memory) for `.gemini/commands/`.
+- **Cursor IDE support**: 5 adapter scripts (session_start, post_tool_capture, error_detection, error_pattern_capture, pre_compact) + 3 SKILL.md templates for `.cursor/skills/`.
+- **Codex CLI support**: 5 adapter scripts (session_start, error_detection, error_pattern_capture, context_injection, stop) + 2 SKILL.md templates for `.agents/skills/` and `.codex/skills/`.
+- **Installer IDE auto-detection**: `detect_gemini_cli()`, `detect_cursor_ide()`, `detect_codex_cli()` detect installed IDEs and generate native config files during installation. Supports `--ide` flag for explicit selection and `--force` for overwriting existing configs. Idempotent by default.
+- **169 adapter tests**: Schema validation (62), Gemini normalizer (13), Cursor normalizer (25), Codex normalizer (20), cross-IDE integration (13), installer config generation (3+).
+
+### Architecture
+- **Strangler Fig pattern** (BP-119): Existing Claude Code hook scripts in `.claude/hooks/scripts/` are completely unchanged. New IDE adapters normalize their events via `schema.py` then call the same pipeline scripts (`store_async.py`, `error_store_async.py`, etc.). Zero breaking changes to existing installations.
+- **Canonical event schema**: Stable envelope fields (`session_id`, `cwd`, `hook_event_name`, `ide_source`, `tool_name`, `tool_response`) with per-IDE normalizers that map native hook names and tool names to canonical values. MCP tool names normalized across all IDEs.
+
+### How to Test (from feature branch)
+1. Pull the feature branch: `git checkout fix/pr87-multi-ide-adapter-architecture`
+2. Run the installer: `./scripts/install.sh <project-dir>` — IDE detection runs automatically
+3. For Gemini CLI: check `.gemini/settings.json` was created with hook entries
+4. For Cursor: check `.cursor/hooks.json` was created with hook entries
+5. For Codex: check `.codex/hooks.json` was created with hook entries
+6. Open a session in your IDE — session_start should inject memories
+7. Report issues at https://github.com/Hidden-History/ai-memory/issues
+
 ## [2.2.7] - 2026-03-28 — Per-Project Tokens, Data Quality & Observability
 
 Adds two-tier credential model for GitHub PATs, LLM-as-Judge eval visibility with threshold alerting, three deduplication quality gates, gRPC Qdrant client with HTTP fallback, HNSW inline storage, OTel startup retry, and PyPI/docs CI workflows.

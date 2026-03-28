@@ -1,0 +1,10 @@
+description = "Show ai-memory system status: Qdrant health, collection counts, and configuration"
+prompt = """Check the ai-memory system status.
+
+Run this command to check status (do not modify the path):
+
+```shell
+"$AI_MEMORY_INSTALL_DIR/.venv/bin/python" "$AI_MEMORY_INSTALL_DIR/src/memory/status_cli.py" --project "$AI_MEMORY_PROJECT_ID"
+```
+
+Present the results to the user showing: Qdrant connection status, memory counts per collection, and any issues detected."""

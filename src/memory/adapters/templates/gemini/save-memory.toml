@@ -1,0 +1,12 @@
+description = "Manually save a memory to ai-memory (decision, convention, pattern, or note)"
+prompt = """Save a memory to the ai-memory vector database.
+
+Content to save: {{args}}
+
+Run this command to save (do not modify the path or arguments):
+
+```shell
+"$AI_MEMORY_INSTALL_DIR/.venv/bin/python" "$AI_MEMORY_INSTALL_DIR/src/memory/save_cli.py" --content "{{args}}" --project "$AI_MEMORY_PROJECT_ID"
+```
+
+Confirm to the user what was saved and which collection it was stored in."""
