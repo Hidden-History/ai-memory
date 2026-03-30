@@ -288,6 +288,7 @@ def test_generated_settings_env_excludes_qdrant_api_key(tmp_path):
     """
     import json
     import sys
+
     from generate_settings import main
 
     output_file = tmp_path / "settings.json"
@@ -306,8 +307,8 @@ def test_generated_settings_env_excludes_qdrant_api_key(tmp_path):
 
 def test_generated_settings_no_unified_keyword_trigger(tmp_path):
     """BUG-250/F10: generate_settings.py must not reference unified_keyword_trigger.py."""
-    import json
     import sys
+
     from generate_settings import main
 
     output_file = tmp_path / "settings.json"
@@ -319,6 +320,6 @@ def test_generated_settings_no_unified_keyword_trigger(tmp_path):
         "unified_keyword_trigger.py was renamed to context_injection_tier2.py (BUG-250). "
         "It must not appear in generated settings."
     )
-    assert "context_injection_tier2" in content, (
-        "context_injection_tier2.py must be present in UserPromptSubmit hooks."
-    )
+    assert (
+        "context_injection_tier2" in content
+    ), "context_injection_tier2.py must be present in UserPromptSubmit hooks."

@@ -676,7 +676,9 @@ def test_claude_session_id_set_when_absent(mock_storage, monkeypatch):
         )
 
     session_env = os.environ.get("CLAUDE_SESSION_ID", "")
-    assert session_env == wrapper.session_id, f"Expected session_id {wrapper.session_id!r}, got: {session_env!r}"
+    assert (
+        session_env == wrapper.session_id
+    ), f"Expected session_id {wrapper.session_id!r}, got: {session_env!r}"
 
 
 def test_claude_session_id_not_overridden_when_present(mock_storage, monkeypatch):
@@ -693,7 +695,9 @@ def test_claude_session_id_not_overridden_when_present(mock_storage, monkeypatch
     assert os.environ["CLAUDE_SESSION_ID"] == "real-claude-session-abc123"
 
 
-def test_session_id_aligns_with_preexisting_claude_session_id(mock_storage, monkeypatch):
+def test_session_id_aligns_with_preexisting_claude_session_id(
+    mock_storage, monkeypatch
+):
     """F6: self.session_id aligns with pre-existing CLAUDE_SESSION_ID to avoid trace divergence."""
     monkeypatch.setenv("CLAUDE_SESSION_ID", "real-claude-session-xyz")
 

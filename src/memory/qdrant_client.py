@@ -70,7 +70,9 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
         # TD-371: hash prevents raw key from appearing in cache key or logs
         key_fingerprint = hashlib.sha256(
             config.qdrant_api_key.get_secret_value().encode()
-        ).hexdigest()[:8]  # 8 chars sufficient for cache uniqueness
+        ).hexdigest()[
+            :8
+        ]  # 8 chars sufficient for cache uniqueness
     cache_key = f"{config.qdrant_host}:{config.qdrant_port}:{key_fingerprint}:{config.qdrant_use_https}"
     if cache_key in _client_cache:
         return _client_cache[cache_key]
@@ -96,7 +98,11 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
         client = QdrantClient(
             host=config.qdrant_host,
             port=config.qdrant_port,
-            api_key=config.qdrant_api_key.get_secret_value() if config.qdrant_api_key else None,
+            api_key=(
+                config.qdrant_api_key.get_secret_value()
+                if config.qdrant_api_key
+                else None
+            ),
             https=config.qdrant_use_https,
             timeout=config.qdrant_timeout,
             prefer_grpc=True,
@@ -113,7 +119,11 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
         client = QdrantClient(
             host=config.qdrant_host,
             port=config.qdrant_port,
-            api_key=config.qdrant_api_key.get_secret_value() if config.qdrant_api_key else None,
+            api_key=(
+                config.qdrant_api_key.get_secret_value()
+                if config.qdrant_api_key
+                else None
+            ),
             https=config.qdrant_use_https,
             timeout=config.qdrant_timeout,
         )

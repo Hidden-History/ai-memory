@@ -151,7 +151,11 @@ def cross_collection_duplicate_check(
         protocol = "https" if config.qdrant_use_https else "http"
         client = QdrantClient(
             url=f"{protocol}://{config.qdrant_host}:{config.qdrant_port}",
-            api_key=config.qdrant_api_key.get_secret_value() if config.qdrant_api_key else None,
+            api_key=(
+                config.qdrant_api_key.get_secret_value()
+                if config.qdrant_api_key
+                else None
+            ),
         )
 
     try:
@@ -300,7 +304,11 @@ async def is_duplicate(
         protocol = "https" if config.qdrant_use_https else "http"
         client = AsyncQdrantClient(
             url=f"{protocol}://{config.qdrant_host}:{config.qdrant_port}",
-            api_key=config.qdrant_api_key.get_secret_value() if config.qdrant_api_key else None,
+            api_key=(
+                config.qdrant_api_key.get_secret_value()
+                if config.qdrant_api_key
+                else None
+            ),
         )
 
         # Query by content_hash field (indexed for fast lookup)

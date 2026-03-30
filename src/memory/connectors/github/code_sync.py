@@ -710,7 +710,10 @@ class CodeBlobSync:
         self.client = client
         self.config = config or get_config()
         # BUG-251: Synthetic session ID for service contexts that lack CLAUDE_SESSION_ID
-        os.environ.setdefault("CLAUDE_SESSION_ID", f"github-code-sync-{datetime.now(timezone.utc).date().isoformat()}")
+        os.environ.setdefault(
+            "CLAUDE_SESSION_ID",
+            f"github-code-sync-{datetime.now(timezone.utc).date().isoformat()}",
+        )
         self.storage = MemoryStorage(self.config)
         self.qdrant = get_qdrant_client(self.config)
         self._group_id = repo or self.config.github_repo

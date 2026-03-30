@@ -372,7 +372,9 @@ class TestRemoveDeadHooks:
         # Wrapper should be dropped because the sub-hook is in _DEAD_HOOK_SCRIPTS
         assert result["hooks"]["UserPromptSubmit"] == []
 
-    def test_deny_list_removes_deprecated_script_when_scripts_dir_missing(self, tmp_path):
+    def test_deny_list_removes_deprecated_script_when_scripts_dir_missing(
+        self, tmp_path
+    ):
         """BUG-250+F2: _DEAD_HOOK_SCRIPTS purged even before scripts dir is created (fresh install)."""
         from merge_settings import _remove_dead_hooks
 

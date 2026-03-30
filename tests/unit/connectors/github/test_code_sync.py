@@ -810,12 +810,12 @@ def test_code_blob_sync_sets_claude_session_id(monkeypatch):
 
     session_id = os.environ.get("CLAUDE_SESSION_ID", "")
     prefix = "github-code-sync-"
-    assert session_id.startswith(prefix), (
-        f"Expected 'github-code-sync-{{date}}' prefix, got: {session_id!r}"
-    )
-    assert _ISO_DATE_RE.match(session_id[len(prefix):]), (
-        f"Expected ISO date suffix (YYYY-MM-DD), got: {session_id[len(prefix):]!r}"
-    )
+    assert session_id.startswith(
+        prefix
+    ), f"Expected 'github-code-sync-{{date}}' prefix, got: {session_id!r}"
+    assert _ISO_DATE_RE.match(
+        session_id[len(prefix) :]
+    ), f"Expected ISO date suffix (YYYY-MM-DD), got: {session_id[len(prefix):]!r}"
 
 
 def test_code_blob_sync_does_not_override_existing_claude_session_id(monkeypatch):
@@ -863,12 +863,12 @@ def test_github_sync_engine_sets_claude_session_id(monkeypatch):
 
     session_id = os.environ.get("CLAUDE_SESSION_ID", "")
     prefix = "github-event-sync-"
-    assert session_id.startswith(prefix), (
-        f"Expected 'github-event-sync-{{date}}' prefix, got: {session_id!r}"
-    )
-    assert _ISO_DATE_RE.match(session_id[len(prefix):]), (
-        f"Expected ISO date suffix (YYYY-MM-DD), got: {session_id[len(prefix):]!r}"
-    )
+    assert session_id.startswith(
+        prefix
+    ), f"Expected 'github-event-sync-{{date}}' prefix, got: {session_id!r}"
+    assert _ISO_DATE_RE.match(
+        session_id[len(prefix) :]
+    ), f"Expected ISO date suffix (YYYY-MM-DD), got: {session_id[len(prefix):]!r}"
 
 
 def test_github_sync_engine_does_not_override_existing_claude_session_id(monkeypatch):
