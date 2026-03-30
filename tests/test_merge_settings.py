@@ -343,3 +343,55 @@ class TestRemoveDeadHooks:
 
         result = _remove_dead_hooks({}, install_dir=str(tmp_path))
         assert result == {}
+
+    def test_deny_list_removes_deprecated_script_even_when_file_exists(self, tmp_path):
+        """BUG-250: _DEAD_HOOK_SCRIPTS entries removed even if the script file still exists."""
+        from merge_settings import _remove_dead_hooks
+
+        scripts_dir = tmp_path / ".claude" / "hooks" / "scripts"
+        scripts_dir.mkdir(parents=True)
+        # Create the deprecated script so the filesystem check would NOT flag it
+        (scripts_dir / "unified_keyword_trigger.py").touch()
+
+        settings = {
+            "hooks": {
+                "UserPromptSubmit": [
+                    {
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": f'"{tmp_path}/.venv/bin/python" "{tmp_path}/.claude/hooks/scripts/unified_keyword_trigger.py"',
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+
+        result = _remove_dead_hooks(settings, install_dir=str(tmp_path))
+        # Wrapper should be dropped because the sub-hook is in _DEAD_HOOK_SCRIPTS
+        assert result["hooks"]["UserPromptSubmit"] == []
+
+    def test_deny_list_removes_deprecated_script_when_scripts_dir_missing(self, tmp_path):
+        """BUG-250+F2: _DEAD_HOOK_SCRIPTS purged even before scripts dir is created (fresh install)."""
+        from merge_settings import _remove_dead_hooks
+
+        # Do NOT create scripts_dir — simulates fresh install state
+        settings = {
+            "hooks": {
+                "UserPromptSubmit": [
+                    {
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": f'"{tmp_path}/.venv/bin/python" "{tmp_path}/.claude/hooks/scripts/unified_keyword_trigger.py"',
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+
+        result = _remove_dead_hooks(settings, install_dir=str(tmp_path))
+        # Must still remove deny-listed entries even with no scripts dir
+        assert result["hooks"]["UserPromptSubmit"] == []

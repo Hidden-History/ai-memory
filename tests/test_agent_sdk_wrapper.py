@@ -656,3 +656,55 @@ async def test_dedup_graceful_degradation(mock_storage):
         # Flush should succeed
         await wrapper._flush_batch()
         assert mock_storage.store_memory.call_count == 1
+
+
+# ==============================================================================
+# BUG-251: CLAUDE_SESSION_ID synthetic session ID tests
+# ==============================================================================
+
+
+def test_claude_session_id_set_when_absent(mock_storage, monkeypatch):
+    """BUG-251: CLAUDE_SESSION_ID is set via setdefault when not present."""
+    monkeypatch.delenv("CLAUDE_SESSION_ID", raising=False)
+
+    with patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"):
+        wrapper = AgentSDKWrapper(
+            cwd="/test/project",
+            api_key="test-key",
+            storage=mock_storage,
+        )
+
+    import os
+    session_env = os.environ.get("CLAUDE_SESSION_ID", "")
+    assert session_env.startswith("sdk-"), f"Expected 'sdk-' prefix, got: {session_env!r}"
+    assert wrapper.session_id in session_env
+
+
+def test_claude_session_id_not_overridden_when_present(mock_storage, monkeypatch):
+    """BUG-251: setdefault must not override a pre-existing CLAUDE_SESSION_ID."""
+    monkeypatch.setenv("CLAUDE_SESSION_ID", "real-claude-session-abc123")
+
+    with patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"):
+        AgentSDKWrapper(
+            cwd="/test/project",
+            api_key="test-key",
+            storage=mock_storage,
+        )
+
+    import os
+    assert os.environ["CLAUDE_SESSION_ID"] == "real-claude-session-abc123"
+
+
+def test_session_id_aligns_with_preexisting_claude_session_id(mock_storage, monkeypatch):
+    """F6: self.session_id aligns with pre-existing CLAUDE_SESSION_ID to avoid trace divergence."""
+    monkeypatch.setenv("CLAUDE_SESSION_ID", "real-claude-session-xyz")
+
+    with patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"):
+        wrapper = AgentSDKWrapper(
+            cwd="/test/project",
+            api_key="test-key",
+            storage=mock_storage,
+        )
+
+    # self.session_id should match the pre-existing env var, not a new generated ID
+    assert wrapper.session_id == "real-claude-session-xyz"

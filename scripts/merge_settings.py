@@ -27,6 +27,14 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+# Hook script names that must always be removed from settings.json regardless of
+# whether the file still exists on disk. Add deprecated/renamed scripts here so
+# stale references are purged even during fresh installs (before the scripts dir
+# is created) and even if an old copy of the script file lingers.
+_DEAD_HOOK_SCRIPTS: frozenset[str] = frozenset({
+    "unified_keyword_trigger.py",  # BUG-250: renamed to context_injection_tier2.py
+})
+
 
 def deep_merge(base: dict, overlay: dict) -> dict:
     """
@@ -225,21 +233,15 @@ def _remove_dead_hooks(settings: dict, install_dir: str | None = None) -> dict:
     """
     import re
 
-    # Scripts that must always be removed regardless of whether the file exists.
-    # These are deprecated/renamed hooks that may linger in merged settings.json.
-    _ALWAYS_REMOVE = {
-        "unified_keyword_trigger.py",  # BUG-250: renamed to context_injection_tier2.py
-    }
-
     if install_dir is None:
         install_dir = os.environ.get(
             "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
         )
 
     scripts_dir = Path(install_dir) / ".claude" / "hooks" / "scripts"
-    if not scripts_dir.exists():
-        # During fresh install, scripts dir doesn't exist yet — skip cleanup
-        return settings
+    # Do NOT return early when scripts_dir is missing — _DEAD_HOOK_SCRIPTS entries
+    # must be purged even during fresh install before the scripts dir is created.
+    # Filesystem-existence checks are guarded by scripts_dir.exists() below.
 
     hooks = settings.get("hooks", {})
     removed_count = 0
@@ -274,10 +276,12 @@ def _remove_dead_hooks(settings: dict, install_dir: str | None = None) -> dict:
                             / "scripts"
                             / script_name
                         )
-                        if script_name in _ALWAYS_REMOVE or not script_path.exists():
+                        if script_name in _DEAD_HOOK_SCRIPTS or (
+                            scripts_dir.exists() and not script_path.exists()
+                        ):
                             reason = (
                                 "deprecated script"
-                                if script_name in _ALWAYS_REMOVE
+                                if script_name in _DEAD_HOOK_SCRIPTS
                                 else f"script not found at {script_path}"
                             )
                             print(f"  Removing dead hook: {script_name} ({reason})")
@@ -305,10 +309,12 @@ def _remove_dead_hooks(settings: dict, install_dir: str | None = None) -> dict:
                         / "scripts"
                         / script_name
                     )
-                    if script_name in _ALWAYS_REMOVE or not script_path.exists():
+                    if script_name in _DEAD_HOOK_SCRIPTS or (
+                        scripts_dir.exists() and not script_path.exists()
+                    ):
                         reason = (
                             "deprecated script"
-                            if script_name in _ALWAYS_REMOVE
+                            if script_name in _DEAD_HOOK_SCRIPTS
                             else f"script not found at {script_path}"
                         )
                         print(f"  Removing dead hook: {script_name} ({reason})")

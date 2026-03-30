@@ -278,3 +278,47 @@ def test_main_json_formatting(tmp_path):
     assert '    "SessionStart"' in content
     # Verify correct structure with nested 'hooks' arrays
     assert '"matcher"' in content, "PostToolUse must have matcher field"
+
+
+def test_generated_settings_env_excludes_qdrant_api_key(tmp_path):
+    """V1-NEW-001/F9: QDRANT_API_KEY must never appear in generated settings.json env block.
+
+    It belongs in settings.local.json (gitignored) only — see write_local_settings().
+    This test prevents regression that would re-introduce the key into the tracked file.
+    """
+    import json
+    import sys
+    from generate_settings import main
+
+    output_file = tmp_path / "settings.json"
+    sys.argv = ["generate_settings.py", str(output_file), "/test/hooks", "test-project"]
+    main()
+
+    with open(output_file) as f:
+        config = json.load(f)
+
+    env_block = config.get("env", {})
+    assert "QDRANT_API_KEY" not in env_block, (
+        "QDRANT_API_KEY must not be written to settings.json. "
+        "It should go to settings.local.json (gitignored) via write_local_settings()."
+    )
+
+
+def test_generated_settings_no_unified_keyword_trigger(tmp_path):
+    """BUG-250/F10: generate_settings.py must not reference unified_keyword_trigger.py."""
+    import json
+    import sys
+    from generate_settings import main
+
+    output_file = tmp_path / "settings.json"
+    sys.argv = ["generate_settings.py", str(output_file), "/test/hooks", "test-project"]
+    main()
+
+    content = output_file.read_text()
+    assert "unified_keyword_trigger" not in content, (
+        "unified_keyword_trigger.py was renamed to context_injection_tier2.py (BUG-250). "
+        "It must not appear in generated settings."
+    )
+    assert "context_injection_tier2" in content, (
+        "context_injection_tier2.py must be present in UserPromptSubmit hooks."
+    )

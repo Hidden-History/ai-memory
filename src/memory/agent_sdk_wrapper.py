@@ -149,8 +149,14 @@ class AgentSDKWrapper:
             )
 
         self.storage = storage or MemoryStorage()
-        self.session_id = session_id or f"agent_sdk_{uuid4().hex[:8]}"
-        # BUG-251: Synthetic session ID for SDK service contexts that lack CLAUDE_SESSION_ID
+        # BUG-251: Align session_id with CLAUDE_SESSION_ID so hooks and SDK trace
+        # the same session. If the var is already set (real Claude Code session),
+        # prefer it over a generated ID to avoid trace divergence (F6).
+        # setdefault() is used so a pre-existing real session ID is never overridden.
+        # NOTE: This env var is process-global. In multi-project-sync scenarios where
+        # multiple instances are created, only the first instance sets the var (F8).
+        existing = os.environ.get("CLAUDE_SESSION_ID")
+        self.session_id = session_id or existing or f"agent_sdk_{uuid4().hex[:8]}"
         os.environ.setdefault("CLAUDE_SESSION_ID", f"sdk-{self.session_id}")
         self.turn_number = 0
         self._turn_lock = asyncio.Lock()  # MEDIUM-9: Prevent race condition
