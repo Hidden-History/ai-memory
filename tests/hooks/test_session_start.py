@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import SecretStr
 
 # Import fixtures
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -260,7 +261,7 @@ class TestParzivalCompactAgentIdFilter:
         mock_config.project_name = "test-project"
         mock_config.qdrant_host = "localhost"
         mock_config.qdrant_port = 26350
-        mock_config.qdrant_api_key = "test-key"
+        mock_config.qdrant_api_key = SecretStr("test-key")
         mock_config.github_repo = "test-project"
         mock_config.embedding_host = "localhost"
         mock_config.embedding_port = 28080
@@ -401,7 +402,7 @@ class TestNonParzivalCompactSummaryLimit:
         mock_config.project_name = "test-project"
         mock_config.qdrant_host = "localhost"
         mock_config.qdrant_port = 26350
-        mock_config.qdrant_api_key = "test-key"
+        mock_config.qdrant_api_key = SecretStr("test-key")
         mock_config.github_repo = "test-project"
         mock_config.embedding_host = "localhost"
         mock_config.embedding_port = 28080

@@ -1,6 +1,8 @@
 # Location: ai-memory/tests/unit/connectors/github/test_code_sync.py
 
 import logging
+import os
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -775,3 +777,116 @@ def test_update_last_synced_pagination():
     call_kwargs = sync.qdrant.set_payload.call_args.kwargs
     assert len(call_kwargs["points"]) == 120
     assert "last_synced" in call_kwargs["payload"]
+
+
+# -- BUG-251: Synthetic CLAUDE_SESSION_ID in service contexts -----------
+
+from memory.connectors.github.sync import GitHubSyncEngine
+
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def test_code_blob_sync_sets_claude_session_id(monkeypatch):
+    """BUG-251: CodeBlobSync.__init__() sets CLAUDE_SESSION_ID with github-code-sync-{date} prefix."""
+    monkeypatch.delenv("CLAUDE_SESSION_ID", raising=False)
+
+    mock_client = MagicMock()
+    config = MagicMock()
+    config.github_repo = "owner/repo"
+    config.github_branch = "main"
+    config.github_code_blob_max_size = 102400
+    config.github_code_blob_include = ""
+    config.github_code_blob_include_max_size = 512000
+    config.github_code_blob_exclude = ""
+    config.github_sync_circuit_breaker_threshold = 5
+    config.github_sync_circuit_breaker_reset = 60
+    config.security_scanning_enabled = False
+
+    with (
+        patch("memory.connectors.github.code_sync.MemoryStorage"),
+        patch("memory.connectors.github.code_sync.get_qdrant_client"),
+    ):
+        CodeBlobSync(mock_client, config)
+
+    session_id = os.environ.get("CLAUDE_SESSION_ID", "")
+    prefix = "github-code-sync-"
+    assert session_id.startswith(prefix), (
+        f"Expected 'github-code-sync-{{date}}' prefix, got: {session_id!r}"
+    )
+    assert _ISO_DATE_RE.match(session_id[len(prefix):]), (
+        f"Expected ISO date suffix (YYYY-MM-DD), got: {session_id[len(prefix):]!r}"
+    )
+
+
+def test_code_blob_sync_does_not_override_existing_claude_session_id(monkeypatch):
+    """BUG-251: CodeBlobSync.__init__() uses setdefault — must not override a pre-existing CLAUDE_SESSION_ID."""
+    monkeypatch.setenv("CLAUDE_SESSION_ID", "real-session-abc123")
+
+    mock_client = MagicMock()
+    config = MagicMock()
+    config.github_repo = "owner/repo"
+    config.github_branch = "main"
+    config.github_code_blob_max_size = 102400
+    config.github_code_blob_include = ""
+    config.github_code_blob_include_max_size = 512000
+    config.github_code_blob_exclude = ""
+    config.github_sync_circuit_breaker_threshold = 5
+    config.github_sync_circuit_breaker_reset = 60
+    config.security_scanning_enabled = False
+
+    with (
+        patch("memory.connectors.github.code_sync.MemoryStorage"),
+        patch("memory.connectors.github.code_sync.get_qdrant_client"),
+    ):
+        CodeBlobSync(mock_client, config)
+
+    assert os.environ["CLAUDE_SESSION_ID"] == "real-session-abc123"
+
+
+def test_github_sync_engine_sets_claude_session_id(monkeypatch):
+    """BUG-251: GitHubSyncEngine.__init__() sets CLAUDE_SESSION_ID with github-event-sync-{date} prefix."""
+    monkeypatch.delenv("CLAUDE_SESSION_ID", raising=False)
+
+    config = MagicMock()
+    config.github_sync_enabled = True
+    config.github_repo = "owner/repo"
+    config.github_branch = "main"
+    config.github_token.get_secret_value.return_value = "test-token"
+    config.security_scanning_enabled = False
+
+    with (
+        patch("memory.connectors.github.sync.GitHubClient"),
+        patch("memory.connectors.github.sync.MemoryStorage"),
+        patch("memory.connectors.github.sync.get_qdrant_client"),
+    ):
+        GitHubSyncEngine(config=config)
+
+    session_id = os.environ.get("CLAUDE_SESSION_ID", "")
+    prefix = "github-event-sync-"
+    assert session_id.startswith(prefix), (
+        f"Expected 'github-event-sync-{{date}}' prefix, got: {session_id!r}"
+    )
+    assert _ISO_DATE_RE.match(session_id[len(prefix):]), (
+        f"Expected ISO date suffix (YYYY-MM-DD), got: {session_id[len(prefix):]!r}"
+    )
+
+
+def test_github_sync_engine_does_not_override_existing_claude_session_id(monkeypatch):
+    """BUG-251: GitHubSyncEngine.__init__() uses setdefault — must not override a pre-existing CLAUDE_SESSION_ID."""
+    monkeypatch.setenv("CLAUDE_SESSION_ID", "real-session-xyz789")
+
+    config = MagicMock()
+    config.github_sync_enabled = True
+    config.github_repo = "owner/repo"
+    config.github_branch = "main"
+    config.github_token.get_secret_value.return_value = "test-token"
+    config.security_scanning_enabled = False
+
+    with (
+        patch("memory.connectors.github.sync.GitHubClient"),
+        patch("memory.connectors.github.sync.MemoryStorage"),
+        patch("memory.connectors.github.sync.get_qdrant_client"),
+    ):
+        GitHubSyncEngine(config=config)
+
+    assert os.environ["CLAUDE_SESSION_ID"] == "real-session-xyz789"

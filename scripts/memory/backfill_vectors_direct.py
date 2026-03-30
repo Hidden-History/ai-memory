@@ -287,7 +287,7 @@ def main():
         client = QdrantClient(
             host=config.qdrant_host,
             port=config.qdrant_port,
-            api_key=config.qdrant_api_key,
+            api_key=config.qdrant_api_key.get_secret_value() if config.qdrant_api_key else None,
             https=config.qdrant_use_https,  # BP-040
         )
     except Exception as e:

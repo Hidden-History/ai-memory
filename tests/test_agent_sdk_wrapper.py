@@ -5,6 +5,7 @@ Validates hook registration, memory capture, and graceful degradation.
 """
 
 import asyncio
+import os
 import sys
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -674,10 +675,8 @@ def test_claude_session_id_set_when_absent(mock_storage, monkeypatch):
             storage=mock_storage,
         )
 
-    import os
     session_env = os.environ.get("CLAUDE_SESSION_ID", "")
-    assert session_env.startswith("sdk-"), f"Expected 'sdk-' prefix, got: {session_env!r}"
-    assert wrapper.session_id in session_env
+    assert session_env == wrapper.session_id, f"Expected session_id {wrapper.session_id!r}, got: {session_env!r}"
 
 
 def test_claude_session_id_not_overridden_when_present(mock_storage, monkeypatch):
@@ -691,7 +690,6 @@ def test_claude_session_id_not_overridden_when_present(mock_storage, monkeypatch
             storage=mock_storage,
         )
 
-    import os
     assert os.environ["CLAUDE_SESSION_ID"] == "real-claude-session-abc123"
 
 

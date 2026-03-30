@@ -409,7 +409,7 @@ LOG_LEVEL=WARNING
         reset_config()
         monkeypatch.setenv("QDRANT_API_KEY", "test-key-123")
         config = get_config()
-        assert config.qdrant_api_key == "test-key-123"
+        assert config.qdrant_api_key.get_secret_value() == "test-key-123"
 
     def test_collection_size_thresholds(self):
         """AC 7.4.1: Collection size thresholds with validation."""

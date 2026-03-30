@@ -199,7 +199,7 @@ class MemoryConfig(BaseSettings):
         description="Qdrant server port (Story 1.1: 26350 to avoid conflicts)",
     )
 
-    qdrant_api_key: str | None = Field(
+    qdrant_api_key: SecretStr | None = Field(
         default=None, description="Optional API key for Qdrant authentication (BP-040)"
     )
 

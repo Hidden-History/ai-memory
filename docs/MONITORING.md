@@ -8,9 +8,11 @@ AI-Memory uses Prometheus for metrics collection and Grafana for visualization. 
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| Grafana | `http://localhost:23000` | admin/admin |
+| Grafana | `http://localhost:23000` | See `~/.ai-memory/docker/.env` (`GRAFANA_ADMIN_PASSWORD`) |
 | Prometheus | `http://localhost:29090` | - |
 | Pushgateway | `http://localhost:29091` | - |
+
+> **Note:** Grafana uses a generated admin password created during installation. The password is stored in `~/.ai-memory/docker/.env` under the key `GRAFANA_ADMIN_PASSWORD`. The username remains `admin`.
 
 ## Dashboards
 

@@ -157,7 +157,7 @@ class AgentSDKWrapper:
         # multiple instances are created, only the first instance sets the var (F8).
         existing = os.environ.get("CLAUDE_SESSION_ID")
         self.session_id = session_id or existing or f"agent_sdk_{uuid4().hex[:8]}"
-        os.environ.setdefault("CLAUDE_SESSION_ID", f"sdk-{self.session_id}")
+        os.environ.setdefault("CLAUDE_SESSION_ID", self.session_id)
         self.turn_number = 0
         self._turn_lock = asyncio.Lock()  # MEDIUM-9: Prevent race condition
         self._storage_tasks: list[asyncio.Task] = []

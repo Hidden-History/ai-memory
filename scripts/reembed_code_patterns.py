@@ -92,7 +92,7 @@ def check_embedding_service(base_url: str) -> bool:
         return False
 
 
-def check_qdrant(client: QdrantClient, api_key: str) -> bool:
+def check_qdrant(client: QdrantClient) -> bool:
     """Verify Qdrant is healthy and accessible."""
     logger.info("Checking Qdrant health...")
     try:
@@ -399,9 +399,11 @@ def main():
         sys.exit(1)
 
     client = QdrantClient(
-        host=config.qdrant_host, port=config.qdrant_port, api_key=config.qdrant_api_key
+        host=config.qdrant_host,
+        port=config.qdrant_port,
+        api_key=config.qdrant_api_key.get_secret_value() if config.qdrant_api_key else None,
     )
-    if not check_qdrant(client, config.qdrant_api_key):
+    if not check_qdrant(client):
         logger.error("Qdrant check failed. Aborting.")
         sys.exit(1)
 

@@ -325,7 +325,7 @@ class TestRemoveDeadHooks:
         assert len(result["hooks"]["PostToolUse"]) == 1
 
     def test_skips_when_scripts_dir_missing(self, tmp_path):
-        """Should skip cleanup if scripts directory doesn't exist yet."""
+        """Non-deny-listed hooks with generic commands are preserved when scripts directory doesn't exist."""
         from merge_settings import _remove_dead_hooks
 
         settings = {"hooks": {"PostToolUse": [{"command": "something"}]}}

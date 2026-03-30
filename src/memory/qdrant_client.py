@@ -7,6 +7,7 @@ Architecture Reference: architecture.md:235-287 (Service Client Architecture)
 Best Practices: https://softlandia.com/articles/deploying-qdrant-with-grpc-auth-on-azure-a-fastapi-singleton-client-guide
 """
 
+import hashlib
 import logging
 import os
 import warnings
@@ -64,7 +65,13 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
     """
     config = config or get_config()
 
-    cache_key = f"{config.qdrant_host}:{config.qdrant_port}:{config.qdrant_api_key}:{config.qdrant_use_https}"
+    key_fingerprint = ""
+    if config.qdrant_api_key:
+        # TD-371: hash prevents raw key from appearing in cache key or logs
+        key_fingerprint = hashlib.sha256(
+            config.qdrant_api_key.get_secret_value().encode()
+        ).hexdigest()[:8]  # 8 chars sufficient for cache uniqueness
+    cache_key = f"{config.qdrant_host}:{config.qdrant_port}:{key_fingerprint}:{config.qdrant_use_https}"
     if cache_key in _client_cache:
         return _client_cache[cache_key]
 
@@ -89,7 +96,7 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
         client = QdrantClient(
             host=config.qdrant_host,
             port=config.qdrant_port,
-            api_key=config.qdrant_api_key,
+            api_key=config.qdrant_api_key.get_secret_value() if config.qdrant_api_key else None,
             https=config.qdrant_use_https,
             timeout=config.qdrant_timeout,
             prefer_grpc=True,
@@ -106,7 +113,7 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
         client = QdrantClient(
             host=config.qdrant_host,
             port=config.qdrant_port,
-            api_key=config.qdrant_api_key,
+            api_key=config.qdrant_api_key.get_secret_value() if config.qdrant_api_key else None,
             https=config.qdrant_use_https,
             timeout=config.qdrant_timeout,
         )

@@ -225,7 +225,8 @@ services:
       # Admin Credentials (BP-040) - Only applies on FIRST LAUNCH
       # To change existing password: docker exec -it ai-memory-grafana grafana-cli admin reset-admin-password <new_password>
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      # TD-370: no default — installer generates a random password; see scripts/install.sh
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       # Prometheus datasource auth (BP-040) - used by provisioning file env substitution
       - PROMETHEUS_ADMIN_PASSWORD=${PROMETHEUS_ADMIN_PASSWORD}
       - GF_AUTH_ANONYMOUS_ENABLED=true

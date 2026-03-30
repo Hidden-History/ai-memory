@@ -3,8 +3,11 @@
 Tests AC 1.4.3 - Qdrant Client Wrapper functionality.
 """
 
+import hashlib
 import sys
 from unittest.mock import Mock, patch
+
+from pydantic import SecretStr
 
 from src.memory.config import MemoryConfig
 from src.memory.qdrant_client import (
@@ -206,6 +209,37 @@ class TestQdrantClient:
             result = get_qdrant_client(config)
 
         assert result is http_client
+
+    def test_cache_key_excludes_raw_api_key(self):
+        """TD-371: Raw API key must not appear in _client_cache key; only the 8-char SHA-256 fingerprint."""
+        from src.memory.qdrant_client import _client_cache
+
+        raw_key = "super-secret-qdrant-api-key-value"
+        # model_construct bypasses Pydantic frozen + validation intentionally:
+        # MemoryConfig is immutable after construction, so we use model_construct
+        # to inject a known key value without triggering validation errors.
+        config = MemoryConfig.model_construct(
+            qdrant_host="localhost",
+            qdrant_port=6333,
+            qdrant_api_key=SecretStr(raw_key),
+            qdrant_use_https=False,
+            qdrant_timeout=30,
+        )
+
+        with patch("src.memory.qdrant_client.QdrantClient") as MockQdrantClient:
+            MockQdrantClient.return_value = Mock()
+            get_qdrant_client(config)
+
+        # Exactly one cache entry should have been created
+        assert len(_client_cache) == 1
+        cache_key = next(iter(_client_cache))
+
+        # Raw secret must not appear in the cache key
+        assert raw_key not in cache_key
+
+        # The key should contain the 8-character hex fingerprint derived from the key
+        expected_fingerprint = hashlib.sha256(raw_key.encode()).hexdigest()[:8]
+        assert expected_fingerprint in cache_key
 
     def test_module_has_all_exports(self):
         """AC 1.4.3: Module exports required functions."""
