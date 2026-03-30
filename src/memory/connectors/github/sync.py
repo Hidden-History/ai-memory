@@ -15,7 +15,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -174,6 +174,8 @@ class GitHubSyncEngine:
             ValueError: If GitHub sync not enabled or config incomplete
         """
         self.config = config or get_config()
+        # BUG-251: Synthetic session ID for service contexts that lack CLAUDE_SESSION_ID
+        os.environ.setdefault("CLAUDE_SESSION_ID", f"github-sync-{date.today().isoformat()}")
         if not self.config.github_sync_enabled:
             raise ValueError("GitHub sync not enabled (GITHUB_SYNC_ENABLED=false)")
 

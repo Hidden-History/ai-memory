@@ -150,6 +150,8 @@ class AgentSDKWrapper:
 
         self.storage = storage or MemoryStorage()
         self.session_id = session_id or f"agent_sdk_{uuid4().hex[:8]}"
+        # BUG-251: Synthetic session ID for SDK service contexts that lack CLAUDE_SESSION_ID
+        os.environ.setdefault("CLAUDE_SESSION_ID", f"sdk-{self.session_id}")
         self.turn_number = 0
         self._turn_lock = asyncio.Lock()  # MEDIUM-9: Prevent race condition
         self._storage_tasks: list[asyncio.Task] = []

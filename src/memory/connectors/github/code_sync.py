@@ -16,7 +16,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -709,6 +709,8 @@ class CodeBlobSync:
         """
         self.client = client
         self.config = config or get_config()
+        # BUG-251: Synthetic session ID for service contexts that lack CLAUDE_SESSION_ID
+        os.environ.setdefault("CLAUDE_SESSION_ID", f"github-sync-{date.today().isoformat()}")
         self.storage = MemoryStorage(self.config)
         self.qdrant = get_qdrant_client(self.config)
         self._group_id = repo or self.config.github_repo

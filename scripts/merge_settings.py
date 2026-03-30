@@ -225,6 +225,12 @@ def _remove_dead_hooks(settings: dict, install_dir: str | None = None) -> dict:
     """
     import re
 
+    # Scripts that must always be removed regardless of whether the file exists.
+    # These are deprecated/renamed hooks that may linger in merged settings.json.
+    _ALWAYS_REMOVE = {
+        "unified_keyword_trigger.py",  # BUG-250: renamed to context_injection_tier2.py
+    }
+
     if install_dir is None:
         install_dir = os.environ.get(
             "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
@@ -268,10 +274,13 @@ def _remove_dead_hooks(settings: dict, install_dir: str | None = None) -> dict:
                             / "scripts"
                             / script_name
                         )
-                        if not script_path.exists():
-                            print(
-                                f"  Removing dead hook: {script_name} (script not found at {script_path})"
+                        if script_name in _ALWAYS_REMOVE or not script_path.exists():
+                            reason = (
+                                "deprecated script"
+                                if script_name in _ALWAYS_REMOVE
+                                else f"script not found at {script_path}"
                             )
+                            print(f"  Removing dead hook: {script_name} ({reason})")
                             removed_count += 1
                             continue  # Drop only this dead sub-hook
                     live_sub_hooks.append(hook)
@@ -296,10 +305,13 @@ def _remove_dead_hooks(settings: dict, install_dir: str | None = None) -> dict:
                         / "scripts"
                         / script_name
                     )
-                    if not script_path.exists():
-                        print(
-                            f"  Removing dead hook: {script_name} (script not found at {script_path})"
+                    if script_name in _ALWAYS_REMOVE or not script_path.exists():
+                        reason = (
+                            "deprecated script"
+                            if script_name in _ALWAYS_REMOVE
+                            else f"script not found at {script_path}"
                         )
+                        print(f"  Removing dead hook: {script_name} ({reason})")
                         removed_count += 1
                         continue  # Drop dead wrapper
 
