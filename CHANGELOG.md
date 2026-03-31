@@ -35,6 +35,18 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 - **Zero-vector validation** (TD-354, NI-V3-004): Embedding responses validated for degenerate all-zero vectors. Raises `EmbeddingError` in single-embed path; defense-in-depth check in batch path.
 - **Session summary agent_id** (BUG-258, NI-V3-001): `agent_id` field added to `pre_compact_save.py` in both `build_session_summary()` and `chunk_payload`. Enables Parzival tenant isolation for session summaries.
 
+### Phase 2 Remediation: Langfuse v4 Production Fixes (PLAN-023 P2-REM)
+
+#### Fixed
+- **MinIO bucket not auto-created** (BUG-263, CRITICAL): Langfuse traces silently lost — `Failed to upload JSON to S3: NoSuchBucket`. Added `langfuse-minio-init` one-shot service using `minio/mc` to create the `langfuse` bucket before web/worker start.
+- **MinIO init permission denied** (BUG-264): `minio/mc` failed with `mkdir /root/.mc: permission denied` under `cap_drop: ALL` security hardening. Fixed with `MC_CONFIG_DIR=/tmp`.
+- **Trace data loss via `update_trace()`** (TD-373, HIGH): `update_trace()` removed in Langfuse v4 SDK — fallback silently dropped `session_id`/`user_id`. Replaced with `propagate_attributes()` in trace flush worker and stop hook.
+- **Evaluator 501 on self-hosted** (TD-374, HIGH): `api.observations.get_many()` returns 501 on self-hosted Langfuse ("v2 APIs only available on Langfuse Cloud"). Replaced with `api.legacy.observations_v1.get_many()`.
+
+#### Changed
+- **Tag standardization** (TD-376): `"trigger"` tag changed to `"code_change"` in 4 hook scripts (`agent_response_store_async.py`, `first_edit_trigger.py`, `new_file_trigger.py`, `post_tool_capture.py`) for consistency with TD-326.
+- **V3→V4 SDK comment headers** (TD-377): Updated 9 source files from `# LANGFUSE: V3 ONLY` to `# LANGFUSE: V4 SDK` with spec reference.
+
 ### Phase 3a: Installer Fixes (PLAN-023 P3a)
 
 #### Fixed
@@ -71,10 +83,19 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
    unset QDRANT_API_KEY
    cd ~/.ai-memory/docker/
    docker compose build --no-cache github-sync
-   docker compose -f docker-compose.langfuse.yml build --no-cache trace-flush-worker
+   docker compose -f docker-compose.langfuse.yml build --no-cache trace-flush-worker evaluator-scheduler
    ```
 
-4. Restart all services:
+4. **Restart Langfuse stack** (required — deploys new `langfuse-minio-init` service):
+   ```bash
+   cd ~/.ai-memory/docker/
+   unset QDRANT_API_KEY
+   docker compose -f docker-compose.langfuse.yml --profile langfuse down
+   docker compose -f docker-compose.langfuse.yml --profile langfuse up -d
+   ```
+   Verify bucket creation: `docker compose -f docker-compose.langfuse.yml --profile langfuse logs langfuse-minio-init` should show "Bucket 'langfuse' ready".
+
+5. Restart core services:
    ```bash
    ~/.ai-memory/scripts/stack.sh restart
    ```
@@ -88,7 +109,7 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
    docker compose -f docker-compose.langfuse.yml --profile langfuse up -d
    ```
 
-5. Verify settings merge applied correctly:
+6. Verify settings merge applied correctly:
    ```bash
    # Check SessionStart matcher is clean (should be "resume|compact"):
    grep -o '"matcher":.*' ~/.ai-memory/.claude/settings.json | head -1
@@ -97,12 +118,17 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
    grep AI_MEMORY_INSTALL_DIR ~/.ai-memory/.claude/settings.json
    ```
 
-6. Verify services:
+7. Verify services:
    ```bash
    cd <your-ai-memory-clone>
    python3 scripts/health-check.py
    ```
    Expect: 17/17 healthy, `langfuse==4.0.4` in venv and containers.
+
+**P2-REM-specific notes:**
+- The `langfuse-minio-init` service is a one-shot container that creates the S3 bucket and exits. It runs before `langfuse-web` and `langfuse-worker` via `depends_on: service_completed_successfully`.
+- `propagate_attributes()` replaces `update_trace()` (removed in v4). If you have custom hooks that called `update_trace()`, migrate to `propagate_attributes(trace_name=..., session_id=..., user_id=..., metadata=..., tags=...)`.
+- The evaluator now uses `api.legacy.observations_v1.get_many()` — this is the correct namespace for self-hosted Langfuse instances.
 
 **P3a-specific notes:**
 - `hook_utils.py` is a new shared module — the installer copies it automatically via `sync_installed_files()`.
