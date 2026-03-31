@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# LANGFUSE: V3 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
+# LANGFUSE: V4 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
 # FORBIDDEN: Langfuse(host=...) with explicit creds, start_span(), start_generation(), langfuse_context
 # REQUIRED: get_client(), create_dataset(), create_dataset_item(), flush()
 """Create 5 Langfuse golden datasets for regression testing.
@@ -61,7 +61,7 @@ DS_01_ITEMS = [
             "type_filter": "error_pattern",
         },
         "expected_output": {
-            "should_match": "ImportError langfuse — install langfuse>=3.0,<4.0 and use V3 get_client() import",
+            "should_match": "ImportError langfuse — install langfuse>=4.0.0,<4.1.0 and use V4 get_client() import",
             "min_relevance": 0.80,
         },
     },
@@ -355,7 +355,7 @@ DS_02_ITEMS = [
             "collection": "code-patterns",
             "type_filter": "error_pattern",
             "error_type": "ImportError",
-            "fix_summary": "Upgrade: pip install 'langfuse>=3.0,<4.0'; V3 SDK required for get_client()",
+            "fix_summary": "Upgrade: pip install 'langfuse>=4.0.0,<4.1.0'; V4 compatible — get_client() API preserved",
         },
     },
     {
@@ -1571,7 +1571,7 @@ def create_all_datasets(dry_run: bool = False) -> int:
         langfuse = get_client()
     except ImportError as exc:
         print(f"ERROR: langfuse package not installed — {exc}", file=sys.stderr)
-        print("Run: pip install 'langfuse>=3.0,<4.0'", file=sys.stderr)
+        print("Run: pip install 'langfuse>=4.0.0,<4.1.0'", file=sys.stderr)
         return 1
     except Exception as exc:
         print(f"ERROR: Failed to get Langfuse client — {exc}", file=sys.stderr)

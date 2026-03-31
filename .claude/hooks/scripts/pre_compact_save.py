@@ -351,6 +351,10 @@ def build_session_summary(
             "user_interactions": transcript_analysis["user_prompts_count"],
             "transcript_entries": transcript_analysis["total_entries"],
         },
+        # F8/RISK-012: Agent identity for multi-agent Qdrant queries
+        "agent_id": os.environ.get(
+            "PARZIVAL_AGENT_ID", os.environ.get("AI_MEMORY_AGENT_ID", "default")
+        ),
     }
 
 
@@ -824,6 +828,8 @@ def store_session_summary(summary_data: dict[str, Any]) -> bool:
                 "source_authority": 0.5,
                 "is_current": True,
                 "version": 1,
+                # F8/RISK-012: Agent identity for multi-agent Qdrant queries
+                "agent_id": summary_data.get("agent_id", "default"),
             }
 
             if sv is not None and SparseVector is not None:

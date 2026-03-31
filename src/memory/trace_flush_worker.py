@@ -207,6 +207,8 @@ def _process_event_otel(event: dict, data: dict) -> None:
                 "langfuse.observation.usage_details",
                 json.dumps(data["usage"]),
             )
+    elif as_type == "retriever":
+        otel_span.set_attribute("langfuse.observation.type", "retriever")
 
     span_metadata = dict(data.get("metadata") or {})
     if data.get("start_time"):
@@ -228,7 +230,7 @@ def _process_event_otel(event: dict, data: dict) -> None:
             f"hook_pipeline_{event.get('project_id', 'unknown')}",
         )
         if event.get("session_id"):
-            # Langfuse SDK v3 expects "session.id" (not "langfuse.trace.session_id")
+            # Langfuse SDK v4 expects "session.id" (not "langfuse.trace.session_id")
             otel_span.set_attribute("session.id", event["session_id"])
         # Trace flush worker is a system service — user.id is always "system"
         otel_span.set_attribute("user.id", "system")
@@ -280,7 +282,7 @@ def _process_event_sdk(event: dict, data: dict, langfuse) -> None:
 
     observation = langfuse.start_observation(
         name=event_type,
-        as_type=as_type if as_type in ("generation", "span") else "span",
+        as_type=as_type if as_type in ("generation", "span", "retriever") else "span",
         trace_context={"trace_id": trace_id} if trace_id else None,
     )
     observation.update(
@@ -313,9 +315,9 @@ def _process_event_sdk(event: dict, data: dict, langfuse) -> None:
         try:
             observation.end(end_time=_dt_to_ns(data["end_time"]))
         except TypeError:
-            # V3 SDK wrapper may not accept end_time kwarg — fall back to plain end
+            # V4 SDK wrapper may not accept end_time kwarg — fall back to plain end
             logger.warning(
-                "V3 SDK rejected end_time kwarg — trace duration may be inaccurate"
+                "V4 SDK rejected end_time kwarg — trace duration may be inaccurate"
             )
             observation.end()
     else:

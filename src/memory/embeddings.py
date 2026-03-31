@@ -43,6 +43,12 @@ __all__ = ["EmbeddingClient", "EmbeddingError"]
 
 logger = logging.getLogger("ai_memory.embed")
 
+# ARCHITECTURE NOTE: Do NOT add @observe decorator to functions in this module.
+# These functions are called from hook scripts (OS subprocess boundaries) and Docker
+# services. @observe creates orphaned Langfuse traces when OTel context doesn't cross
+# process boundaries. Use emit_trace_event() with explicit session_id instead.
+# See LANGFUSE-INTEGRATION-SPEC.md §4.3
+
 
 class EmbeddingError(Exception):
     """Raised when embedding generation fails.
@@ -194,6 +200,13 @@ class EmbeddingClient:
             )
             response.raise_for_status()
             embeddings = response.json()["embeddings"]
+
+            # TD-354: Validate non-zero embeddings
+            for i, vec in enumerate(embeddings):
+                if not vec or all(v == 0.0 for v in vec):
+                    raise EmbeddingError(
+                        f"degenerate_zero_vector at index {i} for text length {len(texts[i])}"
+                    )
 
             # Metrics: Embedding request success (Story 6.1, AC 6.1.3)
             # TECH-DEBT-067: Add embedding_type and context labels

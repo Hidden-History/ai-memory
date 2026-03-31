@@ -128,7 +128,7 @@ class ClaudeProvider(BaseProvider):
                     output_tokens=output_tokens,
                     metadata={
                         "classified_type": classification["classified_type"],
-                        "confidence": classification["confidence"],
+                        "confidence": str(classification["confidence"]),
                     },
                 )
 

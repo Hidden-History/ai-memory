@@ -1,4 +1,4 @@
-# LANGFUSE: V3 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
+# LANGFUSE: V4 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
 # FORBIDDEN: Langfuse() constructor, start_span(), start_generation(), langfuse_context
 # REQUIRED: get_client(), create_score(), flush()
 """Evaluation runner — fetches traces and observations, evaluates, attaches scores.
@@ -50,7 +50,7 @@ except ImportError:  # pragma: no cover
 
     def get_client():  # type: ignore[misc]
         raise ImportError(
-            "langfuse package not installed — pip install 'langfuse>=3.0,<4.0'"
+            "langfuse package not installed — pip install 'langfuse>=4.0.0,<4.1.0'"
         )
 
 

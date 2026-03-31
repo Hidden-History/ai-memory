@@ -854,6 +854,14 @@ class MemoryConfig(BaseSettings):
         description="Maximum trace buffer size in MB before oldest-first eviction (DEC-PLAN008-004)",
     )
 
+    langfuse_should_export_span: bool = Field(
+        default=True,
+        env="LANGFUSE_SHOULD_EXPORT_SPAN",
+        description="Export all OTel spans to Langfuse (v4 SDK smart filter override). "
+        "When True, all spans are exported (pre-v4 behavior). When False, "
+        "v4 default filter applies (only langfuse-sdk, gen_ai.*, known LLM scopes).",
+    )
+
     @field_validator("decay_type_overrides", mode="before")
     @classmethod
     def parse_type_overrides(cls, v: str) -> str:

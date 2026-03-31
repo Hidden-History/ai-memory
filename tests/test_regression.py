@@ -60,7 +60,7 @@ def langfuse():
         client.auth_check()
         return client
     except ImportError:
-        pytest.skip("langfuse package not installed — pip install 'langfuse>=3.0,<4.0'")
+        pytest.skip("langfuse package not installed — pip install 'langfuse>=4.0.0,<4.1.0'")
     except Exception as exc:
         pytest.skip(f"Langfuse unavailable or not configured: {exc}")
 

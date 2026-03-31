@@ -79,6 +79,12 @@ __all__ = [
 
 logger = logging.getLogger("ai_memory.injection")
 
+# ARCHITECTURE NOTE: Do NOT add @observe decorator to functions in this module.
+# These functions are called from hook scripts (OS subprocess boundaries) and Docker
+# services. @observe creates orphaned Langfuse traces when OTel context doesn't cross
+# process boundaries. Use emit_trace_event() with explicit session_id instead.
+# See LANGFUSE-INTEGRATION-SPEC.md §4.3
+
 # File path patterns that indicate code-related queries
 _FILE_PATH_RE = re.compile(
     r"(?:"

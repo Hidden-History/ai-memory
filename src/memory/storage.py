@@ -13,6 +13,7 @@ Architecture Reference: architecture.md:516-690 (Storage & Graceful Degradation)
 
 import dataclasses
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -54,6 +55,16 @@ except ImportError:
     collection_size = None
     failure_events_total = None
     deduplication_events_total = None
+
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4
+# SDK VERSION: V4. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
+try:
+    from .trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
+
+TRACE_CONTENT_MAX = 10000
 
 __all__ = ["MemoryStorage", "store_best_practice", "update_point_payload"]
 
@@ -207,6 +218,8 @@ class MemoryStorage:
             >>> result["status"]
             'stored'
         """
+        _store_start = datetime.now(timezone.utc)
+
         # Validate cwd parameter (AC 4.2.1)
         if cwd is None:
             raise ValueError("cwd parameter is required for project-scoped storage")
@@ -377,6 +390,26 @@ class MemoryStorage:
                     "existing_id": existing_id,
                 },
             )
+            if emit_trace_event:
+                _dedup_end = datetime.now(timezone.utc)
+                emit_trace_event(
+                    event_type="7_store_skip",
+                    data={
+                        "input": str(content_hash)[:TRACE_CONTENT_MAX],
+                        "output": str(existing_id)[:TRACE_CONTENT_MAX],
+                        "metadata": {
+                            "collection": str(collection),
+                            "group_id": str(group_id),
+                            "status": "duplicate",
+                            "reason": "duplicate",
+                        },
+                    },
+                    session_id=session_id,
+                    project_id=group_id,
+                    tags=["store", "memory"],
+                    start_time=_store_start,
+                    end_time=_dedup_end,
+                )
             return {
                 "memory_id": existing_id,
                 "status": "duplicate",
@@ -400,6 +433,27 @@ class MemoryStorage:
                         "existing_id": cross_result.existing_id,
                     },
                 )
+                if emit_trace_event:
+                    _cross_dedup_end = datetime.now(timezone.utc)
+                    emit_trace_event(
+                        event_type="7_store_skip",
+                        data={
+                            "input": str(content_hash)[:TRACE_CONTENT_MAX],
+                            "output": str(cross_result.existing_id)[:TRACE_CONTENT_MAX],
+                            "metadata": {
+                                "collection": str(collection),
+                                "group_id": str(group_id),
+                                "status": "duplicate",
+                                "reason": "duplicate",
+                                "found_collection": str(cross_result.found_collection),
+                            },
+                        },
+                        session_id=session_id,
+                        project_id=group_id,
+                        tags=["store", "memory"],
+                        start_time=_store_start,
+                        end_time=_cross_dedup_end,
+                    )
                 return {
                     "memory_id": cross_result.existing_id,
                     "status": "duplicate",
@@ -623,6 +677,28 @@ class MemoryStorage:
                     },
                 )
 
+            # TD-317: Trace event for store operation (after all chunks stored)
+            _store_end = datetime.now(timezone.utc)
+            if emit_trace_event:
+                emit_trace_event(
+                    event_type="7_store",
+                    data={
+                        "input": str(content_hash)[:TRACE_CONTENT_MAX],
+                        "output": str(memory_id)[:TRACE_CONTENT_MAX],
+                        "metadata": {
+                            "collection": str(collection),
+                            "group_id": str(group_id),
+                            "status": "stored",
+                            "content_length": str(len(content)),
+                        },
+                    },
+                    session_id=session_id,
+                    project_id=group_id,
+                    tags=["store", "memory"],
+                    start_time=_store_start,
+                    end_time=_store_end,
+                )
+
             return {
                 "memory_id": memory_id,
                 "status": "stored",
@@ -720,6 +796,8 @@ class MemoryStorage:
             >>> len(results)
             2
         """
+        _batch_store_start = datetime.now(timezone.utc)
+
         if not memories:
             return []
 
@@ -862,6 +940,7 @@ class MemoryStorage:
                 )
                 for orig_idx, emb in zip(indices, group_embeddings, strict=True):
                     embeddings[orig_idx] = emb
+
             logger.debug(
                 "batch_embeddings_generated",
                 extra={"count": len(memories), "models": list(model_groups.keys())},
@@ -892,6 +971,19 @@ class MemoryStorage:
 
             embeddings = [[0.0] * 768 for _ in memories]  # DEC-010: 768d placeholder
             embedding_status = EmbeddingStatus.PENDING
+
+        # NI-V3-004: Validate non-zero embeddings AFTER error recovery
+        # (moved outside try/except so it validates final embeddings, not pre-recovery)
+        for i, vec in enumerate(embeddings):
+            if vec is not None and (not vec or all(v == 0.0 for v in vec)):
+                logger.warning(
+                    "degenerate_zero_vector_in_batch",
+                    extra={
+                        "index": i,
+                        "text_length": len(memories[i].get("content", "")),
+                    },
+                )
+                embedding_status = EmbeddingStatus.PENDING
 
         # F-14: Guard against None embeddings from partial service responses
         for idx, emb in enumerate(embeddings):
@@ -1228,6 +1320,28 @@ class MemoryStorage:
                 },
             )
 
+            # TD-317: Trace event for batch store operation
+            _batch_store_end = datetime.now(timezone.utc)
+            if emit_trace_event:
+                emit_trace_event(
+                    event_type="7_store",
+                    data={
+                        "input": f"batch({len(points)} points)"[:TRACE_CONTENT_MAX],
+                        "output": f"stored {len(points)} points"[:TRACE_CONTENT_MAX],
+                        "metadata": {
+                            "collection": str(collection),
+                            "group_id": str(default_group_id or "unknown"),
+                            "status": "stored",
+                            "point_count": str(len(points)),
+                        },
+                    },
+                    session_id=os.environ.get("CLAUDE_SESSION_ID"),
+                    project_id=default_group_id or "unknown",
+                    tags=["store", "memory"],
+                    start_time=_batch_store_start,
+                    end_time=_batch_store_end,
+                )
+
             return results
 
         except Exception as e:
@@ -1287,6 +1401,8 @@ class MemoryStorage:
         Returns:
             One result dict per input chunk (``memory_id``, ``status``, ``embedding_status``).
         """
+        _blob_store_start = datetime.now(timezone.utc)
+
         if not chunk_items:
             return []
 
@@ -1568,6 +1684,30 @@ class MemoryStorage:
                         },
                     )
             raise
+
+        # TD-317: Trace event for github code blob batch store
+        _blob_store_end = datetime.now(timezone.utc)
+        if emit_trace_event:
+            emit_trace_event(
+                event_type="7_store",
+                data={
+                    "input": f"github_blob_batch({len(chunk_items)} chunks)"[
+                        :TRACE_CONTENT_MAX
+                    ],
+                    "output": f"stored {len(all_out)} chunks"[:TRACE_CONTENT_MAX],
+                    "metadata": {
+                        "collection": str(collection),
+                        "group_id": str(default_group_id or "unknown"),
+                        "status": "stored",
+                        "chunk_count": str(len(chunk_items)),
+                    },
+                },
+                session_id=session_id,
+                project_id=default_group_id or "unknown",
+                tags=["store", "memory"],
+                start_time=_blob_store_start,
+                end_time=_blob_store_end,
+            )
 
         return all_out
 

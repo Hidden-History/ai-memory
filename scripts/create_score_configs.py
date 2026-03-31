@@ -208,7 +208,7 @@ def main() -> int:
 
     except ImportError as exc:
         print(f"ERROR: langfuse package not installed — {exc}", file=sys.stderr)
-        print("Run: pip install 'langfuse>=3.0,<4.0'", file=sys.stderr)
+        print("Run: pip install 'langfuse>=4.0.0,<4.1.0'", file=sys.stderr)
         return 1
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

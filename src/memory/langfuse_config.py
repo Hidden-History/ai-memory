@@ -6,7 +6,7 @@ SPEC: LANGFUSE-INTEGRATION-SPEC.md Section 7.2
 """
 
 # LANGFUSE: Client factory (Path B infrastructure). See LANGFUSE-INTEGRATION-SPEC.md §7.2
-# SDK VERSION: V3 ONLY. Uses get_client() singleton — Do NOT use Langfuse() constructor.
+# SDK VERSION: V4. Uses get_client() singleton — Do NOT use Langfuse() constructor.
 
 import logging
 import os
@@ -34,7 +34,7 @@ def _is_retryable(exc: BaseException) -> bool:
     reraise=True,
 )
 def _create_langfuse_client_with_retry():
-    """Create Langfuse V3 client with exponential backoff retry (TD-206).
+    """Create Langfuse V4 client with exponential backoff retry (TD-206).
 
     5 attempts, backoff 1s-16s. ImportError is not retried (langfuse not installed).
     NOTE: Local import so tests can patch sys.modules["langfuse"] at runtime.
@@ -88,13 +88,13 @@ def get_langfuse_client():
             return None
 
         try:
-            # V3 SDK: get_client() is a singleton that reads env vars automatically.
+            # V4 SDK: get_client() is a singleton that reads env vars automatically.
             # We set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL
             # in the environment above, so get_client() picks them up.
             # TD-206: wrapped in _create_langfuse_client_with_retry for exponential backoff.
             client = _create_langfuse_client_with_retry()
             logger.info(
-                "Langfuse client initialized via V3 get_client() (host=%s)",
+                "Langfuse client initialized via V4 get_client() (host=%s)",
                 os.environ.get("LANGFUSE_BASE_URL", "http://localhost:23100"),
             )
             _client = client

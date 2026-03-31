@@ -549,21 +549,21 @@ class TestIdempotencyAndDryRun:
 
 
 # ---------------------------------------------------------------------------
-# TC-6: V3 SDK compliance — no Langfuse() constructor with explicit creds
+# TC-6: V4 SDK compliance — no Langfuse() constructor with explicit creds
 # ---------------------------------------------------------------------------
 
 
-class TestV3SDKCompliance:
+class TestV4SDKCompliance:
     def test_script_has_v3_header_comment(self):
-        """create_datasets.py must have the V3 SDK header comment."""
+        """create_datasets.py must have the V4 SDK header comment."""
         script_path = os.path.join(
             os.path.dirname(__file__), "..", "scripts", "create_datasets.py"
         )
         with open(os.path.abspath(script_path)) as f:
             content = f.read()
         assert (
-            "V3 SDK ONLY" in content
-        ), "create_datasets.py missing V3 SDK header comment"
+            "V4 SDK ONLY" in content
+        ), "create_datasets.py missing V4 SDK header comment"
         assert (
             "LANGFUSE-INTEGRATION-SPEC.md" in content
         ), "create_datasets.py missing LANGFUSE-INTEGRATION-SPEC.md reference"
