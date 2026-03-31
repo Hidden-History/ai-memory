@@ -26,12 +26,12 @@ from qdrant_client.models import (
     Distance,
     HnswConfigDiff,
     KeywordIndexParams,
+    Modifier,
     PayloadSchemaType,
     ScalarQuantization,
     ScalarQuantizationConfig,
     ScalarType,
     SparseVectorParams,
-    Modifier,
     TextIndexParams,
     TokenizerType,
     VectorParams,
@@ -86,7 +86,7 @@ def create_collections(dry_run: bool = False, force: bool = False) -> None:
     colbert_enabled = os.getenv("COLBERT_RERANKING_ENABLED", "false").lower() == "true"
     vectors_config_dict = None
     if colbert_enabled:
-        from qdrant_client.models import MultiVectorConfig, MultiVectorComparator
+        from qdrant_client.models import MultiVectorComparator, MultiVectorConfig
 
         vectors_config_dict = {
             "": VectorParams(size=768, distance=Distance.COSINE),  # Default dense

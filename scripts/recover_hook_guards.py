@@ -7,8 +7,9 @@ propagated by the installer's merge_settings.py (which deduplicates by command):
 
   BUG-066: Adds guard wrappers ([ -f ... ] && ... || true) to hook commands
            so deleting ~/.ai-memory doesn't break Claude Code.
-  BUG-078: Narrows SessionStart matcher from "startup|resume|compact|clear"
-           to "resume|compact".
+  BUG-078: Strips vestigial 'startup' and 'clear' triggers from SessionStart
+           matchers (v2.2.0+). Both are no longer valid hook triggers.
+           Normalises to valid triggers only (e.g. "resume|compact").
 
 Usage:
     python scripts/recover_hook_guards.py /path/to/project/.claude/settings.json
@@ -27,14 +28,11 @@ import sys
 import tempfile
 from datetime import datetime
 
+# TD-338: _hook_cmd() centralised in hook_utils to eliminate duplication
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from hook_utils import _hook_cmd, normalize_matcher
+
 # --- Helpers ----------------------------------------------------------------
-
-
-def _hook_cmd(script_name: str) -> str:
-    """Generate gracefully-degrading hook command. Exits 0 if installation missing."""
-    script = f"$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/{script_name}"
-    python = "$AI_MEMORY_INSTALL_DIR/.venv/bin/python"
-    return f'[ -f "{script}" ] && "{python}" "{script}" || true'
 
 
 def _fix_cmd(cmd: str) -> str:
@@ -82,12 +80,18 @@ def process_settings(original: dict) -> tuple:
                         commands_guarded += 1
 
             # Fix 2: SessionStart matcher (BUG-078)
-            if (
-                hook_type == "SessionStart"
-                and wrapper.get("matcher") == "startup|resume|compact|clear"
-            ):
-                wrapper["matcher"] = "resume|compact"
-                matchers_fixed += 1
+            # Only normalize AI Memory SessionStart hooks (contains session_start.py)
+            if hook_type == "SessionStart":
+                has_ai_memory_hook = any(
+                    isinstance(h, dict) and "session_start.py" in h.get("command", "")
+                    for h in wrapper.get("hooks", [])
+                )
+                if has_ai_memory_hook:
+                    matcher = wrapper.get("matcher", "")
+                    new_matcher = normalize_matcher(matcher)
+                    if new_matcher != matcher:
+                        wrapper["matcher"] = new_matcher
+                        matchers_fixed += 1
 
     return settings, commands_guarded, matchers_fixed
 

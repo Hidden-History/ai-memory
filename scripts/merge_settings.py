@@ -27,13 +27,19 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+# TD-338: _hook_cmd() centralised in hook_utils to eliminate duplication
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from hook_utils import _hook_cmd, get_langfuse_env_section, normalize_matcher
+
 # Hook script names that must always be removed from settings.json regardless of
 # whether the file still exists on disk. Add deprecated/renamed scripts here so
 # stale references are purged even during fresh installs (before the scripts dir
 # is created) and even if an old copy of the script file lingers.
-_DEAD_HOOK_SCRIPTS: frozenset[str] = frozenset({
-    "unified_keyword_trigger.py",  # BUG-250: renamed to context_injection_tier2.py
-})
+_DEAD_HOOK_SCRIPTS: frozenset[str] = frozenset(
+    {
+        "unified_keyword_trigger.py",  # BUG-250: renamed to context_injection_tier2.py
+    }
+)
 
 
 def deep_merge(base: dict, overlay: dict) -> dict:
@@ -109,16 +115,6 @@ def normalize_hook_command(command: str) -> str:
 
     # For non-BMAD hooks, return the original command
     return command
-
-
-def _hook_cmd(script_name: str) -> str:
-    """Generate gracefully-degrading hook command. Exits 0 if installation missing.
-
-    NOTE: Duplicated in generate_settings.py — keep in sync.
-    """
-    script = f"$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/{script_name}"
-    python = "$AI_MEMORY_INSTALL_DIR/.venv/bin/python"
-    return f'[ -f "{script}" ] && "{python}" "{script}" || true'
 
 
 def merge_lists(existing: list, new: list) -> list:
@@ -332,11 +328,11 @@ def _remove_dead_hooks(settings: dict, install_dir: str | None = None) -> dict:
 
 
 def _normalize_session_start_matcher(settings: dict) -> dict:
-    """Strip 'startup' from SessionStart hook matchers (v2.2.0+).
+    """Strip 'startup' and 'clear' from SessionStart hook matchers (v2.2.0+).
 
     v2.2.0 moved session bootstrap to agent-activated skills.
-    The 'startup' trigger is vestigial and causes unnecessary hook
-    execution on new sessions (DEC-054: sessions start clean).
+    Both 'startup' and 'clear' are vestigial triggers that cause unnecessary
+    hook execution on new sessions (DEC-054: sessions start clean, DEC-055).
     """
     hooks = settings.get("hooks", {})
     for wrappers in hooks.values():
@@ -352,11 +348,9 @@ def _normalize_session_start_matcher(settings: dict) -> dict:
                 cmd = hook.get("command", "")
                 if "session_start.py" in cmd:
                     matcher = wrapper.get("matcher", "")
-                    if "startup" in matcher:
-                        parts = [p for p in matcher.split("|") if p != "startup"]
-                        wrapper["matcher"] = (
-                            "|".join(parts) if parts else "resume|compact"
-                        )
+                    new_matcher = normalize_matcher(matcher)
+                    if new_matcher != matcher:
+                        wrapper["matcher"] = new_matcher
     return settings
 
 
@@ -408,6 +402,10 @@ def merge_settings(
     else:
         existing = {}
 
+    # TD-334: Ensure hooks_dir is absolute before any path derivation
+    if not os.path.isabs(hooks_dir):
+        hooks_dir = os.path.abspath(hooks_dir)
+
     # Generate new hook config with error handling (Issue 5: graceful degradation)
     try:
         from generate_settings import generate_hook_config, write_local_settings
@@ -430,26 +428,25 @@ def merge_settings(
     # wrong for values the installer controls.  PLAN-009 lowercases project IDs;
     # reinstalls must update old mixed-case values so verification passes and
     # Qdrant group_id / projects.d/ lookups stay consistent.
+    #
+    # Force-updated (installer-derived, must always reflect current install):
+    #   AI_MEMORY_PROJECT_ID  — set by installer from project config (PLAN-009)
+    #   AI_MEMORY_INSTALL_DIR — derived from hooks_dir path; must match actual install
+    #   LANGFUSE_*            — toggled by LANGFUSE_ENABLED; all-or-nothing
+    #
+    # User-preserved (deep_merge "base wins" — NOT force-updated):
+    #   QDRANT_HOST, QDRANT_PORT, EMBEDDING_HOST, EMBEDDING_PORT
+    #   SIMILARITY_THRESHOLD, LOG_LEVEL
+    #   PUSHGATEWAY_URL, PUSHGATEWAY_ENABLED
     if "env" not in merged:
         merged["env"] = {}
     merged["env"]["AI_MEMORY_PROJECT_ID"] = project_name
+    # TD-334: AI_MEMORY_INSTALL_DIR must always reflect the actual install path.
+    # hooks_dir format: /path/to/install/.claude/hooks/scripts (3 levels up = install_dir)
+    merged["env"]["AI_MEMORY_INSTALL_DIR"] = str(Path(hooks_dir).parent.parent.parent)
 
-    # Add Langfuse env vars if enabled (SPEC-019, SPEC-022)
-    if os.environ.get("LANGFUSE_ENABLED", "").lower() == "true":
-        if "env" not in merged:
-            merged["env"] = {}
-        merged["env"]["LANGFUSE_ENABLED"] = "true"
-        merged["env"]["LANGFUSE_PUBLIC_KEY"] = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
-        merged["env"]["LANGFUSE_SECRET_KEY"] = os.environ.get("LANGFUSE_SECRET_KEY", "")
-        merged["env"]["LANGFUSE_BASE_URL"] = os.environ.get(
-            "LANGFUSE_BASE_URL", "http://localhost:23100"
-        )
-        merged["env"]["LANGFUSE_TRACE_HOOKS"] = os.environ.get(
-            "LANGFUSE_TRACE_HOOKS", "true"
-        )
-        merged["env"]["LANGFUSE_TRACE_SESSIONS"] = os.environ.get(
-            "LANGFUSE_TRACE_SESSIONS", "true"
-        )
+    # Add Langfuse env vars if enabled (SPEC-019, SPEC-022) — via shared helper (TD-338)
+    merged["env"].update(get_langfuse_env_section())
 
     # Security (fixes #38): ensure QDRANT_API_KEY is never present in settings.json.
     # It may have been written there by older installer versions. Strip it now so
@@ -469,7 +466,7 @@ def merge_settings(
     merged = _upgrade_hook_commands(merged)
     # FAIL-001 fix: Remove hook entries whose scripts no longer exist
     merged = _remove_dead_hooks(merged)
-    # FAIL-03 fix: Strip vestigial 'startup' from SessionStart matchers (DEC-054)
+    # FAIL-03 fix: Strip vestigial 'startup' and 'clear' from SessionStart matchers (DEC-054, DEC-055)
     merged = _normalize_session_start_matcher(merged)
 
     # Backup existing settings (copy, not rename - safer)

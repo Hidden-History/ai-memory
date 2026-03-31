@@ -17,15 +17,9 @@ import os
 import sys
 from pathlib import Path
 
-
-def _hook_cmd(script_name: str) -> str:
-    """Generate gracefully-degrading hook command. Exits 0 if installation missing.
-
-    NOTE: Duplicated in merge_settings.py — keep in sync.
-    """
-    script = f"$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/{script_name}"
-    python = "$AI_MEMORY_INSTALL_DIR/.venv/bin/python"
-    return f'[ -f "{script}" ] && "{python}" "{script}" || true'
+# TD-338: _hook_cmd() centralised in hook_utils to eliminate duplication
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from hook_utils import _hook_cmd, get_langfuse_env_section
 
 
 def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
@@ -89,20 +83,8 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
 
     # Parzival env vars are managed by update_parzival_settings.py (not here)
 
-    # Add Langfuse env vars if enabled (SPEC-019, SPEC-022)
-    if os.environ.get("LANGFUSE_ENABLED", "").lower() == "true":
-        env_section["LANGFUSE_ENABLED"] = "true"  # Kill-switch (SPEC-022 §2.2, AC-6)
-        env_section["LANGFUSE_PUBLIC_KEY"] = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
-        env_section["LANGFUSE_SECRET_KEY"] = os.environ.get("LANGFUSE_SECRET_KEY", "")
-        env_section["LANGFUSE_BASE_URL"] = os.environ.get(
-            "LANGFUSE_BASE_URL", "http://localhost:23100"
-        )
-        env_section["LANGFUSE_TRACE_HOOKS"] = os.environ.get(
-            "LANGFUSE_TRACE_HOOKS", "true"
-        )
-        env_section["LANGFUSE_TRACE_SESSIONS"] = os.environ.get(
-            "LANGFUSE_TRACE_SESSIONS", "true"
-        )
+    # Add Langfuse env vars if enabled (SPEC-019, SPEC-022) — via shared helper (TD-338)
+    env_section.update(get_langfuse_env_section())
 
     return {
         # Schema reference for IDE validation (BUG-029+030 fix)

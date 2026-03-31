@@ -397,3 +397,175 @@ class TestRemoveDeadHooks:
         result = _remove_dead_hooks(settings, install_dir=str(tmp_path))
         # Must still remove deny-listed entries even with no scripts dir
         assert result["hooks"]["UserPromptSubmit"] == []
+
+
+# ---------------------------------------------------------------------------
+# TD-334: AI_MEMORY_INSTALL_DIR force-update (Fix 5)
+# ---------------------------------------------------------------------------
+
+
+def test_merge_settings_install_dir_force_updates_stale_value(tmp_path):
+    """TD-334: AI_MEMORY_INSTALL_DIR must override any stale value in existing settings."""
+    from merge_settings import merge_settings
+
+    settings_path = tmp_path / "settings.json"
+    existing = {
+        "env": {
+            "AI_MEMORY_INSTALL_DIR": "/old/stale/path",
+            "AI_MEMORY_PROJECT_ID": "test-project",
+        },
+        "hooks": {},
+    }
+    settings_path.write_text(json.dumps(existing))
+
+    # hooks_dir: install_dir/.claude/hooks/scripts → 3 levels up = install_dir
+    install_dir = tmp_path / "install_v2"
+    hooks_dir = str(install_dir / ".claude" / "hooks" / "scripts")
+
+    merge_settings(str(settings_path), hooks_dir)
+
+    with open(settings_path) as f:
+        config = json.load(f)
+
+    assert config["env"]["AI_MEMORY_INSTALL_DIR"] == str(install_dir)
+    assert config["env"]["AI_MEMORY_INSTALL_DIR"] != "/old/stale/path"
+
+
+def test_merge_settings_install_dir_not_preserved_by_deep_merge(tmp_path):
+    """TD-334: AI_MEMORY_INSTALL_DIR is NOT preserved by deep_merge 'base wins' logic."""
+    from merge_settings import merge_settings
+
+    settings_path = tmp_path / "settings.json"
+    existing = {
+        "env": {"AI_MEMORY_INSTALL_DIR": "/should/be/overridden"},
+        "hooks": {},
+    }
+    settings_path.write_text(json.dumps(existing))
+
+    install_dir = tmp_path / "new_install"
+    hooks_dir = str(install_dir / ".claude" / "hooks" / "scripts")
+
+    merge_settings(str(settings_path), hooks_dir)
+
+    with open(settings_path) as f:
+        config = json.load(f)
+
+    # Force-update means the new value always wins
+    assert config["env"]["AI_MEMORY_INSTALL_DIR"] == str(install_dir)
+
+
+# ---------------------------------------------------------------------------
+# _normalize_session_start_matcher: stripping 'clear' (Fix 4)
+# ---------------------------------------------------------------------------
+
+
+def _session_start_settings(matcher: str) -> dict:
+    """Build minimal settings dict with a SessionStart hook containing session_start.py."""
+    return {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "matcher": matcher,
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": '"$AI_MEMORY_INSTALL_DIR/.venv/bin/python" '
+                            '"$AI_MEMORY_INSTALL_DIR/.claude/hooks/scripts/session_start.py"',
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+
+
+class TestNormalizeSessionStartMatcher:
+    """Test _normalize_session_start_matcher() strips stale triggers."""
+
+    def test_strips_startup_and_clear_both_stale(self):
+        """'startup|clear' — both stale → fallback to 'resume|compact'."""
+        from merge_settings import _normalize_session_start_matcher
+
+        settings = _session_start_settings("startup|clear")
+        result = _normalize_session_start_matcher(settings)
+        assert result["hooks"]["SessionStart"][0]["matcher"] == "resume|compact"
+
+    def test_strips_clear_from_mixed_matcher(self):
+        """'resume|compact|clear' — clear is stale, resume|compact remain."""
+        from merge_settings import _normalize_session_start_matcher
+
+        settings = _session_start_settings("resume|compact|clear")
+        result = _normalize_session_start_matcher(settings)
+        assert result["hooks"]["SessionStart"][0]["matcher"] == "resume|compact"
+
+    def test_strips_clear_alone(self):
+        """'clear' alone — stale, fallback to 'resume|compact'."""
+        from merge_settings import _normalize_session_start_matcher
+
+        settings = _session_start_settings("clear")
+        result = _normalize_session_start_matcher(settings)
+        assert result["hooks"]["SessionStart"][0]["matcher"] == "resume|compact"
+
+    def test_clean_matcher_unchanged(self):
+        """'resume|compact' — already clean, must not be modified."""
+        from merge_settings import _normalize_session_start_matcher
+
+        settings = _session_start_settings("resume|compact")
+        result = _normalize_session_start_matcher(settings)
+        assert result["hooks"]["SessionStart"][0]["matcher"] == "resume|compact"
+
+    def test_strips_startup_alone(self):
+        """'startup' alone — stale, fallback to 'resume|compact'."""
+        from merge_settings import _normalize_session_start_matcher
+
+        settings = _session_start_settings("startup")
+        result = _normalize_session_start_matcher(settings)
+        assert result["hooks"]["SessionStart"][0]["matcher"] == "resume|compact"
+
+    def test_strips_startup_from_mixed_matcher(self):
+        """'startup|resume|compact' — startup is stale, resume|compact remain."""
+        from merge_settings import _normalize_session_start_matcher
+
+        settings = _session_start_settings("startup|resume|compact")
+        result = _normalize_session_start_matcher(settings)
+        assert result["hooks"]["SessionStart"][0]["matcher"] == "resume|compact"
+
+    def test_strips_full_old_pattern(self):
+        """startup|resume|compact|clear — the original v2.1.x pattern → resume|compact."""
+        from merge_settings import _normalize_session_start_matcher
+
+        settings = _session_start_settings("startup|resume|compact|clear")
+        result = _normalize_session_start_matcher(settings)
+        assert result["hooks"]["SessionStart"][0]["matcher"] == "resume|compact"
+
+
+# ---------------------------------------------------------------------------
+# TD-334: isabs guard for relative hooks_dir (Fix 5b)
+# ---------------------------------------------------------------------------
+
+
+def test_merge_settings_install_dir_relative_hooks_dir(tmp_path):
+    """TD-334 isabs guard: relative hooks_dir is resolved to absolute before computing install_dir."""
+    import os
+
+    from merge_settings import merge_settings
+
+    settings_path = tmp_path / "settings.json"
+    existing: dict = {"env": {}, "hooks": {}}
+    settings_path.write_text(json.dumps(existing))
+
+    # Use a relative path — the isabs guard must call os.path.abspath()
+    # so Path(...).parent.parent.parent resolves correctly.
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        relative_hooks_dir = ".claude/hooks/scripts"
+        merge_settings(str(settings_path), relative_hooks_dir)
+    finally:
+        os.chdir(original_cwd)
+
+    with open(settings_path) as f:
+        config = json.load(f)
+
+    expected_install_dir = str(tmp_path)
+    assert config["env"]["AI_MEMORY_INSTALL_DIR"] == expected_install_dir

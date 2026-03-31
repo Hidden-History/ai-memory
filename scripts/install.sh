@@ -201,7 +201,7 @@ register_project_sync() {
     # Write via python so arbitrary paths/repo names are safe YAML regardless
     # of special characters (colons, quotes, backslashes, etc.).
     # Use venv python if available (has PyYAML guaranteed); fall back to system.
-    local py_bin="${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/venv/bin/python3"
+    local py_bin="${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/.venv/bin/python"
     if [[ ! -x "$py_bin" ]]; then
         py_bin="python3"
     fi
@@ -499,7 +499,7 @@ configure_project_sources() {
     local existing_config="${HOME}/.ai-memory/config/projects.d/${safe_name}.yaml"
     local existing_repo="" existing_branch="" existing_jira_enabled="" existing_jira_projects=""
     if [[ -f "$existing_config" ]]; then
-        local py_bin="${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/venv/bin/python3"
+        local py_bin="${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/.venv/bin/python"
         [[ -x "$py_bin" ]] || py_bin="python3"
         existing_repo=$("$py_bin" -c "
 import yaml, sys
@@ -1475,7 +1475,23 @@ handle_reinstall() {
     if [[ "$services_running" = true ]]; then
         log_info "Stopping existing services..."
         if [[ -f "$INSTALL_DIR/docker/docker-compose.yml" ]]; then
-            (cd "$INSTALL_DIR/docker" && docker compose down 2>/dev/null) || true
+            # TD-331: Read profile flags from existing docker/.env so profiled
+            # services (monitoring, github-sync) are also stopped on reinstall.
+            # Safe default: no flags if .env is missing or vars are unset.
+            local reinstall_env="$INSTALL_DIR/docker/.env"
+            local reinstall_profile_args=()
+            if [[ -f "$reinstall_env" ]]; then
+                local _monitoring_enabled _github_sync_enabled
+                _monitoring_enabled=$(grep '^MONITORING_ENABLED=' "$reinstall_env" | head -1 | cut -d= -f2- | tr -d '"'"'" 2>/dev/null || true)
+                _github_sync_enabled=$(grep '^GITHUB_SYNC_ENABLED=' "$reinstall_env" | head -1 | cut -d= -f2- | tr -d '"'"'" 2>/dev/null || true)
+                if [[ "$_monitoring_enabled" == "true" ]]; then
+                    reinstall_profile_args+=(--profile monitoring)
+                fi
+                if [[ "$_github_sync_enabled" == "true" ]]; then
+                    reinstall_profile_args+=(--profile github)
+                fi
+            fi
+            (cd "$INSTALL_DIR/docker" && docker compose "${reinstall_profile_args[@]}" down 2>/dev/null) || true
         fi
         log_success "Services stopped"
     fi
@@ -2729,6 +2745,39 @@ start_services() {
         exit 1
     fi
     log_debug "Qdrant verified running: $qdrant_status"
+
+    # TD-339: Authenticated Qdrant check — verify API key is accepted before
+    # attempting collection setup. The liveness loop above uses the unauthenticated
+    # root endpoint (/); /collections requires a valid api-key header.
+    # docker/.env is the CWD (start_services cd's there at the top).
+    local _qdrant_auth_key=""
+    if [[ -f ".env" ]]; then
+        _qdrant_auth_key=$(grep '^QDRANT_API_KEY=' ".env" | head -1 | cut -d= -f2- | tr -d '"'"'" 2>/dev/null || true)
+    fi
+    if [[ -z "$_qdrant_auth_key" ]]; then
+        log_warn "No QDRANT_API_KEY found in docker/.env — skipping auth verification"
+    else
+        local _auth_attempt=0 _auth_max=3 _auth_ok=false
+        while [[ $_auth_attempt -lt $_auth_max ]]; do
+            if curl -sf --connect-timeout 2 --max-time 5 \
+                -H "api-key: ${_qdrant_auth_key}" \
+                "http://127.0.0.1:${QDRANT_PORT:-26350}/collections" &> /dev/null; then
+                _auth_ok=true
+                break
+            fi
+            _auth_attempt=$((_auth_attempt + 1))
+            if [[ $_auth_attempt -lt $_auth_max ]]; then
+                sleep 2
+            fi
+        done
+        if [[ "$_auth_ok" != "true" ]]; then
+            log_error "Qdrant authenticated health check FAILED — API key mismatch or /collections unavailable"
+            log_error "  Verify QDRANT_API_KEY in $INSTALL_DIR/docker/.env matches the running Qdrant container"
+            log_error "  Manual check: curl -sf -H 'api-key: <key>' http://127.0.0.1:${QDRANT_PORT:-26350}/collections"
+            exit 1
+        fi
+        log_debug "Qdrant authenticated check passed"
+    fi
 
     # Collections must exist before profile services start (github-sync uses them immediately)
     setup_collections || {

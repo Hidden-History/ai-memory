@@ -35,6 +35,20 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 - **Zero-vector validation** (TD-354, NI-V3-004): Embedding responses validated for degenerate all-zero vectors. Raises `EmbeddingError` in single-embed path; defense-in-depth check in batch path.
 - **Session summary agent_id** (BUG-258, NI-V3-001): `agent_id` field added to `pre_compact_save.py` in both `build_session_summary()` and `chunk_payload`. Enables Parzival tenant isolation for session summaries.
 
+### Phase 3a: Installer Fixes (PLAN-023 P3a)
+
+#### Fixed
+- **Venv path mismatch** (BUG-253, HIGH): `install.sh` referenced `venv/bin/python3` in 2 locations for project config read/write while the rest of the file used `.venv/bin/python`. Both paths corrected.
+- **Stale SessionStart matcher** (BUG-256): Dev `settings.json` had `startup|resume|compact|clear` — corrected to `resume|compact`. `_normalize_session_start_matcher()` now strips both `startup` and `clear` (previously only stripped `startup`).
+- **Orphaned profiled services on reinstall** (TD-331): `handle_reinstall()` now reads `MONITORING_ENABLED` and `GITHUB_SYNC_ENABLED` from existing `docker/.env` and passes `--profile` flags to `docker compose down`. Previously only stopped default-profile services.
+- **Qdrant auth check before collection setup** (TD-339): Authenticated health check (`GET /collections` with `api-key` header) added after liveness loop, before `setup_qdrant_collections()`. Retries 3 times with 2s backoff. Skips with warning if no API key configured.
+- **Missing Langfuse stop hook** (BUG-249, CRITICAL): `langfuse_stop_hook.py` registered in dev `settings.json` Stop hooks with guard pattern and 10s timeout.
+
+#### Changed
+- **`AI_MEMORY_INSTALL_DIR` force-updated on merge** (TD-334): `merge_settings.py` now force-updates `AI_MEMORY_INSTALL_DIR` from the hooks directory path, preventing stale install paths from surviving reinstalls. Path validated with `isabs()` guard.
+- **DRY hook utilities** (TD-338): Extracted `_hook_cmd()`, `get_langfuse_env_section()`, and `normalize_matcher()` to shared `scripts/hook_utils.py`. All 3 consumers (`generate_settings.py`, `merge_settings.py`, `recover_hook_guards.py`) import from it — zero duplication.
+- **Robust matcher normalization** (BUG-078 hardening): `recover_hook_guards.py` matcher fix upgraded from exact-string match to frozenset-based approach. Scope-restricted to AI Memory hooks only (checks for `session_start.py` in command).
+
 ### Upgrade Instructions
 
 **From v2.2.8 to this version:**
@@ -74,12 +88,26 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
    docker compose -f docker-compose.langfuse.yml --profile langfuse up -d
    ```
 
-5. Verify:
+5. Verify settings merge applied correctly:
+   ```bash
+   # Check SessionStart matcher is clean (should be "resume|compact"):
+   grep -o '"matcher":.*' ~/.ai-memory/.claude/settings.json | head -1
+
+   # Check AI_MEMORY_INSTALL_DIR points to correct path:
+   grep AI_MEMORY_INSTALL_DIR ~/.ai-memory/.claude/settings.json
+   ```
+
+6. Verify services:
    ```bash
    cd <your-ai-memory-clone>
    python3 scripts/health-check.py
    ```
    Expect: 17/17 healthy, `langfuse==4.0.4` in venv and containers.
+
+**P3a-specific notes:**
+- `hook_utils.py` is a new shared module — the installer copies it automatically via `sync_installed_files()`.
+- If you previously hand-edited `.claude/settings.json` matchers with `startup` or `clear`, they will be automatically cleaned on next `merge_settings.py` run.
+- The authenticated Qdrant health check (TD-339) runs during fresh installs and reinstalls. If your Qdrant instance does not use an API key, the check is skipped with a warning.
 
 ---
 
