@@ -293,6 +293,7 @@ services:
     environment:
       - MINIO_ROOT_USER=${LANGFUSE_S3_ACCESS_KEY}
       - MINIO_ROOT_PASSWORD=${LANGFUSE_S3_SECRET_KEY}
+      - MC_CONFIG_DIR=/tmp
     security_opt:
       - no-new-privileges:true
     cap_drop:
