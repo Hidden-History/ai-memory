@@ -21,6 +21,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -213,7 +214,33 @@ def make_paginated_response(traces: list, total_pages=1):
 
 
 def make_observation_response(observations: list, total_pages: int = 1):
-    """Page-based response for observations.get_many()."""
+    """Page-based response for observations.get_many() — kept for trace-path tests."""
+    response = MagicMock()
+    response.data = observations
+    response.meta = MagicMock()
+    response.meta.total_pages = total_pages
+    return response
+
+
+def make_obs_dict(
+    obs_id: str = "obs001",
+    trace_id: str = "trace001",
+    name: str = "search_query",
+    output: str | None = "retrieved context",
+):
+    """Return observation as a SimpleNamespace matching the SDK response shape."""
+    return SimpleNamespace(
+        id=obs_id,
+        trace_id=trace_id,
+        name=name,
+        input="query text",
+        output=output,
+        metadata={},
+    )
+
+
+def make_sdk_obs_response(observations: list, total_pages: int = 1):
+    """Return a mock response for api.legacy.observations_v1.get_many()."""
     response = MagicMock()
     response.data = observations
     response.meta = MagicMock()
@@ -560,13 +587,10 @@ class TestRunnerRunObservationPath:
     def test_observation_path_calls_observations_get_many(
         self, runner, observation_evaluator_yaml
     ):
-        """Observation target must call observations.get_many(), not trace.list()."""
-        obs = make_mock_observation(obs_id="obs001", trace_id="trace001")
+        """Observation target must call api.legacy.observations_v1.get_many(), not trace.list()."""
+        obs = make_obs_dict(obs_id="obs001", trace_id="trace001")
         mock_langfuse = MagicMock()
-        # Two event_types → two API calls (one per name_filter)
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([obs])
 
         mock_evaluator_config = MagicMock()
         mock_evaluator_config.evaluate.return_value = {
@@ -582,18 +606,17 @@ class TestRunnerRunObservationPath:
         ):
             runner.run(since=since)
 
-        assert mock_langfuse.api.observations.get_many.call_count == 2
+        # Two event_types → two get_many calls (one per name_filter)
+        assert mock_langfuse.api.legacy.observations_v1.get_many.call_count == 2
         mock_langfuse.api.trace.list.assert_not_called()
 
     def test_observation_score_includes_observation_id(
         self, runner, observation_evaluator_yaml
     ):
         """create_score() for observation target must include observation_id."""
-        obs = make_mock_observation(obs_id="obs_xyz", trace_id="trace_abc")
+        obs = make_obs_dict(obs_id="obs_xyz", trace_id="trace_abc")
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([obs])
 
         mock_evaluator_config = MagicMock()
         mock_evaluator_config.evaluate.return_value = {"score": 0.9, "reasoning": ""}
@@ -613,11 +636,9 @@ class TestRunnerRunObservationPath:
 
     def test_observation_path_skips_no_output(self, runner, observation_evaluator_yaml):
         """Observations with output=None must be skipped."""
-        obs = make_mock_observation(obs_id="obs_noout", output=None)
+        obs = make_obs_dict(obs_id="obs_noout", output=None)
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([obs])
 
         mock_evaluator_config = MagicMock()
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
@@ -638,11 +659,9 @@ class TestRunnerRunObservationPath:
         self, runner, observation_evaluator_yaml
     ):
         """dry_run=True on observation path must not call create_score()."""
-        obs = make_mock_observation()
+        obs = make_obs_dict()
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([obs])
 
         mock_evaluator_config = MagicMock()
         mock_evaluator_config.evaluate.return_value = {"score": 0.7, "reasoning": ""}
@@ -663,11 +682,9 @@ class TestRunnerRunObservationPath:
         self, runner, observation_evaluator_yaml
     ):
         """Observation audit log entries must include observation_id."""
-        obs = make_mock_observation(obs_id="obs_audit", trace_id="trace_audit")
+        obs = make_obs_dict(obs_id="obs_audit", trace_id="trace_audit")
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([obs])
 
         mock_evaluator_config = MagicMock()
         mock_evaluator_config.evaluate.return_value = {"score": 0.6, "reasoning": "ok"}
@@ -697,19 +714,20 @@ class TestPagePaginationObservations:
     def test_page_pagination_fetches_all_pages(
         self, runner, observation_evaluator_yaml
     ):
-        """observations.get_many() must paginate via page= with total_pages."""
-        obs1 = make_mock_observation(obs_id="obs_p1", trace_id="t1")
-        obs2 = make_mock_observation(obs_id="obs_p2", trace_id="t2")
+        """SDK get_many() must paginate via page= with total_pages."""
+        obs1 = make_obs_dict(obs_id="obs_p1", trace_id="t1")
+        obs2 = make_obs_dict(obs_id="obs_p2", trace_id="t2")
 
         mock_langfuse = MagicMock()
         # First call returns obs1 with total_pages=2; second returns obs2 with total_pages=2
-        mock_langfuse.api.observations.get_many.side_effect = [
-            make_observation_response([obs1], total_pages=2),
-            make_observation_response([obs2], total_pages=2),
+        sdk_side_effect = [
+            make_sdk_obs_response([obs1], total_pages=2),
+            make_sdk_obs_response([obs2], total_pages=2),
             # Additional responses for the second event_type
-            make_observation_response([obs1], total_pages=2),
-            make_observation_response([obs2], total_pages=2),
+            make_sdk_obs_response([obs1], total_pages=2),
+            make_sdk_obs_response([obs2], total_pages=2),
         ]
+        mock_langfuse.api.legacy.observations_v1.get_many.side_effect = sdk_side_effect
 
         mock_evaluator_config = MagicMock()
         mock_evaluator_config.evaluate.return_value = {"score": 0.8, "reasoning": ""}
@@ -723,24 +741,19 @@ class TestPagePaginationObservations:
             _result = runner.run(since=since)
 
         # Each event_type does 2 pages → 4 total calls for 2 event_types
-        assert mock_langfuse.api.observations.get_many.call_count == 4
+        assert mock_langfuse.api.legacy.observations_v1.get_many.call_count == 4
         # Second call for first event_type must pass page=2
-        second_call_kwargs = mock_langfuse.api.observations.get_many.call_args_list[
-            1
-        ].kwargs
+        second_call_kwargs = mock_langfuse.api.legacy.observations_v1.get_many.call_args_list[1].kwargs
         assert second_call_kwargs.get("page") == 2
 
     def test_page_pagination_stops_on_single_page(
         self, runner, observation_evaluator_yaml
     ):
         """Must stop fetching when total_pages == 1."""
-        obs = make_mock_observation(obs_id="obs_single")
+        obs = make_obs_dict(obs_id="obs_single")
 
         mock_langfuse = MagicMock()
-        # Single page per event_type
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs], total_pages=1)
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([obs], total_pages=1)
 
         mock_evaluator_config = MagicMock()
         mock_evaluator_config.evaluate.return_value = {"score": 0.7, "reasoning": ""}
@@ -755,48 +768,48 @@ class TestPagePaginationObservations:
 
         # 2 event_types, 1 page each → 2 calls total
         event_types = observation_evaluator_yaml["filter"]["event_types"]
-        assert mock_langfuse.api.observations.get_many.call_count == len(event_types)
+        assert mock_langfuse.api.legacy.observations_v1.get_many.call_count == len(event_types)
 
     def test_observation_get_many_passes_name_filter(
         self, runner, observation_evaluator_yaml
     ):
-        """Each event_type must be passed as name= to observations.get_many()."""
+        """Each event_type must be passed as name= kwarg to api.legacy.observations_v1.get_many()."""
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([])
 
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse):
+        with (
+            patch("memory.evaluator.runner.get_client", return_value=mock_langfuse),
+        ):
             runner.run(since=since)
 
         called_names = [
             call.kwargs.get("name")
-            for call in mock_langfuse.api.observations.get_many.call_args_list
+            for call in mock_langfuse.api.legacy.observations_v1.get_many.call_args_list
         ]
         event_types = observation_evaluator_yaml["filter"]["event_types"]
         for et in event_types:
-            assert et in called_names, f"event_type {et!r} not passed as name= filter"
+            assert et in called_names, f"event_type {et!r} not passed as name= kwarg"
 
     def test_observation_get_many_passes_time_range(
         self, runner, observation_evaluator_yaml
     ):
-        """Must pass from_start_time/to_start_time to observations.get_many()."""
+        """Must pass from_start_time/to_start_time as datetime to api.legacy.observations_v1.get_many()."""
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([])
 
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
         until = datetime(2026, 3, 13, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse):
+        with (
+            patch("memory.evaluator.runner.get_client", return_value=mock_langfuse),
+        ):
             runner.run(since=since, until=until)
 
-        first_call = mock_langfuse.api.observations.get_many.call_args_list[0].kwargs
-        assert first_call.get("from_start_time") == since
-        assert first_call.get("to_start_time") == until
+        first_call_kwargs = mock_langfuse.api.legacy.observations_v1.get_many.call_args_list[0].kwargs
+        assert first_call_kwargs.get("from_start_time") == since
+        assert first_call_kwargs.get("to_start_time") == until
 
 
 # ---------------------------------------------------------------------------
@@ -817,25 +830,25 @@ class TestEvaluationTargetRouting:
 
         # R2-F8: use call_count instead of assert_called() for stronger assertion
         assert mock_langfuse.api.trace.list.call_count == 1
-        mock_langfuse.api.observations.get_many.assert_not_called()
+        mock_langfuse.api.legacy.observations_v1.get_many.assert_not_called()
 
     def test_observation_target_routes_to_observations_get_many(
         self, runner, observation_evaluator_yaml
     ):
-        """Evaluator with target: observation must use observations.get_many()."""
+        """Evaluator with target: observation must use api.legacy.observations_v1.get_many()."""
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([])
 
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
 
-        with patch("memory.evaluator.runner.get_client", return_value=mock_langfuse):
+        with (
+            patch("memory.evaluator.runner.get_client", return_value=mock_langfuse),
+        ):
             runner.run(since=since)
 
         # R2-F8: 2 event_types in fixture → 2 calls to get_many
         event_types = observation_evaluator_yaml["filter"]["event_types"]
-        assert mock_langfuse.api.observations.get_many.call_count == len(event_types)
+        assert mock_langfuse.api.legacy.observations_v1.get_many.call_count == len(event_types)
         mock_langfuse.api.trace.list.assert_not_called()
 
     def test_missing_target_defaults_to_trace(self, runner, tmp_path):
@@ -866,7 +879,7 @@ class TestEvaluationTargetRouting:
             runner.run(since=since)
 
         assert mock_langfuse.api.trace.list.call_count == 1
-        mock_langfuse.api.observations.get_many.assert_not_called()
+        mock_langfuse.api.legacy.observations_v1.get_many.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -879,11 +892,9 @@ class TestCategoricalScoreType:
         self, runner, categorical_evaluator_yaml
     ):
         """CATEGORICAL evaluators must pass string value to create_score()."""
-        obs = make_mock_observation(obs_id="obs_cat", trace_id="trace_cat")
+        obs = make_obs_dict(obs_id="obs_cat", trace_id="trace_cat")
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([obs])
 
         mock_evaluator_config = MagicMock()
         mock_evaluator_config.evaluate.return_value = {
@@ -910,11 +921,9 @@ class TestCategoricalScoreType:
         self, runner, categorical_evaluator_yaml
     ):
         """CATEGORICAL 'partially_correct' must be passed as string."""
-        obs = make_mock_observation(obs_id="obs_partial")
+        obs = make_obs_dict(obs_id="obs_partial")
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([obs])
 
         mock_evaluator_config = MagicMock()
         mock_evaluator_config.evaluate.return_value = {
@@ -935,11 +944,9 @@ class TestCategoricalScoreType:
 
     def test_numeric_score_passes_float_value(self, runner, observation_evaluator_yaml):
         """NUMERIC evaluators must pass float value (not string)."""
-        obs = make_mock_observation()
+        obs = make_obs_dict()
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([obs])
 
         mock_evaluator_config = MagicMock()
         mock_evaluator_config.evaluate.return_value = {
@@ -999,14 +1006,14 @@ class TestRunnerErrorIsolation:
         self, runner, observation_evaluator_yaml
     ):
         """An exception on one observation must not prevent subsequent evaluations."""
-        obs1 = make_mock_observation(obs_id="obs_err")
-        obs2 = make_mock_observation(obs_id="obs_ok")
+        obs1 = make_obs_dict(obs_id="obs_err")
+        obs2 = make_obs_dict(obs_id="obs_ok")
 
         mock_langfuse = MagicMock()
         # Both obs in same response for first event_type, empty for second
-        mock_langfuse.api.observations.get_many.side_effect = [
-            make_observation_response([obs1, obs2]),
-            make_observation_response([]),
+        mock_langfuse.api.legacy.observations_v1.get_many.side_effect = [
+            make_sdk_obs_response([obs1, obs2]),
+            make_sdk_obs_response([]),
         ]
 
         mock_evaluator_config = MagicMock()
@@ -1112,11 +1119,9 @@ class TestDryRunAuditLog:
         self, runner, observation_evaluator_yaml
     ):
         """dry_run=True must NOT write audit log for observation path."""
-        obs = make_mock_observation(obs_id="obs_dry", trace_id="trace_dry")
+        obs = make_obs_dict(obs_id="obs_dry", trace_id="trace_dry")
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([obs])
 
         mock_evaluator_config = MagicMock()
         mock_evaluator_config.evaluate.return_value = {"score": 0.6, "reasoning": "ok"}
@@ -1142,13 +1147,10 @@ class TestObservationNoTraceId:
         self, runner, observation_evaluator_yaml
     ):
         """Observation with empty trace_id must be skipped with a warning."""
-        obs = make_mock_observation(obs_id="obs_notrace", trace_id="")
-        obs.trace_id = ""
+        obs = make_obs_dict(obs_id="obs_notrace", trace_id="")
 
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([obs])
 
         mock_evaluator_config = MagicMock()
         since = datetime(2026, 3, 12, tzinfo=timezone.utc)
@@ -1176,11 +1178,9 @@ class TestCategoricalValidation:
         self, runner, categorical_evaluator_yaml
     ):
         """Categorical score not in categories list must be skipped with warning."""
-        obs = make_mock_observation(obs_id="obs_badcat", trace_id="trace_badcat")
+        obs = make_obs_dict(obs_id="obs_badcat", trace_id="trace_badcat")
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([obs])
 
         mock_evaluator_config = MagicMock()
         # "unknown_label" is not in categories: ["correct", "partially_correct", "incorrect"]
@@ -1207,11 +1207,9 @@ class TestCategoricalValidation:
         self, runner, categorical_evaluator_yaml
     ):
         """Categorical score within categories list must be scored normally."""
-        obs = make_mock_observation(obs_id="obs_goodcat", trace_id="trace_goodcat")
+        obs = make_obs_dict(obs_id="obs_goodcat", trace_id="trace_goodcat")
         mock_langfuse = MagicMock()
-        mock_langfuse.api.observations.get_many.return_value = (
-            make_observation_response([obs])
-        )
+        mock_langfuse.api.legacy.observations_v1.get_many.return_value = make_sdk_obs_response([obs])
 
         mock_evaluator_config = MagicMock()
         mock_evaluator_config.evaluate.return_value = {

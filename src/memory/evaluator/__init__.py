@@ -1,4 +1,4 @@
-# LANGFUSE: V3 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
+# LANGFUSE: V4 SDK. See LANGFUSE-INTEGRATION-SPEC.md
 """Evaluator package — LLM-as-Judge evaluation engine for Langfuse traces.
 
 Provides multi-provider LLM evaluation with Ollama, OpenRouter, Anthropic,

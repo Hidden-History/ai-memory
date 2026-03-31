@@ -614,15 +614,12 @@ class TestLangfuseTraceCreation:
             ),
         )
 
-        # Root span should call update_trace with name and tags
-        root_span = mock_langfuse_client._spans_created[0]
-        root_span.update_trace.assert_called_once()
-        call_kwargs = root_span.update_trace.call_args.kwargs
-        assert "session_trace" in call_kwargs.get("tags", [])
-        # V3: session_id is set via propagate_attributes (not update_trace)
+        # V4: trace-level attributes set via propagate_attributes (no update_trace)
         mock_langfuse_client._propagate_attributes.assert_called()
         prop_kwargs = mock_langfuse_client._propagate_attributes.call_args.kwargs
         assert prop_kwargs.get("session_id") == "my-session-xyz"
+        assert prop_kwargs.get("trace_name") == "claude_code_session"
+        assert "session_trace" in prop_kwargs.get("tags", [])
 
     def test_propagate_attributes_called_inside_root_span(
         self, mock_langfuse_client, transcript_file

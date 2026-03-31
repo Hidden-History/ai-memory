@@ -13,7 +13,7 @@ PLAN-008 / SPEC-022 S2
 """
 
 # LANGFUSE: Uses direct SDK (Path B). See LANGFUSE-INTEGRATION-SPEC.md §3.2, §7.1
-# SDK VERSION: V3 ONLY. Use get_client(), start_as_current_observation(), propagate_attributes().
+# SDK VERSION: V4. Use get_client(), start_as_current_observation(), propagate_attributes().
 # Do NOT use Langfuse() constructor, start_span(), start_generation(), or langfuse_context.
 
 import json
@@ -405,12 +405,18 @@ def main():
         # Deterministic trace ID for dedup (replaces Langfuse.create_trace_id)
         trace_id = _deterministic_trace_id(session_id) if session_id else None
 
-        # ── V3 SDK: Create root observation + child spans ──
-        # LANGFUSE-INTEGRATION-SPEC.md §7.1: Uses start_as_current_observation (V3)
+        # ── V4 SDK: Create root observation + child spans ──
+        # LANGFUSE-INTEGRATION-SPEC.md §7.1: Uses start_as_current_observation (V4)
         try:
-            from langfuse import get_client as _get_v3_client, propagate_attributes
+            from langfuse import get_client as _get_v3_client
+            from langfuse import propagate_attributes
         except ImportError:
-            logger.warning("langfuse_not_installed", extra={"message": "langfuse package not available, skipping trace emission"})
+            logger.warning(
+                "langfuse_not_installed",
+                extra={
+                    "message": "langfuse package not available, skipping trace emission"
+                },
+            )
             sys.exit(0)
 
         langfuse_v3 = _get_v3_client()
@@ -419,104 +425,101 @@ def main():
         if trace_id:
             trace_kwargs["trace_context"] = {"trace_id": trace_id}
 
-        with langfuse_v3.start_as_current_observation(
-            as_type="span",
-            name="claude_code_session",
-            input=(
-                first_user_text[:LANGFUSE_PAYLOAD_MAX_CHARS]
-                if first_user_text
-                else None
+        with (
+            langfuse_v3.start_as_current_observation(
+                as_type="span",
+                name="claude_code_session",
+                input=(
+                    first_user_text[:LANGFUSE_PAYLOAD_MAX_CHARS]
+                    if first_user_text
+                    else None
+                ),
+                output=(
+                    last_assistant_text[:LANGFUSE_PAYLOAD_MAX_CHARS]
+                    if last_assistant_text
+                    else None
+                ),
+                **trace_kwargs,
             ),
-            output=(
-                last_assistant_text[:LANGFUSE_PAYLOAD_MAX_CHARS]
-                if last_assistant_text
-                else None
-            ),
-            **trace_kwargs,
-        ) as root_span:
-            # Set session and trace attributes via propagate_attributes (V3 pattern)
-            with propagate_attributes(
+            # Set trace-level attributes via propagate_attributes (V4 pattern)
+            propagate_attributes(
+                trace_name="claude_code_session",
                 session_id=session_id or None,
                 user_id="claude_code_user",
-            ):
-                root_span.update_trace(
-                    name="claude_code_session",
-                    metadata={**trace_metadata, "turn_count": len(turns)},
-                    tags=["session_trace", "tier1"],
-                )
+                metadata={**trace_metadata, "turn_count": str(len(turns))},
+                tags=["session_trace", "tier1"],
+            ),
+        ):
+            # ── BUG-154: Child spans with BOTH input and output ──
+            for i, turn in enumerate(turns, 1):
+                token_meta = {}
+                if turn.get("user_tokens") is not None:
+                    token_meta["user_tokens"] = turn["user_tokens"]
+                if turn.get("assistant_tokens") is not None:
+                    token_meta["assistant_tokens"] = turn["assistant_tokens"]
 
-                # ── BUG-154: Child spans with BOTH input and output ──
-                for i, turn in enumerate(turns, 1):
-                    token_meta = {}
-                    if turn.get("user_tokens") is not None:
-                        token_meta["user_tokens"] = turn["user_tokens"]
-                    if turn.get("assistant_tokens") is not None:
-                        token_meta["assistant_tokens"] = turn["assistant_tokens"]
+                # PLAN-014 G-04: Include model and usage in turn metadata if available
+                # Note: Claude Code transcripts may not always include usage/model data.
+                # These fields are extracted best-effort; if absent, they are simply omitted.
+                turn_model = turn.get("model")
+                turn_usage = turn.get("usage")
+                if turn_model:
+                    token_meta["model"] = turn_model
+                if turn_usage and isinstance(turn_usage, dict):
+                    token_meta["usage"] = turn_usage
 
-                    # PLAN-014 G-04: Include model and usage in turn metadata if available
-                    # Note: Claude Code transcripts may not always include usage/model data.
-                    # These fields are extracted best-effort; if absent, they are simply omitted.
-                    turn_model = turn.get("model")
-                    turn_usage = turn.get("usage")
-                    if turn_model:
-                        token_meta["model"] = turn_model
-                    if turn_usage and isinstance(turn_usage, dict):
-                        token_meta["usage"] = turn_usage
+                turn_input = turn.get("user_input") or ""
+                turn_output = turn.get("assistant_output") or ""
 
-                    turn_input = turn.get("user_input") or ""
-                    turn_output = turn.get("assistant_output") or ""
+                # PLAN-014 G-04: Use as_type="generation" when model/usage available,
+                # otherwise keep as "span" for backward compatibility
+                turn_type = "generation" if turn_model else "span"
 
-                    # PLAN-014 G-04: Use as_type="generation" when model/usage available,
-                    # otherwise keep as "span" for backward compatibility
-                    turn_type = "generation" if turn_model else "span"
-
-                    with langfuse_v3.start_as_current_observation(
-                        as_type=turn_type,
-                        name=f"turn_{i}",
-                        input=(
-                            turn_input[:LANGFUSE_PAYLOAD_MAX_CHARS]
-                            if turn_input
+                with langfuse_v3.start_as_current_observation(
+                    as_type=turn_type,
+                    name=f"turn_{i}",
+                    input=(
+                        turn_input[:LANGFUSE_PAYLOAD_MAX_CHARS] if turn_input else None
+                    ),
+                ) as turn_span:
+                    update_kwargs = {
+                        "output": (
+                            turn_output[:LANGFUSE_PAYLOAD_MAX_CHARS]
+                            if turn_output
                             else None
                         ),
-                    ) as turn_span:
-                        update_kwargs = {
-                            "output": (
-                                turn_output[:LANGFUSE_PAYLOAD_MAX_CHARS]
-                                if turn_output
-                                else None
-                            ),
-                            "metadata": token_meta,
-                        }
-                        # PLAN-014 G-04: Set model and usage on generation observations
-                        if turn_type == "generation":
-                            update_kwargs["model"] = turn_model
-                            if turn_usage and isinstance(turn_usage, dict):
-                                update_kwargs["usage"] = turn_usage
-                        turn_span.update(**update_kwargs)
+                        "metadata": token_meta,
+                    }
+                    # PLAN-014 G-04: Set model and usage on generation observations
+                    if turn_type == "generation":
+                        update_kwargs["model"] = turn_model
+                        if turn_usage and isinstance(turn_usage, dict):
+                            update_kwargs["usage"] = turn_usage
+                    turn_span.update(**update_kwargs)
 
-                        # PLAN-014 G-02: Child span for thinking blocks if present
-                        # Claude Code assistant turns may include content blocks with
-                        # type="thinking". If found, capture as a child observation.
-                        # Note: Thinking blocks may not be present in all transcript
-                        # formats or may be redacted by Claude Code.
-                        thinking_blocks = turn.get("thinking_blocks", [])
-                        if thinking_blocks:
-                            thinking_text = "\n".join(
-                                b.get("thinking", b.get("text", ""))
-                                for b in thinking_blocks
-                            )
-                            if thinking_text.strip():
-                                with langfuse_v3.start_as_current_observation(
-                                    as_type="span",
-                                    name=f"turn_{i}_thinking",
-                                    input=thinking_text[:LANGFUSE_PAYLOAD_MAX_CHARS],
-                                ) as thinking_span:
-                                    thinking_span.update(
-                                        metadata={
-                                            "block_count": len(thinking_blocks),
-                                            "source": "extended_thinking",
-                                        },
-                                    )
+                    # PLAN-014 G-02: Child span for thinking blocks if present
+                    # Claude Code assistant turns may include content blocks with
+                    # type="thinking". If found, capture as a child observation.
+                    # Note: Thinking blocks may not be present in all transcript
+                    # formats or may be redacted by Claude Code.
+                    thinking_blocks = turn.get("thinking_blocks", [])
+                    if thinking_blocks:
+                        thinking_text = "\n".join(
+                            b.get("thinking", b.get("text", ""))
+                            for b in thinking_blocks
+                        )
+                        if thinking_text.strip():
+                            with langfuse_v3.start_as_current_observation(
+                                as_type="span",
+                                name=f"turn_{i}_thinking",
+                                input=thinking_text[:LANGFUSE_PAYLOAD_MAX_CHARS],
+                            ) as thinking_span:
+                                thinking_span.update(
+                                    metadata={
+                                        "block_count": len(thinking_blocks),
+                                        "source": "extended_thinking",
+                                    },
+                                )
 
         # ── BUG-155: flush() with timeout guard + logging ──
         logger.info(

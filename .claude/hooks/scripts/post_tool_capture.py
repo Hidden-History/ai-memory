@@ -20,7 +20,6 @@ Sources:
 # SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
-import hashlib
 import json
 import logging
 import os
@@ -433,7 +432,7 @@ def _fork_fix_to_background_from_post_tool(
                     },
                     trace_id=uuid.uuid4().hex,
                     session_id=session_id,
-                    tags=["capture", "trigger"],
+                    tags=["capture", "code_change"],
                 )
             except Exception:
                 pass
@@ -625,7 +624,7 @@ def main() -> int:
                             if detect_project_func
                             else None
                         ),
-                        tags=["capture", "trigger"],
+                        tags=["capture", "code_change"],
                         start_time=capture_start,
                         end_time=datetime.now(tz=timezone.utc),
                     )

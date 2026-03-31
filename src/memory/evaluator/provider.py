@@ -1,4 +1,4 @@
-# LANGFUSE: V3 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
+# LANGFUSE: V4 SDK. See LANGFUSE-INTEGRATION-SPEC.md
 # This file does NOT use Langfuse directly — it calls LLM APIs for evaluation.
 """Model-agnostic evaluator provider.
 

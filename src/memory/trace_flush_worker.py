@@ -7,7 +7,7 @@ SPEC-020 §5 / PLAN-008 / DEC-PLAN008-004
 """
 
 # LANGFUSE: Trace flush worker. See LANGFUSE-INTEGRATION-SPEC.md §7.6
-# SDK VERSION: V3 ONLY. Do NOT use start_span(), start_generation(), or Langfuse() constructor.
+# SDK VERSION: V4. Do NOT use start_span(), start_generation(), or Langfuse() constructor.
 # OTel path (_process_event_otel): Uses raw OTel spans — DO NOT change attribute names.
 # SDK path (_process_event_sdk): Fallback when OTel unavailable — uses start_observation().
 
@@ -36,6 +36,11 @@ INSTALL_DIR = os.environ.get(
     "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
 )
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
+
+try:
+    from langfuse import propagate_attributes as _langfuse_propagate_attributes
+except ImportError:  # pragma: no cover
+    _langfuse_propagate_attributes = None  # type: ignore[assignment]
 
 from memory.langfuse_config import get_langfuse_client
 
@@ -280,48 +285,46 @@ def _process_event_sdk(event: dict, data: dict, langfuse) -> None:
     if parent_span_id:
         span_metadata["parent_span_id"] = parent_span_id
 
-    observation = langfuse.start_observation(
-        name=event_type,
-        as_type=as_type if as_type in ("generation", "span", "retriever") else "span",
-        trace_context={"trace_id": trace_id} if trace_id else None,
+    # Set trace-level attributes via propagate_attributes (V4 pattern).
+    # Falls back to nullcontext if langfuse not installed (degraded mode).
+    _prop_ctx = (
+        _langfuse_propagate_attributes(
+            trace_name=f"hook_pipeline_{event.get('project_id', 'unknown')}",
+            session_id=event.get("session_id") or None,
+            user_id="system",
+            metadata={"project_id": event.get("project_id"), "source": "trace_buffer"},
+            tags=event.get("tags") or None,
+        )
+        if _langfuse_propagate_attributes is not None
+        else contextlib.nullcontext()
     )
-    observation.update(
-        input=data.get("input"),
-        output=data.get("output"),
-        metadata=span_metadata,
-        model=data.get("model") if as_type == "generation" else None,
-        usage_details=data.get("usage") if as_type == "generation" else None,
-    )
+    with _prop_ctx:
+        observation = langfuse.start_observation(
+            name=event_type,
+            as_type=(
+                as_type if as_type in ("generation", "span", "retriever") else "span"
+            ),
+            trace_context={"trace_id": trace_id} if trace_id else None,
+        )
+        observation.update(
+            input=data.get("input"),
+            output=data.get("output"),
+            metadata=span_metadata,
+            model=data.get("model") if as_type == "generation" else None,
+            usage_details=data.get("usage") if as_type == "generation" else None,
+        )
 
-    # ISSUE-185: Only set trace-level I/O on root events
-    is_root = event_type == "1_capture" or not parent_span_id
-    trace_kwargs = {
-        "name": f"hook_pipeline_{event.get('project_id', 'unknown')}",
-        "session_id": event.get("session_id"),
-        "user_id": "system",  # Trace flush worker is a system service
-        "metadata": {
-            "project_id": event.get("project_id"),
-            "source": "trace_buffer",
-        },
-    }
-    if is_root:
-        trace_kwargs["input"] = data.get("input")
-        trace_kwargs["output"] = data.get("output")
-    if event.get("tags"):
-        trace_kwargs["tags"] = event["tags"]
-    observation.update_trace(**trace_kwargs)
-
-    if data.get("end_time"):
-        try:
-            observation.end(end_time=_dt_to_ns(data["end_time"]))
-        except TypeError:
-            # V4 SDK wrapper may not accept end_time kwarg — fall back to plain end
-            logger.warning(
-                "V4 SDK rejected end_time kwarg — trace duration may be inaccurate"
-            )
+        if data.get("end_time"):
+            try:
+                observation.end(end_time=_dt_to_ns(data["end_time"]))
+            except TypeError:
+                # V4 SDK wrapper may not accept end_time kwarg — fall back to plain end
+                logger.warning(
+                    "V4 SDK rejected end_time kwarg — trace duration may be inaccurate"
+                )
+                observation.end()
+        else:
             observation.end()
-    else:
-        observation.end()
 
 
 def process_buffer_files(langfuse) -> tuple[int, int]:

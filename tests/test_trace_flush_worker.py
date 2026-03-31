@@ -78,13 +78,17 @@ def test_processes_valid_buffer_files(tmp_path, monkeypatch):
     mock_langfuse = MagicMock()
     mock_span = MagicMock()
     mock_langfuse.start_observation.return_value = mock_span
+    mock_propagate = MagicMock()
+    monkeypatch.setattr(mod, "_langfuse_propagate_attributes", mock_propagate)
 
     processed, errors = mod.process_buffer_files(mock_langfuse)
 
     assert processed == 1
     assert errors == 0
     mock_langfuse.start_observation.assert_called_once()
-    mock_span.update_trace.assert_called_once()
+    # V4: trace attrs set via propagate_attributes, not update_trace
+    mock_propagate.assert_called_once()
+    mock_span.update_trace.assert_not_called()
     mock_span.end.assert_called_once()
     # V2 methods must NOT be called (regression guard)
     mock_langfuse.start_span.assert_not_called()

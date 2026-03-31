@@ -71,6 +71,8 @@ services:
         condition: service_healthy
       langfuse-minio:
         condition: service_started
+      langfuse-minio-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -139,6 +141,8 @@ services:
         condition: service_healthy
       langfuse-minio:
         condition: service_started
+      langfuse-minio-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -265,6 +269,37 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  # ─── MinIO Init (bucket creation) ────────────────────────────────────────────
+  # BUG-263: Chainguard distroless MinIO image has no mc CLI — cannot create bucket.
+  # Use minio/mc init container to create the 'langfuse' bucket after MinIO is healthy.
+  # restart: "no" ensures this only runs once (one-shot init pattern).
+  langfuse-minio-init:
+    image: minio/mc
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-langfuse-minio-init
+    labels:
+      <<: *ai-memory-labels-langfuse
+      ai-memory.service: "langfuse-minio-init"
+    profiles: ["langfuse"]
+    depends_on:
+      langfuse-minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mc alias set local http://langfuse-minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+        mc mb --ignore-existing local/langfuse &&
+        echo "Bucket 'langfuse' ready"
+    environment:
+      - MINIO_ROOT_USER=${LANGFUSE_S3_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${LANGFUSE_S3_SECRET_KEY}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - ai-memory_default
+    restart: "no"
 
   # ─── Trace Flush Worker (AI Memory component) ──────────────────────────────
   # Reads buffered traces from host trace_buffer/ and flushes them to Langfuse.

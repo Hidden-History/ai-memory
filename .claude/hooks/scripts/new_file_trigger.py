@@ -282,7 +282,7 @@ def main() -> int:
                             trace_id=uuid4().hex,
                             session_id=hook_input.get("session_id"),
                             project_id=project_name,
-                            tags=["capture", "trigger"],
+                            tags=["capture", "code_change"],
                         )
                     except Exception:
                         logger.debug("trace_event_failed_convention_retrieval")
