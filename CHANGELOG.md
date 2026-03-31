@@ -5,6 +5,84 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — v2.3.0 Phased Sprint
+
+Stabilization, observability, and data integrity improvements. Phased sprint with gated verify cycles.
+
+### Phase 1: Critical + Security (PLAN-023 P1)
+
+#### Fixed
+- **Broken Tier 2 injection on fresh installs** (BUG-250, CRITICAL): Installer template registered archived `unified_keyword_trigger.py` instead of `context_injection_tier2.py`. Added deny-list to `_remove_dead_hooks()`.
+- **Orphaned Langfuse traces** (BUG-251, CRITICAL): `CLAUDE_SESSION_ID` not propagated to library module calls. Added `os.environ.setdefault()` in `code_sync.py`, `sync.py`, `agent_sdk_wrapper.py`.
+- **Credential in committed settings** (V1-NEW-001): `QDRANT_API_KEY` removed from committed `settings.json`. Added `.gitignore` patterns.
+- **Grafana default password** (TD-370): Removed `:-admin` default from `docker-compose.yml`. Installer already generates a secure password.
+- **Hook stdin hang** (CI fix): `post_tool_capture.py` moved stdin read before network/metrics setup. Empty input exits immediately.
+
+#### Changed
+- **`qdrant_api_key` → `SecretStr`** (V5-NEW-2): Config field converted to `SecretStr | None`. All 9 consumers updated to call `.get_secret_value()`.
+- **Cache key fingerprint** (TD-371): Cache key uses SHA-256[:8] fingerprint instead of raw API key.
+
+### Phase 2: Data Integrity + Observability + Langfuse v4 (PLAN-023 P2)
+
+#### Changed
+- **Langfuse SDK upgrade** (LANGFUSE-4X): Upgraded from `langfuse>=3.0,<4.0.0` to `langfuse>=4.0.0,<4.1.0` (v4.0.4). Metadata values in classifier providers converted to strings for v4 compliance. `langfuse_should_export_span` config field added for future span filter override. LANGFUSE-INTEGRATION-SPEC.md updated to v1.3. All V3 SDK comments updated to V4.
+- **Tag standardization** (TD-326): `emit_trace_event` tags in `store_async.py` changed from `"trigger"` to `"code_change"` (11 call sites).
+
+#### Added
+- **Storage tracing** (TD-317): `emit_trace_event` calls added to all 5 storage entry points (`store_memory`, `store_memories_batch`, `store_github_code_blob_chunks_batch`, `store_agent_memory`, `store_best_practice`) with start/end timing, tags, and project_id.
+- **Retriever observation type** (TD-323): Search spans now emit `as_type="retriever"` for proper Langfuse dashboard categorization. Added `"retriever"` to trace flush worker allowlist and OTel attribute mapping.
+- **@observe prohibition** (TD-325): Architecture note added to `injection.py`, `search.py`, `embeddings.py` headers documenting why `@observe` must not be used in hook-called modules.
+- **Zero-vector validation** (TD-354, NI-V3-004): Embedding responses validated for degenerate all-zero vectors. Raises `EmbeddingError` in single-embed path; defense-in-depth check in batch path.
+- **Session summary agent_id** (BUG-258, NI-V3-001): `agent_id` field added to `pre_compact_save.py` in both `build_session_summary()` and `chunk_payload`. Enables Parzival tenant isolation for session summaries.
+
+### Upgrade Instructions
+
+**From v2.2.8 to this version:**
+
+1. Pull the feature branch into your clone:
+   ```bash
+   cd <your-ai-memory-clone>
+   git fetch origin
+   git checkout feature/v2.3.0-phased-sprint
+   git pull origin feature/v2.3.0-phased-sprint
+   ```
+
+2. Run the installer (Option 1 — add to existing installation):
+   ```bash
+   ./scripts/install.sh <your-project-dir>
+   ```
+
+3. Rebuild Docker containers that have baked dependencies:
+   ```bash
+   unset QDRANT_API_KEY
+   cd ~/.ai-memory/docker/
+   docker compose build --no-cache github-sync
+   docker compose -f docker-compose.langfuse.yml build --no-cache trace-flush-worker
+   ```
+
+4. Restart all services:
+   ```bash
+   ~/.ai-memory/scripts/stack.sh restart
+   ```
+   If `stack.sh restart` fails with a network conflict, stop langfuse services first:
+   ```bash
+   cd ~/.ai-memory/docker/
+   docker compose -f docker-compose.langfuse.yml down
+   docker compose down
+   docker compose up -d
+   docker compose --profile monitoring --profile github --profile classify --profile streamlit up -d
+   docker compose -f docker-compose.langfuse.yml --profile langfuse up -d
+   ```
+
+5. Verify:
+   ```bash
+   cd <your-ai-memory-clone>
+   python3 scripts/health-check.py
+   ```
+   Expect: 17/17 healthy, `langfuse==4.0.4` in venv and containers.
+
+---
+
 ## [Unreleased] — Multi-IDE Adapter Support
 
 Adds native lifecycle hook support for Gemini CLI, Cursor IDE, and Codex CLI alongside existing Claude Code integration. All four IDEs share the same memory pipeline through a canonical event schema — memories created in one IDE are available in all others.
