@@ -92,6 +92,9 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 #### Changed
 - **Standardize Python base image** (TD-343): All 6 Dockerfiles now use `python:3.12-slim`. Monitoring and Streamlit upgraded from 3.11-slim; worker and github-sync de-pinned from 3.12.8-slim. Consistent runtime across all containers per BP-146.
 - **Remove dead Dockerfile HEALTHCHECK instructions** (TD-349): `HEALTHCHECK` removed from `embedding/Dockerfile`, `streamlit/Dockerfile`, and `monitoring/Dockerfile`. Docker Compose healthchecks are authoritative; Dockerfile copies were dead code and a divergence risk.
+- **Evaluator 25-hour start_period** (TD-345): `start_period: 90000s` (25 hours) corrected to `120s` in `docker-compose.langfuse.yml`. The 90000 in the healthcheck CMD (file age window for daily cron) is correct and unchanged.
+- **Remove unused classifier_queue volume** (TD-346): Named volume `classifier_queue` declared but never mounted by any service. Removed from `docker-compose.yml`. Classifier-worker uses bind mount instead.
+- **Document UID/GID env vars** (TD-344): Added `UID` and `GID` to `.env.example` Section 6 (Container Identity). 12 of 14 originally reported undocumented vars were already present from TD-340.
 
 ### Upgrade Instructions
 

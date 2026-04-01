@@ -559,8 +559,3 @@ volumes:
     labels:
       <<: *ai-memory-labels
       ai-memory.volume: "pushgateway_data"
-  classifier_queue:
-    driver: local
-    labels:
-      <<: *ai-memory-labels
-      ai-memory.volume: "classifier_queue"

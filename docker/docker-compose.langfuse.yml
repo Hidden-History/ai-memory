@@ -408,7 +408,7 @@ services:
       interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 90000s
+      start_period: 120s  # TD-345: Was 90000s (25h) — start_period is container startup buffer, not cron window
 
 # ─── Network ─────────────────────────────────────────────────────────────────
 # Join the existing ai-memory stack network so Langfuse services can communicate
