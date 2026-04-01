@@ -3,7 +3,7 @@
 # Version ranges match pyproject.toml constraints
 
 streamlit==1.54.0
-qdrant-client==1.16.2
+qdrant-client==1.17.1
 httpx==0.28.1
 
 # Required by memory module import chain (memory/__init__.py)
@@ -15,5 +15,5 @@ pydantic-settings>=2.0.0,<3.0.0
 tenacity>=8.0.0,<9.0.0
 # Required by memory module import chain (memory.metrics_push, memory.chunking)
 # BUG-257: Same class as BUG-091 (github-sync missing deps)
-prometheus-client>=0.21.0,<1.0.0
+prometheus-client==0.24.1
 tiktoken>=0.5.0,<1.0.0

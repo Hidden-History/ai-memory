@@ -1,5 +1,5 @@
 # AI Memory Module - Embedding Service
-# Last audited: 2026-01-14
+# Last audited: 2026-04-01
 # All versions pinned per ACT-003
 
 # Core FastAPI dependencies
@@ -14,7 +14,7 @@ fastembed==0.7.4
 httpx==0.28.1
 
 # Prometheus metrics export (Story 6.1)
-prometheus-client==0.23.1
+prometheus-client==0.24.1
 
 # Qdrant client (required by memory.metrics import chain)
-qdrant-client==1.17.0
+qdrant-client==1.17.1
