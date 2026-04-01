@@ -82,6 +82,12 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 - **Queue dir tilde + env var expansion** (TD-340 hardening): `expand_queue_dir` validator now applies both `os.path.expanduser()` and `os.path.expandvars()`, consistent with other path validators.
 - **.env.example audit** (TD-340): All env vars verified against actual consumers. `QDRANT_READ_ONLY_API_KEY` documented with comment. No orphaned vars found.
 
+### Phase 4a: Docker Infrastructure (PLAN-023 P4a)
+
+#### Fixed
+- **Qdrant healthcheck TCP→HTTP** (TD-341): Docker Compose healthcheck converted from TCP port probe (`echo > /dev/tcp`) to HTTP readiness check (`GET /readyz`). Uses bash `/dev/tcp` for raw HTTP (no curl in Qdrant image). Timing tightened: interval 30s→10s, timeout 10s→5s, start_period 10s→15s. Unhealthy detection window reduced from ~100s to ~45s. `/readyz` is auth-whitelisted since Qdrant v1.5.0 (BP-145).
+- **TD-342 closed** (DEC-193): API key validation in Docker healthcheck is architecturally wrong — `/readyz` is auth-whitelisted by design. API key validation handled at application level by services connecting to Qdrant.
+
 ### Upgrade Instructions
 
 **From v2.2.8 to this version:**
