@@ -62,6 +62,11 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 - **DRY hook utilities** (TD-338): Extracted `_hook_cmd()`, `get_langfuse_env_section()`, and `normalize_matcher()` to shared `scripts/hook_utils.py`. All 3 consumers (`generate_settings.py`, `merge_settings.py`, `recover_hook_guards.py`) import from it — zero duplication.
 - **Robust matcher normalization** (BUG-078 hardening): `recover_hook_guards.py` matcher fix upgraded from exact-string match to frozenset-based approach. Scope-restricted to AI Memory hooks only (checks for `session_start.py` in command).
 
+### Performance: GitHub Code-Blob Sync (Issue #102)
+
+#### Fixed
+- **Excessive Qdrant scroll traffic on large repos** ([#102](https://github.com/Hidden-History/ai-memory/issues/102)): `_update_last_synced()` performed O(n) scroll+set_payload per unchanged file every sync cycle. Replaced with `_batch_update_last_synced()` using `MatchAny` filter — single scroll + chunked set_payload (500 IDs/batch). Adds 30s timeout via `asyncio.wait_for()`. Reduces sync-cycle Qdrant load from O(tracked_files) to O(1) for metadata updates.
+
 ### Phase 3b: Config + Settings (PLAN-023 P3b)
 
 #### Fixed
