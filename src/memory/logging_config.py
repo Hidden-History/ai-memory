@@ -132,18 +132,27 @@ def configure_logging(level: str | None = None) -> None:
         AI_MEMORY_LOG_FORMAT: Output format (json, text). Default: json
             (BMAD_LOG_FORMAT is a deprecated alias)
     """
-    # Determine log level from parameter or environment variable
+    # Determine log level from parameter or config/environment variable
     if level is None:
-        # Check new name first, fall back to deprecated name
-        level = os.getenv("AI_MEMORY_LOG_LEVEL") or os.getenv("BMAD_LOG_LEVEL")
+        # Deprecation warning for legacy env var (regardless of config source)
         if os.getenv("BMAD_LOG_LEVEL") and not os.getenv("AI_MEMORY_LOG_LEVEL"):
             warnings.warn(
                 "BMAD_LOG_LEVEL is deprecated, use AI_MEMORY_LOG_LEVEL instead",
                 DeprecationWarning,
                 stacklevel=2,
             )
-        if level is None:
-            level = "INFO"
+        try:
+            from .config import get_config
+
+            level = get_config().log_level
+        except (ImportError, RuntimeError):
+            # Fallback: config not yet available during early bootstrap
+            # Fallback for early bootstrap before config is available
+            level = (
+                os.getenv("AI_MEMORY_LOG_LEVEL")
+                or os.getenv("BMAD_LOG_LEVEL")
+                or "INFO"
+            )
 
     log_level = getattr(logging, level.upper(), logging.INFO)
 

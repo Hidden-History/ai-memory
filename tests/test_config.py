@@ -82,7 +82,7 @@ class TestMemoryConfig:
         monkeypatch.setenv("QDRANT_PORT", "16360")
         monkeypatch.setenv("EMBEDDING_PORT", "18090")
         monkeypatch.setenv("TOKEN_BUDGET", "3000")
-        monkeypatch.setenv("LOG_LEVEL", "DEBUG")
+        monkeypatch.setenv("AI_MEMORY_LOG_LEVEL", "DEBUG")
         monkeypatch.setenv("LOG_FORMAT", "text")
 
         config = get_config()
@@ -453,3 +453,89 @@ LOG_LEVEL=WARNING
 
         with pytest.raises(ValidationError):
             MemoryConfig(max_retrievals="not_an_int")  # type: ignore
+
+
+class TestConfigWave2:
+    """Tests for P3b Wave 2 config + settings fixes."""
+
+    def test_log_level_alias_ai_memory_prefix(self, monkeypatch):
+        """BUG-254: AI_MEMORY_LOG_LEVEL env var sets log_level via AliasChoices."""
+        reset_config()
+        monkeypatch.setenv("AI_MEMORY_LOG_LEVEL", "DEBUG")
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+        config = get_config()
+        assert config.log_level == "DEBUG"
+
+    def test_log_level_alias_plain(self, monkeypatch):
+        """BUG-254: LOG_LEVEL env var still works via AliasChoices."""
+        reset_config()
+        monkeypatch.delenv("AI_MEMORY_LOG_LEVEL", raising=False)
+        monkeypatch.setenv("LOG_LEVEL", "WARNING")
+
+        config = get_config()
+        assert config.log_level == "WARNING"
+
+    def test_log_level_default(self, monkeypatch):
+        """BUG-254: log_level defaults to INFO when no env var set."""
+        reset_config()
+        monkeypatch.delenv("AI_MEMORY_LOG_LEVEL", raising=False)
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+        config = MemoryConfig(_env_file=None)
+        assert config.log_level == "INFO"
+
+    def test_queue_dir_alias_ai_memory_prefix(self, monkeypatch):
+        """BUG-254: AI_MEMORY_QUEUE_DIR env var sets queue_dir via AliasChoices."""
+        reset_config()
+        monkeypatch.setenv("AI_MEMORY_QUEUE_DIR", "/tmp/test-queue")
+        monkeypatch.delenv("QUEUE_DIR", raising=False)
+
+        config = get_config()
+        assert config.queue_dir == "/tmp/test-queue"
+
+    def test_queue_dir_alias_plain(self, monkeypatch):
+        """BUG-254: QUEUE_DIR env var still works via AliasChoices."""
+        reset_config()
+        monkeypatch.delenv("AI_MEMORY_QUEUE_DIR", raising=False)
+        monkeypatch.setenv("QUEUE_DIR", "/tmp/plain-queue")
+
+        config = get_config()
+        assert config.queue_dir == "/tmp/plain-queue"
+
+    def test_queue_dir_tilde_expansion(self):
+        """BUG-254: queue_dir default ~ is expanded to home directory."""
+        reset_config()
+        config = MemoryConfig(_env_file=None)
+        assert "~" not in config.queue_dir
+        assert config.queue_dir == os.path.expanduser("~/.ai-memory/queue")
+
+    def test_queue_dir_tilde_expansion_from_env(self, monkeypatch):
+        """BUG-254: queue_dir ~ in env var is expanded."""
+        reset_config()
+        monkeypatch.setenv("AI_MEMORY_QUEUE_DIR", "~/custom-queue")
+
+        config = get_config()
+        assert "~" not in config.queue_dir
+        assert config.queue_dir == os.path.expanduser("~/custom-queue")
+
+    def test_qdrant_read_only_api_key_default(self, monkeypatch):
+        """TD-333: qdrant_read_only_api_key defaults to None."""
+        monkeypatch.delenv("QDRANT_READ_ONLY_API_KEY", raising=False)
+        reset_config()
+
+        config = MemoryConfig(_env_file=None)
+        assert config.qdrant_read_only_api_key is None
+
+    def test_qdrant_read_only_api_key_from_env(self, monkeypatch):
+        """TD-333: qdrant_read_only_api_key can be set via env var."""
+        reset_config()
+        monkeypatch.setenv("QDRANT_READ_ONLY_API_KEY", "ro-key-456")
+
+        config = get_config()
+        assert config.qdrant_read_only_api_key is not None
+        assert config.qdrant_read_only_api_key.get_secret_value() == "ro-key-456"
+
+    def test_hide_input_in_errors(self):
+        """Enhancement: hide_input_in_errors is set on model_config."""
+        assert MemoryConfig.model_config.get("hide_input_in_errors") is True

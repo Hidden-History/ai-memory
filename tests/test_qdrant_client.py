@@ -241,6 +241,83 @@ class TestQdrantClient:
         expected_fingerprint = hashlib.sha256(raw_key.encode()).hexdigest()[:8]
         assert expected_fingerprint in cache_key
 
+    def test_read_only_key_used_when_available(self):
+        """TD-333: read_only=True prefers qdrant_read_only_api_key."""
+        ro_key = "read-only-key-value"
+        rw_key = "read-write-key-value"
+        config = MemoryConfig.model_construct(
+            qdrant_host="localhost",
+            qdrant_port=6333,
+            qdrant_api_key=SecretStr(rw_key),
+            qdrant_read_only_api_key=SecretStr(ro_key),
+            qdrant_use_https=False,
+            qdrant_timeout=30,
+        )
+
+        with patch("src.memory.qdrant_client.QdrantClient") as MockQdrantClient:
+            MockQdrantClient.return_value = Mock()
+            get_qdrant_client(config, read_only=True)
+
+            call_kwargs = MockQdrantClient.call_args.kwargs
+            assert call_kwargs["api_key"] == ro_key
+
+    def test_read_only_falls_back_to_main_key(self):
+        """TD-333: read_only=True falls back to qdrant_api_key when no RO key."""
+        rw_key = "read-write-key-value"
+        config = MemoryConfig.model_construct(
+            qdrant_host="localhost",
+            qdrant_port=6333,
+            qdrant_api_key=SecretStr(rw_key),
+            qdrant_read_only_api_key=None,
+            qdrant_use_https=False,
+            qdrant_timeout=30,
+        )
+
+        with patch("src.memory.qdrant_client.QdrantClient") as MockQdrantClient:
+            MockQdrantClient.return_value = Mock()
+            get_qdrant_client(config, read_only=True)
+
+            call_kwargs = MockQdrantClient.call_args.kwargs
+            assert call_kwargs["api_key"] == rw_key
+
+    def test_read_only_both_keys_none(self):
+        """TD-333: read_only=True with both keys None passes api_key=None to client."""
+        config = MemoryConfig.model_construct(
+            qdrant_host="localhost",
+            qdrant_port=6333,
+            qdrant_api_key=None,
+            qdrant_read_only_api_key=None,
+            qdrant_use_https=False,
+            qdrant_timeout=30,
+        )
+
+        with patch("src.memory.qdrant_client.QdrantClient") as MockQdrantClient:
+            MockQdrantClient.return_value = Mock()
+            get_qdrant_client(config, read_only=True)
+
+            call_kwargs = MockQdrantClient.call_args.kwargs
+            assert call_kwargs["api_key"] is None
+
+    def test_write_client_ignores_read_only_key(self):
+        """TD-333: read_only=False (default) uses qdrant_api_key."""
+        ro_key = "read-only-key-value"
+        rw_key = "read-write-key-value"
+        config = MemoryConfig.model_construct(
+            qdrant_host="localhost",
+            qdrant_port=6333,
+            qdrant_api_key=SecretStr(rw_key),
+            qdrant_read_only_api_key=SecretStr(ro_key),
+            qdrant_use_https=False,
+            qdrant_timeout=30,
+        )
+
+        with patch("src.memory.qdrant_client.QdrantClient") as MockQdrantClient:
+            MockQdrantClient.return_value = Mock()
+            get_qdrant_client(config, read_only=False)
+
+            call_kwargs = MockQdrantClient.call_args.kwargs
+            assert call_kwargs["api_key"] == rw_key
+
     def test_module_has_all_exports(self):
         """AC 1.4.3: Module exports required functions."""
         from src.memory import qdrant_client as qc_module

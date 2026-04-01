@@ -7,6 +7,7 @@ RESOURCE LIMITS FOR TESTS:
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 import pytest
 
@@ -18,6 +19,9 @@ from src.memory.classifier.queue import (
     enqueue_for_classification,
     get_queue_size,
 )
+from src.memory.classifier.queue import (
+    _resolve_queue_dir as _real_resolve_queue_dir,
+)
 
 
 # Override queue location for tests
@@ -28,6 +32,12 @@ def temp_queue_dir(tmp_path, monkeypatch):
 
     monkeypatch.setattr(queue_module, "QUEUE_DIR", tmp_path)
     monkeypatch.setattr(queue_module, "QUEUE_FILE", tmp_path / "test_queue.jsonl")
+    monkeypatch.setattr(queue_module, "_resolve_queue_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        queue_module,
+        "_resolve_queue_file",
+        lambda: tmp_path / "test_queue.jsonl",
+    )
     yield tmp_path
 
 
@@ -162,3 +172,16 @@ def test_lock_timeout_dequeue(temp_queue_dir, monkeypatch):
         finally:
             monkeypatch.setattr(queue_module, "LOCK_TIMEOUT_SECONDS", original_timeout)
             fcntl.flock(f, fcntl.LOCK_UN)
+
+
+@pytest.mark.timeout(10)
+def test_resolve_queue_dir_uses_config(monkeypatch):
+    """_resolve_queue_dir() returns path from AI_MEMORY_QUEUE_DIR env via config."""
+    from src.memory.config import reset_config
+
+    monkeypatch.setenv("AI_MEMORY_QUEUE_DIR", "/tmp/test-queue-config-path")
+    reset_config()
+
+    result = _real_resolve_queue_dir()
+
+    assert result == Path("/tmp/test-queue-config-path")

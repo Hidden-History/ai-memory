@@ -40,7 +40,9 @@ class QdrantUnavailable(Exception):
     pass
 
 
-def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
+def get_qdrant_client(
+    config: MemoryConfig | None = None, read_only: bool = False
+) -> QdrantClient:
     """Get configured Qdrant client.
 
     Creates QdrantClient instance with connection parameters from config.
@@ -48,6 +50,7 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
 
     Args:
         config: Optional MemoryConfig instance. Uses get_config() if not provided.
+        read_only: If True, prefer qdrant_read_only_api_key for search operations.
 
     Returns:
         Configured QdrantClient instance.
@@ -65,14 +68,19 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
     """
     config = config or get_config()
 
+    # Resolve effective API key: prefer read-only key for search, fall back to main key
+    effective_key = None
+    if read_only and config.qdrant_read_only_api_key:
+        effective_key = config.qdrant_read_only_api_key
+    elif config.qdrant_api_key:
+        effective_key = config.qdrant_api_key
+
     key_fingerprint = ""
-    if config.qdrant_api_key:
+    if effective_key:
         # TD-371: hash prevents raw key from appearing in cache key or logs
         key_fingerprint = hashlib.sha256(
-            config.qdrant_api_key.get_secret_value().encode()
-        ).hexdigest()[
-            :8
-        ]  # 8 chars sufficient for cache uniqueness
+            effective_key.get_secret_value().encode()
+        ).hexdigest()[:8]
     cache_key = f"{config.qdrant_host}:{config.qdrant_port}:{key_fingerprint}:{config.qdrant_use_https}"
     if cache_key in _client_cache:
         return _client_cache[cache_key]
@@ -90,6 +98,8 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
             "ignore", message="Api key is used with an insecure connection"
         )
 
+    api_key_value = effective_key.get_secret_value() if effective_key else None
+
     # TD-107: prefer gRPC for lower latency; fall back to HTTP if unavailable.
     # NOTE: QdrantClient construction does not establish a connection, so we
     # probe with get_collections() to detect gRPC unavailability at init time.
@@ -98,11 +108,7 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
         client = QdrantClient(
             host=config.qdrant_host,
             port=config.qdrant_port,
-            api_key=(
-                config.qdrant_api_key.get_secret_value()
-                if config.qdrant_api_key
-                else None
-            ),
+            api_key=api_key_value,
             https=config.qdrant_use_https,
             timeout=config.qdrant_timeout,
             prefer_grpc=True,
@@ -119,11 +125,7 @@ def get_qdrant_client(config: MemoryConfig | None = None) -> QdrantClient:
         client = QdrantClient(
             host=config.qdrant_host,
             port=config.qdrant_port,
-            api_key=(
-                config.qdrant_api_key.get_secret_value()
-                if config.qdrant_api_key
-                else None
-            ),
+            api_key=api_key_value,
             https=config.qdrant_use_https,
             timeout=config.qdrant_timeout,
         )

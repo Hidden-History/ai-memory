@@ -20,7 +20,7 @@ from dataclasses import field as dataclass_field
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -106,6 +106,7 @@ class MemoryConfig(BaseSettings):
         embedding_port: Embedding service port (default 28080 per DEC-004)
         monitoring_host: Monitoring API hostname
         monitoring_port: Monitoring API port (default 28000)
+        qdrant_read_only_api_key: Optional read-only API key for Qdrant search operations (falls back to qdrant_api_key)
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         log_format: Log format (json for production, text for development)
         collection_size_warning: Warning threshold for collection size
@@ -138,6 +139,8 @@ class MemoryConfig(BaseSettings):
         validate_default=True,  # Validate default values
         frozen=True,  # Immutable after creation (thread-safe)
         extra="ignore",  # Allow extra env vars (STREAMLIT_PORT, PLATFORM, etc.)
+        populate_by_name=True,  # Allow both field name and validation_alias for init
+        hide_input_in_errors=True,  # Prevent SecretStr leaks in validation errors
     )
 
     # Core thresholds (FR42)
@@ -203,6 +206,11 @@ class MemoryConfig(BaseSettings):
         default=None, description="Optional API key for Qdrant authentication (BP-040)"
     )
 
+    qdrant_read_only_api_key: SecretStr | None = Field(
+        default=None,
+        description="Read-only API key for Qdrant search operations (falls back to qdrant_api_key)",
+    )
+
     qdrant_use_https: bool = Field(
         default=False,
         description="Use HTTPS for Qdrant connections (BP-040: required for production with API keys)",
@@ -247,6 +255,9 @@ class MemoryConfig(BaseSettings):
     # Logging & Monitoring
     log_level: str = Field(
         default="INFO",
+        validation_alias=AliasChoices(
+            "AI_MEMORY_LOG_LEVEL", "LOG_LEVEL", "BMAD_LOG_LEVEL"
+        ),
         pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$",
         description="Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL",
     )
@@ -279,6 +290,12 @@ class MemoryConfig(BaseSettings):
     session_log_path: Path = Field(
         default_factory=lambda: Path.home() / ".ai-memory" / "sessions.jsonl",
         description="Session logs",
+    )
+
+    queue_dir: str = Field(
+        default="~/.ai-memory/queue",
+        validation_alias=AliasChoices("AI_MEMORY_QUEUE_DIR", "QUEUE_DIR"),
+        description="Directory for classification queue files",
     )
 
     # Jira Cloud Integration (PLAN-004 Phase 1)
@@ -895,6 +912,14 @@ class MemoryConfig(BaseSettings):
         """Expand ~ and environment variables in paths."""
         if isinstance(v, str):
             return Path(os.path.expanduser(os.path.expandvars(v)))
+        return v
+
+    @field_validator("queue_dir", mode="before")
+    @classmethod
+    def expand_queue_dir(cls, v):
+        """Expand ~ in queue directory path."""
+        if isinstance(v, str):
+            return os.path.expanduser(os.path.expandvars(v))
         return v
 
     @field_validator("jira_projects", mode="before")

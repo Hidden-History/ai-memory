@@ -170,15 +170,19 @@ class TestEnvironmentVariableControl:
 
     def test_log_level_from_environment(self):
         """Test that AI_MEMORY_LOG_LEVEL environment variable controls log level."""
+        from src.memory.config import reset_config
         from src.memory.logging_config import configure_logging
 
         # Test primary env var: AI_MEMORY_LOG_LEVEL (overrides any pre-existing value)
+        # reset_config() ensures get_config() picks up env var changes
         with patch.dict(os.environ, {"AI_MEMORY_LOG_LEVEL": "DEBUG"}):
+            reset_config()
             configure_logging()
             logger = logging.getLogger("ai_memory")
             assert logger.level == logging.DEBUG
 
         with patch.dict(os.environ, {"AI_MEMORY_LOG_LEVEL": "ERROR"}):
+            reset_config()
             # Need to remove existing handlers to reconfigure
             logger = logging.getLogger("ai_memory")
             logger.handlers.clear()
@@ -208,6 +212,24 @@ class TestEnvironmentVariableControl:
             # Text format should NOT be JSON
             with pytest.raises(json.JSONDecodeError):
                 json.loads(output.strip())
+
+    def test_configure_logging_uses_config_log_level_alias(self):
+        """LOG_LEVEL env var reaches configure_logging() via config AliasChoices path."""
+        from src.memory.config import reset_config
+        from src.memory.logging_config import configure_logging
+
+        env_overrides = {
+            "LOG_LEVEL": "DEBUG",
+            # Bypass installed .env so AI_MEMORY_LOG_LEVEL=INFO doesn't override LOG_LEVEL
+            "AI_MEMORY_INSTALL_DIR": "/tmp/nonexistent-aim-log-alias-test",
+        }
+        with patch.dict(os.environ, env_overrides, clear=False):
+            os.environ.pop("AI_MEMORY_LOG_LEVEL", None)
+            reset_config()
+            logger = logging.getLogger("ai_memory")
+            logger.handlers.clear()
+            configure_logging()
+            assert logger.level == logging.DEBUG
 
 
 class TestTimedOperation:
@@ -454,9 +476,19 @@ class TestDeprecatedEnvVarAliases:
 
     def test_deprecated_bmad_log_level_still_works(self):
         """BMAD_LOG_LEVEL (deprecated) still works when AI_MEMORY_LOG_LEVEL is absent."""
-        with patch.dict(os.environ, {"BMAD_LOG_LEVEL": "WARNING"}, clear=False):
-            # Remove AI_MEMORY_LOG_LEVEL if present
+        from src.memory.config import reset_config
+
+        env_overrides = {
+            "BMAD_LOG_LEVEL": "WARNING",
+            # Point to non-existent dir so the installed .env file is not loaded,
+            # preventing AI_MEMORY_LOG_LEVEL=INFO in the installed .env from interfering.
+            "AI_MEMORY_INSTALL_DIR": "/tmp/nonexistent-aim-bmad-test",
+        }
+        with patch.dict(os.environ, env_overrides, clear=False):
+            # Remove higher-priority aliases so BMAD_LOG_LEVEL is the only source
             os.environ.pop("AI_MEMORY_LOG_LEVEL", None)
+            os.environ.pop("LOG_LEVEL", None)
+            reset_config()
             import warnings
 
             with warnings.catch_warnings(record=True) as w:
@@ -474,6 +506,9 @@ class TestDeprecatedEnvVarAliases:
                 assert (
                     len(deprecation_warnings) >= 1
                 ), f"Expected deprecation warning, got {w}"
+
+            # Verify the log level is actually set to the BMAD_LOG_LEVEL value
+            assert logging.getLogger("ai_memory").level == logging.WARNING
 
     def test_new_log_level_suppresses_deprecation_warning(self):
         """When AI_MEMORY_LOG_LEVEL is set, no deprecation warning even if BMAD_LOG_LEVEL also set."""

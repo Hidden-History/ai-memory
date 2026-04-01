@@ -19,12 +19,31 @@ from pathlib import Path
 
 logger = logging.getLogger("ai_memory.classifier.queue")
 
-# Queue location (configurable via env for Docker deployment)
-_default_queue_dir = os.path.expanduser("~/.ai-memory/queue")
-QUEUE_DIR = Path(
-    os.path.expanduser(os.environ.get("AI_MEMORY_QUEUE_DIR", _default_queue_dir))
-)
+# Legacy constants — use _resolve_queue_dir()/_resolve_queue_file() instead
+_DEFAULT_QUEUE_DIR = os.path.expanduser("~/.ai-memory/queue")
+QUEUE_DIR = Path(_DEFAULT_QUEUE_DIR)
 QUEUE_FILE = QUEUE_DIR / "classification_queue.jsonl"
+
+
+def _resolve_queue_dir() -> Path:
+    """Resolve queue directory from config, with fallback for early import."""
+    try:
+        from ..config import get_config
+
+        return Path(get_config().queue_dir)
+    except Exception as e:
+        logger.debug("config_not_available_using_fallback", extra={"error": str(e)})
+        return Path(
+            os.path.expanduser(
+                os.environ.get("AI_MEMORY_QUEUE_DIR", _DEFAULT_QUEUE_DIR)
+            )
+        )
+
+
+def _resolve_queue_file() -> Path:
+    """Resolve queue file path from config-based queue dir."""
+    return _resolve_queue_dir() / "classification_queue.jsonl"
+
 
 # Resource limits
 MAX_BATCH_SIZE = 10
@@ -86,9 +105,10 @@ def enqueue_for_classification(task: ClassificationTask) -> bool:
         True if enqueued successfully, False otherwise
     """
     try:
-        QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+        queue_file = _resolve_queue_file()
+        queue_file.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(QUEUE_FILE, "a") as f:
+        with open(queue_file, "a") as f:
             if not _acquire_lock(f):
                 logger.warning("queue_lock_timeout", extra={"point_id": task.point_id})
                 return False
@@ -118,14 +138,15 @@ def dequeue_batch(batch_size: int = MAX_BATCH_SIZE) -> list[ClassificationTask]:
     """
     batch_size = min(batch_size, MAX_BATCH_SIZE)  # Enforce cap
 
-    if not QUEUE_FILE.exists():
+    queue_file = _resolve_queue_file()
+    if not queue_file.exists():
         return []
 
     tasks: list[ClassificationTask] = []
     remaining_lines: list[str] = []
 
     try:
-        with open(QUEUE_FILE, "r+") as f:
+        with open(queue_file, "r+") as f:
             if not _acquire_lock(f):
                 logger.warning("dequeue_lock_timeout")
                 return []
@@ -157,9 +178,9 @@ def dequeue_batch(batch_size: int = MAX_BATCH_SIZE) -> list[ClassificationTask]:
                 # Atomic update: write to temp file, then rename
                 # Only modify queue if we successfully dequeued something
                 if tasks:
-                    temp_file = QUEUE_FILE.with_suffix(".tmp")
+                    temp_file = queue_file.with_suffix(".tmp")
                     temp_file.write_text("".join(remaining_lines))
-                    temp_file.rename(QUEUE_FILE)
+                    temp_file.rename(queue_file)
 
             finally:
                 _release_lock(f)
@@ -176,10 +197,11 @@ def dequeue_batch(batch_size: int = MAX_BATCH_SIZE) -> list[ClassificationTask]:
 
 def get_queue_size() -> int:
     """Get current queue size for metrics."""
-    if not QUEUE_FILE.exists():
+    queue_file = _resolve_queue_file()
+    if not queue_file.exists():
         return 0
     try:
-        with open(QUEUE_FILE) as f:
+        with open(queue_file) as f:
             return sum(1 for _ in f)
     except Exception as e:
         logger.warning("queue_size_check_failed", extra={"error": str(e)})
@@ -188,11 +210,12 @@ def get_queue_size() -> int:
 
 def clear_queue() -> int:
     """Clear all items from queue. Returns count of cleared items."""
-    if not QUEUE_FILE.exists():
+    queue_file = _resolve_queue_file()
+    if not queue_file.exists():
         return 0
     try:
         count = get_queue_size()
-        QUEUE_FILE.unlink()
+        queue_file.unlink()
         return count
     except Exception as e:
         logger.warning("queue_clear_failed", extra={"error": str(e)})
