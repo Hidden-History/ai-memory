@@ -14,13 +14,13 @@ import pytest
 from src.memory.classifier.queue import (
     MAX_BATCH_SIZE,
     ClassificationTask,
+)
+from src.memory.classifier.queue import _resolve_queue_dir as _real_resolve_queue_dir
+from src.memory.classifier.queue import (
     clear_queue,
     dequeue_batch,
     enqueue_for_classification,
     get_queue_size,
-)
-from src.memory.classifier.queue import (
-    _resolve_queue_dir as _real_resolve_queue_dir,
 )
 
 
