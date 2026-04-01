@@ -87,6 +87,7 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 #### Fixed
 - **Qdrant healthcheck TCP→HTTP** (TD-341): Docker Compose healthcheck converted from TCP port probe (`echo > /dev/tcp`) to HTTP readiness check (`GET /readyz`). Uses bash `/dev/tcp` for raw HTTP (no curl in Qdrant image). Timing tightened: interval 30s→10s, timeout 10s→5s, start_period 10s→15s. Unhealthy detection window reduced from ~100s to ~45s. `/readyz` is auth-whitelisted since Qdrant v1.5.0 (BP-145).
 - **TD-342 closed** (DEC-193): API key validation in Docker healthcheck is architecturally wrong — `/readyz` is auth-whitelisted by design. API key validation handled at application level by services connecting to Qdrant.
+- **Streamlit missing tiktoken + prometheus-client** (BUG-257): Import chain `memory.storage` → `chunking` → `tiktoken` and `memory.metrics_push` → `prometheus_client` crashed Streamlit container. Added both to `docker/streamlit/requirements.txt`. Same bug class as BUG-091 (github-sync).
 
 ### Upgrade Instructions
 
@@ -109,7 +110,7 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
    ```bash
    unset QDRANT_API_KEY
    cd ~/.ai-memory/docker/
-   docker compose build --no-cache github-sync
+   docker compose build --no-cache github-sync streamlit
    docker compose -f docker-compose.langfuse.yml build --no-cache trace-flush-worker evaluator-scheduler
    ```
 

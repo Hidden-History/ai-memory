@@ -1,6 +1,6 @@
 # AI Memory Module - Streamlit Dashboard
-# Last audited: 2026-02-15
-# All versions pinned per ACT-003
+# Last audited: 2026-04-01
+# Version ranges match pyproject.toml constraints
 
 streamlit==1.54.0
 qdrant-client==1.16.2
@@ -13,3 +13,7 @@ structlog>=24.0.0,<26.0.0
 pydantic>=2.0.0,<3.0.0
 pydantic-settings>=2.0.0,<3.0.0
 tenacity>=8.0.0,<9.0.0
+# Required by memory module import chain (memory.metrics_push, memory.chunking)
+# BUG-257: Same class as BUG-091 (github-sync missing deps)
+prometheus-client>=0.21.0,<1.0.0
+tiktoken>=0.5.0,<1.0.0
