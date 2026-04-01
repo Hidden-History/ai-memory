@@ -42,6 +42,7 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 - **MinIO init permission denied** (BUG-264): `minio/mc` failed with `mkdir /root/.mc: permission denied` under `cap_drop: ALL` security hardening. Fixed with `MC_CONFIG_DIR=/tmp`.
 - **Trace data loss via `update_trace()`** (TD-373, HIGH): `update_trace()` removed in Langfuse v4 SDK — fallback silently dropped `session_id`/`user_id`. Replaced with `propagate_attributes()` in trace flush worker and stop hook.
 - **Evaluator 501 on self-hosted** (TD-374, HIGH): `api.observations.get_many()` returns 501 on self-hosted Langfuse ("v2 APIs only available on Langfuse Cloud"). Replaced with `api.legacy.observations_v1.get_many()`.
+- **Hook pipeline traces silently dropped** (TD-372, HIGH): v4 SDK smart span filter only exports spans from `langfuse-sdk`, `gen_ai.*`, and known LLM framework scopes. Custom OTel scope `ai-memory.flush-worker` was silently filtered — all hook pipeline traces (capture, search, decay, embedding, classification) were lost. Fixed with composed `should_export_span` filter that keeps v4 defaults + adds `ai-memory.*` scope.
 
 #### Changed
 - **Tag standardization** (TD-376): `"trigger"` tag changed to `"code_change"` in 4 hook scripts (`agent_response_store_async.py`, `first_edit_trigger.py`, `new_file_trigger.py`, `post_tool_capture.py`) for consistency with TD-326.
@@ -129,6 +130,7 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 - The `langfuse-minio-init` service is a one-shot container that creates the S3 bucket and exits. It runs before `langfuse-web` and `langfuse-worker` via `depends_on: service_completed_successfully`.
 - `propagate_attributes()` replaces `update_trace()` (removed in v4). If you have custom hooks that called `update_trace()`, migrate to `propagate_attributes(trace_name=..., session_id=..., user_id=..., metadata=..., tags=...)`.
 - The evaluator now uses `api.legacy.observations_v1.get_many()` — this is the correct namespace for self-hosted Langfuse instances.
+- **TD-372 (span filter)**: The `trace-flush-worker` container must be rebuilt (`docker compose -f docker-compose.langfuse.yml build --no-cache trace-flush-worker`) for hook pipeline traces to appear in Langfuse. Without this, the v4 smart span filter silently drops all `ai-memory.*` scoped spans.
 
 **P3a-specific notes:**
 - `hook_utils.py` is a new shared module — the installer copies it automatically via `sync_installed_files()`.
