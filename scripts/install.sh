@@ -2721,7 +2721,7 @@ start_services() {
     local core_attempt=0
     echo -n "  Qdrant: "
     while [[ $core_attempt -lt $core_timeout ]]; do
-        if curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:${QDRANT_PORT:-26350}/" &> /dev/null; then
+        if curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:${QDRANT_PORT:-26350}/readyz" &> /dev/null; then
             echo -e "${GREEN}ready${NC}"
             break
         fi
@@ -2747,8 +2747,8 @@ start_services() {
     log_debug "Qdrant verified running: $qdrant_status"
 
     # TD-339: Authenticated Qdrant check — verify API key is accepted before
-    # attempting collection setup. The liveness loop above uses the unauthenticated
-    # root endpoint (/); /collections requires a valid api-key header.
+    # attempting collection setup. The readiness loop above uses the unauthenticated
+    # readiness endpoint (/readyz); /collections requires a valid api-key header.
     # docker/.env is the CWD (start_services cd's there at the top).
     local _qdrant_auth_key=""
     if [[ -f ".env" ]]; then
@@ -2828,7 +2828,7 @@ wait_for_services() {
     # Wait for Qdrant using localhost health check (2026 best practice)
     echo -n "  Qdrant ($QDRANT_PORT): "
     while [[ $attempt -lt $max_attempts ]]; do
-        if curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:$QDRANT_PORT/" &> /dev/null; then
+        if curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:$QDRANT_PORT/readyz" &> /dev/null; then
             echo -e "${GREEN}ready${NC}"
             break
         fi
@@ -3020,7 +3020,7 @@ verify_services_running() {
     log_info "Verifying AI Memory services are running..."
 
     # Check Qdrant
-    if ! curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:$QDRANT_PORT/" &> /dev/null; then
+    if ! curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:$QDRANT_PORT/readyz" &> /dev/null; then
         log_error "Qdrant is not running at port $QDRANT_PORT"
         echo ""
         echo "Start services from shared installation:"
