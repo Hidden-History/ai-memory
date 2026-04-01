@@ -488,7 +488,7 @@ async def test_sync_code_blobs_empty_tree():
 
 @pytest.mark.asyncio
 async def test_sync_code_blobs_unchanged_skips():
-    """Unchanged files (matching blob_hash) are skipped."""
+    """Unchanged files (matching blob_hash) are skipped via batch update."""
     sync = _make_sync_instance()
     sync.client.get_tree = AsyncMock(
         return_value=[
@@ -500,7 +500,7 @@ async def test_sync_code_blobs_unchanged_skips():
         patch.object(
             sync, "_get_stored_blob_map", return_value={"src/app.py": "abc123"}
         ),
-        patch.object(sync, "_update_last_synced") as mock_update,
+        patch.object(sync, "_batch_update_last_synced") as mock_batch,
         patch.object(
             sync, "_detect_deleted_files", new_callable=AsyncMock, return_value=0
         ),
@@ -510,7 +510,7 @@ async def test_sync_code_blobs_unchanged_skips():
 
     assert result.files_synced == 0
     assert result.files_skipped >= 1
-    mock_update.assert_called_once_with("src/app.py")
+    mock_batch.assert_called_once_with(["src/app.py"])
 
 
 @pytest.mark.asyncio
@@ -890,3 +890,135 @@ def test_github_sync_engine_does_not_override_existing_claude_session_id(monkeyp
         GitHubSyncEngine(config=config)
 
     assert os.environ["CLAUDE_SESSION_ID"] == "real-session-xyz789"
+
+
+# -- Batch _update_last_synced (Issue #102) ------------------------------------
+
+
+def test_batch_update_last_synced_one_scroll_one_set_payload():
+    """_batch_update_last_synced does ONE scroll and ONE set_payload, not per-file."""
+    sync = _make_sync_instance()
+    sync.qdrant = MagicMock()
+
+    file_paths = ["src/a.py", "src/b.py", "src/c.py"]
+    points = [MagicMock(id=f"pt-{i}") for i in range(3)]
+    sync.qdrant.scroll.return_value = (points, None)
+
+    sync._batch_update_last_synced(file_paths)
+
+    # Exactly ONE scroll call regardless of number of files
+    assert sync.qdrant.scroll.call_count == 1
+
+    # The scroll filter must use MatchAny for file_path
+    call_kwargs = sync.qdrant.scroll.call_args.kwargs
+    filter_conditions = call_kwargs["scroll_filter"].must
+    match_any_conditions = [c for c in filter_conditions if hasattr(c.match, "any")]
+    assert len(match_any_conditions) == 1
+    assert set(match_any_conditions[0].match.any) == set(file_paths)
+
+    # Exactly ONE set_payload call with all 3 point IDs
+    sync.qdrant.set_payload.assert_called_once()
+    set_payload_kwargs = sync.qdrant.set_payload.call_args.kwargs
+    assert len(set_payload_kwargs["points"]) == 3
+    assert "last_synced" in set_payload_kwargs["payload"]
+
+
+@pytest.mark.asyncio
+async def test_sync_code_blobs_collects_unchanged_and_calls_batch():
+    """sync_code_blobs collects unchanged paths and delegates to _batch_update_last_synced."""
+    sync = _make_sync_instance()
+    sync.client.get_tree = AsyncMock(
+        return_value=[
+            {"path": "src/x.py", "type": "blob", "sha": "sha-x", "size": 100},
+            {"path": "src/y.py", "type": "blob", "sha": "sha-y", "size": 100},
+            {"path": "src/z.py", "type": "blob", "sha": "sha-z-new", "size": 100},
+        ]
+    )
+
+    mock_batch = MagicMock()
+    mock_sync_file = AsyncMock(return_value=2)
+
+    with (
+        patch.object(
+            sync,
+            "_get_stored_blob_map",
+            return_value={"src/x.py": "sha-x", "src/y.py": "sha-y"},
+        ),
+        patch.object(sync, "_batch_update_last_synced", mock_batch),
+        patch.object(sync, "_sync_file", mock_sync_file),
+        patch.object(
+            sync, "_detect_deleted_files", new_callable=AsyncMock, return_value=0
+        ),
+        patch.object(sync, "_push_metrics"),
+    ):
+        result = await sync.sync_code_blobs("batch-1")
+
+    # Two unchanged files → batch called with both paths
+    mock_batch.assert_called_once()
+    batch_paths = mock_batch.call_args.args[0]
+    assert set(batch_paths) == {"src/x.py", "src/y.py"}
+
+    # One changed file → synced normally
+    assert result.files_synced == 1
+    assert result.files_skipped == 2
+
+
+def test_batch_update_last_synced_empty_list_no_qdrant_calls():
+    """Empty file_paths list → no Qdrant operations at all."""
+    sync = _make_sync_instance()
+    sync.qdrant = MagicMock()
+
+    sync._batch_update_last_synced([])
+
+    sync.qdrant.scroll.assert_not_called()
+    sync.qdrant.set_payload.assert_not_called()
+
+
+def test_batch_update_last_synced_pagination():
+    """_batch_update_last_synced paginates through >100 points, then ONE set_payload."""
+    sync = _make_sync_instance()
+    sync.qdrant = MagicMock()
+
+    file_paths = [f"src/file_{i}.py" for i in range(5)]
+
+    # First page: 100 points, second page: 30 points
+    page1 = [MagicMock(id=f"pt-{i}") for i in range(100)]
+    page2 = [MagicMock(id=f"pt-{100 + i}") for i in range(30)]
+    sync.qdrant.scroll.side_effect = [
+        (page1, "offset-page-2"),
+        (page2, None),
+    ]
+
+    sync._batch_update_last_synced(file_paths)
+
+    # Two scroll calls due to pagination
+    assert sync.qdrant.scroll.call_count == 2
+
+    # ONE set_payload call with all 130 IDs
+    sync.qdrant.set_payload.assert_called_once()
+    set_payload_kwargs = sync.qdrant.set_payload.call_args.kwargs
+    assert len(set_payload_kwargs["points"]) == 130
+    assert "last_synced" in set_payload_kwargs["payload"]
+
+
+def test_batch_update_last_synced_no_points_skips_set_payload():
+    """Scroll returns no points → set_payload not called."""
+    sync = _make_sync_instance()
+    sync.qdrant = MagicMock()
+    sync.qdrant.scroll.return_value = ([], None)
+
+    sync._batch_update_last_synced(["src/gone.py"])
+
+    sync.qdrant.scroll.assert_called_once()
+    sync.qdrant.set_payload.assert_not_called()
+
+
+def test_batch_update_last_synced_scroll_exception_handled():
+    """scroll raises → warning logged → method returns without raising."""
+    sync = _make_sync_instance()
+    sync.qdrant = MagicMock()
+    sync.qdrant.scroll.side_effect = Exception("Connection reset")
+
+    sync._batch_update_last_synced(["src/file.py"])  # Should not raise
+
+    sync.qdrant.set_payload.assert_not_called()

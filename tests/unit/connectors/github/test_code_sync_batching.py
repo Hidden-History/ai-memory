@@ -70,7 +70,7 @@ def _make_sync_for_batching(
     sync._get_stored_blob_map = MagicMock(return_value={})
     sync._detect_deleted_files = AsyncMock(return_value=0)
     sync._push_metrics = MagicMock()
-    sync._update_last_synced = MagicMock()
+    sync._batch_update_last_synced = MagicMock()
     return sync, mock_storage, mock_client
 
 

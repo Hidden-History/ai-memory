@@ -63,7 +63,7 @@ def _make_sync(
     sync._get_stored_blob_map = MagicMock(return_value=stored_map or {})
     sync._detect_deleted_files = AsyncMock(return_value=0)
     sync._push_metrics = MagicMock()
-    sync._update_last_synced = MagicMock()
+    sync._batch_update_last_synced = MagicMock()
 
     return sync
 
