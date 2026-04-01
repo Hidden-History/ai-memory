@@ -62,6 +62,21 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 - **DRY hook utilities** (TD-338): Extracted `_hook_cmd()`, `get_langfuse_env_section()`, and `normalize_matcher()` to shared `scripts/hook_utils.py`. All 3 consumers (`generate_settings.py`, `merge_settings.py`, `recover_hook_guards.py`) import from it — zero duplication.
 - **Robust matcher normalization** (BUG-078 hardening): `recover_hook_guards.py` matcher fix upgraded from exact-string match to frozenset-based approach. Scope-restricted to AI Memory hooks only (checks for `session_start.py` in command).
 
+### Phase 3b: Config + Settings (PLAN-023 P3b)
+
+#### Fixed
+- **Env var consumption outside config** (BUG-254, HIGH): `AI_MEMORY_LOG_LEVEL` and `AI_MEMORY_QUEUE_DIR` were consumed via raw `os.getenv()` in `logging_config.py` and `classifier/queue.py`, bypassing pydantic-settings validation. Consolidated into `MemoryConfig` with `AliasChoices` for backward compat — both prefixed (`AI_MEMORY_*`) and non-prefixed (`LOG_LEVEL`, `QUEUE_DIR`) names work. `BMAD_LOG_LEVEL` deprecated alias preserved.
+- **Langfuse compose project name** (BUG-265): `docker-compose.langfuse.yml` missing `name: ai-memory` — Langfuse containers appeared as separate "docker" project in Docker Desktop. Added `name: ai-memory` to unify all containers under one project.
+- **Langfuse retry tests broken** (TD-372 regression): 3 tests in `test_langfuse_config_retry.py` mocked `langfuse.get_client` but TD-372 changed to `Langfuse()` constructor. Updated mocks to target `Langfuse` constructor and `langfuse.span_filter` module.
+
+#### Added
+- **Read-only Qdrant API key** (TD-333): `qdrant_read_only_api_key: SecretStr | None` field in `MemoryConfig`. `get_qdrant_client(read_only=True)` prefers the read-only key, falls back to the read-write key. Supports Qdrant's native read-only key feature (v1.7+).
+- **SecretStr validation error protection** (enhancement): `hide_input_in_errors=True` added to `MemoryConfig` model_config. Prevents `SecretStr` values from leaking in plaintext in pydantic `ValidationError` messages.
+
+#### Changed
+- **Queue dir tilde + env var expansion** (TD-340 hardening): `expand_queue_dir` validator now applies both `os.path.expanduser()` and `os.path.expandvars()`, consistent with other path validators.
+- **.env.example audit** (TD-340): All env vars verified against actual consumers. `QDRANT_READ_ONLY_API_KEY` documented with comment. No orphaned vars found.
+
 ### Upgrade Instructions
 
 **From v2.2.8 to this version:**
@@ -87,14 +102,17 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
    docker compose -f docker-compose.langfuse.yml build --no-cache trace-flush-worker evaluator-scheduler
    ```
 
-4. **Restart Langfuse stack** (required — deploys new `langfuse-minio-init` service):
+4. **Restart Langfuse stack** (required — deploys new `langfuse-minio-init` service + BUG-265 project name fix):
    ```bash
    cd ~/.ai-memory/docker/
    unset QDRANT_API_KEY
-   docker compose -f docker-compose.langfuse.yml --profile langfuse down
+   # Stop old "docker" project (BUG-265: was using wrong project name)
+   docker compose -p docker -f docker-compose.langfuse.yml --profile langfuse down
+   # Start with correct project name (now set via name: ai-memory in compose file)
    docker compose -f docker-compose.langfuse.yml --profile langfuse up -d
    ```
    Verify bucket creation: `docker compose -f docker-compose.langfuse.yml --profile langfuse logs langfuse-minio-init` should show "Bucket 'langfuse' ready".
+   Verify project unification: `docker compose ls` should show ONE project (`ai-memory`), not two.
 
 5. Restart core services:
    ```bash
@@ -136,6 +154,11 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 - `hook_utils.py` is a new shared module — the installer copies it automatically via `sync_installed_files()`.
 - If you previously hand-edited `.claude/settings.json` matchers with `startup` or `clear`, they will be automatically cleaned on next `merge_settings.py` run.
 - The authenticated Qdrant health check (TD-339) runs during fresh installs and reinstalls. If your Qdrant instance does not use an API key, the check is skipped with a warning.
+
+**P3b-specific notes:**
+- `AI_MEMORY_LOG_LEVEL`, `LOG_LEVEL`, and `BMAD_LOG_LEVEL` all set the log level. Priority: `AI_MEMORY_LOG_LEVEL` > `LOG_LEVEL` > `BMAD_LOG_LEVEL` (deprecated).
+- `QDRANT_READ_ONLY_API_KEY` is optional. If not set, all Qdrant operations use the regular `QDRANT_API_KEY`. Set it in `.env` if you want to separate search-only access from write access.
+- **BUG-265 (Docker project unification)**: After upgrade, you must stop the Langfuse stack using the old project name (`docker compose -p docker -f docker-compose.langfuse.yml down`) before restarting. Otherwise, orphaned containers from the old "docker" project will remain alongside the new "ai-memory" project containers.
 
 ---
 
