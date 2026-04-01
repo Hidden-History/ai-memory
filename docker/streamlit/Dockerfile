@@ -1,13 +1,13 @@
 # Dockerfile for AI Memory Browser (Streamlit)
 # Story 6.4: Streamlit Memory Browser
 # 2026 Best Practices:
-# - Python 3.11-slim (latest stable)
+# - Python 3.12-slim (standardized, TD-343)
 # - Non-root user for security
 # - WORKDIR /app (security best practice: non-root user)
-# - HEALTHCHECK using _stcore/health endpoint
+# - Compose healthcheck via _stcore/health endpoint (TD-349)
 # - Explicit server binding for container access
 
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 LABEL ai-memory.managed="true"
 LABEL ai-memory.wipe-policy="exclude"
@@ -19,7 +19,7 @@ RUN useradd -m -u 1000 streamlit
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies (curl for healthcheck)
+# Install system dependencies (curl for compose healthcheck)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
@@ -39,10 +39,6 @@ USER streamlit
 
 # Expose Streamlit port
 EXPOSE 8501
-
-# Health check (2026 best practice)
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD curl --fail http://localhost:8501/_stcore/health || exit 1
 
 # Entry point with explicit binding
 ENTRYPOINT ["streamlit", "run", "app.py", \

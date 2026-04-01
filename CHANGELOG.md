@@ -89,6 +89,10 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 - **TD-342 closed** (DEC-193): API key validation in Docker healthcheck is architecturally wrong — `/readyz` is auth-whitelisted by design. API key validation handled at application level by services connecting to Qdrant.
 - **Streamlit missing tiktoken + prometheus-client** (BUG-257): Import chain `memory.storage` → `chunking` → `tiktoken` and `memory.metrics_push` → `prometheus_client` crashed Streamlit container. Added both to `docker/streamlit/requirements.txt`. Same bug class as BUG-091 (github-sync).
 
+#### Changed
+- **Standardize Python base image** (TD-343): All 6 Dockerfiles now use `python:3.12-slim`. Monitoring and Streamlit upgraded from 3.11-slim; worker and github-sync de-pinned from 3.12.8-slim. Consistent runtime across all containers per BP-146.
+- **Remove dead Dockerfile HEALTHCHECK instructions** (TD-349): `HEALTHCHECK` removed from `embedding/Dockerfile`, `streamlit/Dockerfile`, and `monitoring/Dockerfile`. Docker Compose healthchecks are authoritative; Dockerfile copies were dead code and a divergence risk.
+
 ### Upgrade Instructions
 
 **From v2.2.8 to this version:**
@@ -110,7 +114,7 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
    ```bash
    unset QDRANT_API_KEY
    cd ~/.ai-memory/docker/
-   docker compose build --no-cache github-sync streamlit
+   docker compose build --no-cache github-sync streamlit embedding monitoring-api classifier-worker
    docker compose -f docker-compose.langfuse.yml build --no-cache trace-flush-worker evaluator-scheduler
    ```
 

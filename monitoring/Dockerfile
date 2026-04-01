@@ -1,5 +1,5 @@
 # monitoring/Dockerfile
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # Metadata labels (2026 best practice)
 LABEL maintainer="ai-memory"
@@ -29,10 +29,6 @@ RUN chown -R memory:memory /app
 
 # Switch to non-root user
 USER memory
-
-# Health check (2026 best practice)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import httpx; exit(0 if httpx.get('http://localhost:8000/health', timeout=5).status_code == 200 else 1)"
 
 EXPOSE 8000
 
