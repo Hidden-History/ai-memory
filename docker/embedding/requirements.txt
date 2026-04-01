@@ -5,7 +5,7 @@
 # Core FastAPI dependencies
 fastapi[standard]==0.128.0
 pydantic==2.12.5
-pydantic-settings==2.7.1
+pydantic-settings==2.13.1
 
 # FastEmbed - ONNX optimized embeddings (replaces sentence-transformers)
 fastembed==0.7.4
