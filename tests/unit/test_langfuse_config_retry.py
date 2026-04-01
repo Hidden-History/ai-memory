@@ -54,16 +54,22 @@ class TestRetryDecorator:
 
         call_count = 0
 
-        def fake_get_client():
+        def fake_langfuse_constructor(**kwargs):
             nonlocal call_count
             call_count += 1
             raise ImportError("langfuse not installed")
 
-        mock_langfuse = MagicMock()
-        mock_langfuse.get_client = fake_get_client
+        mock_langfuse_mod = MagicMock()
+        mock_langfuse_mod.Langfuse = fake_langfuse_constructor
 
         with (
-            patch.dict(sys.modules, {"langfuse": mock_langfuse}),
+            patch.dict(
+                sys.modules,
+                {
+                    "langfuse": mock_langfuse_mod,
+                    "langfuse.span_filter": MagicMock(is_default_export_span=None),
+                },
+            ),
             patch("time.sleep"),
             pytest.raises(ImportError),
         ):
@@ -78,18 +84,24 @@ class TestRetryDecorator:
         mock_client = MagicMock()
         call_count = 0
 
-        def fake_get_client():
+        def fake_langfuse_constructor(**kwargs):
             nonlocal call_count
             call_count += 1
             if call_count < 3:
                 raise ConnectionError("transient")
             return mock_client
 
-        mock_langfuse = MagicMock()
-        mock_langfuse.get_client = fake_get_client
+        mock_langfuse_mod = MagicMock()
+        mock_langfuse_mod.Langfuse = fake_langfuse_constructor
 
         with (
-            patch.dict(sys.modules, {"langfuse": mock_langfuse}),
+            patch.dict(
+                sys.modules,
+                {
+                    "langfuse": mock_langfuse_mod,
+                    "langfuse.span_filter": MagicMock(is_default_export_span=None),
+                },
+            ),
             patch("time.sleep"),
         ):
             result = _create_langfuse_client_with_retry()
@@ -103,16 +115,22 @@ class TestRetryDecorator:
 
         call_count = 0
 
-        def fake_get_client():
+        def fake_langfuse_constructor(**kwargs):
             nonlocal call_count
             call_count += 1
             raise OSError("always fails")
 
-        mock_langfuse = MagicMock()
-        mock_langfuse.get_client = fake_get_client
+        mock_langfuse_mod = MagicMock()
+        mock_langfuse_mod.Langfuse = fake_langfuse_constructor
 
         with (
-            patch.dict(sys.modules, {"langfuse": mock_langfuse}),
+            patch.dict(
+                sys.modules,
+                {
+                    "langfuse": mock_langfuse_mod,
+                    "langfuse.span_filter": MagicMock(is_default_export_span=None),
+                },
+            ),
             patch("time.sleep"),
             pytest.raises(OSError, match="always fails"),
         ):
