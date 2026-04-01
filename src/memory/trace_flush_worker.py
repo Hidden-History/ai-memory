@@ -7,7 +7,8 @@ SPEC-020 §5 / PLAN-008 / DEC-PLAN008-004
 """
 
 # LANGFUSE: Trace flush worker. See LANGFUSE-INTEGRATION-SPEC.md §7.6
-# SDK VERSION: V4. Do NOT use start_span(), start_generation(), or Langfuse() constructor.
+# SDK VERSION: V4. Do NOT use start_span() or start_generation().
+# TD-372: OTel scope "ai-memory.flush-worker" requires should_export_span in langfuse_config.py.
 # OTel path (_process_event_otel): Uses raw OTel spans — DO NOT change attribute names.
 # SDK path (_process_event_sdk): Fallback when OTel unavailable — uses start_observation().
 

@@ -6,7 +6,8 @@ SPEC: LANGFUSE-INTEGRATION-SPEC.md Section 7.2
 """
 
 # LANGFUSE: Client factory (Path B infrastructure). See LANGFUSE-INTEGRATION-SPEC.md §7.2
-# SDK VERSION: V4. Uses get_client() singleton — Do NOT use Langfuse() constructor.
+# SDK VERSION: V4. Uses Langfuse() constructor with should_export_span for ai-memory scope.
+# TD-372: v4 smart span filter drops custom OTel scopes — composed filter adds ai-memory.*.
 
 import logging
 import os
@@ -38,10 +39,32 @@ def _create_langfuse_client_with_retry():
 
     5 attempts, backoff 1s-16s. ImportError is not retried (langfuse not installed).
     NOTE: Local import so tests can patch sys.modules["langfuse"] at runtime.
-    """
-    from langfuse import get_client as _get_client
 
-    return _get_client()
+    TD-372: Uses Langfuse() constructor (not get_client()) to configure
+    should_export_span. The v4 smart span filter silently drops OTel spans
+    from custom scopes like "ai-memory.flush-worker". The composed filter
+    keeps v4 defaults (langfuse-sdk + gen_ai + known LLM) AND adds ai-memory.*.
+    """
+    from langfuse import Langfuse
+
+    try:
+        from langfuse.span_filter import is_default_export_span
+    except ImportError:
+        is_default_export_span = None
+
+    if is_default_export_span is not None:
+        should_export = lambda span: (  # noqa: E731
+            is_default_export_span(span)
+            or (
+                span.instrumentation_scope is not None
+                and span.instrumentation_scope.name.startswith("ai-memory")
+            )
+        )
+    else:
+        # Fallback: export all spans (pre-v4 behavior)
+        should_export = lambda span: True  # noqa: E731
+
+    return Langfuse(should_export_span=should_export)
 
 
 _client = None

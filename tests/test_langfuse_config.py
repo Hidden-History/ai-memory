@@ -30,21 +30,27 @@ class TestGetLangfuseClient:
         assert get_langfuse_client() is None
 
     def test_enabled_with_keys_returns_client(self, monkeypatch):
-        """Valid config → returns Langfuse client via V3 get_client()."""
+        """Valid config → returns Langfuse client via Langfuse() constructor (TD-372)."""
         monkeypatch.setenv("LANGFUSE_ENABLED", "true")
         monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test123")
         monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test456")
         mock_client = MagicMock()
-        mock_get_client = MagicMock(return_value=mock_client)
+        mock_langfuse_cls = MagicMock(return_value=mock_client)
+        mock_span_filter = MagicMock()
+        mock_span_filter.is_default_export_span = MagicMock()
 
         with patch.dict(
-            "sys.modules", {"langfuse": MagicMock(get_client=mock_get_client)}
+            "sys.modules",
+            {
+                "langfuse": MagicMock(Langfuse=mock_langfuse_cls),
+                "langfuse.span_filter": mock_span_filter,
+            },
         ):
             reset_langfuse_client()
             client = get_langfuse_client()
 
         assert client is mock_client
-        mock_get_client.assert_called_once()
+        mock_langfuse_cls.assert_called_once()
 
     def test_enabled_without_keys_returns_none(self, monkeypatch):
         """Enabled but no keys → returns None (defensive, not raise)."""
@@ -61,10 +67,15 @@ class TestGetLangfuseClient:
         monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
 
         mock_client = MagicMock()
-        mock_get_client = MagicMock(return_value=mock_client)
+        mock_langfuse_cls = MagicMock(return_value=mock_client)
+        mock_span_filter = MagicMock()
+        mock_span_filter.is_default_export_span = MagicMock()
         with patch.dict(
             "sys.modules",
-            {"langfuse": MagicMock(get_client=mock_get_client)},
+            {
+                "langfuse": MagicMock(Langfuse=mock_langfuse_cls),
+                "langfuse.span_filter": mock_span_filter,
+            },
         ):
             reset_langfuse_client()
             client1 = get_langfuse_client()
@@ -72,7 +83,7 @@ class TestGetLangfuseClient:
 
         assert client1 is mock_client
         assert client1 is client2
-        mock_get_client.assert_called_once()
+        mock_langfuse_cls.assert_called_once()
 
     def test_import_error_returns_none(self, monkeypatch):
         """When langfuse package is not installed, returns None gracefully."""
