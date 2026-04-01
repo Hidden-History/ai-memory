@@ -88,14 +88,12 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 - **Qdrant healthcheck TCP→HTTP** (TD-341): Docker Compose healthcheck converted from TCP port probe (`echo > /dev/tcp`) to HTTP readiness check (`GET /readyz`). Uses bash `/dev/tcp` for raw HTTP (no curl in Qdrant image). Timing tightened: interval 30s→10s, timeout 10s→5s, start_period 10s→15s. Unhealthy detection window reduced from ~100s to ~45s. `/readyz` is auth-whitelisted since Qdrant v1.5.0 (BP-145).
 - **TD-342 closed** (DEC-193): API key validation in Docker healthcheck is architecturally wrong — `/readyz` is auth-whitelisted by design. API key validation handled at application level by services connecting to Qdrant.
 - **Streamlit missing tiktoken + prometheus-client** (BUG-257): Import chain `memory.storage` → `chunking` → `tiktoken` and `memory.metrics_push` → `prometheus_client` crashed Streamlit container. Added both to `docker/streamlit/requirements.txt`. Same bug class as BUG-091 (github-sync).
+- **Evaluator 25-hour start_period** (TD-345): `start_period: 90000s` (25 hours) corrected to `120s` in `docker-compose.langfuse.yml`. The 90000 in the healthcheck CMD (file age window for daily cron) is correct and unchanged.
+- **Remove unused classifier_queue volume** (TD-346): Named volume `classifier_queue` declared but never mounted by any service. Removed from `docker-compose.yml`. Classifier-worker uses bind mount instead.
 
 #### Changed
 - **Standardize Python base image** (TD-343): All 6 Dockerfiles now use `python:3.12-slim`. Monitoring and Streamlit upgraded from 3.11-slim; worker and github-sync de-pinned from 3.12.8-slim. Consistent runtime across all containers per BP-146.
 - **Remove dead Dockerfile HEALTHCHECK instructions** (TD-349): `HEALTHCHECK` removed from `embedding/Dockerfile`, `streamlit/Dockerfile`, and `monitoring/Dockerfile`. Docker Compose healthchecks are authoritative; Dockerfile copies were dead code and a divergence risk.
-
-#### Fixed
-- **Evaluator 25-hour start_period** (TD-345): `start_period: 90000s` (25 hours) corrected to `120s` in `docker-compose.langfuse.yml`. The 90000 in the healthcheck CMD (file age window for daily cron) is correct and unchanged.
-- **Remove unused classifier_queue volume** (TD-346): Named volume `classifier_queue` declared but never mounted by any service. Removed from `docker-compose.yml`. Classifier-worker uses bind mount instead.
 - **Document UID/GID env vars** (TD-344): Added `UID` and `GID` to `.env.example` Section 6 (Container Identity). 12 of 14 originally reported undocumented vars were already present from TD-340.
 
 ### Upgrade Instructions
@@ -135,11 +133,14 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
    Verify bucket creation: `docker compose -f docker-compose.langfuse.yml --profile langfuse logs langfuse-minio-init` should show "Bucket 'langfuse' ready".
    Verify project unification: `docker compose ls` should show ONE project (`ai-memory`), not two.
 
-5. Restart core services:
+5. Restart all stacks (picks up compose-level changes: healthcheck, start_period, volume):
    ```bash
-   ~/.ai-memory/scripts/stack.sh restart
+   cd ~/.ai-memory/docker/
+   unset QDRANT_API_KEY
+   docker compose --profile monitoring up -d
+   docker compose -f docker-compose.langfuse.yml --profile langfuse up -d
    ```
-   If `stack.sh restart` fails with a network conflict, stop langfuse services first:
+   If `docker compose up` fails with a network conflict, stop langfuse services first:
    ```bash
    cd ~/.ai-memory/docker/
    docker compose -f docker-compose.langfuse.yml down
