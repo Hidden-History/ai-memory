@@ -248,7 +248,7 @@ jobs:
 
           base_url = "http://localhost:26350"
           api_key = "ci-e2e-test-key"
-          collections = ["code-patterns", "conventions", "discussions", "jira-data"]
+          collections = ["code-patterns", "conventions", "discussions", "github", "jira-data"]
 
           for name in collections:
               payload = json.dumps({
