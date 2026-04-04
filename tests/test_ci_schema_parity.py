@@ -9,7 +9,7 @@ import ast
 import re
 from pathlib import Path
 
-from src.memory.config import COLLECTION_JIRA_DATA, COLLECTION_NAMES
+from memory.config import COLLECTION_JIRA_DATA, COLLECTION_NAMES
 
 
 def test_ci_yml_collections_match_config() -> None:
@@ -31,9 +31,9 @@ def test_ci_yml_collections_match_config() -> None:
     # Anchor search to the E2E init heredoc block to avoid matching
     # unrelated `collections = [...]` assignments elsewhere in the workflow.
     heredoc_match = re.search(
-        r"<<\s*['\"]?INIT_COLLECTIONS['\"]?(.*?)INIT_COLLECTIONS",
+        r"<<[-]?\s*['\"]?INIT_COLLECTIONS['\"]?\n(.*?)^\s*INIT_COLLECTIONS\s*$",
         content,
-        re.DOTALL,
+        re.DOTALL | re.MULTILINE,
     )
     if heredoc_match is None:
         raise AssertionError(
@@ -56,7 +56,14 @@ def test_ci_yml_collections_match_config() -> None:
             f"INIT_COLLECTIONS heredoc of {yml_path}, found {len(list_matches)}."
         )
 
-    yml_collections = set(ast.literal_eval(list_matches[0]))
+    parsed_yml = ast.literal_eval(list_matches[0])
+    if len(parsed_yml) != len(set(parsed_yml)):
+        raise AssertionError(
+            f"Duplicate entries in yml collections list: {parsed_yml}. "
+            "Each collection name must appear exactly once in "
+            f"{yml_path} (collections = [...] in the INIT_COLLECTIONS heredoc)."
+        )
+    yml_collections = set(parsed_yml)
     expected = set(COLLECTION_NAMES) | {COLLECTION_JIRA_DATA}
 
     assert yml_collections == expected, (
