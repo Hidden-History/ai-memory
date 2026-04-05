@@ -102,7 +102,7 @@ class TestConcurrentExecution:
 
         Note: 30s matches proc2's timeout in test_concurrent_execution_blocked
         so the lock-window is guaranteed to cover proc2's cold-boot + lock-check
-        cycle. Proc1 is terminated by proc1.terminate() (line 192) as soon as
+        cycle. Proc1 is terminated by proc1.terminate() at cleanup as soon as
         proc2 exits, so proc1 does not actually sleep 30s in the happy path.
         See TD-407 + TD-388 (memory.__init__ lazy-import root cause).
         """
@@ -162,7 +162,7 @@ except (IOError, OSError):
         env["BACKFILL_LOCK_FILE"] = str(lock_file)
         env["MEMORY_QUEUE_PATH"] = str(queue_path)
 
-        # Start first process (holds lock for 5 seconds)
+        # Start first process (slow_lock_script holds the fcntl lock)
         proc1 = subprocess.Popen(
             [sys.executable, str(slow_lock_script)],
             stdout=subprocess.PIPE,
@@ -185,7 +185,7 @@ except (IOError, OSError):
             [sys.executable, str(script_path)],
             capture_output=True,
             text=True,
-            timeout=30,  # CI cold-boot on memory package import (memory/__init__.py → storage → chunking → tiktoken, per TD-388) can exceed 5s; paired with proc1's 30s lock-window (fixture line 120) so cold-boot cannot race past the lock release (TD-407)
+            timeout=30,  # CI cold-boot on memory package import (memory/__init__.py → storage → chunking → tiktoken, per TD-388) can exceed 5s; paired with proc1's 30s lock-window (set in the slow_lock_script fixture) so cold-boot cannot race past the lock release (TD-407)
             env=env,
         )
 
