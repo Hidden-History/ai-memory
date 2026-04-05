@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Stabilization, observability, and data integrity improvements. Phased sprint with gated verify cycles.
 
 ### Fixed
-- **TD-407**: Raised subprocess timeout from 5s to 30s in `test_concurrent_execution_blocked` (`tests/integration/test_backfill_integration.py:181`) to eliminate CI flake. The subprocess runs `scripts/memory/backfill_embeddings.py` which triggers the `memory.queue → chunking → truncation → tiktoken` import chain; cold-boot in CI under load regularly exceeded 5s. Now matches sibling `test_full_backfill_success` (line 73). Resolves 2/13 CI red checks on PR #100 (TEST-FIX phase, PM #240).
+- **TD-407**: Eliminated CI flake in `test_concurrent_execution_blocked` by fixing a two-sided race: (1) raised proc2 subprocess timeout `5s → 30s` at `tests/integration/test_backfill_integration.py:181`, (2) raised the `slow_lock_script` fixture `time.sleep(5) → time.sleep(30)` at line 120 so the lock-window covers proc2's full cold-boot + lock-check cycle. Cold-boot cost is driven by `memory/__init__.py` eager imports (TD-388 pattern) pulling `storage → chunking → truncation → tiktoken` on every `from memory.queue import …`; CI runs regularly exceeded the old 5s budget. Also bumped sibling `TestCLIModes`/`TestExitCodes` subprocess timeouts at lines 320, 331, 408 from `5s → 10s` (matching the `timeout=10` pattern used by the other lightweight ops in the same file). This is a tactical mitigation; the root fix is TD-388 (lazy-import `memory/__init__.py`). Resolves previously-red Integration Tests on PR #100 (TEST-FIX phase, PM #240).
 
 ### Phase 1: Critical + Security (PLAN-023 P1)
 
