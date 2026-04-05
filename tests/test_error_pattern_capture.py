@@ -348,10 +348,14 @@ class TestBashFixConfidence:
             ) or (isinstance(test.left, ast.Constant) and test.left.value == 3)
             if not has_three:
                 continue
-            # Found the `turn_diff <= 3` branch. Now walk its body looking for 0.5.
-            for child in ast.walk(node):
-                if isinstance(child, ast.Constant) and child.value == 0.5:
-                    found_branch = True
+            # Found the `turn_diff <= 3` branch. Scope walk to node.body only
+            # (ast.walk(node) also traverses orelse/elif branches — false positive risk).
+            for stmt in node.body:
+                for child in ast.walk(stmt):
+                    if isinstance(child, ast.Constant) and child.value == 0.5:
+                        found_branch = True
+                        break
+                if found_branch:
                     break
             if found_branch:
                 break
