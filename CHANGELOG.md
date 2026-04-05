@@ -96,6 +96,15 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 - **Remove dead Dockerfile HEALTHCHECK instructions** (TD-349): `HEALTHCHECK` removed from `embedding/Dockerfile`, `streamlit/Dockerfile`, and `monitoring/Dockerfile`. Docker Compose healthchecks are authoritative; Dockerfile copies were dead code and a divergence risk.
 - **Document UID/GID env vars** (TD-344): Added `UID` and `GID` to `.env.example` Section 6 (Container Identity). 12 of 14 originally reported undocumented vars were already present from TD-340.
 
+### Phase 4b: CI Regression Gate (PLAN-023 P4b)
+
+#### Fixed
+- **BUG-259** — CI E2E init: added `github` to the `collections` array in `.github/workflows/test.yml:251` to match `COLLECTION_NAMES` set from `src/memory/config.py`. Prevents silent test skips when the github collection is referenced. Commit `97fff63`.
+- **BUG-260** — Regression tests workflow: removed `continue-on-error: true` from the two test steps in `.github/workflows/regression-tests.yml`. Regression failures now BLOCK merges. Secret-gated conditional skip added for fork PRs where Langfuse/Qdrant credentials are unavailable. Based on BP-149 (GitHub Actions `continue-on-error` regression gate best practices 2026).
+
+#### Added
+- **V4-NEW-1** — New regression guard `tests/test_ci_schema_parity.py`: parses the INIT_COLLECTIONS heredoc in `test.yml` and asserts set-equality against `COLLECTION_NAMES + COLLECTION_JIRA_DATA`. Catches future drift between code and CI fixture. Commits `4ba568c`, `9a6f285`, `f6e363a`.
+
 ### Upgrade Instructions
 
 **From v2.2.8 to this version:**
@@ -184,7 +193,7 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 
 ---
 
-## [Unreleased] — Multi-IDE Adapter Support
+## [2.2.8] - 2026-03-30 — Multi-IDE Adapter Support
 
 Adds native lifecycle hook support for Gemini CLI, Cursor IDE, and Codex CLI alongside existing Claude Code integration. All four IDEs share the same memory pipeline through a canonical event schema — memories created in one IDE are available in all others.
 

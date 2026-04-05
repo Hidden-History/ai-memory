@@ -26,6 +26,9 @@ jobs:
     name: Regression Tests (PLAN-012)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+      QDRANT_URL: ${{ secrets.QDRANT_URL }}
 
     steps:
       - uses: actions/checkout@v6
@@ -43,8 +46,9 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run regression test suite
-        # Regression tests require live Langfuse + Qdrant; skip gracefully in CI without secrets
-        continue-on-error: true
+        # Skipped when Langfuse/Qdrant secrets are absent (e.g., fork PRs).
+        # When this step RUNS, failures are real and BLOCK the merge.
+        if: env.LANGFUSE_PUBLIC_KEY != '' && env.QDRANT_URL != ''
         run: |
           pytest tests/test_regression.py -v --tb=short -m regression
         env:
@@ -56,8 +60,9 @@ jobs:
           QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
 
       - name: Run evaluations dry-run (quality gate check)
-        # Dry-run requires Langfuse connection; skip gracefully in CI without secrets
-        continue-on-error: true
+        # Skipped when Langfuse/Qdrant secrets are absent (e.g., fork PRs).
+        # When this step RUNS, failures are real and BLOCK the merge.
+        if: env.LANGFUSE_PUBLIC_KEY != '' && env.QDRANT_URL != ''
         run: |
           python scripts/run_evaluations.py \
             --config evaluator_config.yaml \
