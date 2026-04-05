@@ -312,10 +312,54 @@ class TestBashFixConfidence:
         self.module = mod
 
     def test_confidence_within_3_turns(self):
-        """Within 3 turns: confidence = 0.5."""
-        # The logic is in detect_bash_fix lines 184-189
-        # turn_diff <= 3 → 0.5
-        assert True  # Confidence tested via integration
+        """Within 3 turns: confidence = 0.5 — structural verification via AST walk."""
+        import ast
+        import inspect
+
+        source = inspect.getsource(self.module.detect_bash_fix)
+        tree = ast.parse(source)
+
+        # Walk the AST and find an `If` node whose test is a `Compare` where
+        # one side is a `turn_diff` Name and the other is Constant(3) with LtE op.
+        # The body of that If should contain an assignment or return with 0.5.
+        found_branch = False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.If):
+                continue
+            # Check if the test is a `turn_diff <= 3` comparison
+            test = node.test
+            if not isinstance(test, ast.Compare):
+                continue
+            if not any(isinstance(op, ast.LtE) for op in test.ops):
+                continue
+            # Look for `turn_diff` identifier on either side
+            names = []
+            if isinstance(test.left, ast.Name):
+                names.append(test.left.id)
+            for comp in test.comparators:
+                if isinstance(comp, ast.Name):
+                    names.append(comp.id)
+            if "turn_diff" not in names:
+                continue
+            # Look for Constant(3) in the comparison
+            has_three = any(
+                isinstance(comp, ast.Constant) and comp.value == 3
+                for comp in test.comparators
+            ) or (isinstance(test.left, ast.Constant) and test.left.value == 3)
+            if not has_three:
+                continue
+            # Found the `turn_diff <= 3` branch. Now walk its body looking for 0.5.
+            for child in ast.walk(node):
+                if isinstance(child, ast.Constant) and child.value == 0.5:
+                    found_branch = True
+                    break
+            if found_branch:
+                break
+
+        assert found_branch, (
+            "detect_bash_fix must contain a `turn_diff <= 3` branch assigning confidence 0.5. "
+            "Verified via AST walk (BP-150 §importlib hook testing, Strategy B)."
+        )
 
     def test_confidence_4_to_10_turns(self):
         """4-10 turns: confidence = 0.4 (interpolation)."""

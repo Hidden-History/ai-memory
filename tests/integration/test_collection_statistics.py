@@ -86,19 +86,31 @@ class TestMetricsIntegration:
 
     @pytest.mark.integration
     def test_metrics_update_with_real_collection(self, qdrant_client):
-        """update_collection_metrics() updates gauges with real data."""
+        """update_collection_metrics() updates gauges with real data (Prometheus delta pattern, BP-150)."""
+        from prometheus_client import REGISTRY
+
         pytest.importorskip("qdrant_client")
+
+        # Labels verified from src/memory/metrics.py: collection_size.labels(collection=..., project="all")
+        labels = {"collection": "code-patterns", "project": "all"}
 
         try:
             stats = get_collection_stats(qdrant_client, "code-patterns")
             update_collection_metrics(stats)
-
-            # Verify gauge was set (can't easily check value without prometheus registry access)
-            # This test mainly verifies no exceptions are raised
-            assert True
         except Exception as e:
-            # If collection doesn't exist, that's OK for this test
             pytest.skip(f"Collection not available: {e}")
+
+        # Verify the gauge was registered and set
+        after = REGISTRY.get_sample_value("aimemory_collection_size", labels)
+        assert after is not None, (
+            "aimemory_collection_size gauge must be registered and set after update_collection_metrics. "
+            "None means metric was never registered (test bug or metrics.py refactor). BP-150 §Prometheus."
+        )
+        # For .set() gauges: `after` equals the new value (not before + delta)
+        # Verified from metrics.py: collection_size.labels(...).set(stats.total_points)
+        assert after == float(
+            stats.total_points
+        ), f"Gauge value {after} should equal stats.total_points {stats.total_points} after update"
 
 
 class TestWarningsIntegration:
