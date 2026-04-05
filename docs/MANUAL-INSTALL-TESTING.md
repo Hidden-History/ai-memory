@@ -56,5 +56,5 @@ This file was extracted from `tests/integration/test_hook_configuration.py::test
 ---
 
 *Origin: Extracted from `tests/integration/test_hook_configuration.py::test_manual_testing_checklist` per BP-150 test-as-documentation decision tree option (a). See TD-362. Story 7.2, AC 7.2.5.*
-*Wave 3 origin commit: `0813a84` (r1 dev) / `[r2-sha-tbd]` (r2 fix for AST walk orelse scoping — Opus r1 review PLAN-023 P4b Wave 3).*
+*Wave 3 origin commit: `0813a84` (r1 dev) / `4405545` (r2 fix for AST walk orelse scoping — Opus r1 review PLAN-023 P4b Wave 3).*
 *BP-150: `oversight/knowledge/best-practices/BP-150-pytest-assert-true-replacement-importlib-prometheus-2026.md`*
