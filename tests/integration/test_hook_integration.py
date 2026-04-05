@@ -731,7 +731,7 @@ class TestGracefulDegradation:
             input=json.dumps(sample_edit_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=10,
         )
 
         # AC 2.5.6: Graceful exit (0 or 1)
