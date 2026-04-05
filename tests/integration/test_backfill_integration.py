@@ -178,7 +178,7 @@ except (IOError, OSError):
             [sys.executable, str(script_path)],
             capture_output=True,
             text=True,
-            timeout=5,  # Should return quickly, but allow some margin
+            timeout=30,  # CI cold-boot + memory.queue -> chunking -> tiktoken import chain can exceed 5s; matches sibling test_full_backfill_success at line 73 (TD-407)
             env=env,
         )
 

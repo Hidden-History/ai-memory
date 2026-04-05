@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Stabilization, observability, and data integrity improvements. Phased sprint with gated verify cycles.
 
+### Fixed
+- **TD-407**: Raised subprocess timeout from 5s to 30s in `test_concurrent_execution_blocked` (`tests/integration/test_backfill_integration.py:181`) to eliminate CI flake. The subprocess runs `scripts/memory/backfill_embeddings.py` which triggers the `memory.queue → chunking → truncation → tiktoken` import chain; cold-boot in CI under load regularly exceeded 5s. Now matches sibling `test_full_backfill_success` (line 73). Resolves 2/13 CI red checks on PR #100 (TEST-FIX phase, PM #240).
+
 ### Phase 1: Critical + Security (PLAN-023 P1)
 
 #### Fixed
