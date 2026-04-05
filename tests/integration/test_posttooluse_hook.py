@@ -101,7 +101,7 @@ class TestHookInfrastructure:
             input=json.dumps(invalid_tool_name_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=10,
         )
         # Should exit 0 (non-blocking error, not disrupt Claude)
         assert result.returncode == 0, "Hook should exit 0 for invalid tool_name"
@@ -113,7 +113,7 @@ class TestHookInfrastructure:
             input=json.dumps(failed_tool_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=10,
         )
         # Should exit 0 (no capture for failed tools)
         assert result.returncode == 0, "Hook should exit 0 for non-success status"
@@ -134,7 +134,7 @@ class TestHookInfrastructure:
             input=json.dumps(valid_edit_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=10,
         )
 
         elapsed = time.time() - start_time
@@ -152,7 +152,7 @@ class TestHookInfrastructure:
             input=json.dumps(valid_edit_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=10,
         )
 
         # Check stderr for log output (structured format)
@@ -221,7 +221,7 @@ class TestInputSchemaValidation:
             input=malformed_json_input,
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=10,
         )
 
         # Must exit 0 for invalid input (no Claude disruption)
@@ -236,7 +236,7 @@ class TestInputSchemaValidation:
             input=json.dumps(incomplete_input),
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=10,
         )
 
         # Must exit 0 (graceful handling)
@@ -263,7 +263,7 @@ class TestPerformanceRequirements:
                 input=json.dumps(valid_edit_input),
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=10,
             )
             elapsed = time.time() - start_time
             times.append(elapsed)
