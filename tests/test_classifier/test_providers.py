@@ -102,6 +102,24 @@ class TestClaudeProvider:
         with pytest.raises(ConnectionError):
             provider.classify("content", "discussions", "user_message")
 
+    def test_claude_classify_malformed_response(self, monkeypatch):
+        """classify() raises ValueError when LLM returns unparseable non-JSON text.
+
+        ClaudeProvider has a broad except-Exception block that re-raises as ValueError
+        for anything that isn't a timeout or API/auth error.
+        """
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        provider = ClaudeProvider(api_key=None)
+        provider._client = Mock()
+
+        mock_msg = Mock()
+        mock_msg.content = [Mock(text="I cannot classify this content")]
+        mock_msg.usage = Mock(input_tokens=50, output_tokens=5)
+        provider._client.messages.create.return_value = mock_msg
+
+        with pytest.raises(ValueError):
+            provider.classify("test content", "discussions", "user_message")
+
     def test_claude_name(self, monkeypatch):
         """Provider name property returns 'claude'."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -194,6 +212,28 @@ class TestOllamaProvider:
         with pytest.raises(TimeoutError):
             provider.classify("content", "discussions", "user_message")
 
+    def test_ollama_classify_malformed_response(self):
+        """classify() raises ValueError when Ollama returns unparseable non-JSON text.
+
+        OllamaProvider catches ValueError from _parse_response via its explicit
+        except-(json.JSONDecodeError, KeyError, ValueError) block and re-raises as ValueError.
+        """
+        provider = OllamaProvider()
+        mock_client = Mock()
+        provider._client = mock_client
+
+        mock_resp = Mock()
+        mock_resp.json.return_value = {
+            "response": "I cannot classify this content",
+            "prompt_eval_count": 50,
+            "eval_count": 20,
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_client.post.return_value = mock_resp
+
+        with pytest.raises(ValueError):
+            provider.classify("test content", "discussions", "user_message")
+
     def test_ollama_name(self):
         """Provider name property returns 'ollama'."""
         assert OllamaProvider().name == "ollama"
@@ -275,6 +315,28 @@ class TestOpenAIProvider:
 
         with pytest.raises(TimeoutError):
             provider.classify("content", "discussions", "user_message")
+
+    def test_openai_classify_malformed_response(self, monkeypatch):
+        """classify() raises ValueError when OpenAI returns unparseable non-JSON text.
+
+        OpenAIProvider catches ValueError from _parse_response via its explicit
+        except-(json.JSONDecodeError, KeyError, ValueError) block and re-raises as ValueError.
+        """
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        provider = OpenAIProvider(api_key="sk-test")
+        mock_client = Mock()
+        provider._client = mock_client
+
+        mock_resp = Mock()
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": "I cannot classify this content"}}],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 20},
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_client.post.return_value = mock_resp
+
+        with pytest.raises(ValueError):
+            provider.classify("test content", "discussions", "user_message")
 
     def test_openai_name(self, monkeypatch):
         """Provider name property returns 'openai'."""
@@ -358,6 +420,28 @@ class TestOpenRouterProvider:
 
         with pytest.raises(TimeoutError):
             provider.classify("content", "discussions", "user_message")
+
+    def test_openrouter_classify_malformed_response(self, monkeypatch):
+        """classify() raises ValueError when OpenRouter returns unparseable non-JSON text.
+
+        OpenRouterProvider catches ValueError from _parse_response via its explicit
+        except-(json.JSONDecodeError, KeyError, ValueError) block and re-raises as ValueError.
+        """
+        monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
+        provider = OpenRouterProvider(api_key="or-test")
+        mock_client = Mock()
+        provider._client = mock_client
+
+        mock_resp = Mock()
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": "I cannot classify this content"}}],
+            "usage": {"prompt_tokens": 50, "completion_tokens": 20},
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_client.post.return_value = mock_resp
+
+        with pytest.raises(ValueError):
+            provider.classify("test content", "discussions", "user_message")
 
     def test_openrouter_name(self, monkeypatch):
         """Provider name property returns 'openrouter'."""
