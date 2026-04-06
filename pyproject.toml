@@ -136,12 +136,18 @@ markers = [
 
 # Coverage configuration
 [tool.coverage.run]
-source = ["src/memory"]
+source = [
+    "src/memory",
+    ".claude/hooks/scripts",
+    "scripts/memory",
+]
 branch = true
 omit = [
     "*/tests/*",
     "*/__pycache__/*",
     "*/conftest.py",
+    "*/_archived/*",
+    "*/archived/*",
 ]
 
 [tool.coverage.report]

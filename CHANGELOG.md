@@ -111,6 +111,9 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 #### Added
 - **V4-NEW-1** — New regression guard `tests/test_ci_schema_parity.py`: parses the INIT_COLLECTIONS heredoc in `test.yml` and asserts set-equality against `COLLECTION_NAMES + COLLECTION_JIRA_DATA`. Catches future drift between code and CI fixture. Commits `4ba568c`, `9a6f285`, `f6e363a`.
 
+#### Changed
+- `pyproject.toml`: extended `[tool.coverage.run] source` list to include `.claude/hooks/scripts/` and `scripts/memory/` so hook scripts are now measured by pytest-cov. Added `*/_archived/*` and `*/archived/*` to `omit` to exclude inactive archived scripts from measurement (V4-NEW-4).
+
 ### Upgrade Instructions
 
 **From v2.2.8 to this version:**
