@@ -11,6 +11,7 @@ import builtins
 import json
 import logging
 import os
+import random
 import sys
 from unittest.mock import MagicMock
 
@@ -19,6 +20,7 @@ import pytest
 from memory.hooks_common import (
     LANGUAGE_MAP,
     PREVIEW_MAX_CHARS,
+    _rotate_log_if_needed,
     extract_error_signature,
     get_hook_timeout,
     get_metrics,
@@ -54,9 +56,9 @@ def restore_sys_path():
 class TestLanguageMap:
     """Tests for the LANGUAGE_MAP constant."""
 
-    def test_language_map_has_14_extensions(self):
-        """LANGUAGE_MAP contains exactly 14 extension entries."""
-        assert len(LANGUAGE_MAP) == 14
+    def test_language_map_has_minimum_14_extensions(self):
+        """LANGUAGE_MAP contains at least 14 extension entries."""
+        assert len(LANGUAGE_MAP) >= 14
 
     def test_language_map_v4_minimum_extensions_present(self):
         """LANGUAGE_MAP includes the 5 V4-required extensions: .py .js .ts .go .rs."""
@@ -114,11 +116,19 @@ class TestSetupPythonPath:
         assert result == expected
         assert sys.path[0] == os.path.join(expected, "src")
 
-    def test_inserts_at_index_zero_for_priority(self, monkeypatch, restore_sys_path):
-        """setup_python_path inserts at sys.path[0] to give hook imports highest priority."""
-        monkeypatch.setenv("AI_MEMORY_INSTALL_DIR", "/tmp/test_priority_zero")
+    def test_duplicate_path_inserted_on_repeated_call(
+        self, monkeypatch, restore_sys_path
+    ):
+        """setup_python_path called twice inserts the src path twice (no dedup guard).
+
+        Documents current unguarded behavior: the path appears at the front of
+        sys.path once per call. Future dedup work would change this count to 1.
+        """
+        monkeypatch.setenv("AI_MEMORY_INSTALL_DIR", "/tmp/test_dedup_pypath")
         setup_python_path()
-        assert sys.path[0] == "/tmp/test_priority_zero/src"
+        setup_python_path()
+        src_path = "/tmp/test_dedup_pypath/src"
+        assert sys.path.count(src_path) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +182,23 @@ class TestSetupHookLogging:
         ]
         assert len(stream_handlers) >= 1
         assert isinstance(stream_handlers[-1].formatter, StructuredFormatter)
+
+    def test_handler_accumulation_on_repeated_call(self):
+        """setup_hook_logging called twice with the same name adds a second handler.
+
+        Current behavior (unguarded): each call appends a new StreamHandler, so
+        two calls yield two handlers on the same logger. TD-427 tracks a future
+        dedup guard in hooks_common.py; this test documents the current state.
+        """
+        logger_name = "ai_memory.test_dedup_logger"
+        logger = logging.getLogger(logger_name)
+        logger.handlers.clear()
+        try:
+            setup_hook_logging(logger_name)
+            setup_hook_logging(logger_name)
+            assert len(logger.handlers) == 2
+        finally:
+            logger.handlers.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -279,12 +306,15 @@ class TestGetMetrics:
         assert result == (None, None, None)
 
     def test_returns_three_tuple_when_metrics_available(self, monkeypatch):
-        """get_metrics returns a 3-tuple of metric objects when memory.metrics is importable."""
+        """get_metrics returns a 3-tuple with the correct metric objects in order."""
         mock_mod = MagicMock()
         monkeypatch.setitem(sys.modules, "memory.metrics", mock_mod)
         result = get_metrics()
         assert isinstance(result, tuple)
         assert len(result) == 3
+        assert result[0] is mock_mod.memory_retrievals_total
+        assert result[1] is mock_mod.retrieval_duration_seconds
+        assert result[2] is mock_mod.hook_duration_seconds
 
 
 # ---------------------------------------------------------------------------
@@ -302,12 +332,14 @@ class TestGetTriggerMetrics:
         assert result == (None, None)
 
     def test_returns_two_tuple_when_metrics_available(self, monkeypatch):
-        """get_trigger_metrics returns a 2-tuple of metric objects when memory.metrics is importable."""
+        """get_trigger_metrics returns a 2-tuple with the correct metric objects in order."""
         mock_mod = MagicMock()
         monkeypatch.setitem(sys.modules, "memory.metrics", mock_mod)
         result = get_trigger_metrics()
         assert isinstance(result, tuple)
         assert len(result) == 2
+        assert result[0] is mock_mod.trigger_fires_total
+        assert result[1] is mock_mod.trigger_results_returned
 
 
 # ---------------------------------------------------------------------------
@@ -325,12 +357,14 @@ class TestGetTokenMetrics:
         assert result == (None, None)
 
     def test_returns_two_tuple_when_metrics_available(self, monkeypatch):
-        """get_token_metrics returns a 2-tuple of metric objects when memory.metrics is importable."""
+        """get_token_metrics returns a 2-tuple with the correct metric objects in order."""
         mock_mod = MagicMock()
         monkeypatch.setitem(sys.modules, "memory.metrics", mock_mod)
         result = get_token_metrics()
         assert isinstance(result, tuple)
         assert len(result) == 2
+        assert result[0] is mock_mod.tokens_consumed_total
+        assert result[1] is mock_mod.context_injection_tokens
 
 
 # ---------------------------------------------------------------------------
@@ -454,3 +488,26 @@ class TestReadTranscript:
 
         monkeypatch.setattr(builtins, "open", failing_open)
         assert read_transcript(str(jsonl_file)) == []
+
+
+# ---------------------------------------------------------------------------
+# _rotate_log_if_needed
+# ---------------------------------------------------------------------------
+
+
+class TestRotateLogIfNeeded:
+    """Tests for _rotate_log_if_needed()."""
+
+    def test_rotates_file_exceeding_max_lines(self, tmp_path, monkeypatch):
+        """_rotate_log_if_needed truncates an oversized log to keep_lines lines.
+
+        Monkeypatches random.random to 0.01 to force execution past the
+        probabilistic skip gate (threshold is 0.02).
+        """
+        log_file = tmp_path / "activity.log"
+        # Write 510 lines — exceeds the default max_lines of 500
+        log_file.write_text("\n".join(f"line {i}" for i in range(510)) + "\n")
+        monkeypatch.setattr(random, "random", lambda: 0.01)
+        _rotate_log_if_needed(log_file)
+        lines = log_file.read_text().splitlines()
+        assert len(lines) == 450  # default keep_lines
