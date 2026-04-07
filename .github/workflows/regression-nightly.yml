@@ -28,9 +28,10 @@ on:
     paths:
       - "src/memory/**"
       - ".claude/hooks/scripts/**"
+  workflow_dispatch:
 
 concurrency:
-  group: regression-nightly-${{ github.sha }}
+  group: regression-nightly-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
