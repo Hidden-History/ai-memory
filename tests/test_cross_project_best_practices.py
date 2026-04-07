@@ -8,16 +8,15 @@ test coverage for:
 
 Test Strategy:
 - Integration tests with real Qdrant client (requires Docker stack)
-- Time delays for embedding/indexing (2s per operation)
+- Polling for embedding/indexing completion (TD-363: replaced time.sleep)
 - Explicit assertions for group_id="shared" and collection="conventions"
 
 Architecture Reference: architecture.md:690-789
 """
 
-import time
-
 import pytest
 
+from conftest import wait_for_condition
 from src.memory.models import MemoryType
 from src.memory.search import MemorySearch, retrieve_best_practices
 from src.memory.storage import store_best_practice
@@ -48,7 +47,17 @@ class TestBestPracticesSharing:
         assert bp_result["group_id"] == "shared"
         assert "memory_id" in bp_result
 
-        time.sleep(2)  # Wait for embedding + indexing
+        # TD-363: replaced time.sleep(2) with polling
+        def best_practice_indexed() -> bool:
+            """Check if best practice is indexed."""
+            results = retrieve_best_practices(query="Python type hints", limit=5)
+            return any("type hints" in r.get("content", "").lower() for r in results)
+
+        wait_for_condition(
+            best_practice_indexed,
+            timeout=10.0,
+            message="Best practice not indexed",
+        )
 
         # Retrieve from different project (no cwd or group_id filter)
         # NOTE: May need higher limit if collection has test pollution
@@ -95,7 +104,13 @@ class TestBestPracticesSharing:
             source_hook="manual",
         )
 
-        time.sleep(2)
+        # TD-363: replaced time.sleep(2) with polling
+        def mock_bp_indexed() -> bool:
+            """Check if mock best practice is indexed."""
+            results = retrieve_best_practices(query="mock external APIs", limit=5)
+            return any("Mock" in r.get("content", "") for r in results)
+
+        wait_for_condition(mock_bp_indexed, timeout=10.0, message="Mock BP not indexed")
 
         # Search implementations collection (project-scoped)
         search = MemorySearch()
@@ -131,7 +146,23 @@ class TestBestPracticesSharing:
             source_hook="PostToolUse",
         )
 
-        time.sleep(2)
+        # TD-363: replaced time.sleep(2) with polling
+        def implementation_indexed() -> bool:
+            """Check if implementation is indexed."""
+            from src.memory.search import MemorySearch
+
+            search_impl = MemorySearch()
+            results = search_impl.search(
+                query="OAuth2 login",
+                collection="code-patterns",
+                group_id="project-a",
+                limit=1,
+            )
+            return len(results) > 0
+
+        wait_for_condition(
+            implementation_indexed, timeout=10.0, message="Implementation not indexed"
+        )
 
         # Search best practices collection
         bp_results = retrieve_best_practices(
@@ -161,7 +192,17 @@ class TestBestPracticesSharing:
                 source_hook="manual",
             )
 
-        time.sleep(5)  # Wait for all embeddings
+        # TD-363: replaced time.sleep(5) with polling for 100 entries
+        def entries_indexed() -> bool:
+            """Check if enough entries are indexed for performance test."""
+            results = retrieve_best_practices(query="coding pattern", limit=5)
+            return len(results) >= 5  # At least 5 entries indexed
+
+        wait_for_condition(
+            entries_indexed,
+            timeout=15.0,
+            message="Performance test entries not indexed",
+        )
 
         # Measure unfiltered query performance
         import time as time_module
@@ -252,7 +293,13 @@ class TestBestPracticesRetrieval:
             source_hook="manual",
         )
 
-        time.sleep(2)
+        # TD-363: replaced time.sleep(2) with polling
+        def doc_bp_indexed() -> bool:
+            """Check if documentation best practice is indexed."""
+            results = retrieve_best_practices(query="API documentation", limit=3)
+            return any("docstrings" in r.get("content", "").lower() for r in results)
+
+        wait_for_condition(doc_bp_indexed, timeout=10.0, message="Doc BP not indexed")
 
         results = retrieve_best_practices(
             query="API documentation best practice",
@@ -282,7 +329,15 @@ class TestBestPracticesRetrieval:
                 source_hook="manual",
             )
 
-        time.sleep(2)
+        # TD-363: replaced time.sleep(2) with polling
+        def python_bp_indexed() -> bool:
+            """Check if Python pattern best practices are indexed."""
+            results = retrieve_best_practices(query="Python pattern", limit=3)
+            return len(results) >= 1
+
+        wait_for_condition(
+            python_bp_indexed, timeout=10.0, message="Python pattern BPs not indexed"
+        )
 
         # Call without explicit limit (should default to 3)
         results = retrieve_best_practices(query="Python pattern efficiency")
@@ -325,7 +380,15 @@ class TestFilterConstructionWithNone:
             source_hook="manual",
         )
 
-        time.sleep(2)
+        # TD-363: replaced time.sleep(2) with polling
+        def async_bp_indexed() -> bool:
+            """Check if async best practice is indexed."""
+            results = retrieve_best_practices(query="async await", limit=3)
+            return any("async" in r.get("content", "").lower() for r in results)
+
+        wait_for_condition(
+            async_bp_indexed, timeout=10.0, message="Async BP not indexed"
+        )
 
         # Search with group_id=None (should search all)
         search = MemorySearch()

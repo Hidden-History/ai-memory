@@ -805,6 +805,49 @@ def wait_for_qdrant_healthy(timeout: int = 60) -> None:
     raise TimeoutError(f"Qdrant did not become healthy within {timeout}s after restart")
 
 
+def wait_for_condition(
+    condition_fn: callable,
+    timeout: float = 30.0,
+    poll_interval: float = 0.5,
+    message: str = "Condition not met",
+) -> None:
+    """Poll for condition with timeout - TD-363 helper for flaky test fixes.
+
+    Replaces long unconditional time.sleep() calls with polling patterns that
+    fail fast when the condition is met, improving test reliability and speed.
+
+    Args:
+        condition_fn: Callable that returns True when condition is met
+        timeout: Maximum seconds to wait (default 30s)
+        poll_interval: Seconds between polls (default 0.5s)
+        message: Error message prefix for TimeoutError
+
+    Raises:
+        TimeoutError: If condition not met within timeout
+
+    Example:
+        # Before: time.sleep(60)  # Wait for embedding
+        # After:
+        wait_for_condition(
+            lambda: memory_exists_in_qdrant(memory_id),
+            timeout=60.0,
+            message="Memory not found in Qdrant"
+        )
+    """
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            if condition_fn():
+                return
+        except Exception:
+            # Condition check raised exception, keep polling
+            pass
+        time.sleep(poll_interval)
+
+    elapsed = time.time() - start
+    raise TimeoutError(f"{message} within {timeout}s (waited {elapsed:.1f}s)")
+
+
 # Edge case test content patterns for cleanup (TECH-DEBT-024 fix)
 # Tests create dynamic group_ids (e.g., "concurrent-test-edge-{timestamp}")
 # but we need to match by CONTENT patterns since group_ids are unpredictable.

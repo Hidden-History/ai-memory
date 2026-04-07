@@ -62,6 +62,7 @@ from pathlib import Path
 import pytest
 from qdrant_client import QdrantClient
 
+from conftest import wait_for_condition
 from src.memory.models import MemoryType
 from src.memory.search import MemorySearch, retrieve_best_practices
 from src.memory.storage import MemoryStorage, store_best_practice
@@ -146,8 +147,28 @@ def test_project_isolation(
         "duplicate",
     ], f"Project B storage failed: {result_b}"
 
-    # Wait for embeddings to complete (CPU mode: 20-30s per embedding x 2 memories = 40-60s min)
-    time.sleep(60)
+    # Wait for embeddings to complete (TD-363: replaced time.sleep(60) with polling)
+    def memories_indexed() -> bool:
+        """Check if both memories are indexed and searchable."""
+        results_a = search.search(
+            query="implementation pattern",
+            collection="code-patterns",
+            group_id="project-a",
+            limit=1,
+        )
+        results_b = search.search(
+            query="implementation pattern",
+            collection="code-patterns",
+            group_id="project-b",
+            limit=1,
+        )
+        return len(results_a) > 0 and len(results_b) > 0
+
+    wait_for_condition(
+        memories_indexed,
+        timeout=60.0,
+        message="Embeddings not indexed within timeout",
+    )
 
     # Retrieve from project A - should ONLY get project A memories
     results_a = search.search(
@@ -257,8 +278,28 @@ def test_project_switching(
         source_hook="PostToolUse",
     )
 
-    # Wait for embeddings to complete (CPU mode: 20-30s per embedding x 2 memories = 40-60s min)
-    time.sleep(60)
+    # Wait for embeddings to complete (TD-363: replaced time.sleep(60) with polling)
+    def switch_memories_indexed() -> bool:
+        """Check if both switch test memories are indexed."""
+        results_a = search.search(
+            query="pytest fixtures",
+            collection="code-patterns",
+            group_id="switch-test-a",
+            limit=1,
+        )
+        results_b = search.search(
+            query="asyncio concurrent",
+            collection="code-patterns",
+            group_id="switch-test-b",
+            limit=1,
+        )
+        return len(results_a) > 0 and len(results_b) > 0
+
+    wait_for_condition(
+        switch_memories_indexed,
+        timeout=60.0,
+        message="Switch test embeddings not indexed",
+    )
 
     # Work in project A - first retrieval
     # Note: Query must match stored content for semantic search (fix per code review)
@@ -400,8 +441,25 @@ def test_concurrent_projects(
             "duplicate",
         ], f"Storage failed for {proj['name']}: {result}"
 
-    # Wait for all embeddings (CPU mode: 20-30s per embedding x 3 memories = 60-90s min)
-    time.sleep(90)
+    # Wait for all embeddings (TD-363: replaced time.sleep(90) with polling)
+    def concurrent_projects_indexed() -> bool:
+        """Check if all 3 concurrent project memories are indexed."""
+        for proj in projects:
+            results = search.search(
+                query=proj["query"],
+                collection="code-patterns",
+                group_id=proj["name"],
+                limit=1,
+            )
+            if len(results) == 0:
+                return False
+        return True
+
+    wait_for_condition(
+        concurrent_projects_indexed,
+        timeout=90.0,
+        message="Concurrent project embeddings not indexed",
+    )
 
     # Retrieve from each project and verify strict isolation
     # Note: Use project-specific queries for better semantic matching (fix per code review)
@@ -498,8 +556,25 @@ def test_concurrent_projects_performance(
             source_hook="PostToolUse",
         )
 
-    # Wait for all embeddings (CPU mode: 20-30s per embedding x 5 memories = 100-150s min)
-    time.sleep(150)
+    # Wait for all embeddings (TD-363: replaced time.sleep(150) with polling)
+    def perf_projects_indexed() -> bool:
+        """Check if all 5 performance project memories are indexed."""
+        for proj in projects:
+            results = search.search(
+                query="performance test pattern",
+                collection="code-patterns",
+                group_id=proj["name"],
+                limit=1,
+            )
+            if len(results) == 0:
+                return False
+        return True
+
+    wait_for_condition(
+        perf_projects_indexed,
+        timeout=150.0,
+        message="Performance project embeddings not indexed",
+    )
 
     # Measure retrieval performance for each project
     retrieval_times: list[float] = []
@@ -599,8 +674,19 @@ def test_best_practices_shared_across_projects(
         "duplicate",
     ], f"Best practice storage failed: {bp_result}"
 
-    # Wait for embedding to complete (CPU mode: 20-30s per embedding)
-    time.sleep(30)
+    # Wait for embedding to complete (TD-363: replaced time.sleep(30) with polling)
+    def best_practice_indexed() -> bool:
+        """Check if best practice is indexed."""
+        results = retrieve_best_practices(
+            query="pytest test isolation best practice", limit=5
+        )
+        return any("tmp_path" in r.get("content", "").lower() for r in results)
+
+    wait_for_condition(
+        best_practice_indexed,
+        timeout=30.0,
+        message="Best practice not indexed",
+    )
 
     # Retrieve from project-b context (different project)
     results_b = retrieve_best_practices(query="pytest test isolation best practice")
@@ -674,8 +760,23 @@ def test_implementations_not_in_best_practices_collection(
         "duplicate",
     ], f"Implementation storage failed: {impl_result}"
 
-    # Wait for embedding to complete (CPU mode: 20-30s per embedding)
-    time.sleep(30)
+    # Wait for embedding to complete (TD-363: replaced time.sleep(30) with polling)
+    def implementation_indexed() -> bool:
+        """Check if implementation is indexed in code-patterns."""
+        search_impl = MemorySearch()
+        results = search_impl.search(
+            query="OAuth2 FastAPI implementation",
+            collection="code-patterns",
+            group_id="impl-project",
+            limit=1,
+        )
+        return len(results) > 0
+
+    wait_for_condition(
+        implementation_indexed,
+        timeout=30.0,
+        message="Implementation not indexed",
+    )
 
     # Search best practices collection
     bp_results = retrieve_best_practices(query="OAuth2 FastAPI implementation")
@@ -815,9 +916,30 @@ def test_hooks_multi_project_integration(
         ], f"PostToolUse hook failed for project B with exit code {result_b.returncode}\nstdout: {result_b.stdout}\nstderr: {result_b.stderr}"
 
     # Wait for background storage + embeddings to complete
+    # TD-363: replaced time.sleep(60) with polling
     # Hooks fork to background: Per NFR-P1 <500ms overhead
     # But background storage + embeddings takes 20-30s per memory in CPU mode
-    time.sleep(60)
+    def hook_memories_indexed() -> bool:
+        """Check if hook-captured memories are indexed."""
+        mem_a = search.search(
+            query="pytest tmp_path fixture",
+            collection="code-patterns",
+            group_id="hook-project-a",
+            limit=1,
+        )
+        mem_b = search.search(
+            query="asyncio concurrent testing",
+            collection="code-patterns",
+            group_id="hook-project-b",
+            limit=1,
+        )
+        return len(mem_a) > 0 or len(mem_b) > 0
+
+    wait_for_condition(
+        hook_memories_indexed,
+        timeout=60.0,
+        message="Hook memories not indexed",
+    )
 
     # Verify memories were captured with correct project scope
     # Note: Use specific queries matching stored content for semantic search (fix per code review)

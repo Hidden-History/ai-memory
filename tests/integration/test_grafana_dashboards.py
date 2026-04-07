@@ -38,12 +38,25 @@ def wait_for_grafana(grafana_url):
         try:
             response = httpx.get(f"{grafana_url}/api/health", timeout=5)
             if response.status_code == 200:
-                # Give provisioning extra time to complete
-                time.sleep(5)
+                # TD-363: replaced fixed sleep with polling for datasource provisioning
+                # Poll for Prometheus datasource to be ready (indicates provisioning complete)
+                provisioning_timeout = 15
+                provisioning_start = time.time()
+                while time.time() - provisioning_start < provisioning_timeout:
+                    try:
+                        ds_response = httpx.get(
+                            f"{grafana_url}/api/datasources/name/Prometheus", timeout=5
+                        )
+                        if ds_response.status_code == 200:
+                            return True
+                    except (httpx.ConnectError, httpx.TimeoutException):
+                        pass
+                    time.sleep(0.5)
+                # If provisioning timeout, still return True - tests will fail if needed
                 return True
         except (httpx.ConnectError, httpx.TimeoutException):
             if attempt < max_retries - 1:
-                time.sleep(retry_delay)
+                time.sleep(retry_delay)  # TD-363: Category B - retry delay
             else:
                 pytest.skip("Grafana not available - skipping integration tests")
 

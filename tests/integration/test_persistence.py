@@ -54,7 +54,7 @@ from pathlib import Path
 import pytest
 
 # Import shared helper from conftest (Story 5.4 code review - Issue 7)
-from conftest import wait_for_qdrant_healthy
+from conftest import wait_for_condition, wait_for_qdrant_healthy
 from qdrant_client import QdrantClient
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
@@ -151,8 +151,18 @@ def test_data_persists_across_docker_restart(
     assert result["status"] == "stored", "Memory storage failed"
     memory_id = result["memory_id"]
 
-    # Wait for embedding generation (NFR-P2 <2s)
-    time.sleep(3)
+    # Wait for embedding generation (TD-363: replaced time.sleep(3) with polling)
+    def memory_indexed() -> bool:
+        """Check if memory is indexed and searchable."""
+        results = search.search(
+            query=test_content,
+            collection="code-patterns",
+            group_id="persistence-test",
+            limit=5,
+        )
+        return any(r.get("id") == memory_id for r in results)
+
+    wait_for_condition(memory_indexed, timeout=10.0, message="Memory not indexed")
 
     # 2. Verify memory exists before restart
     pre_restart_results = search.search(
@@ -201,6 +211,7 @@ def test_data_persists_across_docker_restart(
 
     # Brief stabilization delay - Qdrant needs time to fully accept connections
     # after health check passes (observed in WSL2 environments)
+    # TD-363: Category D - Intentional time-based test for environmental race condition
     time.sleep(2)
 
     # 5. Verify memory still exists after restart
@@ -449,7 +460,7 @@ def test_data_persists_through_multiple_restarts(
     from src.memory.storage import MemoryStorage
 
     storage = MemoryStorage()
-    MemorySearch()
+    search = MemorySearch()
 
     # Try installed location first, then project root (local dev)
     compose_file = Path.home() / ".ai-memory" / "docker" / "docker-compose.yml"
@@ -480,7 +491,21 @@ def test_data_persists_through_multiple_restarts(
         )
         memory_ids.append(result["memory_id"])
 
-    time.sleep(3)  # Wait for embeddings
+    # TD-363: replaced time.sleep(3) with polling
+    def memories_indexed() -> bool:
+        """Check if all 3 memories are indexed."""
+        for memory_id in memory_ids:
+            results = search.search(
+                query="Multi-restart test memory",
+                collection="code-patterns",
+                group_id="multi-restart-test",
+                limit=10,
+            )
+            if not any(r.get("id") == memory_id for r in results):
+                return False
+        return True
+
+    wait_for_condition(memories_indexed, timeout=10.0, message="Memories not indexed")
 
     # Perform 3 restart cycles
     restart_count = 3

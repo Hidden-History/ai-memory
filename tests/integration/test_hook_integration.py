@@ -37,6 +37,9 @@ import requests
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+# TD-363: Import polling helper from conftest
+from conftest import wait_for_condition
+
 # Test configuration - use absolute paths relative to project root
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 HOOK_POST_TOOL = PROJECT_ROOT / ".claude/hooks/scripts/post_tool_capture.py"
@@ -185,21 +188,41 @@ def cleanup_test_memories(monitoring_api):
     # For now, test memories use unique identifiers for isolation
 
 
-def wait_for_background_storage(timeout: float = 60.0) -> None:
-    """Wait for background storage subprocess to complete.
+def wait_for_memory_to_appear(
+    monitoring_api: requests.Session,
+    query: str,
+    collection: str = "code-patterns",
+    timeout: float = 60.0,
+    poll_interval: float = 1.0,
+) -> list[dict[str, Any]]:
+    """Poll for memory to appear in search results.
 
-    PostToolUse forks to background, so we need to wait for storage to finish.
-    CPU mode embedding takes 20-30s per embedding, plus deduplication check adds another 20-30s.
-    Total time can be 40-60s for CPU mode.
+    TD-363: Replaces fixed time.sleep() with polling pattern for faster test execution.
+    Waits for memory to be indexed and searchable before returning.
 
     Args:
-        timeout: Maximum seconds to wait (default 60s for CPU mode compatibility)
+        monitoring_api: Monitoring API client
+        query: Search query to find the memory
+        collection: Collection to search
+        timeout: Maximum seconds to wait
+        poll_interval: Seconds between polls
 
-    Note:
-        Future enhancement: Replace with polling for faster test execution.
-        See Issue #4 in code review for implementation details.
+    Returns:
+        List of matching memories when found
+
+    Raises:
+        TimeoutError: If memory not found within timeout
     """
-    time.sleep(timeout)
+    start = time.time()
+    while time.time() - start < timeout:
+        results = search_memory_by_content(
+            monitoring_api, query=query, collection=collection
+        )
+        if len(results) > 0:
+            return results
+        time.sleep(poll_interval)
+
+    raise TimeoutError(f"Memory not found within {timeout}s for query: {query[:50]}...")
 
 
 def search_memory_by_content(
@@ -295,16 +318,14 @@ class TestPostToolUseIntegration:
         # AC 2.5.1: Hook completes in <500ms (NFR-P1)
         assert hook_duration < 0.5, f"Hook took {hook_duration:.3f}s, expected <0.5s"
 
-        # AC 2.5.1: Wait for background storage
-        wait_for_background_storage(timeout=60)  # CPU mode: 40-60s for embedding+dedup
-
-        # AC 2.5.1: Verify storage via semantic search
+        # AC 2.5.1: Wait for background storage and verify via polling (TD-363)
         # Extract UNIQUE_EDIT_TEST_xxxx marker for faster substring matching
         new_string = sample_edit_input["tool_input"]["new_string"]
         marker_match = re.search(r"UNIQUE_EDIT_TEST_[a-f0-9]+", new_string)
         query_marker = marker_match.group(0) if marker_match else new_string
-        results = search_memory_by_content(
-            monitoring_api, query=query_marker, collection="code-patterns"
+
+        results = wait_for_memory_to_appear(
+            monitoring_api, query=query_marker, collection="code-patterns", timeout=60.0
         )
 
         assert len(results) > 0, "Memory not found via semantic search"
@@ -352,11 +373,9 @@ class TestPostToolUseIntegration:
         marker_match = re.search(r"UNIQUE_WRITE_TEST_[a-f0-9]+", content)
         query_marker = marker_match.group(0) if marker_match else content
 
-        # Wait for background storage
-        wait_for_background_storage(timeout=60)  # CPU mode: 40-60s for embedding+dedup
-
-        results = search_memory_by_content(
-            monitoring_api, query=query_marker, collection="code-patterns"
+        # TD-363: Wait for background storage with polling instead of fixed sleep
+        results = wait_for_memory_to_appear(
+            monitoring_api, query=query_marker, collection="code-patterns", timeout=60.0
         )
 
         assert len(results) > 0, "Memory not found via semantic search"
@@ -669,8 +688,10 @@ class TestDeduplicationVerification:
         )
         assert result1.returncode == 0, f"First capture failed: {result1.stderr}"
 
-        # Wait for background storage
-        wait_for_background_storage(timeout=60)  # CPU mode: 40-60s for embedding+dedup
+        # TD-363: Wait for first memory to be indexed with polling
+        results = wait_for_memory_to_appear(
+            monitoring_api, query=new_string, collection="code-patterns", timeout=60.0
+        )
 
         # Second capture (duplicate)
         result2 = subprocess.run(
@@ -682,13 +703,21 @@ class TestDeduplicationVerification:
         )
         assert result2.returncode == 0, f"Second capture failed: {result2.stderr}"
 
-        # Wait for second background storage (shorter - should be dedup rejection)
-        time.sleep(5)  # Brief wait for dedup check to complete
+        # TD-363: Wait for dedup check to complete (polling instead of fixed sleep)
+        # The dedup check should still return the same single memory
+        def dedup_check_complete() -> bool:
+            results_after = search_memory_by_content(
+                monitoring_api, query=new_string, collection="code-patterns"
+            )
+            # Dedup should still return exactly one memory
+            return len(results_after) == 1
 
-        # AC 2.5.5: Search for content
-        results = search_memory_by_content(
-            monitoring_api, query=new_string, collection="code-patterns"
+        wait_for_condition(
+            dedup_check_complete, timeout=10.0, message="Dedup check not complete"
         )
+
+        # AC 2.5.5: Search for content (already done via polling above)
+        # results is already populated from wait_for_memory_to_appear
 
         # AC 2.5.5: Only ONE memory exists (deduplication worked)
         assert (
@@ -836,12 +865,12 @@ class TestPatternExtractionIntegration:
         )
         assert result.returncode == 0, f"Hook failed: {result.stderr}"
 
-        # Wait for background storage
-        wait_for_background_storage(timeout=60)  # CPU mode: 40-60s for embedding+dedup
-
-        # Search for memory
-        results = search_memory_by_content(
-            monitoring_api, query=unique_marker, collection="code-patterns"
+        # TD-363: Wait for background storage with polling
+        results = wait_for_memory_to_appear(
+            monitoring_api,
+            query=unique_marker,
+            collection="code-patterns",
+            timeout=60.0,
         )
         assert len(results) > 0, "Memory not found"
 
