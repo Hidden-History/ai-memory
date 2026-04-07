@@ -1,34 +1,36 @@
-name: Regression Tests
+name: Regression Tests (Nightly)
 
 # =============================================================================
-# PR REGRESSION TESTS (Secret-Gated)
+# NIGHTLY REGRESSION TESTS
 # =============================================================================
-# This workflow triggers on PRs and uses a secret-gated `if:` condition.
-# When secrets are unavailable (fork PRs), the regression tests SKIP silently.
-# This is intentional per BP-149 — we cannot run tests requiring live services
-# without credentials, and we cannot expose secrets to fork PRs.
+# This workflow provides regression coverage that PR-triggered workflows cannot
+# achieve because GitHub secrets are not available to fork PRs. The PR workflow
+# (regression-tests.yml) uses a secret-gated `if:` condition that evaluates false
+# on every PR from a fork, causing those regression tests to silently skip.
 #
-# REGRESSION COVERAGE is provided by regression-nightly.yml which runs:
-#   - On schedule (daily 6am UTC)
-#   - On push to main (post-merge)
-# Both contexts have secrets available, so regression tests run unconditionally.
+# This workflow runs unconditionally (no secret gating) because:
+#   1. It only triggers on schedule (nightly) and push-to-main events
+#   2. Both contexts are secrets-available (repo-owned workflows have secret access)
+#   3. Push-to-main means the PR was already merged, so failures indicate real issues
 #
 # See TD-397 and BP-149 for context.
+#
+# PRs rely on: unit tests, integration tests, E2E tests
+# Regression tests run: post-merge (push-to-main) and nightly
 # =============================================================================
 
-# Triggers on PRs to main/develop when memory code or hook scripts change.
-# Blocks merge if any regression test fails — scores must meet quality thresholds.
-# ZERO hardcoded secrets — all credentials come from GitHub repository secrets.
-
 on:
-  pull_request:
-    branches: [main, develop]
+  schedule:
+    # Daily at 6:00 AM UTC
+    - cron: '0 6 * * *'
+  push:
+    branches: [main]
     paths:
       - "src/memory/**"
       - ".claude/hooks/scripts/**"
 
 concurrency:
-  group: regression-${{ github.ref }}
+  group: regression-nightly-${{ github.sha }}
   cancel-in-progress: true
 
 permissions:
@@ -37,14 +39,12 @@ permissions:
 jobs:
   # ============================================================================
   # REGRESSION TESTS - Live Langfuse + Qdrant required
+  # No secret gating - runs unconditionally in secrets-available context
   # ============================================================================
   regression-tests:
-    name: Regression Tests (PLAN-012)
+    name: Regression Tests (Nightly)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
-      QDRANT_URL: ${{ secrets.QDRANT_URL }}
 
     steps:
       - uses: actions/checkout@v6
@@ -62,9 +62,6 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run regression test suite
-        # Skipped when Langfuse/Qdrant secrets are absent (e.g., fork PRs).
-        # When this step RUNS, failures are real and BLOCK the merge.
-        if: env.LANGFUSE_PUBLIC_KEY != '' && env.QDRANT_URL != ''
         run: |
           pytest tests/test_regression.py -v --tb=short -m regression
         env:
@@ -76,9 +73,6 @@ jobs:
           QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
 
       - name: Run evaluations dry-run (quality gate check)
-        # Skipped when Langfuse/Qdrant secrets are absent (e.g., fork PRs).
-        # When this step RUNS, failures are real and BLOCK the merge.
-        if: env.LANGFUSE_PUBLIC_KEY != '' && env.QDRANT_URL != ''
         run: |
           python scripts/run_evaluations.py \
             --config evaluator_config.yaml \
@@ -96,7 +90,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: regression-results-${{ github.run_id }}
+          name: regression-results-nightly-${{ github.run_id }}
           path: |
             .audit/logs/evaluations.jsonl
           retention-days: 90
