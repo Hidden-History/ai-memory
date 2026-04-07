@@ -22,11 +22,12 @@ from pathlib import Path
 SUBJECT_MAX_LENGTH = 72
 CONVENTIONAL_COMMIT_PATTERN = re.compile(
     r"^(?P<type>feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)"
-    r"(?:\((?P<scope>[^)]+)\))?"
+    r"(?:\((?P<scope>[^)]+)\))?"  # F10: Optional scope in parens
+    r"!?"  # F10: Optional breaking change indicator
     r":\s+"
     r"(?P<description>.+)$"
 )
-ASCII_ARROW_PATTERN = re.compile(r"\s->\s")  # ASCII arrow with spaces around it
+ASCII_ARROW_PATTERN = re.compile(r"->")  # F7: Match arrow with or without spaces
 UNICODE_ARROW = "→"
 
 

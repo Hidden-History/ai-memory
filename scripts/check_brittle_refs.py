@@ -82,16 +82,31 @@ def extract_comments_and_docstrings(source: str) -> list[tuple[int, str]]:
         # If we can't parse, return empty (skip file)
         return results
 
-    # Extract docstrings
+    # Extract docstrings with correct line numbers
     for node in ast.walk(tree):
-        if isinstance(
-            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)
-        ):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             docstring = ast.get_docstring(node)
             if docstring:
-                # Get the line number where the docstring starts
-                # For functions/classes, it's the line after the def/class
-                line = getattr(node, "lineno", 1)
+                # Get actual docstring line: first statement in body (Expr with Constant)
+                if node.body and isinstance(node.body[0], ast.Expr):
+                    if isinstance(node.body[0].value, ast.Constant):
+                        line = node.body[0].lineno
+                    else:
+                        line = node.lineno
+                else:
+                    line = node.lineno
+                results.append((line, docstring))
+        elif isinstance(node, ast.Module):
+            docstring = ast.get_docstring(node)
+            if docstring:
+                # Module docstring is first statement
+                if node.body and isinstance(node.body[0], ast.Expr):
+                    if isinstance(node.body[0].value, ast.Constant):
+                        line = node.body[0].lineno
+                    else:
+                        line = 1
+                else:
+                    line = 1
                 results.append((line, docstring))
 
     # Extract comments (lines starting with #)
@@ -127,6 +142,9 @@ def scan_python_file(filepath: Path) -> list[Violation]:
     for line_num, text in texts:
         for pattern, pattern_name in BRITTLE_PATTERNS:
             for match in pattern.finditer(text):
+                # Apply exclusion patterns (F4)
+                if any(excl.search(match.group(0)) for excl in EXCLUDE_PATTERNS):
+                    continue
                 violations.append(
                     Violation(
                         file=str(filepath),
@@ -158,8 +176,11 @@ def scan_markdown_file(filepath: Path) -> list[Violation]:
     for i, line in enumerate(source.split("\n"), start=1):
         for pattern, pattern_name in BRITTLE_PATTERNS:
             for match in pattern.finditer(line):
-                # Skip URL patterns
-                if "://" in line:
+                # F5: Check if match is inside a URL context (match-level, not line-level)
+                if re.search(r"https?://\S*", match.group(0)):
+                    continue
+                # F4: Apply exclusion patterns
+                if any(excl.search(match.group(0)) for excl in EXCLUDE_PATTERNS):
                     continue
                 violations.append(
                     Violation(
@@ -174,10 +195,10 @@ def scan_markdown_file(filepath: Path) -> list[Violation]:
 
 
 def scan_directory(base_path: Path) -> list[Violation]:
-    """Scan src/ and tests/ directories for brittle references.
+    """Scan src/, tests/, and scripts/ directories for brittle references.
 
     Args:
-        base_path: Base directory containing src/ and tests/.
+        base_path: Base directory containing src/, tests/, and scripts/.
 
     Returns:
         List of all violations found.
@@ -194,6 +215,12 @@ def scan_directory(base_path: Path) -> list[Violation]:
     tests_path = base_path / "tests"
     if tests_path.is_dir():
         for py_file in tests_path.rglob("*.py"):
+            violations.extend(scan_python_file(py_file))
+
+    # F9: Scan Python files in scripts/
+    scripts_path = base_path / "scripts"
+    if scripts_path.is_dir():
+        for py_file in scripts_path.rglob("*.py"):
             violations.extend(scan_python_file(py_file))
 
     # Scan CHANGELOG.md
@@ -280,8 +307,8 @@ def _run_self_test() -> int:
             if pattern.search(text):
                 found_patterns.append(pattern_name)
 
-        # Check if expected patterns are in found patterns
-        matches_expected = all(p in found_patterns for p in expected_patterns)
+        # F8: Check for exact pattern match (set equality) to catch false positives
+        matches_expected = set(found_patterns) == set(expected_patterns)
         status = "✓" if matches_expected else "✗"
         if matches_expected:
             passed += 1

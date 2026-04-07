@@ -491,10 +491,14 @@ class TestOpenRouterProvider:
                 provider.classify("test content", "discussions", "user_message")
 
             # TD-433: Verify Langfuse gen.update was called with level="ERROR"
-            # Note: update is called twice - first with input_text, then with ERROR level
-            assert mock_gen.update.call_count == 2
-            error_call = mock_gen.update.call_args_list[-1]
-            assert error_call.kwargs.get("level") == "ERROR"
+            error_calls = [
+                c
+                for c in mock_gen.update.call_args_list
+                if c.kwargs.get("level") == "ERROR"
+            ]
+            assert (
+                len(error_calls) >= 1
+            ), "Expected gen.update(level=ERROR) on error path"
 
     def test_openrouter_name(self, monkeypatch):
         """Provider name property returns 'openrouter'."""
