@@ -27,6 +27,12 @@ _VALID_JSON = json.dumps(
     }
 )
 
+# Malformed chat response reused across OpenAI and OpenRouter error tests
+_MALFORMED_CHAT_RESPONSE = {
+    "choices": [{"message": {"content": "I cannot classify this content"}}],
+    "usage": {"prompt_tokens": 50, "completion_tokens": 20},
+}
+
 
 class TestClaudeProvider:
     """Tests for ClaudeProvider (Anthropic SDK)."""
@@ -107,6 +113,9 @@ class TestClaudeProvider:
 
         ClaudeProvider has a broad except-Exception block that re-raises as ValueError
         for anything that isn't a timeout or API/auth error.
+
+        NOTE: The test input string must avoid keywords "timeout", "api", "auth"
+        which trigger different exception routing in claude.py classify() except block.
         """
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         provider = ClaudeProvider(api_key=None)
@@ -114,10 +123,45 @@ class TestClaudeProvider:
 
         mock_msg = Mock()
         mock_msg.content = [Mock(text="I cannot classify this content")]
-        mock_msg.usage = Mock(input_tokens=50, output_tokens=5)
         provider._client.messages.create.return_value = mock_msg
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Claude error"):
+            provider.classify("test content", "discussions", "user_message")
+
+    def test_claude_classify_empty_response(self, monkeypatch):
+        """classify() raises ValueError when LLM returns empty string.
+
+        Tests _parse_response failure when text is empty - cannot parse JSON.
+        """
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        provider = ClaudeProvider(api_key=None)
+        provider._client = Mock()
+
+        mock_msg = Mock()
+        mock_msg.content = [Mock(text="")]
+        provider._client.messages.create.return_value = mock_msg
+
+        with pytest.raises(ValueError, match="Claude error"):
+            provider.classify("test content", "discussions", "user_message")
+
+    def test_claude_classify_missing_field(self, monkeypatch):
+        """classify() raises ValueError when JSON missing required classified_type field.
+
+        Tests _validate_response_fields failure path in base.py.
+        """
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        provider = ClaudeProvider(api_key=None)
+        provider._client = Mock()
+
+        # Valid JSON but missing required 'classified_type' field
+        invalid_json = json.dumps(
+            {"confidence": 0.9, "reasoning": "missing type field", "tags": []}
+        )
+        mock_msg = Mock()
+        mock_msg.content = [Mock(text=invalid_json)]
+        provider._client.messages.create.return_value = mock_msg
+
+        with pytest.raises(ValueError, match="Claude error"):
             provider.classify("test content", "discussions", "user_message")
 
     def test_claude_name(self, monkeypatch):
@@ -231,7 +275,7 @@ class TestOllamaProvider:
         mock_resp.raise_for_status.return_value = None
         mock_client.post.return_value = mock_resp
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Invalid Ollama"):
             provider.classify("test content", "discussions", "user_message")
 
     def test_ollama_name(self):
@@ -328,14 +372,11 @@ class TestOpenAIProvider:
         provider._client = mock_client
 
         mock_resp = Mock()
-        mock_resp.json.return_value = {
-            "choices": [{"message": {"content": "I cannot classify this content"}}],
-            "usage": {"prompt_tokens": 50, "completion_tokens": 20},
-        }
+        mock_resp.json.return_value = _MALFORMED_CHAT_RESPONSE
         mock_resp.raise_for_status.return_value = None
         mock_client.post.return_value = mock_resp
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Invalid OpenAI"):
             provider.classify("test content", "discussions", "user_message")
 
     def test_openai_name(self, monkeypatch):
@@ -426,22 +467,34 @@ class TestOpenRouterProvider:
 
         OpenRouterProvider catches ValueError from _parse_response via its explicit
         except-(json.JSONDecodeError, KeyError, ValueError) block and re-raises as ValueError.
+        Also verifies Langfuse gen.update(level="ERROR") is called on parse failure.
         """
         monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
         provider = OpenRouterProvider(api_key="or-test")
         mock_client = Mock()
+        mock_gen = Mock()  # Langfuse generation object
         provider._client = mock_client
 
         mock_resp = Mock()
-        mock_resp.json.return_value = {
-            "choices": [{"message": {"content": "I cannot classify this content"}}],
-            "usage": {"prompt_tokens": 50, "completion_tokens": 20},
-        }
+        mock_resp.json.return_value = _MALFORMED_CHAT_RESPONSE
         mock_resp.raise_for_status.return_value = None
         mock_client.post.return_value = mock_resp
 
-        with pytest.raises(ValueError):
-            provider.classify("test content", "discussions", "user_message")
+        # TD-433: Mock langfuse_generation context manager to capture gen.update calls
+        with patch(
+            "src.memory.classifier.providers.openrouter.langfuse_generation"
+        ) as mock_ctx:
+            mock_ctx.return_value.__enter__ = Mock(return_value=mock_gen)
+            mock_ctx.return_value.__exit__ = Mock(return_value=False)
+
+            with pytest.raises(ValueError, match="Invalid OpenRouter"):
+                provider.classify("test content", "discussions", "user_message")
+
+            # TD-433: Verify Langfuse gen.update was called with level="ERROR"
+            # Note: update is called twice - first with input_text, then with ERROR level
+            assert mock_gen.update.call_count == 2
+            error_call = mock_gen.update.call_args_list[-1]
+            assert error_call.kwargs.get("level") == "ERROR"
 
     def test_openrouter_name(self, monkeypatch):
         """Provider name property returns 'openrouter'."""
