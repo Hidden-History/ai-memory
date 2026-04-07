@@ -100,19 +100,21 @@ class TestCollectionTypesValidation:
 
     @pytest.mark.skipif(not STREAMLIT_IMPORTED, reason="Cannot import Streamlit app")
     def test_expected_collection_structure(self):
-        """Verify V2.0+ collection structure (4 collections with specific types).
+        """Verify V2.3+ collection structure (5 collections with specific types).
 
-        C3.5: Validate the exact V2.0+ spec structure.
-        TD-386: Updated to include jira-data collection (PLAN-010).
+        C3.5: Validate the exact V2.3+ spec structure.
+        V2.3.0: Added github collection (9 types), discussions now has 11 types
+        (including discussion + 4 agent namespace types).
         """
         assert set(COLLECTION_TYPES.keys()) == {
             "code-patterns",
             "conventions",
             "discussions",
             "jira-data",
-        }, "V2.0+ spec requires exactly 4 collections: code-patterns, conventions, discussions, jira-data"
+            "github",
+        }, "V2.3+ spec requires exactly 5 collections: code-patterns, conventions, discussions, jira-data, github"
 
-        # V2.0+ spec type counts per collection
+        # V2.3+ spec type counts per collection
         assert (
             len(COLLECTION_TYPES["code-patterns"]) == 4
         ), "code-patterns should have 4 types"
@@ -120,9 +122,10 @@ class TestCollectionTypesValidation:
             len(COLLECTION_TYPES["conventions"]) == 5
         ), "conventions should have 5 types"
         assert (
-            len(COLLECTION_TYPES["discussions"]) == 6
-        ), "discussions should have 6 types"
+            len(COLLECTION_TYPES["discussions"]) == 11
+        ), "discussions should have 11 types (V2.3.0: added discussion + 4 agent namespace types)"
         assert len(COLLECTION_TYPES["jira-data"]) == 2, "jira-data should have 2 types"
+        assert len(COLLECTION_TYPES["github"]) == 9, "github should have 9 types"
 
     @pytest.mark.skipif(not STREAMLIT_IMPORTED, reason="Cannot import Streamlit app")
     def test_code_patterns_types(self):
@@ -155,20 +158,50 @@ class TestCollectionTypesValidation:
         """Verify discussions collection has correct types.
 
         C3.8: Validate discussions collection (WHY things were decided).
+        V2.3.0: Added 'discussion' type and 4 agent namespace types.
         """
         expected = {
             "decision",
+            "discussion",
             "session",
             "blocker",
             "preference",
             "user_message",
             "agent_response",
+            "agent_handoff",
+            "agent_memory",
+            "agent_task",
+            "agent_insight",
         }
         actual = set(COLLECTION_TYPES["discussions"])
 
         assert (
             actual == expected
         ), f"discussions types mismatch. Expected: {expected}, Got: {actual}"
+
+    @pytest.mark.skipif(not STREAMLIT_IMPORTED, reason="Cannot import Streamlit app")
+    def test_github_types(self):
+        """Verify github collection has correct types.
+
+        C3.9: Validate github collection (WHAT code DID do).
+        V2.3.0: Added github collection with 9 types.
+        """
+        expected = {
+            "github_issue",
+            "github_issue_comment",
+            "github_pr",
+            "github_pr_diff",
+            "github_pr_review",
+            "github_commit",
+            "github_code_blob",
+            "github_ci_result",
+            "github_release",
+        }
+        actual = set(COLLECTION_TYPES["github"])
+
+        assert (
+            actual == expected
+        ), f"github types mismatch. Expected: {expected}, Got: {actual}"
 
 
 class TestMemoryTypeEnumStructure:
@@ -187,11 +220,12 @@ class TestMemoryTypeEnumStructure:
         V2.0.5: 17 types (4 code-patterns + 5 conventions + 6 discussions + 2 jira-data)
         V2.0.6: 30 types (added GitHub sync, agent, decay, freshness types)
         V2.2.1: 31 types (added github_release)
+        V2.3.0: 31 types (all collections aligned with MemoryType enum)
         """
         all_types = list(MemoryType)
         assert (
             len(all_types) == 31
-        ), f"MemoryType enum should have 31 types (V2.2.1 spec), got {len(all_types)}"
+        ), f"MemoryType enum should have 31 types (V2.3.0 spec), got {len(all_types)}"
 
     def test_memory_type_values_are_lowercase_snake_case(self):
         """Verify all MemoryType values use lowercase snake_case.

@@ -56,6 +56,7 @@ COLLECTION_CODE_PATTERNS = "code-patterns"
 COLLECTION_CONVENTIONS = "conventions"
 COLLECTION_DISCUSSIONS = "discussions"
 COLLECTION_JIRA_DATA = "jira-data"
+COLLECTION_GITHUB = "github"
 
 # Collection names list for iteration
 COLLECTION_NAMES = [
@@ -63,6 +64,7 @@ COLLECTION_NAMES = [
     COLLECTION_CONVENTIONS,
     COLLECTION_DISCUSSIONS,
     COLLECTION_JIRA_DATA,
+    COLLECTION_GITHUB,
 ]
 
 # V2.0 Type System (C1: Derived from canonical source - src/memory/models.py:34-69)
@@ -84,21 +86,37 @@ if MODELS_IMPORTED:
         ],
         "discussions": [
             MemoryType.DECISION.value,
+            MemoryType.DISCUSSION.value,
             MemoryType.SESSION.value,
             MemoryType.BLOCKER.value,
             MemoryType.PREFERENCE.value,
             MemoryType.USER_MESSAGE.value,
             MemoryType.AGENT_RESPONSE.value,
+            MemoryType.AGENT_HANDOFF.value,
+            MemoryType.AGENT_MEMORY.value,
+            MemoryType.AGENT_TASK.value,
+            MemoryType.AGENT_INSIGHT.value,
         ],
         "jira-data": [
             MemoryType.JIRA_ISSUE.value,
             MemoryType.JIRA_COMMENT.value,
         ],
+        "github": [
+            MemoryType.GITHUB_ISSUE.value,
+            MemoryType.GITHUB_ISSUE_COMMENT.value,
+            MemoryType.GITHUB_PR.value,
+            MemoryType.GITHUB_PR_DIFF.value,
+            MemoryType.GITHUB_PR_REVIEW.value,
+            MemoryType.GITHUB_COMMIT.value,
+            MemoryType.GITHUB_CODE_BLOB.value,
+            MemoryType.GITHUB_CI_RESULT.value,
+            MemoryType.GITHUB_RELEASE.value,
+        ],
     }
 else:
     # Fallback: Hardcoded values if import fails (container missing pydantic_settings)
-    # CRITICAL: These values MUST be kept in sync with src/memory/models.py:39-58
-    # Last verified: 2026-01-25 (TECH-DEBT-068)
+    # CRITICAL: These values MUST be kept in sync with src/memory/models.py:22-85
+    # Last verified: 2026-04-07 (v2.3.0)
     COLLECTION_TYPES = {
         "code-patterns": [
             "implementation",
@@ -109,15 +127,31 @@ else:
         "conventions": ["rule", "guideline", "port", "naming", "structure"],
         "discussions": [
             "decision",
+            "discussion",
             "session",
             "blocker",
             "preference",
             "user_message",
             "agent_response",
+            "agent_handoff",
+            "agent_memory",
+            "agent_task",
+            "agent_insight",
         ],
         "jira-data": [
             "jira_issue",
             "jira_comment",
+        ],
+        "github": [
+            "github_issue",
+            "github_issue_comment",
+            "github_pr",
+            "github_pr_diff",
+            "github_pr_review",
+            "github_commit",
+            "github_code_blob",
+            "github_ci_result",
+            "github_release",
         ],
     }
 
