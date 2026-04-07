@@ -185,7 +185,7 @@ except (IOError, OSError):
             [sys.executable, str(script_path)],
             capture_output=True,
             text=True,
-            timeout=30,  # CI cold-boot on memory package import (memory/__init__.py → storage → chunking → tiktoken, per TD-388) can exceed 5s; paired with proc1's 30s lock-window (set in the slow_lock_script fixture) so cold-boot cannot race past the lock release (TD-407)
+            timeout=30,  # CI cold-boot on memory package import (per TD-388) can exceed 5s; paired with proc1 lock-window duration (see slow_lock_script fixture) so cold-boot cannot race past the lock release (TD-407)
             env=env,
         )
 

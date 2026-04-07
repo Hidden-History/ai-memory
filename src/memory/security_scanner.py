@@ -203,7 +203,7 @@ def _is_github_id_context(content: str, start: int, end: int) -> bool:
         r"\bworkflow\b[:\s]*",  # "workflow 23997575319" or "workflow: 123"
         r"\bworkflow_id\b[:\s]*",  # "workflow_id: 23997575319"
         r"actions/",  # "actions/runs/..."
-        r"#",  # "#12345" (GitHub issue/PR refs)
+        r"\b(?:issue|pr|pull|fix(?:es)?)\s*#",  # "issue #123", "PR #456", "fixes #789"
     ]
 
     return any(re.search(pattern + r"$", prefix_window) for pattern in safe_prefixes)

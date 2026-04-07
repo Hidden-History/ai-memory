@@ -617,6 +617,125 @@ class TestSourceTypeAwareness:
         assert 1 in result.layers_executed
 
 
+class TestGitHubIdContext:
+    """Test TD-415: _is_github_id_context() whitelisting for GitHub platform IDs."""
+
+    @pytest.fixture(autouse=True)
+    def _disable_detect_secrets(self, monkeypatch):
+        """Isolate tests from Layer 2 detect-secrets interference."""
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+
+    def test_run_prefix_whitelists(self):
+        """Test that 'run' prefix whitelists GitHub run IDs."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        # True positive: should be whitelisted
+        result = scanner.scan("See gh run 23997575319 for details")
+        assert result.action == ScanAction.PASSED
+        assert len(result.findings) == 0
+
+    def test_run_id_prefix_whitelists(self):
+        """Test that 'run_id:' prefix whitelists GitHub run IDs."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("run_id: 23997575319")
+        assert result.action == ScanAction.PASSED
+
+    def test_runs_slash_whitelists(self):
+        """Test that 'runs/' prefix whitelists GitHub run IDs."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("Check runs/23997575319 status")
+        assert result.action == ScanAction.PASSED
+
+    def test_job_prefix_whitelists(self):
+        """Test that 'job' prefix whitelists GitHub job IDs."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("job: 23997575319")
+        assert result.action == ScanAction.PASSED
+
+    def test_jobs_slash_whitelists(self):
+        """Test that 'jobs/' prefix whitelists GitHub job IDs."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("jobs/23997575319 failed")
+        assert result.action == ScanAction.PASSED
+
+    def test_workflow_prefix_whitelists(self):
+        """Test that 'workflow' prefix whitelists GitHub workflow IDs."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("workflow: 23997575319")
+        assert result.action == ScanAction.PASSED
+
+    def test_workflow_id_prefix_whitelists(self):
+        """Test that 'workflow_id:' prefix whitelists GitHub workflow IDs."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("workflow_id: 23997575319")
+        assert result.action == ScanAction.PASSED
+
+    def test_actions_slash_whitelists(self):
+        """Test that 'actions/' prefix whitelists GitHub Actions IDs."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("See actions/runs/23997575319")
+        assert result.action == ScanAction.PASSED
+
+    def test_issue_pr_fixes_hash_whitelists(self):
+        """Test that 'issue #', 'PR #', 'fixes #' whitelists numeric refs."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        # These should be whitelisted (not phone numbers)
+        for text in ["issue #12345", "PR #45678", "fixes #78901"]:
+            result = scanner.scan(text)
+            assert result.action == ScanAction.PASSED, f"'{text}' should be whitelisted"
+
+    def test_phone_numbers_still_flagged(self):
+        """Test that regular phone numbers are NOT whitelisted."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        # True negatives: must NOT whitelist
+        for text in ["Call me at 5551234567", "phone: 5551234567", "5551234567"]:
+            result = scanner.scan(text)
+            assert (
+                result.action == ScanAction.MASKED
+            ), f"'{text}' should be flagged as PII"
+            assert "[PHONE_REDACTED]" in result.content
+
+    def test_phone_hash_prefix_not_whitelisted(self):
+        """Test F4: 'Phone #5551234567' is NOT whitelisted (bare # removed)."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("Phone #5551234567")
+        # This MUST be flagged as PII - bare # is no longer a safe prefix
+        assert (
+            result.action == ScanAction.MASKED
+        ), "Phone #5551234567 should be flagged as PII"
+        assert "[PHONE_REDACTED]" in result.content
+
+    def test_plain_number_still_flagged(self):
+        """Test that plain 10-digit numbers are still flagged."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("The ID is 5551234567")
+        assert result.action == ScanAction.MASKED
+        assert "[PHONE_REDACTED]" in result.content
+
+
 class TestSessionModeAwareness:
     """Test BUG-110: security_scan_session_mode config for session content."""
 
