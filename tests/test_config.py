@@ -273,8 +273,10 @@ LOG_LEVEL=WARNING
         MemoryConfig(log_level="DEBUG") constructor arg, causing test failure.
         """
         reset_config()
-        # TD-406: Clear env var to ensure constructor arg takes precedence
+        # TD-406: Clear all LOG_LEVEL aliases to ensure constructor arg takes precedence
         monkeypatch.delenv("LOG_LEVEL", raising=False)
+        monkeypatch.delenv("AI_MEMORY_LOG_LEVEL", raising=False)
+        monkeypatch.delenv("BMAD_LOG_LEVEL", raising=False)
 
         # Valid log levels
         for level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
