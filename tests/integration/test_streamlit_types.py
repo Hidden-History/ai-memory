@@ -100,17 +100,19 @@ class TestCollectionTypesValidation:
 
     @pytest.mark.skipif(not STREAMLIT_IMPORTED, reason="Cannot import Streamlit app")
     def test_expected_collection_structure(self):
-        """Verify V2.0 collection structure (3 collections with specific types).
+        """Verify V2.0+ collection structure (4 collections with specific types).
 
-        C3.5: Validate the exact V2.0 spec structure.
+        C3.5: Validate the exact V2.0+ spec structure.
+        TD-386: Updated to include jira-data collection (PLAN-010).
         """
         assert set(COLLECTION_TYPES.keys()) == {
             "code-patterns",
             "conventions",
             "discussions",
-        }, "V2.0 spec requires exactly 3 collections: code-patterns, conventions, discussions"
+            "jira-data",
+        }, "V2.0+ spec requires exactly 4 collections: code-patterns, conventions, discussions, jira-data"
 
-        # V2.0 spec type counts per collection
+        # V2.0+ spec type counts per collection
         assert (
             len(COLLECTION_TYPES["code-patterns"]) == 4
         ), "code-patterns should have 4 types"
@@ -120,6 +122,7 @@ class TestCollectionTypesValidation:
         assert (
             len(COLLECTION_TYPES["discussions"]) == 6
         ), "discussions should have 6 types"
+        assert len(COLLECTION_TYPES["jira-data"]) == 2, "jira-data should have 2 types"
 
     @pytest.mark.skipif(not STREAMLIT_IMPORTED, reason="Cannot import Streamlit app")
     def test_code_patterns_types(self):
