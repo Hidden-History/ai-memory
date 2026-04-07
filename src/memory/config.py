@@ -680,6 +680,7 @@ class MemoryConfig(BaseSettings):
 
     secrets_backend: str = Field(
         default="env-file",
+        validation_alias=AliasChoices("AI_MEMORY_SECRETS_BACKEND", "SECRETS_BACKEND"),
         pattern="^(sops-age|keyring|env-file)$",
         description="Secrets storage method (informational/diagnostic only). Indicates which secrets storage method was selected during install: sops-age (SOPS+age encryption), keyring (OS-level encryption), env-file (plaintext). This field does NOT control decryption behavior (handled by start.sh wrapper script). Used for logging, telemetry, and status reporting.",
     )

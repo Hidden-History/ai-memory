@@ -546,3 +546,30 @@ class TestConfigWave2:
     def test_hide_input_in_errors(self):
         """Enhancement: hide_input_in_errors is set on model_config."""
         assert MemoryConfig.model_config.get("hide_input_in_errors") is True
+
+    def test_secrets_backend_alias_ai_memory_prefix(self, monkeypatch):
+        """BUG-254: AI_MEMORY_SECRETS_BACKEND env var sets secrets_backend via AliasChoices."""
+        reset_config()
+        monkeypatch.setenv("AI_MEMORY_SECRETS_BACKEND", "sops-age")
+        monkeypatch.delenv("SECRETS_BACKEND", raising=False)
+
+        config = get_config()
+        assert config.secrets_backend == "sops-age"
+
+    def test_secrets_backend_alias_plain(self, monkeypatch):
+        """BUG-254: SECRETS_BACKEND env var still works via AliasChoices."""
+        reset_config()
+        monkeypatch.delenv("AI_MEMORY_SECRETS_BACKEND", raising=False)
+        monkeypatch.setenv("SECRETS_BACKEND", "keyring")
+
+        config = get_config()
+        assert config.secrets_backend == "keyring"
+
+    def test_secrets_backend_default(self, monkeypatch):
+        """BUG-254: secrets_backend defaults to 'env-file'."""
+        monkeypatch.delenv("AI_MEMORY_SECRETS_BACKEND", raising=False)
+        monkeypatch.delenv("SECRETS_BACKEND", raising=False)
+        reset_config()
+
+        config = MemoryConfig(_env_file=None)
+        assert config.secrets_backend == "env-file"
