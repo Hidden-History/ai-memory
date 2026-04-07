@@ -172,10 +172,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: integration-tests
-    # Run E2E on main, or when [e2e] in commit message, or when [e2e] in PR title
+    # Run E2E on main push, or when [e2e] in PR title
     if: |
       github.ref == 'refs/heads/main' ||
-      contains(github.event.head_commit.message, '[e2e]') ||
       contains(github.event.pull_request.title, '[e2e]')
 
     steps:
@@ -552,9 +551,9 @@ jobs:
             echo "::error::Integration tests failed"
             exit 1
           fi
-          # E2E blocks only if it ran AND failed (skipped is OK)
-          if [[ "${{ needs.e2e-tests.result }}" == "failure" ]]; then
-            echo "::error::E2E tests failed"
+          # E2E blocks only if it ran AND failed/cancelled (skipped is OK)
+          if [[ "${{ needs.e2e-tests.result }}" == "failure" || "${{ needs.e2e-tests.result }}" == "cancelled" ]]; then
+            echo "::error::E2E tests failed or were cancelled"
             exit 1
           fi
           echo "All CI checks passed!"

@@ -132,13 +132,11 @@ End-to-end (E2E) tests use Playwright to validate the full system with all Docke
 - Requires Docker services (Qdrant, Jina embedding, Prometheus, Grafana, monitoring API)
 
 **Opt-in E2E on PRs:**
-Add `[e2e]` to your commit message or PR title to trigger E2E tests on pull requests:
+Include `[e2e]` in your PR title to trigger E2E tests on pull requests:
 
 ```bash
-# Trigger E2E via commit message
-git commit -m "feat: add new feature [e2e]"
-
-# Or include [e2e] in the PR title when creating the PR
+# When creating a PR, include [e2e] in the title
+# Example PR title: "feat: add new feature [e2e]"
 ```
 
 **Important:** E2E tests are resource-intensive and require:
