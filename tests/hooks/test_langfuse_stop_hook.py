@@ -720,6 +720,12 @@ class TestNeverBlocksClaudeCode:
         assert result.returncode == 0
 
     def test_missing_transcript_file(self):
+        """BUG-266: Hook must exit 0 even with nonexistent transcript + Langfuse enabled but unreachable.
+
+        The subprocess can hang when Langfuse is enabled but unreachable because the
+        Langfuse client initialization retries network connections with exponential backoff.
+        Setting empty keys prevents the client from initializing, avoiding the hang.
+        """
         stdin = json.dumps(
             {
                 "session_id": "s1",
@@ -727,7 +733,10 @@ class TestNeverBlocksClaudeCode:
                 "cwd": "/tmp",
             }
         )
-        result = self._run_hook(stdin)
+        # BUG-266: Empty keys prevent Langfuse client initialization, avoiding hang on unreachable server
+        result = self._run_hook(
+            stdin, {"LANGFUSE_PUBLIC_KEY": "", "LANGFUSE_SECRET_KEY": ""}
+        )
         assert result.returncode == 0
 
     def test_no_langfuse_keys(self):

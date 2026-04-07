@@ -265,9 +265,16 @@ LOG_LEVEL=WARNING
         with pytest.raises(ValidationError, match="embedding_port"):
             MemoryConfig(embedding_port=65536)
 
-    def test_validation_log_level(self):
-        """AC 7.4.1: log_level validation (regex pattern) with pydantic Field."""
+    def test_validation_log_level(self, monkeypatch):
+        """AC 7.4.1: log_level validation (regex pattern) with pydantic Field.
+
+        TD-406: Use monkeypatch.delenv to prevent shell LOG_LEVEL from leaking into
+        pydantic-settings. Without this, local env LOG_LEVEL=INFO overrides the
+        MemoryConfig(log_level="DEBUG") constructor arg, causing test failure.
+        """
         reset_config()
+        # TD-406: Clear env var to ensure constructor arg takes precedence
+        monkeypatch.delenv("LOG_LEVEL", raising=False)
 
         # Valid log levels
         for level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
