@@ -933,7 +933,7 @@ def test_hooks_multi_project_integration(
             group_id="hook-project-b",
             limit=1,
         )
-        return len(mem_a) > 0 or len(mem_b) > 0
+        return len(mem_a) > 0 and len(mem_b) > 0
 
     wait_for_condition(
         hook_memories_indexed,

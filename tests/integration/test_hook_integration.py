@@ -716,8 +716,10 @@ class TestDeduplicationVerification:
             dedup_check_complete, timeout=10.0, message="Dedup check not complete"
         )
 
-        # AC 2.5.5: Search for content (already done via polling above)
-        # results is already populated from wait_for_memory_to_appear
+        # Re-query for fresh results after dedup polling completed
+        results = search_memory_by_content(
+            monitoring_api, query=new_string, collection="code-patterns"
+        )
 
         # AC 2.5.5: Only ONE memory exists (deduplication worked)
         assert (

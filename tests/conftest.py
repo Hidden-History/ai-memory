@@ -19,7 +19,7 @@ import os
 import socket
 import sys
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -806,7 +806,7 @@ def wait_for_qdrant_healthy(timeout: int = 60) -> None:
 
 
 def wait_for_condition(
-    condition_fn: callable,
+    condition_fn: Callable[[], bool],
     timeout: float = 30.0,
     poll_interval: float = 0.5,
     message: str = "Condition not met",
@@ -834,18 +834,21 @@ def wait_for_condition(
             message="Memory not found in Qdrant"
         )
     """
+    last_exc: Exception | None = None
     start = time.time()
     while time.time() - start < timeout:
         try:
             if condition_fn():
                 return
-        except Exception:
-            # Condition check raised exception, keep polling
-            pass
+        except Exception as e:
+            last_exc = e
         time.sleep(poll_interval)
 
     elapsed = time.time() - start
-    raise TimeoutError(f"{message} within {timeout}s (waited {elapsed:.1f}s)")
+    msg = f"{message} within {timeout}s (waited {elapsed:.1f}s)"
+    if last_exc:
+        msg += f" (last error: {last_exc})"
+    raise TimeoutError(msg)
 
 
 # Edge case test content patterns for cleanup (TECH-DEBT-024 fix)

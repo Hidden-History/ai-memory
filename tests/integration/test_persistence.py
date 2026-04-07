@@ -491,19 +491,16 @@ def test_data_persists_through_multiple_restarts(
         )
         memory_ids.append(result["memory_id"])
 
-    # TD-363: replaced time.sleep(3) with polling
+    # TD-363: replaced time.sleep(3) with polling (hoisted search out of loop)
     def memories_indexed() -> bool:
         """Check if all 3 memories are indexed."""
-        for memory_id in memory_ids:
-            results = search.search(
-                query="Multi-restart test memory",
-                collection="code-patterns",
-                group_id="multi-restart-test",
-                limit=10,
-            )
-            if not any(r.get("id") == memory_id for r in results):
-                return False
-        return True
+        results = search.search(
+            query="Multi-restart test memory",
+            collection="code-patterns",
+            group_id="multi-restart-test",
+            limit=10,
+        )
+        return all(any(r.get("id") == mid for r in results) for mid in memory_ids)
 
     wait_for_condition(memories_indexed, timeout=10.0, message="Memories not indexed")
 

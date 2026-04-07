@@ -149,8 +149,6 @@ class TestBestPracticesSharing:
         # TD-363: replaced time.sleep(2) with polling
         def implementation_indexed() -> bool:
             """Check if implementation is indexed."""
-            from src.memory.search import MemorySearch
-
             search_impl = MemorySearch()
             results = search_impl.search(
                 query="OAuth2 login",
