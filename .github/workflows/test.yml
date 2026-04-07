@@ -109,8 +109,7 @@ jobs:
           - 6334:6334
         env:
           QDRANT__SERVICE__API_KEY: ci-integration-test-key
-        # No health-cmd - Qdrant image lacks curl/wget (security hardening)
-        # Health check performed via Python step below
+        # Health check via Python step below (preferred over bash /dev/tcp for maintainability)
 
     steps:
       - uses: actions/checkout@v6
