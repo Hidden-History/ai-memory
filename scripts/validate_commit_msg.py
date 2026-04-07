@@ -141,6 +141,7 @@ def _run_self_test() -> int:
         ("feat: add new feature", 0),
         ("fix(core): resolve race condition", 0),
         ("docs: update README", 0),
+        ("feat!: breaking change", 0),  # NEW-2: Breaking change ! indicator
         (
             "This is a very long subject line that definitely exceeds the seventy-two character limit",
             2,

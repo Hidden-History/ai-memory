@@ -44,6 +44,9 @@ htmlcov/
 # Memory queue (local runtime)
 .memory_queue/
 
+# One-off BP storage scripts (TD-408)
+scripts/memory/store_bp_*.py
+
 # Playwright test artifacts
 playwright-report/
 test-results/

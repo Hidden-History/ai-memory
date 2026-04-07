@@ -12,7 +12,7 @@ Patterns detected:
 - filename.py:\d+ - file:line references in comments/docstrings
 
 Exception: Cross-file references to stable anchors are acceptable
-(e.g., "see models.py MemoryType enum" is fine, "see models.py:38" is not).
+(e.g., "see models.py MemoryType enum" is fine, "see models.py:N" is not).
 
 Always exits 0 (advisory, not blocking).
 
@@ -39,14 +39,14 @@ class Violation(NamedTuple):
 
 # Patterns to detect (in comments and docstrings only)
 BRITTLE_PATTERNS = [
-    # Parenthetical line references: (line 42), (lines 10-20)
+    # Parenthetical line references: (line N), (lines N-M)
     (re.compile(r"\(line\s+\d+\)"), "parenthetical 'line N'"),
     (re.compile(r"\(lines\s+\d+"), "parenthetical 'lines N'"),
     # "at line X" references
     (re.compile(r"\bat\s+line\s+\d+", re.IGNORECASE), "'at line N'"),
     # "at lines X" references
     (re.compile(r"\bat\s+lines\s+\d+", re.IGNORECASE), "'at lines N'"),
-    # Range references: lines 10-20
+    # Range references: lines N-M
     (re.compile(r"\blines\s+\d+\s*-\s*\d+"), "'lines N-M' range"),
     # File:line references in text (not imports or tracebacks)
     (re.compile(r"\b\w+\.py:\d+\b"), "file:line reference"),

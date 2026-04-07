@@ -98,12 +98,12 @@ class TestConcurrentExecution:
 
     @pytest.fixture
     def slow_lock_script(self, tmp_path):
-        """Create a script that holds a lock for 30 seconds using pure fcntl.
+        """Create a script that holds a lock for the test duration using pure fcntl.
 
-        Note: 30s matches proc2's timeout in test_concurrent_execution_blocked
-        so the lock-window is guaranteed to cover proc2's cold-boot + lock-check
-        cycle. Proc1 is terminated by proc1.terminate() at cleanup as soon as
-        proc2 exits, so proc1 does not actually sleep 30s in the happy path.
+        Note: sleep duration matches proc2 timeout to ensure lock window covers
+        the cold-boot + lock-check cycle. Proc1 is terminated by
+        proc1.terminate() at cleanup as soon as proc2 exits, so proc1 does not
+        actually sleep the full duration in the happy path.
         See TD-407 + TD-388 (memory.__init__ lazy-import root cause).
         """
         script = tmp_path / "slow_lock.py"
