@@ -178,7 +178,7 @@ def _is_github_id_context(content: str, start: int, end: int) -> bool:
     Safe prefixes (case-insensitive):
     - "run " or "run_id " or "runs/" — GitHub Actions run IDs
     - "job " or "job/" or "jobs/" — GitHub Actions job IDs
-    - "#" — GitHub issue/PR numbers (though these are typically smaller)
+    - "issue #", "PR #", "fixes #" — GitHub issue/PR refs (context-qualified)
     - "workflow " or "workflow_id " — GitHub workflow IDs
 
     Args:
