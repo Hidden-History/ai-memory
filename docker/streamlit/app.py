@@ -67,7 +67,7 @@ COLLECTION_NAMES = [
     COLLECTION_GITHUB,
 ]
 
-# V2.0 Type System (C1: Derived from canonical source - src/memory/models.py:34-69)
+# V2.0 Type System (C1: Derived from canonical source - src/memory/models.py MemoryType enum)
 # Import MemoryType enum to avoid DRY violation and drift between UI and backend
 if MODELS_IMPORTED:
     COLLECTION_TYPES = {
@@ -115,7 +115,7 @@ if MODELS_IMPORTED:
     }
 else:
     # Fallback: Hardcoded values if import fails (container missing pydantic_settings)
-    # CRITICAL: These values MUST be kept in sync with src/memory/models.py:22-85
+    # CRITICAL: These values MUST be kept in sync with src/memory/models.py MemoryType enum
     # Last verified: 2026-04-07 (v2.3.0)
     COLLECTION_TYPES = {
         "code-patterns": [

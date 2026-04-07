@@ -35,7 +35,7 @@ class MemoryType(str, Enum):
         discussions: DECISION, DISCUSSION, SESSION, BLOCKER, PREFERENCE, USER_MESSAGE, AGENT_RESPONSE
         discussions (agent namespace): AGENT_HANDOFF, AGENT_MEMORY, AGENT_TASK, AGENT_INSIGHT
         jira-data: JIRA_ISSUE, JIRA_COMMENT
-        discussions (github namespace): GITHUB_ISSUE, GITHUB_ISSUE_COMMENT, GITHUB_PR,
+        github: GITHUB_ISSUE, GITHUB_ISSUE_COMMENT, GITHUB_PR,
             GITHUB_PR_DIFF, GITHUB_PR_REVIEW, GITHUB_COMMIT, GITHUB_CODE_BLOB,
             GITHUB_CI_RESULT, GITHUB_RELEASE
     """
@@ -72,8 +72,8 @@ class MemoryType(str, Enum):
     AGENT_TASK = "agent_task"  # Task state tracking
     AGENT_INSIGHT = "agent_insight"  # Insights, learnings, patterns
 
-    # === discussions collection — GitHub namespace (WHAT code DID do) ===
-    # Stored with source="github" for namespace isolation (AD-1, BP-075)
+    # === github collection (WHAT code DID do) ===
+    # Stored in dedicated github Qdrant collection (PLAN-010, BP-075)
     GITHUB_ISSUE = "github_issue"  # Issue title + body
     GITHUB_ISSUE_COMMENT = "github_issue_comment"  # Issue comment body
     GITHUB_PR = "github_pr"  # PR title + description
