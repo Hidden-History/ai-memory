@@ -15,8 +15,8 @@ Architecture Reference: architecture.md:690-789
 """
 
 import pytest
-
 from conftest import wait_for_condition
+
 from src.memory.models import MemoryType
 from src.memory.search import MemorySearch, retrieve_best_practices
 from src.memory.storage import store_best_practice

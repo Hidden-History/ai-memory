@@ -60,9 +60,9 @@ import time
 from pathlib import Path
 
 import pytest
+from conftest import wait_for_condition
 from qdrant_client import QdrantClient
 
-from conftest import wait_for_condition
 from src.memory.models import MemoryType
 from src.memory.search import MemorySearch, retrieve_best_practices
 from src.memory.storage import MemoryStorage, store_best_practice
