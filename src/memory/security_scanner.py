@@ -168,6 +168,47 @@ def _luhn_check(card_number: str) -> bool:
     return checksum % 10 == 0
 
 
+def _is_github_id_context(content: str, start: int, end: int) -> bool:
+    """Check if a phone-like numeric match is actually a GitHub platform ID.
+
+    TD-415: GitHub CI run IDs, job IDs, and similar numeric identifiers
+    match the PII_PHONE regex (10-11 consecutive digits). This function
+    checks the preceding context to whitelist known non-PII patterns.
+
+    Safe prefixes (case-insensitive):
+    - "run " or "run_id " or "runs/" — GitHub Actions run IDs
+    - "job " or "job/" or "jobs/" — GitHub Actions job IDs
+    - "#" — GitHub issue/PR numbers (though these are typically smaller)
+    - "workflow " or "workflow_id " — GitHub workflow IDs
+
+    Args:
+        content: Full content string being scanned.
+        start: Start index of the matched numeric sequence.
+        end: End index of the matched numeric sequence.
+
+    Returns:
+        True if the match appears to be a GitHub platform ID, False otherwise.
+    """
+    # Extract context before the match (up to 30 chars for prefix detection)
+    prefix_window = content[max(0, start - 30) : start].lower()
+
+    # GitHub Actions run/job IDs typically appear after these prefixes
+    # Pattern allows for separators like ':', '/', or whitespace after the keyword
+    safe_prefixes = [
+        r"\brun\b[:\s]*",  # "run 23997575319" or "run: 123"
+        r"\brun_id\b[:\s]*",  # "run_id: 23997575319"
+        r"\bruns/",  # "runs/23997575319"
+        r"\bjob\b[:\s]*",  # "job 23997575319" or "job: 123"
+        r"\bjobs/",  # "jobs/23997575319"
+        r"\bworkflow\b[:\s]*",  # "workflow 23997575319" or "workflow: 123"
+        r"\bworkflow_id\b[:\s]*",  # "workflow_id: 23997575319"
+        r"actions/",  # "actions/runs/..."
+        r"#",  # "#12345" (GitHub issue/PR refs)
+    ]
+
+    return any(re.search(pattern + r"$", prefix_window) for pattern in safe_prefixes)
+
+
 def _mask_for_audit_log(text: str) -> str:
     """Partially mask sensitive text for audit log (SEC-3).
 
@@ -209,6 +250,12 @@ def _scan_layer1_regex(content: str) -> tuple[list[ScanFinding], bool]:
         for match in re.finditer(pattern, content):
             # Special validation for credit cards
             if finding_type == FindingType.PII_CC and not _luhn_check(match.group(0)):
+                continue
+
+            # TD-415: Skip PII_PHONE matches that are GitHub platform IDs
+            if finding_type == FindingType.PII_PHONE and _is_github_id_context(
+                content, match.start(), match.end()
+            ):
                 continue
 
             findings.append(
