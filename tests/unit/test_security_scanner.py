@@ -397,6 +397,20 @@ class TestAIEcosystemSecretPatterns:
         assert result.action == ScanAction.PASSED
         assert result.content == "Key: sk-" + "A" * 19
 
+    # Fix-r3: At-threshold boundary test (exactly 20 chars SHOULD be blocked)
+    def test_openai_key_boundary_20_chars_blocked(self):
+        """Boundary: sk- + exactly 20 alphanumeric chars SHOULD match (at threshold)."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        # sk- + 20 chars = exactly at threshold
+        result = scanner.scan("Key: sk-" + "A" * 20)
+
+        # SHOULD be blocked (meets 20 char threshold)
+        assert result.action == ScanAction.BLOCKED
+        assert result.content == ""
+        assert any(f.finding_type.value == "secret_api_key" for f in result.findings)
+
     def test_huggingface_key_boundary_29_chars_not_blocked(self):
         """Boundary: hf_ + 29 alphanumeric chars should NOT match (threshold is 30)."""
         from memory.security_scanner import ScanAction, SecurityScanner
@@ -527,9 +541,9 @@ class TestScanBatchNER:
 
     def test_batch_force_ner_enables_layer3(self):
         """Test force_ner=True enables Layer 3 in batch."""
-        from memory.security_scanner import SecurityScanner, _spacy_available
+        from memory.security_scanner import SecurityScanner, _load_spacy_model
 
-        if _spacy_available is False:
+        if _load_spacy_model() is None:
             pytest.skip("SpaCy not available")
 
         scanner = SecurityScanner(enable_ner=False)
@@ -547,10 +561,10 @@ class TestScanBatchNER:
         from memory.security_scanner import (
             ScanAction,
             SecurityScanner,
-            _spacy_available,
+            _load_spacy_model,
         )
 
-        if _spacy_available is False:
+        if _load_spacy_model() is None:
             pytest.skip("SpaCy not available")
 
         scanner = SecurityScanner(enable_ner=True)
@@ -866,19 +880,6 @@ class TestSessionModeAwareness:
         # TD-368: Session content MUST run Layer 2 even in relaxed mode
         assert 2 in result.layers_executed
 
-    def test_session_scanning_off_mode_skips_layer2(self, monkeypatch):
-        """Session content skips Layer 2 when mode is 'off'."""
-        from memory.security_scanner import SecurityScanner
-
-        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
-        scanner = SecurityScanner(enable_ner=False)
-        monkeypatch.setattr(scanner, "_is_session_scanning_off", lambda: True)
-
-        result = scanner.scan("Safe content here", source_type="user_session")
-
-        # In off mode, all layers are skipped
-        assert result.layers_executed == []
-
     def test_session_scanning_off_skips_all(self, monkeypatch):
         """Session content should skip ALL scanning when mode is 'off'."""
         from memory.security_scanner import ScanAction, SecurityScanner
@@ -947,9 +948,9 @@ class TestSessionModeAwareness:
 
     def test_scan_batch_session_runs_layer2_ner_enabled(self, monkeypatch):
         """Fix-r2: Batch scanning with NER enabled routes session content through NER code path."""
-        from memory.security_scanner import SecurityScanner, _spacy_available
+        from memory.security_scanner import SecurityScanner, _load_spacy_model
 
-        if _spacy_available is False:
+        if _load_spacy_model() is None:
             pytest.skip("SpaCy not available")
 
         monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)

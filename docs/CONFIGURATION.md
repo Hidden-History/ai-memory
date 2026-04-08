@@ -1875,7 +1875,7 @@ AI_MEMORY_LOG_LEVEL=INFO
 SIMILARITY_THRESHOLD=0.7
 
 # Balanced retrievals
-MAX_RETRIEVALS=5
+MAX_RETRIEVALS=10
 
 # Structured logging for aggregation
 LOG_FORMAT=json
