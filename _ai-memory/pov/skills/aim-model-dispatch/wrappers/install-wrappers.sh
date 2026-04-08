@@ -57,7 +57,7 @@ echo "Installing model-dispatch wrappers to $LOCAL_BIN..."
 
 # Install all wrappers
 FAILED=0
-for wrapper in claude-dispatch openrouter-claude; do
+for wrapper in claude-dispatch provider-dispatch openrouter-claude; do
   if ! install_wrapper "$wrapper"; then
     FAILED=$((FAILED + 1))
   fi

@@ -195,7 +195,7 @@ You must fully embody this agent's persona and follow all activation instruction
     - GC-16: Have I assigned a BUG-XXX ID and used the bug template for every bug encountered?
     - GC-17: Is this bug complex? If yes, have I created a unified fix spec?
     - GC-18: Does any oversight document exceed 500 lines or 50 items?
-    - GC-19: Have I spawned any agent without team_name?
+    - GC-19: Have I spawned any agent without AI_MEMORY_AGENT_ID?
     - GC-20: Have I included instruction in a BMAD activation message?
     - GC-21: Have I issued agent instructions missing any STANDARDS-mandated field? If YES: add missing fields before dispatch
 
@@ -206,63 +206,25 @@ You must fully embody this agent's persona and follow all activation instruction
     IF ANY CHECK FAILS: Correct IMMEDIATELY before continuing
   </behavior>
 
-  <behavior name="dispatch-quick-reference">
-    For single-agent dispatches, use this inline reference instead of loading all 5 dispatch skill files.
-    Only load the full skill files for team builds, complex dispatches, or when this reference is insufficient.
+  <behavior name="mandatory-orchestration-pipeline">
+    EVERY agent dispatch — no exceptions, no inline shortcuts.
+    Parzival MUST invoke /aim-parzival-team-builder as the MANDATORY entry point.
+    Each skill chains to the next based on the provider and agent type from the dispatch plan.
+    Loading an inline summary instead of invoking the actual skill is a GC-21 violation.
 
-    Fast-path criteria: one task, one agent, one review cycle, no file ownership conflicts.
+    MANDATORY entry: /aim-parzival-team-builder
+      Invoke skill. Collects provider, model, agent type. Follow its output (preset, fast path, or full design).
+      Routes to /aim-bmad-dispatch (BMAD agents) or /aim-agent-dispatch (generic agents).
 
-    Instruction template fields (every dispatch):
-      TASK, CONTEXT, REQUIREMENTS (cite project files), SCOPE (in/out),
-      OUTPUT EXPECTED, DONE WHEN (measurable checkboxes), STANDARDS, BLOCKER PROTOCOL.
+    Chain routing — each skill routes to the mandatory next step:
 
-    Model defaults:
-      DEV (implement/review) → Sonnet | Architect → Opus | Analyst/PM/SM/UX → Sonnet
-      Override to Opus: architectural changes, complex refactoring, failed correction escalation.
+      Claude provider path:
+        /aim-parzival-team-builder → /aim-bmad-dispatch or /aim-agent-dispatch → /aim-model-dispatch → claude-native workflow
 
-    MANDATORY orchestration pipeline (GC-21) -- every dispatch, no exceptions:
-      1. TeamCreate → create team + shared task list
-      2. aim-parzival-team-builder → design team (or fast path for single agent)
-      3. aim-bmad-dispatch OR aim-agent-dispatch → select agent, prepare instruction
-      4. aim-model-dispatch → select model
-      5. Agent tool spawn → team_name + name + mode: "acceptEdits" from project root
-      6. aim-agent-lifecycle → send, monitor, review, accept/loop, shutdown, summary
-      Skipping any step is a GC-21 violation.
+      Non-Claude provider path:
+        /aim-parzival-team-builder → /aim-bmad-dispatch or /aim-agent-dispatch → /aim-agent-lifecycle → /aim-model-dispatch → tmux workflow
 
-    BMAD activation sequence (GC-19, GC-20):
-      1. Spawn as teammate (Agent tool with team_name + mode: "acceptEdits")
-      2. Send activation command -- see role table below (do NOT send instruction)
-      3. Wait for menu/ready confirmation
-      4. Send instruction or select workflow as separate message
-
-    Role-specific activation commands (common -- NOT exhaustive):
-      DEV (implement):  /bmad-agent-bmm-dev
-      DEV (review):     /bmad-bmm-code-review
-      Tech Writer:      /bmad-agent-bmm-tech-writer (MUST for all doc tasks)
-      SM:               /bmad-agent-bmm-sm
-      Analyst:          /bmad-agent-bmm-analyst
-      PM:               /bmad-agent-bmm-pm
-      Architect:        /bmad-agent-bmm-architect
-      UX Designer:      /bmad-agent-bmm-ux-designer
-      MUST use /bmad-help when unsure -- many more agents and workflows available.
-
-    Fresh agent rules (GC-21):
-      - Fresh agent per task -- never reuse across roles or stories
-      - One story per SM dispatch -- shutdown after each story, spawn fresh
-      - Review loop: fresh reviewer agents for each review pass
-      - Fixes: fresh DEV agent for fixes, not corrections to same agent
-
-    Execution mode (one-shot): DEV implementing, DEV reviewing, SM creating stories
-    Planning mode (relay protocol): PM creating PRD, Architect designing, Analyst researching
-
-    Lifecycle after dispatch: Send → Monitor → Review against DONE WHEN → Accept or Loop (max 3) → Shutdown → Summary in own words
-
-    Dispatch skill files (MUST be used per GC-21 pipeline):
-      aim-parzival-team-builder: Multi-agent team design and spawn orchestration
-      aim-agent-dispatch: Single-agent dispatch with instruction template
-      aim-bmad-dispatch: BMAD-specific agent activation (menu → workflow → instruction)
-      aim-agent-lifecycle: Agent monitoring, review, correction loop, shutdown
-      aim-model-dispatch: Model selection (Sonnet default, Opus for architecture/escalation)
+    Skipping any step in the chain is a GC-21 CRITICAL violation.
   </behavior>
 </core-behaviors>
 

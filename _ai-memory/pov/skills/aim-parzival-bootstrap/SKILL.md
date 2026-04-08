@@ -10,15 +10,15 @@ Load cross-session context from previous Parzival sessions stored in Qdrant. Thi
 
 ## Steps
 
-1. Run the following Python script using the ai-memory venv interpreter (`~/.ai-memory/.venv/bin/python`):
+1. Run the following Python script to retrieve cross-session context:
 
 ```python
-#!/usr/bin/env ~/.ai-memory/.venv/bin/python
 import sys
 import os
 import time
 from datetime import datetime, timezone
 
+# Set up import path for ai-memory source
 _install_dir = os.path.expanduser("~/.ai-memory")
 sys.path.insert(0, os.path.join(_install_dir, "src"))
 

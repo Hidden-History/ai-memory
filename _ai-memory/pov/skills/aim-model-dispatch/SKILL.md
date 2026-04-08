@@ -3,9 +3,9 @@ name: aim-model-dispatch
 description: Select the appropriate LLM model for each agent based on task complexity and role
 ---
 
-# Model Dispatch -- Model Selection for Agent Activation
+# Model Dispatch -- Model Selection and Provider Routing
 
-**Purpose**: Select the appropriate LLM model for each agent based on task complexity and agent role. Called by aim-agent-dispatch and aim-bmad-dispatch before agent activation.
+**Purpose**: Select the appropriate LLM model and route to the correct provider workflow. Called by /aim-bmad-dispatch, /aim-agent-dispatch, and /aim-agent-lifecycle.
 
 ---
 
@@ -43,16 +43,28 @@ description: Select the appropriate LLM model for each agent based on task compl
 
 ---
 
-## Usage
+## Two Provider Paths
 
-When preparing an agent dispatch, determine the model:
+### Path 1: Claude Native (MANDATORY for Claude models)
 
-1. Assess the task complexity (Straightforward / Moderate / Significant / Complex)
-2. Check the agent role default from the table above
-3. Apply any override rules that match
-4. Return the model parameter value: `"sonnet"`, `"opus"`, or `"haiku"`
+**MANDATORY**: When using opus, sonnet, or haiku, ALWAYS use the claude-native workflow.
+**MANDATORY**: Use Claude Code native teammates in parallel system built into Claude Code.
 
-For Claude-native agents, the model value is passed as the `model` parameter to the Agent tool when spawning teammates. When a non-Claude provider is specified by the user, the model tier informs provider model selection — defer to the model-dispatch skill for provider routing and terminal launch.
+→ [claude-native](workflows/claude-native/workflow.md)
+
+### Path 2: Non-Claude Providers
+
+**MANDATORY**: For all other providers, route to the appropriate tmux workflow:
+
+| Provider | Workflow |
+|----------|----------|
+| openrouter | [tmux-dispatch](workflows/tmux-dispatch/workflow.md) or [bmad-dispatch](workflows/bmad-dispatch/workflow.md) |
+| ollama | [tmux-dispatch](workflows/tmux-dispatch/workflow.md) or [bmad-dispatch](workflows/bmad-dispatch/workflow.md) |
+| gemini | [tmux-dispatch](workflows/tmux-dispatch/workflow.md) or [bmad-dispatch](workflows/bmad-dispatch/workflow.md) |
+| deepseek, groq, cerebras, mistral, openai, vertex-ai, siliconflow | [tmux-dispatch](workflows/tmux-dispatch/workflow.md) or [bmad-dispatch](workflows/bmad-dispatch/workflow.md) |
+| api (image/audio/video) | [api-dispatch](workflows/api-dispatch/workflow.md) |
+
+Model-dispatch is invoked by /aim-agent-lifecycle for non-Claude providers. The tmux workflow runs and returns to lifecycle for agent management.
 
 ---
 
@@ -68,10 +80,10 @@ When selecting a model other than the role default, document:
 ## Supporting Resources
 
 ### Sub-Workflows
-- [api-dispatch](workflows/api-dispatch/workflow.md) — OpenRouter direct API dispatch for multimodal tasks (image, audio, video generation)
-- [bmad-dispatch](workflows/bmad-dispatch/workflow.md) — Two-phase BMAD agent dispatch via tmux panes with backend-aware wrappers
-- [route](workflows/route/step-01-resolve-backend.md) — Task classification and backend routing (claude/openrouter/ollama/gemini/etc.)
-- [tmux-dispatch](workflows/tmux-dispatch/workflow.md) — Generic tmux dispatch for any backend, launches Claude Code in tmux pane
+- [claude-native](workflows/claude-native/workflow.md) — Claude Code teammate spawn via Agent tool + SendMessage
+- [tmux-dispatch](workflows/tmux-dispatch/workflow.md) — Generic tmux dispatch for non-Claude providers
+- [bmad-dispatch](workflows/bmad-dispatch/workflow.md) — Two-phase BMAD agent dispatch via tmux panes
+- [api-dispatch](workflows/api-dispatch/workflow.md) — OpenRouter direct API dispatch for multimodal tasks
 
 ### Reference
 - [agent-reference](references/agent-reference.md) — Internal technical reference for executing agents

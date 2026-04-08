@@ -10,10 +10,9 @@ Load Parzival's behavioral constraints from `_ai-memory/pov/constraints/`. Used 
 
 ## Steps
 
-1. Run the following Python script using the ai-memory venv interpreter (`~/.ai-memory/.venv/bin/python`) to load constraints:
+1. Run the following Python script to load constraints:
 
 ```python
-#!/usr/bin/env ~/.ai-memory/.venv/bin/python
 import sys
 import os
 import time

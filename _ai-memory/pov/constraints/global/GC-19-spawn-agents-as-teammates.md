@@ -1,55 +1,54 @@
 ---
 id: GC-19
-name: Spawn Agents as Teammates — Never as Standalone Subagents
+name: Spawn ALL Agents via tmux with AI_MEMORY_AGENT_ID
 severity: HIGH
 category: Identity
 phase: global
 ---
 
-# GC-19: ALWAYS Spawn BMAD Agents as Teammates Using the Agent Tool With team_name
+# GC-19: ALWAYS Spawn ALL Agents via tmux with AI_MEMORY_AGENT_ID
 
 ## Rule
 
-When dispatching any BMAD agent, Parzival MUST spawn the agent as a teammate using the Agent
-tool with the `team_name` parameter. Standalone subagent dispatches (Agent tool without
-`team_name`) are FORBIDDEN for BMAD agent work.
+When dispatching any agent (BMAD or generic), Parzival MUST spawn the agent via
+aim-model-dispatch tmux workflow with a unique AI_MEMORY_AGENT_ID set as an environment
+variable. AI_MEMORY_AGENT_ID is mandatory for cross-session memory tracking.
 
 ## Required Pattern
 
 ```
-Agent tool:
-  team_name: [descriptive name for the team/task]
-  model: [appropriate model for the role]
-  [activation and instruction as separate messages — see GC-20]
+tmux spawn via aim-model-dispatch:
+  AI_MEMORY_AGENT_ID: [unique agent identity — e.g., dev-2.5, review-s-2.5, sm-sprint1]
+  Backend: [claude/openrouter/ollama/etc. — determined by model-dispatch]
+  Wrapper: [claude-dispatch or provider-dispatch — determined by model-dispatch]
+  [BMAD agents: two-phase activation — persona command → wait for menu → workflow command]
 ```
 
 ## Forbidden Pattern
 
-- Agent tool called WITHOUT `team_name` (standalone subagent)
-- Direct invocation that bypasses the teammate lifecycle
-- Any dispatch that does not allow SendMessage for follow-up communication
+- Spawning any agent without AI_MEMORY_AGENT_ID set
+- Spawning outside tmux (bypassing aim-model-dispatch)
+- Skipping aim-agent-lifecycle after spawn (lifecycle is [ALWAYS-MANDATORY-4])
 
 ## Why This Matters
 
-Standalone subagent dispatches lack the Edit and Write tool permissions required for
-implementation work. Without `team_name`, Parzival cannot send follow-up instructions,
-relay user confirmations, or manage the agent lifecycle (monitor → review → shutdown).
-The teammate pattern is required for the full BMAD dispatch protocol to function correctly.
-
-Reference: MEMORY.md — "Use Teammates Not Subagents" (PM #185 lesson).
+AI_MEMORY_AGENT_ID enables cross-session memory accumulation — the same agent identity
+working on the same domain across sessions builds domain-specific expertise in Qdrant.
+tmux enables full Claude Code CLI sessions where BMAD skills work correctly. The lifecycle
+requires a known agent identity for tracking, review, and shutdown.
 
 ## Applies To
 
-- Every BMAD agent activation: bmad-bmm-dev, bmad-bmm-pm, bmad-bmm-architect, bmad-bmm-sm,
-  bmad-bmm-analyst, bmad-bmm-ux, bmad-bmm-quick-dev, and any future BMAD agents
+- Every agent activation: BMAD agents (dev, pm, architect, sm, analyst, ux, qa, tech-writer,
+  quick-flow-solo-dev) AND generic agents (code-reviewer, verify-implementation, etc.)
 - All dispatch modes: execution (one-shot) and planning (relay protocol)
 
 ## Self-Check
 
-- GC-19: Am I about to spawn a BMAD agent WITHOUT a team_name? If yes — stop and add team_name.
+- GC-19: Am I about to spawn an agent WITHOUT AI_MEMORY_AGENT_ID or outside tmux? If yes — stop and fix.
 
 ## Violation Response
 
-1. Do not complete the subagent dispatch
-2. Restart the agent activation using Agent tool with team_name
-3. Note: any output from a standalone dispatch must be discarded — permissions were insufficient
+1. Do not complete the dispatch
+2. Restart the agent activation via aim-model-dispatch tmux with AI_MEMORY_AGENT_ID set
+3. Note: any output from an untracked dispatch must be re-verified — memory was not accumulated

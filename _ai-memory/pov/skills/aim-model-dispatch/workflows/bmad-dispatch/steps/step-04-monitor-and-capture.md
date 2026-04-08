@@ -131,20 +131,15 @@ if [ -n "$TEAM_DIR" ]; then
 fi
 ```
 
-### 6. Post-Task Cleanup (ALWAYS do this)
+### 6. Return to Lifecycle
 
-**Default — Dismiss and kill pane (REQUIRED after every task):**
-Always dismiss the agent and kill the pane when done. Never reuse a pane across tasks — always create a fresh pane for each new task.
+After result capture, this tmux sub-workflow is complete. Control returns to
+/aim-agent-lifecycle which manages the agent through:
+- Step 2: Monitor (tmux capture-pane)
+- Step 3: Accept or loop corrections (fresh agents per loop)
+- Step 4: Shutdown agent (DA + kill pane)
 
-```bash
-tmux send-keys -t "$PANE_TARGET" "DA"
-sleep 1
-tmux send-keys -t "$PANE_TARGET" Enter
-sleep 3
-tmux kill-pane -t "$PANE_TARGET" 2>/dev/null
-```
-
-**Exception — Leave pane open:** Only if the user explicitly asks to inspect the pane. Do NOT leave open by default.
+Do NOT dismiss the agent or kill the pane here — lifecycle Step 4 owns shutdown.
 
 ### 7. Stop the Monitor
 
@@ -153,7 +148,7 @@ kill "$MONITOR_PID" 2>/dev/null
 ```
 
 ## CRITICAL STEP COMPLETION NOTE
-This is the final step. The workflow is complete when the result has been captured and delivered.
+After result capture and monitor cleanup, return control to /aim-agent-lifecycle. The tmux spawn workflow is complete.
 
 ## SYSTEM SUCCESS/FAILURE METRICS
 
@@ -164,6 +159,7 @@ This is the final step. The workflow is complete when the result has been captur
 - Full result captured (200-line window)
 - Result delivered (inbox injection or file save)
 - Monitor process cleaned up
+- Control returned to /aim-agent-lifecycle
 
 ### FAILURE:
 - Not starting auto-reply monitor
@@ -171,7 +167,8 @@ This is the final step. The workflow is complete when the result has been captur
 - Not detecting completion (pane left running indefinitely)
 - Capturing only partial output
 - Not delivering result to caller
-- Killing pane before capturing result
+- Dismissing agent or killing pane (lifecycle Step 4 owns shutdown)
+- Not returning to /aim-agent-lifecycle
 
 ## FAILURE CLEANUP
 

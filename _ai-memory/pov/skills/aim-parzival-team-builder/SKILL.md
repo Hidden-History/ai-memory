@@ -8,16 +8,18 @@ context: fork
 
 **Purpose**: Analyze work to be parallelized, design the appropriate team structure (single agent, 2-tier, or 3-tier), and produce a team design document ready for execution via the agent-dispatch cycle.
 
-**Note**: This skill is the entry point for team design (PLAN-017, 2026-03-10). Parzival designs teams here, then executes them via the agent-dispatch workflow. Parzival activates agents himself -- the user does not run agents.
+**Note**: This skill is the entry point for team design. Parzival designs teams here, then executes them via the agent-dispatch workflow. Parzival activates agents himself -- the user does not run agents.
 
 ---
 
 ## Single Agent Fast Path
 
 When the work is a single task that does not benefit from parallelization:
-1. Skip the full team design process
-2. Prepare the instruction directly (Step 4 context block format)
-3. Route immediately to the agent-dispatch cycle via aim-agent-dispatch or aim-bmad-dispatch
+1. Collect provider and model preferences (Step 1b)
+2. Assign agent role and AI_MEMORY_AGENT_ID (Step 2.3)
+3. Prepare the context block (Step 4 format)
+4. Present compact output for approval
+5. Route to /aim-bmad-dispatch or /aim-agent-dispatch
 
 **Criteria for single agent path:**
 - One task, one agent, one review cycle
@@ -27,7 +29,9 @@ When the work is a single task that does not benefit from parallelization:
 **Compact output**: When the fast path is selected, skip ceremony. Produce only:
 ```
 Fast Path: Single agent
-Agent: [role] (AI_MEMORY_AGENT_ID: [id], Model: [model])
+Provider: [claude | openrouter | ollama | ...]
+Agent: [role] (AI_MEMORY_AGENT_ID: [id], Model: [model tier])
+Mode: [execution | planning]
 Task: [one-line description]
 Files: [list]
 Route: [aim-bmad-dispatch or aim-agent-dispatch]
@@ -83,7 +87,9 @@ Before running the full 6-step design process, check if the work matches a prese
 When a preset matches, produce:
 ```
 Preset Match: [preset name]
+Provider: [claude | openrouter | ollama | ...]
 Structure: [tier] — [lead] → [workers]
+Models: [role defaults or overrides]
 Stories/Tasks: [customized assignments]
 File Ownership: [per-worker paths]
 Workflow Commands: [per-worker commands]
@@ -112,6 +118,18 @@ Use this full process when NO preset matches — custom team requirements, unusu
 | 2-6 parallel tasks, single review | 2-Tier | Simple coordination |
 | 3+ domains, multi-task per domain, domain-level review | 3-Tier | Complex coordination |
 
+### Step 1b: Provider and Model Preferences
+
+Ask the user:
+
+1. **Provider**: Which LLM provider for this team?
+   - claude, openrouter, ollama, gemini, deepseek, groq, cerebras, mistral, openai, vertex-ai, siliconflow
+
+2. **Model tier**: Present role-based defaults (Opus for planning, Sonnet for execution).
+   Ask if user wants to override any.
+
+Store provider and model selections in the dispatch plan.
+
 ### Step 2: Team Composition
 
 1. Assign agent roles from available BMAD agents (analyst, pm, architect, dev, sm, ux-designer)
@@ -122,7 +140,11 @@ Use this full process when NO preset matches — custom team requirements, unusu
    - **Single-instance**: `pm`, `architect` -- use role name directly
    - Same `AI_MEMORY_AGENT_ID` across sessions enables cross-session memory accumulation
    - Naming rules: domain-named agents always work the same domain/files across sessions; numbered agents are interchangeable for generic parallel work; single-instance agents use role name directly
-4. Select models: Use aim-model-dispatch for model selection criteria
+4. Select models per agent role:
+   - Planning agents (Analyst, PM, Architect): Opus
+   - Execution agents (DEV, SM, QA, review): Sonnet
+   - Simple/high-volume tasks: Haiku
+   Present defaults to user. Apply overrides if user requests.
 
 ### Step 3: File Ownership Map
 
@@ -198,10 +220,8 @@ The team design document (Steps 1-6) is the deliverable. It feeds into the agent
 
 Parzival activates all agents himself — the user does not run agents.
 
-**MANDATORY ROUTING**: After user approves the team design, Parzival MUST immediately
-route to the appropriate dispatch skill:
-- For BMAD agents: use aim-bmad-dispatch for agent selection and activation
-- For generic agents: use aim-agent-dispatch for instruction preparation and activation
-- For model selection: use aim-model-dispatch for complexity-based model selection
+**MANDATORY NEXT STEP**: After user approves the dispatch plan:
+- BMAD agents → /aim-bmad-dispatch
+- Generic agents → /aim-agent-dispatch
 
-Dispatch uses the context blocks from Step 4 and the templates from `templates/` to assemble the final prompts when spawning agents.
+Pass the full dispatch plan (provider, model, agent role, task, files, mode) to the next skill.

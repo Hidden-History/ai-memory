@@ -1,11 +1,11 @@
 ---
 name: aim-agent-dispatch
-description: Generic agent instruction preparation and activation -- Layer 3a
+description: Generic agent instruction preparation and activation
 ---
 
-# Agent Dispatch -- Generic Agent Activation (Layer 3a)
+# Agent Dispatch -- Generic Agent Activation
 
-**Purpose**: Activate and instruct generic agents (no BMAD persona, no BMAD activation commands). For BMAD agents with personas and activation commands, use aim-bmad-dispatch instead.
+**Purpose**: Prepare instructions for generic agents (no BMAD persona). For BMAD agents, use /aim-bmad-dispatch instead.
 
 ---
 
@@ -57,25 +57,23 @@ Before dispatching, verify the instruction is:
 
 IF ANY CHECK FAILS: fix the instruction before proceeding.
 
-### 4. Select Model
-Consult aim-model-dispatch for the appropriate model based on task complexity and agent role.
+### 4. Route Based on Provider
 
-### 5. Spawn Agent as Teammate
-Spawn the agent as a teammate in parallel using the Agent tool with these MANDATORY parameters:
-- `team_name`: MUST be set to add agent to the team (GC-19)
-- `mode`: MUST be "acceptEdits" (enables permission delegation, prevents blocking prompts)
-- `name`: unique per task (e.g., "dev-1-4", "rev-s-1415")
-- Set `AI_MEMORY_AGENT_ID` environment variable
-- Use the model from Step 4
-- MUST verify working directory is the **project root** (directory containing `_ai-memory/`) before spawning
-- Spawn multiple teammates in the same turn for parallel execution
-- Start with fresh context (no contamination from prior tasks)
-- MUST spawn fresh agent for every task -- never reuse across roles or stories (GC-21)
+Check provider from the dispatch plan:
 
-**Non-Claude provider**: When the user specifies a non-Claude provider, delegate the terminal launch to the model-dispatch skill.
+**Claude provider:**
+→ /aim-model-dispatch (MANDATORY next step)
+Pass: instruction, AI_MEMORY_AGENT_ID, model from dispatch plan.
 
-### 6. Hand Off to aim-agent-lifecycle
-After the agent is spawned and confirmed ready, proceed with aim-agent-lifecycle for steps 4-9 (send instruction, monitor, review, accept/loop, shutdown, summary).
+**Non-Claude provider:**
+→ /aim-agent-lifecycle (MANDATORY next step)
+Pass: instruction, AI_MEMORY_AGENT_ID, provider, model from dispatch plan.
+
+MUST spawn fresh agent for every task — never reuse across roles or stories.
+
+### 5. Dispatch Complete
+
+Agent instruction prepared and routed. Downstream skill handles spawn and activation.
 
 ---
 

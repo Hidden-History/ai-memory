@@ -1,13 +1,13 @@
 ---
 name: 'step-01-prepare-instruction'
 description: 'Prepare a complete, verified instruction before activating any agent'
-nextStepFile: './step-02-create-team.md'
+nextStepFile: './step-02-spawn-agent.md'
 instructionTemplate: '../../../../skills/aim-agent-dispatch/templates/agent-instruction.template.md'
 ---
 
 # Step 1: Prepare the Instruction
 
-**Progress: Step 1 of 9** — Next: Create Team and Spawn Teammate
+**Progress: Step 1 of 9** — Next: Spawn Agent
 
 ## STEP GOAL:
 

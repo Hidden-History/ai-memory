@@ -25,7 +25,6 @@ Use aim-bmad-dispatch when:
 
 Use aim-agent-dispatch instead when:
 - The agent does NOT need a BMAD persona
-- Examples: code-reviewer, verify-implementation, skill-creator
 
 ---
 
@@ -74,63 +73,7 @@ Some phases require agents in sequence:
 
 ---
 
-## BMAD Activation Process
-
-### Dispatch Modes
-
-BMAD agents operate in two modes. Determine the mode BEFORE activation:
-
-**Execution mode** — agent receives a one-shot instruction and produces output:
-- DEV implementing a story, DEV reviewing code, SM creating story files
-- After BMAD activation (step 4 above), send the workflow command FIRST:
-  - DEV implementing: send `/bmad-bmm-dev-story`, wait for story prompt, THEN send instruction
-  - DEV reviewing: send `/bmad-bmm-code-review`, wait for review prompt, THEN send instruction
-  - SM creating stories: send `/bmad-bmm-create-story`, wait for prompt, THEN send instruction
-- Use the standard instruction template from aim-agent-dispatch for the instruction content
-- Hand off to aim-agent-lifecycle Steps 4-9
-
-**Planning mode** — agent follows its own interactive workflow with questions:
-- PM creating PRD, Architect designing architecture, Analyst researching, SM planning sprints, UX designing flows
-- Use the Relay Protocol below instead of a one-shot instruction
-- The agent drives the workflow; Parzival acts as intermediary between agent and user
-
-When uncertain about mode, use `/bmad-help` to get guidance on which agent and workflow to use.
-
-### Planning Mode: Relay Protocol
-
-When dispatching a BMAD agent in planning mode, Parzival acts as the intelligent intermediary between the agent and the user. The agent's own BMAD workflow drives the process — Parzival does not send a one-shot instruction.
-
-**Activation sequence** (replaces Steps 2-6 for planning mode):
-
-1. **Spawn agent** as teammate (GC-19). Set AI_MEMORY_AGENT_ID.
-2. **Activate** with the BMAD command (e.g., `/bmad-agent-bmm-pm`).
-3. **Wait for agent menu** — do NOT send anything until the agent displays its greeting/menu. The agent needs to fully load its persona and workflow options.
-4. **Select the workflow** — send the appropriate menu selection based on the task (e.g., "create PRD", "create architecture"). If unsure which workflow, use `/bmad-help` for guidance.
-5. **Agent begins asking questions** — the BMAD agent follows its own workflow and asks discovery/design questions.
-
-**Relay cycle** (repeats until agent produces deliverable):
-
-6. **Intercept agent questions** — read the questions the agent is asking.
-7. **Research answers** — check project files (goals.md, PRD, architecture, existing code, oversight docs) for information that answers the questions. Assess confidence level for each answer.
-8. **Present to user** — show the user:
-   - The agent's original questions
-   - Parzival's recommended answers with evidence and confidence levels
-   - Citations from project files that support each recommendation
-   - Any questions Parzival cannot answer (flag as "needs user input")
-9. **User confirms/modifies** — user approves, edits, or provides answers Parzival couldn't find.
-10. **Relay confirmed answers** — send the confirmed answers to the agent via SendMessage.
-11. **Repeat from step 6** — agent processes answers and either asks more questions or produces output.
-
-**Deliverable review**:
-
-12. **Agent produces deliverable** (PRD, architecture doc, etc.) — apply the standard review cycle from aim-agent-lifecycle.
-13. **Present summary to user** — never raw agent output (GC-10).
-
-**Key principles**:
-- Parzival ALWAYS pre-researches before presenting questions to the user. Never forward raw agent questions without adding recommendations.
-- Parzival uses confidence levels on every recommendation (Verified/Informed/Inferred/Uncertain/Unknown).
-- If Parzival can answer a question with high confidence from project files, say so — but still present it to the user for confirmation. Parzival recommends, user decides.
-- Agent questions that require NEW decisions (not derivable from existing project files) should be clearly flagged as "user decision needed."
+## Steps
 
 ### 1. Select the Correct Agent
 Use the selection guide and matrix above. When uncertain, assess the primary skill required by the task, not the phase you are in.
@@ -138,19 +81,23 @@ Use the selection guide and matrix above. When uncertain, assess the primary ski
 If still uncertain, use `/bmad-help` — it can answer questions about which agent and workflow to use for a given task.
 
 ### 2. Prepare BMAD-Specific Instruction
-Extends the generic instruction template (from aim-agent-dispatch) with:
+Extends the generic instruction template (from /aim-agent-dispatch) with:
 - Persona confirmation requirement
 - BMAD activation command reference
 
-### 3. Select Model
-Consult aim-model-dispatch for the appropriate model based on task complexity and agent role.
+### 3. Route Based on Provider
 
-### 4. Spawn and Activate Agent
-Spawn the BMAD agent as a teammate in parallel using the Agent tool with MANDATORY parameters: `team_name`, `mode: "acceptEdits"`, unique `name` per task. MUST verify working directory is the **project root** (directory containing `_ai-memory/`) before spawning. Then activate the BMAD persona. All BMAD agents are teammates. MUST spawn fresh agent for every task -- never reuse across roles or stories (GC-21).
+Check provider from the dispatch plan:
 
-**Non-Claude provider**: When the user specifies a non-Claude provider (e.g., "use openrouter"), delegate the terminal launch to the model-dispatch skill. It handles tmux panes, wrapper scripts, and two-phase activation for that provider. Parzival still manages the agent as a teammate.
+**Claude provider:**
+→ /aim-model-dispatch (MANDATORY next step)
+Pass: BMAD activation command, instruction, AI_MEMORY_AGENT_ID, model from dispatch plan.
 
-> **DEC-123**: aim-bmad-dispatch is the single entry point for all BMAD agent dispatch. aim-model-dispatch/bmad-dispatch provides implementation-level routing (backend selection, model selection, tmux launch) after initial dispatch.
+**Non-Claude provider:**
+→ /aim-agent-lifecycle (MANDATORY next step)
+Pass: BMAD activation command, instruction, AI_MEMORY_AGENT_ID, provider, model from dispatch plan.
+
+MUST spawn fresh agent for every task — never reuse across roles or stories.
 
 #### Core Project Agents (bmm-)
 
@@ -218,7 +165,7 @@ MUST use `/bmad-agent-bmm-tech-writer` for ALL documentation tasks (writing, upd
 
 Set `AI_MEMORY_AGENT_ID` environment variable when spawning.
 
-### 5. Verify Activation
+### 4. Verify Activation
 Confirm the agent is active and ready:
 - Agent responds with its identity/role confirmation
 - Agent is in a clean state (no prior task context)
@@ -229,11 +176,9 @@ If activation fails:
 - If repeated failure, check configuration
 - Do not send instruction to an unverified agent
 
-### 6. Hand Off
+### 5. Dispatch Complete
 
-**Execution mode**: Proceed with aim-agent-lifecycle Steps 4-9 (send instruction, monitor, review, accept/loop, shutdown, summary).
-
-**Planning mode**: Follow the Relay Protocol above. The agent drives the workflow — Parzival relays questions and answers between agent and user until the agent produces its deliverable, then apply aim-agent-lifecycle review steps.
+Agent selection and instruction complete. Downstream skill handles spawn and activation.
 
 ---
 
