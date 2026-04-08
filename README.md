@@ -108,6 +108,16 @@ See [docs/DISPATCH-SKILLS.md](docs/DISPATCH-SKILLS.md) for setup and usage of th
 
 Parzival is optional but highly recommended — he enables cross-session agent memory, full project lifecycle management, and the quality enforcement that keeps complex multi-session projects on track. AI Memory's core features (semantic search, GitHub sync, skills, freshness detection) work independently, but Parzival is where the system reaches its full potential. To start: `/pov:parzival`
 
+**Session workflow — three commands is all you need:**
+
+```
+/pov:parzival          → Activate. Parzival detects your project phase and recommends next steps.
+/pov:parzival-start    → Load full context from your last session and continue where you left off.
+/pov:parzival-closeout → Save progress, log decisions and tech debt, create handoff for next session.
+```
+
+Start every session with `/pov:parzival`. End every session with `/pov:parzival-closeout`. Parzival handles everything in between — you never need to interact with other agents directly.
+
 See [docs/parzival/](docs/parzival/) for the full documentation suite and [docs/DISPATCH-SKILLS.md](docs/DISPATCH-SKILLS.md) for multi-provider dispatch setup.
 
 ---
