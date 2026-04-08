@@ -152,9 +152,19 @@ SECRET_PATTERNS = {
         FindingType.SECRET_TOKEN,
         0.90,
     ),
-    # AI-ecosystem secret patterns (TD-367)
+    # AI-ecosystem secret patterns (TD-367, Fix-r2)
     "openai_keys": (
-        r"sk-[A-Za-z0-9]{20,}(?:T3BlbkFikcKRJj9z)?[A-Za-z0-9]*",
+        r"sk-[A-Za-z0-9]{20,}",
+        FindingType.SECRET_API_KEY,
+        0.95,
+    ),
+    "openai_proj_keys": (
+        r"sk-proj-[A-Za-z0-9_-]{20,}",
+        FindingType.SECRET_API_KEY,
+        0.95,
+    ),
+    "openai_svcacct_keys": (
+        r"sk-svcacct-[A-Za-z0-9_-]{20,}",
         FindingType.SECRET_API_KEY,
         0.95,
     ),
@@ -671,15 +681,6 @@ class SecurityScanner:
             return get_config().security_scan_github_mode == "off"
         except Exception:
             return False
-
-    def _is_strict_session_mode(self) -> bool:
-        """Check if session scanning is set to strict mode."""
-        try:
-            from memory.config import get_config
-
-            return get_config().security_scan_session_mode == "strict"
-        except Exception:
-            return False  # Default to relaxed if config unavailable
 
     def _is_session_scanning_off(self) -> bool:
         """Check if session scanning is completely disabled."""

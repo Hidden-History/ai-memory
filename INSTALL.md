@@ -12,7 +12,7 @@
 | **Docker**  | 20.10          | Latest      | For Qdrant + embedding service |
 | **OS**      | Linux, macOS, WSL2 | Linux   | Windows requires WSL2 |
 | **RAM**     | 16 GiB         | 32 GiB      | Core tier minimum; Core+Langfuse needs 32 GiB |
-| **Disk**    | 5GB free       | 10GB+       | Docker images alone are ~3GB; allow extra space for data |
+| **Disk**    | 5 GiB          | 10 GiB+     | Docker images alone are ~3GB; allow extra space for data |
 
 ### Resource Tiers
 

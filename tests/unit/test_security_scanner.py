@@ -116,8 +116,7 @@ class TestScannerOrchestration:
         from memory.security_scanner import SecurityScanner
 
         scanner = SecurityScanner(enable_ner=False)
-        # BUG-110: Force strict session mode so Layer 2 runs (relaxed is now default)
-        monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: True)
+        # Routing test: verifies Layer 1+2 run for session content (TD-368)
         result = scanner.scan("Clean content")
 
         # Should only execute layers 1 and 2
@@ -385,6 +384,75 @@ class TestAIEcosystemSecretPatterns:
         assert result.content == ""
         assert any(f.finding_type.value == "secret_api_key" for f in result.findings)
 
+    # Fix-r2: Boundary and negative tests for AI-ecosystem patterns
+    def test_openai_key_boundary_19_chars_not_blocked(self):
+        """Boundary: sk- + 19 alphanumeric chars should NOT match (threshold is 20)."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        # sk- + 19 chars = 22 total, but only 19 alphanumeric after sk-
+        result = scanner.scan("Key: sk-" + "A" * 19)
+
+        # Should NOT be blocked (under 20 char threshold)
+        assert result.action == ScanAction.PASSED
+        assert result.content == "Key: sk-" + "A" * 19
+
+    def test_huggingface_key_boundary_29_chars_not_blocked(self):
+        """Boundary: hf_ + 29 alphanumeric chars should NOT match (threshold is 30)."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        # hf_ + 29 chars = 32 total, but only 29 alphanumeric after hf_
+        result = scanner.scan("Token: hf_" + "A" * 29)
+
+        # Should NOT be blocked (under 30 char threshold)
+        assert result.action == ScanAction.PASSED
+        assert result.content == "Token: hf_" + "A" * 29
+
+    def test_short_sk_token_not_blocked(self):
+        """Negative: short sk-token should NOT match."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("Short key: sk-token")
+
+        # Should NOT be blocked (too short)
+        assert result.action == ScanAction.PASSED
+        assert "sk-token" in result.content
+
+    def test_huggingface_dataset_name_not_blocked(self):
+        """Negative: hf_dataset_name in non-key context should NOT match."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("Use dataset hf_dataset_name for training")
+
+        # Should NOT be blocked - "hf_dataset_name" is not a key format
+        assert result.action == ScanAction.PASSED
+        assert "hf_dataset_name" in result.content
+
+    def test_openai_proj_key_blocks(self):
+        """Positive: sk-proj-XXX format (20+ chars) SHOULD match."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("API key: sk-proj-" + "A" * 24)
+
+        assert result.action == ScanAction.BLOCKED
+        assert result.content == ""
+        assert any(f.finding_type.value == "secret_api_key" for f in result.findings)
+
+    def test_openai_svcacct_key_blocks(self):
+        """Positive: sk-svcacct-XXX format (20+ chars) SHOULD match."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("Service key: sk-svcacct-" + "A" * 25)
+
+        assert result.action == ScanAction.BLOCKED
+        assert result.content == ""
+        assert any(f.finding_type.value == "secret_api_key" for f in result.findings)
+
 
 class TestGitHubHandleFalsePositives:
     """Test TD-161: GitHub handle regex false positive fixes."""
@@ -576,31 +644,28 @@ class TestSourceTypeAwareness:
         # so it won't actually block, but it will be in layers_executed)
         assert 2 in result.layers_executed
 
-    def test_user_session_runs_layer2_in_strict_mode(self, monkeypatch):
-        """User session content should run Layer 2 scanning in strict mode."""
+    def test_user_session_runs_layer2_in_relaxed_mode(self, monkeypatch):
+        """TD-368: User session content runs Layer 2 in relaxed mode (default)."""
         from memory.security_scanner import SecurityScanner
 
         monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
 
         scanner = SecurityScanner(enable_ner=False)
-        # BUG-110: Must set strict mode for Layer 2 to run (relaxed is now default)
-        monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: True)
         result = scanner.scan("Safe content here", source_type="user_session")
 
+        # TD-368: Session content ALWAYS runs Layer 2 regardless of mode
         assert 2 in result.layers_executed
 
-    def test_default_source_type_runs_all_layers_in_strict_mode(self, monkeypatch):
-        """Default source_type (user_session) in strict mode should run all applicable layers."""
+    def test_default_source_type_runs_layer2(self, monkeypatch):
+        """TD-368: Default source_type (user_session) runs Layer 2."""
         from memory.security_scanner import SecurityScanner
 
         monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
 
         scanner = SecurityScanner(enable_ner=False)
-        # BUG-110: Must set strict mode for Layer 2 to run (relaxed is now default)
-        monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: True)
         result = scanner.scan("Safe content")
 
-        # Default (user_session) in strict mode must include Layer 2
+        # TD-368: user_session ALWAYS runs Layer 2
         assert 2 in result.layers_executed
 
     def test_github_code_blob_skips_layer2_in_relaxed_mode(self, monkeypatch):
@@ -785,7 +850,7 @@ class TestSessionModeAwareness:
     """Test BUG-110: security_scan_session_mode config for session content."""
 
     def test_session_scanning_relaxed_runs_layer2(self, monkeypatch):
-        """TD-368: Session content should run Layer 2 even in relaxed mode.
+        """TD-368: Session content runs Layer 2 in relaxed mode.
 
         Only GitHub content (trusted source) skips Layer 2 in relaxed mode.
         """
@@ -793,8 +858,7 @@ class TestSessionModeAwareness:
 
         monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
         scanner = SecurityScanner(enable_ner=False)
-        # Relaxed mode is default — _is_strict_session_mode returns False
-        monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: False)
+        # Ensure session scanning is not disabled
         monkeypatch.setattr(scanner, "_is_session_scanning_off", lambda: False)
 
         result = scanner.scan("Safe content here", source_type="user_session")
@@ -802,19 +866,18 @@ class TestSessionModeAwareness:
         # TD-368: Session content MUST run Layer 2 even in relaxed mode
         assert 2 in result.layers_executed
 
-    def test_session_scanning_strict_runs_layer2(self, monkeypatch):
-        """Session content should run Layer 2 detect-secrets in strict mode."""
+    def test_session_scanning_off_mode_skips_layer2(self, monkeypatch):
+        """Session content skips Layer 2 when mode is 'off'."""
         from memory.security_scanner import SecurityScanner
 
         monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
         scanner = SecurityScanner(enable_ner=False)
-        monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: True)
-        monkeypatch.setattr(scanner, "_is_session_scanning_off", lambda: False)
+        monkeypatch.setattr(scanner, "_is_session_scanning_off", lambda: True)
 
         result = scanner.scan("Safe content here", source_type="user_session")
 
-        # In strict mode, Layer 2 must run
-        assert 2 in result.layers_executed
+        # In off mode, all layers are skipped
+        assert result.layers_executed == []
 
     def test_session_scanning_off_skips_all(self, monkeypatch):
         """Session content should skip ALL scanning when mode is 'off'."""
@@ -864,12 +927,12 @@ class TestSessionModeAwareness:
         reset_config()
 
     def test_scan_batch_session_runs_layer2(self, monkeypatch):
-        """TD-368: Batch scanning should run Layer 2 for session content."""
+        """TD-368: Batch scanning runs Layer 2 for session content."""
         from memory.security_scanner import SecurityScanner
 
         monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
         scanner = SecurityScanner(enable_ner=False)
-        monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: False)
+        # Ensure session scanning is not disabled
         monkeypatch.setattr(scanner, "_is_session_scanning_off", lambda: False)
 
         results = scanner.scan_batch(
@@ -881,3 +944,29 @@ class TestSessionModeAwareness:
         # TD-368: Layer 2 MUST run for session content even in relaxed mode
         for r in results:
             assert 2 in r.layers_executed
+
+    def test_scan_batch_session_runs_layer2_ner_enabled(self, monkeypatch):
+        """Fix-r2: Batch scanning with NER enabled routes session content through NER code path."""
+        from memory.security_scanner import SecurityScanner, _spacy_available
+
+        if _spacy_available is False:
+            pytest.skip("SpaCy not available")
+
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+        scanner = SecurityScanner(enable_ner=True)
+        # Ensure session scanning is not disabled
+        monkeypatch.setattr(scanner, "_is_session_scanning_off", lambda: False)
+
+        results = scanner.scan_batch(
+            ["Text about John Smith", "Text about Jane Doe"],
+            source_type="user_session",
+        )
+
+        assert len(results) == 2
+        # Session content MUST run all layers: L1, L2, L3 (NER)
+        for r in results:
+            assert 1 in r.layers_executed
+            assert 2 in r.layers_executed
+            assert 3 in r.layers_executed
+            # NER should have detected names
+            assert any(f.finding_type.value == "pii_name" for f in r.findings)
