@@ -10,9 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Stabilization, observability, and data integrity improvements. Phased sprint with gated verify cycles.
 
 ### Fixed
-- **TD-407**: Eliminated CI flake in `test_concurrent_execution_blocked` by fixing a two-sided race: (1) raised proc2 subprocess timeout `5s → 30s` in `tests/integration/test_backfill_integration.py` (`test_concurrent_execution_blocked`), (2) raised the `slow_lock_script` fixture's `time.sleep(5) → time.sleep(30)` so the lock-window covers proc2's full cold-boot + lock-check cycle. Cold-boot cost is driven by `memory/__init__.py` eager imports (TD-388 pattern) pulling `storage → chunking → truncation → tiktoken` on every `from memory.queue import …`; CI runs regularly exceeded the old 5s budget. Also bumped sibling subprocess timeouts in `TestCLIModes` and `TestExitCodes` from `5s → 10s` (matching the `timeout=10` pattern used by the other lightweight ops in the same file). This is a tactical mitigation; the root fix is TD-388 (lazy-import `memory/__init__.py`). Resolves previously-red Integration Tests on PR #100 (TEST-FIX phase, PM #240).
-- **TD-412**: Bumped 7 subprocess `timeout=5 → timeout=10` in `tests/integration/test_posttooluse_hook.py` (`TestHookInfrastructure`, `TestInputSchemaValidation`, and `TestPerformanceRequirements`) to eliminate CI flake on `test_hook_validates_tool_name`. Root cause: same TD-388 pattern as TD-407 — `.claude/hooks/scripts/post_tool_capture.py` triggers `memory.__init__.py` eager imports on cold-boot, exceeding the 5s budget in CI under load. Matches the sibling `timeout=10` pattern already used in the same file. Additional sites in `test_hook_integration.py` and `test_manual_save_memory.py` deferred to TD-413 (not currently flaking). Resolves new CI red on PR #100 run 23997575319 (TEST-FIX phase, PM #240).
-- **TD-413**: Proactively bumped 4 subprocess `timeout=5 → timeout=10` across `tests/integration/test_hook_integration.py` (`test_posttooluse_qdrant_unavailable`) and `tests/integration/test_manual_save_memory.py` (`test_manual_save_imports_successfully`, `test_manual_save_graceful_degradation_invalid_path`, `test_manual_save_path_validation`) to eliminate cold-boot flake risk in the same class as TD-407/TD-412. Root cause: same TD-388 pattern — subprocess targets trigger `memory/__init__.py` eager-import chain (`storage → chunking → truncation → tiktoken`) which can exceed 5s in CI under load. Preventive fix: not currently flaking, but the same mechanism caused TD-407 and TD-412 before they were detected. Intentional tight timeout at `test_hook_integration.py` (marked `AC 2.5.3`) correctly preserved. Robust fix for `test_manual_save_path_validation` (F1 fail-fast assertion) via explicit `time.monotonic()` delta measurement deferred to TD-416 candidate (test-refactor scope). No CI regression expected. TEST-FIX phase closure, PM #240.
+- **CI test timeout hardening** (TD-407, TD-412, TD-413): Fixed intermittent CI failures across 18 subprocess-based tests caused by cold-boot import chain latency (`memory/__init__.py` eager imports). Raised subprocess timeouts from 5s to 10-30s in `test_backfill_integration.py`, `test_posttooluse_hook.py`, `test_hook_integration.py`, and `test_manual_save_memory.py`. Root cause: `memory.queue` import triggers `storage → chunking → truncation → tiktoken` load, exceeding 5s budget under CI load.
 
 ### Phase 1: Critical + Security (PLAN-023 P1)
 
@@ -106,7 +104,7 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 #### Fixed
 - **BUG-259** — CI E2E init: added `github` to the `collections` array in `.github/workflows/test.yml:251` to match `COLLECTION_NAMES` set from `src/memory/config.py`. Prevents silent test skips when the github collection is referenced. Commit `97fff63`.
 - **BUG-260** — Regression tests workflow: removed `continue-on-error: true` from the two test steps in `.github/workflows/regression-tests.yml`. Regression failures now BLOCK merges. Secret-gated conditional skip added for fork PRs where Langfuse/Qdrant credentials are unavailable. Based on BP-149 (GitHub Actions `continue-on-error` regression gate best practices 2026).
-- **TD-362** — Replaced 3 `assert True` placeholder tests with real assertions per BP-150. (1) `tests/test_error_pattern_capture.py::TestBashFixConfidence::test_confidence_within_3_turns` — ast.parse-based structural verification of the `turn_diff <= 3 → 0.5` confidence branch in `detect_bash_fix`. (2) `tests/integration/test_collection_statistics.py::TestMetricsIntegration::test_metrics_update_with_real_collection` — Prometheus delta pattern asserting `aimemory_collection_size` gauge value after `update_collection_metrics()`. (3) `tests/integration/test_hook_configuration.py::test_manual_testing_checklist` — deleted; manual cross-platform installer checklist moved to `docs/MANUAL-INSTALL-TESTING.md`. (r2 fix cycle: AST walk scoped to `node.body` only, preventing false-positive `Constant(0.5)` matches in sibling elif/else branches — per Opus r1 review mutation test, PLAN-023 P4b Wave 3 r2.)
+- **TD-362** — Replaced 3 `assert True` placeholder tests with real assertions. (1) `test_confidence_within_3_turns` — ast.parse-based structural verification of the `turn_diff <= 3 → 0.5` confidence branch. (2) `test_metrics_update_with_real_collection` — Prometheus delta pattern asserting gauge value after `update_collection_metrics()`. (3) `test_manual_testing_checklist` — deleted; manual checklist moved to `docs/MANUAL-INSTALL-TESTING.md`. AST walk scoped to `node.body` to prevent false-positive matches in sibling branches.
 
 #### Added
 - **V4-NEW-1** — New regression guard `tests/test_ci_schema_parity.py`: parses the INIT_COLLECTIONS heredoc in `test.yml` and asserts set-equality against `COLLECTION_NAMES + COLLECTION_JIRA_DATA`. Catches future drift between code and CI fixture. Commits `4ba568c`, `9a6f285`, `f6e363a`.
@@ -114,75 +112,79 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
 #### Changed
 - `pyproject.toml`: extended `[tool.coverage.run] source` list to include `.claude/hooks/scripts/` and `scripts/memory/` so hook scripts are now measured by pytest-cov. Added `*/_archived/*` and `*/archived/*` to `omit` to exclude inactive archived scripts from measurement (V4-NEW-4).
 
+### Phase 5a: Documentation + Security Scanner (PLAN-023 P5a)
+
+#### Fixed
+- **Stale installation paths** (BUG-261): 40 references to `~/.claude-memory/` updated to `~/.ai-memory/` in `docs/RECOVERY.md`.
+- **Wrong env var in docs** (BUG-262): `MEMORY_LOG_LEVEL` corrected to `AI_MEMORY_LOG_LEVEL` in README.md and INSTALL.md.
+- **Stale paths in scripts and tests** (TD-434, TD-435): 9 `~/.claude-memory` references updated to `~/.ai-memory` across `health_check.sh`, `backfill_embeddings.py`, `query_session_logs.py`, `repair_queue.py`, and `test_installation.py`.
+- **MAX_RETRIEVALS default wrong in docs** (TD-437, TD-438): `docs/HOOKS.md` and `aim-settings/SKILL.md` corrected from `5` to `10` (matching `config.py` default).
+- **Nonexistent env var in docs** (TD-439): `MEMORY_MAX_RETRIEVALS` corrected to `MAX_RETRIEVALS` in `TROUBLESHOOTING.md`.
+- **Mixed units** (TD-440): `~1.3 GB` standardized to `~1.3 GiB` in `docs/LANGFUSE-INTEGRATION.md`.
+- **RAM contradiction** (TD-369): INSTALL.md RAM requirements made consistent.
+- **detect-secrets false positives on natural language** (BP-151): Security scanner Layer 2 (`detect-secrets`) used `default_settings()` which flagged normal English words as Base64 High Entropy Strings. Replaced with `transient_settings()` using pattern-based detectors only (no entropy plugins) for user session content. Layer 1 regex patterns still catch prefix-anchored secrets (`sk-`, `ghp_`, `AKIA`, etc.). Non-session content retains full entropy scanning.
+- **health_check.sh container detection** (Docker Compose v5): Container status checks grepped for `"running"` but Compose v5 shows `"Up ... (healthy)"`. Changed to grep for `"Up"`.
+
+#### Added
+- **AI-ecosystem secret patterns** (TD-367): Security scanner Layer 1 regex patterns for OpenAI (`sk-`, `sk-proj-`, `sk-svcacct-`), Anthropic (`sk-ant-`), and HuggingFace (`hf_`) API keys with boundary tests.
+
+#### Changed
+- **Relaxed mode scanning** (TD-368): Session content now runs Layer 2 (detect-secrets) even in relaxed mode. Previously, relaxed mode skipped Layer 2 for both GitHub and session content. Now only GitHub content (trusted source) skips detect-secrets.
+
 ### Upgrade Instructions
 
-**From v2.2.8 to this version:**
+**From v2.2.8 to v2.3.0:**
 
-1. Pull the feature branch into your clone:
+1. **Pull the latest release:**
    ```bash
-   cd <your-ai-memory-clone>
-   git fetch origin
-   git checkout feature/v2.3.0-phased-sprint
-   git pull origin feature/v2.3.0-phased-sprint
+   cd /path/to/ai-memory
+   git fetch origin && git checkout main && git pull
    ```
 
-2. Run the installer (Option 1 — add to existing installation):
+2. **Run the installer** (Option 1 for existing installations):
    ```bash
-   ./scripts/install.sh <your-project-dir>
+   ./scripts/install.sh /path/to/your/project
+   # Select: Option 1 — Add project to existing installation
    ```
 
-3. Rebuild Docker containers that have baked dependencies:
+3. **Rebuild containers** (code is baked into Docker images, not volume-mounted):
    ```bash
+   cd ~/.ai-memory/docker
    unset QDRANT_API_KEY
-   cd ~/.ai-memory/docker/
    docker compose build --no-cache github-sync streamlit embedding monitoring-api classifier-worker
    docker compose -f docker-compose.langfuse.yml build --no-cache trace-flush-worker evaluator-scheduler
    ```
 
-4. **Restart Langfuse stack** (required — deploys new `langfuse-minio-init` service + BUG-265 project name fix):
+4. **Restart the full stack:**
    ```bash
-   cd ~/.ai-memory/docker/
+   cd ~/.ai-memory/docker
    unset QDRANT_API_KEY
-   # Stop old "docker" project (BUG-265: was using wrong project name)
+   bash ../scripts/stack.sh restart
+   ```
+   Wait ~60 seconds for all services to reach healthy state.
+
+   If upgrading from v2.2.x with the old Langfuse project name bug (BUG-265), first clean up the orphaned stack:
+   ```bash
    docker compose -p docker -f docker-compose.langfuse.yml --profile langfuse down
-   # Start with correct project name (now set via name: ai-memory in compose file)
-   docker compose -f docker-compose.langfuse.yml --profile langfuse up -d
-   ```
-   Verify bucket creation: `docker compose -f docker-compose.langfuse.yml --profile langfuse logs langfuse-minio-init` should show "Bucket 'langfuse' ready".
-   Verify project unification: `docker compose ls` should show ONE project (`ai-memory`), not two.
-
-5. Restart all stacks (picks up compose-level changes: healthcheck, start_period, volume):
-   ```bash
-   cd ~/.ai-memory/docker/
-   unset QDRANT_API_KEY
-   docker compose --profile monitoring up -d
-   docker compose -f docker-compose.langfuse.yml --profile langfuse up -d
-   ```
-   If `docker compose up` fails with a network conflict, stop langfuse services first:
-   ```bash
-   cd ~/.ai-memory/docker/
-   docker compose -f docker-compose.langfuse.yml down
-   docker compose down
-   docker compose up -d
-   docker compose --profile monitoring --profile github --profile classify --profile streamlit up -d
-   docker compose -f docker-compose.langfuse.yml --profile langfuse up -d
    ```
 
-6. Verify settings merge applied correctly:
+5. **Verify:**
    ```bash
-   # Check SessionStart matcher is clean (should be "resume|compact"):
-   grep -o '"matcher":.*' ~/.ai-memory/.claude/settings.json | head -1
+   # Health check (all services)
+   bash ~/.ai-memory/scripts/memory/health_check.sh
 
-   # Check AI_MEMORY_INSTALL_DIR points to correct path:
-   grep AI_MEMORY_INSTALL_DIR ~/.ai-memory/.claude/settings.json
+   # Verify all 17 containers healthy
+   cd ~/.ai-memory/docker && docker compose ps -a
+
+   # Verify 5 collections intact
+   source ~/.ai-memory/docker/.env
+   curl -sf -H "api-key: $QDRANT_API_KEY" http://localhost:26350/collections | python3 -m json.tool
    ```
 
-7. Verify services:
-   ```bash
-   cd <your-ai-memory-clone>
-   python3 scripts/health-check.py
-   ```
-   Expect: 17/17 healthy, `langfuse==4.0.4` in venv and containers.
+**Important notes:**
+- Always `unset QDRANT_API_KEY` before running `docker compose` commands. Shell env vars override `.env` file values, causing auth mismatches.
+- The `github-sync` container has Python code baked into its Docker image. A rebuild is required after every code update.
+- Run `docker compose` from `~/.ai-memory/docker/`, never from the source repo clone.
 
 **P2-REM-specific notes:**
 - The `langfuse-minio-init` service is a one-shot container that creates the S3 bucket and exits. It runs before `langfuse-web` and `langfuse-worker` via `depends_on: service_completed_successfully`.
