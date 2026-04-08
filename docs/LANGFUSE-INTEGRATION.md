@@ -490,7 +490,7 @@ The Langfuse stack adds 6 services to the AI Memory core:
 | MinIO | ~128 MB | 0.1 core | Grows with event uploads |
 | Trace Flush Worker | ~128 MB | 0.1 core | Minimal |
 
-**Total additional**: ~1.3 GB RAM baseline + up to 16 GiB ClickHouse cap, 2.5 cores. Combined with AI Memory core (8 services), the full stack requires approximately **32 GiB RAM** and **8 cores**.
+**Total additional**: ~1.3 GiB RAM baseline + up to 16 GiB ClickHouse cap, 2.5 cores. Combined with AI Memory core (8 services), the full stack requires approximately **32 GiB RAM** and **8 cores**.
 
 ---
 

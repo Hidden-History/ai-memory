@@ -1148,7 +1148,7 @@ echo -e "\n=== Verification Complete ==="
 **Quick Optimizations:**
 ```bash
 # Reduce retrievals (fewer memories = faster)
-export MEMORY_MAX_RETRIEVALS=3
+export MAX_RETRIEVALS=3
 
 # Increase threshold (fewer low-relevance results)
 export MEMORY_SIMILARITY_THRESHOLD=0.7

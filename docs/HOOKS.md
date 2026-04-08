@@ -901,7 +901,7 @@ grep "duration" ~/.ai-memory/logs/hooks.log | tail -20
 ```
 
 **Solutions:**
-1. Reduce `MAX_RETRIEVALS` (default 5)
+1. Reduce `MAX_RETRIEVALS` (default 10)
 2. Increase `SIMILARITY_THRESHOLD` (filter low-relevance results)
 3. Check Qdrant performance:
    ```bash

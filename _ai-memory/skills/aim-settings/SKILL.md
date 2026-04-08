@@ -122,7 +122,7 @@ Configuration can be customized via environment variables or `.env` file:
 # Core thresholds
 SIMILARITY_THRESHOLD=0.7    # Retrieval relevance cutoff
 DEDUP_THRESHOLD=0.95        # Duplicate detection sensitivity
-MAX_RETRIEVALS=5            # Results per search
+MAX_RETRIEVALS=10           # Results per search
 TOKEN_BUDGET=4000           # Context injection limit (per BP-039)
 
 # Service endpoints
