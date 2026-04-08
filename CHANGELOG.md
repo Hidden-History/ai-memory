@@ -173,7 +173,7 @@ Stabilization, observability, and data integrity improvements. Phased sprint wit
    # Health check (all services)
    bash ~/.ai-memory/scripts/memory/health_check.sh
 
-   # Verify all 17 containers healthy
+   # Verify all 17 containers healthy (all should show "Up ... (healthy)")
    cd ~/.ai-memory/docker && docker compose ps -a
 
    # Verify 5 collections intact
