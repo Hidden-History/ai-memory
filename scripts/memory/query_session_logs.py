@@ -169,7 +169,7 @@ def main():
     )
     parser.add_argument(
         "--log-path",
-        default="~/.claude-memory/sessions.jsonl",
+        default="~/.ai-memory/sessions.jsonl",
         help="Path to session log file",
     )
 

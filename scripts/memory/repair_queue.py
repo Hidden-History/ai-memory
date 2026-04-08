@@ -22,7 +22,7 @@ EXIT_SUCCESS = 0
 EXIT_ERROR = 1
 
 # Default queue path
-DEFAULT_QUEUE_PATH = Path.home() / ".claude-memory" / "pending_queue.jsonl"
+DEFAULT_QUEUE_PATH = Path.home() / ".ai-memory" / "pending_queue.jsonl"
 
 
 def parse_args() -> argparse.Namespace:

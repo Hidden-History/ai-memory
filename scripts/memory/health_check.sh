@@ -134,8 +134,8 @@ fi
 
 # Check 8: Queue file
 echo -n "Queue file... "
-if [ -f ~/.claude-memory/pending_queue.jsonl ]; then
-    QUEUE_SIZE=$(wc -l < ~/.claude-memory/pending_queue.jsonl)
+if [ -f ~/.ai-memory/pending_queue.jsonl ]; then
+    QUEUE_SIZE=$(wc -l < ~/.ai-memory/pending_queue.jsonl)
     if [ "$QUEUE_SIZE" -eq 0 ]; then
         echo -e "${GREEN}✓ Empty (no pending items)${NC}"
     else
@@ -149,19 +149,19 @@ fi
 
 # Check 9: Stale locks
 echo -n "Stale locks... "
-STALE_LOCKS=$(find ~/.claude-memory -name "*.lock" -mmin +60 2>/dev/null | wc -l)
+STALE_LOCKS=$(find ~/.ai-memory -name "*.lock" -mmin +60 2>/dev/null | wc -l)
 if [ "$STALE_LOCKS" -eq 0 ]; then
     echo -e "${GREEN}✓ None${NC}"
 else
     echo -e "${YELLOW}⚠ Found $STALE_LOCKS stale locks${NC}"
-    echo "  → Run: rm ~/.claude-memory/*.lock"
+    echo "  → Run: rm ~/.ai-memory/*.lock"
     echo "  → See: docs/RECOVERY.md#queue-file-issues"
     ((WARNINGS++))
 fi
 
 # Check 10: Disk space
 echo -n "Disk space... "
-DISK_FREE=$(df -h ~/.claude-memory 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/G//')
+DISK_FREE=$(df -h ~/.ai-memory 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/G//')
 if [ -n "$DISK_FREE" ]; then
     if (( $(echo "$DISK_FREE > 5" | bc -l 2>/dev/null || echo 0) )); then
         echo -e "${GREEN}✓ ${DISK_FREE}GB free${NC}"

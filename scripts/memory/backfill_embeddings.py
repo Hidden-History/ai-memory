@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
 # Lock file location (persistent across reboots)
 # Respects BACKFILL_LOCK_FILE env var for testing
 LOCK_FILE = Path(
-    os.environ.get("BACKFILL_LOCK_FILE", "~/.claude-memory/backfill.lock")
+    os.environ.get("BACKFILL_LOCK_FILE", "~/.ai-memory/backfill.lock")
 ).expanduser()
 
 # Module-level file handle to prevent GC from releasing lock prematurely

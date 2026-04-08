@@ -414,7 +414,7 @@ def test_installer_creates_directories(temp_install_dir):
     assert os.path.exists(os.path.join(temp_install_dir, "scripts"))
 
     # Verify private queue directory
-    claude_memory = os.path.expanduser("~/.claude-memory")
+    claude_memory = os.path.expanduser("~/.ai-memory")
     assert os.path.exists(claude_memory)
 
 
