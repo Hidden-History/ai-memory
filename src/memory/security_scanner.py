@@ -152,6 +152,22 @@ SECRET_PATTERNS = {
         FindingType.SECRET_TOKEN,
         0.90,
     ),
+    # AI-ecosystem secret patterns (TD-367)
+    "openai_keys": (
+        r"sk-[A-Za-z0-9]{20,}(?:T3BlbkFikcKRJj9z)?[A-Za-z0-9]*",
+        FindingType.SECRET_API_KEY,
+        0.95,
+    ),
+    "anthropic_keys": (
+        r"sk-ant-[A-Za-z0-9_-]{20,}",
+        FindingType.SECRET_API_KEY,
+        0.95,
+    ),
+    "huggingface_keys": (
+        r"hf_[A-Za-z0-9]{30,}",
+        FindingType.SECRET_API_KEY,
+        0.93,
+    ),
 }
 
 
@@ -589,14 +605,14 @@ class SecurityScanner:
             _log_scan_result(result, content, source_type)
             return result
 
-        # Source-type-aware scanning (BP-090, RISK-001 fix, BUG-110)
+        # Source-type-aware scanning (BP-090, RISK-001 fix)
         # For GitHub content in relaxed mode, skip Layer 2 (detect-secrets)
         # to avoid false positives on code variable names and hex strings.
-        # For session content in relaxed mode, also skip Layer 2 to avoid
-        # false positives when discussing API keys/tokens in workspace context.
+        # TD-368: Session content should NOT skip Layer 2 even in relaxed mode.
+        # Only GitHub content (trusted source) skips detect-secrets.
         skip_layer2 = (
             source_type.startswith("github_") and not self._is_strict_github_mode()
-        ) or (source_type == "user_session" and not self._is_strict_session_mode())
+        )
 
         # Layer 2: detect-secrets (skipped for trusted sources in relaxed mode)
         if not skip_layer2:
@@ -705,10 +721,12 @@ class SecurityScanner:
         pre_results = []
         ner_candidates = []  # texts that need L3
 
-        # Source-type-aware scanning (BP-090, RISK-001 fix, BUG-110)
+        # Source-type-aware scanning (BP-090, RISK-001 fix)
+        # TD-368: Session content should NOT skip Layer 2 even in relaxed mode.
+        # Only GitHub content (trusted source) skips detect-secrets.
         skip_layer2 = (
             source_type.startswith("github_") and not self._is_strict_github_mode()
-        ) or (source_type == "user_session" and not self._is_strict_session_mode())
+        )
 
         # Hoist config checks out of per-text loop (code review fix)
         github_scanning_off = self._is_github_scanning_off()

@@ -68,7 +68,7 @@ Defaults → Environment Variables → Runtime Overrides
 # Core Settings
 QDRANT_HOST=localhost
 QDRANT_PORT=26350
-LOG_LEVEL=INFO
+AI_MEMORY_LOG_LEVEL=INFO
 
 # Performance
 MAX_RETRIEVALS=10
@@ -177,10 +177,12 @@ export AI_MEMORY_PROJECT_ID=my-awesome-project
 
 ---
 
-#### LOG_LEVEL
+#### AI_MEMORY_LOG_LEVEL
 **Purpose:** Logging verbosity
 
 **Default:** `INFO`
+
+**Aliases:** `LOG_LEVEL`, `BMAD_LOG_LEVEL` (via pydantic AliasChoices)
 
 **Options:**
 - `DEBUG` - Verbose logging (all operations)
@@ -191,7 +193,7 @@ export AI_MEMORY_PROJECT_ID=my-awesome-project
 
 **Example:**
 ```bash
-export LOG_LEVEL=DEBUG
+export AI_MEMORY_LOG_LEVEL=DEBUG
 ```
 
 **When to change:**
@@ -1852,7 +1854,7 @@ AGENTS = {
 # ~/.ai-memory/.env
 
 # Verbose logging
-LOG_LEVEL=DEBUG
+AI_MEMORY_LOG_LEVEL=DEBUG
 
 # Lower threshold (see more results)
 SIMILARITY_THRESHOLD=0.3
@@ -1867,7 +1869,7 @@ MAX_RETRIEVALS=10
 # ~/.ai-memory/.env
 
 # Standard logging
-LOG_LEVEL=INFO
+AI_MEMORY_LOG_LEVEL=INFO
 
 # Strict relevance
 SIMILARITY_THRESHOLD=0.7
@@ -1885,7 +1887,7 @@ LOG_FORMAT=json
 # ~/.ai-memory/.env
 
 # Debug logging
-LOG_LEVEL=DEBUG
+AI_MEMORY_LOG_LEVEL=DEBUG
 
 # Permissive threshold
 SIMILARITY_THRESHOLD=0.2

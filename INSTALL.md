@@ -11,7 +11,7 @@
 | **Python**  | 3.10           | 3.11+       | Required for async + match statements. **AsyncSDKWrapper requires 3.11+** |
 | **Docker**  | 20.10          | Latest      | For Qdrant + embedding service |
 | **OS**      | Linux, macOS, WSL2 | Linux   | Windows requires WSL2 |
-| **RAM**     | 4GB            | 8GB+        | For Docker services |
+| **RAM**     | 16 GiB         | 32 GiB      | Core tier minimum; Core+Langfuse needs 32 GiB |
 | **Disk**    | 5GB free       | 10GB+       | Docker images alone are ~3GB; allow extra space for data |
 
 ### Resource Tiers
@@ -937,7 +937,7 @@ EMBEDDING_PORT=28080
 AI_MEMORY_INSTALL_DIR=/home/user/.ai-memory
 
 # Logging
-MEMORY_LOG_LEVEL=INFO  # DEBUG for verbose
+AI_MEMORY_LOG_LEVEL=INFO  # DEBUG for verbose
 
 # Jira Cloud Integration (Optional)
 JIRA_INSTANCE_URL=https://company.atlassian.net

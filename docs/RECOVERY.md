@@ -31,10 +31,10 @@
 |---------|--------------|--------------------------|------------------|---------------|
 | Hook returns exit code 1 | Qdrant unavailable | `docker compose ps qdrant` | `docker compose up -d qdrant` | 30-60s |
 | `embedding_status: pending` in payloads | Embedding service down | `docker compose ps embedding` | `docker compose restart embedding` | 30-90s |
-| Empty session context at SessionStart | No memories captured yet | `ls -lah ~/.claude-memory/pending_queue.jsonl` | Check if hooks configured | Varies |
+| Empty session context at SessionStart | No memories captured yet | `ls -lah ~/.ai-memory/pending_queue.jsonl` | Check if hooks configured | Varies |
 | Slow hook execution (>2s) | Cold embedding service | `curl http://localhost:28080/health` | `docker compose restart embedding` | 30s |
 | "QDRANT_UNAVAILABLE" in logs | Qdrant connection refused | `curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health` | `docker compose up -d qdrant` | 30-60s |
-| Backfill script hangs | Stale lock file | `ls -lah ~/.claude-memory/*.lock` | `rm ~/.claude-memory/backfill.lock` | Instant |
+| Backfill script hangs | Stale lock file | `ls -lah ~/.ai-memory/*.lock` | `rm ~/.ai-memory/backfill.lock` | Instant |
 | Queue file corrupt | Interrupted write | `python -m json.tool < pending_queue.jsonl` | `python scripts/memory/repair_queue.py` | 1-5min |
 | Memory search returns nothing | Embeddings not generated | Check `embedding_status` in Qdrant | `python scripts/memory/backfill_embeddings.py` | 1-10min |
 | Port 26350 already in use | Qdrant port conflict | `lsof -i :26350` or `netstat -an \| grep 26350` | Stop conflicting process or change port | Varies |
@@ -48,7 +48,7 @@
 
 - Hooks exit with code 1 (graceful degradation - Claude continues working)
 - Logs show "QDRANT_UNAVAILABLE" or "Connection refused" errors
-- Memories queued to `~/.claude-memory/pending_queue.jsonl` but not stored in Qdrant
+- Memories queued to `~/.ai-memory/pending_queue.jsonl` but not stored in Qdrant
 - SessionStart hook returns empty context despite previous sessions
 - `curl -H "api-key: $QDRANT_API_KEY" http://localhost:26350/health` returns connection error
 
@@ -530,7 +530,7 @@ If recovery fails after 3 attempts:
 - Backfill script hangs with "waiting for lock"
 - Lock acquisition timeout errors in logs
 - Queue file exists but memories not processed
-- `cat ~/.claude-memory/pending_queue.jsonl | wc -l` shows entries but backfill reports 0
+- `cat ~/.ai-memory/pending_queue.jsonl | wc -l` shows entries but backfill reports 0
 
 ### Root Causes
 
@@ -543,15 +543,15 @@ If recovery fails after 3 attempts:
 
 ```bash
 # Step 1: Check queue file exists and size
-ls -lah ~/.claude-memory/pending_queue.jsonl
+ls -lah ~/.ai-memory/pending_queue.jsonl
 # Expected: File exists, size > 0 if pending items
 
 # Step 2: Check for stale lock
-ls -lah ~/.claude-memory/*.lock
+ls -lah ~/.ai-memory/*.lock
 # If lock older than 1 hour: Likely stale
 
 # Example lock check:
-find ~/.claude-memory -name "*.lock" -mmin +60 -ls
+find ~/.ai-memory -name "*.lock" -mmin +60 -ls
 # If found: Lock not released properly
 
 # Step 3: Validate JSON format (line by line)
@@ -559,7 +559,7 @@ python -c "
 import json
 import sys
 try:
-    with open('$HOME/.claude-memory/pending_queue.jsonl', 'r') as f:
+    with open('$HOME/.ai-memory/pending_queue.jsonl', 'r') as f:
         for i, line in enumerate(f, 1):
             if line.strip():
                 json.loads(line)
@@ -570,11 +570,11 @@ except json.JSONDecodeError as e:
 "
 
 # Step 4: Check file permissions
-stat -c '%a %U %G' ~/.claude-memory/pending_queue.jsonl
+stat -c '%a %U %G' ~/.ai-memory/pending_queue.jsonl
 # Expected: 600 (owner-only r/w)
 
 # Step 5: Check disk space
-df -h ~/.claude-memory
+df -h ~/.ai-memory
 # If <1GB: Risk of corruption on future writes
 ```
 
@@ -588,7 +588,7 @@ ps aux | grep backfill_embeddings.py | grep -v grep
 # If empty: Safe to remove lock
 
 # 2. Remove stale lock
-rm -f ~/.claude-memory/backfill.lock
+rm -f ~/.ai-memory/backfill.lock
 
 # 3. Run backfill
 python scripts/memory/backfill_embeddings.py --verbose
@@ -604,7 +604,7 @@ python scripts/memory/backfill_embeddings.py --stats
 
 ```bash
 # 1. Backup queue file
-cp ~/.claude-memory/pending_queue.jsonl ~/.claude-memory/pending_queue.jsonl.backup.$(date +%Y%m%d_%H%M%S)
+cp ~/.ai-memory/pending_queue.jsonl ~/.ai-memory/pending_queue.jsonl.backup.$(date +%Y%m%d_%H%M%S)
 
 # 2. Identify corrupt lines
 python -c "
@@ -614,7 +614,7 @@ import sys
 corrupt_lines = []
 valid_lines = []
 
-with open('$HOME/.claude-memory/pending_queue.jsonl', 'r') as f:
+with open('$HOME/.ai-memory/pending_queue.jsonl', 'r') as f:
     for i, line in enumerate(f, 1):
         line = line.strip()
         if not line:
@@ -630,15 +630,15 @@ print(f'\nValid: {len(valid_lines)}, Corrupt: {len(corrupt_lines)}')
 
 # Write valid entries to new file
 if corrupt_lines:
-    with open('$HOME/.claude-memory/pending_queue.jsonl.repaired', 'w') as out:
+    with open('$HOME/.ai-memory/pending_queue.jsonl.repaired', 'w') as out:
         for line in valid_lines:
             out.write(line + '\n')
     print(f'Wrote {len(valid_lines)} valid entries to pending_queue.jsonl.repaired')
 "
 
 # 3. Replace with repaired file
-mv ~/.claude-memory/pending_queue.jsonl ~/.claude-memory/pending_queue.jsonl.corrupt
-mv ~/.claude-memory/pending_queue.jsonl.repaired ~/.claude-memory/pending_queue.jsonl
+mv ~/.ai-memory/pending_queue.jsonl ~/.ai-memory/pending_queue.jsonl.corrupt
+mv ~/.ai-memory/pending_queue.jsonl.repaired ~/.ai-memory/pending_queue.jsonl
 
 # 4. Run backfill on repaired queue
 python scripts/memory/backfill_embeddings.py --verbose
@@ -658,15 +658,15 @@ python scripts/memory/backfill_embeddings.py --stats
 
 ```bash
 # 1. Check current permissions
-ls -la ~/.claude-memory/pending_queue.jsonl
+ls -la ~/.ai-memory/pending_queue.jsonl
 
 # 2. Fix permissions
-chmod 600 ~/.claude-memory/pending_queue.jsonl
-chown $(whoami) ~/.claude-memory/pending_queue.jsonl
+chmod 600 ~/.ai-memory/pending_queue.jsonl
+chown $(whoami) ~/.ai-memory/pending_queue.jsonl
 
 # 3. Verify queue directory permissions
-chmod 700 ~/.claude-memory
-chown $(whoami) ~/.claude-memory
+chmod 700 ~/.ai-memory
+chown $(whoami) ~/.ai-memory
 
 # 4. Run backfill
 python scripts/memory/backfill_embeddings.py --verbose
@@ -678,12 +678,12 @@ python scripts/memory/backfill_embeddings.py --verbose
 
 ```bash
 # 1. Check disk space
-df -h ~/.claude-memory
+df -h ~/.ai-memory
 
 # 2. If <1GB free: Clear space
 # - Remove old Docker logs: docker system prune -f
-# - Remove old backups: rm ~/.claude-memory/*.backup.*
-# - Archive old logs: tar -czf logs.tar.gz ~/.claude-memory/logs && rm -rf ~/.claude-memory/logs/*.log
+# - Remove old backups: rm ~/.ai-memory/*.backup.*
+# - Archive old logs: tar -czf logs.tar.gz ~/.ai-memory/logs && rm -rf ~/.ai-memory/logs/*.log
 
 # 3. Verify queue file integrity (might be truncated)
 # Use Scenario B repair steps if needed
@@ -700,13 +700,13 @@ python scripts/memory/backfill_embeddings.py --verbose
 # 1. Queue file valid JSON
 python -c "
 import json
-with open('$HOME/.claude-memory/pending_queue.jsonl', 'r') as f:
+with open('$HOME/.ai-memory/pending_queue.jsonl', 'r') as f:
     entries = [json.loads(line) for line in f if line.strip()]
 print(f'✓ Queue valid: {len(entries)} entries')
 "
 
 # 2. No stale locks
-find ~/.claude-memory -name "*.lock" -mmin +5 -ls
+find ~/.ai-memory -name "*.lock" -mmin +5 -ls
 # Should be empty (no locks older than 5 minutes)
 
 # 3. Backfill runs successfully
@@ -718,7 +718,7 @@ python scripts/memory/backfill_embeddings.py --stats
 # Should show current queue size
 
 # 5. File permissions correct
-stat -c '%a' ~/.claude-memory/pending_queue.jsonl | grep -q '^600$' && echo "✓ Permissions OK" || echo "✗ Permissions wrong"
+stat -c '%a' ~/.ai-memory/pending_queue.jsonl | grep -q '^600$' && echo "✓ Permissions OK" || echo "✗ Permissions wrong"
 ```
 
 ### Advanced Recovery: Manual Queue Repair
@@ -731,7 +731,7 @@ python -c "
 import json
 
 valid = []
-with open('$HOME/.claude-memory/pending_queue.jsonl', 'rb') as f:
+with open('$HOME/.ai-memory/pending_queue.jsonl', 'rb') as f:
     data = f.read().decode('utf-8', errors='ignore')
     for line in data.split('\n'):
         try:
@@ -746,18 +746,18 @@ with open('$HOME/.claude-memory/pending_queue.jsonl', 'rb') as f:
             continue
 
 # Write valid entries
-with open('$HOME/.claude-memory/pending_queue.jsonl.manual', 'w') as out:
+with open('$HOME/.ai-memory/pending_queue.jsonl.manual', 'w') as out:
     out.write('\n'.join(valid) + '\n')
 
 print(f'Extracted {len(valid)} valid entries')
 "
 
 # 2. Backup old queue
-mv ~/.claude-memory/pending_queue.jsonl ~/.claude-memory/pending_queue.jsonl.broken
+mv ~/.ai-memory/pending_queue.jsonl ~/.ai-memory/pending_queue.jsonl.broken
 
 # 3. Use manually repaired queue
-mv ~/.claude-memory/pending_queue.jsonl.manual ~/.claude-memory/pending_queue.jsonl
-chmod 600 ~/.claude-memory/pending_queue.jsonl
+mv ~/.ai-memory/pending_queue.jsonl.manual ~/.ai-memory/pending_queue.jsonl
+chmod 600 ~/.ai-memory/pending_queue.jsonl
 
 # 4. Run backfill
 python scripts/memory/backfill_embeddings.py --verbose
@@ -777,10 +777,10 @@ python scripts/memory/backfill_embeddings.py --verbose
 # If queue repair fails and data loss unacceptable:
 
 # 1. Restore from backup
-cp ~/.claude-memory/pending_queue.jsonl.backup.YYYYMMDD_HHMMSS ~/.claude-memory/pending_queue.jsonl
+cp ~/.ai-memory/pending_queue.jsonl.backup.YYYYMMDD_HHMMSS ~/.ai-memory/pending_queue.jsonl
 
 # 2. Verify backup valid
-python -c "import json; [json.loads(l) for l in open('$HOME/.claude-memory/pending_queue.jsonl') if l.strip()]"
+python -c "import json; [json.loads(l) for l in open('$HOME/.ai-memory/pending_queue.jsonl') if l.strip()]"
 
 # 3. Run backfill
 python scripts/memory/backfill_embeddings.py --verbose
@@ -792,14 +792,14 @@ If queue recovery fails after 3 attempts:
 1. Collect diagnostics:
    ```bash
    # Save queue state
-   cp ~/.claude-memory/pending_queue.jsonl ~/queue_issue.jsonl
+   cp ~/.ai-memory/pending_queue.jsonl ~/queue_issue.jsonl
 
    # Hex dump for binary analysis
-   hexdump -C ~/.claude-memory/pending_queue.jsonl > queue_hexdump.txt
+   hexdump -C ~/.ai-memory/pending_queue.jsonl > queue_hexdump.txt
 
    # File info
-   file ~/.claude-memory/pending_queue.jsonl > queue_file_info.txt
-   ls -la ~/.claude-memory/*.lock > locks_info.txt
+   file ~/.ai-memory/pending_queue.jsonl > queue_file_info.txt
+   ls -la ~/.ai-memory/*.lock > locks_info.txt
    ```
 2. Check if memories stored in Qdrant despite queue issues:
    ```bash
@@ -1154,7 +1154,7 @@ INFO memory_stored extra={'memory_id': 'abc123...', 'type': 'implementation', 'g
 **Graceful Degradation (Qdrant Down):**
 ```
 WARNING qdrant_unavailable extra={'error': 'Connection refused', 'code': 'QDRANT_UNAVAILABLE'}
-INFO memory_queued extra={'queue_path': '~/.claude-memory/pending_queue.jsonl', 'memory_id': 'abc123'}
+INFO memory_queued extra={'queue_path': '~/.ai-memory/pending_queue.jsonl', 'memory_id': 'abc123'}
 ```
 
 **Embedding Pending:**
@@ -1174,7 +1174,7 @@ INFO backfill_complete extra={'processed': 42, 'errors': 0, 'duration_seconds': 
 | `QDRANT_UNAVAILABLE` | Cannot connect to Qdrant | See [Qdrant Unavailable](#qdrant-unavailable) |
 | `EMBEDDING_TIMEOUT` | Embedding service timeout | See [Embedding Service Unavailable](#embedding-service-unavailable) |
 | `QUEUE_CORRUPT` | Queue file JSON invalid | See [Queue File Issues](#queue-file-issues) |
-| `LOCK_TIMEOUT` | Cannot acquire file lock | Remove stale lock: `rm ~/.claude-memory/*.lock` |
+| `LOCK_TIMEOUT` | Cannot acquire file lock | Remove stale lock: `rm ~/.ai-memory/*.lock` |
 | `INVALID_INPUT` | Malformed request | Check input data format |
 | `INTERNAL_ERROR` | Unexpected error | Check logs, escalate if persistent |
 

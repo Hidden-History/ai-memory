@@ -551,7 +551,7 @@ All services use `2XXXX` prefix to avoid conflicts:
 | `EMBEDDING_HOST`       | `localhost`          | Embedding service hostname        |
 | `EMBEDDING_PORT`       | `28080`              | Embedding service port            |
 | `AI_MEMORY_INSTALL_DIR`   | `~/.ai-memory`     | Installation directory            |
-| `MEMORY_LOG_LEVEL`     | `INFO`               | Logging level (DEBUG/INFO/WARNING)|
+| `AI_MEMORY_LOG_LEVEL`  | `INFO`               | Logging level (DEBUG/INFO/WARNING)|
 
 **Jira Cloud Integration (Optional):**
 
@@ -570,7 +570,7 @@ See [docs/JIRA-INTEGRATION.md](docs/JIRA-INTEGRATION.md) for complete Jira setup
 
 ```bash
 export QDRANT_PORT=16333  # Use custom port
-export MEMORY_LOG_LEVEL=DEBUG  # Enable verbose logging
+export AI_MEMORY_LOG_LEVEL=DEBUG  # Enable verbose logging
 ```
 
 ## 💡 Usage

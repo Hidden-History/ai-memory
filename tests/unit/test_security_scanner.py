@@ -341,6 +341,51 @@ class TestLayer1SecretPatterns:
         assert result.content == ""
 
 
+class TestAIEcosystemSecretPatterns:
+    """Test TD-367: AI-ecosystem secret patterns (OpenAI, Anthropic, HuggingFace)."""
+
+    @pytest.fixture(autouse=True)
+    def _disable_detect_secrets(self, monkeypatch):
+        """Isolate AI pattern tests from Layer 2 detect-secrets interference."""
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+
+    def test_openai_key_blocks(self):
+        """Test OpenAI API key detection blocks content."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        # OpenAI keys start with sk- and are 20+ chars
+        result = scanner.scan("API key: sk-" + "A" * 48)
+
+        assert result.action == ScanAction.BLOCKED
+        assert result.content == ""
+        assert any(f.finding_type.value == "secret_api_key" for f in result.findings)
+
+    def test_anthropic_key_blocks(self):
+        """Test Anthropic API key detection blocks content."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        # Anthropic keys: sk-ant-...
+        result = scanner.scan("Key: sk-ant-api03-" + "A" * 80)
+
+        assert result.action == ScanAction.BLOCKED
+        assert result.content == ""
+        assert any(f.finding_type.value == "secret_api_key" for f in result.findings)
+
+    def test_huggingface_key_blocks(self):
+        """Test HuggingFace API key detection blocks content."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        # HuggingFace keys: hf_...
+        result = scanner.scan("HF token: hf_" + "A" * 34)
+
+        assert result.action == ScanAction.BLOCKED
+        assert result.content == ""
+        assert any(f.finding_type.value == "secret_api_key" for f in result.findings)
+
+
 class TestGitHubHandleFalsePositives:
     """Test TD-161: GitHub handle regex false positive fixes."""
 
@@ -739,25 +784,23 @@ class TestGitHubIdContext:
 class TestSessionModeAwareness:
     """Test BUG-110: security_scan_session_mode config for session content."""
 
-    def test_session_scanning_relaxed_skips_layer2(self, monkeypatch):
-        """Session content should skip Layer 2 detect-secrets in relaxed mode (default)."""
-        from memory.security_scanner import ScanAction, SecurityScanner
+    def test_session_scanning_relaxed_runs_layer2(self, monkeypatch):
+        """TD-368: Session content should run Layer 2 even in relaxed mode.
 
-        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", True)
+        Only GitHub content (trusted source) skips Layer 2 in relaxed mode.
+        """
+        from memory.security_scanner import SecurityScanner
+
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
         scanner = SecurityScanner(enable_ner=False)
         # Relaxed mode is default — _is_strict_session_mode returns False
         monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: False)
         monkeypatch.setattr(scanner, "_is_session_scanning_off", lambda: False)
 
-        content = "Configure QDRANT_API_KEY and GITHUB_TOKEN in your environment"
-        result = scanner.scan(content, source_type="user_session")
+        result = scanner.scan("Safe content here", source_type="user_session")
 
-        # Layer 2 should be skipped in relaxed mode
-        assert 2 not in result.layers_executed
-        # Layer 1 should still run
-        assert 1 in result.layers_executed
-        # Content discussing env var names should not be blocked by L1
-        assert result.action != ScanAction.BLOCKED
+        # TD-368: Session content MUST run Layer 2 even in relaxed mode
+        assert 2 in result.layers_executed
 
     def test_session_scanning_strict_runs_layer2(self, monkeypatch):
         """Session content should run Layer 2 detect-secrets in strict mode."""
@@ -820,21 +863,21 @@ class TestSessionModeAwareness:
         # Clean up
         reset_config()
 
-    def test_scan_batch_respects_session_mode(self, monkeypatch):
-        """Batch scanning should respect session relaxed mode."""
+    def test_scan_batch_session_runs_layer2(self, monkeypatch):
+        """TD-368: Batch scanning should run Layer 2 for session content."""
         from memory.security_scanner import SecurityScanner
 
-        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", True)
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
         scanner = SecurityScanner(enable_ner=False)
         monkeypatch.setattr(scanner, "_is_strict_session_mode", lambda: False)
         monkeypatch.setattr(scanner, "_is_session_scanning_off", lambda: False)
 
         results = scanner.scan_batch(
-            ["Clean text about QDRANT_API_KEY config", "Another safe text"],
+            ["Clean text about config", "Another safe text"],
             source_type="user_session",
         )
 
         assert len(results) == 2
-        # Layer 2 should be skipped for both in relaxed session mode
+        # TD-368: Layer 2 MUST run for session content even in relaxed mode
         for r in results:
-            assert 2 not in r.layers_executed
+            assert 2 in r.layers_executed
