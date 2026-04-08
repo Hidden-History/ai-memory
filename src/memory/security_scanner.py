@@ -30,6 +30,32 @@ _spacy_available = None
 _detect_secrets_available = None
 _detect_secrets_scan_line = None
 _detect_secrets_default_settings = None
+_detect_secrets_transient_settings = None
+
+# Pattern-based detectors only — no entropy plugins (BP-151).
+# Entropy plugins (Base64/HexHighEntropyString) produce false positives
+# on natural language text. Layer 1 regex catches prefix-anchored secrets.
+_DETECT_SECRETS_SESSION_CONFIG = {
+    "plugins_used": [
+        {"name": "ArtifactoryDetector"},
+        {"name": "AWSKeyDetector"},
+        {"name": "AzureStorageKeyDetector"},
+        {"name": "BasicAuthDetector"},
+        {"name": "CloudantDetector"},
+        {"name": "GitHubTokenDetector"},
+        {"name": "IbmCloudIamDetector"},
+        {"name": "IbmCosHmacDetector"},
+        {"name": "JwtTokenDetector"},
+        {"name": "MailchimpDetector"},
+        {"name": "NpmDetector"},
+        {"name": "PrivateKeyDetector"},
+        {"name": "SlackDetector"},
+        {"name": "SoftlayerDetector"},
+        {"name": "SquareOAuthDetector"},
+        {"name": "StripeDetector"},
+        {"name": "TwilioKeyDetector"},
+    ],
+}
 
 
 class ScanAction(str, Enum):
@@ -306,7 +332,7 @@ def _scan_layer1_regex(content: str) -> tuple[list[ScanFinding], bool]:
 
 def _load_detect_secrets():
     """Lazy load detect-secrets (called on first Layer 2 scan)."""
-    global _detect_secrets_available, _detect_secrets_scan_line, _detect_secrets_default_settings
+    global _detect_secrets_available, _detect_secrets_scan_line, _detect_secrets_default_settings, _detect_secrets_transient_settings
 
     if _detect_secrets_available is False:
         return False
@@ -316,10 +342,11 @@ def _load_detect_secrets():
 
     try:
         from detect_secrets.core.scan import scan_line
-        from detect_secrets.settings import default_settings
+        from detect_secrets.settings import default_settings, transient_settings
 
         _detect_secrets_scan_line = scan_line
         _detect_secrets_default_settings = default_settings
+        _detect_secrets_transient_settings = transient_settings
         _detect_secrets_available = True
         return True
     except ImportError:
@@ -328,8 +355,15 @@ def _load_detect_secrets():
         return False
 
 
-def _scan_layer2_detect_secrets(content: str) -> tuple[list[ScanFinding], bool]:
+def _scan_layer2_detect_secrets(
+    content: str, source_type: str = ""
+) -> tuple[list[ScanFinding], bool]:
     """Layer 2: detect-secrets entropy scanning.
+
+    Args:
+        content: Text content to scan.
+        source_type: Origin of content (e.g., "user_session", "github_code_blob").
+                     For user_session, uses pattern-only config without entropy plugins.
 
     Returns:
         (findings, has_secrets) tuple
@@ -341,7 +375,12 @@ def _scan_layer2_detect_secrets(content: str) -> tuple[list[ScanFinding], bool]:
         return findings, has_secrets
 
     try:
-        with _detect_secrets_default_settings():
+        settings_ctx = (
+            _detect_secrets_transient_settings(_DETECT_SECRETS_SESSION_CONFIG)
+            if source_type == "user_session"
+            else _detect_secrets_default_settings()
+        )
+        with settings_ctx:
             for _line_number, line in enumerate(content.splitlines(), start=1):
                 for secret in _detect_secrets_scan_line(line):
                     # Map detect-secrets type to our FindingType
@@ -626,7 +665,9 @@ class SecurityScanner:
 
         # Layer 2: detect-secrets (skipped for trusted sources in relaxed mode)
         if not skip_layer2:
-            layer2_findings, has_secrets_l2 = _scan_layer2_detect_secrets(content)
+            layer2_findings, has_secrets_l2 = _scan_layer2_detect_secrets(
+                content, source_type=source_type
+            )
             all_findings.extend(layer2_findings)
             layers_executed.append(2)
 
@@ -787,7 +828,9 @@ class SecurityScanner:
 
             # Layer 2: detect-secrets (skipped for trusted sources in relaxed mode)
             if not skip_layer2:
-                l2_findings, has_secrets_l2 = _scan_layer2_detect_secrets(text)
+                l2_findings, has_secrets_l2 = _scan_layer2_detect_secrets(
+                    text, source_type=source_type
+                )
                 all_findings.extend(l2_findings)
                 layers_executed.append(2)
 
