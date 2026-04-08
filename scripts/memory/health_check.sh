@@ -61,7 +61,7 @@ fi
 
 # Check 2: Qdrant container
 echo -n "Qdrant container... "
-if docker compose -f ~/.ai-memory/docker/docker-compose.yml ps qdrant 2>/dev/null | grep -q "running"; then
+if docker compose -f ~/.ai-memory/docker/docker-compose.yml ps qdrant 2>/dev/null | grep -q "Up"; then
     echo -e "${GREEN}✓ Running${NC}"
 else
     echo -e "${RED}✗ Not running${NC}"
@@ -99,7 +99,7 @@ fi
 
 # Check 5: Embedding service container
 echo -n "Embedding service... "
-if docker compose -f ~/.ai-memory/docker/docker-compose.yml ps embedding 2>/dev/null | grep -q "running"; then
+if docker compose -f ~/.ai-memory/docker/docker-compose.yml ps embedding 2>/dev/null | grep -q "Up"; then
     echo -e "${GREEN}✓ Running${NC}"
 else
     echo -e "${RED}✗ Not running${NC}"
