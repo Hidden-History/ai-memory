@@ -8,7 +8,7 @@ httpx==0.28.1
 
 # Required by memory module import chain (memory/__init__.py)
 # BUG-091: Same class of bug as github-sync missing deps
-anthropic==0.86.0
+anthropic==0.87.0
 structlog>=24.0.0,<26.0.0
 pydantic==2.12.5
 pydantic-settings==2.13.1
