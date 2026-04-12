@@ -18,7 +18,7 @@ structlog>=24.0.0,<26.0.0
 prometheus-client==0.24.1
 
 # Anthropic SDK for conversation capture (TECH-DEBT-035)
-anthropic==0.86.0
+anthropic==0.89.0
 
 # Retry logic with exponential backoff (DEC-029, TECH-DEBT-041)
 tenacity==9.1.4

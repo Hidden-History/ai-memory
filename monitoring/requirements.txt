@@ -2,14 +2,14 @@
 # Last audited: 2026-04-01
 # All versions pinned per ACT-003
 
-fastapi==0.135.2
-uvicorn==0.42.0
+fastapi==0.135.3
+uvicorn==0.43.0
 qdrant-client==1.17.1
 httpx==0.28.1
 pydantic==2.12.5
 pydantic-settings==2.13.1
 prometheus-client==0.24.1
-anthropic==0.86.0
+anthropic==0.89.0
 tenacity==9.1.4
 tiktoken>=0.5.0,<1.0.0
 structlog>=24.0.0,<26.0.0

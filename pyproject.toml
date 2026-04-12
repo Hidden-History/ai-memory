@@ -40,7 +40,7 @@ dependencies = [
     # Auth (for Prometheus bcrypt hash generation)
     "bcrypt>=4.0.0,<6.0.0",
     # Anthropic SDK for conversation capture
-    "anthropic>=0.61.0,<1.0.0",
+    "anthropic>=0.89.0,<1.0.0",
     # Retry logic with exponential backoff
     "tenacity>=8.0.0,<10.0.0",
     # AST-based code chunking
@@ -69,7 +69,7 @@ observability = [
 ]
 dev = [
     # Testing
-    "pytest>=9.0.0,<10.0.0",
+    "pytest>=9.0.3,<10.0.0",
     "pytest-asyncio>=1.0.0,<2.0.0",
     "pytest-cov>=7.0.0,<8.0.0",
     "pytest-mock>=3.15.0,<4.0.0",
@@ -77,21 +77,21 @@ dev = [
     "pytest-randomly>=3.15.0,<4.0.0",
     "pytest-rerunfailures>=14.0.0,<17.0.0",
     "hypothesis>=6.0.0,<7.0.0",
-    "requests>=2.32.0,<3.0.0",
+    "requests>=2.33.1,<3.0.0",
     "psutil>=7.0.0,<8.0.0",
     # E2E Testing
     "pytest-playwright>=0.7.0,<1.0.0",
     "playwright>=1.50.0,<2.0.0",
     # Code Quality
     "black==26.3.1",
-    "ruff>=0.14.0,<1.0.0",
+    "ruff>=0.15.9,<1.0.0",
     "isort>=5.13.0,<9.0.0",
-    "mypy>=1.19.0,<2.0.0",
+    "mypy>=1.20.0,<2.0.0",
     # Security Scanning
     "bandit[toml]>=1.7.0,<2.0.0",
     "detect-secrets>=1.4.0",
     # Structured logging
-    "python-json-logger>=4.0.0,<5.0.0",
+    "python-json-logger>=4.1.0,<5.0.0",
     # YAML processing with format preservation
     "ruamel.yaml>=0.19.0,<1.0.0",
     # YAML parsing (required by tests/unit/test_sops_encryption.py)
@@ -99,7 +99,7 @@ dev = [
     # Include observability deps so CI has langfuse for tests
     "langfuse>=4.0.0,<4.1.0",
     # Streamlit dashboard (CI validation of docker/streamlit/app.py)
-    "streamlit==1.54.0",
+    "streamlit==1.56.0",
 ]
 
 [project.urls]
