@@ -24,7 +24,7 @@ langfuse>=4.0.0,<4.1.0
 # Required by memory module import chain (memory/__init__.py)
 # BUG-086: memory/__init__.py unconditionally imports async_sdk_wrapper (anthropic)
 # and logging_config (structlog). Any container importing memory.* needs these.
-anthropic==0.86.0
+anthropic==0.87.0
 structlog>=24.0.0,<26.0.0
 
 # Token counting (memory.chunking.truncation import chain)
