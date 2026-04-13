@@ -3,7 +3,7 @@
 # All versions pinned per ACT-003
 
 fastapi==0.135.3
-uvicorn==0.43.0
+uvicorn==0.44.0
 qdrant-client==1.17.1
 httpx==0.28.1
 pydantic==2.12.5
