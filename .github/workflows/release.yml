@@ -35,7 +35,7 @@ jobs:
           toTag: ${{ github.event.release.tag_name }}
 
       - name: Update release notes
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -71,7 +71,7 @@ jobs:
     needs: generate-release-notes
     steps:
       - name: Create announcement comment
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -140,7 +140,7 @@ jobs:
 
       - name: Comment validation result
         if: always()
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |

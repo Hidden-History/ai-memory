@@ -65,7 +65,7 @@ jobs:
 
       - name: Post unauthorized message
         if: steps.check.outputs.authorized == 'false'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -259,7 +259,7 @@ jobs:
 
       - name: Post AI response
         if: steps.ollama.outputs.review_ready == 'true'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -274,7 +274,7 @@ jobs:
 
       - name: Post error message
         if: steps.ollama.outputs.review_ready != 'true'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -360,7 +360,7 @@ jobs:
 
       - name: Apply label
         if: steps.validate-key.outputs.has_key == 'true' && steps.classify.outputs.label != ''
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -567,7 +567,7 @@ jobs:
 
       - name: Post combined analysis comment
         if: steps.validate-key.outputs.has_key == 'true' && (steps.analysis.outcome == 'success' || steps.classify.outcome == 'success')
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -622,7 +622,7 @@ jobs:
 
       - name: Post triage unavailable comment
         if: steps.validate-key.outputs.has_key == 'true' && steps.analysis.outcome != 'success' && steps.classify.outcome != 'success'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -635,7 +635,7 @@ jobs:
 
       - name: Apply consensus label
         if: steps.classify.outputs.consensus_label != ''
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
