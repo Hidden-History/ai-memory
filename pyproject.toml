@@ -65,7 +65,7 @@ dependencies = [
 [project.optional-dependencies]
 observability = [
     # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
-    "langfuse>=4.0.0,<4.1.0",
+    "langfuse>=4.0.6,<4.1.0",
 ]
 dev = [
     # Testing
@@ -97,7 +97,7 @@ dev = [
     # YAML parsing (required by tests/unit/test_sops_encryption.py)
     "PyYAML>=6.0,<7.0",
     # Include observability deps so CI has langfuse for tests
-    "langfuse>=4.0.0,<4.1.0",
+    "langfuse>=4.0.6,<4.1.0",
     # Streamlit dashboard (CI validation of docker/streamlit/app.py)
     "streamlit==1.56.0",
 ]
