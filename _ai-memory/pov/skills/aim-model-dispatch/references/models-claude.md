@@ -96,3 +96,11 @@ claude-haiku-4-5-20251001
 When dispatching via model-dispatch without specifying a model:
 - **Claude native:** Uses your default Claude settings
 - **OpenRouter:** Defaults to `claude-sonnet-4-6` for cost/performance balance
+
+---
+
+## All Models (Quick Reference)
+
+`claude-opus-4-6`
+`claude-sonnet-4-6`
+`claude-haiku-4-5-20251001`

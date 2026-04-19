@@ -5,6 +5,8 @@ description: tmux agent lifecycle management for non-Claude providers
 
 # Agent Lifecycle -- Non-Claude Provider Agent Management
 
+> **INVOCATION RULE**: Parzival MUST invoke this skill via the Skill tool. NEVER read this file and execute steps manually -- that bypasses spawn, monitoring, and correction-loop tracking. Reading is for audit and authoring; invocation is the only sanctioned execution path.
+
 **Purpose**: Manage tmux-spawned agents for non-Claude providers. Invokes /aim-model-dispatch for tmux spawn, sends instructions via tmux send-keys, monitors via tmux capture-pane, and shuts down via tmux kill-pane. Called by /aim-bmad-dispatch and /aim-agent-dispatch when provider is not Claude.
 
 ---
@@ -28,9 +30,24 @@ Max 3 correction loops -- escalate to user if unresolved.
 
 ---
 
+## Dispatch Plan Input (v1)
+
+This skill receives a structured Dispatch Plan from `aim-bmad-dispatch` or
+`aim-agent-dispatch`. Authoritative schema is in
+`aim-parzival-team-builder/SKILL.md` under `Dispatch Plan Schema`.
+
+**First action on invocation**: Re-emit the plan verbatim. Pass it to
+`aim-model-dispatch` in Step 1 unchanged — model IDs, file lists, and
+`agent_id` MUST survive the hop.
+
+---
+
 ## Step 1: Spawn Agent
 
-Invoke /aim-model-dispatch with the dispatch plan. Model-dispatch routes to the correct tmux workflow for the provider and spawns the agent.
+Invoke /aim-model-dispatch with the Dispatch Plan (pass the object verbatim).
+Model-dispatch runs the pre-spawn validation gates (CWD sentinel, model
+catalog check, wrapper availability), routes to the correct tmux workflow for
+the provider, and spawns the agent.
 
 For BMAD agents, the tmux bmad-dispatch workflow handles two-phase activation (persona command → menu detection → task instruction).
 

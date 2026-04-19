@@ -5,7 +5,38 @@ description: Select the appropriate LLM model for each agent based on task compl
 
 # Model Dispatch -- Model Selection and Provider Routing
 
+> **INVOCATION RULE**: Parzival MUST invoke this skill via the Skill tool. NEVER read this file and execute steps manually -- that bypasses pre-spawn model validation, CWD sentinel checks, and wrapper resolution. Reading is for audit and authoring; invocation is the only sanctioned execution path.
+
 **Purpose**: Select the appropriate LLM model and route to the correct provider workflow. Called by /aim-bmad-dispatch, /aim-agent-dispatch, and /aim-agent-lifecycle.
+
+---
+
+## Dispatch Plan Input (v1)
+
+This skill receives a structured Dispatch Plan from the upstream dispatch
+skill. Authoritative schema is defined in `aim-parzival-team-builder/SKILL.md`
+under `Dispatch Plan Schema`.
+
+**First action on invocation**: Re-emit the received plan verbatim. If a key
+is missing or the `model` field is empty when the plan requires a concrete
+model (non-Claude providers always require a concrete `model`), STOP and
+return a plan-validation error to the caller.
+
+### Pre-Spawn Validation Gates (run in order)
+
+Gates 2 (model catalog check) and 3 (wrapper availability) apply to non-Claude provider paths only. Claude-native does not require catalog validation (the Anthropic API rejects invalid model names) or wrapper check (uses Agent tool directly via Claude Code).
+
+1. **CWD Sentinel** — Verify workspace root by co-presence of `_ai-memory/`,
+   `_bmad/`, and `oversight/`. See workflow files under `workflows/` for the
+   bash implementation. `workspace_root` from the Dispatch Plan is the
+   expected path.
+2. **Model catalog check** — For `provider: ollama`, grep
+   `references/models-ollama.md` for the exact `model` string. For `provider:
+   openrouter`, grep `references/models-openrouter.md`. Fail-fast on miss with
+   the catalog path in the error message.
+3. **Wrapper availability** — Verify the backend wrapper exists on PATH.
+
+Gates 1–3 run before tmux pane creation; Gate 1 also runs before Agent spawn for Claude-native. A failed gate aborts the dispatch without consuming a pane slot or teammate slot.
 
 ---
 

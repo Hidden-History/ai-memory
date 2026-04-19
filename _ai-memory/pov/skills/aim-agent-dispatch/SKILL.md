@@ -5,6 +5,8 @@ description: Generic agent instruction preparation and activation
 
 # Agent Dispatch -- Generic Agent Activation
 
+> **INVOCATION RULE**: Parzival MUST invoke this skill via the Skill tool. NEVER read this file and execute steps manually -- that bypasses validation, schema enforcement, and pipeline routing. Reading is for audit and authoring; invocation is the only sanctioned execution path.
+
 **Purpose**: Prepare instructions for generic agents (no BMAD persona). For BMAD agents, use /aim-bmad-dispatch instead.
 
 ---
@@ -13,6 +15,29 @@ description: Generic agent instruction preparation and activation
 
 - **EC-02 (moved from Execution phase)**: MUST use the instruction template for every agent dispatch. Story files are planning artifacts -- implementation instructions translate requirements into precise, actionable specifications.
 - **GC-11 L3**: ALWAYS use the instruction template for every agent dispatch. Every requirement must cite a project file. Every DONE WHEN criterion must be objectively measurable.
+
+---
+
+## Dispatch Plan Input (v1)
+
+This skill is invoked by `aim-parzival-team-builder` with a structured
+Dispatch Plan object. See the `Dispatch Plan Schema` section in
+`aim-parzival-team-builder/SKILL.md` for the authoritative definition.
+
+**First action on invocation**: Re-emit the received plan verbatim — no
+paraphrase, no field renames, no model-ID shortening. If any key is missing
+or malformed, STOP and request a corrected plan from the caller.
+
+**Before routing (Step 4)**: Copy the plan into the downstream invocation.
+Fields used by this skill:
+- `provider` — routes to Claude path vs. non-Claude path
+- `agent` + `agent_id` — sets `AI_MEMORY_AGENT_ID`
+- `model` — passed through verbatim
+- `task_summary` + `files` + `complexity` — feed the instruction template
+- `workspace_root` — verified downstream by the CWD sentinel
+- `reviewer_plan` — informs whether a follow-up dispatch will be required
+
+**Never re-derive fields.** Exact model ID and file list propagate unchanged.
 
 ---
 
@@ -59,17 +84,20 @@ IF ANY CHECK FAILS: fix the instruction before proceeding.
 
 ### 4. Route Based on Provider
 
-Check provider from the dispatch plan:
+Check `provider` field from the Dispatch Plan:
 
-**Claude provider:**
+**Claude provider (`provider: claude`):**
 → /aim-model-dispatch (MANDATORY next step)
-Pass: instruction, AI_MEMORY_AGENT_ID, model from dispatch plan.
+Pass the full Dispatch Plan object plus the assembled instruction.
 
 **Non-Claude provider:**
 → /aim-agent-lifecycle (MANDATORY next step)
-Pass: instruction, AI_MEMORY_AGENT_ID, provider, model from dispatch plan.
+Pass the full Dispatch Plan object plus the assembled instruction. Lifecycle
+then invokes model-dispatch at its Step 1.
 
 MUST spawn fresh agent for every task — never reuse across roles or stories.
+MUST pass the Dispatch Plan verbatim — do NOT paraphrase model IDs or collapse
+file lists.
 
 ### 5. Dispatch Complete
 

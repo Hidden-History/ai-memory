@@ -41,6 +41,7 @@ Balanced performance and speed. Good default choice for most tasks.
 
 | Model | Notes |
 |-------|-------|
+| `glm-5.1:cloud` | GLM-5.1, refreshed general-purpose model |
 | `glm-5:cloud` | **Default** — GLM-5, reliable all-rounder |
 | `glm-4.7:cloud` | GLM-4.7, previous generation |
 | `minimax-m2.5:cloud` | MiniMax M2.5, good general performance |
@@ -109,6 +110,7 @@ qwen3-coder:480b-cloud
 qwen3.5:397b-cloud
 mistral-large-3:675b-cloud
 deepseek-v3.2:cloud
+glm-5.1:cloud
 glm-5:cloud
 glm-4.7:cloud
 minimax-m2.5:cloud

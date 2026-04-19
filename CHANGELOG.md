@@ -5,6 +5,18 @@ All notable changes to AI Memory Module will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Parzival orchestration pipeline — ceremony reduction and reliability fixes** (TD-443): Reduced dispatch friction for simple cases while strengthening reliability for edge cases across the 5-skill pipeline (`aim-parzival-team-builder`, `aim-bmad-dispatch`, `aim-agent-dispatch`, `aim-model-dispatch`, `aim-agent-lifecycle`).
+  - **Fast Path for single-agent dispatches** (R1): `aim-parzival-team-builder/SKILL.md` adds explicit `Fast Path: Single Agent` section with trigger criteria (single agent ✕ no parallelization ✕ clear file ownership ✕ single review cycle ✕ no cross-cutting concerns) and a compact YAML output form — no full team-design conversation for dispatches that do not need one.
+  - **Structured Dispatch Plan schema v1** (R2): Authoritative schema defined in `aim-parzival-team-builder/SKILL.md` (`Dispatch Plan Schema` section). `aim-bmad-dispatch`, `aim-agent-dispatch`, `aim-model-dispatch`, `aim-agent-lifecycle` each accept and re-emit the plan verbatim. Prevents prose paraphrase from corrupting model IDs (e.g., `glm-5.1:cloud` ⇒ `glm-5`) or file lists.
+  - **Pre-spawn model validation** (R3): Fail-fast gate added to `tmux-dispatch/steps/step-02-launch-pane.md` and `bmad-dispatch/steps/step-02-launch-and-activate.md` — `model` is grepped against the backend's catalog (`models-ollama.md`, `models-openrouter.md`) BEFORE any tmux pane is created. Invalid model names no longer consume pane slots. Claude-native dispatches are not gated here — the Anthropic API rejects invalid model names at request time.
+  - **Workspace-root CWD sentinel** (R4): `test -d _ai-memory && test -d _bmad && test -d oversight` replaces the single-marker `ls _ai-memory/` check in `claude-native/workflow.md`, `tmux-dispatch/steps/step-02`, and `bmad-dispatch/steps/step-02`. The co-presence requirement distinguishes workspace root from a nested source repo clone (e.g., `ai-memory/`) that would previously have passed a false positive.
+  - **Model catalog refresh** (R5): `glm-5.1:cloud` added to `aim-model-dispatch/references/models-ollama.md` (General Purpose Medium table + All Models quick-reference list). `providers.md` `defaultModel` remains `glm-5:cloud` — promotion to `glm-5.1:cloud` requires a separate `providers.json` sync decision and is NOT included in this release.
+- **Orchestration skill "Invoke don't read" enforcement** (TD-396 bundle): All 5 orchestration skill SKILL.md files now carry a prominent invocation rule at the top — Parzival MUST invoke these skills via the Skill tool, never read-and-paraphrase. GC-21 wording in `_ai-memory/pov/constraints/global/constraints.md` updated to describe the provider-conditional pipeline — Claude: team-builder → dispatch → model-dispatch. Non-Claude: team-builder → dispatch → lifecycle → model-dispatch.
+
 ## [2.3.1] - 2026-04-09
 
 Endpoint alignment and documentation accuracy patch.

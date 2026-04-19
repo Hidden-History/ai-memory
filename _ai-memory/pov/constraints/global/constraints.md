@@ -66,7 +66,7 @@ Run this checklist after every 10 messages to prevent constraint drift:
 - GC-18: Does any oversight document I am updating exceed 500 lines or 50 items? If yes, have I applied sharding?
 - GC-19: Have I spawned any agent without AI_MEMORY_AGENT_ID or outside tmux?
 - GC-20: Have I sent instruction in the same message as BMAD activation command?
-- GC-21: Have I dispatched any agent without following the full orchestration pipeline (team-builder → dispatch skill → model-dispatch tmux spawn with AI_MEMORY_AGENT_ID → aim-agent-lifecycle MANDATORY)?
+- GC-21: Have I dispatched any agent without following the full provider-conditional orchestration pipeline? Claude: team-builder → dispatch (bmad or generic) → model-dispatch. Non-Claude: team-builder → dispatch (bmad or generic) → agent-lifecycle → model-dispatch. Each skill invoked via the Skill tool, never read-and-paraphrased.
 
 ### Active During Agent Work (Layer 3)
 - GC-09: Have I reviewed all agent output before presenting?
@@ -98,4 +98,4 @@ IF ANY CHECK FAILS: Course-correct IMMEDIATELY before continuing.
 | GC-18: Oversized document without sharding | MEDIUM | Apply sharding strategy, create index file |
 | GC-19: Spawned agent without AI_MEMORY_AGENT_ID or outside tmux | HIGH | Stop, recreate via tmux with AI_MEMORY_AGENT_ID |
 | GC-20: Instruction in activation message | HIGH | Re-send: activation first, wait for menu, then instruct separately |
-| GC-21: Skipped orchestration pipeline step | CRITICAL | Stop dispatch, restart from the missed step. Full pipeline: aim-parzival-team-builder → aim-bmad-dispatch/aim-agent-dispatch → aim-agent-lifecycle (MUST load BEFORE spawn) → aim-model-dispatch (spawn called from lifecycle Step 4). NEVER spawn an agent without lifecycle loaded. Additional rules: fresh agent per task (never reuse across roles or stories), one story per SM (shutdown after each), /bmad-bmm-code-review for reviews (/bmad-agent-bmm-dev for implementation only), review loop uses fresh reviewer agents |
+| GC-21: Skipped orchestration pipeline step | CRITICAL | Stop dispatch, restart from the missed step. Provider-conditional pipeline: **Claude** — aim-parzival-team-builder → aim-bmad-dispatch or aim-agent-dispatch → aim-model-dispatch (claude-native workflow spawns teammate). **Non-Claude** — aim-parzival-team-builder → aim-bmad-dispatch or aim-agent-dispatch → aim-agent-lifecycle (MUST load BEFORE spawn) → aim-model-dispatch (tmux spawn called from lifecycle Step 1). Every skill in the chain MUST be invoked via the Skill tool — NEVER read the skill file and execute steps manually. Additional rules: fresh agent per task (never reuse across roles or stories), one story per SM (shutdown after each), /bmad-bmm-code-review for reviews (/bmad-agent-bmm-dev for implementation only), review loop uses fresh reviewer agents |

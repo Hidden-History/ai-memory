@@ -6,38 +6,126 @@ context: fork
 
 # Team Builder
 
+> **INVOCATION RULE**: Parzival MUST invoke this skill via the Skill tool. NEVER read this file and execute steps manually -- that bypasses validation, schema enforcement, and pipeline routing. Reading is for audit and authoring; invocation is the only sanctioned execution path.
+
 **Purpose**: Analyze work to be parallelized, design the appropriate team structure (single agent, 2-tier, or 3-tier), and produce a team design document ready for execution via the agent-dispatch cycle.
 
 **Note**: This skill is the entry point for team design. Parzival designs teams here, then executes them via the agent-dispatch workflow. Parzival activates agents himself -- the user does not run agents.
 
 ---
 
-## Single Agent Fast Path
+## Fast Path: Single Agent
 
-When the work is a single task that does not benefit from parallelization:
+The fast path bypasses the full 6-step design process for dispatches that a
+single agent can execute without coordination. It still produces a structured
+dispatch plan and still routes through the full pipeline — ceremony is trimmed,
+the contract is not.
+
+### Trigger Criteria (ALL must hold)
+
+- **Single agent**: exactly one executor, no lead/worker split
+- **No parallelization**: no peer agents, no file-ownership partitioning
+- **Clear file ownership**: every file the agent will touch is already known at
+  dispatch time (no "will discover what to modify")
+- **Single review cycle**: at most one review CYCLE (the cycle may be dual Sonnet+Opus via `reviewer_plan.mode: dual`)
+- **No cross-cutting concerns**: the task does not force interface contracts
+  with other in-flight work
+
+If any criterion fails, fall through to the full Team Design Process.
+
+### Fast Path Execution
+
 1. Collect provider and model preferences (Step 1b)
 2. Assign agent role and AI_MEMORY_AGENT_ID (Step 2.3)
 3. Prepare the context block (Step 4 format)
-4. Present compact output for approval
-5. Route to /aim-bmad-dispatch or /aim-agent-dispatch
+4. Emit the compact Dispatch Plan (see `Dispatch Plan Schema` below) for approval
+5. On approval, route to `/aim-bmad-dispatch` or `/aim-agent-dispatch` — the
+   plan object is passed verbatim to the downstream skill
 
-**Criteria for single agent path:**
-- One task, one agent, one review cycle
-- No file ownership conflicts (only one agent working)
-- No parallel coordination needed
+**No activation greeting, no menu display, no multi-step analysis narration.**
+The fast path should read like a form, not a conversation.
 
-**Compact output**: When the fast path is selected, skip ceremony. Produce only:
+### Fast Path Compact Output Example
+
+```yaml
+# Dispatch Plan v1
+provider: claude
+model: claude-sonnet-4-6
+agent: dev
+agent_id: dev-auth
+task_summary: "Implement Story 4.2 password-reset endpoint"
+files:
+  - /abs/path/src/auth/reset.py
+  - /abs/path/tests/test_reset.py
+workspace_root: /mnt/e/projects/dev-ai-memory
+complexity: moderate
+reviewer_plan:
+  mode: single
+  models: [claude-sonnet-4-6]
+route: aim-bmad-dispatch
+# Approve?
 ```
-Fast Path: Single agent
-Provider: [claude | openrouter | ollama | ...]
-Agent: [role] (AI_MEMORY_AGENT_ID: [id], Model: [model tier])
-Mode: [execution | planning]
-Task: [one-line description]
-Files: [list]
-Route: [aim-bmad-dispatch or aim-agent-dispatch]
-Approve?
+
+---
+
+## Dispatch Plan Schema (v1)
+
+Every team-builder invocation — fast path, preset, or full design — emits a
+**Dispatch Plan** object. Downstream skills (`aim-bmad-dispatch`,
+`aim-agent-dispatch`, `aim-model-dispatch`) MUST accept this object as
+structured data and re-emit it verbatim to the next skill in the chain.
+
+**Goal**: model IDs like `glm-5.1:cloud` must survive the pipeline without
+paraphrase-corruption (no `glm-5`, no "use the latest glm"). File lists must
+not collapse to prose.
+
+### Schema
+
+```yaml
+# Dispatch Plan v1
+provider: claude | openrouter | ollama | gemini | deepseek | groq | cerebras | mistral | openai | vertex-ai | siliconflow
+model: <exact-model-id-string>       # verbatim, e.g., "glm-5.1:cloud", "claude-sonnet-4-6"
+agent: <role-name>                   # dev | sm | pm | architect | analyst | ux-designer | qa | tech-writer | code-reviewer | <generic>
+agent_id: <AI_MEMORY_AGENT_ID>       # e.g., "dev-auth", "review-opus", "sm-sprint-2"
+task_summary: <one-line>
+files:
+  - <absolute-path-1>
+  - <absolute-path-2>
+workspace_root: <absolute-path>      # MUST contain _ai-memory/ + _bmad/ + oversight/
+complexity: straightforward | moderate | significant | complex
+reviewer_plan:
+  mode: none | single | dual
+  models: [<reviewer-model-1>, <reviewer-model-2>]  # empty list when mode=none
+route: aim-bmad-dispatch | aim-agent-dispatch      # which dispatch skill to invoke next
 ```
-Do not produce a full activation greeting, menu display, or multi-step analysis for a single-task dispatch. The fast path should be fast.
+
+**Example: no review cycle** (`reviewer_plan.mode: none`)
+
+```yaml
+reviewer_plan:
+  mode: none
+  models: []
+```
+
+### Round-Trip Rules
+
+- **All keys always present.** Emit `null` or empty list for not-applicable
+  fields rather than omitting the key — keeps schema stable.
+- **No paraphrasing.** When passing the plan to the next skill, copy the object
+  as-is. Never reformat model IDs, never summarize file lists to "the auth
+  files", never drop `agent_id`.
+- **Validation gate.** The downstream skill MUST re-emit the plan unchanged in
+  its first action. If a field is missing or malformed, STOP and request a
+  corrected plan from the caller.
+- **Source of truth.** `workspace_root` is verified by the CWD sentinel in
+  `aim-model-dispatch`. The plan is the record; the sentinel is the check.
+
+### When Full Design Is Required
+
+The full 6-step Team Design Process emits one Dispatch Plan per team member
+plus a Team Document describing the overall structure. The fast path emits a
+single plan. Presets emit a preset-specific fan-out of plans. In all cases the
+schema above applies per-agent.
 
 ---
 
@@ -210,9 +298,13 @@ Before executing, verify:
 
 ## Output
 
-The team design document (Steps 1-6) is the deliverable. It feeds into the agent-dispatch cycle.
+The team design document (Steps 1-6) is the deliverable. It feeds into the
+agent-dispatch cycle via one or more Dispatch Plan objects (see `Dispatch Plan
+Schema`).
 
-**Do NOT assemble a copy-paste team prompt in the output.** The design document contains the context blocks (Step 4) and the templates are reference formats for dispatch. Prompt assembly happens at dispatch time — not here.
+**Do NOT assemble a copy-paste team prompt in the output.** The design document
+contains the context blocks (Step 4) and the templates are reference formats
+for dispatch. Prompt assembly happens at dispatch time — not here.
 
 **Templates:**
 - [`templates/team-prompt-2tier.template.md`](templates/team-prompt-2tier.template.md) — 2-tier team prompt format (lead + workers)
@@ -220,8 +312,10 @@ The team design document (Steps 1-6) is the deliverable. It feeds into the agent
 
 Parzival activates all agents himself — the user does not run agents.
 
-**MANDATORY NEXT STEP**: After user approves the dispatch plan:
-- BMAD agents → /aim-bmad-dispatch
-- Generic agents → /aim-agent-dispatch
+**MANDATORY NEXT STEP**: After user approves the dispatch plan(s):
+- BMAD agents (plan `route: aim-bmad-dispatch`) → invoke `/aim-bmad-dispatch`
+- Generic agents (plan `route: aim-agent-dispatch`) → invoke `/aim-agent-dispatch`
 
-Pass the full dispatch plan (provider, model, agent role, task, files, mode) to the next skill.
+Pass the full Dispatch Plan object verbatim — including exact model ID, full
+file list, and `agent_id`. Downstream skills will re-emit the plan for
+round-trip verification.
