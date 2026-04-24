@@ -12,44 +12,19 @@ nextStepFile: './step-03-analyst-diagnosis.md'
 
 Not everything that arrives as an "issue" is a maintenance fix. Classify to prevent Maintenance from becoming unplanned development. New features route to Planning.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on classification decision — maintenance fix or new feature
-- 🚫 FORBIDDEN to treat new features as maintenance fixes
-- 💬 Approach: Apply decision tree honestly, document reasoning
-- 📋 New features route to WF-PLANNING, not maintenance queue
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Apply classification decision tree against triage summary and PRD.md
-- 💾 Record classification with reasoning before proceeding
-- 📖 Load next step only if classified as maintenance fix
-- 🚫 FORBIDDEN to proceed with maintenance steps if issue is a new feature
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Triage summary from Step 1, PRD.md
 - Focus: Classification decision — maintenance fix or new feature routing
 - Limits: Classification determines routing only. Be honest about fix vs feature.
 - Dependencies: Triage summary from Step 1
+
+- Focus on classification decision — maintenance fix or new feature
+**Behavioral Constraints:**
+- FORBIDDEN to treat new features as maintenance fixes
+- Approach: Apply decision tree honestly, document reasoning
+- New features route to WF-PLANNING, not maintenance queue
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -98,22 +73,3 @@ Record the classification with reasoning. Proceed to diagnosis or fix.
 
 If classified as new feature: route to WF-PLANNING and stop this chain.
 If classified as maintenance fix: load and read fully `{nextStepFile}`
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Decision tree applied honestly
-- New features correctly identified and routed
-- Maintenance scope stays tight
-- Classification reasoning documented
-
-### ❌ SYSTEM FAILURE:
-
-- Treating new features as maintenance fixes
-- Expanding maintenance scope without user approval
-- Not routing new features to Planning
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

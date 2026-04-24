@@ -10,32 +10,28 @@ firstStep: './steps-c/step-01-prepare-instruction.md'
 
 **Layered Execution:** This cycle is the core execution mechanism. It is invoked by phase workflows and session commands. For team design (multi-agent parallel work), use the aim-parzival-team-builder skill first, which produces context blocks that feed into this cycle.
 
-**MANDATORY Orchestration Pipeline (GC-21) -- every dispatch MUST follow this sequence:**
-1. **aim-parzival-team-builder** → design team structure or fast path for single agent [ALWAYS-MANDATORY-1]
-2. **aim-bmad-dispatch** OR **aim-agent-dispatch** → select agent, prepare instruction [ALWAYS-MANDATORY-2]
-3. **aim-model-dispatch** → select model + tmux spawn with AI_MEMORY_AGENT_ID [ALWAYS-MANDATORY-3]
-4. **aim-agent-lifecycle** → monitor, review, accept/loop, shutdown, summary [ALWAYS-MANDATORY-4]
+**MANDATORY Orchestration Pipeline (GC-21) -- follow the path that matches your provider:**
 
-Skipping any step is a GC-21 CRITICAL violation. These are not optional consultations.
-aim-agent-lifecycle is the most commonly skipped — it is MANDATORY for every dispatch.
+**Claude-native path:**
+1. **aim-parzival-team-builder** → design team structure or fast path for single agent [MANDATORY]
+2. **aim-agent-dispatch** → select agent, prepare instruction (handles both BMAD and generic) [MANDATORY]
+3. **aim-model-dispatch** → select model + spawn via TeamCreate + Agent tool [MANDATORY]
+4. Claude-native framework handles lifecycle — **aim-agent-lifecycle is NOT used on this path**
+
+**Non-Claude (tmux) path:**
+1. **aim-parzival-team-builder** → design team structure or fast path for single agent [MANDATORY]
+2. **aim-agent-dispatch** → select agent, prepare instruction (handles both BMAD and generic) [MANDATORY]
+3. **aim-agent-lifecycle** → MUST load before spawn — mandatory for tmux path only [MANDATORY]
+4. **aim-model-dispatch** → select model + tmux spawn with AI_MEMORY_AGENT_ID [MANDATORY]
+
+Skipping any step on the active path is a GC-21 CRITICAL violation. These are not optional consultations.
+**aim-agent-lifecycle is tmux-only — do NOT load it for Claude-native dispatches.**
 
 ---
 
 ## WORKFLOW ARCHITECTURE
 
-This uses **step-file architecture** for disciplined execution:
-
-### Step Processing Rules
-1. **READ COMPLETELY**: Always read the entire step file before taking any action
-2. **FOLLOW SEQUENCE**: Execute numbered sections in order
-3. **WAIT FOR INPUT**: Halt at decision points and wait for user direction
-4. **LOAD NEXT**: When directed, load and execute the next step file
-
-### Critical Rules
-- NEVER load multiple step files simultaneously
-- ALWAYS read entire step file before execution
-- NEVER skip steps unless explicitly optional
-- ALWAYS follow exact instructions in step files
+See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md) for Step Processing Rules and Critical Rules.
 
 ### Common Dispatch Errors
 
@@ -43,11 +39,14 @@ This uses **step-file architecture** for disciplined execution:
 |---|---|
 | Sending vague instruction | Always complete the full instruction template before dispatching |
 | Combining multiple tasks in one instruction | One task per instruction -- always |
-| Activating wrong agent | Consult the aim-bmad-dispatch skill for agent role selection |
+| Activating wrong agent | Consult the aim-agent-dispatch skill for agent role selection (BMAD routing within) |
 | Accepting partial output | Review all DONE WHEN criteria before accepting |
 | Passing raw agent output to user | Always prepare summary -- never copy-paste agent output |
 | Running agents without project file verification | Complete instruction checklist before every dispatch |
 | Starting new task before prior one is fully accepted | One active task per agent at a time |
+| Pre-reading the dispatched agent's skill or workflow files | FORBIDDEN — provide target + minimal context; the agent's skill defines requirements and approach |
+| Sending full instruction template to a BMAD skill-driven agent | Use lightweight form for skill-driven agents — detailed requirements and standards are the skill's job |
+| Asking BMAD agent to "state your planned approach" | First SendMessage asks "what do you recommend and why?" — let the skill drive the approach, not Parzival's prescription |
 
 ---
 

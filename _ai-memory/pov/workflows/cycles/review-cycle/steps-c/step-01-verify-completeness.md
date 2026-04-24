@@ -2,7 +2,7 @@
 name: 'step-01-verify-completeness'
 description: 'Verify that the implementation output is complete and on-spec before triggering any code review'
 nextStepFile: './step-02-trigger-code-review.md'
-incompletenessTemplate: '../templates/incompleteness-return.md'
+incompletenessTemplate: '{workflows_path}/cycles/review-cycle/templates/incompleteness-return.md'
 ---
 
 # Step 1: Verify Implementation Completeness
@@ -13,44 +13,19 @@ incompletenessTemplate: '../templates/incompleteness-return.md'
 
 Before triggering any code review, Parzival verifies the implementation output is complete and on-spec. Code review only runs on complete implementations.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on completeness verification only — do not evaluate code quality at this stage
-- 🚫 FORBIDDEN to trigger code review on incomplete implementations
-- 💬 Approach: Read every file in full, check against DONE WHEN criteria individually
-- 📋 Use {incompletenessTemplate} for return instructions — never improvise format
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Verify every DONE WHEN criterion and OUTPUT EXPECTED item individually
-- 💾 Record verification results before proceeding to next step
-- 📖 Load next step only when all completeness checks pass
-- 🚫 FORBIDDEN to proceed with incomplete implementation — return to DEV first
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Current task instruction with DONE WHEN criteria, OUTPUT EXPECTED list, scope definition, and the implementation output from DEV
 - Focus: Completeness verification only — do not evaluate code quality
 - Limits: Do not evaluate code quality at this stage — only completeness and scope compliance
 - Dependencies: None — this step receives implementation output directly from DEV
+
+- Focus on completeness verification only — do not evaluate code quality at this stage
+**Behavioral Constraints:**
+- FORBIDDEN to trigger code review on incomplete implementations
+- Approach: Read every file in full, check against DONE WHEN criteria individually
+- Use {incompletenessTemplate} for return instructions — never improvise format
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -88,23 +63,3 @@ For each criterion in the task instruction, verify:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when all completeness checks pass, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every DONE WHEN criterion has been verified individually
-- Implementation output has been read in full, not skimmed
-- Incomplete implementations are returned to DEV with specific direction
-- Only complete implementations proceed to code review
-
-### ❌ SYSTEM FAILURE:
-
-- Triggering code review on incomplete implementation
-- Skimming output instead of reading in full
-- Sending vague incompleteness instructions without specific items
-- Proceeding despite failed completeness checks
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

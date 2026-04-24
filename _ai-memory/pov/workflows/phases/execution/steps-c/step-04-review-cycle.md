@@ -12,44 +12,19 @@ nextStepFile: './step-05-verify-fixes.md'
 
 Route to {workflows_path}/cycles/review-cycle/workflow.md when DEV signals implementation complete. The review cycle runs until zero legitimate issues remain.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on orchestrating the review cycle — not performing reviews directly
-- 🚫 FORBIDDEN to skip or shortcut the review cycle
-- 💬 Approach: Systematic monitoring with red flag detection and non-convergence handling
-- 📋 Research best practices at pass 2+ if fix did not resolve on first attempt
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Invoke review cycle workflow with all required inputs
-- 💾 Track pass count, issues per pass, and red flags throughout the cycle
-- 📖 Load next step only when review cycle exits with zero legitimate issues confirmed
-- 🚫 FORBIDDEN to accept review cycle exit with any unresolved legitimate issues
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Story file, implementation instruction, DEV completion report, architecture.md, project-context.md
 - Focus: Review cycle orchestration only — review cycle workflow handles the loop
 - Limits: The review cycle handles the review loop. Parzival monitors for red flags.
 - Dependencies: DEV implementation completion report from Step 3
+
+- Focus only on orchestrating the review cycle — not performing reviews directly
+**Behavioral Constraints:**
+- FORBIDDEN to skip or shortcut the review cycle
+- Approach: Systematic monitoring with red flag detection and non-convergence handling
+- Research best practices at pass 2+ if fix did not resolve on first attempt
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -144,23 +119,3 @@ Review cycle exits with zero legitimate issues and a clean summary.
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN the review cycle exits with zero legitimate issues, will you then read fully and follow: `{nextStepFile}` to begin fix verification.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Review cycle invoked with all required inputs
-- Red flags monitored during the cycle
-- Non-convergence handled proactively
-- Zero legitimate issues confirmed at exit
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping the review cycle
-- Not monitoring for red flags
-- Accepting review exit with unresolved issues
-- Not escalating non-convergence
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -2,13 +2,14 @@
 name: 'phases-planning-instructions'
 description: 'Planning phase: review state, run retrospective, dispatch SM for sprint setup, create stories, approve'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # phases-planning — Instructions
 
 ## Prerequisites
 
 - Approved architecture and epics/stories from the architecture phase
-- Sprint Master agent (`bmad-bmm-sm`) is available
+- Sprint Master agent (`bmad-agent-sm`) is available (NOT INSTALLED — 2026-04-11)
 - `sprint-status.yaml` is accessible for update
 - Prior sprint retrospective data is available (if this is not the first sprint)
 

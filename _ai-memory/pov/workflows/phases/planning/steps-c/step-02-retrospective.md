@@ -12,44 +12,19 @@ nextStepFile: './step-03-sm-sprint-planning.md'
 
 For every sprint after the first, run a retrospective before planning begins. The retrospective informs the next sprint's scope, sizing, and approach.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on retrospective for the completed sprint — do not plan the next sprint yet
-- 🚫 FORBIDDEN to run retrospective for first sprint or skip without justification
-- 💬 Approach: Evidence-based retrospective using sprint-status.yaml and story files
-- 📋 User must acknowledge retrospective findings before planning begins
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Assess whether retrospective should run or be skipped based on sprint state
-- 💾 Record retrospective output with velocity data and specific recommendations
-- 📖 Load next step only after user acknowledges retrospective (or after confirmed skip)
-- 🚫 FORBIDDEN to begin sprint planning without completing or explicitly skipping retrospective
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: sprint-status.yaml, completed story files, state summary from Step 1
 - Focus: Retrospective on completed sprint only — do not modify or plan the next sprint
 - Limits: Retrospective runs on the completed sprint. Does not modify the next sprint.
 - Dependencies: State summary from Step 1
+
+- Focus on retrospective for the completed sprint — do not plan the next sprint yet
+**Behavioral Constraints:**
+- FORBIDDEN to run retrospective for first sprint or skip without justification
+- Approach: Evidence-based retrospective using sprint-status.yaml and story files
+- User must acknowledge retrospective findings before planning begins
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -77,6 +52,10 @@ SM must cover:
 4. Patterns in review cycles (many passes = story too complex?)
 5. Velocity: stories planned vs. stories completed
 6. Recommended adjustments for next sprint: story sizing, dependency sequencing, scope
+7. DORA-analog process metrics (derive from sprint-status.yaml and story review records):
+   - **Review-cycle count per story**: total review passes per story before approval — stories requiring >2 cycles flag scope ambiguity or instruction gaps
+   - **Reopened-task rate**: count of stories returned to in-progress after being marked done — every reopened story requires a root-cause note
+   - **Rework rate**: stories requiring significant revision (>30% of delivered content redone) — signals misalignment in requirements, instructions, or acceptance criteria
 
 ---
 
@@ -93,6 +72,7 @@ Parzival reviews for:
 - Are velocity numbers accurate?
 - Are recommendations specific and actionable?
 - Are recurring issues identified?
+- Are DORA-analog metrics reported (review-cycle count, reopened-task rate, rework rate)?
 - Do recommendations inform the upcoming sprint plan?
 
 ---
@@ -103,6 +83,7 @@ Present before planning begins:
 "Sprint [N] retrospective complete.
  Completed: [N] stories
  Carryover: [N] stories -- [brief reason]
+ Process metrics: avg review cycles [N], reopened tasks [N], rework rate [N%]
  Key finding: [most important observation]
  Recommendation for next sprint: [specific recommendation]
 
@@ -113,24 +94,3 @@ Wait for user acknowledgment before proceeding.
 ## CRITICAL STEP COMPLETION NOTE
 
 Whether retrospective ran or was skipped, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Retrospective ran for subsequent sprints
-- Correctly skipped for first sprint
-- Velocity data is accurate
-- Recommendations are specific and inform next sprint
-- User acknowledged before planning begins
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping retrospective without justification
-- Running retrospective for first sprint
-- Accepting vague recommendations
-- Not presenting to user before planning
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

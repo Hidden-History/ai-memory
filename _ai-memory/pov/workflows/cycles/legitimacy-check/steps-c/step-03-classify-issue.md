@@ -2,7 +2,7 @@
 name: 'step-03-classify-issue'
 description: 'Apply classification criteria to determine LEGITIMATE, NON-ISSUE, or UNCERTAIN'
 nextStepFile: './step-04-record-classification.md'
-classificationCriteria: '../../../../knowledge/issue-classification-criteria.md'
+classificationCriteria: '{knowledge_path}/issue-classification-criteria.md'
 ---
 
 # Step 3: Apply Classification Criteria
@@ -13,44 +13,19 @@ classificationCriteria: '../../../../knowledge/issue-classification-criteria.md'
 
 Apply the formal classification criteria to determine whether the issue is LEGITIMATE (must fix), NON-ISSUE (document, do not fix), or UNCERTAIN (trigger research). The classification must be grounded in criteria and project file citations.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on applying formal classification criteria — A, B, or C
-- 🚫 FORBIDDEN to classify based on opinion or without project file citations from step-02
-- 💬 Approach: Systematic criteria check in order — Category A first, then B, then C
-- 📋 Each issue receives its own independent classification pass
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Apply classification criteria in order: Category A, then B, then C
-- 💾 Record the classification basis including specific criteria and project file citations
-- 📖 Load next step only after a clear classification is determined
-- 🚫 FORBIDDEN to guess when uncertain — trigger WF-RESEARCH-PROTOCOL instead
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The fully understood issue (step-01), project file findings (step-02), classification criteria from `knowledge/issue-classification-criteria.md`
 - Focus: Applying classification criteria only — do not build the record or assign priority yet
 - Limits: Do not combine multiple issues into one classification. Each issue gets its own pass.
 - Dependencies: Fully understood issue (step-01), project file findings with citations (step-02)
+
+- Focus only on applying formal classification criteria — A, B, or C
+**Behavioral Constraints:**
+- FORBIDDEN to classify based on opinion or without project file citations from step-02
+- Approach: Systematic criteria check in order — Category A first, then B, then C
+- Each issue receives its own independent classification pass
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -126,24 +101,3 @@ If uncertain: classify as UNCERTAIN. Do not guess. Trigger WF-RESEARCH-PROTOCOL 
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN a clear classification (LEGITIMATE, NON-ISSUE, or UNCERTAIN) has been determined with supporting basis, will you then read fully and follow: `{nextStepFile}` to begin recording the classification.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Classification is one of exactly three values: LEGITIMATE, NON-ISSUE, UNCERTAIN
-- Classification is grounded in specific criteria (A1-A8, B1-B4, or C1-C5)
-- Classification is supported by project file citations from step-02
-- Special cases are handled per documented rules
-
-### ❌ SYSTEM FAILURE:
-
-- Classifying without criteria basis
-- Treating opinion as legitimate issue
-- Treating legitimate issue as non-issue due to age
-- Guessing when uncertain instead of triggering WF-RESEARCH-PROTOCOL
-- Changing classification based on agent preference without project file basis
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

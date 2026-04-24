@@ -12,44 +12,19 @@ nextStepFile: './step-07-final-verification.md'
 
 Fix all legitimate issues from the consolidated fix list. Integration fix cycles are more complex than story fix cycles because issues may span multiple components. Re-run the test plan after each fix pass.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Route fixes by type and re-run test plan after every fix pass until all issues resolved
-- 🚫 FORBIDDEN to exit fix cycle with any test plan failures or unresolved legitimate issues
-- 💬 Approach: Type-based routing, cross-component verification, iterative test plan re-run
-- 📋 Architecture decision required before implementing architectural fixes
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Route each fix by type (single-component, cross-component, architecture decision, test failure)
-- 💾 Record fix results and test plan re-run results after each pass
-- 📖 Load next step only after all issues resolved and all test plan items pass
-- 🚫 FORBIDDEN to exit with test failures remaining or unresolved legitimate issues
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Consolidated fix priority list, all project files
 - Focus: Fix routing and test plan re-verification — iterate until all pass
 - Limits: All legitimate issues must be resolved. No "fix it in the next sprint" for integration findings.
 - Dependencies: Consolidated fix priority list from Step 5 is required
+
+- Route fixes by type and re-run test plan after every fix pass until all issues resolved
+**Behavioral Constraints:**
+- FORBIDDEN to exit fix cycle with any test plan failures or unresolved legitimate issues
+- Approach: Type-based routing, cross-component verification, iterative test plan re-run
+- Architecture decision required before implementing architectural fixes
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -100,24 +75,3 @@ Continue until:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN all issues are resolved and all test plan items pass, will you then read fully and follow: `{nextStepFile}` to begin final verification.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Fixes routed correctly by type
-- Cross-component fixes verified together
-- Architecture decisions documented before implementation
-- Test plan re-run after every fix pass
-- All test plan items pass at exit
-
-### ❌ SYSTEM FAILURE:
-
-- Implementing without resolving architecture questions
-- Not re-running test plan after fixes
-- Verifying cross-component fixes in isolation
-- Exiting with test failures remaining
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

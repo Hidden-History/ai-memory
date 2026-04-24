@@ -17,10 +17,17 @@ import sys
 import os
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 # Set up import path for ai-memory source
 _install_dir = os.path.expanduser("~/.ai-memory")
 sys.path.insert(0, os.path.join(_install_dir, "src"))
+
+# Option P: load Tier B helper from sibling module (enables unit testing)
+_bootstrap_skill_dir = os.path.join(_install_dir, "pov", "skills", "aim-parzival-bootstrap")
+if _bootstrap_skill_dir not in sys.path:
+    sys.path.insert(0, _bootstrap_skill_dir)
+from sanctum_tier_b import load_sanctum_tier_b
 
 start_ms = time.perf_counter()
 _trace_start = datetime.now(tz=timezone.utc)
@@ -93,7 +100,6 @@ try:
     init_session_state(session_id, injected_ids)
 
     # Audit log (HIGH)
-    from pathlib import Path
     audit_dir = Path(os.getcwd()) / ".audit"
     log_injection_event(
         tier=1,
@@ -106,6 +112,15 @@ try:
         budget=config.bootstrap_token_budget,
         audit_dir=audit_dir,
     )
+
+    # Tier B — sanctum LORE + BOND prepend (filesystem-only per DEC-253-14)
+    try:
+        sanctum_path = Path(os.getcwd()) / "_ai-memory" / "sanctum"
+        tier_b_output = load_sanctum_tier_b(sanctum_path)
+        if tier_b_output:
+            print(tier_b_output)
+    except Exception:
+        pass
 
     # Build output
     print("## Cross-Session Memory (Parzival Bootstrap)\n")

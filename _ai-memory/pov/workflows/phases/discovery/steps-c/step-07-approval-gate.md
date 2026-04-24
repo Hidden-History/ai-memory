@@ -11,44 +11,19 @@ description: 'Route to approval gate for explicit PRD sign-off before Architectu
 
 Route to {workflows_path}/cycles/approval-gate/workflow.md for explicit PRD sign-off. On approval, update project status and route to WF-ARCHITECTURE. This is the terminal step.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on presenting complete approval package and routing through approval gate
-- 🚫 FORBIDDEN to begin Architecture work before explicit user approval
-- 💬 Present scope lock implications clearly before user approves
-- 📋 All three approval outcomes (Approve/Reject/Hold) must be handled explicitly
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Invoke approval-gate workflow with complete, accurate approval package
-- 💾 Update project-status.md and decisions.md immediately upon approval
-- 📖 Route to WF-ARCHITECTURE on approval; return to step-05 on rejection
-- 🚫 FORBIDDEN to route to Architecture phase without explicit user approval
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Finalized PRD.md, scope summary, key decisions summary
 - Focus: Approval gate execution and phase transition to Architecture
 - Limits: Do not begin Architecture work until approval is received. Signing off locks scope.
 - Dependencies: Complete approval package from Step 6 finalization
+
+- Focus on presenting complete approval package and routing through approval gate
+**Behavioral Constraints:**
+- FORBIDDEN to begin Architecture work before explicit user approval
+- Present scope lock implications clearly before user approves
+- All three approval outcomes (Approve/Reject/Hold) must be handled explicitly
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -139,24 +114,3 @@ This protocol applies even after PRD sign-off. Scope changes are allowed but mus
 - On APPROVED: Update project-status.md (phases_complete.discovery: true, current_phase: architecture), update decisions.md with key PRD decisions, load WF-ARCHITECTURE, load architecture constraints, drop discovery constraints
 - On REJECTED: Return to step-05-user-review-iteration.md — do not proceed to Architecture
 - On HELD: Pause workflow completely — wait for user to resume the approval process; do not load any next step
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Approval gate invoked with complete package
-- Scope implications clearly communicated
-- User explicitly approved before Architecture work began
-- Project status updated accurately
-- Clean handoff to WF-ARCHITECTURE
-
-### ❌ SYSTEM FAILURE:
-
-- Beginning Architecture without explicit approval
-- Not communicating scope lock implications
-- Bypassing the approval gate
-- Not updating project-status.md
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

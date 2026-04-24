@@ -13,19 +13,7 @@ decisionLogTemplate: '{project-root}/_ai-memory/pov/templates/decision-log.templ
 
 ## WORKFLOW ARCHITECTURE
 
-This uses **step-file architecture** for disciplined execution:
-
-### Step Processing Rules
-1. **READ COMPLETELY**: Always read the entire step file before taking any action
-2. **FOLLOW SEQUENCE**: Execute numbered sections in order
-3. **WAIT FOR INPUT**: Halt at decision points and wait for user direction
-4. **LOAD NEXT**: When directed, load and execute the next step file
-
-### Critical Rules
-- NEVER load multiple step files simultaneously
-- ALWAYS read entire step file before execution
-- NEVER skip steps unless explicitly optional
-- ALWAYS follow exact instructions in step files
+See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md) for Step Processing Rules and Critical Rules.
 
 ### Decision Anti-Patterns
 - Never present a decision with only one option
@@ -37,10 +25,24 @@ This uses **step-file architecture** for disciplined execution:
 
 ---
 
+## Follow-Up Review Protocol
+
+Decisions are not fire-and-forget. Every logged decision must include a scheduled follow-up to close the feedback loop:
+
+- **Schedule**: At the next milestone, after N sessions (default: 3 sessions), or at sprint close — whichever comes first
+- **Verify**: Did the expected outcome materialize? Was the rationale sound in hindsight?
+- **Update record**: Change `Status` from `Active` to one of: `Validated` (outcome matched expectation), `Superseded` (replaced by a later decision), or `Revised` (outcome required course correction)
+- **Log result**: Append outcome note to the original DEC-[ID] entry with date
+
+Follow-up scheduling is enforced at Step 3 (log-decision): every new entry gets a follow-up trigger before the step completes.
+
+---
+
 ## Supporting References
 
 - Decision lifecycle states and transitions: `knowledge/decision-status-workflow.md`
 - Decision log template: `{project-root}/_ai-memory/pov/templates/decision-log.template.md`
+- Multi-perspective consultation: `{project-root}/.claude/skills/bmad-party-mode/SKILL.md` — invoke when a decision benefits from multiple expert viewpoints (complex tradeoffs, architectural choices, risk assessment requiring diverse perspectives)
 
 ---
 

@@ -12,44 +12,19 @@ nextStepFile: './step-06-present-and-approve.md'
 
 Before presenting to the user, verify that the project picture is complete. No assumptions are being carried into the next phase. The recommended exit route is clearly justified.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on completeness verification — ensure no assumptions are carried forward
-- 🚫 FORBIDDEN to present to user with known gaps or unresolved uncertainty
-- 💬 Approach: Systematic completeness check against all verification criteria
-- 📋 Failed checks must be addressed before proceeding — return to earlier steps if needed
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Run completeness check against all verification criteria
-- 💾 Document exit route justification with specific evidence
-- 📖 Load next step only after ALL checks pass and best practices research complete
-- 🚫 FORBIDDEN to carry unresolved uncertainty into next step
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: All findings from Steps 1-4, branch work, updated baseline files
 - Focus: Completeness verification only — do not begin presenting until all checks pass
 - Limits: Do not exit this workflow with unresolved uncertainty. Address gaps before presenting.
 - Dependencies: Steps 1-4 and branch work must all be complete before verification
+
+- Focus on completeness verification — ensure no assumptions are carried forward
+**Behavioral Constraints:**
+- FORBIDDEN to present to user with known gaps or unresolved uncertainty
+- Approach: Systematic completeness check against all verification criteria
+- Failed checks must be addressed before proceeding — return to earlier steps if needed
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -104,23 +79,3 @@ Run `/aim-best-practices-researcher` for each major technology identified during
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when all completeness checks pass AND best practices research is complete, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every completeness item was individually verified
-- Failed checks were addressed before proceeding
-- Exit route is justified with specific evidence
-- No unresolved uncertainty is being carried forward
-
-### ❌ SYSTEM FAILURE:
-
-- Presenting to user with known gaps
-- Carrying assumptions into the next phase
-- Choosing exit route without justification
-- Skipping completeness checks
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

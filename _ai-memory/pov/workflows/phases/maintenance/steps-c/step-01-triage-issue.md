@@ -12,44 +12,19 @@ nextStepFile: './step-02-classify-issue.md'
 
 Every issue entering Maintenance is triaged before any action is taken. Triage determines urgency, scope, severity, and the correct workflow.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on triaging the issue — do not begin diagnosis or fixing
-- 🚫 FORBIDDEN to start any fix before triage summary is complete
-- 💬 Approach: Systematic assessment of WHAT, WHEN, and SCOPE
-- 📋 If multiple issues present, triage all before fixing any
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Read the full issue report and answer WHAT/WHEN/SCOPE before assigning severity
-- 💾 Record triage summary with all required fields before proceeding
-- 📖 Load next step only after triage summary is complete
-- 🚫 FORBIDDEN to proceed without a complete triage summary
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Issue report (from user, monitoring, or internal)
 - Focus: Triage only — do not begin diagnosis or fixing
 - Limits: Only triage. Do not begin diagnosis or fixing. Do not activate agents.
 - Dependencies: None — this is the first step of the maintenance workflow
+
+- Focus only on triaging the issue — do not begin diagnosis or fixing
+**Behavioral Constraints:**
+- FORBIDDEN to start any fix before triage summary is complete
+- Approach: Systematic assessment of WHAT, WHEN, and SCOPE
+- If multiple issues present, triage all before fixing any
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -113,23 +88,3 @@ If multiple issues are present:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when triage is complete, load and read fully `{nextStepFile}`
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Issue fully understood before any action
-- Severity correctly assigned based on impact
-- Triage summary produced with all fields
-- Queue management applied if multiple issues
-
-### ❌ SYSTEM FAILURE:
-
-- Starting to fix before triaging
-- Incorrect severity assignment
-- Vague triage ("it is broken")
-- Not managing queue priority
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

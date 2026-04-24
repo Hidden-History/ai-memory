@@ -12,44 +12,19 @@ nextStepFile: './step-06-prepare-summary.md'
 
 After the review cycle exits with zero issues, perform a final verification pass. Apply four-source verification to all significant fixes and confirm the full implementation against all acceptance criteria.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on four-source verification and final implementation review
-- 🚫 FORBIDDEN to present to user before all four sources pass
-- 💬 Approach: Systematic source-by-source verification for all significant fixes
-- 📋 If any source fails, return to review cycle with specific failure before proceeding
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Apply four-source verification to every significant fix from the review cycle
-- 💾 Document which sources were checked and their pass/fail status
-- 📖 Load next step only after all four sources and final implementation review pass
-- 🚫 FORBIDDEN to proceed to summary while any verification source fails
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Review cycle summary, all fixes applied, PRD.md, architecture.md, project-context.md
 - Focus: Four-source verification and final review only — not summary preparation
 - Limits: If any source fails, return to review cycle. Do not present to user until all four sources pass.
 - Dependencies: Review cycle summary with zero legitimate issues from Step 4
+
+- Focus only on four-source verification and final implementation review
+**Behavioral Constraints:**
+- FORBIDDEN to present to user before all four sources pass
+- Approach: Systematic source-by-source verification for all significant fixes
+- If any source fails, return to review cycle with specific failure before proceeding
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -97,23 +72,3 @@ After four-source verification, review the full implementation:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN all four-source checks and the final review pass, will you then read fully and follow: `{nextStepFile}` to begin summary preparation.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Four-source verification applied to all significant fixes
-- Every source individually checked
-- Final implementation review confirms all criteria satisfied
-- No issues remain before user presentation
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping four-source verification
-- Accepting fixes that fail any source
-- Presenting to user with unverified fixes
-- Not running final implementation review
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

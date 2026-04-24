@@ -12,44 +12,19 @@ nextStepFile: './step-04-parzival-reviews-prd.md'
 
 Define the PRD structure requirements and dispatch the PM agent via the agent-dispatch cycle to create a complete Product Requirements Document (PRD.md) from the gathered inputs. The track determines the workflow depth.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on preparing PM instruction and dispatching via agent-dispatch cycle
-- 🚫 FORBIDDEN to present PRD to user before Parzival reviews it
-- 💬 Track-appropriate instruction: specify correct depth (Quick Flow / Standard / Enterprise)
-- 📋 PM does NOT approve its own work — Parzival reviews in the next step
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Determine track and prepare complete PRD creation instruction for PM
-- 💾 Receive PRD draft without presenting to user — Parzival reviews first
-- 📖 Load next step only after PM has delivered complete PRD draft
-- 🚫 FORBIDDEN to present PRD to user or skip Parzival review
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: goals.md, Analyst research output (if from Step 2), any existing briefs/specs
 - Focus: PM PRD creation and dispatch — Parzival receives the draft only
 - Limits: PM creates the PRD. Parzival reviews it in the next step. PM does NOT approve its own work.
 - Dependencies: Scenario classification from Step 1, Analyst research output (if Step 2 was executed)
+
+- Focus on preparing PM instruction and dispatching via agent-dispatch cycle
+**Behavioral Constraints:**
+- FORBIDDEN to present PRD to user before Parzival reviews it
+- Track-appropriate instruction: specify correct depth (Quick Flow / Standard / Enterprise)
+- PM does NOT approve its own work — Parzival reviews in the next step
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -114,23 +89,3 @@ Receive the completed PRD.md from the PM agent. Do not present to user yet -- Pa
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the PM has delivered the PRD draft, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- PM dispatched through agent-dispatch workflow
-- All required PRD sections were requested in the instruction
-- Track-appropriate depth was specified
-- PRD draft received without presenting to user
-
-### ❌ SYSTEM FAILURE:
-
-- Presenting PRD to user before Parzival reviews
-- Not specifying all required PRD sections
-- Using wrong track workflow
-- PM dispatched directly instead of through agent-dispatch
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

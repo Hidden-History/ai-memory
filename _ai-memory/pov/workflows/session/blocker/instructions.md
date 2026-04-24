@@ -2,6 +2,7 @@
 name: 'session-blocker-instructions'
 description: 'Blocker analysis: capture, diagnose root cause, propose resolution options, log to blockers tracker'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # session-blocker — Instructions
 

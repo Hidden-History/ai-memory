@@ -11,44 +11,19 @@ description: 'Route to approval gate for architecture sign-off before Sprint Pla
 
 Route to {workflows_path}/cycles/approval-gate/workflow.md for architecture sign-off. On approval, update project status and route to WF-PLANNING. This is the terminal step.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on presenting the complete approval package and communicating the technical lock implications
-- 🚫 FORBIDDEN to begin Planning work before receiving explicit user approval
-- 💬 Approach: Present package, route through approval gate, handle result and transition cleanly
-- 📋 Approving locks the technical foundation — this must be communicated clearly before the user decides
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Present the full architecture approval package compiled in Step 8
-- 💾 Update project-status.md and decisions.md immediately upon approval
-- 📖 Route to WF-PLANNING only after approval is confirmed
-- 🚫 FORBIDDEN to bypass the approval gate or proceed to Planning without explicit approval
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Architecture approval summary from Step 8
 - Focus: Approval gate invocation and routing to WF-PLANNING on approval
 - Limits: Do not begin Planning work until approval is received. Approving locks the technical foundation.
 - Dependencies: Step 8 complete — finalization done and approval summary prepared
+
+- Focus on presenting the complete approval package and communicating the technical lock implications
+**Behavioral Constraints:**
+- FORBIDDEN to begin Planning work before receiving explicit user approval
+- Approach: Present package, route through approval gate, handle result and transition cleanly
+- Approving locks the technical foundation — this must be communicated clearly before the user decides
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -115,23 +90,3 @@ Options:
 - Update project-status.md: phases_complete.architecture: true, current_phase: planning
 - Route to WF-PLANNING via {workflows_path}/phases/planning/workflow.md on approval
 - Drop architecture constraints and load planning constraints on transition
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Approval gate invoked with complete package
-- Technical lock implications clearly communicated
-- User explicitly approved
-- Project status updated
-- Clean handoff to WF-PLANNING
-
-### ❌ SYSTEM FAILURE:
-
-- Beginning Planning without explicit approval
-- Not communicating technical lock implications
-- Bypassing the approval gate
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

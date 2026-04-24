@@ -1,7 +1,7 @@
 ---
 id: MC-03
 name: New Feature Requests Must Route to Planning — Not Into Maintenance
-severity: CRITICAL
+severity: HIGH
 phase: maintenance
 ---
 

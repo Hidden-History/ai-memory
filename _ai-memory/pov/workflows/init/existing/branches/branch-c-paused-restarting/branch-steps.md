@@ -75,16 +75,16 @@ Record the confirmed exit route for use in step-06 approval package.
 ## BRANCH COMPLETION
 When all branch steps are complete, return to the common path: step-04-establish-baseline.md
 
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
+## SYSTEM SUCCESS/FAILURE METRICS
 
-### ✅ SUCCESS:
+### SUCCESS:
 
 - Pause reason documented and requirements re-validated as current or updated
 - External changes (dependencies, APIs, services) assessed during pause period
 - Restart plan confirmed with user before proceeding
 - Exit route is clearly determined and recorded
 
-### ❌ SYSTEM FAILURE:
+### SYSTEM FAILURE:
 
 - Resuming work without validating that requirements are still current
 - Not checking for external changes (dependency updates, breaking API changes) during pause

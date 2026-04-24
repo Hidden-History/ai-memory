@@ -15,44 +15,19 @@ productionTemplate: '{project-root}/templates/oversight/verification/checklists/
 
 Load the appropriate verification checklist template so that all checks are defined before execution begins.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on loading and preparing the correct checklist — do not execute any checks
-- 🚫 FORBIDDEN to use a generic template without customizing to the specific work item
-- 💬 Approach: Two-tier lookup (project-specific first, framework fallback second)
-- 📋 User must confirm the checklist before proceeding to execution
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Load the appropriate checklist using two-tier lookup, with inline fallback if neither exists
-- 💾 Record which checklist was loaded (project-specific, framework template, or inline fallback)
-- 📖 Load next step only after user confirms the checklist
-- 🚫 FORBIDDEN to begin executing checks before checklist is confirmed
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Verification type from Step 1, template files at `{oversight_path}/verification/checklists/` and `{project-root}/templates/oversight/verification/checklists/`
 - Focus: Load and prepare the checklist only — do not execute any checks
 - Limits: Do not begin executing checks; do not modify checklist templates
 - Dependencies: Verification type determined in Step 1
+
+- Focus on loading and preparing the correct checklist — do not execute any checks
+**Behavioral Constraints:**
+- FORBIDDEN to use a generic template without customizing to the specific work item
+- Approach: Two-tier lookup (project-specific first, framework fallback second)
+- User must confirm the checklist before proceeding to execution
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -136,23 +111,3 @@ Proceed with verification?
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the checklist is loaded, customized, and confirmed, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Correct template is loaded for the verification type
-- Missing templates are handled with fallback checklists
-- Checklist is customized to the specific work item
-- User confirms the checklist before execution
-
-### ❌ SYSTEM FAILURE:
-
-- Loading the wrong template for the verification type
-- Failing to handle a missing template
-- Using a generic checklist without customization
-- Starting execution before the checklist is confirmed
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

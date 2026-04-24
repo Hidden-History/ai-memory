@@ -11,44 +11,19 @@ description: 'Present the verified baseline to the user and route to approval ga
 
 Present the complete project baseline to the user via {workflows_path}/cycles/approval-gate/workflow.md. On approval, update project status and route to WF-DISCOVERY. This is the terminal step of the init-new workflow.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on presenting the baseline and routing through the approval gate
-- 🚫 FORBIDDEN to begin Discovery work before receiving explicit approval
-- 💬 Approach: Clear, complete presentation of baseline with structured approval options
-- 📋 This is a TERMINAL step -- on approval, route to WF-DISCOVERY; on rejection, route back for corrections
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Present complete approval package with all baseline information
-- 💾 Update project-status.md on approval (baseline_complete: true)
-- 📖 Route to WF-DISCOVERY on approval, back to corrections on rejection
-- 🚫 DO NOT begin Discovery work until explicit approval is received
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: All verified baseline files, complete project foundation summary
 - Focus: Approval presentation and gate handling only -- no new creation work
 - Limits: Do not begin Discovery work until approval is received. Do not skip the approval gate.
 - Dependencies: Step 6 verification must be complete with all checks passed
+
+- Focus only on presenting the baseline and routing through the approval gate
+**Behavioral Constraints:**
+- FORBIDDEN to begin Discovery work before receiving explicit approval
+- Approach: Clear, complete presentation of baseline with structured approval options
+- This is a TERMINAL step -- on approval, route to WF-DISCOVERY; on rejection, route back for corrections
 
 ## TERMINATION STEP PROTOCOLS:
 
@@ -141,26 +116,3 @@ Invoke {workflows_path}/cycles/approval-gate/workflow.md with the prepared packa
 ## CRITICAL STEP COMPLETION NOTE
 
 This is the TERMINAL step. When approval is received, route to WF-DISCOVERY. Do not load another step file from this workflow.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Complete approval package presented with all required sections
-- Approval gate was invoked (not bypassed)
-- User explicitly approved before any Discovery work began
-- Project status updated accurately on approval
-- Clean handoff to WF-DISCOVERY
-- Menu presented and user input handled correctly
-
-### ❌ SYSTEM FAILURE:
-
-- Beginning Discovery without explicit user approval
-- Bypassing the approval gate
-- Not updating project-status.md on approval
-- Presenting an incomplete approval package
-- Proceeding without user selecting an approval gate option
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

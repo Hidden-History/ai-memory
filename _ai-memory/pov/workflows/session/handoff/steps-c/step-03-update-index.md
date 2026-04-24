@@ -11,56 +11,25 @@ description: 'Update the SESSION_WORK_INDEX with a reference to the new handoff 
 
 Add a reference to the new handoff in the SESSION_WORK_INDEX and confirm to the user that the snapshot is complete. The session continues after this.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on saving to Qdrant, updating the index, and confirming to the user
-- 🚫 FORBIDDEN to run closeout procedures or treat this as a session end
-- 💬 Approach: Update index then confirm to user — session continues after snapshot
-- 📋 This is a snapshot, not a session termination — work resumes after confirmation
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Save handoff to Qdrant, update SESSION_WORK_INDEX, then confirm snapshot to user
-- 💾 Index entry must include task ID, title, status, and handoff file path
-- 📖 This is a terminal step — no next step file to load
-- 🚫 FORBIDDEN to run closeout procedures or update task statuses after snapshot
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The handoff file path and content from Step 2
 - Focus: Saving to Qdrant, updating the index, and confirming the snapshot to the user
 - Limits: Update the index and confirm — do not end the session
 - Dependencies: Step 2 must be complete — handoff file written and verified
 
+- Focus on saving to Qdrant, updating the index, and confirming to the user
+**Behavioral Constraints:**
+- FORBIDDEN to run closeout procedures or treat this as a session end
+- Approach: Update index then confirm to user — session continues after snapshot
+- This is a snapshot, not a session termination — work resumes after confirmation
+
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
 ### 1. Save Handoff to Qdrant
 
-Run the handoff save script through the installed ai-memory wrapper:
-
-```bash
-"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" parzival_save_handoff.py --file {handoff_path}
-```
-
-Where `{handoff_path}` is the path to the handoff document created in Step 2.
+Run `/parzival-save-handoff --file {handoff_path}` where `{handoff_path}` is the path to the handoff document created in Step 2.
 
 The skill handles:
 - Storing the handoff as `agent_handoff` type with `agent_id=parzival`
@@ -118,22 +87,3 @@ This is NOT a session end. The session continues after the snapshot.
 - Update SESSION_WORK_INDEX with snapshot reference
 - Confirm snapshot location to user
 - Resume session — do NOT run closeout or terminate the session
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- SESSION_WORK_INDEX is updated with a reference to the snapshot
-- User is informed of the snapshot location
-- Session continues normally after the snapshot
-
-### ❌ SYSTEM FAILURE:
-
-- Not updating the SESSION_WORK_INDEX
-- Treating this as a session end
-- Running closeout procedures after a snapshot
-- Not confirming the snapshot to the user
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

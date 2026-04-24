@@ -10,57 +10,52 @@ nextStepFile: './step-05-monitor-progress.md'
 
 ## STEP GOAL:
 
-After agent activation, send the prepared instruction in full to the teammate using SendMessage. Do not summarize or abbreviate. The complete instruction from step-01 is delivered as-is.
+After agent activation, send the prepared instruction to the teammate using SendMessage. The form depends on agent type: generic agents receive the complete instruction; BMAD skill-driven agents receive a recommendation request (target + minimal context) — not a full work order.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on delivering the complete, unmodified instruction to the agent
-- 🚫 FORBIDDEN to abbreviate, summarize, or add conversational preamble to the instruction
-- 💬 Approach: Send once, exactly as prepared, then wait for acknowledgment
-- 📋 Clarification requests must be resolved from project files, never guessed
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Send the full instruction via SendMessage exactly as prepared in step-01
-- 💾 Record that instruction was sent and agent acknowledged receipt
-- 📖 Load next step only after agent acknowledges the instruction
-- 🚫 FORBIDDEN to re-send instruction while agent is working
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The verified instruction from step-01, the activated agent from step-03
 - Focus: Instruction delivery only — do not begin monitoring or interpret agent responses as output
-- Limits: Send the instruction exactly as prepared. Do not modify, abbreviate, or add conversational preamble.
+- Limits: Deliver per the agent-type conditional. Do not modify generic instructions; do not over-instruct skill-driven agents.
 - Dependencies: Verified instruction from step-01 and activated, verified agent from step-03
+
+**Behavioral Constraints:**
+- For generic agents: FORBIDDEN to abbreviate, summarize, or add conversational preamble to the instruction
+- For BMAD skill-driven agents: FORBIDDEN to send a full work plan; FORBIDDEN to ask "state your planned approach"
+- Clarification requests must be resolved from project files, never guessed
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
-### 1. Send the Complete Instruction
+### 1. Send the Instruction (Agent-Type Conditional)
 
-Use SendMessage with type: "message" to send the full instruction to the teammate:
-- Send the complete instruction using the template from step-01
-- Do not add conversational preamble ("Hey, can you...")
-- Do not modify the instruction format -- agents expect consistency
-- Send once -- do not re-send while agent is working
+The form of the first SendMessage depends on agent type.
+
+#### For GENERIC agents (Explore, general-purpose, built-in non-BMAD agents):
+
+Send the complete instruction from step-01 using SendMessage:
+- Send the complete instruction exactly as prepared — do not add conversational preamble
+- Do not modify the instruction format — agents expect consistency
+- Send once — do not re-send while agent is working
 - If instruction needs clarification, wait for agent to flag it
+
+#### For BMAD skill-driven agents (activated via `/bmad-agent-{type}`):
+
+First SendMessage asks for recommendation — do NOT send the full work plan:
+- Send: TASK (target) + CONTEXT (minimal) + DONE WHEN (from step-01 section 2b) + "What do you recommend and why?"
+- FORBIDDEN to ask "state your planned approach" — that steers away from the skill's guidance
+- FORBIDDEN to send the full instruction template — the skill drives the approach, not Parzival's prescription
+- Wait for the agent's recommendation before proceeding
+
+#### 1b. Receive Recommendation (BMAD skill-driven agents only)
+
+After the recommendation request:
+- Wait for the agent to respond with their recommendation and reasoning
+- Review: does the recommendation address the task correctly?
+  - YES → respond "proceed" or with brief directional input; move to monitoring (step-05)
+  - MISALIGNED → provide a specific, minimal redirect; ask for revised recommendation; do not over-correct
+  - BLOCKER → apply research-protocol or escalate to user
+- Do not over-instruct after receiving recommendation — the skill drives execution from here
 
 ---
 
@@ -79,34 +74,13 @@ Use SendMessage with type: "message" to send the full instruction to the teammat
 
 ---
 
-### 3. Confirm Instruction Received
+### 3. Confirm Ready for Monitoring
 
-Wait for agent acknowledgment that the instruction was received and understood before moving to monitoring.
+- **Generic agents:** Wait for acknowledgment that the instruction was received and understood before moving to monitoring.
+- **BMAD skill-driven agents:** The recommendation exchange in section 1b completes this step — agent is already working after "proceed" is sent.
 
 ---
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY when the instruction has been sent and the agent has acknowledged receipt, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Complete instruction sent without modification
-- No conversational preamble added
-- Instruction sent exactly once
-- Agent acknowledged receipt
-- Clarification requests handled with citations
-
-### ❌ SYSTEM FAILURE:
-
-- Abbreviating or summarizing the instruction
-- Adding casual preamble to the instruction
-- Re-sending instruction while agent is working
-- Guessing clarifications instead of checking project files
-- Not waiting for agent acknowledgment
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.
+ONLY when the instruction or recommendation request has been sent and the agent is confirmed ready to work (generic: acknowledged receipt; BMAD: recommendation exchanged and "proceed" sent), load and read fully {nextStepFile}

@@ -12,44 +12,19 @@ nextStepFile: './step-07-present-and-approve.md'
 
 Before presenting to the user, verify that everything established in prior steps is in place, accurate, and consistent. Do not present an incomplete baseline.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on verification and consistency checking of existing baseline files
-- 🚫 FORBIDDEN to create new files -- only verify and fix what exists
-- 💬 Approach: Systematic cross-file verification with clear pass/fail reporting
-- 📋 Fix any issues found BEFORE proceeding -- do not present an incomplete baseline
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Verify each baseline file individually, then cross-check for consistency
-- 💾 Record verification results before proceeding
-- 📖 Load next step only after all checks pass and best practices research is complete
-- 🚫 FORBIDDEN to proceed with known verification failures
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: All files created in Steps 3-5, user-confirmed information from Step 2
 - Focus: Verification and consistency checking only -- no new file creation
 - Limits: Do not create new files here. Only verify what already exists. Fix any issues found before proceeding.
 - Dependencies: Steps 1-5 complete with all baseline files created and dispatch infrastructure verified
+
+- Focus only on verification and consistency checking of existing baseline files
+**Behavioral Constraints:**
+- FORBIDDEN to create new files -- only verify and fix what exists
+- Approach: Systematic cross-file verification with clear pass/fail reporting
+- Fix any issues found BEFORE proceeding -- do not present an incomplete baseline
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -152,28 +127,3 @@ Display: "**Baseline verification complete. All checks passed. Best practices re
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN [C continue option] is selected and [all verification checks pass with zero failures AND initial best practices research is complete], will you then read fully and follow: `{nextStepFile}` to begin approval presentation.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every verification item was individually checked
-- All files are consistent with each other
-- All content traces to user-confirmed input
-- No assumptions are being carried forward
-- Any issues found were fixed before proceeding
-- Best practices research completed for confirmed tech stack
-- Menu presented and user input handled correctly
-
-### ❌ SYSTEM FAILURE:
-
-- Presenting baseline with known issues
-- Skipping verification checks to save time
-- Not cross-checking consistency between files
-- Carrying assumptions into the next step
-- Skipping best practices research
-- Proceeding without user selecting 'C' (Continue)
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

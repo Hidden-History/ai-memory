@@ -12,44 +12,19 @@ nextStepFile: './step-02-update-tracking.md'
 
 Create a comprehensive summary of everything accomplished during this session: tasks completed, decisions made, blockers encountered, issues resolved, and files modified.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on summarizing what happened — no planning or forward actions
-- 🚫 FORBIDDEN to add commentary, assumptions, or future recommendations
-- 💬 Approach: Systematic cataloging of completed work, decisions, blockers, and learnings
-- 📋 Session index maintenance must be checked before compiling executive summary
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Catalog all session activity before writing the executive summary
-- 💾 Compile executive summary from cataloged items before proceeding
-- 📖 Load next step only after complete session summary is compiled
-- 🚫 FORBIDDEN to proceed without a complete summary including all catalog sections
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Full conversation history from this session, task tracker at `{oversight_path}/tracking/task-tracker.md`, decision log, blockers log
 - Focus: Session summarization only — do not begin tracking file updates
 - Limits: Summarize what happened — do not add commentary or planning
 - Dependencies: None — this is the first step of the session close workflow
+
+- Focus on summarizing what happened — no planning or forward actions
+**Behavioral Constraints:**
+- FORBIDDEN to add commentary, assumptions, or future recommendations
+- Approach: Systematic cataloging of completed work, decisions, blockers, and learnings
+- Session index maintenance must be checked before compiling executive summary
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -151,31 +126,22 @@ Write a 2-3 sentence summary:
 - Current state of the project
 - What should happen next
 
-## CRITICAL STEP COMPLETION NOTE
+### 10. Update Sanctum Files
 
-ONLY when the complete session summary is compiled, load and read fully {nextStepFile}
+After creating the session handoff, update the Parzival sanctum:
+
+1. **LORE.md** — If this session produced new high-value project knowledge (architectural decisions, validated patterns, key learnings), append a curated entry to `{project-root}/_ai-memory/sanctum/parzival/LORE.md`. Keep under 200 lines total — if approaching the limit, consolidate older entries.
+
+2. **BOND.md** — If the user provided new feedback about how Parzival should work (corrections, preferences, confirmed approaches), update the relevant section in `{project-root}/_ai-memory/sanctum/parzival/BOND.md`.
+
+3. **CREED.md frontmatter** — Increment `sessions_completed` and update `last_session` date in the YAML frontmatter.
+
+4. **PERSONA.md evolution log** — Append a one-line session entry to the evolution log if identity-relevant changes occurred this session.
+
+If sanctum files don't exist (not yet initialized), skip this section silently.
 
 ---
 
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
+## CRITICAL STEP COMPLETION NOTE
 
-### ✅ SUCCESS:
-
-- Every completed work item is cataloged
-- Every decision, blocker, and issue is accounted for
-- All modified files are listed
-- Pending items are identified for the next step
-- Learnings captured (or explicitly noted as none)
-- Session index maintenance checked (sharded if needed)
-- Executive summary accurately represents the session
-
-### ❌ SYSTEM FAILURE:
-
-- Missing completed work items
-- Forgetting decisions or blockers that occurred during the session
-- Incomplete file modification list
-- Skipping learning capture entirely
-- Letting SESSION_WORK_INDEX.md exceed 80 lines without sharding
-- Vague executive summary
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.
+ONLY when the complete session summary is compiled, load and read fully {nextStepFile}

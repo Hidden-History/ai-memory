@@ -13,44 +13,19 @@ handoffTemplate: '{project-root}/_ai-memory/pov/templates/session-handoff.templa
 
 Write the captured state to a handoff file in the session logs directory using the standard handoff format.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on writing and verifying the handoff file — do not update tracking files yet
-- 🚫 FORBIDDEN to leave any sections empty or omit captured state from Step 1
-- 💬 Approach: Use template if available, otherwise use the standard format below
-- 📋 Verify the written file by reading it back before proceeding
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Write the handoff file to the correct session-logs path with proper naming convention
-- 💾 Verify the file was written correctly by reading it back
-- 📖 Load next step only after the file is written and verified
-- 🚫 FORBIDDEN to proceed without confirming all state from Step 1 is present in the file
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: All state captured in Step 1
 - Focus: Writing and verifying the handoff file only
 - Limits: Write the handoff file — do not update tracking files (that is the next step or the closeout workflow's job)
 - Dependencies: Step 1 must be complete — all state categories captured
+
+- Focus only on writing and verifying the handoff file — do not update tracking files yet
+**Behavioral Constraints:**
+- FORBIDDEN to leave any sections empty or omit captured state from Step 1
+- Approach: Use template if available, otherwise use the standard format below
+- Verify the written file by reading it back before proceeding
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -143,23 +118,3 @@ Confirm the file was written by reading it back. Verify:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN the handoff file is written and verified, will you then read fully and follow: `{nextStepFile}` to begin updating the index.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Handoff file is created at the correct path
-- All state from Step 1 is present in the file
-- Format follows the template
-- File is verified after writing
-
-### ❌ SYSTEM FAILURE:
-
-- Writing to the wrong path
-- Omitting captured state
-- Leaving empty sections
-- Not verifying the written file
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -12,44 +12,19 @@ nextStepFile: './step-02-present-to-user.md'
 
 Before presenting anything to the user, Parzival assembles a complete approval package. This is never improvised -- it is always structured. The package contains what was done, how it was verified, what was found, what requires a decision, and what comes next.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on assembling a complete approval package — do not begin presenting yet
-- 🚫 FORBIDDEN to copy agent output directly — write in Parzival's own words
-- 💬 Approach: Systematic assembly with quality check before advancing
-- 📋 Package must contain all five sections before marking step complete
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Assemble all five package sections in Parzival's own words
-- 💾 Record the assembled package and quality check result
-- 📖 Load next step only after quality check passes
-- 🚫 FORBIDDEN to proceed with incomplete or unverified package
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Review cycle summary, task output, phase status, all pass records, all classification records
 - Focus: Package assembly only — do not begin presenting to user
 - Limits: Write in Parzival's own words. Never copy agent output directly.
 - Dependencies: Completed WF-REVIEW-CYCLE or WF-EXECUTION phase output
+
+- Focus on assembling a complete approval package — do not begin presenting yet
+**Behavioral Constraints:**
+- FORBIDDEN to copy agent output directly — write in Parzival's own words
+- Approach: Systematic assembly with quality check before advancing
+- Package must contain all five sections before marking step complete
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -97,25 +72,3 @@ Based on the type of approval:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the approval package is assembled and quality-checked, load and read fully `{nextStepFile}`
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Package contains all five sections
-- Written in Parzival's own words
-- Quality check passes all items
-- Appropriate format identified
-- Next step loaded only after quality check passes
-
-### ❌ SYSTEM FAILURE:
-
-- Copying agent output instead of writing summary
-- Missing sections in the package
-- Including unverified claims
-- Presenting without quality check
-- Proceeding to step-02 without a complete, verified package
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

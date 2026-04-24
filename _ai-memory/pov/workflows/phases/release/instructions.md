@@ -2,6 +2,7 @@
 name: 'phases-release-instructions'
 description: 'Release phase: compile changelog, deployment checklist, rollback plan, verification, final approval'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # phases-release — Instructions
 
@@ -10,7 +11,7 @@ description: 'Release phase: compile changelog, deployment checklist, rollback p
 - Sprint integration has been approved through the integration phase
 - All sprint stories are in a complete state
 - Release artifacts (changelog template, deployment checklist) are accessible
-- Dev agent (`bmad-bmm-dev`) is available for deployment verification
+- Dev agent (`bmad-agent-dev`) is available for deployment verification
 
 ## Workflow Overview
 

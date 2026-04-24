@@ -11,6 +11,12 @@ authority: These constraints supplement global constraints during init phase
 > **Loaded**: When init workflow is activated
 > **Authority**: Supplements global constraints. If conflict, global wins.
 
+## Priority Rule
+
+**If any Init constraint conflicts with a global constraint — the global constraint wins.**
+
+Global constraints (GC-01 through GC-21) are always active. The constraints below are specific to the Init phase and add additional rules that apply only while WF-INIT-NEW or WF-INIT-EXISTING is running. When Init exits, these constraints are dropped.
+
 ## Constraint Summary
 
 | ID | Name | Severity |

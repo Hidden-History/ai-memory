@@ -12,44 +12,19 @@ nextStepFile: './step-03-create-handoff.md'
 
 Update all tracking files to reflect the session's outcomes. Task status changes require user confirmation. Unlogged decisions and blockers are added to their respective logs.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on updating tracking files with confirmed status changes
-- 🚫 FORBIDDEN to update task status without explicit user confirmation
-- 💬 Approach: Present proposed changes, wait for confirmation, then execute
-- 📋 Unlogged decisions and blockers must be added even if no task status changes occur
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Present task status update table and wait for user confirmation before executing
-- 💾 Record all approved changes to tracking files immediately after confirmation
-- 📖 Load next step only after all tracking files are updated and user has confirmed
-- 🚫 FORBIDDEN to modify any tracking file without user approval
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Session summary from Step 1, tracking files at `{oversight_path}/tracking/`
 - Focus: Tracking file updates only — do not create handoff document yet
 - Limits: All task status changes require user confirmation before executing
 - Dependencies: Session summary from Step 1 is required
+
+- Focus on updating tracking files with confirmed status changes
+**Behavioral Constraints:**
+- FORBIDDEN to update task status without explicit user confirmation
+- Approach: Present proposed changes, wait for confirmation, then execute
+- Unlogged decisions and blockers must be added even if no task status changes occur
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -117,23 +92,3 @@ After all updates, confirm:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when all tracking files are updated and the user has confirmed status changes, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Task status changes are confirmed by the user before executing
-- All unlogged decisions and blockers are added
-- User is asked about documentation updates
-- Tracking files accurately reflect the session outcome
-
-### ❌ SYSTEM FAILURE:
-
-- Updating task status without user confirmation
-- Skipping unlogged decisions or blockers
-- Not asking about documentation updates
-- Leaving tracking files in an inconsistent state
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

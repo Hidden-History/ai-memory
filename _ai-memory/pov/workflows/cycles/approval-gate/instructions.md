@@ -2,6 +2,7 @@
 name: 'cycles-approval-gate-instructions'
 description: 'User approval gate: prepare package, present summary, process response, record outcome'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # cycles-approval-gate — Instructions
 

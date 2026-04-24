@@ -94,4 +94,4 @@ if emit_trace_event:
 
 2. Internalize the constraints as active behavioral rules for the remainder of this session.
 
-3. If no constraints are found, continue without — file-based context (MEMORY.md, oversight/) provides sufficient guidance.
+3. If no constraints are found or the skill fails to load, STOP and report to the user immediately. Do not continue the session without constraints active — the constraint system is a mandatory safety layer, not optional context.

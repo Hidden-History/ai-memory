@@ -2,6 +2,7 @@
 name: 'session-status-checklist'
 description: 'Quality gate rubric for session-status'
 ---
+> **Note**: This file is a BMAD module quality gate summary. The authoritative execution path is `workflow.md` → step files. If this checklist conflicts with step file content, the step files are canonical.
 
 # Session Status — Validation Checklist
 

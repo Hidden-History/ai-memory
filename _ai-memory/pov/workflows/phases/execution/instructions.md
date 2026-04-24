@@ -2,13 +2,14 @@
 name: 'phases-execution-instructions'
 description: 'Execution phase: verify story requirements, dispatch dev, run review cycle, approve completed task'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # phases-execution — Instructions
 
 ## Prerequisites
 
 - An approved sprint plan with story files from the planning phase
-- Dev agent (`bmad-bmm-dev`) is available for dispatching
+- Dev agent (`bmad-agent-dev`) is available for dispatching
 - The story to be executed has acceptance criteria defined in its story file
 
 ## Workflow Overview

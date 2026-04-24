@@ -12,44 +12,19 @@ nextStepFile: './step-02-retrospective.md'
 
 Before activating any agent, Parzival reads the current state to understand what is available, what has changed, and what the sprint planning inputs are.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on reading and assessing project state — do not activate agents
-- 🚫 FORBIDDEN to modify files or activate any agent during state review
-- 💬 Approach: Systematic read of all project artifacts in specified order
-- 📋 Must identify first sprint vs subsequent sprint correctly
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Read all specified project files and extract relevant state data
-- 💾 Record state summary with specific quantities before proceeding
-- 📖 Load next step only after state summary is complete
-- 🚫 FORBIDDEN to activate agents or modify files during this step
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: sprint-status.yaml (if exists), epics/, architecture.md, PRD.md, decisions.md
 - Focus: State assessment only — do not activate agents or modify files
 - Limits: Only read and assess. Do not activate agents. Do not modify files.
 - Dependencies: None — this is the first step of the planning workflow
+
+- Focus on reading and assessing project state — do not activate agents
+**Behavioral Constraints:**
+- FORBIDDEN to modify files or activate any agent during state review
+- Approach: Systematic read of all project artifacts in specified order
+- Must identify first sprint vs subsequent sprint correctly
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -108,21 +83,3 @@ If sprint-status.yaml does not exist or this is sprint 1: skip retrospective in 
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when state review is complete, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All relevant files read and assessed
-- State summary is specific and quantified
-- First sprint vs subsequent sprint correctly identified
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping state review and going directly to planning
-- Not reading architecture.md for updates since last sprint
-- Not identifying carryover stories
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

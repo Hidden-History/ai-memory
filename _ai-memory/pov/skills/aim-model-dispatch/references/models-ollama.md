@@ -42,10 +42,12 @@ Balanced performance and speed. Good default choice for most tasks.
 | Model | Notes |
 |-------|-------|
 | `glm-5:cloud` | **Default** — GLM-5, reliable all-rounder |
+| `glm-5.1:cloud` | GLM-5.1, newer patch of GLM-5 (user-preferred) |
 | `glm-4.7:cloud` | GLM-4.7, previous generation |
 | `minimax-m2.5:cloud` | MiniMax M2.5, good general performance |
 | `minimax-m2:cloud` | MiniMax M2, previous generation |
 | `kimi-k2.5:cloud` | Kimi K2.5, strong on Chinese and English tasks |
+| `kimi-k2.6:cloud` | Kimi K2.6, successor to K2.5 (user-preferred) |
 
 ### Vision Models
 
@@ -110,10 +112,12 @@ qwen3.5:397b-cloud
 mistral-large-3:675b-cloud
 deepseek-v3.2:cloud
 glm-5:cloud
+glm-5.1:cloud
 glm-4.7:cloud
 minimax-m2.5:cloud
 minimax-m2:cloud
 kimi-k2.5:cloud
+kimi-k2.6:cloud
 qwen3-vl:235b-cloud
 qwen3-vl:235b-instruct-cloud
 kimi-k2-thinking:cloud

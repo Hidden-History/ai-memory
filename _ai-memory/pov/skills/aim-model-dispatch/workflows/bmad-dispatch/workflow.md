@@ -49,7 +49,7 @@ The backend selection affects:
 
 ## Two-Phase Activation
 
-**Phase 1 (Activation):** Sending `/bmad-agent-bmm-{type}` causes the Claude instance to load its persona and present a menu.
+**Phase 1 (Activation):** Sending `/bmad-agent-{type}` causes the Claude instance to load its persona and present a menu.
 
 **Phase 2 (Task):** After the menu appears, send the menu selection code (e.g., `DS` for Dev Story) or direct task text.
 

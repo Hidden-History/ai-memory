@@ -76,19 +76,3 @@ Present using this exact format:
 Need details on anything specific?
 ```
 
----
-
-## SYSTEM SUCCESS/FAILURE METRICS
-
-### SUCCESS:
-- All available tracking files were read
-- Status is accurate and reflects current file contents
-- Output is concise and follows the defined format
-- No recommendations were given unless asked
-
-### FAILURE:
-- Skipping tracking files that exist
-- Providing inaccurate status information
-- Giving unsolicited recommendations
-- Modifying any files during status check
-- Treating this as a full session start

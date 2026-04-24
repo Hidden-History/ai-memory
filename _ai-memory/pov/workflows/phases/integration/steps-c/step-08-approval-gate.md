@@ -11,44 +11,19 @@ description: 'Route to approval gate for integration sign-off before Release pha
 
 Route to {workflows_path}/cycles/approval-gate/workflow.md for integration sign-off. On approval, route to WF-RELEASE. This is the terminal step.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Prepare complete integration approval package and invoke approval-gate workflow
-- 🚫 FORBIDDEN to begin Release phase without explicit approval
-- 💬 Approach: Present comprehensive approval package with full integration summary
-- 📋 Integration approval confirms production-readiness — all implications must be communicated
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Prepare approval package and invoke approval-gate workflow
-- 💾 Update project-status.md and sprint-status.yaml on approval
-- 📖 Load WF-RELEASE only after approval is received
-- 🚫 FORBIDDEN to begin Release phase without user approval via approval gate
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Final verification results, integration summary
 - Focus: Approval gate invocation and handling approval result
 - Limits: Do not begin Release until approval. Integration approval confirms production-readiness.
 - Dependencies: Final verification results from Step 7 are required
+
+- Prepare complete integration approval package and invoke approval-gate workflow
+**Behavioral Constraints:**
+- FORBIDDEN to begin Release phase without explicit approval
+- Approach: Present comprehensive approval package with full integration summary
+- Integration approval confirms production-readiness — all implications must be communicated
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -107,22 +82,3 @@ Options:
 - Update sprint-status.yaml: milestone INTEGRATION PASSED
 - Route to WF-RELEASE after approval is received
 - Mark integration workflow as complete in project-status.md
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Approval gate invoked with complete package
-- Production-readiness implications communicated
-- Correct routing on approval
-- Rejection handled with appropriate re-entry
-
-### ❌ SYSTEM FAILURE:
-
-- Starting release without approval
-- Not communicating production-readiness implications
-- Partial re-integration after rejection (must be full)
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

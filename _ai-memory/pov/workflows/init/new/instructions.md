@@ -2,6 +2,7 @@
 name: 'init-new-instructions'
 description: 'New project initialization: gather info, define goals, create baseline files, establish oversight structure'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # init-new — Instructions
 

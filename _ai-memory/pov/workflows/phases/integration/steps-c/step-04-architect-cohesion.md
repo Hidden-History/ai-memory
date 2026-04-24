@@ -12,44 +12,19 @@ nextStepFile: './step-05-review-findings.md'
 
 Define the cohesion check criteria and dispatch the Architect via the agent-dispatch cycle to verify the architecture is intact across the full feature set. Individual story reviews cannot catch system-level architecture drift.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Prepare six-area cohesion check instruction and dispatch Architect via agent-dispatch cycle
-- 🚫 FORBIDDEN to dispatch Architect directly — must use agent-dispatch workflow
-- 💬 Approach: Structured dispatch with architecture.md and DEV report, receive cohesion verdict
-- 📋 Architect checks cohesion — Parzival classifies findings in next step
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Dispatch Architect via agent-dispatch cycle with architecture.md and DEV review report
-- 💾 Record Architect cohesion assessment with CONFIRMED or ISSUES FOUND verdict
-- 📖 Load next step only after Architect cohesion assessment is received
-- 🚫 FORBIDDEN to proceed without receiving cohesion assessment from Architect
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: architecture.md, all modified files, DEV review report
 - Focus: Architect dispatch and receiving cohesion verdict — do not classify findings yet
 - Limits: Architect checks cohesion. Parzival classifies findings in next step.
 - Dependencies: DEV review report from Step 3 is required
+
+- Prepare six-area cohesion check instruction and dispatch Architect via agent-dispatch cycle
+**Behavioral Constraints:**
+- FORBIDDEN to dispatch Architect directly — must use agent-dispatch workflow
+- Approach: Structured dispatch with architecture.md and DEV report, receive cohesion verdict
+- Architect checks cohesion — Parzival classifies findings in next step
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -87,23 +62,3 @@ Architect returns:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN Architect cohesion assessment is received, will you then read fully and follow: `{nextStepFile}` to begin reviewing all findings.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All six cohesion areas reviewed
-- Clear CONFIRMED or ISSUES FOUND verdict
-- Issues documented with architectural basis
-- Dispatched through agent-dispatch workflow
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping cohesion check
-- Accepting vague cohesion assessment
-- Not providing DEV review report as context
-- Architect dispatched directly
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

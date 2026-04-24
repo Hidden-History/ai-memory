@@ -2,6 +2,7 @@
 name: 'session-start-checklist'
 description: 'Quality gate rubric for session-start'
 ---
+> **Note**: This file is a BMAD module quality gate summary. The authoritative execution path is `workflow.md` → step files. If this checklist conflicts with step file content, the step files are canonical.
 
 # Session Start — Validation Checklist
 
@@ -23,12 +24,6 @@ description: 'Quality gate rubric for session-start'
 - [ ] Results were incorporated or unavailability was noted
 - [ ] Session was not blocked due to Qdrant failures
 - [ ] File-based context from Step 1 was preserved
-
-### Step 1c: Parzival Constraints (step-01c-parzival-constraints)
-- [ ] Constraint skill was invoked
-- [ ] Constraints were internalized or fallback was noted
-- [ ] Active constraint set is documented
-- [ ] Session was not blocked due to skill failures
 
 ### Step 2: Compile Status (step-02-compile-status)
 - [ ] All loaded context is reflected in the status report
@@ -59,7 +54,6 @@ description: 'Quality gate rubric for session-start'
 - [ ] Did NOT retry Qdrant in a loop
 - [ ] Did NOT skip bootstrap entirely without attempting
 - [ ] Did NOT lose file-based context from Step 1
-- [ ] Did NOT skip constraint loading entirely
 - [ ] Did NOT override global constraints with phase constraints
 - [ ] Did NOT omit loaded context from the status report
 - [ ] Did NOT add recommendations or opinions to the compiled report

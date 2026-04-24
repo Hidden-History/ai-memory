@@ -11,54 +11,27 @@ description: 'Attempt Qdrant save with graceful degradation, then present final 
 
 Attempt to save the handoff and task state to Qdrant for cross-session AI-searchable retrieval. If Qdrant is unavailable, log and continue -- file writes are the primary record. Then present the final closeout confirmation.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on Qdrant save attempts and final closeout confirmation
-- 🚫 FORBIDDEN to block closeout because Qdrant is unavailable
-- 💬 Approach: Attempt saves gracefully, present final checklist, handle user requests
-- 📋 File writes are the primary record — Qdrant is secondary and optional
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Attempt both Qdrant saves before presenting final confirmation
-- 💾 Present accurate closeout checklist reflecting all session work completed
-- 📖 This is a terminal step — no next step to load
-- 🚫 FORBIDDEN to retry Qdrant in a loop or block closeout if unavailable
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Handoff document from Step 3, session summary from Step 1
 - Focus: Qdrant save attempts and final closeout confirmation
 - Limits: Qdrant save is secondary — NEVER block closeout because Qdrant is unavailable
 - Dependencies: Handoff document from Step 3 is required
 
+- Focus on Qdrant save attempts and final closeout confirmation
+**Behavioral Constraints:**
+- FORBIDDEN to block closeout because Qdrant is unavailable
+- Approach: Attempt saves gracefully, present final checklist, handle user requests
+- File writes are the primary record — Qdrant is secondary and optional
+
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
 ### 1. Attempt Qdrant Handoff Save
 
-Run the handoff save script through the installed ai-memory wrapper:
+Invoke the handoff save skill:
 
-```bash
-"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" parzival_save_handoff.py --file {handoff_path}
-```
+/parzival-save-handoff --file {handoff_path}
 
 Where {handoff_path} is the file created in Step 3 (e.g., `{oversight_path}/session-logs/SESSION_HANDOFF_{date}.md`).
 
@@ -74,11 +47,9 @@ Continue with closeout. Do NOT retry. Do NOT block.
 
 ### 2. Attempt Qdrant Task State Save
 
-Run the insight save script through the installed ai-memory wrapper with current task state:
+Invoke the insight save skill with current task state:
 
-```bash
-"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" parzival_save_insight.py "Active task: [TASK_ID] [TITLE] - [STATUS]. Next: [NEXT_STEP]. Key decisions: [DECISIONS]. Blockers: [BLOCKERS]."
-```
+/parzival-save-insight "Active task: [TASK_ID] [TITLE] - [STATUS]. Next: [NEXT_STEP]. Key decisions: [DECISIONS]. Blockers: [BLOCKERS]."
 
 **If skill succeeds**: Note success.
 
@@ -130,24 +101,3 @@ If the user confirms closure:
 - Present final closeout confirmation with session summary
 - File writes are the primary record — Qdrant is supplementary
 - Session is formally closed after user confirmation
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Qdrant save is attempted but does not block closeout if unavailable
-- Final confirmation includes accurate checklist
-- User has opportunity to add final items
-- Session ends cleanly with all tracking current
-
-### ❌ SYSTEM FAILURE:
-
-- Blocking closeout because Qdrant is unavailable
-- Retrying Qdrant save in a loop
-- Presenting incomplete checklist
-- Ending session without user confirmation
-- Not offering the user a chance for final items
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

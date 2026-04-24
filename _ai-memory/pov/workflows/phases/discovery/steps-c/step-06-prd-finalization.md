@@ -12,44 +12,19 @@ nextStepFile: './step-07-approval-gate.md'
 
 When the user has no more changes, run a final review, verify the PRD is saved correctly, and update project tracking files in preparation for the approval gate.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on final review, PRD save verification, and approval package preparation
-- 🚫 FORBIDDEN to modify PRD content beyond what the final review checklist identifies
-- 💬 Systematic final pass using the same four checklists from Step 4
-- 📋 Prepare complete approval package before routing to Step 7
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Run final review using all four checklists from Step 4
-- 💾 Update project-status.md and compile complete approval package
-- 📖 Load next step only after all finalization tasks are complete
-- 🚫 FORBIDDEN to proceed to approval gate with incomplete or unverified PRD
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Final PRD.md, project-status.md, decisions.md
 - Focus: Final review, file verification, and approval package preparation
 - Limits: Do not modify the PRD beyond what the review checklist identifies. The user has signed off on content.
 - Dependencies: User-approved PRD.md from Step 5 iteration cycle
+
+- Focus on final review, PRD save verification, and approval package preparation
+**Behavioral Constraints:**
+- FORBIDDEN to modify PRD content beyond what the final review checklist identifies
+- Systematic final pass using the same four checklists from Step 4
+- Prepare complete approval package before routing to Step 7
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -95,24 +70,3 @@ Document what signing off on this PRD commits to:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when finalization is complete and approval package is prepared, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Final review passed with zero issues
-- All user feedback confirmed incorporated
-- PRD saved at correct location
-- Project status updated
-- Approval package is prepared with all required sections
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping the final review
-- PRD location is wrong or inaccessible
-- Not updating project-status.md
-- Preparing incomplete approval package
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

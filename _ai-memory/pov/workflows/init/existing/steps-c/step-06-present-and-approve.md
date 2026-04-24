@@ -11,44 +11,19 @@ description: 'Present the complete onboarding audit to the user and route to app
 
 Present the complete project audit results to the user via {workflows_path}/cycles/approval-gate/workflow.md. On approval, update project status and route to the correct phase workflow. This is the terminal step of the init-existing workflow.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on presenting the complete approval package and routing to correct phase
-- 🚫 FORBIDDEN to begin phase work without explicit user approval via approval gate
-- 💬 Approach: Prepare comprehensive approval package, invoke approval gate workflow
-- 📋 Project-status.md must be updated on approval before loading next phase
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Prepare approval package and invoke approval gate workflow
-- 💾 Update project-status.md with confirmed state on approval
-- 📖 Load correct phase workflow based on confirmed branch and project state
-- 🚫 FORBIDDEN to skip the approval gate or begin phase work without sign-off
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: All verified findings, updated baseline files, confirmed exit route
 - Focus: Approval presentation and phase routing only — do not begin phase work
 - Limits: Do not begin any phase work until approval is received. Do not skip the approval gate.
 - Dependencies: Step 5 completeness verification must pass before presenting
+
+- Focus on presenting the complete approval package and routing to correct phase
+**Behavioral Constraints:**
+- FORBIDDEN to begin phase work without explicit user approval via approval gate
+- Approach: Prepare comprehensive approval package, invoke approval gate workflow
+- Project-status.md must be updated on approval before loading next phase
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -116,7 +91,13 @@ For ALL exits:
 1. Update project-status.md with confirmed current state
 2. Confirm route to user before loading next workflow
 3. Drop {constraints_path}/init/ constraints
-4. Load new phase constraint files
+4. Load the phase constraint file matching the selected branch:
+   - Branch A or Branch C (valid): `{constraints_path}/execution/constraints.md`
+   - Branch B (Legacy, no PRD): `{constraints_path}/discovery/constraints.md`
+   - Branch B (Legacy, PRD exists, no architecture): `{constraints_path}/architecture/constraints.md`
+   - Branch B (Legacy, both exist): `{constraints_path}/planning/constraints.md`
+   - Branch C (reassess): `{constraints_path}/planning/constraints.md`
+   - Branch D (Handoff): phase constraint matching the resumed phase
 
 **IF REJECTED:**
 - Receive specific corrections
@@ -135,24 +116,3 @@ For ALL exits:
 - Drop init/ constraints, load new phase constraint files
 - Route to correct phase workflow based on confirmed branch and project state
 - Confirm route to user before loading next workflow
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Complete approval package presented with all sections
-- Approval gate was invoked (not bypassed)
-- Correct phase workflow loaded based on audit findings
-- Project status updated accurately on approval
-- Clean handoff to the correct phase
-
-### ❌ SYSTEM FAILURE:
-
-- Beginning phase work without explicit user approval
-- Routing to the wrong phase workflow
-- Not updating project-status.md on approval
-- Bypassing the approval gate
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

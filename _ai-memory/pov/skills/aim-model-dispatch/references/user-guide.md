@@ -282,21 +282,21 @@ All BMAD tasks use two-phase activation: first the agent persona loads, then you
 ### Code Review
 
 ```
-dispatch to ollama: Activate /bmad-agent-bmm-dev, then CR to review auth module
+dispatch to ollama: Activate /bmad-agent-dev, then CR to review auth module
 send to openrouter with claude-sonnet-4-6: Activate dev agent, run CR on api/
 ```
 
 ### Implement a Story
 
 ```
-dispatch to ollama: Activate /bmad-agent-bmm-dev, then DS for story 1.5
+dispatch to ollama: Activate /bmad-agent-dev, then DS for story 1.5
 use openrouter with openai/gpt-4o: Activate dev agent, DS story-1-6.md
 ```
 
 ### Create PRD
 
 ```
-dispatch to claude: Activate /bmad-agent-bmm-pm, then CP for notification system
+dispatch to claude: Activate /bmad-agent-pm, then CP for notification system
 send to ollama: Activate PM agent, CP to create PRD for billing
 ```
 
@@ -307,26 +307,16 @@ dispatch to openrouter: Activate tech-writer, VD to validate docs/
 use ollama: Activate tech-writer agent, validate the SKILL.md
 ```
 
-### Sprint Planning
-
-```
-dispatch to claude: Activate /bmad-agent-bmm-sm for sprint planning on epic 2
-send to ollama: Activate SM agent, run sprint status check
-```
-
 ### All Available BMAD Agents
 
 | Agent | Command | Use |
 |-------|---------|-----|
-| Dev | `/bmad-agent-bmm-dev` | Code, review, implementation |
-| PM | `/bmad-agent-bmm-pm` | PRD, epics, planning |
-| Tech Writer | `/bmad-agent-bmm-tech-writer` | Docs, explanation |
-| Analyst | `/bmad-agent-bmm-analyst` | Research, analysis |
-| Architect | `/bmad-agent-bmm-architect` | Design, architecture |
-| Scrum Master | `/bmad-agent-bmm-sm` | Sprint, retrospectives |
-| QA | `/bmad-agent-bmm-qa` | Tests, automation |
-| UX Designer | `/bmad-agent-bmm-ux-designer` | User flow, design |
-| Quick Flow Solo Dev | `/bmad-agent-bmm-quick-flow-solo-dev` | Fast implementation |
+| Dev | `/bmad-agent-dev` | Code, review, implementation |
+| PM | `/bmad-agent-pm` | PRD, epics, planning |
+| Tech Writer | `/bmad-agent-tech-writer` | Docs, explanation |
+| Analyst | `/bmad-agent-analyst` | Research, analysis |
+| Architect | `/bmad-agent-architect` | Design, architecture |
+| UX Designer | `/bmad-agent-ux-designer` | User flow, design |
 | Agent Builder | `/bmad-agent-bmb-agent-builder` | Create new agents |
 | Module Builder | `/bmad-agent-bmb-module-builder` | Build modules |
 | Workflow Builder | `/bmad-agent-bmb-workflow-builder` | Build workflows |

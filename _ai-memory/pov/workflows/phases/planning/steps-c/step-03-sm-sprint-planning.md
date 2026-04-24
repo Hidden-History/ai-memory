@@ -12,44 +12,19 @@ nextStepFile: './step-04-sm-creates-story-files.md'
 
 Define the sprint planning scope and dispatch the SM agent via the agent-dispatch cycle to create or update sprint-status.yaml and select stories for the sprint. First sprint initializes tracking from scratch. Subsequent sprints use velocity and retrospective data.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on defining sprint scope and dispatching SM — do not create story files yet
-- 🚫 FORBIDDEN to dispatch SM directly — must use agent-dispatch workflow
-- 💬 Approach: Determine planning mode (first vs subsequent), then dispatch SM with full context
-- 📋 Sprint scope must be realistic given velocity; carryover stories come first
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Determine planning mode and prepare complete SM instruction with all inputs
-- 💾 Record sprint plan (sprint-status.yaml and story list) when received from SM
-- 📖 Load next step only after sprint plan is received from SM
-- 🚫 FORBIDDEN to activate SM directly outside of agent-dispatch workflow
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: PRD.md, architecture.md, epics/, retrospective output (if any), state summary
 - Focus: Sprint scope definition and SM dispatch — story file creation happens in the next step
 - Limits: SM selects and sequences stories. Parzival reviews in Step 5.
 - Dependencies: State summary from Step 1, retrospective output from Step 2 (if applicable)
+
+- Focus on defining sprint scope and dispatching SM — do not create story files yet
+**Behavioral Constraints:**
+- FORBIDDEN to dispatch SM directly — must use agent-dispatch workflow
+- Approach: Determine planning mode (first vs subsequent), then dispatch SM with full context
+- Sprint scope must be realistic given velocity; carryover stories come first
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -104,23 +79,3 @@ Receive updated sprint-status.yaml and recommended story list with sequence.
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when sprint plan is received from SM, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- SM dispatched through agent-dispatch workflow
-- Sprint mode (first vs subsequent) correctly determined
-- Sprint scope is realistic given velocity (or conservative for first sprint)
-- All selected stories have ready status
-
-### ❌ SYSTEM FAILURE:
-
-- Planning more stories than velocity supports
-- Including stories with unmet dependencies
-- Not distinguishing first sprint from subsequent
-- SM dispatched directly instead of through agent-dispatch
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

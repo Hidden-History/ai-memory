@@ -14,7 +14,7 @@ This file is not a workflow itself. It is the routing engine. Every session star
 **Session start sequence -- always in this order**:
 ```
 1. parzival.md              -> identity and constraints active
-2. {constraints_path}/global/constraints.md -> GC-1 through GC-20 active
+2. {constraints_path}/global/constraints.md -> GC-1 through GC-21 active
 3. {workflows_path}/WORKFLOW-MAP.md         -> this file -- determine routing
 4. project-status.md        -> read current project state
 5. [phase workflow]          -> load correct workflow file
@@ -170,7 +170,7 @@ LOADS:   {constraints_path}/discovery/constraints.md
 ### Architecture
 ```
 WHEN:    Phase 2 -- PRD approved, no architecture.md yet
-AGENTS:  Architect -> PM (epics/stories) -> Architect (readiness check)
+AGENTS:  Architect -> PM (epics/stories) -> Architect (readiness check via [IR] bmad-check-implementation-readiness)
 GOAL:    Produce approved architecture.md + epics + implementation readiness confirmed
 REPEATS: Revisited for major new features that change architecture decisions
 EXIT TO: {workflows_path}/phases/planning/workflow.md
@@ -244,6 +244,52 @@ These workflows are not phases -- they are atomic cycles called from inside phas
 
 ---
 
+## User-Invoked Commands
+
+The decision tree above routes Parzival automatically by project state. In addition, the user can invoke session commands at any time — these are **user-driven**, not state-driven, and do not appear in the Master Decision Tree.
+
+Authoritative registry: `pov/module-help.csv` (rows where `phase = 0-session`).
+
+| Command | Code | Workflow File | Purpose |
+|---|---|---|---|
+| `pov_session_start` | ST | `{workflows_path}/session/start/workflow.md` | Full session initialization: load context, compile status, present recommendation, wait for direction |
+| `pov_session_status` | SU | `{workflows_path}/session/status/workflow.md` | Quick read-only status snapshot — does not initialize a session |
+| `pov_session_blocker` | BL | `{workflows_path}/session/blocker/workflow.md` | Analyze and resolve a reported blocker |
+| `pov_session_decision` | DC | `{workflows_path}/session/decision/workflow.md` | Structure a decision with options and record it |
+| `pov_session_verify` | VE | `{workflows_path}/session/verify/workflow.md` | Run verification protocol (story / code / production types) |
+| `pov_session_handoff` | HO | `{workflows_path}/session/handoff/workflow.md` | Create mid-session state snapshot for handoff |
+| `pov_session_close` | CL | `{workflows_path}/session/close/workflow.md` | Full closeout: summary + handoff + session ends |
+
+**Routing distinction:**
+- Phase/init workflows (sections above): loaded automatically by the Master Decision Tree based on `project-status.md` state
+- Session commands (this section): loaded on explicit user invocation, independent of current phase
+
+**Overlap with phase verification:** `session/verify` is the on-demand audit runner. It is distinct from (a) `cycles/legitimacy-check` — atomic issue classification, invoked by review cycles and maintenance — and (b) `phases/execution/steps-c/step-05-verify-fixes.md` — the four-source fix gate inside the execution review loop. See [Verification Hierarchy](#verification-hierarchy) below.
+
+## Verification Hierarchy
+
+Parzival distinguishes three verification surfaces. They are not interchangeable — each has a defined trigger, scope, and output. Use this table to identify which surface applies before invoking any "verify" work.
+
+| Surface | File | Trigger | Scope | Output | Composes With |
+|---|---|---|---|---|---|
+| **Legitimacy Check** | `{workflows_path}/cycles/legitimacy-check/workflow.md` | Any issue surfaced during review, audit, or maintenance | One issue at a time | LEGITIMATE / NON-ISSUE / UNCERTAIN classification with project file citations | Called from Review Cycle (per-issue) and Maintenance (per bug report) |
+| **Fix Verification (In-Cycle)** | `{workflows_path}/phases/execution/steps-c/step-05-verify-fixes.md` | Review cycle exits with zero legitimate issues; before summary preparation | All fixes applied during the current review cycle | Four-source pass (PRD / architecture / standards / best-practices) — PASS or re-enter review cycle | Runs inside Execution phase; gates Step 6 (summary) |
+| **Verification Protocol (On-Demand)** | `{workflows_path}/session/verify/workflow.md` | User explicitly invokes `pov_session_verify` | One of three verification types: Story / Code / Production | Verification report for the specified type | Invoked by user, independent of current phase |
+
+**How they compose:**
+- A **review cycle** loops: implement → review → classify (→ legitimacy-check per issue) → fix → repeat until zero legitimate issues.
+- When review exits clean, **fix-verification** (step-05) runs as a gate against four authoritative sources before the user sees any summary.
+- **session/verify** is a separate, user-driven audit — not part of any review loop. It produces a verification report against the chosen type's template (story / code / production).
+
+**Decision rule — which surface to use:**
+- An issue arose during review or maintenance → **legitimacy-check**
+- Review cycle just exited clean; need to confirm fixes before presenting → **fix-verification** (automatic per phases/execution)
+- User says "verify [X]" outside any active cycle → **session/verify**; pick the type based on what X is (completed story → Story; code diff → Code; deployment → Production)
+
+**Never:** run fix-verification as a substitute for legitimacy-check; run legitimacy-check on already-classified issues; combine verification types in a single session/verify run.
+
+---
+
 ## Phase Transition Rules
 
 Parzival never advances to the next phase without completing the current phase exit condition. These gates are non-negotiable.
@@ -253,8 +299,8 @@ Parzival never advances to the next phase without completing the current phase e
 | Init New | Discovery | project-status.md + goals.md created, user confirms |
 | Init Existing | Correct phase | Audit complete, current state documented, user confirms |
 | Discovery | Architecture | PRD.md approved by user with explicit sign-off |
-| Architecture | Planning | architecture.md approved + epics created + readiness check passed |
-| Planning | Execution | sprint-status.yaml initialized + at least one story file ready |
+| Architecture | Planning | architecture.md approved + epics created + readiness check passed (dispatch [IR] bmad-check-implementation-readiness) |
+| Planning | Execution | sprint-status.yaml initialized + at least one story file ready + test design reviewed ([TA] bmad-testarch-test-design) |
 | Execution | Planning | Task complete, zero legitimate issues, user approved |
 | Execution | Integration | Milestone hit + all milestone tasks complete to zero issues |
 | Integration | Release | Full test plan passed, cohesion check passed, zero issues |

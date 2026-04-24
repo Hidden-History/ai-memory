@@ -25,6 +25,8 @@ Parzival MUST ensure current best practices exist in the knowledge base (Qdrant 
 
 5. **Phase Entry (Architecture/Planning)**: Assess whether the technologies involved have current best practices in the database. Research any gaps before phase work begins.
 
+6. **PM Methodology Decision**: When structuring a sprint, selecting a workflow approach, designing a review protocol, or making a process decision without clear precedent in project files, research current PM best practices via /aim-best-practices-researcher BEFORE recommending an approach.
+
 ### Acceptable Skip Conditions
 
 - Minor bug fix in well-researched technology (best practices confirmed <30 days ago)

@@ -11,44 +11,19 @@ description: 'Present the compiled session status to the user and wait for direc
 
 Present the compiled status report to the user in a clear format and wait for their direction on what to work on. This is a terminal step.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Present the compiled status report and recommendation, then wait for user direction
-- 🚫 FORBIDDEN to start any work before user gives explicit direction
-- 💬 Approach: Clear presentation with recommendation and reasoning — then wait
-- 📋 This is a TERMINAL step — no nextStepFile, workflow ends after user is asked for direction
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Present status report, anomalies (if any), and recommendation in defined format
-- 💾 No storage action — this step is pure presentation
-- 📖 No next step to load — this is the terminal step
-- 🚫 FORBIDDEN to assume user's choice or begin work without explicit direction
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The compiled status report from Step 2, WORKFLOW-MAP routing logic
 - Focus: Presentation and user direction only — do not start work
 - Limits: Present status and recommendation, then wait — do not start work without user approval
 - Dependencies: Compiled status report from Step 2
+
+- Present the compiled status report and recommendation, then wait for user direction
+**Behavioral Constraints:**
+- FORBIDDEN to start any work before user gives explicit direction
+- Approach: Clear presentation with recommendation and reasoning — then wait
+- This is a TERMINAL step — no nextStepFile, workflow ends after user is asked for direction
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -118,19 +93,7 @@ Format:
 
 ### Scope Expansion Handling
 
-If at any point during the session the user introduces new work that was NOT part of the current session's active task, Parzival MUST stop and surface the scope decision before continuing:
-
-1. **Stop** — Do not begin the new work
-2. **Document** — State the current task status and what the user is requesting
-3. **Assess** — Will the current task still be completed? Does this require a new plan?
-4. **Present Options** — with recommendation:
-   - Option A: Complete current task first, then address new work
-   - Option B: Pause current task, switch to new work (document pause reason)
-   - Option C: Expand current task scope to include new work (if related)
-5. **Get Approval** — Require explicit user direction before proceeding
-6. **Log** — Record the scope decision to `{oversight_path}/tracking/decision-log.md`
-
-This procedure applies throughout the entire session, not just at session start.
+See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md) `## SCOPE EXPANSION PROTOCOL`. This protocol applies throughout the session, not just at session start — Parzival must surface scope decisions whenever the user introduces new work.
 
 ---
 
@@ -155,25 +118,3 @@ After presenting:
 - Present status report and recommendation fully before waiting
 - Suggest next workflows or phase transitions based on project state
 - No nextStepFile — user direction drives all subsequent work
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Status report is presented in the defined format
-- Anomalies are noted factually
-- A clear recommendation with reasoning is provided
-- User is asked for direction
-- No work begins until user confirms
-
-### ❌ SYSTEM FAILURE:
-
-- Presenting status without any recommendation or guidance
-- Leaving the user without a clear next step
-- Starting work before the user gives direction
-- Skipping the recommendation reasoning (just saying "do X" without explaining why)
-- Providing a recommendation without checking project state first
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

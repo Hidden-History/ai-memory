@@ -2,6 +2,7 @@
 name: 'init-existing-instructions'
 description: 'Existing project onboarding: read files, audit state, identify branch (active/legacy/paused/handoff), establish baseline'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # init-existing — Instructions
 
@@ -9,7 +10,7 @@ description: 'Existing project onboarding: read files, audit state, identify bra
 
 - An existing project with prior history (commits, documentation, or prior oversight records) is being brought under Parzival oversight
 - The project directory is accessible
-- Analyst agent (`bmad-bmm-analyst`) is available for the audit
+- Analyst agent (`bmad-agent-analyst`) is available for the audit
 - AI Memory installation (`~/.ai-memory`) must be accessible
 
 ## Workflow Overview

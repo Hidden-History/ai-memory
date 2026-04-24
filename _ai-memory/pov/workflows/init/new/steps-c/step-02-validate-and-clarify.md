@@ -12,44 +12,19 @@ nextStepFile: './step-03-verify-installation.md'
 
 Validate the information gathered in Step 1 for completeness, specificity, and internal consistency. Resolve any vagueness, contradictions, or critical gaps before proceeding. Confirm the validated information with the user.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on validating and clarifying gathered information — no file creation yet
-- 🚫 FORBIDDEN to assume what the user meant or fill gaps with guesses
-- 💬 Approach: Systematic validation with clear flagging of issues
-- 📋 Do not proceed on incomplete or contradictory information
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Validate every required field for clarity, specificity, and consistency
-- 💾 Record validated summary and present to user for confirmation
-- 📖 Load next step only after user explicitly confirms the summary
-- 🚫 FORBIDDEN to proceed without explicit user confirmation
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: User responses from Step 1
 - Focus: Validation and clarification only — do not begin creating files
 - Limits: Do not assume what the user meant. Do not fill gaps with guesses. Do not proceed on incomplete or contradictory information.
 - Dependencies: Step 1 must be complete with user responses recorded
+
+- Focus only on validating and clarifying gathered information — no file creation yet
+**Behavioral Constraints:**
+- FORBIDDEN to assume what the user meant or fill gaps with guesses
+- Approach: Systematic validation with clear flagging of issues
+- Do not proceed on incomplete or contradictory information
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -126,26 +101,3 @@ Display: "**Project foundation validated and confirmed. Ready to verify installa
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN [C continue option] is selected and [user has explicitly confirmed the project foundation summary], will you then read fully and follow: `{nextStepFile}` to begin installation verification.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every required field has been validated for clarity and specificity
-- Contradictions have been flagged and resolved
-- Deferred items are explicitly marked as open
-- User has explicitly confirmed the summary before proceeding
-- No assumptions were made about user intent
-- Menu presented and user input handled correctly
-
-### ❌ SYSTEM FAILURE:
-
-- Proceeding without explicit user confirmation
-- Filling gaps with guesses instead of asking
-- Ignoring contradictions in provided information
-- Treating vague answers as specific decisions
-- Proceeding without user selecting 'C' (Continue)
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

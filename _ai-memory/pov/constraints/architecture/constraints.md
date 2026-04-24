@@ -10,13 +10,13 @@ authority: If any Architecture constraint conflicts with a global constraint, th
 > **Scope**: Active only during WF-ARCHITECTURE
 > **Loaded**: When WF-ARCHITECTURE begins, alongside global constraints
 > **Dropped**: When Architecture exits
-> **Inherits**: All 20 global constraints — these add on top
+> **Inherits**: All 21 global constraints — these add on top
 
 ## Priority Rule
 
 **If any Architecture constraint conflicts with a global constraint — the global constraint wins.**
 
-Global constraints (GC-01 through GC-20) are always active. The constraints below apply only during WF-ARCHITECTURE. When Architecture exits, these constraints are dropped.
+Global constraints (GC-01 through GC-21) are always active. The constraints below apply only during WF-ARCHITECTURE. When Architecture exits, these constraints are dropped.
 
 ## Constraint Summary
 
@@ -44,7 +44,7 @@ Run this checklist after every 10 messages during Architecture:
 - AC-07: Is existing technology being respected (if applicable)?
 - AC-08: Has project-context.md been updated with architecture decisions?
 
-PLUS all 20 global constraint checks from global/constraints.md
+PLUS all 21 global constraint checks from global/constraints.md
 
 IF ANY CHECK FAILS: Course-correct IMMEDIATELY before continuing.
 

@@ -1,7 +1,7 @@
 ---
 id: MC-04
 name: Review Cycle Standards Do Not Relax in Maintenance
-severity: CRITICAL
+severity: HIGH
 phase: maintenance
 ---
 

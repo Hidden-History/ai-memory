@@ -12,19 +12,7 @@ firstStep: './steps-c/step-01-assess-inputs.md'
 
 ## WORKFLOW ARCHITECTURE
 
-This uses **step-file architecture** for disciplined execution:
-
-### Step Processing Rules
-1. **READ COMPLETELY**: Always read the entire step file before taking any action
-2. **FOLLOW SEQUENCE**: Execute numbered sections in order
-3. **WAIT FOR INPUT**: Halt at decision points and wait for user direction
-4. **LOAD NEXT**: When directed, load and execute the next step file
-
-### Critical Rules
-- NEVER load multiple step files simultaneously
-- ALWAYS read entire step file before execution
-- NEVER skip steps unless explicitly optional
-- ALWAYS follow exact instructions in step files
+See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md) for Step Processing Rules and Critical Rules.
 
 ### Step Chain Overview
 1. **step-01** -- Assess inputs and resolve pre-architecture ambiguities
@@ -33,7 +21,7 @@ This uses **step-file architecture** for disciplined execution:
 4. **step-04** -- Parzival reviews architecture.md
 5. **step-05** -- User review and iteration
 6. **step-06** -- PM creates epics and stories
-7. **step-07** -- Architect runs implementation readiness check
+7. **step-07** -- Architect runs implementation readiness check — dispatch `[IR]` via `{project-root}/.claude/skills/bmad-check-implementation-readiness/SKILL.md`
 8. **step-08** -- Finalize architecture and epics
 9. **step-09** -- Approval gate and route to Planning
 

@@ -12,44 +12,19 @@ nextStepFile: './step-05-verify-understanding.md'
 
 Regardless of which branch ran, all baseline files must be current and accurate before exiting. Verify each file against the findings from the audit and branch work. Create any missing files.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on verifying and updating all baseline files to be current and accurate
-- 🚫 FORBIDDEN to insert assumed content — every update must trace to verified findings
-- 💬 Approach: Audit each baseline file individually, then cross-check consistency
-- 📋 Missing required files must be created from appropriate templates
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Audit each baseline file, verify or create, then cross-check consistency
-- 💾 Record verification status for each baseline file
-- 📖 Load next step only after all baseline files verified as current and accurate
-- 🚫 FORBIDDEN to leave baseline files outdated or inconsistent
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: All findings from Steps 1-3, branch-specific work output, confirmed exit route
 - Focus: Baseline file verification and creation only — do not begin next phase work
 - Limits: Every update must trace to verified findings. Do not insert assumed content.
 - Dependencies: Branch-specific work from Step 3 must be complete before baseline verification
+
+- Focus on verifying and updating all baseline files to be current and accurate
+**Behavioral Constraints:**
+- FORBIDDEN to insert assumed content — every update must trace to verified findings
+- Approach: Audit each baseline file individually, then cross-check consistency
+- Missing required files must be created from appropriate templates
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -102,24 +77,3 @@ Verify all baseline files are consistent with each other:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when all baseline files are verified as current and accurate, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every baseline file was individually verified or created
-- All content traces to verified findings (not assumptions)
-- Cross-file consistency is confirmed
-- Missing files were created from appropriate templates
-- Open items are consistently reflected
-
-### ❌ SYSTEM FAILURE:
-
-- Leaving baseline files outdated or inconsistent
-- Creating files with assumed content
-- Not cross-checking consistency between files
-- Skipping file creation for missing required files
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

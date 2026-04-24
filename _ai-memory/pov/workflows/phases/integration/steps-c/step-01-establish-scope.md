@@ -12,44 +12,19 @@ nextStepFile: './step-02-prepare-test-plan.md'
 
 Before any agent is activated, Parzival defines exactly what is being integrated. Compile the scope from sprint status, feature definitions, and integration points.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on scope definition only — no agent dispatch, no review
-- 🚫 FORBIDDEN to activate agents or begin review in this step
-- 💬 Approach: Systematic compilation from sprint status and project files
-- 📋 Scope must be comprehensive — not a spot check
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Compile integration scope from sprint-status.yaml, story files, and architecture
-- 💾 Record integration scope document before proceeding to next step
-- 📖 Load next step only after scope document is fully compiled with all sections
-- 🚫 FORBIDDEN to proceed without identifying integration points and known risks
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: sprint-status.yaml, story files, epic files, architecture.md, PRD.md
 - Focus: Scope definition only — do not activate agents or begin review
 - Limits: Only define scope. Do not activate agents. Do not begin review.
 - Dependencies: Sprint must be complete with all milestone stories confirmed
+
+- Focus on scope definition only — no agent dispatch, no review
+**Behavioral Constraints:**
+- FORBIDDEN to activate agents or begin review in this step
+- Approach: Systematic compilation from sprint status and project files
+- Scope must be comprehensive — not a spot check
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -103,22 +78,3 @@ EXCLUDED: [what is intentionally not part of this pass]
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN integration scope is fully defined, will you then read fully and follow: `{nextStepFile}` to begin preparing the integration test plan.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All milestone stories confirmed complete
-- Integration points specifically identified
-- Known risks documented
-- Scope is comprehensive (not a spot check)
-
-### ❌ SYSTEM FAILURE:
-
-- Missing milestone stories from scope
-- Not identifying integration points
-- Ignoring known risks from development
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

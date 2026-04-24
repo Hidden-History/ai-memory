@@ -12,44 +12,19 @@ nextStepFile: './step-06-parzival-reviews-artifacts.md'
 
 Define the deployment verification scope and dispatch DEV via the agent-dispatch cycle. Before release sign-off, DEV verifies the deployment checklist and rollback plan are executable. DEV performs a dry-run or verification to confirm all items can be followed.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on scoping verification and dispatching DEV via agent-dispatch
-- 🚫 FORBIDDEN to proceed with NOT READY assessment from DEV
-- 💬 Approach: Five verification areas must all be checked — no partial verification
-- 📋 Issues found must be fixed and re-verified before DEPLOYMENT READY is confirmed
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Prepare complete verification instruction covering five areas, dispatch via agent-dispatch
-- 💾 Record DEV verification assessment and any issues found/fixed
-- 📖 Load next step only after DEV confirms DEPLOYMENT READY
-- 🚫 FORBIDDEN to proceed without DEPLOYMENT READY confirmation
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Deployment checklist, rollback plan, architecture.md
 - Focus: Deployment verification dispatch — does not deploy
 - Limits: DEV verifies executability only. Does not deploy.
 - Dependencies: Deployment checklist from Step 3, rollback plan from Step 4
+
+- Focus on scoping verification and dispatching DEV via agent-dispatch
+**Behavioral Constraints:**
+- FORBIDDEN to proceed with NOT READY assessment from DEV
+- Approach: Five verification areas must all be checked — no partial verification
+- Issues found must be fixed and re-verified before DEPLOYMENT READY is confirmed
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -99,23 +74,3 @@ If DEV returns issues:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when DEV confirms DEPLOYMENT READY, load and read fully `{nextStepFile}`
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All five verification areas checked
-- DEPLOYMENT READY confirmed
-- Any issues found were fixed and re-verified
-- DEV dispatched through agent-dispatch workflow
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping deployment verification
-- Proceeding with NOT READY assessment
-- Not re-verifying after fixes
-- DEV dispatched directly
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

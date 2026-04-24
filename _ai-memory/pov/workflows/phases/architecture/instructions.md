@@ -2,15 +2,16 @@
 name: 'phases-architecture-instructions'
 description: 'Architecture phase: assess inputs, dispatch architect, create epics and stories, readiness check'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # phases-architecture — Instructions
 
 ## Prerequisites
 
 - An approved PRD from the discovery phase
-- Architect agent (`bmad-bmm-architect`) is available
-- UX Designer agent (`bmad-bmm-ux-designer`) is available (if UI work is in scope)
-- PM agent (`bmad-bmm-pm`) is available for epics/stories creation
+- Architect agent (`bmad-agent-architect`) is available
+- UX Designer agent (`bmad-agent-ux-designer`) is available (if UI work is in scope)
+- PM agent (`bmad-agent-pm`) is available for epics/stories creation
 
 ## Workflow Overview
 

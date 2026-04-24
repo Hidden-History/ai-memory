@@ -13,44 +13,19 @@ handoffTemplate: '{project-root}/_ai-memory/pov/templates/session-handoff.templa
 
 Write the session handoff document for the next Parzival session and update the SESSION_WORK_INDEX with a reference to it.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on writing the handoff document and updating SESSION_WORK_INDEX
-- 🚫 FORBIDDEN to save to Qdrant in this step — that is Step 4
-- 💬 Approach: Load template if available, write document, verify, then update index
-- 📋 Verify the written handoff by reading it back before marking complete
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Write a complete handoff with all sections populated — no empty sections allowed
-- 💾 Verify handoff by reading file back before updating SESSION_WORK_INDEX
-- 📖 Load next step only after handoff is written, verified, and index is updated
-- 🚫 FORBIDDEN to proceed if any handoff section is empty or contains only placeholders
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Session summary from Step 1, updated tracking from Step 2
 - Focus: Handoff document creation and SESSION_WORK_INDEX update only
 - Limits: Write the handoff and update the index — Qdrant save is in the next step
 - Dependencies: Session summary from Step 1 and updated tracking from Step 2
+
+- Focus on writing the handoff document and updating SESSION_WORK_INDEX
+**Behavioral Constraints:**
+- FORBIDDEN to save to Qdrant in this step — that is Step 4
+- Approach: Load template if available, write document, verify, then update index
+- Verify the written handoff by reading it back before marking complete
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -143,23 +118,3 @@ Add entry to `{oversight_path}/SESSION_WORK_INDEX.md`:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the handoff is written, verified, and the index is updated, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Handoff document is created with all sections populated
-- No empty or placeholder sections
-- SESSION_WORK_INDEX is updated with a reference to the handoff
-- Handoff is verified after writing
-
-### ❌ SYSTEM FAILURE:
-
-- Empty or vague handoff sections
-- Not verifying the written handoff
-- Not updating SESSION_WORK_INDEX
-- "Context for Future Parzival" is empty or generic
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

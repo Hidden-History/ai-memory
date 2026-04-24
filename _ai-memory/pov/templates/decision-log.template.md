@@ -11,3 +11,6 @@ Options:
 Decision: {chosen_option}
 Rationale: {rationale}
 Impact: {impact}
+Follow-Up Scheduled: {follow_up_trigger}
+Outcome: pending
+Status: Active

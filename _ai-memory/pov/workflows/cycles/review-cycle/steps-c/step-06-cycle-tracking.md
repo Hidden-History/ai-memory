@@ -12,44 +12,19 @@ type: reference
 
 Parzival tracks every pass through the review cycle using a structured pass record. This data feeds the user summary and project-status update. This step is called inline from other steps — it is a reference for the tracking format, not a sequential gate.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Maintain accurate pass records using the defined tracking format
-- 🚫 FORBIDDEN to omit any pass or issue count from the record
-- 💬 Approach: Record inline during steps 3-5 — do not reconstruct after the fact
-- 📋 This is a reference step — it does not gate progression
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Record every pass with accurate counts and priority breakdowns
-- 💾 Distinguish new-from-fixes issues from prior-pass issues in tracking data
-- 📖 This data feeds the approval gate summary — accuracy is mandatory
-- 🚫 FORBIDDEN to combine pre-existing fixes with current-task fixes in counts
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: All pass data accumulated during the review cycle
 - Focus: Tracking format definition — actual recording happens inline during steps 3-5
 - Limits: This step defines the tracking format. Actual tracking happens inline during steps 3-5.
 - Dependencies: Pass data from all completed review cycle passes (steps 3-5)
+
+- Maintain accurate pass records using the defined tracking format
+**Behavioral Constraints:**
+- FORBIDDEN to omit any pass or issue count from the record
+- Approach: Record inline during steps 3-5 — do not reconstruct after the fact
+- This is a reference step — it does not gate progression
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -122,24 +97,3 @@ This data feeds into:
 ## CRITICAL STEP COMPLETION NOTE
 
 This step is a reference step. It does not gate progression. The exit step (step-07) is loaded when step-03 determines zero legitimate issues remain.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every pass is recorded with accurate counts
-- Priority breakdowns are tracked for legitimate issues
-- New issues from fixes are counted separately
-- Pre-existing fixes are counted separately
-- Data is available for the approval gate summary
-
-### ❌ SYSTEM FAILURE:
-
-- Missing pass records
-- Inaccurate issue counts
-- Not tracking new issues introduced by fixes
-- Not distinguishing pre-existing fixes from current-task fixes
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

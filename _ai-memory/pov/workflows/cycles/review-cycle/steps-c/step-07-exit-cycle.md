@@ -11,44 +11,19 @@ description: 'Verify all exit conditions are met, prepare the review cycle summa
 
 Verify that all exit conditions are met (zero legitimate issues across all passes, all uncertain issues resolved, all fixes verified), prepare the review cycle summary for WF-APPROVAL-GATE, and hand off. This is the terminal step of the review cycle.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Verify every exit condition individually before declaring cycle complete
-- 🚫 FORBIDDEN to exit with any unresolved legitimate or uncertain issues
-- 💬 Approach: Structured checklist verification against all cannot-exit conditions
-- 📋 Write summary in Parzival's own words — never copy DEV output
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Verify all exit conditions and cannot-exit conditions individually before handoff
-- 💾 Prepare complete review cycle summary before handing off to WF-APPROVAL-GATE
-- 📖 Do not re-open the cycle once exit is confirmed
-- 🚫 FORBIDDEN to hand off without verifying every exit condition is met
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: All pass records, all classification records, the final clean review report, the complete implementation
 - Focus: Exit verification and summary preparation — do not re-process review issues
 - Limits: Do not re-open the cycle once exit is confirmed. Do not advance without verifying every exit condition.
 - Dependencies: All pass records from step-06, final clean review report from step-03/step-05
+
+- Verify every exit condition individually before declaring cycle complete
+**Behavioral Constraints:**
+- FORBIDDEN to exit with any unresolved legitimate or uncertain issues
+- Approach: Structured checklist verification against all cannot-exit conditions
+- Write summary in Parzival's own words — never copy DEV output
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -119,25 +94,3 @@ READY FOR: User approval
 - Prepare complete review cycle summary for WF-APPROVAL-GATE
 - Verify all cannot-exit conditions are explicitly clear before declaring done
 - Hand off to WF-APPROVAL-GATE — do not re-open cycle after exit is confirmed
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every exit condition was individually verified
-- Cannot-exit conditions were explicitly checked
-- Review cycle summary is complete and accurate
-- Summary is written in Parzival's words, not copied from DEV output
-- Clean handoff to WF-APPROVAL-GATE
-
-### ❌ SYSTEM FAILURE:
-
-- Exiting with unresolved legitimate issues
-- Exiting with pending uncertain issues
-- Exiting without verifying all fixes
-- Copying DEV output into the summary instead of writing Parzival's own summary
-- Re-opening the cycle after confirmed exit
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

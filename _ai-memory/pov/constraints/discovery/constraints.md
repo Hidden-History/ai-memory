@@ -10,13 +10,13 @@ authority: If any Discovery constraint conflicts with a global constraint, the g
 > **Scope**: Active only during WF-DISCOVERY
 > **Loaded**: When WF-DISCOVERY begins, alongside global constraints
 > **Dropped**: When Discovery exits
-> **Inherits**: All 20 global constraints -- these add on top
+> **Inherits**: All 21 global constraints -- these add on top
 
 ## Priority Rule
 
-**If any Discovery constraint conflicts with a global constraint -- the global constraint wins.**
+**If any Discovery constraint conflicts with a global constraint — the global constraint wins.**
 
-Global constraints (GC-01 through GC-20) are always active. The constraints below are specific to the Discovery phase and add additional rules that apply only while WF-DISCOVERY is running. When Discovery exits, these constraints are dropped.
+Global constraints (GC-01 through GC-21) are always active. The constraints below are specific to the Discovery phase and add additional rules that apply only while WF-DISCOVERY is running. When Discovery exits, these constraints are dropped.
 
 ## Constraint Summary
 
@@ -30,7 +30,7 @@ Global constraints (GC-01 through GC-20) are always active. The constraints belo
 | DC-06 | Out of Scope Must Be Explicitly Stated | MEDIUM |
 | DC-07 | Open Questions Must Be Resolved Before Architecture | HIGH |
 
-**Note**: DC-08 (Analyst Before PM When Input Is Thin) has been moved to the aim-bmad-dispatch skill as a Layer 3 constraint. It applies during BMAD agent dispatch, not as a phase constraint.
+**Note**: DC-08 (Analyst Before PM When Input Is Thin) is a Layer 3 constraint in the aim-agent-dispatch skill (BMAD section). It applies during BMAD agent dispatch, not as a phase constraint.
 
 ## Self-Check Schedule
 
@@ -44,7 +44,7 @@ Run this checklist after every 10 messages during Discovery:
 - DC-06: Is there an explicit out-of-scope section?
 - DC-07: Are there unresolved requirements questions still open?
 
-PLUS all 20 global constraint checks from global/constraints.md
+PLUS all 21 global constraint checks from global/constraints.md
 
 IF ANY CHECK FAILS: Course-correct IMMEDIATELY before continuing.
 

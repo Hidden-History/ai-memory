@@ -1,41 +1,59 @@
 ---
 id: GC-19
-name: Spawn ALL Agents via tmux with AI_MEMORY_AGENT_ID
+name: ALWAYS Spawn Agents via Approved Dispatch Path (tmux or Claude-native)
 severity: HIGH
 category: Identity
 phase: global
 ---
 
-# GC-19: ALWAYS Spawn ALL Agents via tmux with AI_MEMORY_AGENT_ID
+# GC-19: ALWAYS Spawn Agents via Approved Dispatch Path (tmux or Claude-native)
 
 ## Rule
 
-When dispatching any agent (BMAD or generic), Parzival MUST spawn the agent via
-aim-model-dispatch tmux workflow with a unique AI_MEMORY_AGENT_ID set as an environment
-variable. AI_MEMORY_AGENT_ID is mandatory for cross-session memory tracking.
+When dispatching any agent (BMAD or generic), Parzival MUST use one of the two approved
+dispatch paths. AI_MEMORY_AGENT_ID is mandatory on all paths for cross-session memory tracking.
 
-## Required Pattern
+## Approved Paths
+
+### Claude provider path (Claude Code Agent Teams)
+
+Spawn via TeamCreate + Agent tool with a unique agent `name` field serving as AI_MEMORY_AGENT_ID.
+CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 must be enabled in settings.
+
+```
+TeamCreate: team_name=[session-team-name]
+Agent: subagent_type=[agent-type], name=[ai-memory-agent-id], team_name=[session-team-name]
+  [BMAD agents: use /bmad-agent-{name} as prompt, two-phase activation]
+```
+
+### Non-Claude provider path (tmux)
+
+Spawn via aim-model-dispatch tmux workflow with AI_MEMORY_AGENT_ID as an environment variable.
+Applies to openrouter, ollama, gemini, deepseek, and any non-Claude backend.
 
 ```
 tmux spawn via aim-model-dispatch:
   AI_MEMORY_AGENT_ID: [unique agent identity — e.g., dev-2.5, review-s-2.5, sm-sprint1]
-  Backend: [claude/openrouter/ollama/etc. — determined by model-dispatch]
-  Wrapper: [claude-dispatch or provider-dispatch — determined by model-dispatch]
+  Backend: [openrouter/ollama/gemini/etc. — determined by model-dispatch]
+  Wrapper: [provider-dispatch — determined by model-dispatch]
   [BMAD agents: two-phase activation — persona command → wait for menu → workflow command]
 ```
+
+Both paths are valid. The correct path is determined by aim-parzival-team-builder based on
+the configured provider.
 
 ## Forbidden Pattern
 
 - Spawning any agent without AI_MEMORY_AGENT_ID set
-- Spawning outside tmux (bypassing aim-model-dispatch)
-- Skipping aim-agent-lifecycle after spawn (lifecycle is [ALWAYS-MANDATORY-4])
+- Using the Agent tool without a team_name (bypasses Claude-native tracking)
+- Spawning outside tmux on non-Claude paths (bypassing aim-model-dispatch)
+- Skipping aim-agent-lifecycle after spawn on non-Claude paths (lifecycle is [ALWAYS-MANDATORY-4])
 
 ## Why This Matters
 
 AI_MEMORY_AGENT_ID enables cross-session memory accumulation — the same agent identity
 working on the same domain across sessions builds domain-specific expertise in Qdrant.
-tmux enables full Claude Code CLI sessions where BMAD skills work correctly. The lifecycle
-requires a known agent identity for tracking, review, and shutdown.
+Both paths ensure the lifecycle is managed and output is tracked for review.
 
 ## Applies To
 
@@ -45,10 +63,11 @@ requires a known agent identity for tracking, review, and shutdown.
 
 ## Self-Check
 
-- GC-19: Am I about to spawn an agent WITHOUT AI_MEMORY_AGENT_ID or outside tmux? If yes — stop and fix.
+- GC-19: Am I about to spawn an agent outside an approved dispatch path or without AI_MEMORY_AGENT_ID? If yes — stop and fix.
 
 ## Violation Response
 
 1. Do not complete the dispatch
-2. Restart the agent activation via aim-model-dispatch tmux with AI_MEMORY_AGENT_ID set
-3. Note: any output from an untracked dispatch must be re-verified — memory was not accumulated
+2. Identify the correct path based on provider (Claude → Agent Teams, non-Claude → tmux)
+3. Restart the agent activation via the correct approved path with AI_MEMORY_AGENT_ID set
+4. Any output from an unapproved dispatch must be re-verified — memory was not accumulated

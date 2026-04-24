@@ -12,44 +12,19 @@ nextStepFile: './step-03-layer2-documentation.md'
 
 The project's own files are the highest-authority source. If they contain the answer, no further research is needed. Search project files systematically in the defined order.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Search all five project file categories in order before evaluating results
-- 🚫 FORBIDDEN to consult external sources during this step
-- 💬 Approach: Systematic search with recorded findings or "no direct guidance" for each file
-- 📋 Record citations for all findings before proceeding to evaluation
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Search all project file categories in the defined priority order
-- 💾 Record findings with specific citations for each file searched
-- 📖 Load next step only after all files are searched and results evaluated
-- 🚫 FORBIDDEN to skip to external sources without exhausting project files
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The precise research question from Step 1, all project files
 - Focus: Project files only — do not consult external sources in this step
 - Limits: Only search project files in this step. Do not consult external sources yet.
 - Dependencies: Precise research question and completed template from Step 1
+
+- Search all five project file categories in order before evaluating results
+**Behavioral Constraints:**
+- FORBIDDEN to consult external sources during this step
+- Approach: Systematic search with recorded findings or "no direct guidance" for each file
+- Record citations for all findings before proceeding to evaluation
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -116,23 +91,3 @@ Record finding or "no direct guidance"
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when all project files have been searched and results evaluated, will you then either return to calling workflow (if answer found) or read fully and follow: `{nextStepFile}` to begin Layer 2 documentation research.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All five file categories searched in order
-- Findings recorded with specific citations
-- Clear determination of FOUND / PARTIAL / NOT FOUND
-- No skipping ahead to external sources
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping project files and going to external docs
-- Not searching all file categories
-- Not recording citations for findings
-- Accepting partial answers without evaluating sufficiency
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

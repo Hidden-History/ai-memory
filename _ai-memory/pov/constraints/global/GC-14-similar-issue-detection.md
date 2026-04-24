@@ -1,6 +1,6 @@
 ---
 id: GC-14
-name: Similar Issue Detection
+name: ALWAYS Check for Similar Prior Issues Before Creating a New Bug Report
 severity: HIGH
 category: Quality
 phase: global

@@ -13,44 +13,19 @@ exitStepFile: './step-07-exit-cycle.md'
 
 When DEV returns the code review report, Parzival processes it systematically: read the full report, count and list every issue separately, run WF-LEGITIMACY-CHECK on each, and determine whether to proceed to corrections or exit the cycle.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Classify every issue independently via WF-LEGITIMACY-CHECK
-- 🚫 FORBIDDEN to rely on DEV's severity assessments for classification
-- 💬 Approach: Systematic per-issue analysis — no batch classification
-- 📋 Uncertain issues trigger WF-RESEARCH-PROTOCOL — never guess classification
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Run WF-LEGITIMACY-CHECK on every issue individually
-- 💾 Record each classification with basis and priority assignment
-- 📖 Route to corrections step or exit step based on classification results
-- 🚫 FORBIDDEN to proceed without classifying all issues
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: DEV's code review report, task requirements, implementation scope, all prior pass records if this is not the first pass
 - Focus: Issue classification only — do not build correction instructions here
 - Limits: Do not rely on DEV's severity assessments — Parzival classifies independently via WF-LEGITIMACY-CHECK
 - Dependencies: Complete DEV code review report from step-02
+
+- Classify every issue independently via WF-LEGITIMACY-CHECK
+**Behavioral Constraints:**
+- FORBIDDEN to rely on DEV's severity assessments for classification
+- Approach: Systematic per-issue analysis — no batch classification
+- Uncertain issues trigger WF-RESEARCH-PROTOCOL — never guess classification
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -123,26 +98,3 @@ When DEV surfaces pre-existing issues during a review pass:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when all issues have been classified and a clear determination is made (corrections needed OR zero legitimate issues), load and read fully the appropriate next step file.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every issue in the report was read and classified individually
-- WF-LEGITIMACY-CHECK ran for every single issue
-- Uncertain issues triggered WF-RESEARCH-PROTOCOL
-- Pre-existing issues were classified and included, not deferred
-- Zero-issue reports on complex tasks were questioned
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping classification for any issue
-- Classifying multiple issues together in batch
-- Relying on DEV's severity instead of independent classification
-- Ignoring uncertain issues or guessing their classification
-- Deferring pre-existing legitimate issues
-- Accepting implausible zero-issue reports without scrutiny
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

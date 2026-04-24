@@ -31,7 +31,7 @@ EC-01, EC-04, EC-05, EC-06, EC-09, EC-10
 **Process Rules (project-status.md):**
 - Rule 3: Fresh agents for EVERY role — never reuse across tasks
 - Rule 4: CWD must be project root (document_pipeline/) before spawn — NEVER DocIntel/
-- Rule 5: /bmad-bmm-code-review for reviews, /bmad-agent-bmm-dev for implementation only
+- Rule 5: /bmad-code-review for reviews, /bmad-agent-dev for implementation only
 - Rule 6: Dual review mandatory (Sonnet + Opus)
 - Rule 7: One story per SM dispatch — shutdown after each
 - Rule 8: Don't rush-nudge idle agents
@@ -44,26 +44,35 @@ EC-01, EC-04, EC-05, EC-06, EC-09, EC-10
 
 ---
 
-## MANDATORY: Verify Working Directory
+## MANDATORY: Verify Working Directory (Workspace Root Sentinel)
 
-**Before ANY TeamCreate or Agent spawn, verify CWD is the project root.**
+**Before EVERY TeamCreate or Agent spawn, verify CWD is the workspace root.**
 
 Teammates inherit the lead's working directory. If CWD is wrong, teammates
-cannot find BMAD skills, story files, or project context.
+cannot find BMAD skills, oversight docs, or project context. The workspace root
+is distinguished from a nested source repo (e.g., `ai-memory/`) by the
+co-presence of all three sentinel directories: `_ai-memory/`, `_bmad/`, and
+`oversight/`. Checking only `_ai-memory/` produces a false positive when CWD
+has drifted into a source repo clone.
 
 ```
-# Run this check EVERY TIME before creating a team:
+# Scope: dev workspace dispatches only. End-user installs (~/.ai-memory/) launch
+# via skill installer wrappers and do not require this sentinel.
+# Run this check EVERY TIME before creating a team or spawning an agent:
 Bash: pwd
-# MUST output the project root containing _ai-memory/ directory
-# e.g., /mnt/e/projects/dev-rag-stack/document_pipeline
-# If CWD is DocIntel/ or any subdirectory: cd to project root FIRST
+# MUST output the workspace root (e.g., /mnt/e/projects/dev-ai-memory)
 
-Bash: ls _ai-memory/ > /dev/null 2>&1 && echo "OK: project root" || echo "FAIL: wrong directory"
-# MUST output "OK: project root"
-# If "FAIL": stop, cd to project root, re-verify
+Bash: test -d _ai-memory && test -d _bmad && test -d oversight \
+      && echo "OK: workspace root" \
+      || echo "FAIL: not workspace root (missing one of _ai-memory/, _bmad/, oversight/)"
+# MUST output "OK: workspace root"
+# If "FAIL": stop, cd to workspace root, re-verify.
+# A single-marker check (e.g., ls _ai-memory/) is INSUFFICIENT -- a nested
+# source repo (ai-memory/) also contains _ai-memory/ and will pass.
 ```
 
-**DO NOT PROCEED if this check fails.** This is Rule 4 enforcement.
+**DO NOT PROCEED if this check fails.** The sentinel is enforced on every spawn,
+not just the first one in a session -- `cd` drifts silently across Bash calls.
 
 ---
 
@@ -152,7 +161,7 @@ Agent:
   model: opus
   mode: plan
   run_in_background: true
-  prompt: "/bmad-agent-bmm-architect"
+  prompt: "/bmad-agent-architect"
 ```
 
 Teammate sends plan_approval_request when ready. Lead reviews and approves or rejects with feedback.
@@ -209,7 +218,7 @@ Agent:
   model: sonnet
   mode: bypassPermissions
   run_in_background: true
-  prompt: "/bmad-agent-bmm-dev"
+  prompt: "/bmad-agent-dev"
 
 # Wait for idle (persona loaded, menu shown)
 
@@ -245,7 +254,7 @@ Agent:
   model: sonnet
   mode: bypassPermissions
   run_in_background: true
-  prompt: "/bmad-agent-bmm-dev"
+  prompt: "/bmad-agent-dev"
 
 Agent:
   name: "review-opus"
@@ -253,7 +262,7 @@ Agent:
   model: opus
   mode: bypassPermissions
   run_in_background: true
-  prompt: "/bmad-agent-bmm-dev"
+  prompt: "/bmad-agent-dev"
 
 # After both idle, send review instructions
 SendMessage:
@@ -291,7 +300,7 @@ Agent:
   model: sonnet
   mode: bypassPermissions
   run_in_background: true
-  prompt: "/bmad-agent-bmm-dev"
+  prompt: "/bmad-agent-dev"
 
 Agent:
   name: "dev-services"
@@ -299,7 +308,7 @@ Agent:
   model: sonnet
   mode: bypassPermissions
   run_in_background: true
-  prompt: "/bmad-agent-bmm-dev"
+  prompt: "/bmad-agent-dev"
 
 Agent:
   name: "dev-observability"
@@ -307,7 +316,7 @@ Agent:
   model: sonnet
   mode: bypassPermissions
   run_in_background: true
-  prompt: "/bmad-agent-bmm-dev"
+  prompt: "/bmad-agent-dev"
 
 # After idle, send instructions — each owns different files
 ```

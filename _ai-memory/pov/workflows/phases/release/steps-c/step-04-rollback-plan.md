@@ -12,44 +12,19 @@ nextStepFile: './step-05-dev-deployment-verification.md'
 
 Build a rollback plan that can be executed if deployment goes wrong. Must exist and be understood before any release proceeds. Irreversible changes must be explicitly flagged.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on building an honest, executable rollback plan
-- 🚫 FORBIDDEN to mark irreversible changes as reversible
-- 💬 Approach: Honest about limitations — never aspirational rollback
-- 📋 Rollback time estimate must be realistic
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Define rollback triggers, steps, and limitations for this specific release
-- 💾 Record complete rollback plan with irreversible changes explicitly flagged
-- 📖 Load next step only after honest rollback plan is complete
-- 🚫 FORBIDDEN to mark any irreversible change as reversible
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Deployment checklist, architecture.md, database migrations
 - Focus: Rollback plan creation — honest about limitations
 - Limits: Rollback must be honest about limitations. Never mark irreversible changes as reversible.
 - Dependencies: Deployment checklist from Step 3
+
+- Focus on building an honest, executable rollback plan
+**Behavioral Constraints:**
+- FORBIDDEN to mark irreversible changes as reversible
+- Approach: Honest about limitations — never aspirational rollback
+- Rollback time estimate must be realistic
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -106,24 +81,3 @@ Specific steps to revert the deployment:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when rollback plan is complete with honest limitation documentation, load and read fully `{nextStepFile}`
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Rollback steps are specific (not "revert the deployment")
-- Irreversible changes explicitly flagged
-- Impact of rollback clearly stated
-- Time estimate is realistic
-- Rollback is actually achievable
-
-### ❌ SYSTEM FAILURE:
-
-- Marking irreversible changes as reversible
-- Vague rollback steps
-- No time estimate
-- Aspirational rollback (not actually achievable)
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

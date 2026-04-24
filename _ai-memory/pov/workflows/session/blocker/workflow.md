@@ -12,19 +12,7 @@ firstStep: './steps-c/step-01-capture-blocker.md'
 
 ## WORKFLOW ARCHITECTURE
 
-This uses **step-file architecture** for disciplined execution:
-
-### Step Processing Rules
-1. **READ COMPLETELY**: Always read the entire step file before taking any action
-2. **FOLLOW SEQUENCE**: Execute numbered sections in order
-3. **WAIT FOR INPUT**: Halt at decision points and wait for user direction
-4. **LOAD NEXT**: When directed, load and execute the next step file
-
-### Critical Rules
-- NEVER load multiple step files simultaneously
-- ALWAYS read entire step file before execution
-- NEVER skip steps unless explicitly optional
-- ALWAYS follow exact instructions in step files
+See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md) for Step Processing Rules and Critical Rules.
 
 ### Blocker Analysis Anti-Patterns
 - Never log a blocker without attempting root cause analysis
@@ -33,6 +21,12 @@ This uses **step-file architecture** for disciplined execution:
 - Never mark a blocker as resolved without user confirmation
 - Never log vague blocker descriptions (must be specific and actionable)
 - Never skip the prior-issues check (Step 1.4) — GC-14 requires checking oversight/bugs/ and oversight/tracking/blockers-log.md BEFORE analysis, even when the blocker seems novel
+
+### Scope Change Branch
+If root-cause analysis (Step 1) determines the blocker is a **scope change** rather than a technical blocker:
+- Do not continue through standard blocker resolution steps
+- Route directly to `[CC] Correct Course` via `{project-root}/.claude/skills/bmad-correct-course/SKILL.md`
+- Scope changes require course correction, not blocker resolution
 
 ---
 

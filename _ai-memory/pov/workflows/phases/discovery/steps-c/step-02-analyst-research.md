@@ -12,44 +12,19 @@ nextStepFile: './step-03-pm-creates-prd.md'
 
 Define the research scope for the Analyst agent, then dispatch via the agent-dispatch cycle. The Analyst gathers and organizes the raw material needed for PRD creation -- the PM will write the PRD in the next step.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on defining research scope and dispatching Analyst via agent-dispatch cycle
-- 🚫 FORBIDDEN to dispatch Analyst directly — must use agent-dispatch workflow
-- 💬 Systematic review of research output against all six research areas
-- 📋 Resolve all user questions before proceeding to PM PRD creation
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Prepare comprehensive Analyst instruction covering all six research areas
-- 💾 Record any gaps, open questions, and user confirmations before proceeding
-- 📖 Load next step only after research is complete and user questions are resolved
-- 🚫 FORBIDDEN to proceed with invented requirements or unresolved user questions
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: goals.md, any existing docs, scenario classification from Step 1
 - Focus: Analyst research scoping and dispatch — not PRD creation
 - Limits: Analyst gathers and organizes research. Analyst does NOT write the PRD. No invented requirements -- only what can be sourced.
 - Dependencies: Scenario classification from Step 1, goals.md and any existing documents
+
+- Focus on defining research scope and dispatching Analyst via agent-dispatch cycle
+**Behavioral Constraints:**
+- FORBIDDEN to dispatch Analyst directly — must use agent-dispatch workflow
+- Systematic review of research output against all six research areas
+- Resolve all user questions before proceeding to PM PRD creation
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -94,24 +69,3 @@ Parzival reviews for:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when research is complete and any user questions are resolved, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Analyst dispatched through agent-dispatch workflow
-- All six research areas covered
-- Research is organized, not raw notes
-- Gaps and open questions explicitly identified
-- User questions resolved before proceeding to PRD
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping research when input is thin
-- Accepting invented requirements
-- Not resolving user questions before PRD creation
-- Analyst dispatched directly instead of through agent-dispatch
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -13,13 +13,18 @@ Every story involving user input, authentication, data storage, or external call
 
 ## Explanation
 
-WHEN SECURITY VERIFICATION IS REQUIRED:
+WHEN SECURITY VERIFICATION IS REQUIRED (applicable stories):
 - Any story that accepts user input
 - Any story that implements authentication or authorization
 - Any story that stores or retrieves data
 - Any story that makes external API calls
 - Any story that handles file uploads or downloads
 - Any story that exposes an API endpoint
+
+NOT APPLICABLE (security verification skipped):
+- Pure UI layout or styling stories with no data handling
+- Documentation or configuration stories
+- Stories that operate only on already-validated internal state with no external surface
 
 SECURITY VERIFICATION CHECKLIST (for applicable stories):
 - Input validation — all user input validated before use

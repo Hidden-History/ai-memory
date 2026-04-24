@@ -12,14 +12,14 @@ phase: global
 
 When activating a BMAD agent, the activation command and the task instruction MUST be sent
 as separate messages. The activation message contains ONLY the BMAD activation command
-(e.g., `/bmad-agent-bmm-dev`). The instruction is sent ONLY after the agent has responded
+(e.g., `/bmad-agent-dev`). The instruction is sent ONLY after the agent has responded
 with its menu/greeting confirming it has fully loaded its persona.
 
 ## Required Sequence
 
 ```
 Step 1 — Spawn:     Agent tool with team_name (GC-19)
-Step 2 — Activate:  Send activation command ONLY (e.g., /bmad-agent-bmm-dev)
+Step 2 — Activate:  Send activation command ONLY (e.g., /bmad-agent-dev)
 Step 3 — Wait:      Wait for agent menu/greeting — do NOT send anything yet
 Step 4 — Instruct:  Send task instruction as a separate message
 ```

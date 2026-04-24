@@ -2,6 +2,7 @@
 name: 'cycles-review-cycle-instructions'
 description: 'Review cycle: verify completeness, adversarial review, classify issues, correct, track cycles, exit when zero issues'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # cycles-review-cycle — Instructions
 

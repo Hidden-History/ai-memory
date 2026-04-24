@@ -1,7 +1,7 @@
 ---
 id: GC-05
 name: ALWAYS Verify Fixes Against Project Requirements and Best Practices
-severity: CRITICAL
+severity: HIGH
 phase: global
 category: Quality
 ---

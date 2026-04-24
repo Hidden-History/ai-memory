@@ -12,44 +12,19 @@ nextStepFile: './step-02-analyst-research.md'
 
 Before activating any agent, Parzival reads all available inputs and determines the scenario: rich input exists (skip research), thin input (research needed), or existing codebase (document reality first).
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on reading and assessing all available input documents — no agent activation
-- 🚫 FORBIDDEN to activate any agents during assessment
-- 💬 Systematic reading: assess quality, specificity, and completeness of each input
-- 📋 Document the scenario decision with justification before proceeding
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Read all available inputs thoroughly before making scenario classification
-- 💾 Record the scenario decision and justification before proceeding
-- 📖 Load next step based on scenario: Scenario A → step-03, Scenario B/C → step-02
-- 🚫 FORBIDDEN to activate any agents or skip to research before assessment is complete
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: goals.md, any existing product briefs, specs, prior PRD drafts, Analyst audit findings (if from init-existing)
 - Focus: Input assessment only — determine scenario and document decision
 - Limits: Do not activate any agents in this step. Only read and assess.
 - Dependencies: User has provided goals.md and any supplementary input files
+
+- Focus on reading and assessing all available input documents — no agent activation
+**Behavioral Constraints:**
+- FORBIDDEN to activate any agents during assessment
+- Systematic reading: assess quality, specificity, and completeness of each input
+- Document the scenario decision with justification before proceeding
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -115,22 +90,3 @@ Document which scenario applies and why, including what input will be provided t
 
 If Scenario A: skip step-02 and load step-03-pm-creates-prd.md directly.
 If Scenario B or C: load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All available inputs were read (not skimmed)
-- Scenario classification is based on specific assessment of input quality
-- Decision to skip or require research is justified
-- No agents were activated prematurely
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping input assessment and going straight to research
-- Classifying as Scenario A when input is actually thin
-- Activating agents before assessment is complete
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

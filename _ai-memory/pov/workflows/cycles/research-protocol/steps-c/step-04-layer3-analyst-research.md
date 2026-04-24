@@ -2,7 +2,7 @@
 name: 'step-04-layer3-analyst-research'
 description: 'Layer 3 research: Activate the Analyst agent for deep codebase research when Layers 1-2 are exhausted'
 nextStepFile: './step-05-escalate-to-user.md'
-analystInstructionTemplate: '../templates/analyst-research-instruction.md'
+analystInstructionTemplate: '{workflows_path}/cycles/research-protocol/templates/analyst-research-instruction.md'
 ---
 
 # Step 4: Layer 3 -- Analyst Agent Deep Research
@@ -13,44 +13,19 @@ analystInstructionTemplate: '../templates/analyst-research-instruction.md'
 
 When project files and official documentation do not provide a clear, project-appropriate answer, activate the Analyst agent for deep codebase research. The Analyst examines the current codebase to find patterns, implementations, and evidence that address the research question.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Activate Analyst only after both Layer 1 and Layer 2 are genuinely exhausted
-- 🚫 FORBIDDEN to accept Analyst output without independent verification
-- 💬 Approach: Structured instruction to Analyst with all prior layer findings included
-- 📋 Return to Analyst with specific correction if any verification check fails
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Build comprehensive research instruction using `{analystInstructionTemplate}`
-- 💾 Record all Analyst findings with specific file paths and line numbers
-- 📖 Load next step only after Layer 3 results are fully evaluated
-- 🚫 FORBIDDEN to activate Analyst before exhausting Layers 1 and 2
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The research question, Layer 1 results, Layer 2 results, the project codebase
 - Focus: Codebase research only — this is not a general knowledge query
 - Limits: Analyst researches the codebase only. Both Layer 1 and Layer 2 must be exhausted before activating Analyst.
 - Dependencies: Research question from Step 1, Layer 1 results from Step 2, Layer 2 results from Step 3
+
+- Activate Analyst only after both Layer 1 and Layer 2 are genuinely exhausted
+**Behavioral Constraints:**
+- FORBIDDEN to accept Analyst output without independent verification
+- Approach: Structured instruction to Analyst with all prior layer findings included
+- Return to Analyst with specific correction if any verification check fails
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -120,24 +95,3 @@ If any check fails: return to Analyst with specific correction. Do not accept pa
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when Layer 3 research is complete and results evaluated, will you then either return to calling workflow (if answer found) or read fully and follow: `{nextStepFile}` for user escalation.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Analyst was activated only after Layers 1-2 were exhausted
-- Research instruction included all prior layer findings
-- Analyst output was independently verified before acceptance
-- All findings include specific file paths and line numbers
-- Answer resolves the original research question
-
-### ❌ SYSTEM FAILURE:
-
-- Activating Analyst before exhausting Layers 1-2
-- Accepting Analyst output without verification
-- Accepting output with unsupported assumptions
-- Not returning to Analyst when verification checks fail
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

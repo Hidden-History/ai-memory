@@ -11,44 +11,19 @@ description: 'Route to approval gate for release sign-off and authorize deployme
 
 Route to `{workflows_path}/cycles/approval-gate/workflow.md` for release sign-off. On approval, route to Maintenance or Planning. This is the terminal step.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on presenting complete sign-off package and routing based on approval result
-- 🚫 FORBIDDEN to deploy without explicit approval sign-off
-- 💬 Approach: Complete package communicating deployment implications clearly
-- 📋 Post-deployment monitoring protocol must be communicated upon approval
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Prepare complete release sign-off package and invoke approval gate cycle
-- 💾 Update project-status.md and CHANGELOG.md with release date upon approval
-- 📖 Route to appropriate next workflow based on approval result and project state
-- 🚫 FORBIDDEN to authorize deployment before explicit sign-off received
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: All reviewed release artifacts
 - Focus: Approval gate and post-approval routing
 - Limits: Do not deploy without explicit sign-off. Approval authorizes deployment.
 - Dependencies: All four reviewed artifacts from Step 6
+
+- Focus on presenting complete sign-off package and routing based on approval result
+**Behavioral Constraints:**
+- FORBIDDEN to deploy without explicit approval sign-off
+- Approach: Complete package communicating deployment implications clearly
+- Post-deployment monitoring protocol must be communicated upon approval
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -143,22 +118,3 @@ Inform user: "The release is authorized. After deployment, please verify the key
 - Update tracking files (project-status.md, CHANGELOG.md) with release milestone information
 - Route to appropriate next workflow: WF-PLANNING, WF-MAINTENANCE, or project archive
 - Mark release as complete with deployment authorization in project-status.md
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Approval gate invoked with complete package
-- Deployment authorization implications communicated
-- Correct next workflow loaded
-- Post-release monitoring noted
-
-### ❌ SYSTEM FAILURE:
-
-- Deploying without sign-off
-- Not communicating irreversible changes
-- Missing post-deployment verification reminder
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

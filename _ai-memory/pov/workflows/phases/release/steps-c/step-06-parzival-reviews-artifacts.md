@@ -12,44 +12,19 @@ nextStepFile: './step-07-approval-gate.md'
 
 Before presenting to the user, review every artifact produced in this phase: changelog, release notes, deployment checklist, and rollback plan. Return to producing agent for corrections if needed.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on reviewing all four artifact categories against specific criteria
-- 🚫 FORBIDDEN to present artifacts to user until all pass review
-- 💬 Approach: Systematic review with return-to-producer for corrections
-- 📋 Artifacts must be consistent with each other across all four categories
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Review all four artifacts: changelog, release notes, deployment checklist, rollback plan
-- 💾 Record review findings and any corrections requested
-- 📖 Load next step only after all four artifacts pass review
-- 🚫 FORBIDDEN to present to user with known issues in any artifact
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: All release artifacts, story files for cross-reference
 - Focus: Artifact review — not presenting to user yet
 - Limits: Do not present to user until all artifacts are clean.
 - Dependencies: All four artifacts from Steps 1-5
+
+- Focus on reviewing all four artifact categories against specific criteria
+**Behavioral Constraints:**
+- FORBIDDEN to present artifacts to user until all pass review
+- Approach: Systematic review with return-to-producer for corrections
+- Artifacts must be consistent with each other across all four categories
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -103,22 +78,3 @@ If any artifact has issues:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when all artifacts pass review, load and read fully `{nextStepFile}`
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All four artifact categories reviewed
-- Issues corrected before user presentation
-- Artifacts are consistent with each other
-- Language is appropriate for audience
-
-### ❌ SYSTEM FAILURE:
-
-- Presenting artifacts with known issues
-- Not reviewing all four categories
-- Inconsistencies between artifacts
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.
