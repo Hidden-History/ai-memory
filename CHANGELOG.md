@@ -8,20 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Parzival sanctum identity layer** (PLAN-025 Phase 4): Introduces per-instance Parzival identity storage under `_ai-memory/sanctum/parzival/`. Tier A `CREED.md` (philosophical anchor) ships as a base template with reset frontmatter (`sessions_completed: 0`, `last_session: null`, `updated: null`) — every install builds from First Breath onward. Tier B `LORE.md` + `BOND.md` (user context + relationship state) are per-instance, created by `aim-agent-sanctum-init` scaffold at First Breath; absent initially. Tier C (`PERSONA.md`, `CAPABILITIES.md`, `INDEX.md`, `MEMORY.md`) read on-demand via Read tool when referenced; subdirs (`capabilities/`, `references/`, `sessions/`) ship as empty placeholders for per-instance content. Filesystem-only — no Qdrant storage for sanctum files (DEC-253-14). AI Memory is a multi-user system; sanctum discipline ensures each install develops its own identity rather than inheriting pre-filled content.
+- **Tier B sanctum wiring into `aim-parzival-bootstrap`** (PLAN-025 Phase 3/4): New `sanctum_tier_b.py` sibling module (Option P pattern) reads `LORE.md` + `BOND.md` and prepends their content under `## Sanctum — LORE` / `## Sanctum — BOND` headers before the existing L1-L4 cross-session Qdrant retrieval output. Graceful degradation: missing/empty files skip silently (valid pre-First-Breath state). 6 pytest unit tests covering both-present, only-LORE, only-BOND, neither, empty-file, and OSError paths.
+- **Pre-spawn model-catalog validation gate** (PLAN-025 R3 ports from sandbox): `aim-model-dispatch` step-02 now validates the requested model ID against the per-provider model catalog (`models-claude.md`, etc.) before attempting to spawn. Prevents silent-downgrade on typos or catalog drift. Fixes the class of failure where dispatch hit Opus 4.7 before it was catalogued (PM #257 incident).
+- **Three-marker CWD sentinel** (PLAN-025 R4 ports from sandbox): Agent-lifecycle and dispatch workflows now verify three distinctive directory markers (`_ai-memory/` + `_bmad/` + `oversight/`) instead of a single marker before spawning agents. Detects accidental shell-`cd` drift into sibling repos (e.g., `ai-memory/` source repo vs. `dev-ai-memory/` workspace).
 - **`INSTALL_PARZIVAL=true` install-time opt-in** (PR #124, contributed by Phil): Enables the full Parzival V2 setup path during `NON_INTERACTIVE=true` installer runs (CI / add-project automation). Default non-interactive behavior is unchanged — still skips Parzival unless opted in.
 
 ### Changed
+- **Parzival POV subsystem rebaselined from testV2 sandbox** (PLAN-025): Full rebaseline replacing the pre-existing source-repo `_ai-memory/pov/` tree with the canonical evolution developed across 40 sessions in the testV2 workspace (`dev_ai-memory_Copy/`). Net −7,060 lines after absorbing ~397 sandbox files and removing ~200+ lines of deprecated templates. Key structural changes: (1) dispatch-discipline embeds across all agent-dispatch workflows, (2) 4-layer architecture refinement for orchestration skills, (3) `§2a`/`§2b` instruction-form split for dispatch briefs, (4) BMAD Intent picker support, (5) cumulative Session 28-34 Parzival remediation landings. See PLAN-025 § for the full design rationale.
+- **Orchestration skill consolidation**: `aim-model-dispatch/` absorbs the prior `model-dispatch-framework/` scaffolding (references, scripts, workflows, wrappers, evals) per DEC-253-09 — the post-installer-merge runtime layout now matches the shipping-source layout. Reduces indirection during agent dispatch debugging.
+- **`step-02-create-team.md` renamed to `step-02-spawn-agent.md`** (R6 template rename): The workflow step that spawns an agent pane is no longer called "create-team" — naming now reflects the actual action. Templates referencing the old filename have been rewritten.
+- **POV step-file template consolidation** (R6): 63 `steps-e/` and `steps-v/` stub files rewritten to reference two shared templates (`STEP-FILE-TEMPLATE.md` and a variant) instead of carrying boilerplate inline. Replaces ~4,284 lines of duplicated boilerplate with ~780 lines of stubs + 2 shared templates — net −3,500 lines in this one consolidation alone.
 - **Dependency floor: `langfuse>=4.0.6,<4.1.0`** (PR #120): Tightened the langfuse Python SDK lower bound from `4.0.0` to `4.0.6`. Picks up upstream patches v4.0.1-v4.0.6 including asyncio.CancelledError handling in `@observe` (v4.0.2), scores session ID parsing fix (v4.0.2), and experiments propagation context maintenance (v4.0.2). No API-surface changes affecting our V3 SDK usage (`get_client`, `observe`, `propagate_attributes`, `Langfuse`, `span_filter`).
 - **GitHub Actions group bump** (PR #113): Bumped 2 actions in `.github/workflows/community.yml`, `dependabot-auto-merge.yml`, `release.yml`. CI-only impact; no runtime change.
 
+### Removed
+- **`aim-bmad-dispatch/` skill** (PLAN-025 per DEC-032 → DEC-253-10 deprecation): The BMAD-specific dispatch skill is removed — `aim-agent-dispatch/` now handles both BMAD and generic agents via a unified routing path. All references to `/aim-bmad-dispatch` in prior orchestration pipeline documentation are superseded by `/aim-agent-dispatch`.
+- **`step-01c-parzival-constraints.md`** (Phase 3 startup pipeline optimization): The Parzival session-start workflow no longer runs a dedicated constraints-loading step — constraints are now loaded during activation (step 4) and re-injected during `aim-parzival-bootstrap` (step 1b) when needed. Net token reduction on session start.
+
 ### Documentation
+- **`claude-opus-4-7` added to model catalog** (PLAN-025 TD-471): `_ai-memory/pov/skills/aim-model-dispatch/references/models-claude.md` now lists Opus 4.7 as the newest Opus model (ordered newest-first), plus a row in the Model Selection Guide table and appended to the OpenRouter model list as `anthropic/claude-opus-4-7`. Resolves the PM #257 incident where reviewer dispatches silently downgraded to Opus 4.6 because 4.7 was missing from the catalog.
 - **INSTALL.md non-interactive Parzival section** (PR #124 follow-up): Documented the new `INSTALL_PARZIVAL=true` env var alongside the existing `NON_INTERACTIVE=true` guidance.
 
 ### Upgrade Instructions
 
 **From v2.3.2 → Unreleased:**
 
-This release includes a langfuse SDK floor bump that **requires a Python container rebuild** for the change to take effect at runtime. Pure config/docs changes need only the standard installer Option 1 update.
+This release includes:
+
+1. A **Parzival POV subsystem rebaseline** (PLAN-025). Existing Parzival users must re-run installer Option 1 to pick up the new `_ai-memory/pov/` tree, the `aim-agent-sanctum-init` scaffolding skill, and the sanctum directory structure. Sanctum files (`sanctum/parzival/LORE.md`, `BOND.md`, etc.) are created at First Breath by the scaffolding — no pre-existing Parzival identity is disturbed.
+2. Removal of `aim-bmad-dispatch/` skill. `settings.json` references to `/aim-bmad-dispatch` must be updated to `/aim-agent-dispatch` (installer Option 1 migrates automatically).
+3. A **langfuse SDK floor bump** that **requires a Python container rebuild** for the change to take effect at runtime. Pure config/docs changes need only the standard installer Option 1 update.
 
 1. **Pull the latest from main:**
    ```bash
