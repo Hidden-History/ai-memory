@@ -33,7 +33,7 @@ from pathlib import Path
 
 
 # Phase -> workflow file path (relative to pov/ root)
-# Source: dev_ai-memory_Copy/pov/workflows/WORKFLOW-MAP.md
+# Source: _ai-memory/pov/workflows/WORKFLOW-MAP.md
 PHASE_WORKFLOW_MAP = {
     "discovery":    "workflows/phases/discovery/workflow.md",
     "architecture": "workflows/phases/architecture/workflow.md",
