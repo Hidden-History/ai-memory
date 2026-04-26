@@ -201,7 +201,9 @@ class TestMergeCreedFrontmatter:
         assert "This body content should be replaced" not in body
 
     def test_missing_field_in_backup_skipped(self, tmp_path):
-        backup_no_updated = _CREED_BACKUP.replace("updated: \"2026-04-25T15:30:00Z\"\n", "")
+        backup_no_updated = _CREED_BACKUP.replace(
+            'updated: "2026-04-25T15:30:00Z"\n', ""
+        )
         backup = tmp_path / "backup.md"
         target = tmp_path / "target.md"
         backup.write_text(backup_no_updated, encoding="utf-8")
@@ -335,14 +337,18 @@ class TestDeployParzivalV2SanctumPreservation:
         install_dir, project_dir = sanctum_install_dirs
         result = _run_deploy_parzival_v2(install_sh_no_main, install_dir, project_dir)
         assert result.returncode == 0, f"deploy_parzival_v2 failed:\n{result.stderr}"
-        lore = (project_dir / "_ai-memory" / "sanctum" / "parzival" / "LORE.md").read_text()
+        lore = (
+            project_dir / "_ai-memory" / "sanctum" / "parzival" / "LORE.md"
+        ).read_text()
         assert lore == "test lore content"
 
     def test_bond_preserved_exactly(self, install_sh_no_main, sanctum_install_dirs):
         install_dir, project_dir = sanctum_install_dirs
         result = _run_deploy_parzival_v2(install_sh_no_main, install_dir, project_dir)
         assert result.returncode == 0, f"deploy_parzival_v2 failed:\n{result.stderr}"
-        bond = (project_dir / "_ai-memory" / "sanctum" / "parzival" / "BOND.md").read_text()
+        bond = (
+            project_dir / "_ai-memory" / "sanctum" / "parzival" / "BOND.md"
+        ).read_text()
         assert bond == "test bond content"
 
     def test_session_file_preserved(self, install_sh_no_main, sanctum_install_dirs):
@@ -359,19 +365,27 @@ class TestDeployParzivalV2SanctumPreservation:
         ).read_text()
         assert session == "test session"
 
-    def test_creed_sessions_completed_preserved(self, install_sh_no_main, sanctum_install_dirs):
+    def test_creed_sessions_completed_preserved(
+        self, install_sh_no_main, sanctum_install_dirs
+    ):
         install_dir, project_dir = sanctum_install_dirs
         result = _run_deploy_parzival_v2(install_sh_no_main, install_dir, project_dir)
         assert result.returncode == 0, f"deploy_parzival_v2 failed:\n{result.stderr}"
-        creed = (project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md").read_text()
+        creed = (
+            project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md"
+        ).read_text()
         fm, _ = _split_frontmatter(creed)
         assert _extract_field(fm, "sessions_completed") == "5"
 
-    def test_creed_last_session_preserved(self, install_sh_no_main, sanctum_install_dirs):
+    def test_creed_last_session_preserved(
+        self, install_sh_no_main, sanctum_install_dirs
+    ):
         install_dir, project_dir = sanctum_install_dirs
         result = _run_deploy_parzival_v2(install_sh_no_main, install_dir, project_dir)
         assert result.returncode == 0, f"deploy_parzival_v2 failed:\n{result.stderr}"
-        creed = (project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md").read_text()
+        creed = (
+            project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md"
+        ).read_text()
         fm, _ = _split_frontmatter(creed)
         assert _extract_field(fm, "last_session") == '"2026-04-20T10:00:00Z"'
 
@@ -379,23 +393,33 @@ class TestDeployParzivalV2SanctumPreservation:
         install_dir, project_dir = sanctum_install_dirs
         result = _run_deploy_parzival_v2(install_sh_no_main, install_dir, project_dir)
         assert result.returncode == 0, f"deploy_parzival_v2 failed:\n{result.stderr}"
-        creed = (project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md").read_text()
+        creed = (
+            project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md"
+        ).read_text()
         fm, _ = _split_frontmatter(creed)
         assert _extract_field(fm, "updated") == '"2026-04-25T15:30:00Z"'
 
-    def test_creed_tier_promoted_on_null_preserved(self, install_sh_no_main, sanctum_install_dirs):
+    def test_creed_tier_promoted_on_null_preserved(
+        self, install_sh_no_main, sanctum_install_dirs
+    ):
         install_dir, project_dir = sanctum_install_dirs
         result = _run_deploy_parzival_v2(install_sh_no_main, install_dir, project_dir)
         assert result.returncode == 0, f"deploy_parzival_v2 failed:\n{result.stderr}"
-        creed = (project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md").read_text()
+        creed = (
+            project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md"
+        ).read_text()
         fm, _ = _split_frontmatter(creed)
         assert _extract_field(fm, "tier_promoted_on") == "null"
 
-    def test_creed_static_fields_from_new_template(self, install_sh_no_main, sanctum_install_dirs):
+    def test_creed_static_fields_from_new_template(
+        self, install_sh_no_main, sanctum_install_dirs
+    ):
         install_dir, project_dir = sanctum_install_dirs
         result = _run_deploy_parzival_v2(install_sh_no_main, install_dir, project_dir)
         assert result.returncode == 0, f"deploy_parzival_v2 failed:\n{result.stderr}"
-        creed = (project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md").read_text()
+        creed = (
+            project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md"
+        ).read_text()
         fm, _ = _split_frontmatter(creed)
         # tier: 2 in backup; tier: 3 in template — template wins (static descriptor)
         assert _extract_field(fm, "tier") == "3"
@@ -403,11 +427,15 @@ class TestDeployParzivalV2SanctumPreservation:
         assert _extract_field(fm, "agent") == "parzival"
         assert _extract_field(fm, "load") == "activation"
 
-    def test_creed_body_from_new_template(self, install_sh_no_main, sanctum_install_dirs):
+    def test_creed_body_from_new_template(
+        self, install_sh_no_main, sanctum_install_dirs
+    ):
         install_dir, project_dir = sanctum_install_dirs
         result = _run_deploy_parzival_v2(install_sh_no_main, install_dir, project_dir)
         assert result.returncode == 0, f"deploy_parzival_v2 failed:\n{result.stderr}"
-        creed = (project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md").read_text()
+        creed = (
+            project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md"
+        ).read_text()
         _, body = _split_frontmatter(creed)
         assert "Parzival is the radar, map reader, and navigator." in body
         assert "This body content should be replaced" not in body
@@ -429,12 +457,57 @@ class TestDeployParzivalV2SanctumPreservation:
 
         result = _run_deploy_parzival_v2(install_sh_no_main, install_dir, project_dir)
         assert result.returncode == 0, f"First-install failed:\n{result.stderr}"
-        assert (project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md").exists()
+        assert (
+            project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md"
+        ).exists()
 
-    def test_no_sanctum_backup_dir_left_after_update(self, install_sh_no_main, sanctum_install_dirs):
+    def test_no_sanctum_backup_dir_left_after_update(
+        self, install_sh_no_main, sanctum_install_dirs
+    ):
         """R4: sanctum_backup cleanup — no .parzival-sanctum-backup-* dirs remain."""
         install_dir, project_dir = sanctum_install_dirs
         result = _run_deploy_parzival_v2(install_sh_no_main, install_dir, project_dir)
         assert result.returncode == 0, f"deploy_parzival_v2 failed:\n{result.stderr}"
         leftover = list(install_dir.glob(".parzival-sanctum-backup-*"))
         assert leftover == [], f"Sanctum backup dirs not cleaned up: {leftover}"
+
+    def test_creed_merge_failure_falls_back_to_backup(
+        self, install_sh_no_main, sanctum_install_dirs, tmp_path
+    ):
+        """F-M2: on CREED merge helper failure, backup CREED.md is restored verbatim.
+
+        Verifies that when CREED_MERGE_SCRIPT exits non-zero, deploy_parzival_v2
+        still exits 0 (install continues) and the dst CREED.md is replaced by the
+        user's backup content (cp-fallback), preserving per-instance identity.
+        """
+        install_dir, project_dir = sanctum_install_dirs
+
+        broken_script = tmp_path / "broken_merge.sh"
+        broken_script.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        broken_script.chmod(0o755)
+
+        bash_cmd = f"""
+set -euo pipefail
+export INSTALL_DIR="{install_dir}"
+export PROJECT_PATH="{project_dir}"
+export CREED_MERGE_SCRIPT="{broken_script}"
+source "{install_sh_no_main}"
+INSTALL_DIR="{install_dir}"
+PROJECT_PATH="{project_dir}"
+SCRIPT_DIR="{_SCRIPTS_DIR}"
+deploy_parzival_v2
+"""
+        result = subprocess.run(
+            ["bash", "-c", bash_cmd],
+            capture_output=True,
+            text=True,
+        )
+        assert (
+            result.returncode == 0
+        ), f"deploy_parzival_v2 must not abort on CREED merge failure:\n{result.stderr}"
+        creed = project_dir / "_ai-memory" / "sanctum" / "parzival" / "CREED.md"
+        assert creed.exists(), "CREED.md must exist after install"
+        creed_content = creed.read_text(encoding="utf-8")
+        assert (
+            "sessions_completed: 5" in creed_content
+        ), "cp-fallback should restore backup CREED.md verbatim (sessions_completed: 5)"

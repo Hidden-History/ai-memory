@@ -16,6 +16,14 @@ Per parzival-answers.md DQ-3 (a):
         sessions_completed, last_session, updated, tier_promoted_on
     Fields taken from new template (static identity descriptors):
         type, agent, domain, created-by, load, tier
+
+NOTE on scope: This helper uses single-line regex extraction. The 4 currently
+scoped fields (sessions_completed, last_session, updated, tier_promoted_on) are
+all single-line scalars and the regex is correct for these. Multi-line YAML
+block scalars (`|` and `>`) are NOT supported and will be silently corrupted
+if added to the preserve set without a corresponding parser upgrade. If the
+preserve set expands to include a multi-line field, switch to a YAML parser
+(e.g., ruamel.yaml round-trip mode).
 """
 
 from __future__ import annotations

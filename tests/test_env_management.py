@@ -8,7 +8,6 @@ scenarios), and R9 (backward-compat with existing .env).
 BP-152 §10 + ENV-MANAGEMENT-V2 §4 risk mitigation.
 """
 
-import importlib
 import os
 import sys
 import textwrap
@@ -16,7 +15,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -58,10 +56,12 @@ def clean_env(monkeypatch):
 @pytest.fixture()
 def env_file(tmp_path):
     """Return a helper that creates a .env file in tmp_path."""
+
     def _make(contents: str) -> Path:
         f = tmp_path / ".env"
         f.write_text(textwrap.dedent(contents))
         return f
+
     return _make
 
 
@@ -83,6 +83,7 @@ def test_memory_config_instantiates_with_defaults(clean_env, monkeypatch, tmp_pa
     # Point env_file to a non-existent path so Pydantic skips file loading
     monkeypatch.setenv("AI_MEMORY_INSTALL_DIR", str(tmp_path / "nonexistent"))
 
+    sys.modules.pop("memory.config", None)
     from memory.config import MemoryConfig
 
     cfg = MemoryConfig()
@@ -153,10 +154,16 @@ def test_memory_config_secrets_dir_honored(clean_env, monkeypatch, tmp_path):
     patched = dict(config_module.MemoryConfig.model_config)
     patched["secrets_dir"] = str(s_dir)
 
-    with patch.object(config_module.MemoryConfig, "model_config", SettingsConfigDict(**patched)):
+    with patch.object(
+        config_module.MemoryConfig, "model_config", SettingsConfigDict(**patched)
+    ):
         cfg = config_module.MemoryConfig()
-        assert cfg.qdrant_api_key is not None, "qdrant_api_key should be loaded from secrets_dir"
-        assert cfg.qdrant_api_key.get_secret_value() == "test-secret-key-from-secrets-dir"
+        assert (
+            cfg.qdrant_api_key is not None
+        ), "qdrant_api_key should be loaded from secrets_dir"
+        assert (
+            cfg.qdrant_api_key.get_secret_value() == "test-secret-key-from-secrets-dir"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +183,7 @@ def test_check_env_completeness_catches_orphan(tmp_path, monkeypatch):
 
     # Run via subprocess to get real exit code
     import subprocess
+
     result = subprocess.run(
         [sys.executable, str(script)],
         env={
@@ -186,6 +194,7 @@ def test_check_env_completeness_catches_orphan(tmp_path, monkeypatch):
         text=True,
         cwd=tmp_path,  # Script resolves docker/.env.example relative to repo root via __file__
     )
+    assert result.returncode == 0, f"check_env_completeness.py crashed: {result.stderr}"
     # The script anchors to its own __file__ parent's parent, so it reads the real
     # docker/.env.example from the repo.  For the orphan-detection test we need to
     # mock MemoryConfig.model_fields to include a fake field not in .env.example.

@@ -4279,11 +4279,18 @@ deploy_parzival_v2() {
     # Merge preserved CREED.md frontmatter fields (parzival-answers.md DQ-3 (a))
     # Preserved fields: sessions_completed, last_session, updated, tier_promoted_on
     # Static identity fields come from new template
+    # F-M2 fix: helper path injectable for failure-mode regression test
+    local _creed_merge_script="${CREED_MERGE_SCRIPT:-$SCRIPT_DIR/_merge_sanctum_creed_frontmatter.py}"
     if [[ -f "$sanctum_backup/sanctum/parzival/CREED.md" ]]; then
-        python3 "$SCRIPT_DIR/_merge_sanctum_creed_frontmatter.py" \
-            "$sanctum_backup/sanctum/parzival/CREED.md" \
-            "$dst/sanctum/parzival/CREED.md" || true
-        log_debug "Merged CREED.md frontmatter from backup"
+        if python3 "$_creed_merge_script" \
+                "$sanctum_backup/sanctum/parzival/CREED.md" \
+                "$dst/sanctum/parzival/CREED.md"; then
+            log_debug "Merged CREED.md frontmatter from backup"
+        else
+            local merge_rc=$?
+            log_error "CREED frontmatter merge failed (rc=$merge_rc) — restoring backup CREED.md verbatim to preserve user identity"
+            cp "$sanctum_backup/sanctum/parzival/CREED.md" "$dst/sanctum/parzival/CREED.md"
+        fi
     fi
 
     rm -rf "$sanctum_backup" 2>/dev/null || true

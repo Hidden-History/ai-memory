@@ -313,6 +313,7 @@ services:
       # Mount src/ for memory.models import (DRY - single source of truth for types)
       - ../src:/app/src:ro
     <<: *python-service-defaults
+    restart: on-failure:3  # F-M1 fix: explicit restart override prevents anchor inheritance regression to unless-stopped
     environment:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
       - QDRANT_HOST=qdrant                             # container-internal hostname
