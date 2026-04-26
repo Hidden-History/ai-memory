@@ -1,0 +1,65 @@
+name: Env Drift Gate
+
+# =============================================================================
+# ENV DRIFT DETECTION (BP-152 §5.1/5.2)
+# =============================================================================
+# Catches drift between MemoryConfig (Pydantic schema) and docker/.env.example
+# before it reaches production — TD-477 class of bug is a PR-time catch, not
+# a deployment-time surprise.
+#
+# Two checks:
+#   1. dotenv-linter check — validates .env file syntax/formatting for both
+#      docker/.env.example and docker/.env.secrets.example separately.
+#      (Note: `check` not `compare` — the two files are intentionally different
+#      key sets: .env.example has all keys; .env.secrets.example has only
+#      sensitive keys. `compare` would fail on that intended asymmetry.)
+#   2. Pydantic completeness check — scripts/check_env_completeness.py introspects
+#      MemoryConfig.model_fields and asserts every field is documented in
+#      docker/.env.example (active or commented-out line).
+#
+# Triggered on PRs touching config.py, .env.example, or docker-compose.yml.
+# =============================================================================
+
+on:
+  pull_request:
+    paths:
+      - "src/memory/config.py"
+      - "docker/.env.example"
+      - "docker/.env.secrets.example"
+      - "docker/docker-compose.yml"
+      - "scripts/check_env_completeness.py"
+
+jobs:
+  env-drift:
+    name: Env Drift Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet pydantic pydantic-settings dotenv-linter 2>/dev/null || \
+            pip install --quiet pydantic pydantic-settings
+          # dotenv-linter is a Rust binary; try cargo install if pip package absent
+          if ! command -v dotenv-linter >/dev/null 2>&1; then
+            echo "dotenv-linter pip package not found; installing via cargo..."
+            cargo install dotenv-linter --quiet
+          fi
+
+      - name: Check docker/.env.example syntax
+        run: dotenv-linter check docker/.env.example
+
+      - name: Check docker/.env.secrets.example syntax
+        run: dotenv-linter check docker/.env.secrets.example
+
+      - name: Check Pydantic schema vs .env.example parity
+        env:
+          PYTHONPATH: src
+        run: python3 scripts/check_env_completeness.py

@@ -2229,6 +2229,19 @@ copy_files() {
         fi
     fi
 
+    # Deploy .env.secrets template (BP-152 §3.4 sensitive split).
+    # Required: false in docker-compose.yml — absent file is OK; presence adds a second env layer.
+    local _secrets_example="$SOURCE_DIR/docker/.env.secrets.example"
+    local _secrets_live="$INSTALL_DIR/docker/.env.secrets"
+    if [[ -f "$_secrets_example" ]]; then
+        cp "$_secrets_example" "$INSTALL_DIR/docker/.env.secrets.example"
+        if [[ ! -f "$_secrets_live" ]]; then
+            cp "$_secrets_example" "$_secrets_live"
+            chmod 600 "$_secrets_live" 2>/dev/null || log_warning "chmod 600 on .env.secrets failed"
+            log_debug "Created docker/.env.secrets (chmod 600)"
+        fi
+    fi
+
     # BUG-244: Use shared sync function for all non-Docker file syncing
     sync_installed_files "$SOURCE_DIR" "$INSTALL_DIR"
 
@@ -2380,6 +2393,26 @@ configure_environment() {
                 log_debug "Using folder name as project ID: $PROJECT_NAME"
             fi
             log_debug "Added AI_MEMORY_PROJECT_ID=$PROJECT_NAME to .env"
+        fi
+
+        # ENV-MANAGEMENT-V2 §3.1 Phase 3: per-project env overlay for multi-project installs.
+        # Compose reads ${PROJECT_ENV_FILE:-/dev/null} as a third env_file: layer.
+        # If this project has a named projects.d entry, point PROJECT_ENV_FILE there.
+        # (B-Q7 Option A: installer writes path; Compose uses /dev/null if unset.)
+        if [[ -n "${PROJECT_NAME:-}" ]]; then
+            local _safe_proj
+            _safe_proj=$(echo "$PROJECT_NAME" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
+            local _proj_env_dir="$INSTALL_DIR/projects.d/${_safe_proj}"
+            local _proj_env_file="$_proj_env_dir/.env"
+            if [[ -f "$_proj_env_file" ]]; then
+                # Per-project .env exists — write path into docker/.env so Compose can find it
+                if grep -q "^PROJECT_ENV_FILE=" "$docker_env" 2>/dev/null; then
+                    sed -i.bak "s|^PROJECT_ENV_FILE=.*|PROJECT_ENV_FILE=${_proj_env_file}|" "$docker_env" && rm -f "$docker_env.bak"
+                else
+                    echo "PROJECT_ENV_FILE=${_proj_env_file}" >> "$docker_env"
+                fi
+                log_debug "Set PROJECT_ENV_FILE=${_proj_env_file} for multi-project env layering"
+            fi
         fi
 
         # BUG-241: Write installer metadata if not already present
@@ -3012,6 +3045,26 @@ copy_env_template() {
         fi
     else
         log_warning "Template docker/.env.example not found - skipping"
+    fi
+
+    # Deploy .env.secrets template for sensitive key split (BP-152 §3.4).
+    # .env.secrets is loaded as a second env_file: layer in docker-compose.yml (required: false).
+    # chmod 600 enforced — only the owner should read API keys and passwords.
+    local secrets_example="$SCRIPT_DIR/../docker/.env.secrets.example"
+    local secrets_dest="$INSTALL_DIR/docker/.env.secrets.example"
+    local secrets_live="$INSTALL_DIR/docker/.env.secrets"
+    if [ -f "$secrets_example" ]; then
+        cp "$secrets_example" "$secrets_dest"
+        log_debug "Secrets template copied to $secrets_dest"
+        if [ ! -f "$secrets_live" ]; then
+            cp "$secrets_example" "$secrets_live"
+            chmod 600 "$secrets_live" 2>/dev/null || log_warning "chmod 600 on .env.secrets failed — set permissions manually"
+            log_success "Created $secrets_live (chmod 600) — add sensitive API keys here"
+        else
+            log_debug "Existing docker/.env.secrets detected — preserving; verify permissions: chmod 600 $secrets_live"
+        fi
+    else
+        log_debug "docker/.env.secrets.example not found — skipping secrets template"
     fi
 }
 

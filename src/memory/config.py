@@ -141,6 +141,7 @@ class MemoryConfig(BaseSettings):
         extra="ignore",  # Allow extra env vars (STREAMLIT_PORT, PLATFORM, etc.)
         populate_by_name=True,  # Allow both field name and validation_alias for init
         hide_input_in_errors=True,  # Prevent SecretStr leaks in validation errors
+        secrets_dir="/run/secrets",  # forward-compat with Docker Swarm/K8s secrets mounts
     )
 
     # Core thresholds (FR42)
