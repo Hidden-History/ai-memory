@@ -4219,8 +4219,18 @@ deploy_parzival_v2() {
         log_debug "Preserved _memory/ user data for restore"
     fi
 
+    # Preserve sanctum/ per-instance identity on update (installer-audit.md §E2)
+    # PID-suffixed path prevents race conditions with parallel installs
+    local sanctum_backup="$INSTALL_DIR/.parzival-sanctum-backup-$$"
+    rm -rf "$sanctum_backup" 2>/dev/null || true
+    if [[ -d "$dst/sanctum" ]]; then
+        mkdir -p "$sanctum_backup"
+        cp -r "$dst/sanctum" "$sanctum_backup/"
+        log_debug "Preserved sanctum/ user identity for restore"
+    fi
+
     # Clean destination to remove stale files (R1-Finding-4)
-    # _memory/ is already backed up above
+    # _memory/ and sanctum/ are already backed up above
     if [[ -d "$dst" ]]; then
         rm -rf "$dst"
     fi
@@ -4249,6 +4259,34 @@ deploy_parzival_v2() {
         rm -rf "$mem_backup"
         log_debug "Restored user-created _memory/ files"
     fi
+
+    # Restore per-instance sanctum/ identity files (parzival-answers.md DQ-1)
+    # Only restores files NOT present in the fresh template (user/instance-created content only)
+    if [[ -d "$sanctum_backup/sanctum" ]]; then
+        while IFS= read -r -d '' user_file; do
+            local rel="${user_file#$sanctum_backup/sanctum/}"
+            local template_file="$dst/sanctum/$rel"
+            if [[ ! -f "$template_file" ]]; then
+                local target_dir
+                target_dir=$(dirname "$dst/sanctum/$rel")
+                mkdir -p "$target_dir"
+                cp "$user_file" "$dst/sanctum/$rel"
+            fi
+        done < <(find "$sanctum_backup/sanctum" -type f -print0 2>/dev/null)
+        log_debug "Restored per-instance sanctum/ identity files"
+    fi
+
+    # Merge preserved CREED.md frontmatter fields (parzival-answers.md DQ-3 (a))
+    # Preserved fields: sessions_completed, last_session, updated, tier_promoted_on
+    # Static identity fields come from new template
+    if [[ -f "$sanctum_backup/sanctum/parzival/CREED.md" ]]; then
+        python3 "$SCRIPT_DIR/_merge_sanctum_creed_frontmatter.py" \
+            "$sanctum_backup/sanctum/parzival/CREED.md" \
+            "$dst/sanctum/parzival/CREED.md" || true
+        log_debug "Merged CREED.md frontmatter from backup"
+    fi
+
+    rm -rf "$sanctum_backup" 2>/dev/null || true
 
     local file_count
     file_count=$(find "$dst" -type f | wc -l)
