@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-spawn model-catalog validation gate**: `aim-model-dispatch` step-02 now validates the requested model ID against the per-provider model catalog (`models-claude.md`, etc.) before attempting to spawn. Prevents reviewer dispatches from silently downgrading when a requested model is missing from the per-provider catalog.
 - **Three-marker CWD sentinel**: Agent-lifecycle and dispatch workflows now verify three distinctive directory markers (`_ai-memory/` + `_bmad/` + `oversight/`) instead of a single marker before spawning agents. Detects accidental shell-`cd` drift into sibling repos (e.g., `ai-memory/` source repo vs. `dev-ai-memory/` workspace).
 - **`INSTALL_PARZIVAL=true` install-time opt-in** (PR #124, contributed by Phil): Enables the full Parzival V2 setup path during `NON_INTERACTIVE=true` installer runs (CI / add-project automation). Default non-interactive behavior is unchanged — still skips Parzival unless opted in.
+- **Compose `env_file:` directive + sensitive-secret split** (BP-152, ENV-MANAGEMENT-V2.md): `docker/docker-compose.yml` refactored to use a YAML anchor `x-python-service-defaults: &python-service-defaults` with `env_file:` directive applied to 4 Python services (`monitoring-api`, `streamlit`, `classifier-worker`, `github-sync`). Replaces per-key `${KEY:-default}` hand-mapping with a single source of truth: `.env` (required) + `.env.secrets` (optional sensitive split, chmod 600) + `${PROJECT_ENV_FILE:-/dev/null}` (optional per-project layer). `environment:` blocks retained only for service-specific overrides (container hostnames, ports, image-tag interpolation). Closes TD-477 (15 of 17 user-tunable env keys silently fell back to code defaults inside containers because `environment:` blocks did not propagate them) and the BUG-184 shadow class — the `unset QDRANT_API_KEY` ritual is no longer required for compose operations.
+- **`docker/.env.secrets.example` template**: New file documenting 25 sensitive keys (API keys, passwords, tokens) split out from `.env.example` for `chmod 600` enforcement. The real `.env.secrets` is gitignored. Installer copies the template and applies `chmod 600` on deploy.
+- **`${PROJECT_ENV_FILE}` multi-project env layering**: When the installer is given a project name, `scripts/install.sh` writes `PROJECT_ENV_FILE=<absolute-path>` into `docker/.env` so Compose can resolve a per-project override file at `~/.ai-memory/projects.d/<name>/.env`. When no project name is given, the variable resolves to `/dev/null` (safe no-op).
+- **`scripts/check_env_completeness.py` Pydantic drift gate**: New script that introspects `MemoryConfig.model_fields` + `AliasChoices` and asserts every field is documented in `docker/.env.example` (active or commented). Exits non-zero on drift with a clear remediation message. Self-contained for CLI invocation (`PYTHONPATH=src python3 scripts/check_env_completeness.py`). Currently 100 fields documented, 0 drift.
+- **`.github/workflows/env-drift.yml` CI gate**: Triggers on PRs that touch `config.py`, `docker/.env.example`, `docker/.env.secrets.example`, `docker-compose.yml`, or `check_env_completeness.py`. Runs `dotenv-linter check` on each env file separately + `python3 scripts/check_env_completeness.py`.
+- **`tests/test_env_management.py` (5 tests)**: defaults-only `MemoryConfig()` instantiation; `env_file` reading; `secrets_dir` honored when `env_file` does not contain the key; drift-gate orphan detection via direct-import; v2.3.2 backward-compat without `.env.secrets` present.
+- **`secrets_dir='/run/secrets'` Pydantic Settings forward-compat**: `MemoryConfig.model_config` adds Docker Swarm / Kubernetes Secrets compatibility. No behavior change today; positions the project for future secrets-mount workflows. `extra='ignore'` was already present.
+- **Per-instance sanctum backup/restore in `deploy_parzival_v2()`**: Installer Option 1 updates now mirror the existing `_memory/` PID-suffixed backup/restore pattern for `sanctum/`. Per-instance content (LORE.md, BOND.md, accumulated Tier-C in `sessions/`/`capabilities/`/`references/`) is preserved across updates. CREED.md frontmatter merge preserves 4 specifically-mutating fields (`sessions_completed`, `last_session`, `updated`, `tier_promoted_on`) per DQ-3 (a); static identity fields come from the new template body. Closes the HIGH-severity sanctum data-loss path discovered in PM #261 pre-install audit.
+- **`scripts/_merge_sanctum_creed_frontmatter.py`**: New stdlib-`re`-based YAML frontmatter merger invoked by `deploy_parzival_v2()`. Atomic write via `tempfile` + `os.replace` (mirrors the `merge_settings.py` pattern). Module docstring documents single-line scalar limitation + `ruamel.yaml` upgrade path if the preserve set later expands to multi-line block scalars. Helper script path is overridable at install time via `${CREED_MERGE_SCRIPT}` for failure-mode regression testing.
+- **`tests/test_install_sanctum_preservation.py` (31 tests)**: Covers the Python helper directly + bash-subprocess integration tests for `deploy_parzival_v2()`. Includes `test_creed_merge_failure_falls_back_to_backup` regression test that exercises the failure path: when the merge helper exits non-zero, install logs an error and `cp`-restores the backup CREED.md verbatim, preserving per-instance frontmatter rather than letting the fresh template body wipe user state.
 
 ### Changed
 - **Parzival POV subsystem rebaselined**: Full rebaseline replacing the pre-existing source-repo `_ai-memory/pov/` tree with a canonical evolution developed across multiple iterations of dispatch-discipline embeds, 4-layer architecture refinement for orchestration skills, `§2a`/`§2b` instruction-form split for dispatch briefs, BMAD Intent picker support, and accumulated remediation landings. Net ~−7.2k lines (346 files changed; +7,303 / −14,524).
@@ -22,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependency floor: `langfuse>=4.0.6,<4.1.0`** (PR #120): Tightened the langfuse Python SDK lower bound from `4.0.0` to `4.0.6`. Picks up upstream patches v4.0.1-v4.0.6 including asyncio.CancelledError handling in `@observe` (v4.0.2), scores session ID parsing fix (v4.0.2), and experiments propagation context maintenance (v4.0.2). No API-surface changes affecting our V3 SDK usage (`get_client`, `observe`, `propagate_attributes`, `Langfuse`, `span_filter`).
 - **GitHub Actions group bump** (PR #113): Bumped 2 actions in `.github/workflows/community.yml`, `dependabot-auto-merge.yml`, `release.yml`. CI-only impact; no runtime change.
 
+### Fixed
+- **HIGH: sanctum data-loss on installer Option 1 updates**: Before this fix, `deploy_parzival_v2()` ran `rm -rf "$dst"` then `cp -r` from the source-repo template, wiping LORE/BOND/CREED-frontmatter/Tier-C accumulation on every update — only `_memory/` had explicit preservation. Discovered in PM #261 pre-install audit (testV2 Parzival). Fix mirrors the `_memory/` PID-suffix backup/restore pattern + adds CREED.md frontmatter merge for the 4 mutating fields. Closes F-H1.
+- **CREED frontmatter merge silent-failure path** (cycle-1 review F-M2): Previous implementation chained `python3 ... CREED.md || true` followed by an unconditional `log_debug "Merged"` — a merge failure would silently destroy per-instance frontmatter while logging success. Replaced with explicit if/else: on success, log debug confirmation; on failure, log error + `cp` backup CREED.md verbatim to preserve user identity. Install continues in both paths. Subsequent installer runs retry the merge.
+- **streamlit `restart: on-failure:3` regression** (cycle-1 review F-M1): When the new `<<: *python-service-defaults` anchor was applied to the streamlit service, the anchor's `restart: unless-stopped` silently overrode streamlit's original `restart: on-failure:3`. Restored via explicit service-level override: `restart: on-failure:3` placed at the streamlit service, taking YAML-merge precedence over the anchor.
+
 ### Removed
 - **`aim-bmad-dispatch/` skill**: The BMAD-specific dispatch skill is removed — `aim-agent-dispatch/` now handles both BMAD and generic agents via a unified routing path. All references to `/aim-bmad-dispatch` in prior orchestration pipeline documentation are superseded by `/aim-agent-dispatch`.
 - **`step-01c-parzival-constraints.md`** (Phase 3 startup pipeline optimization): The Parzival session-start workflow no longer runs a dedicated constraints-loading step — constraints are now loaded during activation (step 4) and re-injected during `aim-parzival-bootstrap` (step 1b) when needed. Net token reduction on session start.
@@ -29,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - **`claude-opus-4-7` added to model catalog**: `_ai-memory/pov/skills/aim-model-dispatch/references/models-claude.md` now lists Opus 4.7 as the newest Opus model (ordered newest-first), plus a row in the Model Selection Guide table and appended to the OpenRouter model list as `anthropic/claude-opus-4-7`. Aligns the catalog with the current Opus default for reviewer dispatches.
 - **INSTALL.md non-interactive Parzival section** (PR #124 follow-up): Documented the new `INSTALL_PARZIVAL=true` env var alongside the existing `NON_INTERACTIVE=true` guidance.
+- **Authoritative env-management knowledge**: New `oversight/knowledge/best-practices/BP-152-docker-compose-env-management-pydantic-multi-container-2026.md` (367 lines, 15 cited 2024-2026 sources) + `oversight/specs/ENV-MANAGEMENT-V2.md` (Parzival-direct synthesis from BP-152, 8 sections covering Compose pattern, Pydantic Settings layering, sensitive split, drift gate, multi-project layering). Drives the env-mgmt refactor in this release.
 
 ### Upgrade Instructions
 
@@ -37,8 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This release includes:
 
 1. A **Parzival POV subsystem rebaseline**. Existing Parzival users must re-run installer Option 1 to pick up the new `_ai-memory/pov/` tree, the `aim-agent-sanctum-init` scaffolding skill, and the sanctum directory structure. Sanctum files (`sanctum/parzival/LORE.md`, `BOND.md`, etc.) are created at First Breath by the scaffolding — no pre-existing Parzival identity is disturbed.
-2. Removal of `aim-bmad-dispatch/` skill. `settings.json` references to `/aim-bmad-dispatch` must be updated to `/aim-agent-dispatch` (installer Option 1 migrates automatically).
+2. Removal of `aim-bmad-dispatch/` skill. The DEPRECATED redirect stub at `.claude/skills/aim-bmad-dispatch/SKILL.md` ships for one release as a backward-compat shim — it routes invocations of `/aim-bmad-dispatch` to `/aim-agent-dispatch`. Existing `settings.json` references continue to work via the stub. Direct callers should update the skill path to `/aim-agent-dispatch` before the stub is removed in a later release. The installer does not modify `settings.json`.
 3. A **langfuse SDK floor bump** that **requires a Python container rebuild** for the change to take effect at runtime. Pure config/docs changes need only the standard installer Option 1 update.
+4. A **Compose env-management refactor** (BP-152 / ENV-MANAGEMENT-V2). The 4 Python services (`monitoring-api`, `streamlit`, `classifier-worker`, `github-sync`) now read env from `.env` + optional `.env.secrets` via `env_file:` directive instead of per-key `environment:` mapping. Existing `docker/.env` continues to work — sensitive keys can stay in `.env` (everything still loads) or be moved to `.env.secrets` for `chmod 600` enforcement (see post-install steps below). The `unset QDRANT_API_KEY` ritual previously required before compose operations is no longer needed.
+5. A **HIGH-severity sanctum data-loss fix** in `deploy_parzival_v2()`. Existing per-instance Parzival identity (LORE.md content, BOND.md content, Tier-C accumulation in `sessions/`/`capabilities/`/`references/`, CREED frontmatter mutations like `sessions_completed`) is now preserved across installer Option 1 updates. No user action required — preservation is automatic.
 
 1. **Pull the latest from main:**
    ```bash
@@ -72,6 +90,47 @@ This release includes:
    docker ps --format '{{.Names}}\t{{.Status}}' | grep ai-memory | grep -v '(healthy)'
    # Expect: zero output (all healthy)
    ```
+
+**Optional: Move sensitive keys to `.env.secrets`** (recommended; existing `.env` continues to work):
+
+```bash
+cd ~/.ai-memory/docker
+
+# Copy the template (do this once)
+cp .env.secrets.example .env.secrets
+chmod 600 .env.secrets
+
+# Move sensitive values from .env to .env.secrets
+# Edit .env.secrets — paste actual API keys, passwords, tokens
+# Edit .env — delete the lines for keys now in .env.secrets
+
+# Restart containers to pick up the split
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile '*' up -d
+```
+
+The 4 Python services read both files automatically via `env_file:` directive; values from `.env.secrets` take precedence on overlap. If `.env.secrets` is absent, behavior matches v2.3.2 (everything from `.env`).
+
+**Optional: Per-project env layering via `${PROJECT_ENV_FILE}`**:
+
+```bash
+# Create per-project override (only applies when PROJECT_ENV_FILE is set in docker/.env)
+mkdir -p ~/.ai-memory/projects.d/my-project
+cat > ~/.ai-memory/projects.d/my-project/.env <<EOF
+FRESHNESS_PENALTY_HALFLIFE_SECONDS=86400
+DECAY_MIN_SCORE=0.45
+EOF
+
+# install.sh writes PROJECT_ENV_FILE=<path> to docker/.env when given a project name.
+# To enable manually: add PROJECT_ENV_FILE=/home/$USER/.ai-memory/projects.d/my-project/.env to docker/.env
+```
+
+**Verify env propagation to containers** (post-restart):
+
+```bash
+docker exec ai-memory-classifier-worker env | grep DECAY_MIN_SCORE
+# Expect: shows the value from .env (or per-project override if PROJECT_ENV_FILE set).
+# Before this release, this would have been empty for 15 of 17 user-tunable keys (TD-477).
+```
 
 **Optional new flag for non-interactive installs:**
 
