@@ -3737,7 +3737,8 @@ drain_pending_queue() {
         # Source docker/.env for Qdrant connection settings
         if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
             set -a
-            source "$INSTALL_DIR/docker/.env"
+            # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
+            source <(grep -v -E '^(UID|GID)=' "$INSTALL_DIR/docker/.env")
             set +a
         fi
 
