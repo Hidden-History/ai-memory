@@ -22,7 +22,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from _merge_sanctum_creed_frontmatter import (
     FIELDS_TO_PRESERVE,
     _extract_field,
