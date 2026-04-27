@@ -2297,6 +2297,21 @@ validate_github_repo() {
     return 0
 }
 
+# Escape characters that have special meaning in sed REPLACEMENT side: &, \, |
+# (| is the chosen delimiter in set_env_value's substitution).
+# Used by persist_user_choices_to_env for user-supplied URL / email / token / JSON values.
+# BUG-274 fix-r2 (F-R1.1): & was a back-reference corruption vector for URLs/emails
+# containing query params or RFC-5321 local-parts with &; | broke the s|..| delimiter.
+# Order: escape \ first — otherwise the & and | escapes would introduce new \ chars
+# that would themselves be escaped again on a subsequent pass.
+_sed_escape() {
+    local v="$1"
+    v="${v//\\/\\\\}"   # escape backslash FIRST (prevents double-escaping of later substitutions)
+    v="${v//&/\\&}"     # escape & (sed back-reference)
+    v="${v//|/\\|}"     # escape | (substitution delimiter)
+    printf '%s' "$v"
+}
+
 # BUG-274: write user-collected env-bound shell vars to runtime config files.
 # Called from main() after copy_files() deploys the .env templates (which carry
 # placeholder defaults for every key) and before any subshell sources from those
@@ -2322,18 +2337,21 @@ persist_user_choices_to_env() {
     # Non-secret config → docker/.env (ENV-MANAGEMENT-V2 §1 single-env source-of-truth)
     # Write enable flags unconditionally (configure_options always sets them true/false).
     # Skip-empty guard: [[ -n "..." ]] prevents writing when var is unset (non-interactive).
+    # Enable flags are literal "true"/"false" — no sed metacharacters, _sed_escape not needed.
     [[ -n "${LANGFUSE_ENABLED:-}" ]] && set_env_value "LANGFUSE_ENABLED" "$LANGFUSE_ENABLED"
     [[ -n "${GITHUB_SYNC_ENABLED:-}" ]] && set_env_value "GITHUB_SYNC_ENABLED" "$GITHUB_SYNC_ENABLED"
     [[ -n "${JIRA_SYNC_ENABLED:-}" ]] && set_env_value "JIRA_SYNC_ENABLED" "$JIRA_SYNC_ENABLED"
 
     # Dependent non-secret vars: only when feature enabled and value non-empty.
+    # String-class values use _sed_escape (BUG-274 fix-r2 F-R1.1): URL/email/token/JSON
+    # values may contain & (sed back-reference) or | (delimiter) in sed replacement.
     if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]]; then
-        [[ -n "${GITHUB_REPO:-}" ]] && set_env_value "GITHUB_REPO" "$GITHUB_REPO"
+        [[ -n "${GITHUB_REPO:-}" ]] && set_env_value "GITHUB_REPO" "$(_sed_escape "$GITHUB_REPO")"
     fi
 
     if [[ "${JIRA_SYNC_ENABLED:-}" == "true" ]]; then
-        [[ -n "${JIRA_INSTANCE_URL:-}" ]] && set_env_value "JIRA_INSTANCE_URL" "$JIRA_INSTANCE_URL"
-        [[ -n "${JIRA_EMAIL:-}" ]] && set_env_value "JIRA_EMAIL" "$JIRA_EMAIL"
+        [[ -n "${JIRA_INSTANCE_URL:-}" ]] && set_env_value "JIRA_INSTANCE_URL" "$(_sed_escape "$JIRA_INSTANCE_URL")"
+        [[ -n "${JIRA_EMAIL:-}" ]] && set_env_value "JIRA_EMAIL" "$(_sed_escape "$JIRA_EMAIL")"
         if [[ -n "${JIRA_PROJECTS:-}" ]]; then
             local jira_json
             # Guard: if already JSON array (pre-set env var), skip format_jira_projects_json
@@ -2342,16 +2360,16 @@ persist_user_choices_to_env() {
             else
                 jira_json=$(format_jira_projects_json "$JIRA_PROJECTS")
             fi
-            set_env_value "JIRA_PROJECTS" "'$jira_json'"
+            set_env_value "JIRA_PROJECTS" "'$(_sed_escape "$jira_json")'"
         fi
     fi
 
     # Secrets → docker/.env.secrets (ENV-MANAGEMENT-V2 §1 sensitive split, chmod 600)
     if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" && -n "${GITHUB_TOKEN:-}" ]]; then
-        set_env_value "GITHUB_TOKEN" "$GITHUB_TOKEN" "$secrets_file"
+        set_env_value "GITHUB_TOKEN" "$(_sed_escape "$GITHUB_TOKEN")" "$secrets_file"
     fi
     if [[ "${JIRA_SYNC_ENABLED:-}" == "true" && -n "${JIRA_API_TOKEN:-}" ]]; then
-        set_env_value "JIRA_API_TOKEN" "$JIRA_API_TOKEN" "$secrets_file"
+        set_env_value "JIRA_API_TOKEN" "$(_sed_escape "$JIRA_API_TOKEN")" "$secrets_file"
     fi
 
     chmod 600 "$secrets_file" 2>/dev/null || true

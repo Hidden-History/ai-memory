@@ -65,6 +65,14 @@ set_env_value() {
     fi
 }
 
+_sed_escape() {
+    local v="$1"
+    v="${v//\\\\/\\\\\\\\}"
+    v="${v//&/\\\\&}"
+    v="${v//|/\\\\|}"
+    printf '%s' "$v"
+}
+
 persist_user_choices_to_env() {
     local env_file="$INSTALL_DIR/docker/.env"
     local secrets_file="$INSTALL_DIR/docker/.env.secrets"
@@ -83,12 +91,12 @@ persist_user_choices_to_env() {
     [[ -n "${JIRA_SYNC_ENABLED:-}" ]] && set_env_value "JIRA_SYNC_ENABLED" "$JIRA_SYNC_ENABLED"
 
     if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]]; then
-        [[ -n "${GITHUB_REPO:-}" ]] && set_env_value "GITHUB_REPO" "$GITHUB_REPO"
+        [[ -n "${GITHUB_REPO:-}" ]] && set_env_value "GITHUB_REPO" "$(_sed_escape "$GITHUB_REPO")"
     fi
 
     if [[ "${JIRA_SYNC_ENABLED:-}" == "true" ]]; then
-        [[ -n "${JIRA_INSTANCE_URL:-}" ]] && set_env_value "JIRA_INSTANCE_URL" "$JIRA_INSTANCE_URL"
-        [[ -n "${JIRA_EMAIL:-}" ]] && set_env_value "JIRA_EMAIL" "$JIRA_EMAIL"
+        [[ -n "${JIRA_INSTANCE_URL:-}" ]] && set_env_value "JIRA_INSTANCE_URL" "$(_sed_escape "$JIRA_INSTANCE_URL")"
+        [[ -n "${JIRA_EMAIL:-}" ]] && set_env_value "JIRA_EMAIL" "$(_sed_escape "$JIRA_EMAIL")"
         if [[ -n "${JIRA_PROJECTS:-}" ]]; then
             local jira_json
             if [[ "${JIRA_PROJECTS}" =~ ^\\[ ]]; then
@@ -96,15 +104,15 @@ persist_user_choices_to_env() {
             else
                 jira_json=$(format_jira_projects_json "$JIRA_PROJECTS")
             fi
-            set_env_value "JIRA_PROJECTS" "'$jira_json'"
+            set_env_value "JIRA_PROJECTS" "'$(_sed_escape "$jira_json")'"
         fi
     fi
 
     if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" && -n "${GITHUB_TOKEN:-}" ]]; then
-        set_env_value "GITHUB_TOKEN" "$GITHUB_TOKEN" "$secrets_file"
+        set_env_value "GITHUB_TOKEN" "$(_sed_escape "$GITHUB_TOKEN")" "$secrets_file"
     fi
     if [[ "${JIRA_SYNC_ENABLED:-}" == "true" && -n "${JIRA_API_TOKEN:-}" ]]; then
-        set_env_value "JIRA_API_TOKEN" "$JIRA_API_TOKEN" "$secrets_file"
+        set_env_value "JIRA_API_TOKEN" "$(_sed_escape "$JIRA_API_TOKEN")" "$secrets_file"
     fi
 
     chmod 600 "$secrets_file" 2>/dev/null || true
@@ -259,8 +267,10 @@ def test_jira_projects_written_as_json(install_dir):
     )
     assert result.returncode == 0, result.stderr.decode()
     content = _read_env(install_dir)
-    assert "PROJ" in content
-    assert "BACKEND" in content
+    lines = [line for line in content.splitlines() if line.startswith("JIRA_PROJECTS=")]
+    assert len(lines) == 1, f"JIRA_PROJECTS should appear exactly once: {lines!r}"
+    assert '"PROJ"' in lines[0], f"Expected JSON-quoted PROJ in: {lines[0]!r}"
+    assert '"BACKEND"' in lines[0], f"Expected JSON-quoted BACKEND in: {lines[0]!r}"
 
 
 def test_langfuse_enabled_written_to_env(install_dir):
@@ -286,6 +296,26 @@ def test_github_disabled_leaves_token_empty_in_secrets(install_dir):
     # The template placeholder may still be present or absent; what must NOT happen is
     # a non-empty token appearing when user disabled sync.
     assert "ghp_" not in secrets
+
+
+def test_jira_disabled_leaves_token_empty_in_secrets(install_dir):
+    """When Jira sync is disabled, JIRA_API_TOKEN is not written to .env.secrets.
+
+    Mirrors test_github_disabled_leaves_token_empty_in_secrets — symmetric coverage
+    for the JIRA_SYNC_ENABLED=false branch of persist_user_choices_to_env.
+    """
+    result = _run(
+        "",
+        install_dir,
+        env_vars="JIRA_SYNC_ENABLED=false JIRA_API_TOKEN=ATATshouldnotappear",
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    secrets = _read_env(install_dir, "docker/.env.secrets")
+    for line in secrets.splitlines():
+        if line.startswith("JIRA_API_TOKEN="):
+            assert (
+                line == "JIRA_API_TOKEN="
+            ), f"JIRA_API_TOKEN has non-empty value when sync disabled: {line!r}"
 
 
 def test_github_sync_disabled_does_not_write_repo(install_dir):
@@ -414,6 +444,12 @@ def test_github_token_not_in_env(install_dir):
     assert (
         "ghp_secrettoken" not in env_content
     ), "GITHUB_TOKEN secret value leaked into docker/.env"
+    # Structural assertion: decoupled from fixture string — GITHUB_TOKEN= line must be empty.
+    for line in env_content.splitlines():
+        if line.startswith("GITHUB_TOKEN="):
+            assert (
+                line == "GITHUB_TOKEN="
+            ), f"GITHUB_TOKEN has non-empty value in docker/.env: {line!r}"
 
 
 def test_jira_api_token_not_in_env(install_dir):
@@ -434,6 +470,12 @@ def test_jira_api_token_not_in_env(install_dir):
     assert (
         "ATATsecrettoken" not in env_content
     ), "JIRA_API_TOKEN secret value leaked into docker/.env"
+    # Structural assertion: decoupled from fixture string — JIRA_API_TOKEN= line must be empty.
+    for line in env_content.splitlines():
+        if line.startswith("JIRA_API_TOKEN="):
+            assert (
+                line == "JIRA_API_TOKEN="
+            ), f"JIRA_API_TOKEN has non-empty value in docker/.env: {line!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -441,38 +483,24 @@ def test_jira_api_token_not_in_env(install_dir):
 # ---------------------------------------------------------------------------
 
 
-def test_without_persist_function_user_values_are_lost(install_dir):
-    """Without persist_user_choices_to_env, template defaults survive (pre-fix behavior).
+def test_persist_with_empty_vars_preserves_template_defaults(install_dir):
+    """With all user-input env vars empty, persist_user_choices_to_env is a no-op.
 
-    This documents the BUG-274 root cause: if we skip the persist call and just
-    let configure_environment run its append guard, the guard finds the key already
-    present (from the .env.example template) and skips the write. User answers stay
-    only in shell memory, never reaching the file.
-
-    If this test starts FAILING (values DO appear without the persist call), it
-    means the root cause has been addressed elsewhere — investigate before removing.
+    Demonstrates:
+    1. Skip-empty discipline: [[ -n "${VAR:-}" ]] guards prevent any write.
+    2. BUG-274 pre-fix behavior: a non-interactive run that produced no shell vars
+       would have left template defaults in place — exactly what this test proves
+       still happens with the fix when no input is provided.
     """
-    # Simulate the pre-fix state: set env vars but do NOT call persist_user_choices_to_env.
-    # Then check that docker/.env still has the template defaults.
-    cmd = f"""\
-export INSTALL_DIR={install_dir}
-export GITHUB_SYNC_ENABLED=true
-export GITHUB_REPO=owner/repo
-export GITHUB_TOKEN=ghp_tok
-# No persist call — user choices live only in shell vars, never reach the file.
-# The template docker/.env still has GITHUB_SYNC_ENABLED=false.
-"""
-    result = subprocess.run(
-        ["bash", "-c", cmd],
-        capture_output=True,
-        env=_minimal_env(),
-    )
-    assert result.returncode == 0
-    env_content = _read_env(install_dir)
-    # Without the fix, the file retains template defaults.
-    assert "GITHUB_SYNC_ENABLED=false" in env_content, (
-        "Pre-fix: expected template default GITHUB_SYNC_ENABLED=false to be preserved "
-        "without persist_user_choices_to_env. If this fails, check BUG-274 root cause."
-    )
-    assert "GITHUB_REPO=" in env_content  # template has empty GITHUB_REPO=
-    assert "owner/repo" not in env_content
+    template_env = _read_env(install_dir, "docker/.env")
+    template_secrets = _read_env(install_dir, "docker/.env.secrets")
+
+    result = _run("", install_dir, env_vars="")
+    assert result.returncode == 0, result.stderr.decode()
+
+    assert (
+        _read_env(install_dir, "docker/.env") == template_env
+    ), "docker/.env modified when no user vars provided"
+    assert (
+        _read_env(install_dir, "docker/.env.secrets") == template_secrets
+    ), "docker/.env.secrets modified when no user vars provided"
