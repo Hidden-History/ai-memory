@@ -3773,7 +3773,8 @@ setup_github_indexes() {
     local result rc=0
     # BUG-098: Source .env so pydantic MemoryConfig reads env vars even when
     # env_file=".env" doesn't resolve (CWD is docker/ but pydantic may not find it)
-    result=$(cd "$INSTALL_DIR/docker" && [[ -f .env ]] || { echo "FAILED: docker/.env not found"; exit 1; } && set -a && source .env && set +a && "$INSTALL_DIR/.venv/bin/python" -c "
+    # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
+    result=$(cd "$INSTALL_DIR/docker" && [[ -f .env ]] || { echo "FAILED: docker/.env not found"; exit 1; } && set -a && source <(grep -v -E '^(UID|GID)=' .env) && set +a && "$INSTALL_DIR/.venv/bin/python" -c "
 import sys
 sys.path.insert(0, '$INSTALL_DIR/src')
 from memory.qdrant_client import get_qdrant_client
@@ -3810,7 +3811,8 @@ run_initial_github_sync() {
         # BUG-117: --no-code-blobs skips code blob sync during install; the github-sync
         # service container handles code blobs automatically on startup (GITHUB_SYNC_ON_START=true)
         local exit_code=0
-        (cd "$INSTALL_DIR" && [[ -f docker/.env ]] || { echo "[ERROR] docker/.env not found"; exit 1; } && set -a && source docker/.env && set +a && ".venv/bin/python" "scripts/github_sync.py" --full --no-code-blobs) 2>&1 | tee "$INSTALL_DIR/logs/github_initial_sync.log"
+        # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
+        (cd "$INSTALL_DIR" && [[ -f docker/.env ]] || { echo "[ERROR] docker/.env not found"; exit 1; } && set -a && source <(grep -v -E '^(UID|GID)=' docker/.env) && set +a && ".venv/bin/python" "scripts/github_sync.py" --full --no-code-blobs) 2>&1 | tee "$INSTALL_DIR/logs/github_initial_sync.log"
         exit_code=${PIPESTATUS[0]}
 
         case $exit_code in
@@ -3821,7 +3823,7 @@ run_initial_github_sync() {
             *)
                 GITHUB_SYNC_STATUS="error"
                 log_warning "Initial sync had errors (exit code: $exit_code) — check $INSTALL_DIR/logs/github_initial_sync.log"
-                log_info "Re-run manually: cd $INSTALL_DIR && set -a && source docker/.env && set +a && .venv/bin/python scripts/github_sync.py --full"
+                log_info "Re-run manually: cd $INSTALL_DIR && set -a && source <(grep -v -E '^(UID|GID)=' docker/.env) && set +a && .venv/bin/python scripts/github_sync.py --full"
                 ;;
         esac
     fi
