@@ -1621,7 +1621,7 @@ update_shared_scripts() {
     mkdir -p "$INSTALL_DIR/.claude/hooks/scripts"
 
     # BUG-244: Use shared sync function for all non-Docker file syncing
-    # SOURCE_DIR is set at line 823 in add-project mode before this function is called
+    # SOURCE_DIR is set by main() in the add-project branch (derived from SCRIPT_DIR) before this function is called
     sync_installed_files "$SOURCE_DIR" "$INSTALL_DIR"
 
     # BUG-034: Archive stale hooks not in source (unique to Option 1 add-project)
@@ -2250,7 +2250,7 @@ copy_files() {
 
 # DEPRECATED: import_user_env() no longer imports from root .env.
 # docker/.env is the single source of truth for all configuration.
-# This function is kept as a stub to preserve call sites at line 746 and 1078.
+# This function is kept as a stub to preserve call sites in main() and update_shared_scripts().
 import_user_env() {
     local source_root="${SOURCE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
     local user_env="$source_root/.env"
