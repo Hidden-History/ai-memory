@@ -53,7 +53,9 @@ def test_fixed_pattern_succeeds(env_file):
     )
     assert b"UID: readonly variable" not in result.stderr
     assert b"GID: readonly variable" not in result.stderr
-    assert result.returncode == 0, f"Expected exit 0, got {result.returncode}; stderr: {result.stderr.decode()}"
+    assert (
+        result.returncode == 0
+    ), f"Expected exit 0, got {result.returncode}; stderr: {result.stderr.decode()}"
     assert b"hello" in result.stdout
 
 
