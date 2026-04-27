@@ -1296,6 +1296,7 @@ main() {
         step "File Deployment"
         copy_files
         import_user_env
+        persist_user_choices_to_env
         step "Python Environment"
         install_python_dependencies
         step "Environment Configuration"
@@ -2294,6 +2295,67 @@ validate_github_repo() {
         return 1
     fi
     return 0
+}
+
+# BUG-274: write user-collected env-bound shell vars to runtime config files.
+# Called from main() after copy_files() deploys the .env templates (which carry
+# placeholder defaults for every key) and before any subshell sources from those
+# files. Without this, template defaults silently overwrite user answers because
+# configure_environment's append guards see the keys as already present.
+# Uses set_env_value (defined below) which is idempotent: updates an existing key
+# via sed or appends if missing — so re-running with the same answers is safe.
+persist_user_choices_to_env() {
+    local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+
+    # Belt-and-suspenders: copy_files() already creates .env.secrets from .example,
+    # but guard here in case it is missing (ENV-MANAGEMENT-V2 §1 sensitive split).
+    if [[ ! -f "$secrets_file" ]]; then
+        if [[ -f "$INSTALL_DIR/docker/.env.secrets.example" ]]; then
+            cp "$INSTALL_DIR/docker/.env.secrets.example" "$secrets_file"
+        else
+            touch "$secrets_file"
+        fi
+    fi
+    chmod 600 "$secrets_file" 2>/dev/null || log_warning "chmod 600 on .env.secrets failed"
+
+    # Non-secret config → docker/.env (ENV-MANAGEMENT-V2 §1 single-env source-of-truth)
+    # Write enable flags unconditionally (configure_options always sets them true/false).
+    # Skip-empty guard: [[ -n "..." ]] prevents writing when var is unset (non-interactive).
+    [[ -n "${LANGFUSE_ENABLED:-}" ]] && set_env_value "LANGFUSE_ENABLED" "$LANGFUSE_ENABLED"
+    [[ -n "${GITHUB_SYNC_ENABLED:-}" ]] && set_env_value "GITHUB_SYNC_ENABLED" "$GITHUB_SYNC_ENABLED"
+    [[ -n "${JIRA_SYNC_ENABLED:-}" ]] && set_env_value "JIRA_SYNC_ENABLED" "$JIRA_SYNC_ENABLED"
+
+    # Dependent non-secret vars: only when feature enabled and value non-empty.
+    if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]]; then
+        [[ -n "${GITHUB_REPO:-}" ]] && set_env_value "GITHUB_REPO" "$GITHUB_REPO"
+    fi
+
+    if [[ "${JIRA_SYNC_ENABLED:-}" == "true" ]]; then
+        [[ -n "${JIRA_INSTANCE_URL:-}" ]] && set_env_value "JIRA_INSTANCE_URL" "$JIRA_INSTANCE_URL"
+        [[ -n "${JIRA_EMAIL:-}" ]] && set_env_value "JIRA_EMAIL" "$JIRA_EMAIL"
+        if [[ -n "${JIRA_PROJECTS:-}" ]]; then
+            local jira_json
+            # Guard: if already JSON array (pre-set env var), skip format_jira_projects_json
+            if [[ "${JIRA_PROJECTS}" =~ ^\[ ]]; then
+                jira_json="$JIRA_PROJECTS"
+            else
+                jira_json=$(format_jira_projects_json "$JIRA_PROJECTS")
+            fi
+            set_env_value "JIRA_PROJECTS" "'$jira_json'"
+        fi
+    fi
+
+    # Secrets → docker/.env.secrets (ENV-MANAGEMENT-V2 §1 sensitive split, chmod 600)
+    if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" && -n "${GITHUB_TOKEN:-}" ]]; then
+        set_env_value "GITHUB_TOKEN" "$GITHUB_TOKEN" "$secrets_file"
+    fi
+    if [[ "${JIRA_SYNC_ENABLED:-}" == "true" && -n "${JIRA_API_TOKEN:-}" ]]; then
+        set_env_value "JIRA_API_TOKEN" "$JIRA_API_TOKEN" "$secrets_file"
+    fi
+
+    chmod 600 "$secrets_file" 2>/dev/null || true
+    log_debug "BUG-274: persisted user choices to docker/.env and docker/.env.secrets"
 }
 
 # Environment configuration (AC 7.1.6)

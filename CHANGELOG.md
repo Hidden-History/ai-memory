@@ -36,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HIGH: sanctum data-loss on installer Option 1 updates**: Before this fix, `deploy_parzival_v2()` ran `rm -rf "$dst"` then `cp -r` from the source-repo template, wiping LORE/BOND/CREED-frontmatter/Tier-C accumulation on every update — only `_memory/` had explicit preservation. Discovered in PM #261 pre-install audit (testV2 Parzival). Fix mirrors the `_memory/` PID-suffix backup/restore pattern + adds CREED.md frontmatter merge for the 4 mutating fields. Closes F-H1.
 - **CREED frontmatter merge silent-failure path** (cycle-1 review F-M2): Previous implementation chained `python3 ... CREED.md || true` followed by an unconditional `log_debug "Merged"` — a merge failure would silently destroy per-instance frontmatter while logging success. Replaced with explicit if/else: on success, log debug confirmation; on failure, log error + `cp` backup CREED.md verbatim to preserve user identity. Install continues in both paths. Subsequent installer runs retry the merge.
 - **streamlit `restart: on-failure:3` regression** (cycle-1 review F-M1): When the new `<<: *python-service-defaults` anchor was applied to the streamlit service, the anchor's `restart: unless-stopped` silently overrode streamlit's original `restart: on-failure:3`. Restored via explicit service-level override: `restart: on-failure:3` placed at the streamlit service, taking YAML-merge precedence over the anchor.
+- **Installer (BUG-273 fix)**: filter `UID` and `GID` from the bash `source` of `docker/.env` at the three sites in `setup_github_indexes()`, `run_initial_github_sync()`, and the manual re-run instruction string. Pre-fix, `docker/.env.example` since v2.3.0 contains `UID=1000` and `GID=1000`; bash treats these as readonly built-ins, so `set -a && source docker/.env` short-circuited the `&&` chain before reaching the Python helpers, causing GitHub index creation and initial sync to silently fail with install exit code 1. Fix: `source <(grep -v -E '^(UID|GID)=' docker/.env)`. Latent in v2.3.0–v2.3.2. See `oversight/bugs/BUG-273-install-source-env-uid-readonly.md`.
+- **Installer (BUG-274 fix)**: persist user-provided GitHub / Jira / Langfuse answers
+  to `docker/.env` and `docker/.env.secrets` via the existing `set_env_value` helper.
+  Pre-fix, fresh installs lost user choices because the install script collected
+  answers into shell variables but never wrote them back to the runtime env files;
+  later subshells that sourced from `.env` re-imported template defaults, breaking
+  GitHub sync (and any other feature whose enablement was answered "yes"). Sibling
+  to BUG-273 — both manifest at the same install.sh region. See
+  `oversight/bugs/BUG-274-install-user-input-not-persisted-to-env.md`.
 
 ### Removed
 - **`aim-bmad-dispatch/` skill**: The BMAD-specific dispatch skill is removed — `aim-agent-dispatch/` now handles both BMAD and generic agents via a unified routing path. All references to `/aim-bmad-dispatch` in prior orchestration pipeline documentation are superseded by `/aim-agent-dispatch`.
