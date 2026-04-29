@@ -49,6 +49,12 @@ _KEYS_TO_CLEAR = [
     "GITHUB_TOKEN",
     "GITHUB_REPO",
     "JIRA_API_TOKEN",
+    "JIRA_BASE_URL",
+    "JIRA_SYNC_ENABLED",
+    "JIRA_USER_EMAIL",
+    "LANGFUSE_ENABLED",
+    "LANGFUSE_PUBLIC_KEY",
+    "LANGFUSE_SECRET_KEY",
     "QDRANT_API_KEY",
     "QDRANT_HOST",
     "SIMILARITY_THRESHOLD",
@@ -65,6 +71,42 @@ def clean_install_env(monkeypatch, tmp_path):
     # Teardown: ensure module is reloaded on next test entry
     sys.modules.pop("memory.config", None)
     sys.modules.pop("memory.logging_config", None)
+
+
+# ---------------------------------------------------------------------------
+# Fixture for Pattern C helper tests — snapshot+restore os.environ
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def env_loader_test_keys(monkeypatch):
+    """Snapshot+restore os.environ keys mutated by load_install_env() during a test.
+
+    monkeypatch only auto-reverts vars it set via setenv/delenv; raw os.environ writes
+    by load_install_env() are NOT tracked. This fixture takes a snapshot of the keys
+    load_install_env() can write, runs the test, then restores the snapshot.
+    """
+    keys_to_track = [
+        "QDRANT_API_KEY",
+        "QDRANT_HOST",
+        "QDRANT_PORT",
+        "GITHUB_TOKEN",
+        "GITHUB_REPO",
+        "GITHUB_SYNC_ENABLED",
+        "JIRA_API_TOKEN",
+        "JIRA_BASE_URL",
+        "JIRA_USER_EMAIL",
+        "LANGFUSE_PUBLIC_KEY",
+        "LANGFUSE_SECRET_KEY",
+        "LANGFUSE_ENABLED",
+    ]
+    snapshot = {k: os.environ.get(k) for k in keys_to_track}
+    yield
+    for k, v in snapshot.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +257,7 @@ def test_memoryconfig_empty_env_does_not_suppress_secrets(clean_install_env):
 # ---------------------------------------------------------------------------
 
 
-def test_env_loader_merges_split_files(tmp_path, monkeypatch):
+def test_env_loader_merges_split_files(tmp_path, monkeypatch, env_loader_test_keys):
     """load_install_env() loads .env.secrets first (precedence) then .env.
 
     Verifies: shell env > .env.secrets > .env > no-file defaults (BP-153 §3).
@@ -243,7 +285,7 @@ def test_env_loader_merges_split_files(tmp_path, monkeypatch):
     assert os.environ.get("QDRANT_HOST") == "filehost"
 
 
-def test_env_loader_shell_env_wins(tmp_path, monkeypatch):
+def test_env_loader_shell_env_wins(tmp_path, monkeypatch, env_loader_test_keys):
     """Shell env set before load_install_env() is not overwritten."""
     if str(_SCRIPTS_DIR) not in sys.path:
         sys.path.insert(0, str(_SCRIPTS_DIR))
@@ -262,7 +304,9 @@ def test_env_loader_shell_env_wins(tmp_path, monkeypatch):
     assert os.environ.get("QDRANT_API_KEY") == "shell_value"
 
 
-def test_env_loader_missing_secrets_file_silent(tmp_path, monkeypatch):
+def test_env_loader_missing_secrets_file_silent(
+    tmp_path, monkeypatch, env_loader_test_keys
+):
     """Missing .env.secrets is silently skipped; .env values still load."""
     if str(_SCRIPTS_DIR) not in sys.path:
         sys.path.insert(0, str(_SCRIPTS_DIR))
