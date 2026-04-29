@@ -45,6 +45,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   GitHub sync (and any other feature whose enablement was answered "yes"). Sibling
   to BUG-273 — both manifest at the same install.sh region. See
   `oversight/bugs/BUG-274-install-user-input-not-persisted-to-env.md`.
+- **Installer (BUG-275 fix)**: extend pydantic-settings consumer-side loading to read
+  both `docker/.env` and `docker/.env.secrets`. Pre-fix, `MemoryConfig.model_config`
+  declared a single-string `env_file=docker/.env`, so secrets persisted by the
+  BUG-274 fix to `docker/.env.secrets` (chmod 600) were invisible to every Python
+  entry into `memory.*`. Fresh installs with `GITHUB_SYNC_ENABLED=true` exited 1 at
+  the `setup_collections` step with a `ValidationError`. Sibling of BUG-273 (UID/GID
+  readonly source) and BUG-274 (user-input persistence) — same install region,
+  consumer-side root cause. Fix research-validated by BP-153 (pydantic-settings
+  2.7.1 source code + live test). Pattern A: 1-line tuple `env_file=(_docker_env,
+  _docker_secrets)` in `MemoryConfig`. Pattern B: install.sh subshell sources both
+  files at the `setup_collections()` call site (defense-in-depth). Pattern C: extend
+  manual dotenv loaders in `migrate_v221_hybrid_vectors.py` and the user-invoked CLI
+  scripts (`backup_qdrant.py`, `restore_qdrant.py`, `list_projects.py`) to load
+  both files via shared helper `scripts/_env_loader.py`. Achieved precedence:
+  shell > `.env.secrets` > `.env` > Field defaults. See
+  `oversight/bugs/BUG-275-memoryconfig-single-env-file-secrets-blind.md` and
+  `oversight/knowledge/best-practices/BP-153-pydantic-settings-split-env-consumers-2026.md`.
 
 ### Removed
 - **`aim-bmad-dispatch/` skill**: The BMAD-specific dispatch skill is removed — `aim-agent-dispatch/` now handles both BMAD and generic agents via a unified routing path. All references to `/aim-bmad-dispatch` in prior orchestration pipeline documentation are superseded by `/aim-agent-dispatch`.

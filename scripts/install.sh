@@ -3099,8 +3099,16 @@ wait_for_services() {
 setup_collections() {
     log_info "Setting up Qdrant collections..."
 
-    # Run the setup script
-    if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/setup-collections.py" 2>&1; then
+    # BUG-275 defense-in-depth: source both env files so setup-collections.py
+    # gets full env in the subshell. Pattern A in MemoryConfig is the primary fix;
+    # this subshell ensures env is available even if MemoryConfig path is bypassed.
+    # .env source filters UID/GID per BUG-273; .env.secrets has no UID/GID.
+    if (set -a
+        [ -f "$INSTALL_DIR/docker/.env" ] && \
+          source <(grep -v -E '^(UID|GID)=' "$INSTALL_DIR/docker/.env")
+        [ -f "$INSTALL_DIR/docker/.env.secrets" ] && \
+          source "$INSTALL_DIR/docker/.env.secrets"
+        "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/setup-collections.py" 2>&1); then
         log_success "Qdrant collections created (code-patterns, conventions, discussions, github, jira-data)"
     else
         log_error "Collection setup FAILED - re-run: $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/setup-collections.py"

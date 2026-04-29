@@ -122,19 +122,20 @@ class MemoryConfig(BaseSettings):
         jira_sync_delay_ms: Delay between Jira API requests for rate limiting
     """
 
+    # BUG-275: tuple reads both files; last-wins per pydantic-settings dict.update() — see BP-153 §3/§4
+    _install_dir = Path(
+        os.environ.get("AI_MEMORY_INSTALL_DIR", str(Path.home() / ".ai-memory"))
+    )
+    _docker_env = str(_install_dir / "docker" / ".env")
+    _docker_secrets = str(_install_dir / "docker" / ".env.secrets")
+
     model_config = SettingsConfigDict(
-        env_file=str(
-            Path(
-                os.environ.get(
-                    "AI_MEMORY_INSTALL_DIR",
-                    str(Path.home() / ".ai-memory"),
-                )
-            )
-            / "docker"
-            / ".env"
-        ),
+        env_file=(
+            _docker_env,
+            _docker_secrets,
+        ),  # was: single str; last-wins per dict.update()
         env_file_encoding="utf-8",
-        env_ignore_empty=True,  # Use defaults instead of empty strings
+        env_ignore_empty=True,  # per-file filter — empty .env placeholders don't suppress .env.secrets
         case_sensitive=False,  # SIMILARITY_THRESHOLD = similarity_threshold
         validate_default=True,  # Validate default values
         frozen=True,  # Immutable after creation (thread-safe)

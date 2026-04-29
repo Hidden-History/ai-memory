@@ -34,6 +34,12 @@ except ImportError:
     )
     sys.exit(1)
 
+# BUG-275: load split env files before module-level os.environ.get() reads (BP-153 §3)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _env_loader import load_install_env
+
+load_install_env()
+
 # Default configuration
 INSTALL_DIR = os.environ.get(
     "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
