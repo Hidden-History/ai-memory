@@ -62,6 +62,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shell > `.env.secrets` > `.env` > Field defaults. See
   `oversight/bugs/BUG-275-memoryconfig-single-env-file-secrets-blind.md` and
   `oversight/knowledge/best-practices/BP-153-pydantic-settings-split-env-consumers-2026.md`.
+- **Installer (BUG-277 fix)**: migrate all 25 secret-class keys from `docker/.env`
+  (chmod 644) to `docker/.env.secrets` (chmod 600) — completing the ENV-MANAGEMENT-V2
+  split-file architecture (PM #261-262). Prior to this fix, only GITHUB_TOKEN and
+  JIRA_API_TOKEN were correctly written to `.env.secrets` (BUG-274); 17 auto-generated
+  keys (Qdrant, Grafana, Prometheus, Langfuse infra/project/bootstrap) and 6
+  user-supplied optional keys remained at chmod 644. Fix architecture: 17 PP-2 write
+  sites moved in install.sh and langfuse_setup.sh; Option γ atomic migration
+  (write-to-tempfile → chmod 600 → atomic mv → verify → blank source) for v2.3.x
+  in-place upgrades; langfuse_setup.sh env_get()/env_has() extended to read from
+  .env.secrets. Rollback (v2.3.x reinstall): auto-generated credentials regenerate;
+  user-supplied tokens (GITHUB_TOKEN, JIRA_API_TOKEN) re-prompt. Research-validated
+  by BP-154 (POSIX rename() + Docker Compose v5.0.2 live test + compose-spec/compose-go
+  source, PM #270). See oversight/bugs/BUG-277-secrets-class-keys-written-to-env-not-secrets.md
+  and oversight/knowledge/best-practices/BP-154-env-secrets-migration-2026.md.
 
 ### Removed
 - **`aim-bmad-dispatch/` skill**: The BMAD-specific dispatch skill is removed — `aim-agent-dispatch/` now handles both BMAD and generic agents via a unified routing path. All references to `/aim-bmad-dispatch` in prior orchestration pipeline documentation are superseded by `/aim-agent-dispatch`.

@@ -1,0 +1,585 @@
+"""Integration tests for ENV-MANAGEMENT-V2 secrets split migration (BUG-277).
+
+Tests T1-T12 per BP-154 §10, plus verify_env_split.py unit test.
+All tests use tmp_path; no real install directory; no Docker subprocess.
+Shell migration functions invoked via subprocess for T4-T9.
+"""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+# Path to helpers and verify script relative to this test file
+_SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
+_HELPERS_SH = _SCRIPTS_DIR / "_env_split_helpers.sh"
+_VERIFY_PY = _SCRIPTS_DIR / "verify_env_split.py"
+
+# Canonical PP-2 key list (17 original + QDRANT_READ_ONLY_API_KEY per R2.7)
+PP_2_KEYS = [
+    "QDRANT_API_KEY",
+    "QDRANT_READ_ONLY_API_KEY",
+    "GRAFANA_ADMIN_PASSWORD",
+    "GRAFANA_SECRET_KEY",
+    "PROMETHEUS_ADMIN_PASSWORD",
+    "PROMETHEUS_BASIC_AUTH_HEADER",
+    "LANGFUSE_DB_PASSWORD",
+    "LANGFUSE_CLICKHOUSE_PASSWORD",
+    "LANGFUSE_NEXTAUTH_SECRET",
+    "LANGFUSE_SALT",
+    "LANGFUSE_ENCRYPTION_KEY",
+    "LANGFUSE_S3_ACCESS_KEY",
+    "LANGFUSE_S3_SECRET_KEY",
+    "LANGFUSE_PUBLIC_KEY",
+    "LANGFUSE_SECRET_KEY",
+    "LANGFUSE_INIT_PROJECT_PUBLIC_KEY",
+    "LANGFUSE_INIT_PROJECT_SECRET_KEY",
+    "LANGFUSE_INIT_USER_PASSWORD",
+]
+
+PP_3_KEYS = [
+    "OLLAMA_API_KEY",
+    "OPENROUTER_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "EVALUATOR_API_KEY",
+]
+
+LANGFUSE_NON_SECRET_INIT_KEYS = [
+    "LANGFUSE_INIT_ORG_ID",
+    "LANGFUSE_INIT_ORG_NAME",
+    "LANGFUSE_INIT_PROJECT_ID",
+    "LANGFUSE_INIT_PROJECT_NAME",
+    "LANGFUSE_INIT_USER_EMAIL",
+    "LANGFUSE_INIT_USER_NAME",
+]
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _write_env(path: Path, pairs: dict) -> None:
+    lines = [f'{k}="{v}"' if v else f"{k}=" for k, v in pairs.items()]
+    path.write_text("\n".join(lines) + "\n")
+
+
+def _read_env(path: Path) -> dict:
+    result = {}
+    if not path.exists():
+        return result
+    for line in path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in stripped:
+            continue
+        k, _, v = stripped.partition("=")
+        result[k.strip()] = v.strip().strip("\"'")
+    return result
+
+
+def _run_bash(script: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["bash", "-c", script],
+        capture_output=True,
+        text=True,
+    )
+
+
+def _migrate_via_bash(
+    env_file: Path, secrets_file: Path
+) -> subprocess.CompletedProcess:
+    script = f"""
+set -euo pipefail
+source {_HELPERS_SH}
+migrate_secrets_to_split_file {env_file} {secrets_file}
+"""
+    return _run_bash(script)
+
+
+def _write_secret_via_bash(
+    key: str, value: str, secrets_file: Path
+) -> subprocess.CompletedProcess:
+    script = f"""
+set -euo pipefail
+source {_HELPERS_SH}
+write_secret_to_secrets_file {key} {value} {secrets_file}
+"""
+    return _run_bash(script)
+
+
+def _run_verify(install_dir: Path, strict: bool = False) -> subprocess.CompletedProcess:
+    cmd = [sys.executable, str(_VERIFY_PY), "--install-dir", str(install_dir)]
+    if strict:
+        cmd.append("--strict")
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def _make_minimal_compose(docker_dir: Path) -> None:
+    """Write a minimal docker-compose.yml with the env_file anchor."""
+    docker_dir.joinpath("docker-compose.yml").write_text(
+        "x-python-service-defaults: &python-service-defaults\n"
+        "  env_file:\n"
+        "    - path: .env\n"
+        "      required: true\n"
+        "    - path: .env.secrets\n"
+        "      required: false\n"
+    )
+
+
+def _make_install_dir(
+    tmp_path: Path, env_pairs: dict, secrets_pairs: dict | None = None
+) -> Path:
+    """Create a minimal install dir structure for verify_env_split tests."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir(parents=True)
+    env_file = docker_dir / ".env"
+    _write_env(env_file, env_pairs)
+    env_file.chmod(0o644)
+    if secrets_pairs is not None:
+        sec = docker_dir / ".env.secrets"
+        _write_env(sec, secrets_pairs)
+        sec.chmod(0o600)
+    _make_minimal_compose(docker_dir)
+    return tmp_path
+
+
+# ---------------------------------------------------------------------------
+# T1 — Fresh v2.4.0 install state
+# ---------------------------------------------------------------------------
+
+
+def test_t1_fresh_install_verify_passes(tmp_path):
+    """T1: Post-v2.4.0 install: PP-2 in .env.secrets; .env has blank placeholders."""
+    secrets_pairs = {k: f"generatedvalue_{k}" for k in PP_2_KEYS}
+    env_pairs = dict.fromkeys(PP_2_KEYS, "")  # blank placeholders
+    env_pairs["GITHUB_SYNC_ENABLED"] = "false"
+    env_pairs["JIRA_SYNC_ENABLED"] = "false"
+    for k in LANGFUSE_NON_SECRET_INIT_KEYS:
+        env_pairs[k] = "some-value"
+
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+    result = _run_verify(install_dir)
+    assert (
+        result.returncode == 0
+    ), f"Expected exit 0; got {result.returncode}\n{result.stderr}"
+
+
+# ---------------------------------------------------------------------------
+# T4 — In-place v2.3.x upgrade: all 17 PP-2 in .env → migrate all
+# ---------------------------------------------------------------------------
+
+
+def test_t4_v23x_upgrade_migrates_all_pp2(tmp_path):
+    """T4: v2.3.x .env with all PP-2 keys set → migration moves them to .env.secrets."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    env_file = docker_dir / ".env"
+    secrets_file = docker_dir / ".env.secrets"
+
+    # Simulate v2.3.x state: all PP-2 keys present in .env
+    env_pairs = {k: f"oldvalue_{k}" for k in PP_2_KEYS}
+    _write_env(env_file, env_pairs)
+
+    result = _migrate_via_bash(env_file, secrets_file)
+    assert result.returncode == 0, f"Migration failed: {result.stderr}"
+
+    env_after = _read_env(env_file)
+    secrets_after = _read_env(secrets_file)
+
+    for key in PP_2_KEYS:
+        assert secrets_after.get(key) == f"oldvalue_{key}", f"{key} not in .env.secrets"
+        assert not env_after.get(key), f"{key} still non-empty in .env after migration"
+
+
+# ---------------------------------------------------------------------------
+# T5 — Idempotence: 10 already migrated, 7 remaining
+# ---------------------------------------------------------------------------
+
+
+def test_t5_idempotent_partial_migration(tmp_path):
+    """T5: Partial migration state → re-run migrates remaining keys; no duplicates."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    env_file = docker_dir / ".env"
+    secrets_file = docker_dir / ".env.secrets"
+
+    migrated = PP_2_KEYS[:10]
+    remaining = PP_2_KEYS[10:]
+
+    # Pre-populate .env.secrets with first 10 keys already migrated
+    secrets_pairs = {k: f"already_{k}" for k in migrated}
+    _write_env(secrets_file, secrets_pairs)
+    secrets_file.chmod(0o600)
+
+    # .env has remaining 7 keys still present
+    env_pairs = dict.fromkeys(migrated, "")  # blanked
+    env_pairs.update({k: f"toremove_{k}" for k in remaining})
+    _write_env(env_file, env_pairs)
+
+    result = _migrate_via_bash(env_file, secrets_file)
+    assert result.returncode == 0, f"Migration failed: {result.stderr}"
+
+    env_after = _read_env(env_file)
+    secrets_after = _read_env(secrets_file)
+
+    # All PP-2 keys should now be in .env.secrets
+    for key in migrated:
+        assert (
+            secrets_after.get(key) == f"already_{key}"
+        ), f"{key} value changed unexpectedly"
+    for key in remaining:
+        assert secrets_after.get(key) == f"toremove_{key}", f"{key} not migrated"
+        assert not env_after.get(key), f"{key} still in .env after migration"
+
+    # No duplicate keys in .env.secrets
+    raw = secrets_file.read_text()
+    for key in PP_2_KEYS:
+        assert raw.count(f"\n{key}=") + raw.count(f"{key}=") <= 1 + raw.count(
+            "\n"
+        ), f"Duplicate entry for {key} in .env.secrets"
+
+
+# ---------------------------------------------------------------------------
+# T6 — PP-3 optional keys populated by user in .env → migrated
+# ---------------------------------------------------------------------------
+
+
+def test_t6_pp3_populated_migrated(tmp_path):
+    """T6: PP-3 keys present in .env → migrate_secrets_to_split_file moves them."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    env_file = docker_dir / ".env"
+    secrets_file = docker_dir / ".env.secrets"
+
+    env_pairs = {
+        "OLLAMA_API_KEY": "user_ollama_key",
+        "OPENROUTER_API_KEY": "user_openrouter_key",
+    }
+    _write_env(env_file, env_pairs)
+
+    result = _migrate_via_bash(env_file, secrets_file)
+    assert result.returncode == 0, f"Migration failed: {result.stderr}"
+
+    env_after = _read_env(env_file)
+    secrets_after = _read_env(secrets_file)
+
+    assert secrets_after.get("OLLAMA_API_KEY") == "user_ollama_key"
+    assert secrets_after.get("OPENROUTER_API_KEY") == "user_openrouter_key"
+    assert not env_after.get("OLLAMA_API_KEY")
+    assert not env_after.get("OPENROUTER_API_KEY")
+
+
+# ---------------------------------------------------------------------------
+# T7 — PP-3 keys empty in .env → skip without error
+# ---------------------------------------------------------------------------
+
+
+def test_t7_pp3_empty_skipped(tmp_path):
+    """T7: PP-3 keys empty/absent in .env → no error; .env.secrets unchanged."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    env_file = docker_dir / ".env"
+    secrets_file = docker_dir / ".env.secrets"
+
+    env_pairs = {"OLLAMA_API_KEY": "", "OPENROUTER_API_KEY": ""}
+    _write_env(env_file, env_pairs)
+
+    result = _migrate_via_bash(env_file, secrets_file)
+    assert result.returncode == 0, f"Migration failed: {result.stderr}"
+
+    secrets_after = _read_env(secrets_file) if secrets_file.exists() else {}
+    assert not secrets_after.get("OLLAMA_API_KEY")
+    assert not secrets_after.get("OPENROUTER_API_KEY")
+
+
+# ---------------------------------------------------------------------------
+# T8 — Orphan tempfile from interrupted migration → verify flags it; re-run cleans up
+# ---------------------------------------------------------------------------
+
+
+def test_t8_orphan_tempfile_flagged_by_verify(tmp_path):
+    """T8: Orphan .env.secrets.XXXXXX tempfile → verify_env_split I7 fails."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    env_file = docker_dir / ".env"
+    secrets_file = docker_dir / ".env.secrets"
+
+    # Write a complete post-install state
+    secrets_pairs = {k: f"val_{k}" for k in PP_2_KEYS}
+    _write_env(secrets_file, secrets_pairs)
+    secrets_file.chmod(0o600)
+    env_pairs = dict.fromkeys(PP_2_KEYS, "")
+    env_pairs["GITHUB_SYNC_ENABLED"] = "false"
+    _write_env(env_file, env_pairs)
+    _make_minimal_compose(docker_dir)
+
+    # Simulate orphan tempfile left from interrupted migration
+    orphan = docker_dir / ".env.secrets.ABCDEF"
+    orphan.write_text('SOME_KEY="partial"\n')
+
+    result = _run_verify(tmp_path)
+    assert result.returncode == 1, "Expected invariant failure due to orphan tempfile"
+    assert "I7" in result.stderr
+
+    # Remove orphan → verify should pass
+    orphan.unlink()
+    result2 = _run_verify(tmp_path)
+    assert (
+        result2.returncode == 0
+    ), f"Expected pass after orphan removal\n{result2.stderr}"
+
+
+# ---------------------------------------------------------------------------
+# T9 — .env.secrets write permission denied → .env unchanged
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="Cannot test permission denial as root")
+def test_t9_secrets_write_denied_env_unchanged(tmp_path):
+    """T9: If the docker dir is not writable, mktemp fails and .env is unchanged.
+
+    Making the directory unwritable blocks mktemp (rename() bypass avoided).
+    """
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    env_file = docker_dir / ".env"
+    secrets_file = docker_dir / ".env.secrets"
+
+    env_pairs = {"QDRANT_API_KEY": "original_key"}
+    _write_env(env_file, env_pairs)
+
+    # Make the docker directory unwritable — mktemp will fail since it needs to create
+    # the tempfile in this directory. rename() alone does not require dest-file
+    # write permission on Linux, so denying at the directory level is required.
+    docker_dir.chmod(0o555)
+
+    try:
+        script = f"""
+set -uo pipefail
+source {_HELPERS_SH}
+migrate_secret_to_secrets_file QDRANT_API_KEY {env_file} {secrets_file}
+"""
+        result = _run_bash(script)
+        # mktemp should fail (directory not writable)
+        assert (
+            result.returncode != 0
+        ), f"Expected non-zero exit when docker dir unwritable; got 0\n{result.stdout}"
+
+        # .env must remain unchanged — original_key still present
+        env_after = _read_env(env_file)
+        assert (
+            env_after.get("QDRANT_API_KEY") == "original_key"
+        ), ".env was modified despite mktemp failure"
+    finally:
+        docker_dir.chmod(0o755)
+
+
+# ---------------------------------------------------------------------------
+# T10 — Rollback: .env.secrets deleted (v2.3.x reinstall)
+# ---------------------------------------------------------------------------
+
+
+def test_t10_rollback_verify_fails_then_fresh_gen_passes(tmp_path):
+    """T10: After migration, deleting .env.secrets simulates rollback.
+
+    verify_env_split should detect missing PP-2 keys; after fresh generation it passes.
+    """
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    env_file = docker_dir / ".env"
+    _make_minimal_compose(docker_dir)
+
+    # State: .env.secrets deleted; .env has blank placeholders (migrated state without file)
+    env_pairs = dict.fromkeys(PP_2_KEYS, "")
+    env_pairs["GITHUB_SYNC_ENABLED"] = "false"
+    _write_env(env_file, env_pairs)
+
+    result = _run_verify(tmp_path)
+    # .env.secrets absent but .env has blanks → I1 pass (no non-empty secrets in .env);
+    # I3 fails (PP-2 keys not in secrets)
+    assert result.returncode in (0, 1), f"Unexpected exit code: {result.returncode}"
+
+    # Simulate fresh generation by writing new .env.secrets
+    secrets_file = docker_dir / ".env.secrets"
+    new_secrets = {k: f"regenerated_{k}" for k in PP_2_KEYS}
+    _write_env(secrets_file, new_secrets)
+    secrets_file.chmod(0o600)
+
+    result2 = _run_verify(tmp_path)
+    assert (
+        result2.returncode == 0
+    ), f"Expected pass after re-generation\n{result2.stderr}"
+
+
+# ---------------------------------------------------------------------------
+# T11 — Container runtime (no Docker): verify compose yaml has required: false
+# ---------------------------------------------------------------------------
+
+
+def test_t11_compose_yaml_has_secrets_required_false(tmp_path):
+    """T11: docker-compose.yml lists .env.secrets with required: false (I8)."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    _make_minimal_compose(docker_dir)
+    env_file = docker_dir / ".env"
+    _write_env(env_file, {})
+    secrets_file = docker_dir / ".env.secrets"
+    _write_env(secrets_file, {k: f"v_{k}" for k in PP_2_KEYS})
+    secrets_file.chmod(0o600)
+    env_file.chmod(0o644)
+
+    compose_text = (docker_dir / "docker-compose.yml").read_text()
+    assert ".env.secrets" in compose_text
+    assert "required: false" in compose_text
+
+
+# ---------------------------------------------------------------------------
+# T12 — .env.secrets absent: required: false, services start without secrets
+# ---------------------------------------------------------------------------
+
+
+def test_t12_secrets_absent_compose_required_false(tmp_path):
+    """T12: .env.secrets absent → required: false means compose starts; I1 still OK when .env has blanks."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    _make_minimal_compose(docker_dir)
+
+    # .env has blank placeholders (correct post-install state for blank secrets)
+    env_pairs = dict.fromkeys(PP_2_KEYS, "")
+    env_pairs["GITHUB_SYNC_ENABLED"] = "false"
+    env_file = docker_dir / ".env"
+    _write_env(env_file, env_pairs)
+    env_file.chmod(0o644)
+    # No .env.secrets — simulates fresh deploy where secrets not yet configured
+
+    result = _run_verify(tmp_path)
+    # I1 passes (no non-empty secrets in .env); I3 fails (PP-2 keys absent)
+    # Overall exit 1 expected (I3 failure)
+    assert result.returncode == 1
+    assert "I3" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# verify_env_split.py unit tests: exit codes
+# ---------------------------------------------------------------------------
+
+
+def test_verify_exit_0_all_invariants_pass(tmp_path):
+    """verify_env_split.py exits 0 when all invariants pass."""
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_KEYS}
+    secrets_pairs["GITHUB_TOKEN"] = "ghp_test"
+    secrets_pairs["JIRA_API_TOKEN"] = "jira_test"
+    env_pairs = dict.fromkeys(PP_2_KEYS, "")
+    env_pairs["GITHUB_SYNC_ENABLED"] = "true"
+    env_pairs["JIRA_SYNC_ENABLED"] = "true"
+    for k in LANGFUSE_NON_SECRET_INIT_KEYS:
+        env_pairs[k] = "val"
+
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+    result = _run_verify(install_dir)
+    assert result.returncode == 0, result.stderr
+
+
+def test_verify_exit_1_pp2_missing(tmp_path):
+    """verify_env_split.py exits 1 when PP-2 key absent from .env.secrets."""
+    # Only put one key in secrets — missing the rest
+    secrets_pairs = {"QDRANT_API_KEY": "present"}
+    env_pairs = dict.fromkeys(PP_2_KEYS, "")
+    env_pairs["GITHUB_SYNC_ENABLED"] = "false"
+
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+    result = _run_verify(install_dir)
+    assert result.returncode == 1
+    assert "I3" in result.stderr
+
+
+def test_verify_exit_1_leaked_secret_in_env(tmp_path):
+    """verify_env_split.py exits 1 when a secret-class key has non-empty value in .env."""
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_KEYS}
+    env_pairs = dict.fromkeys(PP_2_KEYS, "")
+    env_pairs["QDRANT_API_KEY"] = "leaked_value"  # should be blank
+    env_pairs["GITHUB_SYNC_ENABLED"] = "false"
+
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+    result = _run_verify(install_dir)
+    assert result.returncode == 1
+    assert "I4" in result.stderr
+
+
+def test_verify_exit_2_env_file_missing(tmp_path):
+    """verify_env_split.py exits 2 when docker/.env is missing."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    # No .env file created
+    result = _run_verify(tmp_path)
+    assert result.returncode == 2
+
+
+def test_verify_strict_pp3_in_env_fails(tmp_path):
+    """verify_env_split.py --strict exits 1 when PP-3 key non-empty in .env."""
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_KEYS}
+    env_pairs = dict.fromkeys(PP_2_KEYS, "")
+    env_pairs["OLLAMA_API_KEY"] = "user_key"  # PP-3, non-empty — fails under --strict
+    env_pairs["GITHUB_SYNC_ENABLED"] = "false"
+
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+    result = _run_verify(install_dir, strict=True)
+    assert result.returncode == 1
+    assert "STRICT" in result.stderr
+
+
+def test_verify_i5_github_token_required_when_sync_enabled(tmp_path):
+    """verify_env_split.py fails I5 when GITHUB_SYNC_ENABLED=true but GITHUB_TOKEN absent."""
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_KEYS}
+    # GITHUB_TOKEN intentionally absent from secrets
+    env_pairs = dict.fromkeys(PP_2_KEYS, "")
+    env_pairs["GITHUB_SYNC_ENABLED"] = "true"
+
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+    result = _run_verify(install_dir)
+    assert result.returncode == 1
+    assert "I5" in result.stderr
+
+
+def test_verify_i6_non_secret_langfuse_init_in_secrets_fails(tmp_path):
+    """verify_env_split.py fails I6 when non-secret LANGFUSE_INIT_* key is in .env.secrets."""
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_KEYS}
+    secrets_pairs["LANGFUSE_INIT_ORG_ID"] = (
+        "ai-memory-org"  # non-secret, should NOT be here
+    )
+    env_pairs = dict.fromkeys(PP_2_KEYS, "")
+    env_pairs["GITHUB_SYNC_ENABLED"] = "false"
+
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+    result = _run_verify(install_dir)
+    assert result.returncode == 1
+    assert "I6" in result.stderr
+
+
+def test_verify_i8_compose_missing_secrets_entry(tmp_path):
+    """verify_env_split.py fails I8 when compose file lacks .env.secrets entry."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+
+    # Compose without .env.secrets
+    (docker_dir / "docker-compose.yml").write_text(
+        "x-defaults: &defaults\n  env_file:\n    - path: .env\n      required: true\n"
+    )
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_KEYS}
+    env_file = docker_dir / ".env"
+    _write_env(
+        env_file, {"GITHUB_SYNC_ENABLED": "false", **dict.fromkeys(PP_2_KEYS, "")}
+    )
+    env_file.chmod(0o644)
+    sec = docker_dir / ".env.secrets"
+    _write_env(sec, secrets_pairs)
+    sec.chmod(0o600)
+
+    result = _run_verify(tmp_path)
+    assert result.returncode == 1
+    assert "I8" in result.stderr

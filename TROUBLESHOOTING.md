@@ -1234,6 +1234,41 @@ bash scripts/stack.sh restart
 
 For comprehensive configuration troubleshooting, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
+### `docker/.env.secrets` not found or secrets missing
+
+**Symptom:** Services fail to authenticate (Qdrant 401, Langfuse 403) after a fresh
+install or upgrade; `verify_env_split.py` reports I3 failures.
+
+**Diagnosis:**
+```bash
+python ~/.ai-memory/scripts/verify_env_split.py --install-dir ~/.ai-memory
+```
+
+**Remediation:**
+- If `docker/.env.secrets` is absent: re-run the installer — it will regenerate all
+  auto-generated credentials and write them to `.env.secrets` (chmod 600).
+- If specific PP-2 keys are missing: delete the empty entry in `.env.secrets` and
+  re-run the installer (generators are idempotent — they skip keys already present).
+- If user-supplied keys (GITHUB_TOKEN, JIRA_API_TOKEN) are missing: re-run the
+  installer and provide the tokens at the prompts.
+
+---
+
+### `chmod 600` on `.env.secrets` fails on WSL
+
+**Symptom:** Warning during install: `chmod 600 on .env.secrets failed — secrets may
+be world-readable`. The file is created correctly but the permission change does not
+apply.
+
+**Cause:** WSL mounts Windows NTFS filesystems without POSIX permission support.
+`chmod` calls succeed without error on some WSL versions but the mode does not persist.
+
+**Remediation:** This is a WSL limitation. The secrets are still functionally secure
+within the WSL/Windows session. For production environments, use a native Linux host
+or a dedicated WSL volume (see ENV-MANAGEMENT-V2.md §4 for WSL fallback details).
+
+---
+
 ### Environment Variables Not Taking Effect
 
 **Diagnosis:**

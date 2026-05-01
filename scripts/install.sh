@@ -28,6 +28,16 @@ shopt -s nullglob
 # Script directory for relative path resolution
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# shellcheck source=scripts/_env_split_helpers.sh
+_HELPERS="${SCRIPT_DIR}/_env_split_helpers.sh"
+if [[ ! -f "$_HELPERS" ]]; then
+    echo "[ERROR] Required helper not found: ${_HELPERS}" >&2
+    exit 1
+fi
+# shellcheck disable=SC1090
+source "$_HELPERS"
+unset _HELPERS
+
 # Project path handling - accept target project as argument
 # Usage: ./install.sh [PROJECT_PATH] [PROJECT_NAME]
 PROJECT_PATH="${1:-.}"
@@ -1300,6 +1310,7 @@ main() {
         step "Python Environment"
         install_python_dependencies
         step "Environment Configuration"
+        migrate_existing_env_secrets
         configure_environment
         validate_external_services
         configure_secrets_backend
@@ -1385,6 +1396,18 @@ main() {
     elif [[ "$GITHUB_SYNC_ENABLED" == "true" && -n "$GITHUB_REPO" ]]; then
         # Full install mode: use global GITHUB_REPO
         register_project_sync "$PROJECT_NAME" "$GITHUB_REPO" "$PROJECT_PATH" "${GITHUB_BRANCH:-main}"
+    fi
+
+    # Verify env split invariants post-install (BUG-277 doctor check)
+    if [[ "$INSTALL_MODE" == "full" ]]; then
+        if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/verify_env_split.py" \
+                --install-dir "$INSTALL_DIR"; then
+            log_success "Env split verification passed"
+        else
+            log_error "Env split verification failed — secrets may not be in docker/.env.secrets"
+            log_info "Run: python $INSTALL_DIR/scripts/verify_env_split.py --install-dir $INSTALL_DIR"
+            exit 1
+        fi
     fi
 
     # Record project in manifest for cross-filesystem recovery discovery
@@ -2376,12 +2399,39 @@ persist_user_choices_to_env() {
     log_debug "BUG-274: persisted user choices to docker/.env and docker/.env.secrets"
 }
 
+# migrate_existing_env_secrets — R3: v2.3.x in-place upgrade migration.
+# Detects existing docker/.env with non-blank PP-2 keys (QDRANT_API_KEY) and migrates
+# all 23 applicable keys to docker/.env.secrets via migrate_secrets_to_split_file().
+# Idempotent: fresh install (.env has blank placeholders) → probe empty → no-op.
+migrate_existing_env_secrets() {
+    local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+
+    [[ ! -f "$env_file" ]] && return 0
+
+    # Upgrade detection: QDRANT_API_KEY non-blank in .env means v2.3.x secrets present
+    local probe
+    probe=$(grep "^QDRANT_API_KEY=.\+" "$env_file" 2>/dev/null || true)
+    [[ -z "$probe" ]] && return 0
+
+    log_info "Detected v2.3.x secrets in docker/.env — migrating to docker/.env.secrets..."
+    ensure_secrets_file_exists "$secrets_file"
+    migrate_secrets_to_split_file "$env_file" "$secrets_file" || {
+        log_error "Secrets migration failed — halting install. Re-run after investigating."
+        exit 1
+    }
+}
+
 # Environment configuration (AC 7.1.6)
 # BUG-040: Docker Compose runs from $INSTALL_DIR/docker/ and needs .env there
 configure_environment() {
     log_info "Configuring environment..."
 
     local docker_env="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+
+    # Ensure .env.secrets exists with chmod 600 before any secret writes
+    ensure_secrets_file_exists "$secrets_file"
 
     # Check if .env was copied from source (has credentials)
     if [[ -f "$docker_env" ]]; then
@@ -2593,36 +2643,51 @@ EOF
     # Uses Python secrets module for cryptographically secure random values
     local _gen_secret="import secrets; print(secrets.token_urlsafe(18))"
 
-    if ! grep -q "^QDRANT_API_KEY=.\+" "$docker_env" 2>/dev/null || grep -q "^QDRANT_API_KEY=changeme$" "$docker_env" 2>/dev/null; then
+    # BUG-277 fix (R2.2): Write QDRANT_API_KEY to .env.secrets (PP-2 move).
+    # Guard checks both files: skip if already present in secrets_file (idempotence).
+    if { ! grep -q "^QDRANT_API_KEY=.\+" "$docker_env" 2>/dev/null && \
+         ! grep -q "^QDRANT_API_KEY=.\+" "$secrets_file" 2>/dev/null; } || \
+       grep -q "^QDRANT_API_KEY=changeme$" "$docker_env" 2>/dev/null; then
         # Prefer environment variable (e.g., CI sets QDRANT_API_KEY=test-ci-key)
         local gen_key="${QDRANT_API_KEY:-}"
         if [[ -z "$gen_key" ]]; then
             gen_key=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret") || { log_error "Failed to generate secret"; exit 1; }
         fi
         if [[ -n "$gen_key" ]]; then
-            if grep -q "^QDRANT_API_KEY=" "$docker_env" 2>/dev/null; then
-                sed -i.bak "s|^QDRANT_API_KEY=.*|QDRANT_API_KEY=$gen_key|" "$docker_env" && rm -f "$docker_env.bak"
-            else
-                echo "QDRANT_API_KEY=$gen_key" >> "$docker_env"
-            fi
+            write_secret_to_secrets_file "QDRANT_API_KEY" "$gen_key" "$secrets_file" \
+                || { log_error "Failed to write QDRANT_API_KEY to .env.secrets"; exit 1; }
+            _blank_key_in_env "QDRANT_API_KEY" "$docker_env"
             if [[ -n "${QDRANT_API_KEY:-}" ]]; then
-                log_success "Wrote QDRANT_API_KEY from environment to docker/.env"
+                log_success "Wrote QDRANT_API_KEY from environment to .env.secrets"
             else
-                log_success "Auto-generated QDRANT_API_KEY"
+                log_success "Auto-generated QDRANT_API_KEY → .env.secrets"
             fi
         fi
     fi
 
-    if ! grep -q "^GRAFANA_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null || grep -q "^GRAFANA_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
+    # BUG-277 fix (R2.7): Generate QDRANT_READ_ONLY_API_KEY (PP-2 per BP-154 §13 Q1 accepted default).
+    # Enforcing read-only separation is only useful if the key actually exists.
+    if ! grep -q "^QDRANT_READ_ONLY_API_KEY=.\+" "$secrets_file" 2>/dev/null && \
+       ! grep -q "^QDRANT_READ_ONLY_API_KEY=.\+" "$docker_env" 2>/dev/null; then
+        local gen_rokey
+        gen_rokey=$(openssl rand -hex 32) || { log_error "Failed to generate QDRANT_READ_ONLY_API_KEY"; exit 1; }
+        write_secret_to_secrets_file "QDRANT_READ_ONLY_API_KEY" "$gen_rokey" "$secrets_file" \
+            || { log_error "Failed to write QDRANT_READ_ONLY_API_KEY to .env.secrets"; exit 1; }
+        _blank_key_in_env "QDRANT_READ_ONLY_API_KEY" "$docker_env"
+        log_success "Auto-generated QDRANT_READ_ONLY_API_KEY → .env.secrets"
+    fi
+
+    # BUG-277 fix (R2.3): Write GRAFANA_ADMIN_PASSWORD to .env.secrets (PP-2 move).
+    if { ! grep -q "^GRAFANA_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null && \
+         ! grep -q "^GRAFANA_ADMIN_PASSWORD=.\+" "$secrets_file" 2>/dev/null; } || \
+       grep -q "^GRAFANA_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
         local gen_gf
         gen_gf=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret") || { log_error "Failed to generate secret"; exit 1; }
         if [[ -n "$gen_gf" ]]; then
-            if grep -q "^GRAFANA_ADMIN_PASSWORD=" "$docker_env" 2>/dev/null; then
-                sed -i.bak "s|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=$gen_gf|" "$docker_env" && rm -f "$docker_env.bak"
-            else
-                echo "GRAFANA_ADMIN_PASSWORD=$gen_gf" >> "$docker_env"
-            fi
-            log_success "Auto-generated GRAFANA_ADMIN_PASSWORD"
+            write_secret_to_secrets_file "GRAFANA_ADMIN_PASSWORD" "$gen_gf" "$secrets_file" \
+                || { log_error "Failed to write GRAFANA_ADMIN_PASSWORD to .env.secrets"; exit 1; }
+            _blank_key_in_env "GRAFANA_ADMIN_PASSWORD" "$docker_env"
+            log_success "Auto-generated GRAFANA_ADMIN_PASSWORD → .env.secrets"
         fi
     fi
 
@@ -2632,34 +2697,36 @@ EOF
         log_debug "Added SECURITY_SCAN_SESSION_MODE=relaxed to .env"
     fi
 
-    if ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null || grep -q "^PROMETHEUS_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
+    # BUG-277 fix (R2.4): Write PROMETHEUS_ADMIN_PASSWORD to .env.secrets (PP-2 move).
+    if { ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null && \
+         ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$secrets_file" 2>/dev/null; } || \
+       grep -q "^PROMETHEUS_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
         local gen_prom
         gen_prom=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret") || { log_error "Failed to generate secret"; exit 1; }
         if [[ -n "$gen_prom" ]]; then
-            if grep -q "^PROMETHEUS_ADMIN_PASSWORD=" "$docker_env" 2>/dev/null; then
-                sed -i.bak "s|^PROMETHEUS_ADMIN_PASSWORD=.*|PROMETHEUS_ADMIN_PASSWORD=$gen_prom|" "$docker_env" && rm -f "$docker_env.bak"
-            else
-                echo "PROMETHEUS_ADMIN_PASSWORD=$gen_prom" >> "$docker_env"
-            fi
-            log_success "Auto-generated PROMETHEUS_ADMIN_PASSWORD"
+            write_secret_to_secrets_file "PROMETHEUS_ADMIN_PASSWORD" "$gen_prom" "$secrets_file" \
+                || { log_error "Failed to write PROMETHEUS_ADMIN_PASSWORD to .env.secrets"; exit 1; }
+            _blank_key_in_env "PROMETHEUS_ADMIN_PASSWORD" "$docker_env"
+            log_success "Auto-generated PROMETHEUS_ADMIN_PASSWORD → .env.secrets"
         fi
     fi
 
-    if ! grep -q "^GRAFANA_SECRET_KEY=.\+" "$docker_env" 2>/dev/null || grep -q "^GRAFANA_SECRET_KEY=changeme$" "$docker_env" 2>/dev/null; then
+    # BUG-277 fix (R2.6): Write GRAFANA_SECRET_KEY to .env.secrets (PP-2 move).
+    if { ! grep -q "^GRAFANA_SECRET_KEY=.\+" "$docker_env" 2>/dev/null && \
+         ! grep -q "^GRAFANA_SECRET_KEY=.\+" "$secrets_file" 2>/dev/null; } || \
+       grep -q "^GRAFANA_SECRET_KEY=changeme$" "$docker_env" 2>/dev/null; then
         local gen_gsk
         gen_gsk=$("$INSTALL_DIR/.venv/bin/python" -c "import secrets; print(secrets.token_hex(32))") || { log_error "Failed to generate secret"; exit 1; }
         if [[ -n "$gen_gsk" ]]; then
-            if grep -q "^GRAFANA_SECRET_KEY=" "$docker_env" 2>/dev/null; then
-                sed -i.bak "s|^GRAFANA_SECRET_KEY=.*|GRAFANA_SECRET_KEY=$gen_gsk|" "$docker_env" && rm -f "$docker_env.bak"
-            else
-                echo "GRAFANA_SECRET_KEY=$gen_gsk" >> "$docker_env"
-            fi
-            log_success "Auto-generated GRAFANA_SECRET_KEY"
+            write_secret_to_secrets_file "GRAFANA_SECRET_KEY" "$gen_gsk" "$secrets_file" \
+                || { log_error "Failed to write GRAFANA_SECRET_KEY to .env.secrets"; exit 1; }
+            _blank_key_in_env "GRAFANA_SECRET_KEY" "$docker_env"
+            log_success "Auto-generated GRAFANA_SECRET_KEY → .env.secrets"
         fi
     fi
 
-    # Generate Prometheus healthcheck auth header from password
-    generate_prometheus_auth
+    # BUG-277 fix (R2.5): Generate Prometheus auth header; write to .env.secrets.
+    generate_prometheus_auth "$secrets_file"
 }
 
 # Post-dependency validation for external services (BP-053: Two-Phase Validation)
@@ -2718,13 +2785,15 @@ sys.exit(asyncio.run(validate()))
     fi
 }
 
-# Generate Prometheus basic auth configuration from PROMETHEUS_ADMIN_PASSWORD
+# Generate Prometheus basic auth configuration from PROMETHEUS_ADMIN_PASSWORD.
+# BUG-277 fix (R2.5): reads password from .env.secrets (PP-2 move); writes header to .env.secrets.
 generate_prometheus_auth() {
+    local secrets_file="${1:-$INSTALL_DIR/docker/.env.secrets}"
     local docker_env="$INSTALL_DIR/docker/.env"
 
-    # Read password from .env
+    # Read password from .env.secrets first (post-R2.4 location), fall through to .env
     local prometheus_password
-    prometheus_password=$(grep "^PROMETHEUS_ADMIN_PASSWORD=" "$docker_env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
+    prometheus_password=$(_read_env_key "PROMETHEUS_ADMIN_PASSWORD" "$secrets_file" "$docker_env")
 
     if [[ -z "$prometheus_password" ]]; then
         log_warning "PROMETHEUS_ADMIN_PASSWORD not set - Prometheus auth may not work"
@@ -2738,15 +2807,11 @@ generate_prometheus_auth() {
     # BUG-089: Generate Base64 auth header for Prometheus healthcheck
     local auth_header
     auth_header="Basic $(echo -n "admin:$prometheus_password" | base64)"
-    # Append or update in .env
-    if grep -q "^PROMETHEUS_BASIC_AUTH_HEADER=" "$docker_env" 2>/dev/null; then
-        sed -i.bak "s|^PROMETHEUS_BASIC_AUTH_HEADER=.*|PROMETHEUS_BASIC_AUTH_HEADER='$auth_header'|" "$docker_env" && rm -f "$docker_env.bak"
-    else
-        echo "" >> "$docker_env"
-        echo "# Prometheus healthcheck auth (auto-generated by install.sh)" >> "$docker_env"
-        echo "PROMETHEUS_BASIC_AUTH_HEADER='$auth_header'" >> "$docker_env"
-    fi
-    log_success "Generated Prometheus healthcheck auth header"
+    # Write to .env.secrets (PP-2); blank any value in .env
+    write_secret_to_secrets_file "PROMETHEUS_BASIC_AUTH_HEADER" "$auth_header" "$secrets_file" \
+        || { log_error "Failed to write PROMETHEUS_BASIC_AUTH_HEADER to .env.secrets"; exit 1; }
+    _blank_key_in_env "PROMETHEUS_BASIC_AUTH_HEADER" "$docker_env"
+    log_success "Generated Prometheus healthcheck auth header → .env.secrets"
 }
 
 # Log Docker container state for debugging (P1: container disappearance diagnosis)
@@ -2864,9 +2929,7 @@ start_services() {
     # readiness endpoint (/readyz); /collections requires a valid api-key header.
     # docker/.env is the CWD (start_services cd's there at the top).
     local _qdrant_auth_key=""
-    if [[ -f ".env" ]]; then
-        _qdrant_auth_key=$(grep '^QDRANT_API_KEY=' ".env" | head -1 | cut -d= -f2- | tr -d '"'"'" 2>/dev/null || true)
-    fi
+    _qdrant_auth_key=$(_read_env_key "QDRANT_API_KEY" ".env.secrets" ".env")
     if [[ -z "$_qdrant_auth_key" ]]; then
         log_warn "No QDRANT_API_KEY found in docker/.env — skipping auth verification"
     else
@@ -3340,32 +3403,26 @@ configure_project_hooks() {
     #   - cut -d= -f2- captures everything after first = (base64 keys contain =)
     #   - tr -d removes quotes from .env values like QDRANT_API_KEY="value"
     #   - || echo "" prevents grep exit 1 from crashing under set -e
-    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
-        QDRANT_API_KEY=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
-        export QDRANT_API_KEY
-        if [[ -n "$QDRANT_API_KEY" ]]; then
-            log_debug "Loaded QDRANT_API_KEY from docker/.env (${#QDRANT_API_KEY} chars)"
-        else
-            log_warning "QDRANT_API_KEY not found or empty in docker/.env"
-        fi
+    QDRANT_API_KEY=$(_read_env_key "QDRANT_API_KEY" "$INSTALL_DIR/docker/.env.secrets" "$INSTALL_DIR/docker/.env")
+    export QDRANT_API_KEY
+    if [[ -n "$QDRANT_API_KEY" ]]; then
+        log_debug "Loaded QDRANT_API_KEY from docker/.env.secrets or docker/.env (${#QDRANT_API_KEY} chars)"
     else
-        log_warning "docker/.env not found - QDRANT_API_KEY will be empty"
+        log_warning "QDRANT_API_KEY not found or empty in docker/.env.secrets or docker/.env"
     fi
 
     # Export Langfuse vars if enabled, so generate_settings.py/merge_settings.py can inject them
     # Reads from shared docker/.env (needed in both full and add-project mode)
-    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
-        local langfuse_enabled_in_env
-        langfuse_enabled_in_env=$(grep "^LANGFUSE_ENABLED=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
-        if [[ "$langfuse_enabled_in_env" == "true" ]]; then
-            for _lf_var in LANGFUSE_ENABLED LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_BASE_URL LANGFUSE_TRACE_HOOKS LANGFUSE_TRACE_SESSIONS; do
-                local _lf_val
-                _lf_val=$(grep "^${_lf_var}=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
-                # Only export if value is non-empty; let generate_settings.py defaults apply otherwise
-                [[ -n "$_lf_val" ]] && export "${_lf_var}=${_lf_val}"
-            done
-            log_debug "Exported LANGFUSE_* env vars for settings generation"
-        fi
+    local langfuse_enabled_in_env
+    langfuse_enabled_in_env=$(_read_env_key "LANGFUSE_ENABLED" "$INSTALL_DIR/docker/.env.secrets" "$INSTALL_DIR/docker/.env")
+    if [[ "$langfuse_enabled_in_env" == "true" ]]; then
+        for _lf_var in LANGFUSE_ENABLED LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_BASE_URL LANGFUSE_TRACE_HOOKS LANGFUSE_TRACE_SESSIONS; do
+            local _lf_val
+            _lf_val=$(_read_env_key "$_lf_var" "$INSTALL_DIR/docker/.env.secrets" "$INSTALL_DIR/docker/.env")
+            # Only export if value is non-empty; let generate_settings.py defaults apply otherwise
+            [[ -n "$_lf_val" ]] && export "${_lf_var}=${_lf_val}"
+        done
+        log_debug "Exported LANGFUSE_* env vars for settings generation"
     fi
 
     # Check if project already has settings.json
@@ -3666,11 +3723,9 @@ print(f'✓ AI_MEMORY_PROJECT_ID set to: {project_id}')
 run_health_check() {
     log_info "Running health checks..."
 
-    # BUG-041: Export QDRANT_API_KEY from docker/.env for authenticated health check
-    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
-        QDRANT_API_KEY=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
-        export QDRANT_API_KEY
-    fi
+    # BUG-041: Export QDRANT_API_KEY for authenticated health check
+    QDRANT_API_KEY=$(_read_env_key "QDRANT_API_KEY" "$INSTALL_DIR/docker/.env.secrets" "$INSTALL_DIR/docker/.env")
+    export QDRANT_API_KEY
 
     # BUG-096: Must use venv Python (has httpx), not system python3 (doesn't)
     if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/health-check.py"; then
@@ -4917,10 +4972,8 @@ set_env_value() {
 
 create_agent_id_index() {
     local qdrant_url="http://localhost:${QDRANT_PORT:-26350}"
-    local api_key=""
-    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
-        api_key=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
-    fi
+    local api_key
+    api_key=$(_read_env_key "QDRANT_API_KEY" "$INSTALL_DIR/docker/.env.secrets" "$INSTALL_DIR/docker/.env")
 
     log_debug "Creating agent_id payload index on discussions collection..."
 
