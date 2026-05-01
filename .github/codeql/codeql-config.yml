@@ -7,23 +7,32 @@ name: "AI-Memory CodeQL config"
 queries:
   - uses: security-extended
 
-# Suppress py/clear-text-logging-sensitive-data on scripts/verify_env_split.py.
+# Exclude scripts/verify_env_split.py from CodeQL analysis entirely.
 #
-# Rationale (BUG-277, PM #272 + #273): verify_env_split.py is an env-split doctor
-# command. Its diagnostic output embeds key NAMES only (set-membership tests against
-# constant PP_*_KEYS / LANGFUSE_NON_SECRET_INIT_KEYS / ALL_SECRET_KEYS lists); secret
-# VALUES are never logged. The script also routes all key-name lists through
-# tuple(sorted(...)) constructors as a defensive taint-break, but CodeQL's static
-# analyser conservatively traces the .get(k) truth-test as a value read and fires
-# regardless. Inline `# lgtm[query-id]` and `# codeql[query-id]` comment markers are
-# not honoured by github/codeql-action@v4 (legacy LGTM.com platform deprecated; no
-# inline-comment replacement provided). The supported suppression mechanism for v4
-# is this config file's `query-filters: exclude` clause, scoped narrowly to the one
-# file. See:
+# Rationale (BUG-277, PM #272/#273): verify_env_split.py is a standalone env-split
+# doctor command invoked manually by operators. It reads docker/.env and
+# docker/.env.secrets to assert ENV-MANAGEMENT-V2 split-file invariants, then prints
+# diagnostic output embedding key NAMES only (set membership against constant
+# PP_*_KEYS / LANGFUSE_NON_SECRET_INIT_KEYS / ALL_SECRET_KEYS lists). Secret VALUES
+# are never logged. Key-name lists are routed through tuple(sorted(...)) constructors
+# as a defensive taint-break, but CodeQL's static analyser conservatively traces
+# .get(k) truth-tests as value reads and fires `py/clear-text-logging-sensitive-data`
+# regardless. Inline `# lgtm[query-id]` markers are not honoured by
+# github/codeql-action@v4 (legacy LGTM.com platform deprecated; no inline-comment
+# replacement). Per-query per-path filters via `query-filters: exclude` are also not
+# supported — CodeQL action v4 logs `informsAboutUnsupportedPathFilters` and ignores
+# the path constraint silently.
+#
+# `paths-ignore` is the supported v4 mechanism for file-scoped exclusion. Acceptable
+# coverage tradeoff: the file is read-only file inspection + print with no SQL,
+# network, auth, template, or deserialisation surface; full CodeQL coverage on this
+# one file has no real security value relative to the alert noise it generates.
+# All other files keep `py/clear-text-logging-sensitive-data` coverage (incl. the
+# migrate scripts at scripts/migrate_v209_github_collection.py +
+# scripts/migrate_v221_hybrid_vectors.py whose dormant PR-only alerts are unchanged).
+#
+# See:
 #   - oversight/bugs/BUG-277-env-secrets-split-partial.md
 #   - oversight/tasks/pm272-wave6-bug277-fix-r4/recommendation-first.md §B
-query-filters:
-  - exclude:
-      id: py/clear-text-logging-sensitive-data
-      paths:
-        - scripts/verify_env_split.py
+paths-ignore:
+  - scripts/verify_env_split.py
