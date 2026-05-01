@@ -21,14 +21,18 @@ PP_1_KEYS = [
     "JIRA_API_TOKEN",
 ]
 
-# PP-2: auto-generated secret-class keys — 17 original + QDRANT_READ_ONLY_API_KEY (R2.7)
-PP_2_KEYS = [
+# PP-2 core: auto-generated secret-class keys — always required (6 keys)
+PP_2_CORE_KEYS = [
     "QDRANT_API_KEY",
     "QDRANT_READ_ONLY_API_KEY",
     "GRAFANA_ADMIN_PASSWORD",
     "GRAFANA_SECRET_KEY",
     "PROMETHEUS_ADMIN_PASSWORD",
     "PROMETHEUS_BASIC_AUTH_HEADER",
+]
+
+# PP-2 Langfuse: auto-generated Langfuse secret-class keys — required only when LANGFUSE_ENABLED=true (12 keys)
+PP_2_LANGFUSE_KEYS = [
     "LANGFUSE_DB_PASSWORD",
     "LANGFUSE_CLICKHOUSE_PASSWORD",
     "LANGFUSE_NEXTAUTH_SECRET",
@@ -52,7 +56,9 @@ PP_3_KEYS = [
     "EVALUATOR_API_KEY",
 ]
 
-ALL_SECRET_KEYS = PP_1_KEYS + PP_2_KEYS + PP_3_KEYS  # 25 total
+ALL_SECRET_KEYS = (
+    PP_1_KEYS + PP_2_CORE_KEYS + PP_2_LANGFUSE_KEYS + PP_3_KEYS
+)  # 25 total
 
 # Non-secret LANGFUSE_INIT_* keys — belong in docker/.env, not .env.secrets
 LANGFUSE_NON_SECRET_INIT_KEYS = [
@@ -100,8 +106,12 @@ def _ok(msg: str) -> None:
     print(f"[PASS] {msg}")
 
 
+# Diagnostic function: logs key NAMES only (set membership against PP_*_KEYS /
+# LANGFUSE_* constants). Secret VALUES are never passed in — callers embed only
+# key names via taint-breaking tuple(sorted(...)) constructors at each call site.
+# Suppression: Option A lgtm format per PM #272 D1 (no noqa: prefix; CodeQL action v4).
 def _warn(msg: str) -> None:
-    print(f"[WARN] {msg}")
+    print(f"[WARN] {msg}")  # lgtm[py/clear-text-logging-sensitive-data]
 
 
 def _fail(failures: list, msg: str) -> None:
@@ -168,15 +178,45 @@ def run_checks(install_dir: str, strict: bool) -> int:
         else:
             _ok("I2b: docker/.env.secrets mode 600")
 
-    # I3: all PP-2 keys present (non-empty) in .env.secrets
-    missing_pp2 = [k for k in PP_2_KEYS if not secrets_vals.get(k)]
-    if missing_pp2:
-        _fail(failures, f"I3: PP-2 keys missing/empty in .env.secrets: {missing_pp2}")
-    else:
-        _ok(f"I3: all {len(PP_2_KEYS)} PP-2 keys present in .env.secrets")
+    # I3: PP-2 keys present (non-empty) in .env.secrets
+    # Core keys always required; Langfuse subset gated on LANGFUSE_ENABLED=true
+    # (mirrors GITHUB_SYNC_ENABLED / JIRA_SYNC_ENABLED gates at I5 below)
+    langfuse_enabled = env_vals.get("LANGFUSE_ENABLED", "false").lower() == "true"
+    # Key NAMES only — .get() truth-value selects names; values are never included.
+    missing_core = tuple(sorted(k for k in PP_2_CORE_KEYS if not secrets_vals.get(k)))
+    missing_langfuse = (
+        tuple(sorted(k for k in PP_2_LANGFUSE_KEYS if not secrets_vals.get(k)))
+        if langfuse_enabled
+        else ()
+    )
+    i3_failed = False
+    if missing_core:
+        _fail(
+            failures,
+            f"I3: PP-2 core keys missing/empty in .env.secrets: {missing_core}",
+        )
+        i3_failed = True
+    if missing_langfuse:
+        _fail(
+            failures,
+            f"I3: PP-2 Langfuse keys missing/empty in .env.secrets: {missing_langfuse}",
+        )
+        i3_failed = True
+    if not i3_failed:
+        if langfuse_enabled:
+            _ok(
+                f"I3: all {len(PP_2_CORE_KEYS) + len(PP_2_LANGFUSE_KEYS)} PP-2 keys present"
+                " in .env.secrets"
+            )
+        else:
+            _ok(
+                f"I3: all {len(PP_2_CORE_KEYS)} PP-2 core keys present in .env.secrets"
+                " (Langfuse keys not required)"
+            )
 
     # I4: no secret-class key has a non-empty value in .env
-    leaked = [k for k in ALL_SECRET_KEYS if env_vals.get(k)]
+    # Key NAMES only — .get() truth-value selects names; values are never included.
+    leaked = tuple(sorted(k for k in ALL_SECRET_KEYS if env_vals.get(k)))
     if leaked:
         _fail(
             failures,
@@ -205,7 +245,10 @@ def run_checks(install_dir: str, strict: bool) -> int:
         _ok("I5: PP-1 keys present in .env.secrets (or sync not enabled)")
 
     # I6: non-secret LANGFUSE_INIT_* keys absent from .env.secrets AND present in .env
-    wrong_in_secrets = [k for k in LANGFUSE_NON_SECRET_INIT_KEYS if secrets_vals.get(k)]
+    # Key NAMES only — .get() truth-value selects names; values are never included.
+    wrong_in_secrets = tuple(
+        sorted(k for k in LANGFUSE_NON_SECRET_INIT_KEYS if secrets_vals.get(k))
+    )
     if wrong_in_secrets:
         _fail(
             failures,
@@ -215,7 +258,10 @@ def run_checks(install_dir: str, strict: bool) -> int:
         _ok("I6: non-secret LANGFUSE_INIT_* keys absent from .env.secrets")
     # _warn (not _fail): these keys are only populated after langfuse_setup.sh runs;
     # absence on a non-Langfuse install is acceptable.
-    missing_from_env = [k for k in LANGFUSE_NON_SECRET_INIT_KEYS if not env_vals.get(k)]
+    # Key NAMES only — .get() truth-value selects names; values are never included.
+    missing_from_env = tuple(
+        sorted(k for k in LANGFUSE_NON_SECRET_INIT_KEYS if not env_vals.get(k))
+    )
     if missing_from_env:
         _warn(
             f"I6: non-secret LANGFUSE_INIT_* keys absent from .env (expected after langfuse setup): "
@@ -223,7 +269,11 @@ def run_checks(install_dir: str, strict: bool) -> int:
         )
 
     # I7: no orphan .env.secrets.XXXXXX tempfiles in docker/
-    orphans = [Path(p).name for p in glob.glob(str(docker_dir / ".env.secrets.*"))]
+    orphans = [
+        Path(p).name
+        for p in glob.glob(str(docker_dir / ".env.secrets.*"))
+        if not p.endswith(".example")
+    ]
     if orphans:
         _fail(failures, f"I7: orphan .env.secrets.* tempfiles in docker/: {orphans}")
     else:
@@ -249,7 +299,8 @@ def run_checks(install_dir: str, strict: bool) -> int:
 
     # --strict: PP-3 user-supplied keys absent from .env
     if strict:
-        pp3_in_env = [k for k in PP_3_KEYS if env_vals.get(k)]
+        # Key NAMES only — .get() truth-value selects names; values are never included.
+        pp3_in_env = tuple(sorted(k for k in PP_3_KEYS if env_vals.get(k)))
         if pp3_in_env:
             _fail(
                 failures,
@@ -260,8 +311,13 @@ def run_checks(install_dir: str, strict: bool) -> int:
 
     if failures:
         print(f"\n[FAIL] {len(failures)} invariant(s) failed:", file=sys.stderr)
+        # Failures list contains diagnostic key NAMES only — see taint-breaking
+        # tuple(sorted(...)) constructors at each _fail call site above.
+        # Secret VALUES are never embedded. Suppression: Option A lgtm format (PM #272 D1).
         for msg in failures:
-            print(f"  ✗ {msg}", file=sys.stderr)
+            print(
+                f"  ✗ {msg}", file=sys.stderr
+            )  # lgtm[py/clear-text-logging-sensitive-data]
         return 1
 
     print("\n[OK] All env-split invariants passed.")

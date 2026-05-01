@@ -18,6 +18,7 @@ CREED.md policy (parzival-answers.md DQ-3 (a)):
   load, tier) come from new template.
 """
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -262,6 +263,9 @@ def install_sh_no_main(tmp_path) -> Path:
     copy = tmp_path / "install.sh"
     copy.write_text("".join(lines[:-1]), encoding="utf-8")
     copy.chmod(0o755)
+    shutil.copy(
+        _SCRIPTS_DIR / "_env_split_helpers.sh", tmp_path / "_env_split_helpers.sh"
+    )
     return copy
 
 

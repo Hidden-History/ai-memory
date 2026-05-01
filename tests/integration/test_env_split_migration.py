@@ -18,14 +18,17 @@ _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
 _HELPERS_SH = _SCRIPTS_DIR / "_env_split_helpers.sh"
 _VERIFY_PY = _SCRIPTS_DIR / "verify_env_split.py"
 
-# Canonical PP-2 key list (17 original + QDRANT_READ_ONLY_API_KEY per R2.7)
-PP_2_KEYS = [
+# Canonical PP-2 key lists (split: 6 core + 12 Langfuse per F-r4-4 / Shape 1)
+PP_2_CORE_KEYS = [
     "QDRANT_API_KEY",
     "QDRANT_READ_ONLY_API_KEY",
     "GRAFANA_ADMIN_PASSWORD",
     "GRAFANA_SECRET_KEY",
     "PROMETHEUS_ADMIN_PASSWORD",
     "PROMETHEUS_BASIC_AUTH_HEADER",
+]
+
+PP_2_LANGFUSE_KEYS = [
     "LANGFUSE_DB_PASSWORD",
     "LANGFUSE_CLICKHOUSE_PASSWORD",
     "LANGFUSE_NEXTAUTH_SECRET",
@@ -39,6 +42,10 @@ PP_2_KEYS = [
     "LANGFUSE_INIT_PROJECT_SECRET_KEY",
     "LANGFUSE_INIT_USER_PASSWORD",
 ]
+
+PP_2_KEYS = (
+    PP_2_CORE_KEYS + PP_2_LANGFUSE_KEYS
+)  # 18 total — for backward-compat with existing tests
 
 PP_3_KEYS = [
     "OLLAMA_API_KEY",
@@ -792,3 +799,104 @@ def test_verify_i8_inverted_layout_fails(tmp_path):
         result.returncode == 1
     ), f"Expected exit 1 for inverted compose layout; got {result.returncode}"
     assert "I8" in result.stderr, f"Expected I8 in stderr; got: {result.stderr!r}"
+
+
+# ---------------------------------------------------------------------------
+# F-r4-3 — I7 glob: .env.secrets.example is NOT flagged as orphan
+# ---------------------------------------------------------------------------
+
+
+def test_i7_example_template_not_flagged_as_orphan(tmp_path):
+    """I7: .env.secrets.example (shipped template) must NOT trigger orphan-tempfile failure.
+
+    Regression test for F-r4-3: the I7 glob previously matched .env.secrets.example
+    as an orphan because the exclude-suffix filter was absent.
+    """
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_CORE_KEYS}
+    env_pairs = {**dict.fromkeys(PP_2_KEYS, ""), "GITHUB_SYNC_ENABLED": "false"}
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+
+    # Simulate the shipped template being present in docker/
+    (install_dir / "docker" / ".env.secrets.example").write_text(
+        "# Example secrets file\nQDRANT_API_KEY=\n", encoding="utf-8"
+    )
+
+    result = _run_verify(install_dir)
+    assert (
+        "I7" not in result.stderr
+    ), f"I7 must not flag .env.secrets.example as orphan; stderr:\n{result.stderr}"
+
+
+def test_i7_genuine_orphan_still_flagged(tmp_path):
+    """I7: a genuine mktemp-style .env.secrets.AbCdEf IS still flagged after F-r4-3."""
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_CORE_KEYS}
+    env_pairs = {**dict.fromkeys(PP_2_KEYS, ""), "GITHUB_SYNC_ENABLED": "false"}
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+
+    (install_dir / "docker" / ".env.secrets.AbCdEf").write_text(
+        'SOME_KEY="partial"\n', encoding="utf-8"
+    )
+
+    result = _run_verify(install_dir)
+    assert result.returncode == 1, "Expected exit 1 for genuine orphan tempfile"
+    assert "I7" in result.stderr, f"Expected I7 in stderr; got: {result.stderr!r}"
+
+
+# ---------------------------------------------------------------------------
+# F-r4-4 — I3 Langfuse-gated PP-2 audit
+# ---------------------------------------------------------------------------
+
+
+def test_i3_langfuse_disabled_core_only_passes(tmp_path):
+    """I3: LANGFUSE_ENABLED=false with only 6 core PP-2 keys present → I3 PASS.
+
+    Regression test for F-r4-4: before the fix, I3 failed whenever Langfuse keys
+    were absent, even on a non-Langfuse install.
+    """
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_CORE_KEYS}
+    env_pairs = {
+        **dict.fromkeys(PP_2_KEYS, ""),
+        "GITHUB_SYNC_ENABLED": "false",
+        "LANGFUSE_ENABLED": "false",
+    }
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+    result = _run_verify(install_dir)
+    assert (
+        result.returncode == 0
+    ), f"Expected exit 0 (LANGFUSE_ENABLED=false, core keys present); stderr:\n{result.stderr}"
+    assert "I3" not in result.stderr, f"I3 must not fail; stderr:\n{result.stderr}"
+
+
+def test_i3_langfuse_enabled_requires_langfuse_keys(tmp_path):
+    """I3: LANGFUSE_ENABLED=true with Langfuse keys absent → I3 FAIL.
+
+    Verifies the Langfuse gate activates when LANGFUSE_ENABLED=true.
+    """
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_CORE_KEYS}
+    # No Langfuse PP-2 keys in secrets
+    env_pairs = {
+        **dict.fromkeys(PP_2_KEYS, ""),
+        "GITHUB_SYNC_ENABLED": "false",
+        "LANGFUSE_ENABLED": "true",
+    }
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+    result = _run_verify(install_dir)
+    assert (
+        result.returncode == 1
+    ), "Expected exit 1 (LANGFUSE_ENABLED=true, Langfuse keys absent)"
+    assert "I3" in result.stderr, f"Expected I3 in stderr; got: {result.stderr!r}"
+
+
+def test_i3_langfuse_enabled_all_keys_passes(tmp_path):
+    """I3: LANGFUSE_ENABLED=true with all 18 PP-2 keys present → I3 PASS."""
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_KEYS}
+    env_pairs = {
+        **dict.fromkeys(PP_2_KEYS, ""),
+        "GITHUB_SYNC_ENABLED": "false",
+        "LANGFUSE_ENABLED": "true",
+    }
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+    result = _run_verify(install_dir)
+    assert (
+        result.returncode == 0
+    ), f"Expected exit 0 (LANGFUSE_ENABLED=true, all keys present); stderr:\n{result.stderr}"
