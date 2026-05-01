@@ -86,7 +86,7 @@ migrate_secret_to_secrets_file() {
     # Step 4: Atomic write to .env.secrets via tempfile in same directory.
     # chmod 600 applied BEFORE writing content — never 644 even transiently.
     # Same-directory tempfile guarantees same filesystem for POSIX rename() atomicity.
-    local tmp_secrets
+    local tmp_secrets _rc
     tmp_secrets=$(mktemp "${secrets_dir}/.env.secrets.XXXXXX") \
         || { _h_log_error "mktemp failed for ${key}"; return 1; }
     chmod 600 "$tmp_secrets" \

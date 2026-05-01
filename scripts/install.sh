@@ -2660,11 +2660,6 @@ EOF
             write_secret_to_secrets_file "QDRANT_API_KEY" "$gen_key" "$secrets_file" \
                 || { log_error "Failed to write QDRANT_API_KEY to .env.secrets"; exit 1; }
             _blank_key_in_env "QDRANT_API_KEY" "$docker_env"
-            if [[ -n "${QDRANT_API_KEY:-}" ]]; then
-                log_success "Wrote QDRANT_API_KEY from environment to .env.secrets"
-            else
-                log_success "Auto-generated QDRANT_API_KEY → .env.secrets"
-            fi
         fi
     fi
 
