@@ -2409,10 +2409,13 @@ migrate_existing_env_secrets() {
 
     [[ ! -f "$env_file" ]] && return 0
 
-    # Upgrade detection: QDRANT_API_KEY non-blank in .env means v2.3.x secrets present
-    local probe
-    probe=$(grep "^QDRANT_API_KEY=.\+" "$env_file" 2>/dev/null || true)
-    [[ -z "$probe" ]] && return 0
+    # Upgrade detection: any original PP-2 key non-blank in .env means v2.3.x secrets present.
+    # Uses ERE alternation (macOS + Linux compatible). QDRANT_READ_ONLY_API_KEY excluded —
+    # new in v2.4.0 (R2.7), not a pre-existing v2.3.x key to probe for.
+    if ! grep -qE "^(QDRANT_API_KEY|GRAFANA_ADMIN_PASSWORD|GRAFANA_SECRET_KEY|PROMETHEUS_ADMIN_PASSWORD|PROMETHEUS_BASIC_AUTH_HEADER|LANGFUSE_DB_PASSWORD|LANGFUSE_CLICKHOUSE_PASSWORD|LANGFUSE_NEXTAUTH_SECRET|LANGFUSE_SALT|LANGFUSE_ENCRYPTION_KEY|LANGFUSE_S3_ACCESS_KEY|LANGFUSE_S3_SECRET_KEY|LANGFUSE_PUBLIC_KEY|LANGFUSE_SECRET_KEY|LANGFUSE_INIT_PROJECT_PUBLIC_KEY|LANGFUSE_INIT_PROJECT_SECRET_KEY|LANGFUSE_INIT_USER_PASSWORD)=.+" \
+        "$env_file" 2>/dev/null; then
+        return 0
+    fi
 
     log_info "Detected v2.3.x secrets in docker/.env — migrating to docker/.env.secrets..."
     ensure_secrets_file_exists "$secrets_file"
@@ -2674,7 +2677,6 @@ EOF
         write_secret_to_secrets_file "QDRANT_READ_ONLY_API_KEY" "$gen_rokey" "$secrets_file" \
             || { log_error "Failed to write QDRANT_READ_ONLY_API_KEY to .env.secrets"; exit 1; }
         _blank_key_in_env "QDRANT_READ_ONLY_API_KEY" "$docker_env"
-        log_success "Auto-generated QDRANT_READ_ONLY_API_KEY → .env.secrets"
     fi
 
     # BUG-277 fix (R2.3): Write GRAFANA_ADMIN_PASSWORD to .env.secrets (PP-2 move).
@@ -2687,7 +2689,6 @@ EOF
             write_secret_to_secrets_file "GRAFANA_ADMIN_PASSWORD" "$gen_gf" "$secrets_file" \
                 || { log_error "Failed to write GRAFANA_ADMIN_PASSWORD to .env.secrets"; exit 1; }
             _blank_key_in_env "GRAFANA_ADMIN_PASSWORD" "$docker_env"
-            log_success "Auto-generated GRAFANA_ADMIN_PASSWORD → .env.secrets"
         fi
     fi
 
@@ -2707,7 +2708,6 @@ EOF
             write_secret_to_secrets_file "PROMETHEUS_ADMIN_PASSWORD" "$gen_prom" "$secrets_file" \
                 || { log_error "Failed to write PROMETHEUS_ADMIN_PASSWORD to .env.secrets"; exit 1; }
             _blank_key_in_env "PROMETHEUS_ADMIN_PASSWORD" "$docker_env"
-            log_success "Auto-generated PROMETHEUS_ADMIN_PASSWORD → .env.secrets"
         fi
     fi
 
@@ -2721,7 +2721,6 @@ EOF
             write_secret_to_secrets_file "GRAFANA_SECRET_KEY" "$gen_gsk" "$secrets_file" \
                 || { log_error "Failed to write GRAFANA_SECRET_KEY to .env.secrets"; exit 1; }
             _blank_key_in_env "GRAFANA_SECRET_KEY" "$docker_env"
-            log_success "Auto-generated GRAFANA_SECRET_KEY → .env.secrets"
         fi
     fi
 
@@ -2811,7 +2810,6 @@ generate_prometheus_auth() {
     write_secret_to_secrets_file "PROMETHEUS_BASIC_AUTH_HEADER" "$auth_header" "$secrets_file" \
         || { log_error "Failed to write PROMETHEUS_BASIC_AUTH_HEADER to .env.secrets"; exit 1; }
     _blank_key_in_env "PROMETHEUS_BASIC_AUTH_HEADER" "$docker_env"
-    log_success "Generated Prometheus healthcheck auth header → .env.secrets"
 }
 
 # Log Docker container state for debugging (P1: container disappearance diagnosis)

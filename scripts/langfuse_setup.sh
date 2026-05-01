@@ -124,7 +124,8 @@ generate_secrets() {
         else
             local val
             val=$(eval "$cmd")
-            write_secret_to_secrets_file "$key" "$val" "$SECRETS_FILE"
+            write_secret_to_secrets_file "$key" "$val" "$SECRETS_FILE" \
+                || { _h_log_error "Failed to write ${key} to .env.secrets"; return 1; }
             _blank_key_in_env "$key" "$ENV_FILE"
             log_success "  ${key} — generated."
             generated=$((generated + 1))

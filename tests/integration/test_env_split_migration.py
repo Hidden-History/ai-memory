@@ -5,6 +5,7 @@ All tests use tmp_path; no real install directory; no Docker subprocess.
 Shell migration functions invoked via subprocess for T4-T9.
 """
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -236,12 +237,11 @@ def test_t5_idempotent_partial_migration(tmp_path):
         assert secrets_after.get(key) == f"toremove_{key}", f"{key} not migrated"
         assert not env_after.get(key), f"{key} still in .env after migration"
 
-    # No duplicate keys in .env.secrets
+    # No duplicate keys in .env.secrets — per-line startswith count
     raw = secrets_file.read_text()
     for key in PP_2_KEYS:
-        assert raw.count(f"\n{key}=") + raw.count(f"{key}=") <= 1 + raw.count(
-            "\n"
-        ), f"Duplicate entry for {key} in .env.secrets"
+        count = sum(1 for line in raw.splitlines() if line.startswith(f"{key}="))
+        assert count <= 1, f"Duplicate {key} entries in .env.secrets: count={count}"
 
 
 # ---------------------------------------------------------------------------
@@ -353,9 +353,11 @@ def test_t9_secrets_write_denied_env_unchanged(tmp_path):
     env_pairs = {"QDRANT_API_KEY": "original_key"}
     _write_env(env_file, env_pairs)
 
-    # Make the docker directory unwritable — mktemp will fail since it needs to create
-    # the tempfile in this directory. rename() alone does not require dest-file
-    # write permission on Linux, so denying at the directory level is required.
+    # Make the docker directory unwritable — mktemp requires directory write permission
+    # to create the tempfile. This is the correct failure-mode trigger: mktemp fails
+    # because it cannot create a new file in the directory. The rename() syscall itself
+    # does not require dest-file write permission, so directory-level denial is the
+    # right approach (not revoking .env.secrets write permission directly).
     docker_dir.chmod(0o555)
 
     try:
@@ -369,6 +371,11 @@ migrate_secret_to_secrets_file QDRANT_API_KEY {env_file} {secrets_file}
         assert (
             result.returncode != 0
         ), f"Expected non-zero exit when docker dir unwritable; got 0\n{result.stdout}"
+
+        # Verify the failure message identifies the correct failure mode
+        assert (
+            "mktemp" in result.stderr.lower() or "permission" in result.stderr.lower()
+        ), f"Expected mktemp/permission error in stderr; got: {result.stderr!r}"
 
         # .env must remain unchanged — original_key still present
         env_after = _read_env(env_file)
@@ -583,3 +590,205 @@ def test_verify_i8_compose_missing_secrets_entry(tmp_path):
     result = _run_verify(tmp_path)
     assert result.returncode == 1
     assert "I8" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# T2 — Fresh v2.4.0 install: orphaned .env with no PP-2 values
+# ---------------------------------------------------------------------------
+
+
+def test_t2_orphaned_env_fresh_install(tmp_path):
+    """T2: .env has only non-PP-2 keys (orphaned from manual test) — upgrade probe finds no v2.3.x secrets → no migration triggered."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    env_file = docker_dir / ".env"
+    secrets_file = docker_dir / ".env.secrets"
+
+    # .env has non-PP-2 keys and blank PP-2 placeholders — no non-empty PP-2 values
+    _write_env(
+        env_file,
+        {
+            "LANGFUSE_INIT_ORG_ID": "ai-memory-org",
+            "LANGFUSE_INIT_USER_EMAIL": "test@example.com",
+            "AI_MEMORY_PROJECT_ID": "my-project",
+            **dict.fromkeys(PP_2_KEYS, ""),  # blank placeholders
+        },
+    )
+
+    # Run the upgrade-detection probe (mirrors migrate_existing_env_secrets after F8 fix)
+    pp2_alternation = "|".join(
+        [
+            "QDRANT_API_KEY",
+            "GRAFANA_ADMIN_PASSWORD",
+            "GRAFANA_SECRET_KEY",
+            "PROMETHEUS_ADMIN_PASSWORD",
+            "PROMETHEUS_BASIC_AUTH_HEADER",
+            "LANGFUSE_DB_PASSWORD",
+            "LANGFUSE_CLICKHOUSE_PASSWORD",
+            "LANGFUSE_NEXTAUTH_SECRET",
+            "LANGFUSE_SALT",
+            "LANGFUSE_ENCRYPTION_KEY",
+            "LANGFUSE_S3_ACCESS_KEY",
+            "LANGFUSE_S3_SECRET_KEY",
+            "LANGFUSE_PUBLIC_KEY",
+            "LANGFUSE_SECRET_KEY",
+            "LANGFUSE_INIT_PROJECT_PUBLIC_KEY",
+            "LANGFUSE_INIT_PROJECT_SECRET_KEY",
+            "LANGFUSE_INIT_USER_PASSWORD",
+        ]
+    )
+    script = f"""
+set -uo pipefail
+if grep -qE "^({pp2_alternation})=.+" {env_file} 2>/dev/null; then
+    echo "MIGRATION_NEEDED"
+else
+    echo "FRESH_INSTALL"
+fi
+"""
+    result = _run_bash(script)
+    assert result.returncode == 0, f"Probe script failed: {result.stderr}"
+    assert (
+        "FRESH_INSTALL" in result.stdout
+    ), f"Expected probe to detect fresh install (no non-empty PP-2 keys); got: {result.stdout!r}"
+    # .env.secrets must not have been created by migration
+    assert (
+        not secrets_file.exists()
+    ), ".env.secrets was unexpectedly created when no migration should run"
+
+
+# ---------------------------------------------------------------------------
+# T3 — Fresh v2.4.0 install: existing .env.secrets with partial PP-2 keys
+# ---------------------------------------------------------------------------
+
+
+def test_t3_existing_partial_secrets_fresh_install(tmp_path):
+    """T3: .env.secrets has 5 of 18 PP-2 keys → write_secret_to_secrets_file adds missing; no duplicates; existing values preserved; chmod 600 preserved."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    secrets_file = docker_dir / ".env.secrets"
+
+    pre_existing_keys = PP_2_KEYS[:5]
+    missing_keys = PP_2_KEYS[5:]
+
+    # Pre-populate .env.secrets with first 5 PP-2 keys
+    secrets_pairs = {k: f"existing_{k}" for k in pre_existing_keys}
+    _write_env(secrets_file, secrets_pairs)
+    secrets_file.chmod(0o600)
+
+    # Write all 18 PP-2 keys via write_secret_to_secrets_file (simulating fresh install)
+    for key in PP_2_KEYS:
+        result = _write_secret_via_bash(key, f"fresh_{key}", secrets_file)
+        assert (
+            result.returncode == 0
+        ), f"write_secret_to_secrets_file failed for {key}: {result.stderr}"
+
+    secrets_after = _read_env(secrets_file)
+
+    # All 18 PP-2 keys must be present
+    for key in PP_2_KEYS:
+        assert secrets_after.get(key), f"{key} missing from .env.secrets after write"
+
+    # Pre-existing keys must retain their original values (idempotence)
+    for key in pre_existing_keys:
+        assert (
+            secrets_after[key] == f"existing_{key}"
+        ), f"{key} value changed: expected existing_{key}, got {secrets_after[key]!r}"
+
+    # Missing keys must have the freshly written values
+    for key in missing_keys:
+        assert (
+            secrets_after[key] == f"fresh_{key}"
+        ), f"{key} value wrong: expected fresh_{key}, got {secrets_after[key]!r}"
+
+    # No duplicates — per-line startswith count (same assertion as F14 fix)
+    raw = secrets_file.read_text()
+    for key in PP_2_KEYS:
+        count = sum(1 for line in raw.splitlines() if line.startswith(f"{key}="))
+        assert count <= 1, f"Duplicate {key} entries in .env.secrets: count={count}"
+
+    # chmod 600 must be preserved
+    mode = secrets_file.stat().st_mode & 0o777
+    assert mode == 0o600, f".env.secrets mode is {oct(mode)}, expected 0o600"
+
+
+# ---------------------------------------------------------------------------
+# F1 / I2 — WSL-detection tests (monkeypatch _is_wsl)
+# ---------------------------------------------------------------------------
+
+
+def _import_verify_module():
+    """Import verify_env_split.py as a module for monkeypatching."""
+    spec = importlib.util.spec_from_file_location("verify_env_split", _VERIFY_PY)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_verify_i2_permissions_fail_on_non_wsl(tmp_path, monkeypatch):
+    """I2 fails (exit 1) when .env.secrets is chmod 644 on a non-WSL host."""
+    mod = _import_verify_module()
+    monkeypatch.setattr(mod, "_is_wsl", lambda: False)
+
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_KEYS}
+    env_pairs = {**dict.fromkeys(PP_2_KEYS, ""), "GITHUB_SYNC_ENABLED": "false"}
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+    (install_dir / "docker" / ".env.secrets").chmod(0o644)
+
+    rc = mod.run_checks(str(install_dir), strict=False)
+    assert (
+        rc == 1
+    ), f"Expected exit 1 on non-WSL host with .env.secrets chmod 644; got {rc}"
+
+
+def test_verify_i2_permissions_warn_on_wsl(tmp_path, monkeypatch, capsys):
+    """I2 degrades to [WARN] (exit 0) when .env.secrets is chmod 644 on a WSL host."""
+    mod = _import_verify_module()
+    monkeypatch.setattr(mod, "_is_wsl", lambda: True)
+
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_KEYS}
+    env_pairs = {**dict.fromkeys(PP_2_KEYS, ""), "GITHUB_SYNC_ENABLED": "false"}
+    install_dir = _make_install_dir(tmp_path, env_pairs, secrets_pairs)
+    (install_dir / "docker" / ".env.secrets").chmod(0o644)
+
+    rc = mod.run_checks(str(install_dir), strict=False)
+    assert (
+        rc == 0
+    ), f"Expected exit 0 on WSL host with .env.secrets chmod 644 (warn only); got {rc}"
+    captured = capsys.readouterr()
+    assert "[WARN]" in captured.out, "Expected [WARN] in stdout for WSL I2 mismatch"
+
+
+# ---------------------------------------------------------------------------
+# F3 / I8 — Inverted compose layout regression test
+# ---------------------------------------------------------------------------
+
+
+def test_verify_i8_inverted_layout_fails(tmp_path):
+    """I8 fails when .env.secrets is required: true and .env is required: false (inverted layout)."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+
+    # Compose with .env.secrets required: true (inverted — the layout I8 is meant to catch)
+    (docker_dir / "docker-compose.yml").write_text(
+        "x-python-service-defaults: &python-service-defaults\n"
+        "  env_file:\n"
+        "    - path: .env.secrets\n"
+        "      required: true\n"
+        "    - path: .env\n"
+        "      required: false\n"
+    )
+    secrets_pairs = {k: f"v_{k}" for k in PP_2_KEYS}
+    env_file = docker_dir / ".env"
+    _write_env(
+        env_file, {"GITHUB_SYNC_ENABLED": "false", **dict.fromkeys(PP_2_KEYS, "")}
+    )
+    env_file.chmod(0o644)
+    sec = docker_dir / ".env.secrets"
+    _write_env(sec, secrets_pairs)
+    sec.chmod(0o600)
+
+    result = _run_verify(tmp_path)
+    assert (
+        result.returncode == 1
+    ), f"Expected exit 1 for inverted compose layout; got {result.returncode}"
+    assert "I8" in result.stderr, f"Expected I8 in stderr; got: {result.stderr!r}"

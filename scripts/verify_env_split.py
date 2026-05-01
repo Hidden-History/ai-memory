@@ -10,6 +10,7 @@ PP-3 user-supplied keys absent from docker/.env.
 
 import argparse
 import glob
+import re
 import stat
 import sys
 from pathlib import Path
@@ -84,6 +85,17 @@ def _file_mode(path: Path) -> int:
     return stat.S_IMODE(path.stat().st_mode)
 
 
+def _is_wsl() -> bool:
+    """Detect WSL host — chmod 600 may silently no-op on WSL; degrade I2 to _warn only."""
+    try:
+        return any(
+            marker in Path("/proc/sys/kernel/osrelease").read_text().lower()
+            for marker in ("microsoft", "wsl")
+        )
+    except OSError:
+        return False
+
+
 def _ok(msg: str) -> None:
     print(f"[PASS] {msg}")
 
@@ -128,20 +140,31 @@ def run_checks(install_dir: str, strict: bool) -> int:
         _ok("I1: docker/.env.secrets exists")
 
     # I2: file permissions (.env = 644, .env.secrets = 600)
+    # On WSL, chmod 600 may silently no-op (filesystem limitation); warn only on WSL.
+    # On real Linux/macOS, a mode mismatch is a security invariant violation → _fail.
     env_mode = _file_mode(env_file)
     if env_mode != 0o644:
-        _warn(
-            f"I2: docker/.env mode {oct(env_mode)} (expected 0o644 — WSL may not enforce)"
-        )
+        if _is_wsl():
+            _warn(
+                f"I2: docker/.env mode {oct(env_mode)} (expected 0o644 — WSL may not enforce)"
+            )
+        else:
+            _fail(failures, f"I2: docker/.env mode {oct(env_mode)} (expected 0o644)")
     else:
         _ok("I2a: docker/.env mode 644")
 
     if secrets_file.exists():
         sec_mode = _file_mode(secrets_file)
         if sec_mode != 0o600:
-            _warn(
-                f"I2: docker/.env.secrets mode {oct(sec_mode)} (expected 0o600 — WSL may not enforce)"
-            )
+            if _is_wsl():
+                _warn(
+                    f"I2: docker/.env.secrets mode {oct(sec_mode)} (expected 0o600 — WSL may not enforce)"
+                )
+            else:
+                _fail(
+                    failures,
+                    f"I2: docker/.env.secrets mode {oct(sec_mode)} (expected 0o600)",
+                )
         else:
             _ok("I2b: docker/.env.secrets mode 600")
 
@@ -181,7 +204,7 @@ def run_checks(install_dir: str, strict: bool) -> int:
     if not pp1_fail:
         _ok("I5: PP-1 keys present in .env.secrets (or sync not enabled)")
 
-    # I6: non-secret LANGFUSE_INIT_* keys absent from .env.secrets
+    # I6: non-secret LANGFUSE_INIT_* keys absent from .env.secrets AND present in .env
     wrong_in_secrets = [k for k in LANGFUSE_NON_SECRET_INIT_KEYS if secrets_vals.get(k)]
     if wrong_in_secrets:
         _fail(
@@ -190,6 +213,14 @@ def run_checks(install_dir: str, strict: bool) -> int:
         )
     else:
         _ok("I6: non-secret LANGFUSE_INIT_* keys absent from .env.secrets")
+    # _warn (not _fail): these keys are only populated after langfuse_setup.sh runs;
+    # absence on a non-Langfuse install is acceptable.
+    missing_from_env = [k for k in LANGFUSE_NON_SECRET_INIT_KEYS if not env_vals.get(k)]
+    if missing_from_env:
+        _warn(
+            f"I6: non-secret LANGFUSE_INIT_* keys absent from .env (expected after langfuse setup): "
+            f"{missing_from_env}"
+        )
 
     # I7: no orphan .env.secrets.XXXXXX tempfiles in docker/
     orphans = [Path(p).name for p in glob.glob(str(docker_dir / ".env.secrets.*"))]
@@ -203,8 +234,13 @@ def run_checks(install_dir: str, strict: bool) -> int:
         _warn(f"I8: docker-compose.yml not found at {compose_file} — skipping")
     else:
         compose_text = compose_file.read_text(encoding="utf-8")
-        if ".env.secrets" in compose_text and "required: false" in compose_text:
+        if re.search(r"path:\s*\.env\.secrets\s*\n\s*required:\s*false", compose_text):
             _ok("I8: docker-compose.yml lists .env.secrets with required: false")
+        elif ".env.secrets" in compose_text:
+            _fail(
+                failures,
+                "I8: .env.secrets present in compose but not paired with required: false — check compose layout",
+            )
         else:
             _fail(
                 failures,

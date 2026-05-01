@@ -20,9 +20,8 @@ _h_log_warn()    { printf "${_H_YELLOW}[WARNING]${_H_NC} %s\n" "$1"; }
 ensure_secrets_file_exists() {
     local secrets_file="$1"
     if [[ ! -f "$secrets_file" ]]; then
-        touch "$secrets_file"
-        chmod 600 "$secrets_file" 2>/dev/null \
-            || _h_log_warn "chmod 600 on ${secrets_file} failed — secrets may be world-readable"
+        install -m 600 /dev/null "$secrets_file" 2>/dev/null \
+            || _h_log_warn "install -m 600 on ${secrets_file} failed — secrets may be world-readable"
         _h_log_info "Created ${secrets_file} (chmod 600)"
     else
         chmod 600 "$secrets_file" 2>/dev/null \
@@ -34,13 +33,17 @@ ensure_secrets_file_exists() {
 _blank_key_in_env() {
     local key="$1"
     local env_file="$2"
-    if grep -q "^${key}=.\+" "$env_file" 2>/dev/null; then
+    if grep -qE "^${key}=.+" "$env_file" 2>/dev/null; then
         sed -i.bak "s|^${key}=.*|${key}=|" "$env_file" && rm -f "${env_file}.bak"
     fi
 }
 
-# _read_env_key — read a key from secrets_file first, then fall through to env_file.
+# _read_env_key — read KEY=VALUE from a flat env file (secrets_file-first fallthrough).
 # Handles dual-file architecture: secrets live in secrets_file post-migration.
+# NOTE: tr -d '"'"'" strips ALL quote characters from value. Safe for auto-generated
+# PP-2 secrets (openssl rand hex, secrets.token_*) and PP-1 tokens (alphanumeric + _ + -).
+# PP-3 user-supplied keys with embedded ' or " characters will be silently corrupted
+# — track via BP-153 follow-up env-loader cleanup.
 _read_env_key() {
     local key="$1"
     local secrets_file="$2"
@@ -88,7 +91,15 @@ migrate_secret_to_secrets_file() {
         || { _h_log_error "mktemp failed for ${key}"; return 1; }
     chmod 600 "$tmp_secrets" \
         || { _h_log_error "chmod 600 on tempfile failed for ${key}"; rm -f "$tmp_secrets"; return 1; }
-    [[ -f "$secrets_file" ]] && grep -v "^${key}=" "$secrets_file" >> "$tmp_secrets" || true
+    if [[ -f "$secrets_file" ]]; then
+        grep -v "^${key}=" "$secrets_file" >> "$tmp_secrets"
+        _rc=$?
+        if [[ $_rc -ne 0 && $_rc -ne 1 ]]; then
+            rm -f "$tmp_secrets"
+            _h_log_error "grep -v failed reading ${secrets_file} (exit $_rc); aborting migration of ${key}"
+            return 1
+        fi
+    fi
     printf '%s="%s"\n' "$key" "$current_val" >> "$tmp_secrets"
     mv "$tmp_secrets" "$secrets_file"
 
@@ -121,16 +132,25 @@ write_secret_to_secrets_file() {
     existing=$(grep "^${key}=" "$secrets_file" 2>/dev/null \
                | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
     if [[ -n "$existing" ]]; then
+        _h_log_info "${key} already present in $(basename "$secrets_file") — skipped"
         return 0
     fi
 
     # Atomic write via tempfile in same directory (POSIX rename() atomicity)
-    local tmp_secrets
+    local tmp_secrets _rc
     tmp_secrets=$(mktemp "${secrets_dir}/.env.secrets.XXXXXX") \
         || { _h_log_error "mktemp failed for ${key}"; return 1; }
     chmod 600 "$tmp_secrets" \
         || { _h_log_error "chmod 600 on tempfile failed for ${key}"; rm -f "$tmp_secrets"; return 1; }
-    [[ -f "$secrets_file" ]] && grep -v "^${key}=" "$secrets_file" >> "$tmp_secrets" || true
+    if [[ -f "$secrets_file" ]]; then
+        grep -v "^${key}=" "$secrets_file" >> "$tmp_secrets"
+        _rc=$?
+        if [[ $_rc -ne 0 && $_rc -ne 1 ]]; then
+            rm -f "$tmp_secrets"
+            _h_log_error "grep -v failed reading ${secrets_file} (exit $_rc); aborting write of ${key}"
+            return 1
+        fi
+    fi
     printf '%s="%s"\n' "$key" "$value" >> "$tmp_secrets"
     mv "$tmp_secrets" "$secrets_file"
 
@@ -142,6 +162,7 @@ write_secret_to_secrets_file() {
         _h_log_error "Write verify failed for ${key} in .env.secrets"
         return 1
     fi
+    _h_log_success "Wrote ${key} → $(basename "$secrets_file")"
 }
 
 # migrate_secrets_to_split_file — wrapper: migrate all 23 applicable keys (17 PP-2 + 6 PP-3).
