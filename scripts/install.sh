@@ -1515,7 +1515,14 @@ handle_reinstall() {
                     reinstall_profile_args+=(--profile github)
                 fi
             fi
-            (cd "$INSTALL_DIR/docker" && docker compose "${reinstall_profile_args[@]}" down 2>/dev/null) || true
+            # BUG-279: pass .env + .env.secrets via --env-file flags so secret
+            # interpolations resolve during reinstall down. Inline (not _compose)
+            # because this runs in a subshell before start_services defines it.
+            (cd "$INSTALL_DIR/docker" && {
+                _envflags=(--env-file .env)
+                [[ -f .env.secrets ]] && _envflags+=(--env-file .env.secrets)
+                docker compose "${_envflags[@]}" "${reinstall_profile_args[@]}" down 2>/dev/null
+            }) || true
         fi
         log_success "Services stopped"
     fi
@@ -2829,6 +2836,20 @@ start_services() {
         exit 1
     }
 
+    # BUG-279: Wrap docker compose to always pass .env + .env.secrets as
+    # --env-file flags. Without .env.secrets, ${QDRANT_API_KEY} (and 28 other
+    # secret-class ${VAR} interpolations across docker-compose.yml +
+    # docker-compose.langfuse.yml) resolve to blank post-BUG-277 R3 migration,
+    # producing QDRANT__SERVICE__API_KEY="" in the container — Qdrant treats
+    # empty-string-set as configured-but-locked → 401 on all auth-required
+    # endpoints. Compose v2.21+ multi-env-file: last-file-wins per BP-154 §Q2.
+    # Mirrors stack.sh::_compose() pattern.
+    _compose() {
+        local _args=(--env-file .env)
+        [[ -f .env.secrets ]] && _args+=(--env-file .env.secrets)
+        docker compose "${_args[@]}" "$@"
+    }
+
     # Check Docker daemon is reachable (BUG-094: works with Docker Engine, Desktop, Colima, etc.)
     if ! docker info &>/dev/null; then
         log_warning "Docker daemon is not reachable — attempting systemd start..."
@@ -2880,9 +2901,9 @@ start_services() {
     # context but we build it separately to avoid memory pressure from building
     # multiple images simultaneously on low-RAM systems.
     log_info "Phase 1/2: Starting core services (qdrant + embedding)..."
-    docker compose up -d qdrant
-    docker compose build --no-cache embedding
-    docker compose up -d embedding
+    _compose up -d qdrant
+    _compose build --no-cache embedding
+    _compose up -d embedding
 
     _log_docker_state "after core startup"
 
@@ -2958,8 +2979,9 @@ start_services() {
     if [[ -n "$profile_flags" ]]; then
         log_info "Phase 2/2: Starting profile services ($profile_flags)..."
         # BUG-079: --build forces rebuild of source-built containers
-        docker compose $profile_flags build --no-cache
-        docker compose $profile_flags up -d --no-recreate
+        # BUG-279: _compose wrapper passes both --env-file flags (defined at start_services top)
+        _compose $profile_flags build --no-cache
+        _compose $profile_flags up -d --no-recreate
         _log_docker_state "after profile startup"
 
         # Verify core services survived profile startup
