@@ -76,6 +76,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by BP-154 (POSIX rename() + Docker Compose v5.0.2 live test + compose-spec/compose-go
   source, PM #270). See oversight/bugs/BUG-277-secrets-class-keys-written-to-env-not-secrets.md
   and oversight/knowledge/best-practices/BP-154-env-secrets-migration-2026.md.
+- **Installer + stack scripts (BUG-279 fix)**: pass `docker/.env.secrets` as a
+  second `--env-file` flag to every `docker compose` invocation in
+  `scripts/install.sh`, `scripts/stack.sh`, `scripts/langfuse_setup.sh`,
+  `scripts/enable-hybrid-search.sh`, and `scripts/rollback.sh`. Without this,
+  Compose's auto-loaded `.env` interpolation reads the BLANK PP-2 keys
+  post-BUG-277 R3 migration, producing `QDRANT__SERVICE__API_KEY=""` in the
+  Qdrant container (locked-out: 401 on all auth-required endpoints) and
+  `LANGFUSE_PUBLIC_KEY=""` / `DATABASE_URL` interpolation failures across the
+  Langfuse stack — affects all 29 secret-class `${VAR}` interpolation sites
+  in `docker-compose.yml` + `docker-compose.langfuse.yml`. Empirically
+  verified: `docker compose --env-file .env --env-file .env.secrets config`
+  resolves all secret interpolations to real values. Compose v2.21+
+  multi-env-file last-file-wins precedence per BP-154 §Q2. See
+  `oversight/bugs/BUG-279-compose-env-secrets-not-loaded-by-wrappers.md`.
+- **Installer (BUG-281 fix)**: pre-create `${INSTALL_DIR}/config/projects.d`
+  and `${INSTALL_DIR}/github-state/logs` in `create_directories()` so the
+  github-sync container's volume mounts find existing parzival-owned host
+  paths instead of triggering Docker daemon auto-create (which runs as root
+  and would leave host paths root-owned, locking out subsequent
+  `register_project_sync()` writes from install.sh). Sibling consumer-side
+  resolution to BUG-279. See
+  `oversight/bugs/BUG-281-docker-mount-creates-root-owned-host-dir.md`.
+- **Installer (BUG-282 fix)**: explicitly copy `docker/.env` (dotfile) from
+  source to install dir during fresh install. Bulk `cp -r .../docker/*` in
+  `copy_files()` uses shell glob `*` which excludes dotfiles, so `.env` was
+  silently skipped — leaving the install dir without a `.env` until the
+  merge ELSE branch fell back to copying `.env.example` over `.env`,
+  silently overwriting user customizations (uncommented opt-in keys like
+  `GITHUB_CODE_BLOB_INCLUDE`, `DECAY_*`, `FRESHNESS_PENALTY_*`, `INJECTION_*`
+  thresholds reverted to commented template defaults). Sibling of BUG-040
+  (which only handled `.env.example` dotfile copying); fix mirrors the
+  same explicit-cp pattern, gated by `! -f "$INSTALL_DIR/docker/.env"` so
+  it only fires for fresh installs and does not interfere with the
+  TD-198 backup/restore + merge logic for Option 1 reinstalls. Discovered
+  during PM #274 P4-08 verification when a customized
+  `GITHUB_CODE_BLOB_INCLUDE=*.yaml,*.toml,Makefile,Dockerfile` was lost
+  across reinstall.
 
 ### Removed
 - **`aim-bmad-dispatch/` skill**: The BMAD-specific dispatch skill is removed — `aim-agent-dispatch/` now handles both BMAD and generic agents via a unified routing path. All references to `/aim-bmad-dispatch` in prior orchestration pipeline documentation are superseded by `/aim-agent-dispatch`.
@@ -184,6 +221,36 @@ NON_INTERACTIVE=true INSTALL_PARZIVAL=true \
 `INSTALL_PARZIVAL=true` enables the full Parzival V2 setup path during CI / scripted installs. See `INSTALL.md` for full details.
 
 **Skipped for this upgrade**: GitHub Actions bump (#113) is CI-only and applies on the next workflow trigger automatically.
+
+**Special case: stuck install with root-owned `~/.ai-memory/config/`** (rare,
+only affects users who hit the BUG-281 trigger before pulling the fix):
+
+If a prior install attempt left root-owned subdirectories in `~/.ai-memory/`
+(e.g., `~/.ai-memory/config/projects.d/` owned by `root` from Docker
+auto-create), plain `rm -rf ~/.ai-memory` fails at the root-owned subdir.
+Recovery requires sudo, one-time:
+
+```bash
+sudo rm -rf ~/.ai-memory
+cd /path/to/your/clone
+git pull origin main           # ensure BUG-281 fix is in place
+./scripts/install.sh /path/to/project
+```
+
+Future installs (with the BUG-281 fix in place) will not produce root-owned
+host paths because `create_directories()` pre-creates `config/projects.d/`
+and `github-state/logs/` with parzival ownership before any container starts.
+
+**Customized `docker/.env` preservation across reinstall** (BUG-282 fix):
+
+Fresh installs now correctly copy your customized `docker/.env` from the
+source repo into the install dir. Before this fix, the bulk `cp -r` glob
+silently skipped `.env` (a dotfile), causing the merge fallback to
+overwrite with `.env.example` template defaults — losing uncommented
+values for opt-in keys like `GITHUB_CODE_BLOB_INCLUDE`, `DECAY_*`,
+`FRESHNESS_PENALTY_*`, and `INJECTION_*` thresholds. No user action
+required for v2.4.0+ — your customizations now survive across both fresh
+installs and Option 1 reinstalls.
 
 ## [2.3.2] - 2026-04-13
 

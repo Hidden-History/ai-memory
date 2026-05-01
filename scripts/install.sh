@@ -2239,6 +2239,20 @@ copy_files() {
         log_debug "Restored docker/.env after bulk copy"
     fi
 
+    # BUG-282 (sibling of BUG-040): Explicitly copy docker/.env from source if
+    # the install doesn't yet have one. The bulk `cp -r .../docker/*` above
+    # does NOT copy dotfiles (shell glob skips files starting with `.`), so
+    # without this, fresh installs whose source repo has a customized
+    # docker/.env (typical for users who edited their clone's .env before
+    # running the installer) silently fall back to the .env.example template
+    # in the merge ELSE branch below — destroying user customizations for
+    # opt-in keys (GITHUB_CODE_BLOB_INCLUDE, DECAY_*, FRESHNESS_PENALTY_*,
+    # INJECTION_* thresholds, etc.) that ship as commented in the template.
+    if [[ -f "$SOURCE_DIR/docker/.env" && ! -f "$INSTALL_DIR/docker/.env" ]]; then
+        cp "$SOURCE_DIR/docker/.env" "$INSTALL_DIR/docker/.env"
+        log_debug "Copied source docker/.env to install dir (dotfile glob workaround)"
+    fi
+
     # BUG-040: Explicitly copy dotfiles - glob .* matches . and .. causing failures
     # Deploy .env: merge strategy preserves user customizations (TD-198)
     if [[ -f "$SOURCE_DIR/docker/.env.example" ]]; then
