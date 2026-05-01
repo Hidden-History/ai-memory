@@ -177,11 +177,14 @@ find_docker_dir() {
 # Without this, docker compose crashes if --env-file points to a missing file.
 # =============================================================================
 _compose() {
-    if [[ -f "${ENV_FILE}" ]]; then
-        docker compose --env-file "${ENV_FILE}" "$@"
-    else
-        docker compose "$@"
-    fi
+    # BUG-279: Pass .env.secrets as second --env-file so secret-class ${VAR}
+    # interpolations (QDRANT_API_KEY, LANGFUSE_*, etc.) resolve to real values
+    # post-BUG-277 R3 migration. Mirrors stack.sh::_compose() pattern.
+    local _args=()
+    [[ -f "${ENV_FILE}" ]] && _args+=(--env-file "${ENV_FILE}")
+    local _secrets="${ENV_FILE%/.env}/.env.secrets"
+    [[ -f "${_secrets}" ]] && _args+=(--env-file "${_secrets}")
+    docker compose "${_args[@]}" "$@"
 }
 
 # =============================================================================

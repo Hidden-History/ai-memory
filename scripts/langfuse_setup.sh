@@ -19,6 +19,20 @@ fi
 source "$_HELPERS"
 unset _HELPERS
 
+# ── Compose wrapper ───────────────────────────────────────────────────────────
+# BUG-279: Pass .env + .env.secrets as --env-file flags so secret-class ${VAR}
+# interpolations (LANGFUSE_PUBLIC_KEY, DATABASE_URL embeds, etc.) resolve to
+# real values post-BUG-277 R3 migration. Compose v2.21+ multi-env-file:
+# last-file-wins precedence per BP-154 §Q2. Function is exported so it remains
+# visible inside (cd "$DOCKER_DIR"; ...) subshells used throughout this script.
+_lf_compose() {
+    local _envflags=()
+    [[ -f "${ENV_FILE}" ]] && _envflags+=(--env-file "${ENV_FILE}")
+    [[ -f "${SECRETS_FILE}" ]] && _envflags+=(--env-file "${SECRETS_FILE}")
+    docker compose "${_envflags[@]}" "$@"
+}
+export -f _lf_compose
+
 # ── Colors ────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -220,7 +234,7 @@ create_minio_bucket() {
     log_info "Starting MinIO service..."
     (
         cd "$DOCKER_DIR"
-        docker compose -f docker-compose.yml -f docker-compose.langfuse.yml \
+        _lf_compose -f docker-compose.yml -f docker-compose.langfuse.yml \
             --profile langfuse up -d langfuse-minio
     )
 
@@ -279,12 +293,12 @@ start_services() {
     log_info "Running: docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse build --no-cache && up -d"
     (
         cd "$DOCKER_DIR"
-        docker compose \
+        _lf_compose \
             -f docker-compose.yml \
             -f docker-compose.langfuse.yml \
             --profile langfuse \
             build --no-cache
-        docker compose \
+        _lf_compose \
             -f docker-compose.yml \
             -f docker-compose.langfuse.yml \
             --profile langfuse \
@@ -429,10 +443,10 @@ except Exception:
 
     (
         cd "$DOCKER_DIR"
-        docker compose -f docker-compose.yml -f docker-compose.langfuse.yml \
+        _lf_compose -f docker-compose.yml -f docker-compose.langfuse.yml \
             --profile langfuse stop \
             langfuse-web langfuse-worker langfuse-postgres langfuse-clickhouse langfuse-redis langfuse-minio
-        docker compose -f docker-compose.yml -f docker-compose.langfuse.yml \
+        _lf_compose -f docker-compose.yml -f docker-compose.langfuse.yml \
             --profile langfuse rm -f \
             langfuse-web langfuse-worker langfuse-postgres langfuse-clickhouse langfuse-redis langfuse-minio
     )

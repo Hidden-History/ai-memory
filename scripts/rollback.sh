@@ -129,7 +129,12 @@ stop_services() {
     log_info "Stopping services..."
 
     cd "$INSTALL_DIR/docker"
-    docker compose down || log_warning "Services already stopped"
+    # BUG-279: pass .env + .env.secrets via --env-file flags so secret-class
+    # ${VAR} interpolations resolve during rollback teardown post-BUG-277 R3.
+    local _envflags=()
+    [[ -f .env ]] && _envflags+=(--env-file .env)
+    [[ -f .env.secrets ]] && _envflags+=(--env-file .env.secrets)
+    docker compose "${_envflags[@]}" down || log_warning "Services already stopped"
 
     # Track that services were stopped for cleanup trap
     SERVICES_STOPPED=true
@@ -173,7 +178,12 @@ restart_services() {
     log_info "Restarting services..."
 
     cd "$INSTALL_DIR/docker"
-    docker compose up -d
+    # BUG-279: pass .env + .env.secrets via --env-file flags so secret-class
+    # ${VAR} interpolations resolve during rollback restart post-BUG-277 R3.
+    local _envflags=()
+    [[ -f .env ]] && _envflags+=(--env-file .env)
+    [[ -f .env.secrets ]] && _envflags+=(--env-file .env.secrets)
+    docker compose "${_envflags[@]}" up -d
 
     log_info "Waiting for services..."
     sleep 10

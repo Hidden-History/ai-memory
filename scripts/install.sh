@@ -2894,7 +2894,8 @@ start_services() {
 
     # ── Phase 1: Pull ALL images first ──
     log_info "Pulling Docker images (this may take a few minutes)..."
-    docker compose $profile_flags pull
+    # BUG-279: _compose wrapper passes both --env-file flags
+    _compose $profile_flags pull
 
     # ── Phase 2: Start CORE services first (no --build, no profiles) ──
     # Qdrant uses a pre-built image (no build context). Embedding has a build
@@ -2924,7 +2925,7 @@ start_services() {
     if [[ $core_attempt -ge $core_timeout ]]; then
         log_error "Qdrant failed to become healthy within ${core_timeout}s"
         _log_docker_state "qdrant timeout"
-        docker compose logs qdrant 2>&1 | tail -20 | while IFS= read -r line; do log_error "  $line"; done
+        _compose logs qdrant 2>&1 | tail -20 | while IFS= read -r line; do log_error "  $line"; done
         exit 1
     fi
 
