@@ -109,9 +109,11 @@ def _ok(msg: str) -> None:
 # Diagnostic function: logs key NAMES only (set membership against PP_*_KEYS /
 # LANGFUSE_* constants). Secret VALUES are never passed in — callers embed only
 # key names via taint-breaking tuple(sorted(...)) constructors at each call site.
-# Suppression: Option A lgtm format per PM #272 D1 (no noqa: prefix; CodeQL action v4).
+# CodeQL py/clear-text-logging-sensitive-data is suppressed for this whole file
+# via .github/codeql/codeql-config.yml (PM #273; inline `# lgtm[...]` markers
+# are not honoured by github/codeql-action@v4).
 def _warn(msg: str) -> None:
-    print(f"[WARN] {msg}")  # lgtm[py/clear-text-logging-sensitive-data]
+    print(f"[WARN] {msg}")
 
 
 def _fail(failures: list, msg: str) -> None:
@@ -313,11 +315,10 @@ def run_checks(install_dir: str, strict: bool) -> int:
         print(f"\n[FAIL] {len(failures)} invariant(s) failed:", file=sys.stderr)
         # Failures list contains diagnostic key NAMES only — see taint-breaking
         # tuple(sorted(...)) constructors at each _fail call site above.
-        # Secret VALUES are never embedded. Suppression: Option A lgtm format (PM #272 D1).
+        # Secret VALUES are never embedded. CodeQL suppression for this file lives
+        # in .github/codeql/codeql-config.yml (PM #273).
         for msg in failures:
-            print(
-                f"  ✗ {msg}", file=sys.stderr
-            )  # lgtm[py/clear-text-logging-sensitive-data]
+            print(f"  ✗ {msg}", file=sys.stderr)
         return 1
 
     print("\n[OK] All env-split invariants passed.")

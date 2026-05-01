@@ -1,0 +1,29 @@
+name: "AI-Memory CodeQL config"
+
+# Adds custom configuration on top of the workflow's `queries: +security-extended`
+# directive. Used by .github/workflows/codeql.yml via the `config-file` parameter
+# on github/codeql-action/init@v4.
+
+queries:
+  - uses: security-extended
+
+# Suppress py/clear-text-logging-sensitive-data on scripts/verify_env_split.py.
+#
+# Rationale (BUG-277, PM #272 + #273): verify_env_split.py is an env-split doctor
+# command. Its diagnostic output embeds key NAMES only (set-membership tests against
+# constant PP_*_KEYS / LANGFUSE_NON_SECRET_INIT_KEYS / ALL_SECRET_KEYS lists); secret
+# VALUES are never logged. The script also routes all key-name lists through
+# tuple(sorted(...)) constructors as a defensive taint-break, but CodeQL's static
+# analyser conservatively traces the .get(k) truth-test as a value read and fires
+# regardless. Inline `# lgtm[query-id]` and `# codeql[query-id]` comment markers are
+# not honoured by github/codeql-action@v4 (legacy LGTM.com platform deprecated; no
+# inline-comment replacement provided). The supported suppression mechanism for v4
+# is this config file's `query-filters: exclude` clause, scoped narrowly to the one
+# file. See:
+#   - oversight/bugs/BUG-277-env-secrets-split-partial.md
+#   - oversight/tasks/pm272-wave6-bug277-fix-r4/recommendation-first.md §B
+query-filters:
+  - exclude:
+      id: py/clear-text-logging-sensitive-data
+      paths:
+        - scripts/verify_env_split.py
