@@ -2023,7 +2023,12 @@ create_directories() {
     fi
 
     # Create main installation directory and subdirectories
-    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,.claude/commands,logs,queue,.locks,trace_buffer,_ai-memory}
+    # BUG-281: pre-create config/projects.d + github-state/logs so the
+    # github-sync container's volume mounts find existing parzival-owned dirs
+    # instead of triggering Docker-daemon auto-create (which runs as root and
+    # leaves host paths root-owned, locking out subsequent install.sh writes
+    # from register_project_sync).
+    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,.claude/commands,logs,queue,.locks,trace_buffer,_ai-memory,config/projects.d,github-state/logs}
 
     # Create queue directory with restricted permissions (security best practice 2026)
     # Queue is shared across all projects - single classifier worker processes all
