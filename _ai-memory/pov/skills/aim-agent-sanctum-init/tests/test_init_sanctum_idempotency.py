@@ -30,23 +30,6 @@ EXPECTED_FILES = [
     "PULSE.md",
 ]
 
-# Substitution keys that are legitimately filled by substitute_vars and may appear
-# as `{key}` in template source but NOT in output (they are replaced, so they
-# should NOT appear in output at all). Keys that legitimately appear in output
-# as unfilled would be a bug. This set is the allowlist of keys that MAY remain
-# in output without triggering a failure (none expected — all keys are filled).
-# Any other {key} pattern in output is a leak.
-_SUBSTITUTION_KEYS = frozenset(
-    {
-        "user_name",
-        "communication_language",
-        "birth_date",
-        "agent_id",
-        "project_root",
-        "sanctum_path",
-    }
-)
-
 
 def _make_project(tmp_path: Path) -> Path:
     """Create a minimal _ai-memory/ tree with config.yaml for testing."""
@@ -91,16 +74,20 @@ def test_T1_empty_sanctum_creates_eight_files(tmp_path):
     ), f"Missing files after first run: {set(EXPECTED_FILES) - created}"
 
     # T1 placeholder-leakage check — grep all 8 output files for unfilled {} patterns.
-    # Valid substitution keys are *filled* (not present in output); any remaining
-    # {key} pattern that is NOT in _SUBSTITUTION_KEYS is an unexpected leak.
+    # ALL {key} patterns in output are leaks — substitute_vars should have filled the
+    # 6 allowed keys; any unfilled pattern (allowed or unknown) indicates a substitution
+    # failure or template typo (e.g., {USER_NAME} vs {user_name} casing).
     placeholder_re = re.compile(r"\{([a-zA-Z][a-zA-Z0-9_-]*)\}")
     leaks = []
     for fname in EXPECTED_FILES:
         content = (sanctum / fname).read_text()
         for match in placeholder_re.finditer(content):
             key = match.group(1)
-            if key not in _SUBSTITUTION_KEYS:
-                leaks.append(f"{fname}: {{{key}}}")
+            # ALL {} patterns in output are leaks — substitute_vars should have
+            # filled the 6 allowed keys; any unfilled pattern (allowed or unknown)
+            # indicates a substitution failure or template typo (e.g., {USER_NAME}
+            # vs {user_name} casing).
+            leaks.append(f"{fname}: {{{key}}}")
     assert (
         not leaks
     ), "Unfilled placeholder leakage detected in output files:\n" + "\n".join(leaks)

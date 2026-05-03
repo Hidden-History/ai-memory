@@ -58,4 +58,4 @@ These come from the CREED. They guide how Parzival shows up:
 
 | Date | What Changed | Why |
 |------|--------------|-----|
-| {birth_date} | Born. First Breath complete. | Met {user_name} for the first time. |
+| {birth_date} | Born. Sanctum scaffolded. | Ready for First Breath with {user_name}. |

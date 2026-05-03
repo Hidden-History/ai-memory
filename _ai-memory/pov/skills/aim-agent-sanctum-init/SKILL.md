@@ -6,7 +6,7 @@ allowed-tools: Bash, Read, Write, Glob
 
 # aim-agent-sanctum-init — Agent Sanctum Initialization
 
-Initialize the sanctum directory structure for an agent. Deterministic scaffolding only — no conversational awakening. For Parzival this runs automatically on first activation when `sanctum/parzival/CREED.md` is absent. For domain agents it runs when Parzival spawns a memory-bearing agent needing cross-session state.
+Initialize the sanctum directory structure for an agent. Deterministic scaffolding only — no conversational awakening. For Parzival this runs automatically on first activation when any of the 8 required sanctum files are missing. For domain agents (future work) it runs when Parzival spawns a memory-bearing agent needing cross-session state.
 
 ## Steps
 
@@ -23,16 +23,18 @@ Initialize the sanctum directory structure for an agent. Deterministic scaffoldi
    - Each TEMPLATE_FILES entry is checked individually. Existing files are preserved (file-level idempotency). Missing files are created from template with substitution variables filled.
    - Copies any reference files from `references/` into sanctum
 
-5. Verify: after script returns 0, confirm sanctum/parzival/CREED.md loads without error.
+5. Verify: after script returns 0, confirm all required sanctum files exist (for parzival: CREED.md, PERSONA.md, INDEX.md, BOND.md, LORE.md, MEMORY.md, CAPABILITIES.md, PULSE.md).
 
 ## Parameters
 
-| Name | Required | Default | Description |
-|---|---|---|---|
-| `agent_id` | yes | — | Target agent's sanctum dir name (e.g., `parzival`) |
-| `agent_type` | yes | — | `parzival` or `domain` |
-| `tier` | no | 3 | `1` (minimal), `2` (+capabilities), `3` (full — Parzival default) (reserved for future tier-upgrade support; currently not read by script) |
-| `domain` | conditional | — | Required when agent_type=domain — used for persona seeding |
+This skill is currently **parzival-only** (single-agent scaffold). The script accepts these positional arguments:
+
+| Position | Description |
+|---|---|
+| `<project-root>` | Required. Path to the project where `_ai-memory/` lives. |
+| `<skill-path>` | Required. Path to this skill bundle (where `assets/`, `scripts/` live). |
+
+Multi-agent support (`agent_id` / `agent_type` / `tier` / `domain` parameters) is planned. See "Future Work" below.
 
 ## Idempotency
 
@@ -40,7 +42,7 @@ The script always runs through all TEMPLATE_FILES. Each file is checked individu
 
 ## Integration Points
 
-- Called automatically by: Parzival activation step 5 when `sanctum/parzival/CREED.md` is absent
+- Called automatically by: Parzival activation step 5 when any of the 8 required sanctum files are missing
 - Called by: aim-agent-dispatch when spawning a memory-bearing domain agent
 - Called manually: `/aim-agent-sanctum-init --agent_id parzival` to re-scaffold (will no-op if already initialized)
 
@@ -51,3 +53,4 @@ The script always runs through all TEMPLATE_FILES. Each file is checked individu
 - Agent registry discovery from CREED.md frontmatter
 - Tier upgrades — file-level idempotency means tier upgrade is automatic: rerunning the script with new templates creates any missing files without modifying existing ones.
 - Atomic scaffolding — wrap creation in try/except with partial cleanup on failure; currently all-or-nothing is aspirational.
+- Multi-agent support: wire `--agent_id` CLI arg, per-agent template directory selection, agent_type-driven CREED/PERSONA seed selection (planned for v2.5.0+ when domain agents land)

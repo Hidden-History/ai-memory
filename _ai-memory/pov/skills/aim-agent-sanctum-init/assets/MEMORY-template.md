@@ -1,7 +1,7 @@
 ---
 type: sanctum-memory
 agent: parzival
-load: activation
+load: session-start
 tier: 3
 ---
 

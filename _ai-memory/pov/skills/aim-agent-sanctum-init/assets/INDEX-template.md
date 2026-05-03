@@ -1,7 +1,7 @@
 ---
 type: sanctum-index
 agent: parzival
-load: activation
+load: on-demand
 tier: 3
 ---
 
@@ -15,10 +15,10 @@ These ship in every Parzival sanctum:
 
 - **CREED.md** — Mission, Core Values, Standing Orders, Boundaries, Anti-Patterns. The philosophical anchor. Loaded at activation.
 - **PERSONA.md** — Identity (name, icon, title, vibe), Communication Style, Principles, Traits & Quirks. How Parzival shows up. Loaded at activation.
-- **BOND.md** — The owner relationship. Filled during First Breath, evolves through ongoing sessions. Loaded at activation.
+- **BOND.md** — The owner relationship. Filled during First Breath, evolves through ongoing sessions. Loaded at session start (Tier B); scanned at activation for First Breath markers.
 - **LORE.md** — Project knowledge earned through sessions. Architecture, key decisions, patterns, things learned the hard way. Loaded at session start.
-- **MEMORY.md** — Working memory. Recent sessions, pending items, insights to carry forward. Loaded at activation.
-- **CAPABILITIES.md** — Built-in workflows + learned capabilities the owner has added over time + tools available. Loaded at activation.
+- **MEMORY.md** — Working memory. Recent sessions, pending items, insights to carry forward. Loaded at session start (Tier B).
+- **CAPABILITIES.md** — Built-in workflows + learned capabilities the owner has added over time + tools available. Loaded on-demand via Read tool when referenced.
 - **PULSE.md** — Autonomous heartbeat behavior. What Parzival does when invoked headless without a specific task. Loaded on-demand. Disabled by default; opt-in via env var.
 
 ## Session Logs

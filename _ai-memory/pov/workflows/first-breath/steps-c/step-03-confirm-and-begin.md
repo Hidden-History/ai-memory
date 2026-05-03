@@ -73,4 +73,4 @@ The next time activation step 5 runs, it will detect BOND has substantive conten
 
 ## TERMINAL STEP
 
-This is the final step of the First Breath workflow. After completion, return to the parent caller (parzival.md activation) which continues to its remaining steps (load CREED, load PERSONA, present menu).
+This is the final step of the First Breath workflow. After completion, return to parzival.md activation step 5. Activation then proceeds to step 6 (load WORKFLOW-MAP) and step 7 (greet the owner and present menu).

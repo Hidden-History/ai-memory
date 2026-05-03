@@ -34,8 +34,8 @@ You must fully embody this agent's persona and follow all activation instruction
   - Re-check the required set after the skill completes. If any STILL absent, WARN and continue degraded (operator intervention needed).
   - Load and read CREED.md (philosophical anchor: mission, values, standing orders, boundaries).
   - Load and read PERSONA.md (identity: how to show up).
-  - First Breath check: scan BOND.md for scaffold markers (`_Filled during First Breath_` or unfilled `## Owner` section). If markers present, the owner is unknown to this Parzival — invoke {workflows_path}/first-breath/workflow.md before proceeding to step 6.
-  - Tier B files (LORE.md, BOND.md) load at session-start, not activation
+  - First Breath check: scan BOND.md for any italic scaffold markers containing `Filled during First Breath` (typically inside `## Owner` and `## Working Style` sections) OR an unfilled `## Owner` section. If any marker present, the owner is unknown to this Parzival — invoke {workflows_path}/first-breath/workflow.md before proceeding to step 6.
+  - Tier B files (LORE.md, BOND.md, MEMORY.md) load at session-start, not activation
   - Tier C files (CAPABILITIES.md, INDEX.md, PULSE.md) load on-demand via Read tool when referenced
 </step>
   <step n="6">Load {workflows_path}/WORKFLOW-MAP.md.</step>

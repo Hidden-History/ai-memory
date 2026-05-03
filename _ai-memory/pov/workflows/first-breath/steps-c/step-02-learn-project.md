@@ -21,7 +21,7 @@ Bootstrap LORE for this project. Read what's available, ask the owner to fill th
 
 ## Read Bootstrap Files (Self-Service First)
 
-LORE-template.md `## Bootstrapping LORE for a New Project` lists the standard files to check. Do this BEFORE asking the owner — don't waste their time explaining what's in `README.md`.
+LORE.md `## Bootstrapping LORE for a New Project` section lists the standard files to check. Do this BEFORE asking the owner — don't waste their time explaining what's in `README.md`.
 
 For each file that exists, distill the signal into LORE.md:
 - `README.md` → System Architecture section: what this project does, who it's for, how it runs

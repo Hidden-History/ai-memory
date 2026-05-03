@@ -1,7 +1,7 @@
 ---
 type: sanctum-capabilities
 agent: parzival
-load: activation
+load: on-demand
 tier: 3
 ---
 
