@@ -16,6 +16,7 @@ Load cross-session context from previous Parzival sessions stored in Qdrant. Thi
 import sys
 import os
 import time
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,10 +25,13 @@ _install_dir = os.path.expanduser("~/.ai-memory")
 sys.path.insert(0, os.path.join(_install_dir, "src"))
 
 # Option P: load Tier B helper from sibling module (enables unit testing)
-_bootstrap_skill_dir = os.path.join(_install_dir, "pov", "skills", "aim-parzival-bootstrap")
+_bootstrap_skill_dir = os.path.join(_install_dir, "_ai-memory", "pov", "skills", "aim-parzival-bootstrap")
 if _bootstrap_skill_dir not in sys.path:
     sys.path.insert(0, _bootstrap_skill_dir)
-from sanctum_tier_b import load_sanctum_tier_b
+try:
+    from sanctum_tier_b import load_sanctum_tier_b
+except ImportError:
+    load_sanctum_tier_b = None
 
 start_ms = time.perf_counter()
 _trace_start = datetime.now(tz=timezone.utc)
@@ -78,13 +82,49 @@ if not config.parzival_enabled:
     print("Parzival is not enabled. Set `PARZIVAL_ENABLED=true` in .env to activate.")
     sys.exit(0)
 
+
+class _LayerStatusCapture(logging.Handler):
+    """Capture named warnings from ai_memory.injection to track per-layer Qdrant status."""
+
+    _LAYER_WARNINGS = frozenset({
+        "bootstrap_handoff_unavailable",
+        "bootstrap_decisions_unavailable",
+        "bootstrap_insights_unavailable",
+        "bootstrap_github_unavailable",
+    })
+
+    def __init__(self):
+        super().__init__()
+        self.failed_layers = set()
+
+    def emit(self, record):
+        if record.getMessage() in self._LAYER_WARNINGS or record.msg in self._LAYER_WARNINGS:
+            self.failed_layers.add(record.msg)
+
+
 try:
     project_name = detect_project(os.getcwd())
     search_client = MemorySearch(config)
     session_id = os.environ.get("CLAUDE_SESSION_ID", "unknown")
 
+    # Per-layer Qdrant status tracking (BUG-285)
+    _capture = _LayerStatusCapture()
+    _injection_logger = logging.getLogger("ai_memory.injection")
+    _injection_logger.addHandler(_capture)
+
     # Retrieve bootstrap context from Qdrant
     results = retrieve_bootstrap_context(search_client, project_name, config)
+
+    _injection_logger.removeHandler(_capture)
+
+    # Compute accurate Qdrant status from per-layer capture
+    if not _capture.failed_layers:
+        _qdrant_status = "available"
+    elif len(_capture.failed_layers) == 4:
+        _qdrant_status = "unreachable (all retrieval calls failed)"
+    else:
+        _n_fail = len(_capture.failed_layers)
+        _qdrant_status = f"degraded ({_n_fail} of 4 layers unreachable)"
 
     # Greedy-fill within token budget
     selected, tokens_used = select_results_greedy(results, config.bootstrap_token_budget)
@@ -114,13 +154,14 @@ try:
     )
 
     # Tier B — sanctum LORE + BOND prepend (filesystem-only per DEC-253-14)
-    try:
-        sanctum_path = Path(os.getcwd()) / "_ai-memory" / "sanctum"
-        tier_b_output = load_sanctum_tier_b(sanctum_path)
-        if tier_b_output:
-            print(tier_b_output)
-    except Exception:
-        pass
+    if load_sanctum_tier_b is not None:
+        try:
+            sanctum_path = Path(os.getcwd()) / "_ai-memory" / "sanctum"
+            tier_b_output = load_sanctum_tier_b(sanctum_path)
+            if tier_b_output:
+                print(tier_b_output)
+        except Exception:
+            pass
 
     # Build output
     print("## Cross-Session Memory (Parzival Bootstrap)\n")
@@ -175,7 +216,7 @@ try:
         print("\n</details>\n")
 
     print("---")
-    print(f"Bootstrap: {len(selected)} results | {tokens_used} tokens | {elapsed_ms}ms | Qdrant: available")
+    print(f"Bootstrap: {len(selected)} results | {tokens_used} tokens | {elapsed_ms}ms | Qdrant: {_qdrant_status}")
 
     # Prometheus metrics (CRITICAL — best-effort, never blocks)
     if push_skill_metrics_async:

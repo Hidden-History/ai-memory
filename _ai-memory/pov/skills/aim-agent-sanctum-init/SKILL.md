@@ -12,7 +12,7 @@ Initialize the sanctum directory structure for an agent. Deterministic scaffoldi
 
 1. Determine target sanctum path: `{project-root}/_ai-memory/sanctum/{agent_id}/`
 
-2. Check idempotency: if sanctum dir already exists and contains CREED.md, exit cleanly without touching anything. "This agent has already been born."
+2. File-level idempotency: each sanctum file is created if missing, preserved if existing. The script never overwrites an existing file in the sanctum.
 
 3. Invoke `scripts/init-sanctum.py {project-root} {skill-path}` where `{skill-path}` is this skill's directory (resolves to `_ai-memory/pov/skills/aim-agent-sanctum-init/`).
 
@@ -20,9 +20,8 @@ Initialize the sanctum directory structure for an agent. Deterministic scaffoldi
    - Reads config from `_ai-memory/core/config.yaml` and `_ai-memory/pov/config.yaml` — supplies `{user_name}`, `{communication_language}`, `{birth_date}`, `{project_root}`, `{sanctum_path}` substitutions
    - Creates sanctum dir + `capabilities/`, `sessions/`, `references/` subdirs
    - Copies templates from `assets/*-template.md` and substitutes variables → writes `{NAME}.md` in sanctum
-   - Skips CREED.md if already present (allows pre-filled Parzival CREED to survive)
+   - Each TEMPLATE_FILES entry is checked individually. Existing files are preserved (file-level idempotency). Missing files are created from template with substitution variables filled.
    - Copies any reference files from `references/` into sanctum
-   - Auto-generates CAPABILITIES.md from reference frontmatter — SKIPS if already exists (allows pre-filled CAPABILITIES)
 
 5. Verify: after script returns 0, confirm sanctum/parzival/CREED.md loads without error.
 
@@ -37,7 +36,7 @@ Initialize the sanctum directory structure for an agent. Deterministic scaffoldi
 
 ## Idempotency
 
-If `sanctum/{agent_id}/CREED.md` exists, the script exits cleanly (exit 0) without modifying any files.
+The script always runs through all TEMPLATE_FILES. Each file is checked individually — existing files are preserved, missing files are created.
 
 ## Integration Points
 
@@ -50,5 +49,5 @@ If `sanctum/{agent_id}/CREED.md` exists, the script exits cleanly (exit 0) witho
 - Qdrant persistence layer for sanctum content (Phase 3 P3-01 open Q3)
 - SubagentStart/SubagentStop hooks to auto-sync sanctum to vector store
 - Agent registry discovery from CREED.md frontmatter
-- Tier upgrades — planned: when dir exists but tier is lower than requested, add missing files without modifying existing ones; currently the script exits on CREED.md-present regardless of tier.
+- Tier upgrades — file-level idempotency means tier upgrade is automatic: rerunning the script with new templates creates any missing files without modifying existing ones.
 - Atomic scaffolding — wrap creation in try/except with partial cleanup on failure; currently all-or-nothing is aspirational.
