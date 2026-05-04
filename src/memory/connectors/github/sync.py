@@ -1060,6 +1060,41 @@ class GitHubSyncEngine:
         except OSError as e:
             logger.error("Failed to save sync state: %s", e)
 
+    def load_code_blob_state(self) -> dict[str, Any]:
+        """Return the code_blobs section from the JSON state file.
+
+        Returns:
+            The ``code_blobs`` sub-dict persisted by ``save_code_blob_state()``,
+            or ``{}`` if not yet written.  Forward-compatible: state files that
+            pre-date BUG-288 simply lack this key and return ``{}``.
+        """
+        state = self._load_state()
+        return state.get("code_blobs", {})
+
+    def save_code_blob_state(
+        self,
+        abandoned_paths: list[str],
+        synced: int,
+        abandoned: int,
+    ) -> None:
+        """Persist the code_blobs reconciliation section to the JSON state file.
+
+        Uses the same POSIX-atomic write as ``_save_state()`` (read-modify-write).
+
+        Args:
+            abandoned_paths: File paths abandoned in this sync cycle.
+            synced: Count of files successfully synced this cycle.
+            abandoned: Count of files abandoned (``len(abandoned_paths)``).
+        """
+        state = self._load_state()
+        state["code_blobs"] = {
+            "abandoned": abandoned_paths,
+            "last_cycle_abandoned_count": abandoned,
+            "last_cycle_synced_count": synced,
+            "last_cycle_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._save_state(state)
+
     @staticmethod
     def _save_type_state(state: dict, type_key: str, count: int) -> None:
         """Update state for a specific document type.

@@ -242,10 +242,17 @@ class HealthResponse(BaseModel):
 
 @app.get("/health", response_model=HealthResponse)
 def health():
-    """Health check endpoint with backward-compatible model field + new models list."""
-    return HealthResponse(
-        status="healthy",
-        model_loaded=all(m is not None for m in MODEL_REGISTRY.values()),
+    """Health check endpoint with backward-compatible model field + new models list.
+
+    BUG-289: Returns HTTP 503 when models are not yet loaded so that Docker
+    Compose ``depends_on: condition: service_healthy`` (``curl -f``) correctly
+    gates dependent services on actual model readiness rather than mere process
+    liveness.
+    """
+    model_loaded = all(m is not None for m in MODEL_REGISTRY.values())
+    response = HealthResponse(
+        status="healthy" if model_loaded else "loading",
+        model_loaded=model_loaded,
         model=MODEL_NAMES["en"],  # KEPT: backward compat for existing monitors
         models=list(MODEL_NAMES.values()),  # NEW: list both models
         dimensions=VECTOR_DIMENSIONS,
@@ -253,6 +260,14 @@ def health():
         sparse_models=list(SPARSE_REGISTRY.keys()),
         late_models=list(LATE_REGISTRY.keys()),
     )
+    if not model_loaded:
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
+            content=response.model_dump(),
+            status_code=503,
+        )
+    return response
 
 
 @app.post("/embed/dense", response_model=EmbedDenseResponse)
