@@ -44,7 +44,7 @@ The script always runs through all TEMPLATE_FILES. Each file is checked individu
 
 - Called automatically by: Parzival activation step 5 when any of the 8 required sanctum files are missing
 - Called by: aim-agent-dispatch when spawning a memory-bearing domain agent
-- Called manually: `/aim-agent-sanctum-init --agent_id parzival` to re-scaffold (will no-op if already initialized)
+- Called manually: `python3 init-sanctum.py <project-root> <skill-path>` to re-scaffold (file-level idempotency: existing sanctum files preserved, missing files created)
 
 ## Future Work (not in Phase 1)
 
