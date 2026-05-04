@@ -2930,7 +2930,10 @@ start_services() {
     log_info "Phase 1/2: Starting core services (qdrant + embedding)..."
     _compose up -d qdrant
     _compose build --no-cache embedding
-    _compose up -d embedding
+    # BUG-289: --no-recreate prevents Compose from restarting an already-running
+    # embedding container mid-install, which would reset model_loaded to False and
+    # cause the github-sync depends_on healthcheck gate to briefly fail.
+    _compose up -d --no-recreate embedding
 
     _log_docker_state "after core startup"
 
