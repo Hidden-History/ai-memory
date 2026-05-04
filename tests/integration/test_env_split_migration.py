@@ -19,6 +19,17 @@ _HELPERS_SH = _SCRIPTS_DIR / "_env_split_helpers.sh"
 _VERIFY_PY = _SCRIPTS_DIR / "verify_env_split.py"
 
 # Canonical PP-2 key lists (split: 6 core + 12 Langfuse per F-r4-4 / Shape 1)
+#
+# Classification note (BUG-286 fix-r2): QDRANT_READ_ONLY_API_KEY is classified differently
+# across subsystems — this is a known inconsistency, not an error:
+#   - PP_2_CORE_KEYS here (and verify_env_split.py): 6 keys including QDRANT_READ_ONLY_API_KEY.
+#     Reason: verify_env_split.py I3 requires it in .env.secrets for install verification.
+#   - _env_split_helpers.sh pp3_keys (and ENV-MANAGEMENT-V2 §3.4): 6 PP-3 keys including
+#     QDRANT_READ_ONLY_API_KEY. Reason: migration-scope classification (user-supplied / optional).
+#
+# Both reach 25-key total: 2 (PP-1) + 18 (PP-2 = 6 core + 12 Langfuse) + 5 (PP-3) = 25.
+# True alignment (PP-2=17, PP-3=6) requires verify_env_split.py update — out of scope for
+# BUG-286 fix-r2 (4-file allowlist). Tracked as follow-up TD.
 PP_2_CORE_KEYS = [
     "QDRANT_API_KEY",
     "QDRANT_READ_ONLY_API_KEY",
@@ -45,7 +56,7 @@ PP_2_LANGFUSE_KEYS = [
 
 PP_2_KEYS = (
     PP_2_CORE_KEYS + PP_2_LANGFUSE_KEYS
-)  # 18 total — for backward-compat with existing tests
+)  # 18 total (test-suite construct; see classification note above)
 
 PP_3_KEYS = [
     "OLLAMA_API_KEY",
@@ -61,7 +72,9 @@ PP_1_KEYS = [
     "JIRA_API_TOKEN",
 ]
 
-# Complete 25-key set for T13-T15: PP_1 (2) + PP_2 (18, backward-compat) + PP_3 (5) = 25
+# Complete 25-key set for T13-T15: PP_1 (2) + PP_2 (18, test-suite construct) + PP_3 (5) = 25
+# Note: total 25 matches _env_split_helpers.sh ALL_SECRET_KEYS (2+17+6=25); counts differ per
+# classification note above. Key coverage is identical — all 25 secret-class keys included.
 ALL_SECRET_KEYS_T = PP_1_KEYS + PP_2_KEYS + PP_3_KEYS
 
 LANGFUSE_NON_SECRET_INIT_KEYS = [
@@ -614,48 +627,32 @@ def test_verify_i8_compose_missing_secrets_entry(tmp_path):
 
 
 def test_t2_orphaned_env_fresh_install(tmp_path):
-    """T2: .env has only non-PP-2 keys (orphaned from manual test) — upgrade probe finds no v2.3.x secrets → no migration triggered."""
+    """T2: .env has only non-secret-class keys and blank placeholders — upgrade probe finds no
+    non-empty secret-class values (25-key check) → no migration triggered."""
     docker_dir = tmp_path / "docker"
     docker_dir.mkdir()
     env_file = docker_dir / ".env"
     secrets_file = docker_dir / ".env.secrets"
 
-    # .env has non-PP-2 keys and blank PP-2 placeholders — no non-empty PP-2 values
+    # .env has non-secret-class keys and blank placeholders — no non-empty values for any of the 25 keys
     _write_env(
         env_file,
         {
             "LANGFUSE_INIT_ORG_ID": "ai-memory-org",
             "LANGFUSE_INIT_USER_EMAIL": "test@example.com",
             "AI_MEMORY_PROJECT_ID": "my-project",
-            **dict.fromkeys(PP_2_KEYS, ""),  # blank placeholders
+            **dict.fromkeys(
+                ALL_SECRET_KEYS_T, ""
+            ),  # blank placeholders for all 25 secret-class keys
         },
     )
 
-    # Run the upgrade-detection probe (mirrors migrate_existing_env_secrets after F8 fix)
-    pp2_alternation = "|".join(
-        [
-            "QDRANT_API_KEY",
-            "GRAFANA_ADMIN_PASSWORD",
-            "GRAFANA_SECRET_KEY",
-            "PROMETHEUS_ADMIN_PASSWORD",
-            "PROMETHEUS_BASIC_AUTH_HEADER",
-            "LANGFUSE_DB_PASSWORD",
-            "LANGFUSE_CLICKHOUSE_PASSWORD",
-            "LANGFUSE_NEXTAUTH_SECRET",
-            "LANGFUSE_SALT",
-            "LANGFUSE_ENCRYPTION_KEY",
-            "LANGFUSE_S3_ACCESS_KEY",
-            "LANGFUSE_S3_SECRET_KEY",
-            "LANGFUSE_PUBLIC_KEY",
-            "LANGFUSE_SECRET_KEY",
-            "LANGFUSE_INIT_PROJECT_PUBLIC_KEY",
-            "LANGFUSE_INIT_PROJECT_SECRET_KEY",
-            "LANGFUSE_INIT_USER_PASSWORD",
-        ]
-    )
+    # Run the upgrade-detection probe (mirrors migrate_existing_env_secrets after BUG-286 fix-r2).
+    # Built from ALL_SECRET_KEYS_T so this test stays in sync with production automatically.
+    detection_alternation = "|".join(ALL_SECRET_KEYS_T)
     script = f"""
 set -uo pipefail
-if grep -qE "^({pp2_alternation})=.+" {env_file} 2>/dev/null; then
+if grep -qE "^({detection_alternation})=.+" {env_file} 2>/dev/null; then
     echo "MIGRATION_NEEDED"
 else
     echo "FRESH_INSTALL"
@@ -665,7 +662,7 @@ fi
     assert result.returncode == 0, f"Probe script failed: {result.stderr}"
     assert (
         "FRESH_INSTALL" in result.stdout
-    ), f"Expected probe to detect fresh install (no non-empty PP-2 keys); got: {result.stdout!r}"
+    ), f"Expected probe to detect fresh install (no non-empty secret-class keys); got: {result.stdout!r}"
     # .env.secrets must not have been created by migration
     assert (
         not secrets_file.exists()
@@ -919,10 +916,16 @@ def test_i3_langfuse_enabled_all_keys_passes(tmp_path):
 
 
 def test_t13_migrate_pp1_from_env_when_secrets_already_has_value(tmp_path):
-    """T13: Reinstall #5 scenario — docker/.env has GITHUB_TOKEN from historical write path
-    (TD-198 backup+restore preserved it). docker/.env.secrets already has a (newer) token
-    from persist_user_choices_to_env. Migration must blank .env GITHUB_TOKEN without
-    overwriting the existing .env.secrets value. .env.secrets perms 600 preserved."""
+    """T13: Migration logic test for the reinstall #5 leak pattern. Simulates the post-TD-198
+    state: .env has an old PP-1 token (from a historical write path that TD-198 backup+restore
+    preserved across reinstalls), .env.secrets already has a newer token from
+    persist_user_choices_to_env. Migration must blank .env GITHUB_TOKEN without overwriting
+    the existing .env.secrets value. .env.secrets perms 600 preserved.
+
+    Scope: this test exercises migrate_secrets_to_split_file directly via subprocess (using
+    _migrate_via_bash helper), NOT the full TD-198 backup+restore + install flow. The migration
+    idempotency invariant is verified here; the full install flow is not covered in this file.
+    """
     docker_dir = tmp_path / "docker"
     docker_dir.mkdir()
     env_file = docker_dir / ".env"

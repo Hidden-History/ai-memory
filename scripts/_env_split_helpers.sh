@@ -13,8 +13,7 @@ _H_NC="${NC:-\033[0m}"
 
 # ALL_SECRET_KEYS — canonical 25-key list for split enforcement (BUG-286).
 # Single source of truth: adding a new secret-class key requires updating only here.
-# Sourced by install.sh; referenced by migrate_secrets_to_split_file and
-# any future blanking / import-filter logic.
+# Consumed by migrate_secrets_to_split_file() and migrate_existing_env_secrets (via install.sh).
 ALL_SECRET_KEYS=(
     # PP-1: user-input secrets (2)
     GITHUB_TOKEN
@@ -189,43 +188,22 @@ write_secret_to_secrets_file() {
     _h_log_success "Wrote ${key} → $(basename "$secrets_file")"
 }
 
-# migrate_secrets_to_split_file — wrapper: migrate all 25 secret-class keys (PP-1 + PP-2 + PP-3).
-# PP-1 keys (GITHUB_TOKEN, JIRA_API_TOKEN) are now included as defense-in-depth (BUG-286):
-# migrate_secret_to_secrets_file step 2 handles the case where .env.secrets already has the
-# value (idempotent blank-in-.env), so including PP-1 is always safe.
+# migrate_secrets_to_split_file — wrapper: migrate all secret-class keys (PP-1 + PP-2 + PP-3).
+# Iterates ALL_SECRET_KEYS (BUG-286 fix-r2: true SSoT consumption — no local duplicate arrays).
+# PP-1 keys included as defense-in-depth: migrate_secret_to_secrets_file step 2 handles
+# the case where .env.secrets already has the value (idempotent blank-in-.env).
 # Called ONLY on Option 1 in-place upgrade (existing docker/.env with non-blank secret keys).
 # Halts on first failure so partial-migration state is visible to the user.
 migrate_secrets_to_split_file() {
     local env_file="$1"
     local secrets_file="$2"
 
-    local pp1_keys=(
-        GITHUB_TOKEN
-        JIRA_API_TOKEN
-    )
-    local pp2_keys=(
-        QDRANT_API_KEY
-        GRAFANA_ADMIN_PASSWORD GRAFANA_SECRET_KEY
-        PROMETHEUS_ADMIN_PASSWORD PROMETHEUS_BASIC_AUTH_HEADER
-        LANGFUSE_DB_PASSWORD LANGFUSE_CLICKHOUSE_PASSWORD
-        LANGFUSE_NEXTAUTH_SECRET LANGFUSE_SALT LANGFUSE_ENCRYPTION_KEY
-        LANGFUSE_S3_ACCESS_KEY LANGFUSE_S3_SECRET_KEY
-        LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY
-        LANGFUSE_INIT_PROJECT_PUBLIC_KEY LANGFUSE_INIT_PROJECT_SECRET_KEY
-        LANGFUSE_INIT_USER_PASSWORD
-    )
-    local pp3_keys=(
-        QDRANT_READ_ONLY_API_KEY
-        OLLAMA_API_KEY OPENROUTER_API_KEY ANTHROPIC_API_KEY
-        OPENAI_API_KEY EVALUATOR_API_KEY
-    )
-
     _h_log_info "Migrating secret-class keys from .env to .env.secrets..."
-    for key in "${pp1_keys[@]}" "${pp2_keys[@]}" "${pp3_keys[@]}"; do
+    for key in "${ALL_SECRET_KEYS[@]}"; do
         migrate_secret_to_secrets_file "$key" "$env_file" "$secrets_file" || {
             _h_log_error "Migration halted on ${key} — re-run installer after investigating"
             return 1
         }
     done
-    _h_log_success "Migration complete (25 keys checked across PP-1/PP-2/PP-3 — all secret-class keys enforced)"
+    _h_log_success "Migration complete (${#ALL_SECRET_KEYS[@]} keys checked across PP-1/PP-2/PP-3 — all secret-class keys enforced)"
 }

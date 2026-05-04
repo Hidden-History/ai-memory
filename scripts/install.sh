@@ -2442,11 +2442,11 @@ migrate_existing_env_secrets() {
     [[ ! -f "$env_file" ]] && return 0
 
     # Upgrade detection: any secret-class key non-blank in .env means migration needed.
-    # PP-1 keys added (BUG-286): GITHUB_TOKEN/JIRA_API_TOKEN in .env are also a migration trigger.
-    # Uses ERE alternation (macOS + Linux compatible). QDRANT_READ_ONLY_API_KEY excluded —
-    # new in v2.4.0 (R2.7), not a pre-existing v2.3.x key to probe for.
-    if ! grep -qE "^(GITHUB_TOKEN|JIRA_API_TOKEN|QDRANT_API_KEY|GRAFANA_ADMIN_PASSWORD|GRAFANA_SECRET_KEY|PROMETHEUS_ADMIN_PASSWORD|PROMETHEUS_BASIC_AUTH_HEADER|LANGFUSE_DB_PASSWORD|LANGFUSE_CLICKHOUSE_PASSWORD|LANGFUSE_NEXTAUTH_SECRET|LANGFUSE_SALT|LANGFUSE_ENCRYPTION_KEY|LANGFUSE_S3_ACCESS_KEY|LANGFUSE_S3_SECRET_KEY|LANGFUSE_PUBLIC_KEY|LANGFUSE_SECRET_KEY|LANGFUSE_INIT_PROJECT_PUBLIC_KEY|LANGFUSE_INIT_PROJECT_SECRET_KEY|LANGFUSE_INIT_USER_PASSWORD)=.+" \
-        "$env_file" 2>/dev/null; then
+    # Detection pattern built from ALL_SECRET_KEYS (BUG-286 fix-r2: true SSoT — no hardcoded list).
+    # Includes all 25 keys (PP-1/PP-2/PP-3); probe fires on any non-empty secret-class value.
+    local detection_pattern
+    detection_pattern=$(IFS='|'; echo "${ALL_SECRET_KEYS[*]}")
+    if ! grep -qE "^(${detection_pattern})=.+" "$env_file" 2>/dev/null; then
         return 0
     fi
 
