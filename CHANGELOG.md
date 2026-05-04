@@ -132,16 +132,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `test_compose_qdrant_wiring.py` with `_find_repo_root()` helper and prefix-match
   assertions (Sonnet F-1 + Opus M1 + Opus L4 + Opus L7); CI env injection for
   `QDRANT_READ_ONLY_API_KEY` + `QDRANT__SERVICE__READ_ONLY_API_KEY` in
-  `integration-tests` job so `test_qdrant_read_only_key_accepted_by_container` no
-  longer permanently skips in CI (Sonnet F-2); write-rejection probe (PUT → 403) added
+  `integration-tests` job (Sonnet F-2); write-rejection probe (PUT → 403) added
   per bug-doc verification step 4 with try/finally best-effort cleanup (Sonnet F-3 +
   Opus M2); Python consumer probe via `get_qdrant_client(read_only=True)` added as
   `test_qdrant_read_only_key_python_consumer` (Opus M3); CHANGELOG claim updated to
   reflect unit-tier test relocation (Sonnet F-4); URL fallback aligned to
-  `localhost:26350`, exception catch broadened to `httpx.RequestError` (Opus L6 + Opus
-  L5); fix-r2 commit subjects ≤72 chars (Sonnet F-5). See
-  `oversight/reports/bug287-review-sonnet.md`,
-  `oversight/reports/bug287-review-opus.md`.
+  `localhost:26350` (Opus L6); exception catch broadened to `httpx.RequestError`
+  (Sonnet F-7); compose BUG-184 caveat enumerates both `QDRANT_API_KEY` and
+  `QDRANT_READ_ONLY_API_KEY` (Opus L5); CHANGELOG BUG-287 entry repositioned after
+  BUG-283/284/285 to restore ascending order (Sonnet F-6); fix-r2 commit subjects
+  ≤72 chars (Sonnet F-5). **Known limitation (TD-494)**: integration-tests CI job
+  still skips `test_qdrant_read_only_key_accepted_by_container` and the new Python
+  consumer probe due to a pre-existing `tests/conftest.py:integration_test_env`
+  autouse fixture that unconditionally pins `QDRANT_URL=http://localhost:26350`,
+  overriding the workflow step env; CI Qdrant binds host port 6333, so
+  `_qdrant_reachable()` returns False and the live probes still skip in CI.
+  Pre-existing wider issue affecting all `tests/integration/*` modules; surfaced
+  by Opus cycle-2 review NEW-1; tracked for v2.4.1+ via TD-494. Production
+  behavior of the read-only API key wiring is fully validated empirically
+  (PM #276 reinstall #6 in-container env shows both keys; live verification
+  passed before push of `82e4fcb`). See `oversight/reports/bug287-review-sonnet.md`,
+  `oversight/reports/bug287-review-opus.md`,
+  `oversight/reports/bug287-review-r2-sonnet.md`,
+  `oversight/reports/bug287-review-r2-opus.md`.
 
 ### Removed
 - **`aim-bmad-dispatch/` skill**: The BMAD-specific dispatch skill is removed — `aim-agent-dispatch/` now handles both BMAD and generic agents via a unified routing path. All references to `/aim-bmad-dispatch` in prior orchestration pipeline documentation are superseded by `/aim-agent-dispatch`.
