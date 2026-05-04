@@ -486,6 +486,10 @@ def _make_sync_instance():
     from memory.classifier.circuit_breaker import CircuitBreaker
 
     sync._circuit_breaker = CircuitBreaker(failure_threshold=5, reset_timeout=60)
+
+    # BUG-288: pre-sync embedding probe — mock out so tests don't wait for timeout
+    sync._wait_for_embedding_ready = AsyncMock(return_value=True)
+
     return sync
 
 
