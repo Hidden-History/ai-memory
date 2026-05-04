@@ -113,6 +113,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   during PM #274 P4-08 verification when a customized
   `GITHUB_CODE_BLOB_INCLUDE=*.yaml,*.toml,Makefile,Dockerfile` was lost
   across reinstall.
+- **Compose (BUG-287 fix)**: wire `QDRANT__SERVICE__READ_ONLY_API_KEY` into the
+  Qdrant container `environment:` block, completing the TD-333 read-only auth
+  surface. The producer side (`install.sh` R2.7 key generation + `.env.secrets`
+  write site via `configure_environment`) and consumer side
+  (`MemoryConfig.qdrant_read_only_api_key` field + `get_qdrant_client(read_only=True)`
+  key-swap branch) were fully implemented; the server-side compose wiring was the
+  only missing piece. Without this line, Qdrant rejects the read-only key with
+  HTTP 401 — the generated 32-byte secret-class key was wasted. Adds regression
+  test `test_qdrant_read_only_wiring.py` (pure YAML-parse, CI-runnable without
+  Docker; integration live-container probe gated by `@pytest.mark.integration`). See
+  `oversight/bugs/BUG-287-qdrant-read-only-api-key-not-wired-in-compose.md`.
 - **Sanctum architecture redesign (BUG-283 + BUG-284 + BUG-285)**: testV2 lead-dev verification surfaced a contradiction in the prior PM #255 partial-fill sanctum delivery model: source shipped pre-filled `CREED.md` while `init-sanctum.py` `TEMPLATE_FILES` excluded `CREED-template.md`, and directory-level idempotency at `init-sanctum.py:215-218` exited clean if `CREED.md` existed — net result, fresh installs got CREED + 3 empty subdirs only, with Tier B (LORE/BOND) never created. Plus the templates contained literal `{}` placeholders (e.g., `{agent-title}`, `{vibe-prompt}`, `{bond-domain-sections}`) that survived as raw text in scaffolded output because `substitute_vars` only fills 6 specific keys. PLAN-027 redesign: empty-ship sanctum + `TEMPLATE_FILES` extended to 8 (adds CREED, CAPABILITIES, PULSE) + file-level idempotency in 3 write sites (`copy_references`, `copy_scripts`, TEMPLATE_FILES loop) + `CREED-template.md` becomes the authored Parzival philosophy (relocated from prior shipped `CREED.md`) + 5 other templates rewritten as universal scaffolds with substitution-key-only placeholders (no leak-prone `{X}` literals) + new conversational First Breath workflow (3 steps: meet owner → learn project → confirm and begin). Bootstrap fixes (BUG-283): `_bootstrap_skill_dir` path corrected to include `_ai-memory/` segment; `sanctum_tier_b` import wrapped for graceful degrade. Status-line accuracy (BUG-285): per-layer Qdrant status capture via `logging.Handler` subclass distinguishes "available", "degraded (N of 4 layers unreachable)", "unreachable (all retrieval calls failed)" instead of hardcoded "available" that masked Connection refused errors. Activation step 5 detect-and-repair: invokes `/aim-agent-sanctum-init` if any of 8 required sanctum files missing; invokes First Breath workflow if BOND has scaffold markers. 4 regression tests (T1-T4) verify no `{}` placeholder leakage / idempotency / partial-sanctum recovery / customization preservation. See `oversight/bugs/BUG-283-bootstrap-path-and-sanctum-tier-b-import.md`, `oversight/bugs/BUG-284-sanctum-init-contradicts-shipped-creed.md`, `oversight/bugs/BUG-285-bootstrap-status-line-masks-qdrant-unreachable.md`.
 
 ### Removed

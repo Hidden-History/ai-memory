@@ -47,6 +47,9 @@ services:
       # API Key Authentication (BP-040) - Requires TLS for production
       # For localhost-only development, API key provides basic access control
       - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY}
+      # BUG-287: Wire read-only API key to Qdrant container so TD-333
+      # `get_qdrant_client(read_only=True)` callers work end-to-end.
+      - QDRANT__SERVICE__READ_ONLY_API_KEY=${QDRANT_READ_ONLY_API_KEY}
     restart: unless-stopped
     # TD-341: HTTP readiness check via /readyz (BP-145). Auth-whitelisted since Qdrant v1.5.0.
     healthcheck:
