@@ -55,6 +55,15 @@ PP_3_KEYS = [
     "EVALUATOR_API_KEY",
 ]
 
+# PP-1: user-input secrets — GITHUB_TOKEN + JIRA_API_TOKEN (BUG-286 fix scope)
+PP_1_KEYS = [
+    "GITHUB_TOKEN",
+    "JIRA_API_TOKEN",
+]
+
+# Complete 25-key set for T13-T15: PP_1 (2) + PP_2 (18, backward-compat) + PP_3 (5) = 25
+ALL_SECRET_KEYS_T = PP_1_KEYS + PP_2_KEYS + PP_3_KEYS
+
 LANGFUSE_NON_SECRET_INIT_KEYS = [
     "LANGFUSE_INIT_ORG_ID",
     "LANGFUSE_INIT_ORG_NAME",
@@ -900,3 +909,124 @@ def test_i3_langfuse_enabled_all_keys_passes(tmp_path):
     assert (
         result.returncode == 0
     ), f"Expected exit 0 (LANGFUSE_ENABLED=true, all keys present); stderr:\n{result.stderr}"
+
+
+# ---------------------------------------------------------------------------
+# T13 — PP-1 leak via TD-198 restore: existing .env has GITHUB_TOKEN from
+#        historical write; .env.secrets already has newer token (reinstall #5 scenario).
+#        Migration must blank .env, leaving .env.secrets unchanged.
+# ---------------------------------------------------------------------------
+
+
+def test_t13_migrate_pp1_from_env_when_secrets_already_has_value(tmp_path):
+    """T13: Reinstall #5 scenario — docker/.env has GITHUB_TOKEN from historical write path
+    (TD-198 backup+restore preserved it). docker/.env.secrets already has a (newer) token
+    from persist_user_choices_to_env. Migration must blank .env GITHUB_TOKEN without
+    overwriting the existing .env.secrets value. .env.secrets perms 600 preserved."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    env_file = docker_dir / ".env"
+    secrets_file = docker_dir / ".env.secrets"
+
+    # Arrange: .env has old PP-1 token (historical write leak); .env.secrets has newer token
+    _write_env(env_file, {"GITHUB_TOKEN": "ghp_old_leaked_value"})
+    _write_env(secrets_file, {"GITHUB_TOKEN": "ghp_newer_correct_value"})
+    secrets_file.chmod(0o600)
+
+    # Act: migration (simulate migrate_existing_env_secrets with PP-1 now in scope)
+    result = _migrate_via_bash(env_file, secrets_file)
+    assert result.returncode == 0, f"Migration failed: {result.stderr}"
+
+    env_after = _read_env(env_file)
+    secrets_after = _read_env(secrets_file)
+
+    # .env GITHUB_TOKEN must be blank (old leaked value removed)
+    assert not env_after.get(
+        "GITHUB_TOKEN"
+    ), f"GITHUB_TOKEN still non-empty in .env: {env_after.get('GITHUB_TOKEN')!r}"
+    # .env.secrets GITHUB_TOKEN must retain the newer value (not overwritten by migration)
+    assert (
+        secrets_after.get("GITHUB_TOKEN") == "ghp_newer_correct_value"
+    ), f".env.secrets GITHUB_TOKEN changed unexpectedly: {secrets_after.get('GITHUB_TOKEN')!r}"
+    # .env.secrets perms 600 must be preserved
+    mode = secrets_file.stat().st_mode & 0o777
+    assert mode == 0o600, f".env.secrets mode is {oct(mode)}, expected 0o600"
+
+
+# ---------------------------------------------------------------------------
+# T14 — All 25 secret-class keys present in .env → migration moves all to
+#        .env.secrets; .env has no non-empty secret-class values after.
+# ---------------------------------------------------------------------------
+
+
+def test_t14_all_25_secret_class_keys_filtered_from_env(tmp_path):
+    """T14: source .env has all 25 secret-class keys populated → migration → installed .env
+    has none with non-blank values; installed .env.secrets has all 25 with values."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    env_file = docker_dir / ".env"
+    secrets_file = docker_dir / ".env.secrets"
+
+    # Arrange: all 25 keys in .env with distinct test values
+    env_pairs = {k: f"testvalue_{k}" for k in ALL_SECRET_KEYS_T}
+    _write_env(env_file, env_pairs)
+
+    # Act
+    result = _migrate_via_bash(env_file, secrets_file)
+    assert result.returncode == 0, f"Migration failed: {result.stderr}"
+
+    env_after = _read_env(env_file)
+    secrets_after = _read_env(secrets_file)
+
+    for key in ALL_SECRET_KEYS_T:
+        assert not env_after.get(
+            key
+        ), f"{key} still non-empty in .env after migration: {env_after.get(key)!r}"
+        assert (
+            secrets_after.get(key) == f"testvalue_{key}"
+        ), f"{key} missing or wrong in .env.secrets: {secrets_after.get(key)!r}"
+
+
+# ---------------------------------------------------------------------------
+# T15 — Idempotency: post-fix state (all 25 in .env.secrets, .env blank) →
+#        re-run migration → .env.secrets unchanged, .env stays blank.
+# ---------------------------------------------------------------------------
+
+
+def test_t15_idempotent_after_fix(tmp_path):
+    """T15: run migration twice → second run produces no change; .env.secrets values
+    unchanged (no overwrite); .env remains blank for all 25 secret-class keys."""
+    import hashlib
+
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    env_file = docker_dir / ".env"
+    secrets_file = docker_dir / ".env.secrets"
+
+    # Arrange: correct post-install state — all 25 in .env.secrets, .env has blanks
+    secrets_pairs = {k: f"run1_{k}" for k in ALL_SECRET_KEYS_T}
+    _write_env(secrets_file, secrets_pairs)
+    secrets_file.chmod(0o600)
+    env_pairs = dict.fromkeys(ALL_SECRET_KEYS_T, "")
+    _write_env(env_file, env_pairs)
+
+    # Capture .env.secrets state before second run
+    sha_before = hashlib.sha256(secrets_file.read_bytes()).hexdigest()
+
+    # Act: second migration run (idempotency)
+    result = _migrate_via_bash(env_file, secrets_file)
+    assert result.returncode == 0, f"Second migration run failed: {result.stderr}"
+
+    sha_after = hashlib.sha256(secrets_file.read_bytes()).hexdigest()
+
+    # .env.secrets content must be identical — no values overwritten
+    assert (
+        sha_after == sha_before
+    ), ".env.secrets content changed on idempotent re-run — existing values must not be overwritten"
+
+    # .env must still have blank values for all 25 keys
+    env_after = _read_env(env_file)
+    for key in ALL_SECRET_KEYS_T:
+        assert not env_after.get(
+            key
+        ), f"{key} non-empty in .env after idempotent migration: {env_after.get(key)!r}"

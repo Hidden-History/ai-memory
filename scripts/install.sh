@@ -765,17 +765,15 @@ else:
                             else
                                 log_warning "New shared token returned HTTP $test_code — updating anyway"
                             fi
-                            # Update docker/.env with new shared token
+                            # Update docker/.env.secrets with new shared token (BUG-286: PP-1
+                            # secrets belong in .env.secrets, not docker/.env).
                             local env_file="$INSTALL_DIR/docker/.env"
-                            if [[ -f "$env_file" ]]; then
-                                # BSD-safe sed: replace the GITHUB_TOKEN line
-                                local tmp_env="${env_file}.tmp"
-                                grep -v '^GITHUB_TOKEN=' "$env_file" > "$tmp_env" || true
-                                echo "GITHUB_TOKEN=\"${new_shared_token}\"" >> "$tmp_env"
-                                mv "$tmp_env" "$env_file"
-                                chmod 600 "$env_file" 2>/dev/null || true
-                                log_success "Updated shared GITHUB_TOKEN in ${env_file}"
-                            fi
+                            local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+                            ensure_secrets_file_exists "$secrets_file"
+                            set_env_value "GITHUB_TOKEN" "$(_sed_escape "$new_shared_token")" "$secrets_file"
+                            # Blank GITHUB_TOKEN in .env if it has a value (defense-in-depth, BUG-286)
+                            _blank_key_in_env "GITHUB_TOKEN" "$env_file"
+                            log_success "Updated shared GITHUB_TOKEN in $(basename "$secrets_file")"
                             GITHUB_TOKEN="$new_shared_token"
                         else
                             log_warning "Empty token — keeping existing shared token"
@@ -2417,17 +2415,25 @@ persist_user_choices_to_env() {
     if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" && -n "${GITHUB_TOKEN:-}" ]]; then
         set_env_value "GITHUB_TOKEN" "$(_sed_escape "$GITHUB_TOKEN")" "$secrets_file"
     fi
+    # BUG-286: Defensive blank — ensure GITHUB_TOKEN has no non-empty value in .env regardless
+    # of how it got there (historical write path, recovery menu pre-fix, etc.). Idempotent.
+    _blank_key_in_env "GITHUB_TOKEN" "$env_file"
+
     if [[ "${JIRA_SYNC_ENABLED:-}" == "true" && -n "${JIRA_API_TOKEN:-}" ]]; then
         set_env_value "JIRA_API_TOKEN" "$(_sed_escape "$JIRA_API_TOKEN")" "$secrets_file"
     fi
+    # BUG-286: Defensive blank — ensure JIRA_API_TOKEN has no non-empty value in .env.
+    _blank_key_in_env "JIRA_API_TOKEN" "$env_file"
 
     chmod 600 "$secrets_file" 2>/dev/null || true
     log_debug "BUG-274: persisted user choices to docker/.env and docker/.env.secrets"
 }
 
 # migrate_existing_env_secrets — R3: v2.3.x in-place upgrade migration.
-# Detects existing docker/.env with non-blank PP-2 keys (QDRANT_API_KEY) and migrates
-# all 23 applicable keys to docker/.env.secrets via migrate_secrets_to_split_file().
+# Detects existing docker/.env with non-blank secret-class keys and migrates
+# all 25 applicable keys to docker/.env.secrets via migrate_secrets_to_split_file().
+# PP-1 keys (GITHUB_TOKEN, JIRA_API_TOKEN) now included in detection + migration scope
+# as defense-in-depth (BUG-286): any historical .env write of PP-1 is cleaned up atomically.
 # Idempotent: fresh install (.env has blank placeholders) → probe empty → no-op.
 migrate_existing_env_secrets() {
     local env_file="$INSTALL_DIR/docker/.env"
@@ -2435,15 +2441,16 @@ migrate_existing_env_secrets() {
 
     [[ ! -f "$env_file" ]] && return 0
 
-    # Upgrade detection: any original PP-2 key non-blank in .env means v2.3.x secrets present.
+    # Upgrade detection: any secret-class key non-blank in .env means migration needed.
+    # PP-1 keys added (BUG-286): GITHUB_TOKEN/JIRA_API_TOKEN in .env are also a migration trigger.
     # Uses ERE alternation (macOS + Linux compatible). QDRANT_READ_ONLY_API_KEY excluded —
     # new in v2.4.0 (R2.7), not a pre-existing v2.3.x key to probe for.
-    if ! grep -qE "^(QDRANT_API_KEY|GRAFANA_ADMIN_PASSWORD|GRAFANA_SECRET_KEY|PROMETHEUS_ADMIN_PASSWORD|PROMETHEUS_BASIC_AUTH_HEADER|LANGFUSE_DB_PASSWORD|LANGFUSE_CLICKHOUSE_PASSWORD|LANGFUSE_NEXTAUTH_SECRET|LANGFUSE_SALT|LANGFUSE_ENCRYPTION_KEY|LANGFUSE_S3_ACCESS_KEY|LANGFUSE_S3_SECRET_KEY|LANGFUSE_PUBLIC_KEY|LANGFUSE_SECRET_KEY|LANGFUSE_INIT_PROJECT_PUBLIC_KEY|LANGFUSE_INIT_PROJECT_SECRET_KEY|LANGFUSE_INIT_USER_PASSWORD)=.+" \
+    if ! grep -qE "^(GITHUB_TOKEN|JIRA_API_TOKEN|QDRANT_API_KEY|GRAFANA_ADMIN_PASSWORD|GRAFANA_SECRET_KEY|PROMETHEUS_ADMIN_PASSWORD|PROMETHEUS_BASIC_AUTH_HEADER|LANGFUSE_DB_PASSWORD|LANGFUSE_CLICKHOUSE_PASSWORD|LANGFUSE_NEXTAUTH_SECRET|LANGFUSE_SALT|LANGFUSE_ENCRYPTION_KEY|LANGFUSE_S3_ACCESS_KEY|LANGFUSE_S3_SECRET_KEY|LANGFUSE_PUBLIC_KEY|LANGFUSE_SECRET_KEY|LANGFUSE_INIT_PROJECT_PUBLIC_KEY|LANGFUSE_INIT_PROJECT_SECRET_KEY|LANGFUSE_INIT_USER_PASSWORD)=.+" \
         "$env_file" 2>/dev/null; then
         return 0
     fi
 
-    log_info "Detected v2.3.x secrets in docker/.env — migrating to docker/.env.secrets..."
+    log_info "Detected secret-class keys in docker/.env — migrating all 25 keys to docker/.env.secrets..."
     ensure_secrets_file_exists "$secrets_file"
     migrate_secrets_to_split_file "$env_file" "$secrets_file" || {
         log_error "Secrets migration failed — halting install. Re-run after investigating."
@@ -2501,7 +2508,7 @@ configure_environment() {
             echo "JIRA_SYNC_ENABLED=$JIRA_SYNC_ENABLED" >> "$docker_env"
             echo "JIRA_INSTANCE_URL=$JIRA_INSTANCE_URL" >> "$docker_env"
             echo "JIRA_EMAIL=$JIRA_EMAIL" >> "$docker_env"
-            echo "JIRA_API_TOKEN=$JIRA_API_TOKEN" >> "$docker_env"
+            echo "JIRA_API_TOKEN=" >> "$docker_env"  # BUG-286: PP-1 secret written to .env.secrets by persist_user_choices_to_env
             echo "JIRA_PROJECTS='$(format_jira_projects_json "${JIRA_PROJECTS:-}")'" >> "$docker_env"
             echo "JIRA_SYNC_DELAY_MS=100" >> "$docker_env"
             log_debug "Added Jira configuration to .env"
@@ -2519,7 +2526,7 @@ configure_environment() {
             echo "" >> "$docker_env"
             echo "# GitHub Integration (added by installer)" >> "$docker_env"
             echo "GITHUB_SYNC_ENABLED=$GITHUB_SYNC_ENABLED" >> "$docker_env"
-            echo "GITHUB_TOKEN=$GITHUB_TOKEN" >> "$docker_env"
+            echo "GITHUB_TOKEN=" >> "$docker_env"  # BUG-286: PP-1 secret written to .env.secrets by persist_user_choices_to_env
             echo "GITHUB_REPO=$GITHUB_REPO" >> "$docker_env"
             echo "GITHUB_SYNC_INTERVAL=${GITHUB_SYNC_INTERVAL:-1800}" >> "$docker_env"
             echo "GITHUB_BRANCH=${GITHUB_BRANCH:-main}" >> "$docker_env"
