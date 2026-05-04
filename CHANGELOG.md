@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`EMBEDDING_READ_TIMEOUT_CODE` env var** (BUG-288): new per-request read
+  timeout override for code-model embedding calls (default 30s). The client-level
+  `EMBEDDING_READ_TIMEOUT` (default 15s) is designed for fast en-model requests;
+  code-model requests under CPU load regularly approach 20-30s, causing
+  per-file timeout false positives. The code-model override is applied inline in
+  `EmbeddingClient._embed_once()` when `model="code"` without affecting en-model
+  or sparse/late calls. Documented in `docker/.env.example`.
+- **Prometheus metrics for sync abandonment** (BUG-288):
+  `github_code_sync_abandoned_files_total` (Counter) tracks files abandoned per
+  sync cycle due to total-timeout or circuit-breaker;
+  `github_code_sync_completion_ratio` (Gauge, 0.0-1.0) reports the ratio of
+  eligible files successfully synced. Both pushed to Pushgateway with the
+  existing `grouping_key={"instance": repo_slug}` scope. Enables alerting on
+  recurring partial-sync cycles.
+- **`GitHubSyncEngine.load_code_blob_state()` / `save_code_blob_state()`**
+  (BUG-288): two new methods on `GitHubSyncEngine` that read and write the
+  `code_blobs` sub-key of `github_sync_state_*.json` via the existing
+  POSIX-atomic `_load_state()` / `_save_state()` mechanism. Forward-compatible:
+  state files that pre-date BUG-288 simply lack the key and return `{}`.
+- **`CodeSyncResult.abandoned_paths`** (BUG-288): new list field on
+  `CodeSyncResult` accumulating paths of all files cut off by total-timeout or
+  circuit-breaker in a given sync cycle. Populated from two sources: tasks
+  cancelled mid-flight by `_cancel_pending()` and entries that were never
+  dispatched before the index was clamped to `total_eligible`.
 - **Parzival sanctum identity layer**: Introduces per-instance Parzival identity storage under `_ai-memory/sanctum/parzival/`. Source ships an EMPTY sanctum directory; `aim-agent-sanctum-init` scaffolds all 8 standard files from universal templates at First Breath: Tier A `CREED.md` + `PERSONA.md` (philosophical anchor + identity, loaded at activation); Tier B `LORE.md` + `BOND.md` + `MEMORY.md` (project knowledge + owner relationship + working memory, loaded at session-start); Tier C `CAPABILITIES.md` + `INDEX.md` + `PULSE.md` (workflows + sanctum map + autonomous heartbeat scaffold, loaded on-demand via Read tool when referenced). New conversational First Breath workflow (`pov/workflows/first-breath/`) fills BOND with owner specifics + LORE with project specifics on first activation. File-level idempotency hard rule: re-running scaffolding NEVER overwrites an existing sanctum file — owner customizations survive every reinstall. Filesystem-only — no Qdrant storage for sanctum files. AI Memory is a multi-user system; universal templates ensure every install starts from the same authored Parzival baseline and grows its own identity through use.
 - **Tier B sanctum wiring into `aim-parzival-bootstrap`**: New `sanctum_tier_b.py` sibling module (Option P pattern) reads `LORE.md` + `BOND.md` and prepends their content under `## Sanctum — LORE` / `## Sanctum — BOND` headers before the existing L1-L4 cross-session Qdrant retrieval output. Graceful degradation: missing/empty files skip silently (valid pre-First-Breath state). 6 pytest unit tests covering both-present, only-LORE, only-BOND, neither, empty-file, and OSError paths.
 - **Pre-spawn model-catalog validation gate**: `aim-model-dispatch` step-02 now validates the requested model ID against the per-provider model catalog (`models-claude.md`, etc.) before attempting to spawn. Prevents reviewer dispatches from silently downgrading when a requested model is missing from the per-provider catalog.
@@ -25,6 +49,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`tests/test_install_sanctum_preservation.py` (31 tests)**: Covers the Python helper directly + bash-subprocess integration tests for `deploy_parzival_v2()`. Includes `test_creed_merge_failure_falls_back_to_backup` regression test that exercises the failure path: when the merge helper exits non-zero, install logs an error and `cp`-restores the backup CREED.md verbatim, preserving per-instance frontmatter rather than letting the fresh template body wipe user state.
 
 ### Changed
+- **`EmbeddingClient._embed_once()` per-request code-model timeout** (BUG-288):
+  when `model="code"`, `_embed_once()` now passes an explicit
+  `httpx.Timeout(read=EMBEDDING_READ_TIMEOUT_CODE)` on the individual `.post()`
+  call, overriding the client-level `EMBEDDING_READ_TIMEOUT` for that request
+  only. En-model and sparse/late calls are unaffected. Tunable via new
+  `EMBEDDING_READ_TIMEOUT_CODE` env var (default 30s; configurable in
+  `docker/.env`).
+- **`sync_code_blobs()` signature** (BUG-288): new optional `code_blob_state`
+  parameter (default `None`) carries the prior cycle's abandon-set dict.
+  Callers that do not pass the parameter receive identical behaviour to the
+  prior release (no prior abandoned files → no reconciliation pre-sort).
+- **Total-timeout log level in `sync_code_blobs()`** (BUG-288): two
+  `logger.warning` calls that fire when the 1800s total timeout is reached
+  upgraded to `logger.error`. Silent WARNING was the reason large-repo
+  abandonment went unnoticed in production (WARNING filtered in standard
+  configs).
+- **`GITHUB_SYNC_TOTAL_TIMEOUT` comment in `docker/.env.example`**: updated
+  to note that files exceeding the timeout are recorded and prioritized on
+  the next cycle (reconciliation), replacing the misleading "max 7d" guidance.
 - **Parzival POV subsystem rebaselined**: Full rebaseline replacing the pre-existing source-repo `_ai-memory/pov/` tree with a canonical evolution developed across multiple iterations of dispatch-discipline embeds, 4-layer architecture refinement for orchestration skills, `§2a`/`§2b` instruction-form split for dispatch briefs, BMAD Intent picker support, and accumulated remediation landings. Net ~−7.2k lines (346 files changed; +7,303 / −14,524).
 - **Orchestration skill consolidation**: `aim-model-dispatch/` absorbs the prior `model-dispatch-framework/` scaffolding (references, scripts, workflows, wrappers, evals) — the post-installer-merge runtime layout now matches the shipping-source layout. Reduces indirection during agent dispatch debugging.
 - **`step-02-create-team.md` renamed to `step-02-spawn-agent.md`** (R6 template rename): The workflow step that spawns an agent pane is no longer called "create-team" — naming now reflects the actual action. Templates referencing the old filename have been rewritten.
@@ -156,6 +199,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `oversight/reports/bug287-review-r2-sonnet.md`,
   `oversight/reports/bug287-review-r2-opus.md`.
 
+- **GitHub code-blob sync (BUG-288 fix)**: resolve silent data-loss when the
+  1800s total timeout cuts off >50% of files on large repositories. Five-part
+  fix: (1) `CodeSyncResult.abandoned_paths` field records every file that was
+  cut off by total-timeout or circuit-breaker; (2) `sync_code_blobs()` accepts
+  a new `code_blob_state` dict carrying the prior cycle's abandon-set — on the
+  next run, previously abandoned files are sorted to the front of the eligible
+  queue (`reconciliation pre-sort`, BP-155 §3) so they are least likely to be
+  cut off again; (3) `GitHubSyncEngine.load_code_blob_state()` /
+  `save_code_blob_state()` persist the abandon-set as a `code_blobs` sub-key
+  in the existing POSIX-atomic `github_sync_state_*.json` state file —
+  forward-compatible (old state files lacking the key return `{}`);
+  (4) `github_sync_service.py` Phase 2 block threads state through the call
+  (load before sync, save after); (5) `CodeBlobSync._wait_for_embedding_ready()`
+  pre-sync probe polls `/health` before the file-tree fetch; if the embedding
+  service is not ready within 60s, sync proceeds anyway (probe is advisory).
+  Total-timeout log sites upgraded from `WARNING` to `ERROR`. New Prometheus
+  metrics: `github_code_sync_abandoned_files_total` (Counter) +
+  `github_code_sync_completion_ratio` (Gauge). See
+  `oversight/bugs/BUG-288-github-code-sync-silent-data-loss.md` and
+  `oversight/knowledge/best-practices/BP-155-graceful-sync-degradation-and-reconciliation-2026.md`.
+- **Embedding service `/health` endpoint (BUG-289 fix)**: `/health` now returns
+  HTTP 503 (with full JSON body) when `model_loaded=False`, enabling Docker
+  Compose `depends_on: condition: service_healthy` (`curl -f`) to correctly
+  gate `github-sync` startup on actual model readiness rather than mere process
+  liveness. Previously `/health` always returned HTTP 200 regardless of whether
+  the Jina v2 en/code models had finished loading, causing `github-sync` to
+  start before code-model embeddings were functional. See
+  `oversight/bugs/BUG-289-embedding-health-endpoint-no-status-gating.md`.
+
 ### Removed
 - **`aim-bmad-dispatch/` skill**: The BMAD-specific dispatch skill is removed — `aim-agent-dispatch/` now handles both BMAD and generic agents via a unified routing path. All references to `/aim-bmad-dispatch` in prior orchestration pipeline documentation are superseded by `/aim-agent-dispatch`.
 - **`step-01c-parzival-constraints.md`** (Phase 3 startup pipeline optimization): The Parzival session-start workflow no longer runs a dedicated constraints-loading step — constraints are now loaded during activation (step 4) and re-injected during `aim-parzival-bootstrap` (step 1b) when needed. Net token reduction on session start.
@@ -177,6 +249,15 @@ This release includes:
 4. A **Compose env-management refactor** (BP-152 / ENV-MANAGEMENT-V2). The 4 Python services (`monitoring-api`, `streamlit`, `classifier-worker`, `github-sync`) now read env from `.env` + optional `.env.secrets` via `env_file:` directive instead of per-key `environment:` mapping. Existing `docker/.env` continues to work — sensitive keys can stay in `.env` (everything still loads) or be moved to `.env.secrets` for `chmod 600` enforcement (see post-install steps below). The `unset QDRANT_API_KEY` ritual previously required before compose operations is no longer needed.
 5. A **HIGH-severity sanctum data-loss fix** in `deploy_parzival_v2()`. Existing per-instance Parzival identity (LORE.md content, BOND.md content, Tier-C accumulation in `sessions/`/`capabilities/`/`references/`, CREED frontmatter mutations like `sessions_completed`) is now preserved across installer Option 1 updates. No user action required — preservation is automatic.
 6. A **sanctum architecture redesign** (BUG-283 + BUG-284 + BUG-285). The prior partial-fill model (source ships pre-filled CREED.md, init-sanctum.py exits clean if CREED.md exists, Tier B never created) is replaced with empty-ship + file-level idempotency. `init-sanctum.py` now scaffolds all 8 standard sanctum files (CREED, PERSONA, INDEX, BOND, LORE, MEMORY, CAPABILITIES, PULSE) from universal templates at First Breath, with per-file idempotency guards in 3 write paths so existing files are never overwritten. New conversational First Breath workflow (`pov/workflows/first-breath/`) fills BOND with owner specifics + LORE with project specifics on first activation. Bootstrap path bug (BUG-283) and Qdrant status-line accuracy bug (BUG-285) also closed. No user action required for fresh installs — `aim-agent-sanctum-init` runs automatically on first activation.
+7. **BUG-289 breaking change** (embedding `/health` status code): the embedding
+   service `/health` endpoint now returns HTTP 503 instead of HTTP 200 when
+   models are not yet loaded. **External monitors** that alert on HTTP non-200
+   from `/health` will now correctly fire during the model-load window (up to
+   ~5 minutes on first startup). **`curl -f` healthchecks** (as used by Docker
+   Compose `depends_on: condition: service_healthy`) will now correctly fail
+   during loading. No action required for standard Docker Compose deployments
+   — the compose healthcheck is the intended consumer and the 503-on-load
+   behavior is exactly what BUG-289 was designed to enable.
 
 **Partial-sanctum recovery (BUG-283/284/285)**: If you previously installed pre-PLAN-027 v2.4.0-candidate code and your `~/.ai-memory/_ai-memory/sanctum/parzival/` contains only `CREED.md` + 3 empty subdirs (no PERSONA/INDEX/BOND/LORE/MEMORY/CAPABILITIES/PULSE), the new file-level idempotency will detect-and-repair on next `/pov:parzival` activation: parzival.md activation step 5 checks for the 8 required sanctum files; missing files trigger `aim-agent-sanctum-init` which scaffolds only what's missing. Existing CREED.md is preserved verbatim (file-level idempotency means the script never overwrites an existing sanctum file). After scaffolding, BOND.md will have unfilled scaffold markers — activation invokes the new First Breath workflow to fill BOND with owner specifics + seed LORE with project specifics. No manual intervention required.
 
