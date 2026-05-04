@@ -892,7 +892,13 @@ class CodeBlobSync:
                     return total_eligible - completed_files
 
                 total_timeout_recorded = False
+                # BUG-288: Two lists that together form the abandon-set:
+                # • cancelled_paths  — tasks that were in-flight when cutoff fired
+                # • not_dispatched_paths — tasks that had not yet been dispatched
+                # Both are populated before next_entry_index is clamped to
+                # total_eligible, so eligible_entries[next_entry_index:] is still valid.
                 cancelled_paths: list[str] = []
+                not_dispatched_paths: list[str] = []
 
                 def _record_total_timeout(elapsed: float) -> None:
                     nonlocal total_timeout_recorded
@@ -954,6 +960,11 @@ class CodeBlobSync:
                                 total_timeout,
                                 remaining,
                             )
+                            # Capture not-yet-dispatched BEFORE clamping index (Step 4b)
+                            not_dispatched_paths.extend(
+                                entry["path"]
+                                for entry, _ in eligible_entries[next_entry_index:]
+                            )
                             await _cancel_pending("due to total timeout")
                             _record_total_timeout(elapsed)
                             next_entry_index = total_eligible
@@ -966,6 +977,11 @@ class CodeBlobSync:
                                 "Stopping with %d files remaining.",
                                 self._circuit_breaker.failure_threshold,
                                 remaining,
+                            )
+                            # Capture not-yet-dispatched BEFORE clamping index (Step 4b)
+                            not_dispatched_paths.extend(
+                                entry["path"]
+                                for entry, _ in eligible_entries[next_entry_index:]
                             )
                             await _cancel_pending("after circuit breaker opened")
                             _record_circuit_breaker_open()
@@ -1081,9 +1097,18 @@ class CodeBlobSync:
                 # Step 4b: Compute abandon-set for reconciliation on next cycle
                 # (BUG-288: files that timed out or were cancelled mid-sync get
                 # prioritized at the front of the next sync's eligible queue)
-                result.abandoned_paths = cancelled_paths + [
-                    entry["path"] for entry, _ in eligible_entries[next_entry_index:]
-                ]
+                # Three disjoint sources:
+                # 1. cancelled_paths    — in-flight tasks cancelled by _cancel_pending
+                # 2. not_dispatched_paths — captured before next_entry_index was clamped
+                # 3. tail slice         — entries never reached in outer-loop break cases
+                result.abandoned_paths = (
+                    cancelled_paths
+                    + not_dispatched_paths
+                    + [
+                        entry["path"]
+                        for entry, _ in eligible_entries[next_entry_index:]
+                    ]
+                )
                 if result.abandoned_paths:
                     logger.warning(
                         "Code blob sync: %d file(s) abandoned — will be "
