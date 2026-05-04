@@ -40,8 +40,9 @@ services:
       - qdrant_storage:/qdrant/storage
     # Qdrant uses its own config key naming (QDRANT__SERVICE__*) — the env_file: pattern
     # is not applicable here because Qdrant reads QDRANT__SERVICE__API_KEY, not QDRANT_API_KEY.
-    # QDRANT_API_KEY interpolation is a known BUG-184-class limitation; requires the
-    # unset-ritual workaround until Qdrant's config schema permits a direct remap.
+    # QDRANT_API_KEY and QDRANT_READ_ONLY_API_KEY interpolation are both known BUG-184-class
+    # limitations; both require the unset-ritual workaround until Qdrant's config schema
+    # permits a direct remap.
     environment:
       - QDRANT__LOG_LEVEL=${QDRANT_LOG_LEVEL:-INFO}
       # API Key Authentication (BP-040) - Requires TLS for production

@@ -113,6 +113,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   during PM #274 P4-08 verification when a customized
   `GITHUB_CODE_BLOB_INCLUDE=*.yaml,*.toml,Makefile,Dockerfile` was lost
   across reinstall.
+- **Sanctum architecture redesign (BUG-283 + BUG-284 + BUG-285)**: testV2 lead-dev verification surfaced a contradiction in the prior PM #255 partial-fill sanctum delivery model: source shipped pre-filled `CREED.md` while `init-sanctum.py` `TEMPLATE_FILES` excluded `CREED-template.md`, and directory-level idempotency at `init-sanctum.py:215-218` exited clean if `CREED.md` existed — net result, fresh installs got CREED + 3 empty subdirs only, with Tier B (LORE/BOND) never created. Plus the templates contained literal `{}` placeholders (e.g., `{agent-title}`, `{vibe-prompt}`, `{bond-domain-sections}`) that survived as raw text in scaffolded output because `substitute_vars` only fills 6 specific keys. PLAN-027 redesign: empty-ship sanctum + `TEMPLATE_FILES` extended to 8 (adds CREED, CAPABILITIES, PULSE) + file-level idempotency in 3 write sites (`copy_references`, `copy_scripts`, TEMPLATE_FILES loop) + `CREED-template.md` becomes the authored Parzival philosophy (relocated from prior shipped `CREED.md`) + 5 other templates rewritten as universal scaffolds with substitution-key-only placeholders (no leak-prone `{X}` literals) + new conversational First Breath workflow (3 steps: meet owner → learn project → confirm and begin). Bootstrap fixes (BUG-283): `_bootstrap_skill_dir` path corrected to include `_ai-memory/` segment; `sanctum_tier_b` import wrapped for graceful degrade. Status-line accuracy (BUG-285): per-layer Qdrant status capture via `logging.Handler` subclass distinguishes "available", "degraded (N of 4 layers unreachable)", "unreachable (all retrieval calls failed)" instead of hardcoded "available" that masked Connection refused errors. Activation step 5 detect-and-repair: invokes `/aim-agent-sanctum-init` if any of 8 required sanctum files missing; invokes First Breath workflow if BOND has scaffold markers. 4 regression tests (T1-T4) verify no `{}` placeholder leakage / idempotency / partial-sanctum recovery / customization preservation. See `oversight/bugs/BUG-283-bootstrap-path-and-sanctum-tier-b-import.md`, `oversight/bugs/BUG-284-sanctum-init-contradicts-shipped-creed.md`, `oversight/bugs/BUG-285-bootstrap-status-line-masks-qdrant-unreachable.md`.
 - **Compose (BUG-287 fix)**: wire `QDRANT__SERVICE__READ_ONLY_API_KEY` into the
   Qdrant container `environment:` block, completing the TD-333 read-only auth
   surface. The producer side (`install.sh` R2.7 key generation + `.env.secrets`
@@ -121,10 +122,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   key-swap branch) were fully implemented; the server-side compose wiring was the
   only missing piece. Without this line, Qdrant rejects the read-only key with
   HTTP 401 — the generated 32-byte secret-class key was wasted. Adds regression
-  test `test_qdrant_read_only_wiring.py` (pure YAML-parse, CI-runnable without
-  Docker; integration live-container probe gated by `@pytest.mark.integration`). See
+  tests: `test_compose_qdrant_wiring.py` (NEW unit-layer test, runs in unit CI tier —
+  no Docker required); `tests/integration/test_qdrant_read_only_wiring.py` (integration
+  tier — live container probes with PUT-403 write-rejection assertion). See
   `oversight/bugs/BUG-287-qdrant-read-only-api-key-not-wired-in-compose.md`.
-- **Sanctum architecture redesign (BUG-283 + BUG-284 + BUG-285)**: testV2 lead-dev verification surfaced a contradiction in the prior PM #255 partial-fill sanctum delivery model: source shipped pre-filled `CREED.md` while `init-sanctum.py` `TEMPLATE_FILES` excluded `CREED-template.md`, and directory-level idempotency at `init-sanctum.py:215-218` exited clean if `CREED.md` existed — net result, fresh installs got CREED + 3 empty subdirs only, with Tier B (LORE/BOND) never created. Plus the templates contained literal `{}` placeholders (e.g., `{agent-title}`, `{vibe-prompt}`, `{bond-domain-sections}`) that survived as raw text in scaffolded output because `substitute_vars` only fills 6 specific keys. PLAN-027 redesign: empty-ship sanctum + `TEMPLATE_FILES` extended to 8 (adds CREED, CAPABILITIES, PULSE) + file-level idempotency in 3 write sites (`copy_references`, `copy_scripts`, TEMPLATE_FILES loop) + `CREED-template.md` becomes the authored Parzival philosophy (relocated from prior shipped `CREED.md`) + 5 other templates rewritten as universal scaffolds with substitution-key-only placeholders (no leak-prone `{X}` literals) + new conversational First Breath workflow (3 steps: meet owner → learn project → confirm and begin). Bootstrap fixes (BUG-283): `_bootstrap_skill_dir` path corrected to include `_ai-memory/` segment; `sanctum_tier_b` import wrapped for graceful degrade. Status-line accuracy (BUG-285): per-layer Qdrant status capture via `logging.Handler` subclass distinguishes "available", "degraded (N of 4 layers unreachable)", "unreachable (all retrieval calls failed)" instead of hardcoded "available" that masked Connection refused errors. Activation step 5 detect-and-repair: invokes `/aim-agent-sanctum-init` if any of 8 required sanctum files missing; invokes First Breath workflow if BOND has scaffold markers. 4 regression tests (T1-T4) verify no `{}` placeholder leakage / idempotency / partial-sanctum recovery / customization preservation. See `oversight/bugs/BUG-283-bootstrap-path-and-sanctum-tier-b-import.md`, `oversight/bugs/BUG-284-sanctum-init-contradicts-shipped-creed.md`, `oversight/bugs/BUG-285-bootstrap-status-line-masks-qdrant-unreachable.md`.
+- **Compose (BUG-287 fix-r2)**: cycle-2 dual-review hardening (Sonnet CHANGES-REQUESTED
+  + Opus APPROVE-WITH-NITS). All 12 findings addressed: split test placement so
+  YAML-parse test (`test_compose_wires_read_only_api_key`) runs in unit CI tier via
+  `test_compose_qdrant_wiring.py` with `_find_repo_root()` helper and prefix-match
+  assertions (Sonnet F-1 + Opus M1 + Opus L4 + Opus L7); CI env injection for
+  `QDRANT_READ_ONLY_API_KEY` + `QDRANT__SERVICE__READ_ONLY_API_KEY` in
+  `integration-tests` job so `test_qdrant_read_only_key_accepted_by_container` no
+  longer permanently skips in CI (Sonnet F-2); write-rejection probe (PUT → 403) added
+  per bug-doc verification step 4 with try/finally best-effort cleanup (Sonnet F-3 +
+  Opus M2); Python consumer probe via `get_qdrant_client(read_only=True)` added as
+  `test_qdrant_read_only_key_python_consumer` (Opus M3); CHANGELOG claim updated to
+  reflect unit-tier test relocation (Sonnet F-4); URL fallback aligned to
+  `localhost:26350`, exception catch broadened to `httpx.RequestError` (Opus L6 + Opus
+  L5); fix-r2 commit subjects ≤72 chars (Sonnet F-5). See
+  `oversight/reports/bug287-review-sonnet.md`,
+  `oversight/reports/bug287-review-opus.md`.
 
 ### Removed
 - **`aim-bmad-dispatch/` skill**: The BMAD-specific dispatch skill is removed — `aim-agent-dispatch/` now handles both BMAD and generic agents via a unified routing path. All references to `/aim-bmad-dispatch` in prior orchestration pipeline documentation are superseded by `/aim-agent-dispatch`.
