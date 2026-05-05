@@ -106,6 +106,7 @@ class CodeSyncResult:
             "files_deleted": self.files_deleted,
             "chunks_created": self.chunks_created,
             "errors": self.errors,
+            "abandoned_paths": list(self.abandoned_paths),
             "duration_seconds": round(self.duration_seconds, 2),
         }
 
@@ -1175,31 +1176,31 @@ class CodeBlobSync:
         """
         from memory.embeddings import EmbeddingClient
 
-        embed_client = EmbeddingClient(self.config)
-        deadline = time.monotonic() + max_wait_seconds
-        attempt = 0
-        while time.monotonic() < deadline:
-            attempt += 1
-            try:
-                if embed_client.health_check():
-                    if attempt > 1:
-                        logger.info(
-                            "Embedding service ready after %d probe(s)", attempt
-                        )
-                    return True
-            except Exception as exc:
-                logger.debug("Embedding health probe %d failed: %s", attempt, exc)
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            await asyncio.sleep(min(poll_interval, remaining))
-        logger.error(
-            "Embedding service not ready after %ds (%d probe(s)); "
-            "proceeding with sync (degraded quality expected)",
-            max_wait_seconds,
-            attempt,
-        )
-        return False
+        with EmbeddingClient(self.config) as embed_client:
+            deadline = time.monotonic() + max_wait_seconds
+            attempt = 0
+            while time.monotonic() < deadline:
+                attempt += 1
+                try:
+                    if embed_client.health_check():
+                        if attempt > 1:
+                            logger.info(
+                                "Embedding service ready after %d probe(s)", attempt
+                            )
+                        return True
+                except Exception as exc:
+                    logger.debug("Embedding health probe %d failed: %s", attempt, exc)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(poll_interval, remaining))
+            logger.error(
+                "Embedding service not ready after %ds (%d probe(s)); "
+                "proceeding with sync (degraded quality expected)",
+                max_wait_seconds,
+                attempt,
+            )
+            return False
 
     async def _walk_tree(self) -> list[dict[str, Any]]:
         """Fetch and filter repository file tree.
@@ -1834,6 +1835,13 @@ class CodeBlobSync:
             chunks_total.inc(result.chunks_created)
             duration.set(result.duration_seconds)
             abandoned_total.inc(len(result.abandoned_paths))
+            # completion_ratio denominator includes `result.errors` — intentional
+            # deviation from BP-155 §7 formula `synced/(synced+abandoned)`.
+            # Rationale: when ALL eligible files error out (errors=N, abandoned=0,
+            # synced=0), BP-155 formula yields 0/0 → sentinel 1.0, which does NOT
+            # fire the 0.95 alert threshold. Including errors gives 0.0, correctly
+            # triggering the alert. Accepted deviation per Parzival adjudication
+            # PM #278 (surfaced by cycle-2 review F-1 Sonnet LOW).
             total_eligible_count = (
                 result.files_synced + result.errors + len(result.abandoned_paths)
             )

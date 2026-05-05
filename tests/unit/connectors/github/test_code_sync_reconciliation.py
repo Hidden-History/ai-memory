@@ -230,6 +230,7 @@ class TestEmbeddingProbe:
         sync._sync_file = AsyncMock(return_value=1)
 
         mock_embed_client = MagicMock()
+        mock_embed_client.__enter__.return_value = mock_embed_client  # CM returns self
         mock_embed_client.health_check.return_value = False  # never ready
 
         with (
@@ -278,6 +279,7 @@ class TestEmbeddingProbe:
             sync = CodeBlobSync(mock_client, config)
 
         mock_embed_client = MagicMock()
+        mock_embed_client.__enter__.return_value = mock_embed_client  # CM returns self
         mock_embed_client.health_check.return_value = True  # immediately ready
 
         with patch("memory.embeddings.EmbeddingClient", return_value=mock_embed_client):
@@ -332,6 +334,15 @@ class TestStateFwdCompat:
 
         assert result.files_synced == 1
         assert result.abandoned_paths == []
+
+    def test_to_dict_includes_abandoned_paths(self):
+        """to_dict must include abandoned_paths with a defensive copy (F-3 Sonnet cycle-2 fix)."""
+        result = CodeSyncResult(abandoned_paths=["foo.py", "bar.py"])
+        d = result.to_dict()
+        assert d["abandoned_paths"] == ["foo.py", "bar.py"]
+        # Verify defensive copy — mutating the returned list must not affect source
+        d["abandoned_paths"].append("baz.py")
+        assert result.abandoned_paths == ["foo.py", "bar.py"]
 
 
 # ---------------------------------------------------------------------------
