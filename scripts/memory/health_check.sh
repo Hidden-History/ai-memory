@@ -36,15 +36,25 @@ readonly NC='\033[0m' # No Color
 ERRORS=0
 WARNINGS=0
 
-# Load runtime config from installed .env (safe grep+cut — never source .env)
+# Load runtime config using secrets-first / env-fallback dual-source pattern (BUG-293 fix).
+# PP-2 keys (QDRANT_API_KEY) live in .env.secrets post-BUG-277; non-secret config in .env.
+# Safe grep+cut — never source either file (consistent with original design).
 ENV_FILE="$HOME/.ai-memory/docker/.env"
+SECRETS_FILE="${ENV_FILE%/*}/.env.secrets"
 if [ ! -f "$ENV_FILE" ]; then
     echo -e "${YELLOW}⚠ Config not found at $ENV_FILE — using defaults${NC}"
     ((WARNINGS++))
 fi
 QDRANT_PORT=$(grep "^QDRANT_PORT=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)
 QDRANT_PORT=${QDRANT_PORT:-26350}
-QDRANT_API_KEY=$(grep "^QDRANT_API_KEY=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)
+# QDRANT_API_KEY: secrets-first per BUG-277 split (BUG-293 fix)
+QDRANT_API_KEY=""
+if [ -f "$SECRETS_FILE" ]; then
+    QDRANT_API_KEY=$(grep "^QDRANT_API_KEY=" "$SECRETS_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)
+fi
+if [ -z "$QDRANT_API_KEY" ]; then
+    QDRANT_API_KEY=$(grep "^QDRANT_API_KEY=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)
+fi
 EMBEDDING_PORT=$(grep "^EMBEDDING_PORT=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)
 EMBEDDING_PORT=${EMBEDDING_PORT:-28080}
 

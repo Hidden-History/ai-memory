@@ -2,15 +2,18 @@
 # Run memory scripts with proper environment variables
 # Usage: ./scripts/memory/run-with-env.sh <script.py> [args...]
 #
-# This script loads QDRANT_API_KEY and other env vars from docker/.env
-# Required because scripts run on HOST need the same auth as Docker services
-# and must use the ai-memory virtualenv rather than the shell's default python3.
+# Loads env vars using secrets-first / env-fallback dual-source pattern (BUG-292 fix):
+#   1. docker/.env.secrets (chmod 600) — PP-1/PP-2 secret-class keys (QDRANT_API_KEY, GITHUB_TOKEN)
+#   2. docker/.env (fallback) — non-secret config and legacy pre-BUG-277 installs
+# Required because scripts run on HOST need the same auth as Docker services (which use
+# compose --env-file dual-load via stack.sh::_compose per BUG-279 fix).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}"
 ENV_FILE="${AI_MEMORY_ENV_FILE:-$INSTALL_DIR/docker/.env}"
+SECRETS_FILE="${AI_MEMORY_SECRETS_FILE:-${ENV_FILE%/*}/.env.secrets}"
 PY_BIN="$INSTALL_DIR/.venv/bin/python"
 
 export QDRANT_HOST="${QDRANT_HOST:-localhost}"
@@ -22,17 +25,23 @@ export QDRANT_USE_HTTPS="${QDRANT_USE_HTTPS:-false}"
 load_env_var() {
     local name="$1"
     local value
-    value="$(awk -F= -v key="$name" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$ENV_FILE")"
-    # Strip surrounding double or single quotes (common in .env files)
-    value="${value%\"}"; value="${value#\"}"
-    value="${value%\'}"; value="${value#\'}"
+    # Secrets-first lookup: mirrors _env_split_helpers.sh::_read_env_key (BUG-292 fix)
+    if [ -f "$SECRETS_FILE" ]; then
+        value=$(grep "^${name}=" "$SECRETS_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+        if [ -n "$value" ]; then
+            export "$name=$value"
+            return 0
+        fi
+    fi
+    # Fallback to .env (non-secret config and blank PP-1/PP-2 placeholders post-BUG-277)
+    value=$(grep "^${name}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
     if [ -n "$value" ]; then
         export "$name=$value"
     fi
 }
 
-# Load environment variables from docker/.env
-if [ -f "$ENV_FILE" ]; then
+# Load environment variables from docker/.env.secrets (secrets-first) and docker/.env (fallback)
+if [ -f "$ENV_FILE" ] || [ -f "$SECRETS_FILE" ]; then
     load_env_var "QDRANT_API_KEY"
     load_env_var "AI_MEMORY_PROJECT_ID"
     load_env_var "GITHUB_REPO"
@@ -40,7 +49,7 @@ if [ -f "$ENV_FILE" ]; then
     load_env_var "GITHUB_TOKEN"
     load_env_var "GITHUB_SYNC_ENABLED"
 else
-    echo "Warning: $ENV_FILE not found, running without API key"
+    echo "Warning: $ENV_FILE and $SECRETS_FILE not found, running without API key"
 fi
 
 if [ ! -x "$PY_BIN" ]; then

@@ -3920,23 +3920,17 @@ drain_pending_queue() {
     count=$(wc -l < "$queue_file" 2>/dev/null || echo "0")
     log_debug "Processing $count queued events..."
 
-    # Run in subshell to contain venv activation and env sourcing
-    (
-        # Source docker/.env for Qdrant connection settings
-        if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
-            set -a
-            # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
-            source <(grep -v -E '^(UID|GID)=' "$INSTALL_DIR/docker/.env")
-            set +a
-        fi
-
-        # Activate venv for Python dependencies
-        if [[ -f "$INSTALL_DIR/.venv/bin/activate" ]]; then
-            # shellcheck disable=SC1091
-            source "$INSTALL_DIR/.venv/bin/activate"
-        fi
-
-        python3 "$INSTALL_DIR/scripts/memory/process_retry_queue.py"
+    # Run in subshell to contain env sourcing; mirrors setup_collections dual-source pattern.
+    # W1-F1 defense-in-depth: source .env.secrets so PP-2 keys are available if accessed directly
+    # in future scripts. process_retry_queue.py currently uses MemoryStorage/MemoryConfig (safe);
+    # this fix ensures pattern consistency with setup_collections (BUG-292 / W1-F2 RESOLVED).
+    (   set -a
+        # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
+        [ -f "$INSTALL_DIR/docker/.env" ] && \
+          source <(grep -v -E '^(UID|GID)=' "$INSTALL_DIR/docker/.env")
+        [ -f "$INSTALL_DIR/docker/.env.secrets" ] && \
+          source "$INSTALL_DIR/docker/.env.secrets"
+        "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/memory/process_retry_queue.py"
     ) 2>&1 | tee -a "$INSTALL_LOG" || {
         log_warning "Queue drain completed with errors (non-fatal)"
     }
@@ -3960,10 +3954,20 @@ setup_github_indexes() {
     log_debug "Creating GitHub payload indexes on discussions collection..."
 
     local result rc=0
-    # BUG-098: Source .env so pydantic MemoryConfig reads env vars even when
-    # env_file=".env" doesn't resolve (CWD is docker/ but pydantic may not find it)
-    # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
-    result=$(cd "$INSTALL_DIR/docker" && [[ -f .env ]] || { echo "FAILED: docker/.env not found"; exit 1; } && set -a && source <(grep -v -E '^(UID|GID)=' .env) && set +a && "$INSTALL_DIR/.venv/bin/python" -c "
+    # BUG-098: Source both env files so pydantic MemoryConfig reads env vars even when
+    # env_file=".env" doesn't resolve (CWD is docker/ but pydantic may not find it).
+    # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly.
+    # W1-F1: also source .env.secrets so PP-2 keys (QDRANT_API_KEY) are available in subshell;
+    # mirrors setup_collections dual-source pattern (BUG-292 fix).
+    result=$(
+        cd "$INSTALL_DIR/docker" || { echo "FAILED: docker/.env not found"; exit 1; }
+        [[ -f .env ]] || { echo "FAILED: docker/.env not found"; exit 1; }
+        set -a
+        # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
+        source <(grep -v -E '^(UID|GID)=' .env)
+        [ -f "$INSTALL_DIR/docker/.env.secrets" ] && \
+          source "$INSTALL_DIR/docker/.env.secrets"
+        "$INSTALL_DIR/.venv/bin/python" -c "
 import sys
 sys.path.insert(0, '$INSTALL_DIR/src')
 from memory.qdrant_client import get_qdrant_client
@@ -3973,7 +3977,8 @@ counts = create_github_indexes(client)
 created = counts.get('created', 0)
 existing = counts.get('skipped', 0)
 print(f'OK: {created} created, {existing} already existed')
-" 2>&1) || rc=$?
+" 2>&1
+    ) || rc=$?
     if [[ $rc -ne 0 || -z "$result" ]]; then
         result="FAILED (exit=$rc): ${result:-no output}"
     fi
@@ -3999,9 +4004,19 @@ run_initial_github_sync() {
         # and other env vars — .env is at docker/.env but CWD is $INSTALL_DIR
         # BUG-117: --no-code-blobs skips code blob sync during install; the github-sync
         # service container handles code blobs automatically on startup (GITHUB_SYNC_ON_START=true)
+        # W1-F1: also source docker/.env.secrets so PP-1/PP-2 keys available in subshell;
+        # mirrors setup_collections dual-source pattern (BUG-292 fix).
         local exit_code=0
-        # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
-        (cd "$INSTALL_DIR" && [[ -f docker/.env ]] || { echo "[ERROR] docker/.env not found"; exit 1; } && set -a && source <(grep -v -E '^(UID|GID)=' docker/.env) && set +a && ".venv/bin/python" "scripts/github_sync.py" --full --no-code-blobs) 2>&1 | tee "$INSTALL_DIR/logs/github_initial_sync.log"
+        (
+            cd "$INSTALL_DIR" || { echo "[ERROR] docker/.env not found"; exit 1; }
+            [[ -f docker/.env ]] || { echo "[ERROR] docker/.env not found"; exit 1; }
+            set -a
+            # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
+            source <(grep -v -E '^(UID|GID)=' docker/.env)
+            [ -f docker/.env.secrets ] && \
+              source docker/.env.secrets
+            ".venv/bin/python" "scripts/github_sync.py" --full --no-code-blobs
+        ) 2>&1 | tee "$INSTALL_DIR/logs/github_initial_sync.log"
         exit_code=${PIPESTATUS[0]}
 
         case $exit_code in
@@ -4012,7 +4027,7 @@ run_initial_github_sync() {
             *)
                 GITHUB_SYNC_STATUS="error"
                 log_warning "Initial sync had errors (exit code: $exit_code) — check $INSTALL_DIR/logs/github_initial_sync.log"
-                log_info "Re-run manually: cd $INSTALL_DIR && set -a && source <(grep -v -E '^(UID|GID)=' docker/.env) && set +a && .venv/bin/python scripts/github_sync.py --full"
+                log_info "Re-run manually: cd $INSTALL_DIR && set -a && source <(grep -v -E '^(UID|GID)=' docker/.env) && set +a && [ -f docker/.env.secrets ] && source docker/.env.secrets && .venv/bin/python scripts/github_sync.py --full"
                 ;;
         esac
     fi
