@@ -7,34 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- **`run-with-env.sh::load_env_var` reads secrets from `.env` only** (BUG-292 HIGH):
-  `load_env_var` now applies a secrets-first / env-fallback dual-source pattern,
-  mirroring `_env_split_helpers.sh::_read_env_key`. PP-2 key `QDRANT_API_KEY` and
-  PP-1 key `GITHUB_TOKEN` were blank after the BUG-277 split (real values moved to
-  `docker/.env.secrets`), causing Qdrant 401 errors in every maintenance script
-  invoked via `run-with-env.sh` (`process_retry_queue.py`, `post_work_store_async.py`,
-  `collection_stats.py`). `SECRETS_FILE` is now derived from `ENV_FILE` and read first;
-  `ENV_FILE` serves as fallback for non-secret config and pre-BUG-277 installs.
-  Script header updated to acknowledge the dual-file architecture.
-- **`health_check.sh` QDRANT_API_KEY read site reads from `.env` only** (BUG-293 MED):
-  Added `SECRETS_FILE` variable and a two-step secrets-first / env-fallback read for
-  `QDRANT_API_KEY`. Post-BUG-277 installs had a blank key → Qdrant `/collections`
-  endpoint returned 401 → operator lost collection-count diagnostics. Non-auth probe
-  endpoints (`/readyz`, `/healthz`) were unaffected (auth-whitelisted).
-- **Three install.sh subshells source only `.env` before invoking Python** (W1-F1 MED,
-  defense-in-depth pattern alignment): `setup_github_indexes`, `run_initial_github_sync`,
-  and `drain_pending_queue` now each source `docker/.env.secrets` in addition to
-  `docker/.env`, matching the `setup_collections` BUG-275 reference pattern. All three
-  subshells are restructured to the parenthesized multi-line format of `setup_collections`
-  for full architectural consistency. Current runtime was safe (`MemoryStorage`/`MemoryConfig`
-  dual-file pydantic-settings read compensates for blank shell-exported vars via
-  `env_ignore_empty=True`; W1-F2 trace confirmed `process_retry_queue.py` uses only
-  `MemoryStorage`, not direct `os.getenv()` for PP-1/PP-2 keys). The fix ensures
-  future direct env reads in these subshells will also receive correct PP-1/PP-2 values.
-  "Re-run manually" log hint in `run_initial_github_sync` updated to include
-  `.env.secrets` sourcing step.
-
 ### Added
 - **`EMBEDDING_READ_TIMEOUT_CODE` env var** (BUG-288): new per-request read
   timeout override for code-model embedding calls (default 30s). The client-level
@@ -104,6 +76,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions group bump** (PR #113): Bumped 2 actions in `.github/workflows/community.yml`, `dependabot-auto-merge.yml`, `release.yml`. CI-only impact; no runtime change.
 
 ### Fixed
+- **`run-with-env.sh::load_env_var` reads secrets from `.env` only** (BUG-292 HIGH):
+  `load_env_var` now applies a secrets-first / env-fallback dual-source pattern,
+  mirroring `_env_split_helpers.sh::_read_env_key`. PP-2 key `QDRANT_API_KEY` and
+  PP-1 key `GITHUB_TOKEN` were blank after the BUG-277 split (real values moved to
+  `docker/.env.secrets`), causing Qdrant 401 errors in every maintenance script
+  invoked via `run-with-env.sh` (`process_retry_queue.py`, `post_work_store_async.py`,
+  `collection_stats.py`). `SECRETS_FILE` is now derived from `ENV_FILE` and read first;
+  `ENV_FILE` serves as fallback for non-secret config and pre-BUG-277 installs.
+  Script header updated to acknowledge the dual-file architecture.
+- **`health_check.sh` QDRANT_API_KEY read site reads from `.env` only** (BUG-293 MED):
+  Added `SECRETS_FILE` variable and a two-step secrets-first / env-fallback read for
+  `QDRANT_API_KEY`. Post-BUG-277 installs had a blank key → Qdrant `/collections`
+  endpoint returned 401 → operator lost collection-count diagnostics. Non-auth probe
+  endpoints (`/readyz`, `/healthz`) were unaffected (auth-whitelisted).
+- **Three install.sh subshells source only `.env` before invoking Python** (W1-F1 MED,
+  defense-in-depth pattern alignment): `setup_github_indexes`, `run_initial_github_sync`,
+  and `drain_pending_queue` now each source `docker/.env.secrets` in addition to
+  `docker/.env`, matching the `setup_collections` BUG-275 reference pattern. All three
+  subshells are restructured to the parenthesized multi-line format of `setup_collections`
+  for full architectural consistency. Current runtime was safe (`MemoryStorage`/`MemoryConfig`
+  dual-file pydantic-settings read compensates for blank shell-exported vars via
+  `env_ignore_empty=True`; W1-F2 trace confirmed `process_retry_queue.py` uses only
+  `MemoryStorage`, not direct `os.getenv()` for PP-1/PP-2 keys). The fix ensures
+  future direct env reads in these subshells will also receive correct PP-1/PP-2 values.
+  "Re-run manually" log hint in `run_initial_github_sync` updated to move `.env.secrets`
+  source within the `set -a` / `set +a` scope (robust for installs where `.env` lacks
+  the key as a placeholder). Note: `drain_pending_queue` aligned to `setup_collections`
+  architecture — `.venv/bin/activate` source + system `python3` fallback removed;
+  `.venv/bin/python` invoked directly (`.venv` is guaranteed present by install order;
+  consistent with `setup_collections` reference pattern).
 - **HIGH: sanctum data-loss on installer Option 1 updates**: Before this fix, `deploy_parzival_v2()` ran `rm -rf "$dst"` then `cp -r` from the source-repo template, wiping LORE/BOND/CREED-frontmatter/Tier-C accumulation on every update — only `_memory/` had explicit preservation. Discovered in PM #261 pre-install audit (testV2 Parzival). Fix mirrors the `_memory/` PID-suffix backup/restore pattern + adds CREED.md frontmatter merge for the 4 mutating fields. Closes F-H1.
 - **CREED frontmatter merge silent-failure path** (cycle-1 review F-M2): Previous implementation chained `python3 ... CREED.md || true` followed by an unconditional `log_debug "Merged"` — a merge failure would silently destroy per-instance frontmatter while logging success. Replaced with explicit if/else: on success, log debug confirmation; on failure, log error + `cp` backup CREED.md verbatim to preserve user identity. Install continues in both paths. Subsequent installer runs retry the merge.
 - **streamlit `restart: on-failure:3` regression** (cycle-1 review F-M1): When the new `<<: *python-service-defaults` anchor was applied to the streamlit service, the anchor's `restart: unless-stopped` silently overrode streamlit's original `restart: on-failure:3`. Restored via explicit service-level override: `restart: on-failure:3` placed at the streamlit service, taking YAML-merge precedence over the anchor.

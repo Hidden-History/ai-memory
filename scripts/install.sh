@@ -3923,7 +3923,7 @@ drain_pending_queue() {
     # Run in subshell to contain env sourcing; mirrors setup_collections dual-source pattern.
     # W1-F1 defense-in-depth: source .env.secrets so PP-2 keys are available if accessed directly
     # in future scripts. process_retry_queue.py currently uses MemoryStorage/MemoryConfig (safe);
-    # this fix ensures pattern consistency with setup_collections (BUG-292 / W1-F2 RESOLVED).
+    # this fix ensures pattern consistency with setup_collections (W1-F1 / W1-F2 RESOLVED).
     (   set -a
         # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
         [ -f "$INSTALL_DIR/docker/.env" ] && \
@@ -3960,7 +3960,7 @@ setup_github_indexes() {
     # W1-F1: also source .env.secrets so PP-2 keys (QDRANT_API_KEY) are available in subshell;
     # mirrors setup_collections dual-source pattern (BUG-292 fix).
     result=$(
-        cd "$INSTALL_DIR/docker" || { echo "FAILED: docker/.env not found"; exit 1; }
+        cd "$INSTALL_DIR/docker" || { echo "FAILED: cannot enter $INSTALL_DIR/docker"; exit 1; }
         [[ -f .env ]] || { echo "FAILED: docker/.env not found"; exit 1; }
         set -a
         # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
@@ -4008,8 +4008,8 @@ run_initial_github_sync() {
         # mirrors setup_collections dual-source pattern (BUG-292 fix).
         local exit_code=0
         (
-            cd "$INSTALL_DIR" || { echo "[ERROR] docker/.env not found"; exit 1; }
-            [[ -f docker/.env ]] || { echo "[ERROR] docker/.env not found"; exit 1; }
+            cd "$INSTALL_DIR" || { echo "FAILED: cannot enter $INSTALL_DIR"; exit 1; }
+            [[ -f docker/.env ]] || { echo "FAILED: docker/.env not found"; exit 1; }
             set -a
             # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
             source <(grep -v -E '^(UID|GID)=' docker/.env)
@@ -4027,7 +4027,7 @@ run_initial_github_sync() {
             *)
                 GITHUB_SYNC_STATUS="error"
                 log_warning "Initial sync had errors (exit code: $exit_code) — check $INSTALL_DIR/logs/github_initial_sync.log"
-                log_info "Re-run manually: cd $INSTALL_DIR && set -a && source <(grep -v -E '^(UID|GID)=' docker/.env) && set +a && [ -f docker/.env.secrets ] && source docker/.env.secrets && .venv/bin/python scripts/github_sync.py --full"
+                log_info "Re-run manually: cd $INSTALL_DIR && set -a && source <(grep -v -E '^(UID|GID)=' docker/.env) && [ -f docker/.env.secrets ] && source docker/.env.secrets && set +a && .venv/bin/python scripts/github_sync.py --full"
                 ;;
         esac
     fi

@@ -5,6 +5,10 @@ Verifies that QDRANT_API_KEY is resolved from docker/.env.secrets first
 (secrets-first precedence per BUG-277 split), falling through to docker/.env
 when .env.secrets is absent or the key has a blank value.
 
+Implementation: extracts the QDRANT_API_KEY dual-source read block from the
+actual health_check.sh via sed so that any regression in the script (dropped
+.env.secrets line, swapped precedence, typo) is caught by the tests.
+
 Scope: shell-level key-read logic; does not exercise downstream Qdrant auth call.
 The bug is at the shell level (which file the key is read from); the network call
 to /collections is downstream and orthogonal to the fix verified here.
@@ -14,17 +18,23 @@ import os
 import subprocess
 from pathlib import Path
 
-# Script under test (used only for reference; we test the key-read block pattern)
+# Script under test — QDRANT_API_KEY block is extracted via sed and executed
 SCRIPT = Path(__file__).parent.parent.parent / "scripts" / "memory" / "health_check.sh"
 
 
 def _read_qdrant_api_key(tmp_path: Path, env_content: str, secrets_content) -> str:
-    """Run the QDRANT_API_KEY dual-source read block with fixture env files.
+    """Run the QDRANT_API_KEY dual-source read block extracted from health_check.sh.
 
-    Executes the secrets-first / env-fallback key-read logic implemented at the
-    health_check.sh ENV_FILE/SECRETS_FILE read site (BUG-293 fix).  The bash
-    fragment mirrors the exact pattern in the script so that any regression in the
-    implementation can be caught by cross-referencing with the pattern below.
+    Sets ENV_FILE and SECRETS_FILE to fixture files, then sources the actual
+    QDRANT_API_KEY read block from health_check.sh via sed process substitution.
+    This ensures any regression in the script (dropped .env.secrets line, swapped
+    precedence) is detected — unlike inline replication which only verifies the
+    documented pattern.
+
+    The sed range extracts from the ``QDRANT_API_KEY=""`` initialisation line
+    through the second env-fallback ``fi``, stopping before ``EMBEDDING_PORT=``
+    (the next variable assignment), so the extracted fragment is exactly the
+    BUG-293 fix block and nothing else.
 
     Scope: shell-level key-read logic; does not exercise downstream Qdrant auth call.
 
@@ -46,21 +56,18 @@ def _read_qdrant_api_key(tmp_path: Path, env_content: str, secrets_content) -> s
     else:
         secrets_path = str(tmp_path / "absent.env.secrets")
 
-    # Bash fragment that replicates the QDRANT_API_KEY dual-source read block from
-    # health_check.sh::QDRANT_API_KEY read site (BUG-293 fix pattern).
+    # Source the QDRANT_API_KEY dual-source read block from the actual health_check.sh.
+    # sed range: from ^QDRANT_API_KEY="" (BUG-293 fix site) to just before ^EMBEDDING_PORT=.
+    # ENV_FILE and SECRETS_FILE are overridden so the real block uses fixture files.
     cmd = "\n".join(
         [
             f"ENV_FILE={str(env_file)!r}",
             f"SECRETS_FILE={secrets_path!r}",
-            'QDRANT_API_KEY=""',
-            'if [ -f "$SECRETS_FILE" ]; then',
-            "    QDRANT_API_KEY=$(grep '^QDRANT_API_KEY=' \"$SECRETS_FILE\" 2>/dev/null"
-            ' | head -1 | cut -d= -f2- | tr -d "\'\\"" || true)',
-            "fi",
-            'if [ -z "$QDRANT_API_KEY" ]; then',
-            "    QDRANT_API_KEY=$(grep '^QDRANT_API_KEY=' \"$ENV_FILE\" 2>/dev/null"
-            ' | head -1 | cut -d= -f2- | tr -d "\'\\"" || true)',
-            "fi",
+            (
+                f"source <(sed -n"
+                f" '/^QDRANT_API_KEY=\"\"/,/^EMBEDDING_PORT=/{{ /^EMBEDDING_PORT=/d; p }}'"
+                f" {str(SCRIPT)!r})"
+            ),
             'printf "%s" "$QDRANT_API_KEY"',
         ]
     )
