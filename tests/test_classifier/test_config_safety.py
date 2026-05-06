@@ -50,7 +50,7 @@ class TestEnvVarSafety:
 
         importlib.reload(config)
 
-        assert config.TIMEOUT_SECONDS == 10
+        assert config.TIMEOUT_SECONDS == 120
 
     def test_out_of_range_int_uses_default(self, monkeypatch):
         """Out of range int should use default."""
@@ -60,7 +60,7 @@ class TestEnvVarSafety:
 
         importlib.reload(config)
 
-        assert config.TIMEOUT_SECONDS == 10
+        assert config.TIMEOUT_SECONDS == 120
 
     def test_negative_int_uses_default(self, monkeypatch):
         """Negative int should use default."""
