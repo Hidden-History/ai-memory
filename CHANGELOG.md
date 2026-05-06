@@ -257,6 +257,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the Jina v2 en/code models had finished loading, causing `github-sync` to
   start before code-model embeddings were functional. See
   `oversight/bugs/BUG-289-embedding-health-endpoint-no-status-gating.md`.
+- **Classifier `all_providers_failed` cascade (BUG-290 fix)**: Three simultaneous
+  provider failures caused the classifier to fail on every call, leaving all new
+  memories unclassified. Three root causes addressed: (1) OpenRouter default model
+  `google/gemma-2-9b-it:free` retired — replaced with
+  `meta-llama/llama-3.2-3b-instruct:free` in `config.py` and `docker/.env.example`
+  (stable-namespace model per BP-156 §1.4 policy); (2) Ollama cold-start timeout —
+  `keep_alive: -1` added as a top-level key in `OllamaProvider.classify()` POST body
+  to prevent model eviction between classify calls; `MEMORY_CLASSIFIER_TIMEOUT` default
+  raised from 10 s to 120 s; `docker/.env.example` updated with
+  `MEMORY_CLASSIFIER_TIMEOUT=120` and an `OLLAMA_KEEP_ALIVE=-1` host-side guidance
+  comment block (server variable, cannot be set from the compose env block; block
+  covers Linux systemd, compose-managed Ollama, and Windows/macOS); `docker/docker-compose.yml`
+  propagates the new timeout default to the `classifier-worker` env block; (3)
+  `OllamaProvider.is_available()` probe used `/api/tags` (disk-downloaded model list)
+  instead of `/api/ps` (VRAM-loaded model list) — replaced with a two-tier hybrid
+  probe: `/api/ps` returns `True` immediately when the model is VRAM-loaded, logs
+  `ollama_model_cold` WARNING (structured fields: `model`, `action`) when cold but
+  reachable, and falls back to `/api/tags` for older Ollama daemons lacking `/api/ps`.
+  Cold probe returns `True` so the circuit breaker still routes to Ollama — cold-start
+  is recoverable; daemon-down is not. See
+  `oversight/bugs/BUG-290-classifier-all-providers-failed.md` and
+  `oversight/knowledge/best-practices/BP-156-classifier-provider-resilience-2026.md`.
+- **Ollama default model user-namespace risk (BUG-294 fix)**: `OLLAMA_MODEL` default
+  changed from `sam860/LFM2:2.6b` (user-namespace model — upstream removal risk) to
+  `llama3.2:3b` (official Ollama project namespace). `docker/.env.example` `OLLAMA_MODEL`
+  updated to match; inline comment added warning against user-namespace models (BP-156
+  §1.4). See `oversight/bugs/BUG-294-ollama-model-user-namespace-risk.md`.
+- **Anthropic retired model default (BUG-295 HIGH fix)**: `ANTHROPIC_MODEL` default
+  changed from `claude-3-5-haiku-20241022` (retired Feb 19, 2026) to
+  `claude-haiku-4-5-20251001` (versioned ID; Anthropic lifecycle commitment through
+  Oct 15, 2026 minimum). `config.py` and `docker/.env.example` both updated; re-validation
+  comment added for Q1 2027. See `oversight/bugs/BUG-295-anthropic-model-stale-default.md`.
+- **Langfuse keys dual-listed in `.env.example` (BUG-296 LOW fix)**: Removed 5 blank
+  Langfuse placeholder entries (`LANGFUSE_DB_PASSWORD`, `LANGFUSE_CLICKHOUSE_PASSWORD`,
+  `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_SALT`, `LANGFUSE_ENCRYPTION_KEY`) from the
+  Section 2 "Auto-generated" block of `docker/.env.example`. These keys were already
+  (correctly) documented in `docker/.env.secrets.example`; the dual-listing created a
+  risk of the `.env` blank overriding the `.env.secrets` real value under certain env-file
+  ordering. Replaced with a single cross-reference comment directing operators to
+  `.env.secrets.example`. See
+  `oversight/bugs/BUG-296-langfuse-keys-dual-listed-env-example.md`.
 
 ### Removed
 - **`aim-bmad-dispatch/` skill**: The BMAD-specific dispatch skill is removed — `aim-agent-dispatch/` now handles both BMAD and generic agents via a unified routing path. All references to `/aim-bmad-dispatch` in prior orchestration pipeline documentation are superseded by `/aim-agent-dispatch`.
@@ -407,6 +448,20 @@ values for opt-in keys like `GITHUB_CODE_BLOB_INCLUDE`, `DECAY_*`,
 `FRESHNESS_PENALTY_*`, and `INJECTION_*` thresholds. No user action
 required for v2.4.0+ — your customizations now survive across both fresh
 installs and Option 1 reinstalls.
+
+**Classifier provider defaults updated (BUG-290/294/295 fix)**:
+
+If you previously customized `OPENROUTER_MODEL`, `OLLAMA_MODEL`, or `ANTHROPIC_MODEL`
+in `docker/.env`, your values are preserved — the new defaults apply only to fresh
+installs or Option 1 reinstalls that do not already have those keys set.
+
+If you are using the defaults unchanged, the new values take effect after pulling
+the latest and running the installer Option 1. No container rebuild required — only
+`docker/.env` and `docker/docker-compose.yml` changed.
+
+Recommended: set `OLLAMA_KEEP_ALIVE=-1` on your Ollama host daemon (see the
+`OLLAMA_KEEP_ALIVE` comment block in `docker/.env.example` §4.1 for per-platform
+instructions) to prevent cold-start latency on the classifier's Ollama primary.
 
 ## [2.3.2] - 2026-04-13
 

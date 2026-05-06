@@ -174,16 +174,19 @@ class TestOllamaProvider:
     """Tests for OllamaProvider (httpx, local LLM — no API key required)."""
 
     def test_ollama_is_available_with_server(self):
-        """is_available() returns True when Ollama /api/tags responds 200."""
+        """is_available() returns True when /api/ps reports model loaded in VRAM."""
         provider = OllamaProvider()
         mock_client = Mock()
         provider._client = mock_client
-        mock_resp = Mock()
-        mock_resp.status_code = 200
-        mock_client.get.return_value = mock_resp
+
+        # /api/ps returns 200 with model in loaded list
+        mock_ps_resp = Mock()
+        mock_ps_resp.status_code = 200
+        mock_ps_resp.json.return_value = {"models": [{"name": provider.model}]}
+        mock_client.get.return_value = mock_ps_resp
 
         assert provider.is_available() is True
-        mock_client.get.assert_called_once_with(f"{provider.base_url}/api/tags")
+        mock_client.get.assert_called_once_with(f"{provider.base_url}/api/ps")
 
     def test_ollama_is_available_without_server(self):
         """is_available() returns False when Ollama connection raises an exception."""

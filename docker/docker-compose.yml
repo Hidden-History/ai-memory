@@ -382,6 +382,7 @@ services:
       - LANGFUSE_TRACING_ENABLED=${LANGFUSE_ENABLED:-false}
       - AI_MEMORY_INSTALL_DIR=/app                    # container path override
       - AI_MEMORY_QUEUE_DIR=/app/queue                # container path override
+      - MEMORY_CLASSIFIER_TIMEOUT=120                 # BUG-290: explicit override — cold-start defense-in-depth
     volumes:
       - ../src:/app/src:ro
       - ../scripts:/app/scripts:ro

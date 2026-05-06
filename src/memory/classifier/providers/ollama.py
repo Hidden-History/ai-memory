@@ -50,14 +50,36 @@ class OllamaProvider(BaseProvider):
         return "ollama"
 
     def is_available(self) -> bool:
-        """Check if Ollama is running and accessible.
+        """Check Ollama daemon liveness and log model-loaded state.
 
-        Returns:
-            True if Ollama is healthy, False otherwise
+        Two-tier probe:
+        - Tier 1: GET /api/ps (model-loaded state) — accurate VRAM check, <100ms
+        - Tier 2: GET /api/tags (daemon liveness) — fallback if /api/ps unavailable
+
+        Returns True if daemon is reachable (classify() will be attempted).
+        Logs WARNING when model is not currently loaded (cold-start latency expected).
+        Allows circuit breaker to route to Ollama even when cold — cold-start
+        is recoverable; daemon-down is not.
         """
         try:
-            response = self._client.get(f"{self.base_url}/api/tags")
-            return response.status_code == 200
+            ps_response = self._client.get(f"{self.base_url}/api/ps")
+            if ps_response.status_code == 200:
+                loaded = [
+                    m.get("name", "") for m in ps_response.json().get("models", [])
+                ]
+                if any(self.model in name for name in loaded):
+                    return True  # Model loaded in VRAM — no cold-start expected
+                logger.warning(
+                    "ollama_model_cold",
+                    extra={
+                        "model": self.model,
+                        "action": "cold_start_expected_on_classify",
+                    },
+                )
+                return True  # Daemon up, model cold — classify() will trigger load
+            # Fallback: daemon liveness check
+            tags = self._client.get(f"{self.base_url}/api/tags")
+            return tags.status_code == 200
         except Exception as e:
             logger.debug("ollama_unavailable", extra={"error": str(e)})
             return False
@@ -94,6 +116,7 @@ class OllamaProvider(BaseProvider):
                         "model": self.model,
                         "prompt": prompt,
                         "stream": False,
+                        "keep_alive": -1,
                         "options": {
                             "num_predict": MAX_OUTPUT_TOKENS,
                             "temperature": 0.1,
