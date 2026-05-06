@@ -277,13 +277,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reachable, and falls back to `/api/tags` for older Ollama daemons lacking `/api/ps`.
   Cold probe returns `True` so the circuit breaker still routes to Ollama — cold-start
   is recoverable; daemon-down is not. See
-  `oversight/bugs/BUG-290-classifier-all-providers-failed.md` and
+  `oversight/bugs/BUG-290-classifier-all-providers-failed-cascade.md` and
   `oversight/knowledge/best-practices/BP-156-classifier-provider-resilience-2026.md`.
 - **Ollama default model user-namespace risk (BUG-294 fix)**: `OLLAMA_MODEL` default
   changed from `sam860/LFM2:2.6b` (user-namespace model — upstream removal risk) to
   `llama3.2:3b` (official Ollama project namespace). `docker/.env.example` `OLLAMA_MODEL`
   updated to match; inline comment added warning against user-namespace models (BP-156
-  §1.4). See `oversight/bugs/BUG-294-ollama-model-user-namespace-risk.md`.
+  §1.4). See `oversight/bugs/BUG-294-ollama-model-third-party-upstream-removal-risk.md`.
 - **Anthropic retired model default (BUG-295 HIGH fix)**: `ANTHROPIC_MODEL` default
   changed from `claude-3-5-haiku-20241022` (retired Feb 19, 2026) to
   `claude-haiku-4-5-20251001` (versioned ID; Anthropic lifecycle commitment through
@@ -297,7 +297,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   risk of the `.env` blank overriding the `.env.secrets` real value under certain env-file
   ordering. Replaced with a single cross-reference comment directing operators to
   `.env.secrets.example`. See
-  `oversight/bugs/BUG-296-langfuse-keys-dual-listed-env-example.md`.
+  `oversight/bugs/BUG-296-langfuse-blank-secrets-dual-listed.md`.
 
 ### Removed
 - **`aim-bmad-dispatch/` skill**: The BMAD-specific dispatch skill is removed — `aim-agent-dispatch/` now handles both BMAD and generic agents via a unified routing path. All references to `/aim-bmad-dispatch` in prior orchestration pipeline documentation are superseded by `/aim-agent-dispatch`.
@@ -454,6 +454,21 @@ installs and Option 1 reinstalls.
 If you previously customized `OPENROUTER_MODEL`, `OLLAMA_MODEL`, or `ANTHROPIC_MODEL`
 in `docker/.env`, your values are preserved — the new defaults apply only to fresh
 installs or Option 1 reinstalls that do not already have those keys set.
+
+> **ACTION REQUIRED for operators with a customized `ANTHROPIC_MODEL`**: If your
+> `docker/.env` explicitly sets `ANTHROPIC_MODEL=claude-3-5-haiku-20241022` or
+> `ANTHROPIC_MODEL=claude-3-haiku-20240307` (both retired by Anthropic), the
+> "values are preserved" rule above **leaves you broken** — the Anthropic classifier
+> provider will fail on every call with a model-not-found error. You must manually
+> update your `docker/.env`:
+>
+> ```
+> ANTHROPIC_MODEL=claude-haiku-4-5-20251001
+> ```
+>
+> No container rebuild required — a `docker compose up -d` restart picks up the
+> new value. Operators who never customized this key (used the old code default)
+> receive the correct new value automatically via installer Option 1.
 
 If you are using the defaults unchanged, the new values take effect after pulling
 the latest and running the installer Option 1. No container rebuild required — only

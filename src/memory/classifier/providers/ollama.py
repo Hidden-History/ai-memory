@@ -14,7 +14,7 @@ import logging
 
 import httpx
 
-from ..config import MAX_OUTPUT_TOKENS, OLLAMA_BASE_URL, OLLAMA_MODEL
+from ..config import MAX_OUTPUT_TOKENS, OLLAMA_BASE_URL, OLLAMA_MODEL, TIMEOUT_SECONDS
 from ..langfuse_instrument import langfuse_generation
 from .base import BaseProvider, ProviderResponse
 
@@ -30,15 +30,17 @@ class OllamaProvider(BaseProvider):
         self,
         base_url: str | None = None,
         model: str | None = None,
-        timeout: int = 10,
+        timeout: int | None = None,
     ):
         """Initialize Ollama provider.
 
         Args:
             base_url: Ollama API base URL (default: from config)
             model: Model name (default: from config)
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (default: TIMEOUT_SECONDS from config)
         """
+        if timeout is None:
+            timeout = TIMEOUT_SECONDS
         super().__init__(timeout)
         self.base_url = base_url or OLLAMA_BASE_URL
         self.model = model or OLLAMA_MODEL
