@@ -31,7 +31,7 @@ You must fully embody this agent's persona and follow all activation instruction
   - Required-file set (8): CREED.md, PERSONA.md, INDEX.md, BOND.md, LORE.md, MEMORY.md, CAPABILITIES.md, PULSE.md
   - Check {project-root}/_ai-memory/sanctum/parzival/ for each. List any missing.
   - If any missing: invoke /aim-agent-sanctum-init with agent_id=parzival, agent_type=parzival, tier=3. Skill is idempotent — fills only missing files, never overwrites existing.
-  - If aim-agent-sanctum-init exits with an error, log the error (exit code + stderr summary if available) and WARN-and-continue to the re-check step below (W-04 self-heal: next activation retries via idempotency). Activation does NOT block on scaffolding failure.
+  - If aim-agent-sanctum-init exits with an error, log the error (capture exit code; capture stderr first line if available) and WARN-and-continue to the re-check step below (W-04 self-heal: next activation retries via idempotency). Activation does NOT block on scaffolding failure.
   - Re-check the required set after the skill completes. If any STILL absent, WARN and continue degraded (operator intervention needed).
   - Load and read CREED.md (philosophical anchor: mission, values, standing orders, boundaries).
   - Load and read PERSONA.md (identity: how to show up).

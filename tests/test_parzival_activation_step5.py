@@ -119,8 +119,8 @@ def test_T6_step5_invokes_first_breath_when_bond_scaffold_marker_present(step5_t
     first_breath_idx = step5_text.index(FIRST_BREATH_WORKFLOW)
     marker_idx = step5_text.index(BOND_SCAFFOLD_MARKER_PREFIX)
     window = step5_text[marker_idx:first_breath_idx].lower()
-    assert (
-        "if" in window
+    assert re.search(
+        r"\bif\b", window
     ), "step 5 must conditionally invoke First Breath based on scaffold marker presence"
 
 
@@ -170,9 +170,10 @@ def test_T8_step5_has_failure_mode_handling_for_sanctum_init_error(step5_text):
     assert (
         FAILURE_MODE_INDICATOR in step5_text
     ), f"step 5 must contain W-04 self-heal indicator '{FAILURE_MODE_INDICATOR}'"
-    assert (
-        "warn-and-continue" in step5_text.lower()
-    ), "step 5 must contain 'WARN-and-continue' verbiage for failure-mode handling"
+    assert "WARN-and-continue" in step5_text, (
+        "step 5 must use 'WARN-and-continue' (caps) for failure-mode handling, "
+        "matching neighboring WARN bullet style"
+    )
     assert (
         "does not block" in step5_text.lower()
     ), "step 5 must state activation does NOT block on scaffolding failure"
