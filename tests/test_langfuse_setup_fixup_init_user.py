@@ -2,8 +2,9 @@
 Regression tests for TD-512: langfuse_setup.sh _fixup_init_user postgres role/db concatenation fix.
 
 Verifies that the `_fixup_init_user` function body uses literal `langfuse` (not
-`"$prefix"langfuse`) for psql -U and -d arguments, and that out-of-scope container
-name construction is preserved unchanged.
+any `$prefix`-adjacent variant) for psql -U and -d arguments, and that all
+out-of-scope `$prefix` uses (container name, worker filters, volume names) are
+preserved unchanged.
 
 Tests operate on the script source text — no bash execution required.
 """
@@ -44,8 +45,8 @@ class TestFixupInitUserConcatenationRemoved:
     def test_prefix_langfuse_concat_absent_from_function_body(self):
         """_fixup_init_user body must NOT contain the `"$prefix"langfuse` concatenation pattern."""
         body = _extract_fixup_init_user_body(SCRIPT_PATH)
-        assert not re.search(r'\$\{?prefix\}?"?langfuse', body), (
-            "TD-512 regression: `$prefix`-concatenated langfuse pattern found in "
+        assert not re.search(r'\$\{?prefix\}?[_-]?"?langfuse(?![-_a-z])', body), (
+            "TD-512 regression: $prefix-adjacent-to-langfuse pattern found in "
             "_fixup_init_user body. Expected literal `langfuse` for -U and -d args."
         )
 
@@ -83,7 +84,7 @@ _OUT_OF_SCOPE_PREFIX_USES = [
 ]
 
 
-class TestFixupInitUserContainerNamePreserved:
+class TestOutOfScopePrefixUsesPreserved:
     """T3: Verifies all out-of-scope $prefix uses are unchanged (scope discipline)."""
 
     def test_out_of_scope_prefix_uses_preserved(self):
