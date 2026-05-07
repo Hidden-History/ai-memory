@@ -312,6 +312,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ordering. Replaced with a single cross-reference comment directing operators to
   `.env.secrets.example`. See
   `oversight/bugs/BUG-296-langfuse-blank-secrets-dual-listed.md`.
+- **Parzival activation step 5 detect-and-repair refinement (BUG-291
+  closure)**: PLAN-027 §53 F4 was largely implemented by Phase D commits
+  `bb8a6b5` (sanctum bootstrap path/status fixes) + `b88fef4` (cycle-2
+  refinements). This commit closes the 2 remaining gaps in
+  `_ai-memory/pov/agents/parzival.md` step 5: (1) adds explicit
+  failure-mode handling bullet for `init-sanctum.py` non-zero exit
+  (log error + warn-and-continue per W-04 self-heal pattern; activation
+  does not block on scaffolding failure), (2) tightens the First Breath
+  scaffold-marker check from a broad pattern to the literal
+  `_Filled during First Breath:` match per `BOND-template.md` actual
+  scaffold marker text. Adds 3 new regression tests (T5-T7) verifying
+  step 5 decision logic. T1-T4 (init-sanctum.py file-level idempotency)
+  were landed by Phase D in
+  `_ai-memory/pov/skills/aim-agent-sanctum-init/tests/test_init_sanctum_idempotency.py`.
+  Closes BUG-291. See `oversight/bugs/BUG-291-init-sanctum-not-auto-invoked.md`
+  and `oversight/plans/PLAN-027-sanctum-redesign.md` §53 + Phase D F4.
 
 ### Removed
 - **`aim-bmad-dispatch/` skill**: The BMAD-specific dispatch skill is removed — `aim-agent-dispatch/` now handles both BMAD and generic agents via a unified routing path. All references to `/aim-bmad-dispatch` in prior orchestration pipeline documentation are superseded by `/aim-agent-dispatch`.
