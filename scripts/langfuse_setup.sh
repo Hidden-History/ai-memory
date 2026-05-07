@@ -407,7 +407,7 @@ except Exception:
         fi
 
         log_info "Fixing up init user: email_verified + admin flag..."
-        docker exec "$pg_container" psql -U "$prefix"langfuse -d "$prefix"langfuse \
+        docker exec "$pg_container" psql -U langfuse -d langfuse \
             -v email="$init_email" \
             -c "UPDATE users SET email_verified = NOW(), admin = true WHERE email = :'email' AND email_verified IS NULL;" \
             2>/dev/null || log_warning "Could not fix up init user (non-critical)"
@@ -418,7 +418,7 @@ except Exception:
         init_project_id=$(env_get "LANGFUSE_INIT_PROJECT_ID")
         if [[ -n "$init_project_id" ]]; then
             log_info "Ensuring project membership for init user..."
-            docker exec "$pg_container" psql -U "$prefix"langfuse -d "$prefix"langfuse \
+            docker exec "$pg_container" psql -U langfuse -d langfuse \
                 -v email="$init_email" -v project_id="$init_project_id" \
                 -c "INSERT INTO project_memberships (project_id, user_id, org_membership_id, role)
                 SELECT :'project_id', u.id, om.id, 'OWNER'

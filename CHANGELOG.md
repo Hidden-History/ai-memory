@@ -76,6 +76,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions group bump** (PR #113): Bumped 2 actions in `.github/workflows/community.yml`, `dependabot-auto-merge.yml`, `release.yml`. CI-only impact; no runtime change.
 
 ### Fixed
+- **Langfuse setup `_fixup_init_user` postgres role/db concatenation
+  (TD-512 fix)**: `scripts/langfuse_setup.sh _fixup_init_user` was
+  concatenating `"$prefix"langfuse` to construct postgres `-U` (role) and
+  `-d` (database) arguments for `docker exec ... psql`. With `prefix="ai-memory"`
+  (compose project name), the result was `ai-memorylangfuse` — but the
+  actual postgres role/db inside the container is `langfuse` (per
+  `docker/docker-compose.langfuse.yml` `POSTGRES_USER` and `POSTGRES_DB`
+  declarations). Result: 2 FATAL events at fresh-install startup
+  (`role "ai-memorylangfuse" does not exist`). No functional impact (Will
+  verified login works PM #283; FATAL did not recur on restart). Fix:
+  drop `$prefix` from `-U` and `-d` arguments; postgres role/db are literal
+  `langfuse` inside the container, while `$prefix` remains correct for
+  container/volume naming. See
+  `oversight/tech-debt/TECH-DEBT-512-langfuse-setup-prefix-concat.md`.
 - **`run-with-env.sh::load_env_var` reads secrets from `.env` only** (BUG-292 HIGH):
   `load_env_var` now applies a secrets-first / env-fallback dual-source pattern,
   mirroring `_env_split_helpers.sh::_read_env_key`. PP-2 key `QDRANT_API_KEY` and
