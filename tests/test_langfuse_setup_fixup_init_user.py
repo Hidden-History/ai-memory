@@ -45,6 +45,8 @@ class TestFixupInitUserConcatenationRemoved:
     def test_prefix_langfuse_concat_absent_from_function_body(self):
         """_fixup_init_user body must NOT contain the `"$prefix"langfuse` concatenation pattern."""
         body = _extract_fixup_init_user_body(SCRIPT_PATH)
+        # Lookahead excludes compound names (e.g. pg_container="${prefix}-langfuse-postgres"
+        # in the extracted function body) — only terminal `langfuse` values are bug patterns.
         assert not re.search(r'\$\{?prefix\}?[_-]?"?langfuse(?![-_a-z])', body), (
             "TD-512 regression: $prefix-adjacent-to-langfuse pattern found in "
             "_fixup_init_user body. Expected literal `langfuse` for -U and -d args."
