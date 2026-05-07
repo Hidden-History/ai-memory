@@ -13,8 +13,8 @@ import subprocess
 from pathlib import Path
 
 SCRIPT_PATH = Path(__file__).parent.parent / "scripts" / "langfuse_setup.sh"
-FUNC_ANCHOR_START = "_fixup_init_user()"
-FUNC_ANCHOR_END = "    }"
+FUNC_ANCHOR_START = "_fixup_init_user\\(\\)"  # awk regex — parens escaped
+FUNC_ANCHOR_END = "\\}"  # awk regex — brace escaped
 
 
 def _extract_fixup_init_user_body(script_path: Path) -> str:
@@ -26,7 +26,7 @@ def _extract_fixup_init_user_body(script_path: Path) -> str:
     result = subprocess.run(
         [
             "awk",
-            "/^[[:space:]]*_fixup_init_user\\(\\)/{found=1} found{print} found && /^[[:space:]]+\\}$/ && NR>1{exit}",
+            f"/^[[:space:]]*{FUNC_ANCHOR_START}/{{found=1}} found{{print}} found && /^[[:space:]]+{FUNC_ANCHOR_END}$/{{exit}}",
             str(script_path),
         ],
         capture_output=True,
@@ -44,8 +44,8 @@ class TestFixupInitUserConcatenationRemoved:
     def test_prefix_langfuse_concat_absent_from_function_body(self):
         """_fixup_init_user body must NOT contain the `"$prefix"langfuse` concatenation pattern."""
         body = _extract_fixup_init_user_body(SCRIPT_PATH)
-        assert '"$prefix"langfuse' not in body, (
-            'TD-512 regression: `"$prefix"langfuse` concat pattern found in '
+        assert not re.search(r'\$\{?prefix\}?"?langfuse', body), (
+            "TD-512 regression: `$prefix`-concatenated langfuse pattern found in "
             "_fixup_init_user body. Expected literal `langfuse` for -U and -d args."
         )
 
@@ -56,30 +56,42 @@ class TestFixupInitUserLiteralPresent:
     def test_dash_u_langfuse_present_exactly_twice(self):
         """-U langfuse must appear exactly twice in _fixup_init_user (one per psql invocation)."""
         body = _extract_fixup_init_user_body(SCRIPT_PATH)
-        matches = re.findall(r"-U\s+langfuse\b", body)
+        matches = re.findall(r'-U\s+"?langfuse"?(\s|$)', body)
         assert len(matches) == 2, (
-            f"Expected exactly 2 occurrences of `-U langfuse` in _fixup_init_user body, "
+            f'Expected exactly 2 occurrences of `-U ["?]langfuse["?]` in _fixup_init_user body, '
             f"found {len(matches)}. Body excerpt:\n{body[:500]}"
         )
 
     def test_dash_d_langfuse_present_exactly_twice(self):
         """-d langfuse must appear exactly twice in _fixup_init_user (one per psql invocation)."""
         body = _extract_fixup_init_user_body(SCRIPT_PATH)
-        matches = re.findall(r"-d\s+langfuse\b", body)
+        matches = re.findall(r'-d\s+"?langfuse"?(\s|$)', body)
         assert len(matches) == 2, (
-            f"Expected exactly 2 occurrences of `-d langfuse` in _fixup_init_user body, "
+            f'Expected exactly 2 occurrences of `-d ["?]langfuse["?]` in _fixup_init_user body, '
             f"found {len(matches)}. Body excerpt:\n{body[:500]}"
         )
 
 
-class TestFixupInitUserContainerNamePreserved:
-    """T3: Verifies the out-of-scope container name construction is unchanged."""
+_OUT_OF_SCOPE_PREFIX_USES = [
+    'pg_container="${prefix}-langfuse-postgres"',
+    "name=${prefix}-langfuse-worker",
+    "name=${prefix}-trace-flush-worker",
+    '"${prefix}_langfuse-postgres-data"',
+    '"${prefix}_langfuse-clickhouse-data"',
+    '"${prefix}_langfuse-redis-data"',
+    '"${prefix}_langfuse-minio-data"',
+]
 
-    def test_pg_container_prefix_assignment_preserved(self):
-        """pg_container="${prefix}-langfuse-postgres" must remain in the script file (out-of-scope discipline)."""
+
+class TestFixupInitUserContainerNamePreserved:
+    """T3: Verifies all out-of-scope $prefix uses are unchanged (scope discipline)."""
+
+    def test_out_of_scope_prefix_uses_preserved(self):
+        """All 7 out-of-scope $prefix sites from recommendation-first.md §B must remain in the script."""
         script_text = SCRIPT_PATH.read_text()
-        assert 'pg_container="${prefix}-langfuse-postgres"' in script_text, (
-            'Out-of-scope container name `pg_container="${prefix}-langfuse-postgres"` '
-            "is missing from scripts/langfuse_setup.sh. Scope violation — this line "
-            "must not be modified by the TD-512 fix."
-        )
+        for expected in _OUT_OF_SCOPE_PREFIX_USES:
+            assert expected in script_text, (
+                f"Out-of-scope `$prefix` use `{expected}` is missing from "
+                f"scripts/langfuse_setup.sh. Scope violation — TD-512 fix "
+                f"must not touch this site."
+            )
