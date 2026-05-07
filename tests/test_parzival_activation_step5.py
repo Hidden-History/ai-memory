@@ -1,7 +1,7 @@
 """
 Regression tests for parzival.md activation step 5 decision logic (BUG-291).
 
-T5-T7 verify step 5 text content and conditional branching directives.
+T5-T8 verify step 5 text content and conditional branching directives.
 T1-T4 (init-sanctum.py file-level idempotency) are covered by
 aim-agent-sanctum-init/tests/test_init_sanctum_idempotency.py (Phase D).
 
@@ -31,7 +31,7 @@ EIGHT_REQUIRED_FILES = [
     "PULSE.md",
 ]
 
-EXACT_BOND_SCAFFOLD_MARKER = "_Filled during First Breath:"
+BOND_SCAFFOLD_MARKER_PREFIX = "_Filled during First Breath"
 SANCTUM_INIT_SKILL = "aim-agent-sanctum-init"
 FIRST_BREATH_WORKFLOW = "first-breath/workflow.md"
 FAILURE_MODE_INDICATOR = "W-04 self-heal"
@@ -61,6 +61,7 @@ def test_T5_step5_directs_sanctum_init_when_files_missing(step5_text):
     - All 8 required file names listed in step 5
     - aim-agent-sanctum-init skill is referenced for repair
     - Condition is 'if any missing' (conditional, not unconditional)
+    - Detection directive appears before repair invocation (check-then-invoke ordering)
     """
     # All 8 required files must be enumerated
     for filename in EIGHT_REQUIRED_FILES:
@@ -83,20 +84,29 @@ def test_T5_step5_directs_sanctum_init_when_files_missing(step5_text):
         "idempotent" in step5_text.lower()
     ), "step 5 must state that aim-agent-sanctum-init is idempotent"
 
+    # Detection must precede repair invocation (check-then-invoke ordering)
+    missing_check_idx = step5_text.lower().index("any missing")
+    sanctum_init_idx = step5_text.index(SANCTUM_INIT_SKILL)
+    assert (
+        missing_check_idx < sanctum_init_idx
+    ), "step 5 must direct check-then-invoke order: detect missing files before invoking repair"
+
 
 def test_T6_step5_invokes_first_breath_when_bond_scaffold_marker_present(step5_text):
     """T6 (BUG-291): step 5 directs invocation of the First Breath workflow when
-    BOND.md contains the literal scaffold marker '_Filled during First Breath:'.
+    BOND.md contains the scaffold marker prefix `_Filled during First Breath`.
 
     Verifies:
-    - Exact marker text '_Filled during First Breath:' is used (not a broad pattern)
+    - Marker prefix `_Filled during First Breath` is used (matches both ## Owner and
+      ## Working Style sections in BOND-template.md)
     - First Breath workflow path is referenced
-    - Invocation is conditional on marker presence
+    - Invocation is conditional on marker presence (if-window anchored between marker
+      and workflow path, not any prior `if` in step 5)
     """
-    # Exact scaffold marker must be present in step 5 text
-    assert EXACT_BOND_SCAFFOLD_MARKER in step5_text, (
-        f"step 5 must check for the literal marker '{EXACT_BOND_SCAFFOLD_MARKER}' "
-        f"(not a broad pattern) — per BOND-template.md actual marker text"
+    # Scaffold marker prefix must be present in step 5 text
+    assert BOND_SCAFFOLD_MARKER_PREFIX in step5_text, (
+        f"step 5 must check for the scaffold marker prefix '{BOND_SCAFFOLD_MARKER_PREFIX}' "
+        f"— matches both ## Owner and ## Working Style markers in BOND-template.md"
     )
 
     # First Breath workflow must be referenced
@@ -104,31 +114,30 @@ def test_T6_step5_invokes_first_breath_when_bond_scaffold_marker_present(step5_t
         FIRST_BREATH_WORKFLOW in step5_text
     ), f"step 5 must invoke '{FIRST_BREATH_WORKFLOW}' when scaffold marker is found"
 
-    # The First Breath invocation must be conditional ("if the marker is present" or equivalent)
-    # Check that "if" precedes the first-breath reference in step text
+    # Conditional check anchored between marker and workflow path
+    # (avoids false-positive match on earlier `if` clauses in step 5)
     first_breath_idx = step5_text.index(FIRST_BREATH_WORKFLOW)
-    preceding_text = step5_text[:first_breath_idx].lower()
+    marker_idx = step5_text.index(BOND_SCAFFOLD_MARKER_PREFIX)
+    window = step5_text[marker_idx:first_breath_idx].lower()
     assert (
-        "if" in preceding_text
-    ), "step 5 must conditionally invoke First Breath (not unconditionally)"
+        "if" in window
+    ), "step 5 must conditionally invoke First Breath based on scaffold marker presence"
 
 
-def test_T7_step5_skips_first_breath_when_bond_marker_absent(step5_text):
-    """T7 (BUG-291): step 5 SKIPS the First Breath workflow when BOND.md does NOT
-    contain the scaffold marker (i.e., owner has already filled BOND with specifics).
+def test_T7_step5_first_breath_invocation_is_conditional(step5_text):
+    """T7 (BUG-291): step 5 First Breath invocation is conditional — not unconditional.
 
-    Verifies that the First Breath invocation is conditional, not triggered
-    unconditionally every activation:
-    - The step uses 'if ... marker is present' logic (conditional branch)
-    - It does NOT say 'always invoke first-breath' or equivalent unconditional text
+    Verifies:
+    - No unconditional invocation pattern (no 'always invoke first-breath' etc.)
+    - Scaffold marker check appears before the First Breath workflow path reference
+      (structural ordering: detect marker → conditional → invoke)
     """
-    # The directive must be conditional — skip if marker absent
-    # Verify "if the marker is present" or equivalent conditional form
+    # Scaffold marker must be referenced (prerequisite — T6 must pass first)
     assert (
-        EXACT_BOND_SCAFFOLD_MARKER in step5_text
-    ), "Prerequisite: exact marker must be in step 5 (T6 must pass first)"
+        BOND_SCAFFOLD_MARKER_PREFIX in step5_text
+    ), "Prerequisite: scaffold marker prefix must be in step 5 (T6 must pass first)"
 
-    # Step must NOT unconditionally invoke first-breath — look for conditional phrasing
+    # Step must NOT unconditionally invoke first-breath
     unconditional_patterns = [
         "always invoke.*first.breath",
         "unconditionally.*first.breath",
@@ -139,19 +148,45 @@ def test_T7_step5_skips_first_breath_when_bond_marker_absent(step5_text):
             pattern, step5_text, re.IGNORECASE
         ), f"step 5 must NOT unconditionally invoke First Breath (found pattern: {pattern!r})"
 
-    # The First Breath invocation must be guarded by a conditional on marker presence
-    # Verify the text structure: marker check → conditional → workflow invocation
-    marker_idx = step5_text.index(EXACT_BOND_SCAFFOLD_MARKER)
+    # Scaffold marker check must appear before the First Breath workflow path reference
+    marker_idx = step5_text.index(BOND_SCAFFOLD_MARKER_PREFIX)
     first_breath_idx = step5_text.index(FIRST_BREATH_WORKFLOW)
-
-    # The marker check must appear before the first-breath invocation reference
     assert (
         marker_idx < first_breath_idx
     ), "step 5 must check for the scaffold marker before referencing the First Breath workflow"
 
-    # Must contain failure-mode handling (W-04 self-heal) — confirms step 5 handles
-    # both the skip case (no marker) AND the error case (init-sanctum.py failure)
-    assert FAILURE_MODE_INDICATOR in step5_text, (
-        f"step 5 must contain W-04 self-heal failure-mode handling "
-        f"('{FAILURE_MODE_INDICATOR}') for init-sanctum.py non-zero exit"
+
+def test_T8_step5_has_failure_mode_handling_for_sanctum_init_error(step5_text):
+    """T8 (BUG-291): step 5 contains explicit failure-mode handling for
+    aim-agent-sanctum-init non-zero exit (W-04 self-heal pattern).
+
+    Verifies:
+    - W-04 self-heal indicator present
+    - WARN-and-continue verbiage present (matching caps of surrounding bullets)
+    - 'does not block' clause present (activation proceeds on scaffolding failure)
+    - Failure-mode bullet is positionally AFTER sanctum-init invocation and
+      BEFORE the re-check step (so error path still reaches the diagnostic re-check)
+    """
+    assert (
+        FAILURE_MODE_INDICATOR in step5_text
+    ), f"step 5 must contain W-04 self-heal indicator '{FAILURE_MODE_INDICATOR}'"
+    assert (
+        "warn-and-continue" in step5_text.lower()
+    ), "step 5 must contain 'WARN-and-continue' verbiage for failure-mode handling"
+    assert (
+        "does not block" in step5_text.lower()
+    ), "step 5 must state activation does NOT block on scaffolding failure"
+
+    # Positional ordering: failure-mode bullet AFTER sanctum-init invocation,
+    # BEFORE re-check step (error path must not skip the diagnostic re-check)
+    sanctum_init_idx = step5_text.index(SANCTUM_INIT_SKILL)
+    failure_mode_idx = step5_text.index(FAILURE_MODE_INDICATOR)
+    recheck_idx = step5_text.lower().index("re-check the required set")
+
+    assert (
+        sanctum_init_idx < failure_mode_idx
+    ), "failure-mode bullet must appear AFTER the sanctum-init invocation bullet"
+    assert failure_mode_idx < recheck_idx, (
+        "failure-mode bullet must appear BEFORE the re-check step "
+        "(error path must still reach the diagnostic re-check)"
     )

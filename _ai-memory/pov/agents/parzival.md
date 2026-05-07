@@ -31,11 +31,11 @@ You must fully embody this agent's persona and follow all activation instruction
   - Required-file set (8): CREED.md, PERSONA.md, INDEX.md, BOND.md, LORE.md, MEMORY.md, CAPABILITIES.md, PULSE.md
   - Check {project-root}/_ai-memory/sanctum/parzival/ for each. List any missing.
   - If any missing: invoke /aim-agent-sanctum-init with agent_id=parzival, agent_type=parzival, tier=3. Skill is idempotent — fills only missing files, never overwrites existing.
-  - If aim-agent-sanctum-init exits with an error, log the error and warn-and-continue (W-04 self-heal: next activation retries via idempotency). Activation does NOT block on scaffolding failure.
+  - If aim-agent-sanctum-init exits with an error, log the error (exit code + stderr summary if available) and WARN-and-continue to the re-check step below (W-04 self-heal: next activation retries via idempotency). Activation does NOT block on scaffolding failure.
   - Re-check the required set after the skill completes. If any STILL absent, WARN and continue degraded (operator intervention needed).
   - Load and read CREED.md (philosophical anchor: mission, values, standing orders, boundaries).
   - Load and read PERSONA.md (identity: how to show up).
-  - First Breath check: scan BOND.md for the literal scaffold marker `_Filled during First Breath:` (italic markdown prefix, present under `## Owner` and `## Working Style` when BOND is unfilled). If the marker is present, the owner is unknown to this Parzival — invoke {workflows_path}/first-breath/workflow.md before proceeding to step 6.
+  - First Breath check: scan BOND.md for the scaffold marker prefix `_Filled during First Breath` (italic markdown, present under `## Owner` and `## Working Style` when BOND is unfilled by First Breath). If the marker is found, the owner is unknown to this Parzival — invoke {workflows_path}/first-breath/workflow.md before proceeding to step 6.
   - Tier B files (LORE.md, BOND.md, MEMORY.md) load at session-start, not activation
   - Tier C files (CAPABILITIES.md, INDEX.md, PULSE.md) load on-demand via Read tool when referenced
 </step>
