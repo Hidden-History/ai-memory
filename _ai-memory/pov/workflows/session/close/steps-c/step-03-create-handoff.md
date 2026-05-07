@@ -35,6 +35,29 @@ If `{handoffTemplate}` exists, use it as the format guide. Otherwise, use the fo
 
 ---
 
+### 1b. Capture Branch State Empirically (TD-500 Discipline)
+
+**MANDATORY** — before writing the handoff body, capture branch state with empirical commands. Do NOT extrapolate from prior session counts.
+
+For git-backed projects with a tracked upstream:
+
+```bash
+# Commits ahead of base (typically origin/main):
+git rev-list --count origin/main..HEAD
+# Current HEAD short SHA:
+git rev-parse --short HEAD
+# Branch name:
+git branch --show-current
+```
+
+Record the empirical output of each command. Cite the exact integer + SHA + branch name in the handoff body. **NEVER** write "X commits ahead" by adding the previous handoff's count to a session-delta estimate — that is the off-by-one drift pattern TD-500 was logged to prevent (PM #277 said 22, actual was 47; PM #278 said 47, actual was 48).
+
+For non-git projects or when no upstream is configured, note "branch state: N/A (no upstream)" and skip.
+
+**Why this matters**: future Parzival relies on the commits-ahead stat for "how big is this branch" sanity checks. Drift compounds across sessions if each handoff extrapolates rather than empirically re-counts. Per `feedback_multi_session_plan_handoff_protocol` §10 mandate.
+
+---
+
 ### 2. Write Handoff Document
 
 Create file: `{oversight_path}/session-logs/SESSION_HANDOFF_{date}.md`
@@ -58,6 +81,11 @@ Where `{date}` is today's date in YYYY-MM-DD format.
 - **Active Task**: [ID] [Title] - [Status]
 - **Blockers**: [List or "None"]
 - **In Progress**: [What is partially done]
+
+## Branch State (TD-500: empirically measured, never extrapolated)
+- **Branch**: [output of `git branch --show-current`]
+- **Head**: [output of `git rev-parse --short HEAD`]
+- **Commits ahead of base**: [output of `git rev-list --count origin/main..HEAD`] (verified via `git rev-list`, NOT extrapolated from prior session)
 
 ## Issues Encountered
 [For each issue:]
