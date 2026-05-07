@@ -470,6 +470,34 @@ installs or Option 1 reinstalls that do not already have those keys set.
 > new value. Operators who never customized this key (used the old code default)
 > receive the correct new value automatically via installer Option 1.
 
+> **ACTION REQUIRED for operators with a customized `OPENROUTER_MODEL`**: If your
+> `docker/.env` explicitly sets `OPENROUTER_MODEL=google/gemma-2-9b-it:free` (retired
+> by OpenRouter; absent from the live `/api/v1/models` catalog as of PM #281
+> verification), the OpenRouter classifier provider will fail on every call with
+> a model-not-found error, dropping you to Ollama-only. You must manually update
+> your `docker/.env`:
+>
+> ```
+> OPENROUTER_MODEL=meta-llama/llama-3.2-3b-instruct:free
+> ```
+>
+> No container rebuild required — a `docker compose up -d` restart picks up the
+> new value. Operators who never customized this key receive the correct new
+> value automatically via installer Option 1.
+
+**Advisory: customized `OLLAMA_MODEL` and `MEMORY_CLASSIFIER_TIMEOUT`**:
+
+If your `docker/.env` sets `OLLAMA_MODEL=sam860/LFM2:2.6b` (the prior code default
+— a user-namespace model with upstream removal risk per BP-156 §1.4), the model
+still works today but is not ecosystem-stable. Recommended: switch to the new
+official-namespace default `OLLAMA_MODEL=llama3.2:3b` at your convenience.
+
+If your `docker/.env` sets `MEMORY_CLASSIFIER_TIMEOUT=10` (the prior code default),
+the classifier will time out on Ollama cold-starts under CPU load. Recommended:
+raise to `MEMORY_CLASSIFIER_TIMEOUT=120` to match the new default. Combine with
+`OLLAMA_KEEP_ALIVE=-1` on the Ollama host (see §4.1 of `docker/.env.example`) to
+prevent eviction-induced cold-starts entirely.
+
 If you are using the defaults unchanged, the new values take effect after pulling
 the latest and running the installer Option 1. No container rebuild required — only
 `docker/.env` and `docker/docker-compose.yml` changed.
