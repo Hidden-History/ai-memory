@@ -416,9 +416,6 @@ def test_T8_script_parzival_disabled_returns_zero():
 # split-on-colon would silently corrupt. T9a is the original happy path.
 
 
-import pytest
-
-
 @pytest.mark.parametrize(
     "first_line,expected_summary,case_id",
     [
