@@ -14,14 +14,34 @@ empty.
 Always run the real script through `run-with-env.sh` so the skill uses the
 installed ai-memory virtualenv and the standard local service defaults.
 
+DEC bodies are multi-line by convention (`Decision: ...\nRationale: ...`)
+and frequently contain embedded `"`, `$`, and newlines. Use the
+single-quoted heredoc pattern below — single-line `--content "..."` quoting
+silently truncates past the first embedded `"`, corrupts the SHA-256
+`content_hash`, and defeats the per-DEC dedup contract with no error
+signal:
+
 ```bash
+DEC_BODY=$(cat <<'PARZIVAL_DEC_END'
+Decision: <full decision text>
+Rationale: <full rationale text, may contain "quotes", $signs, and
+multiple lines>
+PARZIVAL_DEC_END
+)
 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" parzival_save_decision.py \
     --dec-id PM285-D2 \
-    --content "Decision: ... Rationale: ..." \
+    --content "$DEC_BODY" \
     --pm-number 285
 ```
 
-Optional flags:
+The single-quoted terminator (`'PARZIVAL_DEC_END'`) preserves the body
+verbatim with no shell variable expansion. The terminator string is
+namespace-distinctive — `EOF` is too common a token and could legitimately
+appear at column 0 within a DEC body — so accidental early termination is
+vanishingly unlikely. The terminator must not appear at column 0 on its
+own line within the body.
+
+Alternative (write DEC body to a temp file first):
 
 ```bash
 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" parzival_save_decision.py \

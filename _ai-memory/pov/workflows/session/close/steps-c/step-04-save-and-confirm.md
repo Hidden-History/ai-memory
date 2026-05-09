@@ -71,18 +71,24 @@ silently truncates past the first embedded `"`, corrupts the SHA-256
 Per F-r2-2 dual-review consensus.
 
 ```bash
-DEC_BODY=$(cat <<'EOF'
+DEC_BODY=$(cat <<'PARZIVAL_DEC_END'
 Decision: <full decision text>
 Rationale: <full rationale text, may contain "quotes", $signs, and
 multiple lines>
-EOF
+PARZIVAL_DEC_END
 )
 /parzival-save-decision --dec-id PMxxx-D# --content "$DEC_BODY" --pm-number xxx
 ```
 
-The single-quoted heredoc terminator (`'EOF'`) preserves the body verbatim:
-no shell variable expansion, no quote-escaping required. Always use single
-quotes around `EOF` to disable interpolation.
+The single-quoted heredoc terminator (`'PARZIVAL_DEC_END'`) preserves the
+body verbatim: no shell variable expansion, no quote-escaping required.
+Always use single quotes around the terminator to disable interpolation.
+
+The terminator string is deliberately namespace-distinctive — `EOF` is too
+common a token and could legitimately appear at column 0 within a DEC body
+that discusses heredocs, byte sequences, or shell idioms; using
+`PARZIVAL_DEC_END` makes accidental early termination vanishingly unlikely.
+The terminator must not appear at column 0 on its own line within the body.
 
 Optional flags: `--rationale "<separate rationale text>"`, `--session-id <id>`.
 
