@@ -122,8 +122,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   workspace docs with the shipped "Tier B filesystem persistence" /
   "Tier B sanctum reload" terminology per DEC-253-14. Tier B is
   filesystem-only in v2.4.0; the future Qdrant-overlay enhancement is
-  logged as TD-470. Historical/archived docs preserved (accurate at
-  their writing date). Documentation-only change; no functional impact.
+  logged as TD-470 (PLAN-025 backlog — no standalone TECH-DEBT file yet,
+  registered in the plan progress doc). Historical/archived docs
+  preserved (accurate at their writing date). Documentation-only change;
+  no functional impact.
+- **TD-518 hardening** (cycle-2 review): L1 aggregation now (a)
+  collection-aware via `result.get("collection", COLLECTION_DISCUSSIONS)`
+  (F-r2-4 — composes with future emit types routed to non-discussions
+  collections; default-to-discussions preserves backward-compat) and
+  (b) preserves the original advertised count separately as
+  `chunking_metadata.total_chunks_advertised` while
+  `chunking_metadata.total_chunks` reflects siblings actually
+  concatenated (F-r2-5 — partial-drift detectable from result metadata,
+  not just `bootstrap_aggregation_partial` WARN logs). Workspace TD-518
+  spec §"Fix Design" item 5 + AC #4 updated to reflect the dual-field
+  shape. Two new tests T6 (collection-aware) + T7 (default-collection
+  fallback).
+- **TD-519 hardening** (cycle-2 review): `decision_summary` metadata
+  field now strips the leading `DEC-XXX-D#:` prefix when present
+  (F-r2-6 — `dec_id` field already carries the ID, so the summary stores
+  the meaningful suffix only). Applied in both
+  `scripts/memory/parzival_save_decision.py` and the inline
+  `.claude/skills/parzival-save-decision/SKILL.md` copy.
+- **Closeout step-04 multi-line DEC body safety** (F-r2-2): step-04 §3
+  invocation example now uses a single-quoted heredoc pattern
+  (`DEC_BODY=$(cat <<'EOF' ... EOF)`) instead of fragile single-line
+  `--content "<text>"` shell quoting. Multi-line DEC bodies with
+  embedded `"`, `$`, or newlines were previously vulnerable to silent
+  truncation past the first embedded `"`, corrupting the SHA-256
+  `content_hash` and defeating D-3 dedup with no error signal.
+- **Test marker cleanup** (F-r2-1): dropped `@pytest.mark.integration`
+  from 9 in-memory tests in `tests/test_l1_handoff_aggregation.py` and
+  `tests/test_session_close_decision_emit.py` — they use only
+  `QdrantClient(":memory:")` (zero Docker), but the marker was placing
+  them in a CI double blind spot (release.yml without
+  `--run-integration` auto-skipped them; test.yml integration job
+  scoped only to `tests/integration/` directory). All 13 now run at
+  default `pytest` invocation without any CI workflow change.
+- **Code style** (F-r2-3): moved `qdrant_client.models` import in
+  `src/memory/injection.py` from inside the first-party `from memory.*`
+  block to the third-party section alongside `numpy`. PEP 8 / isort
+  alignment; no runtime impact.
 - **Langfuse setup `_fixup_init_user` postgres role/db concatenation
   (TD-512 fix)**: `scripts/langfuse_setup.sh _fixup_init_user` was
   concatenating `"$prefix"langfuse` to construct postgres `-U` (role) and
