@@ -151,7 +151,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **TD-519 follow-up — closeout step-04 multi-line DEC body safety**: the
   closeout `step-04-save-and-confirm.md` `Emit Decisions to Qdrant` sub-step
   now uses a single-quoted heredoc pattern
-  (`DEC_BODY=$(cat <<'EOF' ... EOF)`) instead of single-line
+  (`DEC_BODY=$(cat <<'PARZIVAL_DEC_END' ... PARZIVAL_DEC_END)`) instead of single-line
   `--content "<text>"` shell quoting. Multi-line DEC bodies with embedded
   `"`, `$`, or newlines were previously vulnerable to silent truncation past
   the first embedded `"`, corrupting the SHA-256 `content_hash` and
