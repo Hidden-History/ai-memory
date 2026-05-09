@@ -57,7 +57,29 @@ Invoke the insight save skill with current task state:
 
 ---
 
-### 3. Present Final Closeout Confirmation
+### 3. Emit Decisions to Qdrant (TD-519)
+
+For each DEC entry logged in this session's `PMxxx-D#` block in
+`{oversight_path}/tracking/decision-log.md`, invoke the decision save skill
+once per DEC:
+
+/parzival-save-decision --dec-id PMxxx-D# --content "<full DEC text>" --pm-number xxx
+
+Optional flags: `--rationale "<separate rationale text>"`, `--session-id <id>`.
+
+**If skill succeeds (per DEC)**: Note Qdrant memory ID in the closeout checklist.
+
+**If Qdrant is unavailable / per-DEC failure**: Log warning, continue —
+`decision-log.md` is the primary record. Do NOT retry. Do NOT block. The
+script returns 0 even on failure for closeout-continues semantics.
+
+**Storage contract** (Chunking-Strategy-V2 §3.3): decisions store WHOLE
+(1 vector, no chunking, no thresholds, no truncation). Re-emit is idempotent
+via SHA-256 `content_hash` dedup.
+
+---
+
+### 4. Present Final Closeout Confirmation
 
 ```
 ## Session Closeout Complete
@@ -77,14 +99,15 @@ Invoke the insight save skill with current task state:
 - [x] Task status updates: [Applied / Pending user approval]
 - [x] Decision log: [Updated / No new decisions]
 - [x] Blockers log: [Updated / No new blockers]
-- [x] Qdrant save: [Success / Skipped -- unavailable]
+- [x] Qdrant handoff save: [Success / Skipped -- unavailable]
+- [x] Qdrant decision emit: [N saved / Skipped -- unavailable / No new decisions]
 
 Ready for next session. Anything else before we close?
 ```
 
 ---
 
-### 4. Handle Final User Requests
+### 5. Handle Final User Requests
 
 If the user has additional items:
 - Address them before confirming closure

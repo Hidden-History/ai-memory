@@ -137,7 +137,11 @@ class TestStoreAgentMemory:
             )
 
     def test_valid_types_accepted(self):
-        """All 4 agent types are accepted (no ValueError)."""
+        """All 5 agent types are accepted (no ValueError).
+
+        TD-519: ``decision`` added to allowlist so /parzival-save-decision
+        can emit DEC entries to Qdrant.
+        """
         from memory.storage import MemoryStorage
 
         storage = MagicMock(spec=MemoryStorage)
@@ -150,7 +154,13 @@ class TestStoreAgentMemory:
             }
         )
 
-        for mtype in ["agent_handoff", "agent_memory", "agent_task", "agent_insight"]:
+        for mtype in [
+            "agent_handoff",
+            "agent_memory",
+            "agent_task",
+            "agent_insight",
+            "decision",
+        ]:
             result = storage.store_agent_memory(
                 content=f"Test {mtype} content that is long enough",
                 memory_type=mtype,
