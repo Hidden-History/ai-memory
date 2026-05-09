@@ -29,6 +29,32 @@ Write the session handoff document for the next Parzival session and update the 
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
+### 0. Pre-condition: Verify Handoff Template Exists (TD-520 / TD-500)
+
+Before composing handoff content, confirm the handoff template exists at its
+canonical location. The template is the binding site for the TD-500 empirical
+commits-ahead capture mandate; the §1 fallback ("use the format below") MUST
+NOT silently fire when the template is missing — that path produces a handoff
+without the Branch State block.
+
+Check: `_ai-memory/pov/templates/session-handoff.template.md` exists.
+
+**If missing — HALT session-close** with the explicit error:
+
+> Handoff template missing — cannot enforce TD-500 empirical commits-ahead
+> capture. Restore template before continuing:
+> `_ai-memory/pov/templates/session-handoff.template.md`.
+
+Do NOT degrade to the §1 fallback. Do NOT auto-recover. Operator must restore
+the template (e.g., `git checkout _ai-memory/pov/templates/session-handoff.template.md`
+or re-run installer) before resuming session-close.
+
+This check is a belt-and-suspenders companion to the same check at step-02
+entry — covers any future workflow refactor that bypasses step-02 directly to
+step-03.
+
+---
+
 ### 1. Load Template (If Available)
 
 If `{handoffTemplate}` exists, use it as the format guide. Otherwise, use the format below.
