@@ -49,6 +49,9 @@ from memory.embeddings import EmbeddingError
 from memory.intent import IntentType, detect_intent, get_target_collection
 from memory.qdrant_client import QdrantUnavailable
 from memory.search import MemorySearch
+
+# TD-518: Aggregation imports for chunked retrieval reassembly.
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 from memory.triggers import (
     detect_best_practices_keywords,
     detect_decision_keywords,
@@ -252,6 +255,132 @@ def _build_github_enrichment(
     return filtered[:10]
 
 
+def _aggregate_chunked_result(client, result: dict) -> dict:
+    """Aggregate sibling chunks of a chunked retrieval result via scroll-and-concat.
+
+    TD-518 (F-001): When a retrieval result is a single chunk of a multi-chunk
+    emit (e.g., a long agent_handoff that was chunked at store time),
+    dense-vector retrieval scores chunks individually and returns only the
+    highest-scoring chunk — which may be a small trailer fragment carrying
+    <1% of the intended payload. This helper scrolls the discussions
+    collection for siblings sharing ``(group_id, type, created_at)``, sorts
+    them by ``chunking_metadata.chunk_index`` ascending, and concatenates
+    ``content`` into a single aggregated string.
+
+    Type-agnostic: triggers on any chunked result whose
+    ``chunking_metadata.total_chunks`` is greater than 1, regardless of
+    ``memory_type``. Composes with future emit types that ever chunk.
+
+    Failure handling: on any scroll failure, missing match keys, or no
+    siblings found, logs a structured warning and returns the original
+    result unchanged. Bootstrap is never made worse than today.
+
+    Args:
+        client: Qdrant client (e.g., ``MemorySearch.client``).
+        result: A single retrieval result dict including payload fields
+            (``group_id``, ``type``, ``created_at``/``timestamp``,
+            ``chunking_metadata``, ``content``).
+
+    Returns:
+        Aggregated result dict with ``content`` reassembled from siblings
+        and ``chunking_metadata.aggregated_from_chunks`` set to True for
+        diagnostic visibility. On failure, returns ``result`` unchanged.
+
+    References:
+        TECH-DEBT-518 §"Fix Design"
+        Chunking-Strategy-V2 §3.3
+    """
+    metadata = result.get("chunking_metadata") or {}
+    total_chunks = metadata.get("total_chunks", 1)
+    if not isinstance(total_chunks, int) or total_chunks <= 1:
+        # Whole-emit (or absent metadata): bypass aggregation, no extra cost.
+        return result
+
+    group_id = result.get("group_id")
+    memory_type = result.get("type")
+    created_at = result.get("created_at") or result.get("timestamp")
+
+    if not (group_id and memory_type and created_at):
+        logger.warning(
+            "bootstrap_aggregation_skipped",
+            extra={
+                "reason": "missing_match_keys",
+                "has_group_id": bool(group_id),
+                "has_type": bool(memory_type),
+                "has_created_at": bool(created_at),
+                "total_chunks": total_chunks,
+            },
+        )
+        return result
+
+    try:
+        filter_conditions = [
+            FieldCondition(key="group_id", match=MatchValue(value=group_id)),
+            FieldCondition(key="type", match=MatchValue(value=memory_type)),
+            FieldCondition(key="created_at", match=MatchValue(value=created_at)),
+        ]
+        # Generous limit absorbs metadata drift; 37-chunk Session 44 case fits easily.
+        scroll_limit = max(total_chunks * 2, 100)
+        points, _next_offset = client.scroll(
+            collection_name=COLLECTION_DISCUSSIONS,
+            scroll_filter=Filter(must=filter_conditions),
+            limit=scroll_limit,
+            with_payload=True,
+            with_vectors=False,
+        )
+    except Exception as exc:  # noqa: BLE001 — never crash bootstrap on aggregation failure
+        logger.warning(
+            "bootstrap_aggregation_failed",
+            extra={
+                "error": str(exc),
+                "type": memory_type,
+                "total_chunks": total_chunks,
+            },
+        )
+        return result
+
+    if not points:
+        logger.warning(
+            "bootstrap_aggregation_no_siblings",
+            extra={"type": memory_type, "expected_chunks": total_chunks},
+        )
+        return result
+
+    # Sort siblings by chunk_index ascending. Missing index sorts to end so
+    # mis-tagged chunks land last and don't disrupt the ordered prefix.
+    def _chunk_idx(point) -> int:
+        cm = (getattr(point, "payload", None) or {}).get("chunking_metadata") or {}
+        idx = cm.get("chunk_index")
+        return idx if isinstance(idx, int) else 99999
+
+    sorted_points = sorted(points, key=_chunk_idx)
+
+    aggregated_content = "".join(
+        ((getattr(p, "payload", None) or {}).get("content") or "")
+        for p in sorted_points
+    )
+
+    if len(sorted_points) < total_chunks:
+        logger.warning(
+            "bootstrap_aggregation_partial",
+            extra={
+                "type": memory_type,
+                "found_chunks": len(sorted_points),
+                "expected_chunks": total_chunks,
+            },
+        )
+
+    aggregated = dict(result)
+    aggregated["content"] = aggregated_content
+    aggregated["chunking_metadata"] = {
+        **metadata,
+        "chunk_type": "whole_aggregated",
+        "total_chunks": len(sorted_points),
+        "aggregated_from_chunks": True,
+    }
+    return aggregated
+
+
 def retrieve_bootstrap_context(
     search_client: MemorySearch,
     project_name: str,
@@ -294,6 +423,13 @@ def retrieve_bootstrap_context(
             agent_id="parzival",
             limit=1,
         )
+        # TD-518 (F-001): If the retrieved chunk is part of a multi-chunk emit,
+        # aggregate siblings via scroll-and-concat so cross-session continuity
+        # delivers the full handoff body rather than a fragment.
+        if last_handoff:
+            last_handoff[0] = _aggregate_chunked_result(
+                search_client.client, last_handoff[0]
+            )
         results.extend(last_handoff)
     except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
         logger.warning(
