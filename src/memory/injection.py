@@ -271,6 +271,28 @@ def _aggregate_chunked_result(client, result: dict) -> dict:
     ``chunking_metadata.total_chunks`` is greater than 1, regardless of
     ``memory_type``. Composes with future emit types that ever chunk.
 
+    Collection-aware (TD-518 / F-r2-4): the scroll target collection is
+    extracted from ``result.get("collection", COLLECTION_DISCUSSIONS)``, so
+    chunked emits routed to non-discussions collections (e.g., a future
+    type stored in ``code-patterns`` or ``conventions``) are handled
+    correctly. Default falls back to ``COLLECTION_DISCUSSIONS`` for
+    backward-compatibility with any caller whose result dict lacks the
+    ``collection`` key.
+
+    Drift signal (TD-518 / F-r2-5): the aggregated result preserves the
+    original advertised count separately from the count actually
+    concatenated, so diagnostic tools can detect partial aggregation
+    without parsing logs:
+
+    - ``chunking_metadata.total_chunks_advertised``: original N from the
+      trigger chunk's metadata
+    - ``chunking_metadata.total_chunks``: K, the count of siblings actually
+      found and concatenated (matches TECH-DEBT-518 Fix Design item 5)
+
+    Complete reassembly: ``total_chunks_advertised == total_chunks``.
+    Partial drift: ``total_chunks_advertised > total_chunks`` (also emits
+    ``bootstrap_aggregation_partial`` WARN).
+
     Failure handling: on any scroll failure, missing match keys, or no
     siblings found, logs a structured warning and returns the original
     result unchanged. Bootstrap is never made worse than today.
@@ -279,7 +301,7 @@ def _aggregate_chunked_result(client, result: dict) -> dict:
         client: Qdrant client (e.g., ``MemorySearch.client``).
         result: A single retrieval result dict including payload fields
             (``group_id``, ``type``, ``created_at``/``timestamp``,
-            ``chunking_metadata``, ``content``).
+            ``collection``, ``chunking_metadata``, ``content``).
 
     Returns:
         Aggregated result dict with ``content`` reassembled from siblings
@@ -287,7 +309,7 @@ def _aggregate_chunked_result(client, result: dict) -> dict:
         diagnostic visibility. On failure, returns ``result`` unchanged.
 
     References:
-        TECH-DEBT-518 §"Fix Design"
+        TECH-DEBT-518 §"Fix Design" item 5 (dual-field shape per F-r2-5)
         Chunking-Strategy-V2 §3.3
     """
     metadata = result.get("chunking_metadata") or {}
@@ -313,6 +335,10 @@ def _aggregate_chunked_result(client, result: dict) -> dict:
         )
         return result
 
+    # F-r2-4: extract collection from result; default to discussions for
+    # backward-compatibility with any caller whose result dict lacks the key.
+    target_collection = result.get("collection") or COLLECTION_DISCUSSIONS
+
     try:
         filter_conditions = [
             FieldCondition(key="group_id", match=MatchValue(value=group_id)),
@@ -322,7 +348,7 @@ def _aggregate_chunked_result(client, result: dict) -> dict:
         # Generous limit absorbs metadata drift; 37-chunk Session 44 case fits easily.
         scroll_limit = max(total_chunks * 2, 100)
         points, _next_offset = client.scroll(
-            collection_name=COLLECTION_DISCUSSIONS,
+            collection_name=target_collection,
             scroll_filter=Filter(must=filter_conditions),
             limit=scroll_limit,
             with_payload=True,
@@ -372,9 +398,13 @@ def _aggregate_chunked_result(client, result: dict) -> dict:
 
     aggregated = dict(result)
     aggregated["content"] = aggregated_content
+    # F-r2-5: dual-field shape — preserve advertised count separately from
+    # actual concatenated count so partial-drift is observable in result
+    # metadata, not just in WARN logs.
     aggregated["chunking_metadata"] = {
         **metadata,
         "chunk_type": "whole_aggregated",
+        "total_chunks_advertised": total_chunks,
         "total_chunks": len(sorted_points),
         "aggregated_from_chunks": True,
     }

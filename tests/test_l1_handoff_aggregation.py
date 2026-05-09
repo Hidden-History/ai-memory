@@ -186,7 +186,13 @@ def test_T2_five_chunks_aggregate_byte_equivalent(
     )
     cm = handoff_results[0].get("chunking_metadata") or {}
     assert cm.get("aggregated_from_chunks") is True
-    assert cm.get("total_chunks") == 5
+    # F-r2-5 dual-field shape: complete reassembly → advertised == found
+    assert cm.get("total_chunks_advertised") == 5, (
+        "Original advertised count must be preserved as total_chunks_advertised"
+    )
+    assert cm.get("total_chunks") == 5, (
+        "total_chunks reflects siblings actually concatenated (5 of 5 = complete)"
+    )
 
 
 # ─── T3: Missing siblings — fallback returns the trigger chunk + WARN ───────
@@ -227,6 +233,15 @@ def test_T3_missing_siblings_partial_aggregation_warns(
     assert len(handoff_results) == 1, "Bootstrap must remain functional under partial aggregation"
     # All 3 found chunks concatenated
     assert handoff_results[0]["content"] == "".join(chunk_bodies)
+    # F-r2-5 dual-field shape: drift visible in result metadata, not just WARN
+    cm = handoff_results[0].get("chunking_metadata") or {}
+    assert cm.get("total_chunks_advertised") == 5, (
+        "Original advertised count (5) preserved as total_chunks_advertised "
+        "for drift detection"
+    )
+    assert cm.get("total_chunks") == 3, (
+        "total_chunks reflects siblings actually found (3 of 5 = partial)"
+    )
     # Partial WARN emitted
     warn_messages = [r.message for r in caplog.records]
     assert any("bootstrap_aggregation_partial" in m for m in warn_messages), (
@@ -319,3 +334,142 @@ def test_T5_aggregated_from_chunks_diagnostic_field(
     assert cm.get("aggregated_from_chunks") is True
     assert cm.get("chunk_type") == "whole_aggregated"
     assert cm.get("total_chunks") == 3
+    # F-r2-5 dual-field shape: complete reassembly preserves both counts
+    assert cm.get("total_chunks_advertised") == 3
+
+
+# ─── T6: collection-aware aggregation (F-r2-4) ──────────────────────────────
+
+
+def test_T6_aggregation_uses_result_collection_field(qdrant_inmemory, mock_embedding):
+    """F-r2-4: ``_aggregate_chunked_result`` must scroll the collection
+    indicated by ``result.get("collection")``, not the hardcoded
+    ``COLLECTION_DISCUSSIONS``. This makes the helper truly type-agnostic
+    for future emit types that route to non-discussions collections.
+
+    Synthetic test: insert 3 chunks into a freshly-created secondary
+    collection (``code-patterns``), call the helper directly with a
+    synthetic trigger result naming that collection, and assert the helper
+    found and aggregated all 3 (would return original chunk if it had
+    scrolled discussions instead).
+    """
+    from qdrant_client.models import Distance, VectorParams
+
+    from memory.injection import _aggregate_chunked_result
+
+    # Set up a secondary collection (not discussions) — synthetic future-type case.
+    secondary_collection = "code-patterns"
+    qdrant_inmemory.create_collection(
+        collection_name=secondary_collection,
+        vectors_config=VectorParams(size=768, distance=Distance.COSINE),
+    )
+
+    group_id = "test-td518-t6-collection-aware"
+    created_at = "2026-05-09T10:25:00Z"
+    chunk_bodies = [
+        "Secondary-collection chunk 0.\n",
+        "Secondary-collection chunk 1.\n",
+        "Secondary-collection chunk 2.\n",
+    ]
+    points = []
+    for idx, content in enumerate(chunk_bodies):
+        points.append(
+            PointStruct(
+                id=str(uuid.uuid4()),
+                vector=FIXED_VECTOR,
+                payload={
+                    "content": content,
+                    "type": "future_type_example",
+                    "agent_id": "parzival",
+                    "group_id": group_id,
+                    "created_at": created_at,
+                    "timestamp": created_at,
+                    "chunking_metadata": {
+                        "chunk_type": "prose",
+                        "chunk_index": idx,
+                        "total_chunks": 3,
+                    },
+                },
+            )
+        )
+    qdrant_inmemory.upsert(collection_name=secondary_collection, points=points)
+
+    # Synthetic trigger result, as if a future Layer X retrieval had returned
+    # one of the 3 chunks from code-patterns. Critically, sets `collection`.
+    trigger_result = {
+        "content": chunk_bodies[1],
+        "type": "future_type_example",
+        "agent_id": "parzival",
+        "group_id": group_id,
+        "created_at": created_at,
+        "timestamp": created_at,
+        "collection": secondary_collection,  # <-- the F-r2-4 contract field
+        "chunking_metadata": {
+            "chunk_type": "prose",
+            "chunk_index": 1,
+            "total_chunks": 3,
+        },
+    }
+
+    aggregated = _aggregate_chunked_result(qdrant_inmemory, trigger_result)
+
+    # If the helper had scrolled COLLECTION_DISCUSSIONS (pre-F-r2-4), the
+    # scroll would return zero points → aggregation falls back to original
+    # trigger chunk → content == chunk_bodies[1] (the trigger's own content)
+    # and aggregated_from_chunks would be missing/False.
+    assert aggregated["content"] == "".join(chunk_bodies), (
+        "Helper must scroll the collection from result['collection'], not "
+        "the hardcoded COLLECTION_DISCUSSIONS. If this fails with content == "
+        "chunk_bodies[1] only, the F-r2-4 collection-aware fix has regressed."
+    )
+    cm = aggregated.get("chunking_metadata") or {}
+    assert cm.get("aggregated_from_chunks") is True
+    assert cm.get("total_chunks_advertised") == 3
+    assert cm.get("total_chunks") == 3
+
+
+def test_T7_aggregation_default_collection_when_field_missing(
+    qdrant_inmemory, mock_embedding
+):
+    """F-r2-4 backward-compat: when the result dict lacks a ``collection``
+    key entirely, the helper must default to ``COLLECTION_DISCUSSIONS``
+    (same behavior as pre-F-r2-4). Defensive guard against any caller
+    whose result format omits the field.
+    """
+    from memory.injection import _aggregate_chunked_result
+
+    group_id = "test-td518-t7-default-collection"
+    created_at = "2026-05-09T10:30:00Z"
+    chunk_bodies = ["Default-collection chunk 0.\n", "Default-collection chunk 1.\n"]
+    _insert_handoff_chunks(
+        qdrant_inmemory,
+        group_id=group_id,
+        created_at=created_at,
+        chunks=chunk_bodies,
+        total_chunks=2,
+    )
+
+    # Trigger result WITHOUT a `collection` key — pre-F-r2-4 caller shape.
+    trigger_result = {
+        "content": chunk_bodies[0],
+        "type": "agent_handoff",
+        "agent_id": "parzival",
+        "group_id": group_id,
+        "created_at": created_at,
+        "timestamp": created_at,
+        # no `collection` field
+        "chunking_metadata": {
+            "chunk_type": "prose",
+            "chunk_index": 0,
+            "total_chunks": 2,
+        },
+    }
+
+    aggregated = _aggregate_chunked_result(qdrant_inmemory, trigger_result)
+
+    # Defaults to discussions → finds the 2 inserted chunks → aggregates.
+    assert aggregated["content"] == "".join(chunk_bodies)
+    cm = aggregated.get("chunking_metadata") or {}
+    assert cm.get("aggregated_from_chunks") is True
+    assert cm.get("total_chunks_advertised") == 2
+    assert cm.get("total_chunks") == 2
