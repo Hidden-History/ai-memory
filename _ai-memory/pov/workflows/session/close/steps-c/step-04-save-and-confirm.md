@@ -68,7 +68,6 @@ string)** — DEC bodies are multi-line by convention (`Decision: ...\nRationale
 and frequently contain embedded `"`, `$`, and newlines. Single-line quoting
 silently truncates past the first embedded `"`, corrupts the SHA-256
 `content_hash`, and defeats the D-3 dedup contract with no error signal.
-Per F-r2-2 dual-review consensus.
 
 ```bash
 DEC_BODY=$(cat <<'PARZIVAL_DEC_END'

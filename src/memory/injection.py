@@ -271,7 +271,7 @@ def _aggregate_chunked_result(client, result: dict) -> dict:
     ``chunking_metadata.total_chunks`` is greater than 1, regardless of
     ``memory_type``. Composes with future emit types that ever chunk.
 
-    Collection-aware (TD-518 / F-r2-4): the scroll target collection is
+    Collection-aware (TD-518): the scroll target collection is
     extracted from ``result.get("collection", COLLECTION_DISCUSSIONS)``, so
     chunked emits routed to non-discussions collections (e.g., a future
     type stored in ``code-patterns`` or ``conventions``) are handled
@@ -279,7 +279,7 @@ def _aggregate_chunked_result(client, result: dict) -> dict:
     backward-compatibility with any caller whose result dict lacks the
     ``collection`` key.
 
-    Drift signal (TD-518 / F-r2-5): the aggregated result preserves the
+    Drift signal (TD-518): the aggregated result preserves the
     original advertised count separately from the count actually
     concatenated, so diagnostic tools can detect partial aggregation
     without parsing logs:
@@ -309,7 +309,7 @@ def _aggregate_chunked_result(client, result: dict) -> dict:
         diagnostic visibility. On failure, returns ``result`` unchanged.
 
     References:
-        TECH-DEBT-518 §"Fix Design" item 5 (dual-field shape per F-r2-5)
+        TECH-DEBT-518 §"Fix Design" item 5
         Chunking-Strategy-V2 §3.3
     """
     metadata = result.get("chunking_metadata") or {}
@@ -406,7 +406,7 @@ def _aggregate_chunked_result(client, result: dict) -> dict:
 
     aggregated = dict(result)
     aggregated["content"] = aggregated_content
-    # F-r2-5: dual-field shape — preserve advertised count separately from
+    # TD-518: dual-field shape — preserve advertised count separately from
     # actual concatenated count so partial-drift is observable in result
     # metadata, not just in WARN logs.
     aggregated["chunking_metadata"] = {
