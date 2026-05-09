@@ -335,8 +335,16 @@ def _aggregate_chunked_result(client, result: dict) -> dict:
         )
         return result
 
-    # F-r2-4: extract collection from result; default to discussions for
+    # Extract collection from result; default to discussions for
     # backward-compatibility with any caller whose result dict lacks the key.
+    # The `or`-fallthrough is intentional and defensive: it falls back for
+    # BOTH missing key (None) AND empty-string value (e.g., from a buggy
+    # upstream serialization that produces `result["collection"] = ""`).
+    # Silent degradation to discussions is preferred over letting Qdrant
+    # raise on `scroll(collection_name="")` — the helper's contract is
+    # "never crash bootstrap"; an upstream bug surfaces via the WARN
+    # `bootstrap_aggregation_no_siblings` log if discussions has no
+    # matching keys.
     target_collection = result.get("collection") or COLLECTION_DISCUSSIONS
 
     try:
