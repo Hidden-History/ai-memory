@@ -37,6 +37,9 @@ from typing import NamedTuple
 
 import numpy as np
 
+# TD-518: Aggregation imports for chunked retrieval reassembly.
+from qdrant_client.models import FieldCondition, Filter, MatchValue
+
 from memory.chunking.truncation import count_tokens
 from memory.config import (
     COLLECTION_CODE_PATTERNS,
@@ -49,9 +52,6 @@ from memory.embeddings import EmbeddingError
 from memory.intent import IntentType, detect_intent, get_target_collection
 from memory.qdrant_client import QdrantUnavailable
 from memory.search import MemorySearch
-
-# TD-518: Aggregation imports for chunked retrieval reassembly.
-from qdrant_client.models import FieldCondition, Filter, MatchValue
 from memory.triggers import (
     detect_best_practices_keywords,
     detect_decision_keywords,

@@ -59,7 +59,8 @@ def main():
 
     args = _parse_args()
     session_id = args.session_id or os.environ.get("CLAUDE_SESSION_ID", "unknown")
-    decision_summary = args.content.split("\n")[0][:200]
+    # F-r2-6: strip leading "DEC-XXX-D#:" prefix; dec_id field carries the ID.
+    decision_summary = args.content.split("\n")[0].split(":", 1)[-1].strip()[:200]
     metadata = {
         "dec_id": args.dec_id,
         "pm_number": args.pm_number,

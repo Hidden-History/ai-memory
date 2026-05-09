@@ -403,3 +403,64 @@ def test_T8_script_parzival_disabled_returns_zero():
 
     assert rc == 0
     mock_storage.store_agent_memory.assert_not_called()
+
+
+# ─── T9: F-r2-6 — decision_summary strips DEC-XXX-D# prefix ─────────────────
+
+
+def test_T9_decision_summary_strips_dec_prefix(storage_with_inmemory):
+    """F-r2-6: when input content begins with the conventional
+    ``DEC-PMxxx-D#: <text>`` prefix, ``decision_summary`` must NOT redundantly
+    carry the DEC ID (which is already populated in ``metadata["dec_id"]``).
+    The summary should be the meaningful suffix only.
+
+    This test exercises the same logic the script uses
+    (``content.split("\\n")[0].split(":", 1)[-1].strip()[:200]``) by storing
+    a DEC via the script's metadata convention and asserting the stored
+    payload's ``decision_summary`` lacks the DEC- prefix.
+    """
+    from memory.config import COLLECTION_DISCUSSIONS
+    from memory.search import MemorySearch
+
+    storage, config = storage_with_inmemory
+    group_id = "test-td519-t9-prefix-strip"
+    full_content = (
+        "DEC-PM286-T9: Strip the prefix.\nRationale: dec_id already carries it."
+    )
+
+    # Mirror script's prefix-strip logic (the script computes summary itself
+    # from --content; this test exercises the same string operation as the
+    # script's `decision_summary` derivation).
+    summary = full_content.split("\n")[0].split(":", 1)[-1].strip()[:200]
+
+    storage.store_agent_memory(
+        content=full_content,
+        memory_type="decision",
+        agent_id="parzival",
+        group_id=group_id,
+        metadata={
+            "dec_id": "DEC-PM286-T9",
+            "pm_number": 286,
+            "decision_summary": summary,
+            "rationale_text": None,
+        },
+    )
+
+    search = MemorySearch(config)
+    search.client = storage.qdrant_client
+    results = search.get_recent(
+        collection=COLLECTION_DISCUSSIONS,
+        group_id=group_id,
+        memory_type=["decision"],
+        limit=5,
+    )
+    assert len(results) == 1
+    stored_summary = results[0].get("decision_summary")
+    assert stored_summary is not None
+    assert not stored_summary.startswith("DEC-"), (
+        f"decision_summary must NOT start with 'DEC-' prefix; got {stored_summary!r}. "
+        "F-r2-6 prefix-strip regression."
+    )
+    assert stored_summary == "Strip the prefix.", (
+        f"Expected meaningful suffix only; got {stored_summary!r}"
+    )

@@ -79,7 +79,11 @@ def main() -> int:
     session_id = args.session_id or os.environ.get("CLAUDE_SESSION_ID", "unknown")
 
     # First line of the DEC body acts as a quick-scan summary; cap defensively.
-    decision_summary = args.content.split("\n")[0][:200]
+    # F-r2-6: strip leading "DEC-XXX-D#:" prefix when present — the dec_id field
+    # already carries the ID, so the summary should be the meaningful suffix
+    # (e.g., "Add 'decision' to allowlist" rather than
+    # "DEC-PM286-D2: Add 'decision' to allowlist").
+    decision_summary = args.content.split("\n")[0].split(":", 1)[-1].strip()[:200]
 
     metadata = {
         "dec_id": args.dec_id,
