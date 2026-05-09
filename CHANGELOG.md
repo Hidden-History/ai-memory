@@ -76,6 +76,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions group bump** (PR #113): Bumped 2 actions in `.github/workflows/community.yml`, `dependabot-auto-merge.yml`, `release.yml`. CI-only impact; no runtime change.
 
 ### Fixed
+- **L1 handoff retrieval aggregation** (TD-518 / F-001): Bootstrap Layer 1
+  now reassembles multi-chunk `agent_handoff` results via type-agnostic
+  scroll-and-concat. Previous behavior returned only the single
+  highest-scoring chunk — testV2 Session 45 measured this delivering a
+  102-byte trailer (~0.5%) of a 20,039-byte handoff body across 37 chunks,
+  silently breaking cross-session continuity. Trigger condition is purely
+  metadata-based (`chunking_metadata.total_chunks > 1`); whole-emit
+  handoffs (`total_chunks=1`) bypass aggregation, no perf regression.
+  Fallback returns the original chunk + `bootstrap_aggregation_*` WARN
+  on any scroll/match-key failure (never crashes bootstrap). Aggregated
+  results expose `chunking_metadata.aggregated_from_chunks=True` for
+  diagnostic visibility. Composes with future emit types that ever chunk.
+  See `oversight/tech-debt/TECH-DEBT-518-handoff-retrieval-aggregation.md`.
+- **Decision-type emit at session closeout** (TD-519 / F-002): Closes the
+  long-standing gap where session decisions were canonical-stored in
+  `oversight/tracking/decision-log.md` but never emitted to Qdrant.
+  Bootstrap L2 retrieval (`memory_type=["decision"]`) was permanently
+  empty as a result. New `/parzival-save-decision` skill fires once per
+  DEC entry from session-close `step-04-save-and-confirm.md`; per-DEC
+  failure is non-fatal (`decision-log.md` is the primary record, script
+  returns 0). Storage shape is whole, 1 vector, no chunking, no
+  thresholds, no truncation per Chunking-Strategy-V2 §3.3 + §7
+  (guaranteed by `content_type_map` not mapping `MemoryType.DECISION`,
+  so the chunker is skipped entirely). Re-emit is idempotent via
+  SHA-256 `content_hash` dedup. Adds `"decision"` to the
+  `store_agent_memory` allowlist (D-2-A) — purely additive. See
+  `oversight/tech-debt/TECH-DEBT-519-decision-emit-additive.md`.
+- **Closeout hard-fails on missing handoff template** (TD-520 / F-C6):
+  Session-close `step-02-update-tracking.md` and `step-03-create-handoff.md`
+  now both check for `_ai-memory/pov/templates/session-handoff.template.md`
+  at entry. If missing, halt with an operator-actionable error
+  ("Handoff template missing — cannot enforce TD-500 empirical
+  commits-ahead capture. Restore template before continuing: ..."). Was
+  a silent skip risk for the TD-500 empirical commits-ahead mandate
+  because TD-500 enforcement is template-bound. Belt-and-suspenders
+  pre-condition at both step entry points covers any future workflow
+  refactor. See `oversight/tech-debt/TECH-DEBT-520-td500-enforcement-hardening.md`.
+- **Documentation: expected 0-result Qdrant baseline on fresh install**
+  (Q-5): The post-install verification spec (in the testV2 project's
+  oversight) now explicitly documents that fresh installs (post-`stack.sh nuke`
+  + `rm -rf ~/.ai-memory` + reinstall) produce empty Qdrant collections by
+  design — this is the expected baseline, NOT a regression. Prevents
+  operator false-alarm reads when initial `scroll` queries return zero
+  points. Documentation-only change; no functional impact.
+- **Documentation: terminology cleanup for "Tier B Qdrant persistence"**
+  (Q-7): Replaced stale "Tier B Qdrant persistence" wording in active
+  workspace docs with the shipped "Tier B filesystem persistence" /
+  "Tier B sanctum reload" terminology per DEC-253-14. Tier B is
+  filesystem-only in v2.4.0; the future Qdrant-overlay enhancement is
+  logged as TD-470. Historical/archived docs preserved (accurate at
+  their writing date). Documentation-only change; no functional impact.
 - **Langfuse setup `_fixup_init_user` postgres role/db concatenation
   (TD-512 fix)**: `scripts/langfuse_setup.sh _fixup_init_user` was
   concatenating `"$prefix"langfuse` to construct postgres `-U` (role) and
