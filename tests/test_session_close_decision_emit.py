@@ -82,7 +82,6 @@ def storage_with_inmemory(qdrant_inmemory, mock_embedding, monkeypatch):
 # ─── T1: Allowlist accepts memory_type="decision" (D-2-A) ───────────────────
 
 
-@pytest.mark.integration
 def test_T1_decision_type_accepted_by_allowlist(storage_with_inmemory):
     """D-2-A: ``store_agent_memory(memory_type="decision", ...)`` does NOT
     raise ValueError. Was previously rejected — load-bearing for the entire
@@ -112,7 +111,6 @@ def test_T1_decision_type_accepted_by_allowlist(storage_with_inmemory):
 # ─── T2: Round-trip — store 2 DECs, retrieve via L2 (get_recent) ─────────────
 
 
-@pytest.mark.integration
 def test_T2_round_trip_two_decs_retrievable_via_get_recent(storage_with_inmemory):
     """D-5: After emit, ``get_recent(collection=discussions,
     memory_type=["decision"], group_id=...)`` returns both DECs with
@@ -163,7 +161,6 @@ def test_T2_round_trip_two_decs_retrievable_via_get_recent(storage_with_inmemory
 # ─── T3: Idempotency — re-emit same DEC produces single point (dedup) ───────
 
 
-@pytest.mark.integration
 def test_T3_reemit_same_dec_dedup_via_content_hash(storage_with_inmemory):
     """D-3: Re-invoking emit for the same DEC body MUST return
     ``status="duplicate"`` on the second call and the collection MUST contain
@@ -210,7 +207,6 @@ def test_T3_reemit_same_dec_dedup_via_content_hash(storage_with_inmemory):
 # ─── T4: D-4 storage shape — whole, 1 vector, no chunking ───────────────────
 
 
-@pytest.mark.integration
 def test_T4_decision_stored_whole_no_chunking(storage_with_inmemory):
     """D-4 (Chunking-Strategy-V2 §3.3 + §7): decisions store WHOLE
     (1 vector, no chunking).

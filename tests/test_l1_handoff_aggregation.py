@@ -117,7 +117,6 @@ def _make_search_client(qdrant_inmemory, monkeypatch):
 # ─── T1: Whole-emit (total_chunks=1) bypasses aggregation ───────────────────
 
 
-@pytest.mark.integration
 def test_T1_whole_emit_bypasses_aggregation(qdrant_inmemory, mock_embedding, monkeypatch):
     """A single-chunk handoff (total_chunks=1) must be returned as-is.
 
@@ -150,7 +149,6 @@ def test_T1_whole_emit_bypasses_aggregation(qdrant_inmemory, mock_embedding, mon
 # ─── T2: 5-chunk handoff aggregates byte-equivalent ─────────────────────────
 
 
-@pytest.mark.integration
 def test_T2_five_chunks_aggregate_byte_equivalent(
     qdrant_inmemory, mock_embedding, monkeypatch
 ):
@@ -194,7 +192,6 @@ def test_T2_five_chunks_aggregate_byte_equivalent(
 # ─── T3: Missing siblings — fallback returns the trigger chunk + WARN ───────
 
 
-@pytest.mark.integration
 def test_T3_missing_siblings_partial_aggregation_warns(
     qdrant_inmemory, mock_embedding, monkeypatch, caplog
 ):
@@ -240,7 +237,6 @@ def test_T3_missing_siblings_partial_aggregation_warns(
 # ─── T4: Out-of-order insertion — chunk_index sort enforces order ──────────
 
 
-@pytest.mark.integration
 def test_T4_chunks_sorted_by_chunk_index(qdrant_inmemory, mock_embedding, monkeypatch):
     """Even if chunks were upserted out of insertion order, the aggregated
     content must be in chunk_index ascending order.
@@ -295,7 +291,6 @@ def test_T4_chunks_sorted_by_chunk_index(qdrant_inmemory, mock_embedding, monkey
 # ─── T5: aggregated_from_chunks diagnostic field set ────────────────────────
 
 
-@pytest.mark.integration
 def test_T5_aggregated_from_chunks_diagnostic_field(
     qdrant_inmemory, mock_embedding, monkeypatch
 ):
