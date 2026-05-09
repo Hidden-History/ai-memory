@@ -21,8 +21,17 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import time
+
+# Strips a leading ``DEC-XXX-D#:`` prefix from the first line of a DEC body
+# when computing decision_summary. Case-insensitive; tolerates underscores
+# in the ID for any hypothetical legacy DEC IDs that include them. Non-DEC
+# content (e.g., URLs containing colons, prose with leading qualifiers) is
+# left intact — the regex only matches the DEC-prefix shape, not any
+# colon-prefix shape.
+_DEC_PREFIX_RE = re.compile(r"^DEC-[A-Z0-9_-]+:\s*", re.IGNORECASE)
 
 INSTALL_DIR = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
@@ -79,11 +88,13 @@ def main() -> int:
     session_id = args.session_id or os.environ.get("CLAUDE_SESSION_ID", "unknown")
 
     # First line of the DEC body acts as a quick-scan summary; cap defensively.
-    # F-r2-6: strip leading "DEC-XXX-D#:" prefix when present — the dec_id field
-    # already carries the ID, so the summary should be the meaningful suffix
-    # (e.g., "Add 'decision' to allowlist" rather than
-    # "DEC-PM286-D2: Add 'decision' to allowlist").
-    decision_summary = args.content.split("\n")[0].split(":", 1)[-1].strip()[:200]
+    # Strip leading "DEC-XXX-D#:" prefix WHEN PRESENT — the dec_id payload
+    # field already carries the ID, so the summary stores the meaningful
+    # suffix only. The regex matches only the DEC-prefix shape, leaving
+    # multi-colon legitimate content (URLs, prose qualifiers like "Decision:"
+    # or "Important note:") intact.
+    first_line = args.content.split("\n")[0]
+    decision_summary = _DEC_PREFIX_RE.sub("", first_line).strip()[:200]
 
     metadata = {
         "dec_id": args.dec_id,

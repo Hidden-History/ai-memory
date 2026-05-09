@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import time
 
@@ -37,6 +38,11 @@ sys.path.insert(0, os.path.join(_install_dir, "src"))
 from memory.config import get_config
 from memory.storage import MemoryStorage
 from memory.metrics_push import push_skill_metrics_async
+
+# Strips a leading "DEC-XXX-D#:" prefix from the first line of a DEC body
+# when computing decision_summary. Case-insensitive; matches only the
+# DEC-prefix shape so URLs and prose qualifiers stay intact.
+_DEC_PREFIX_RE = re.compile(r"^DEC-[A-Z0-9_-]+:\s*", re.IGNORECASE)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -59,8 +65,11 @@ def main():
 
     args = _parse_args()
     session_id = args.session_id or os.environ.get("CLAUDE_SESSION_ID", "unknown")
-    # F-r2-6: strip leading "DEC-XXX-D#:" prefix; dec_id field carries the ID.
-    decision_summary = args.content.split("\n")[0].split(":", 1)[-1].strip()[:200]
+    # Strip leading "DEC-XXX-D#:" prefix WHEN PRESENT; dec_id payload field
+    # already carries the ID. Regex matches only the DEC-prefix shape,
+    # leaving multi-colon legitimate content intact.
+    first_line = args.content.split("\n")[0]
+    decision_summary = _DEC_PREFIX_RE.sub("", first_line).strip()[:200]
     metadata = {
         "dec_id": args.dec_id,
         "pm_number": args.pm_number,

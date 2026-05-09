@@ -405,33 +405,88 @@ def test_T8_script_parzival_disabled_returns_zero():
     mock_storage.store_agent_memory.assert_not_called()
 
 
-# ─── T9: F-r2-6 — decision_summary strips DEC-XXX-D# prefix ─────────────────
+# ─── T9: decision_summary strip — DEC-prefix matched only ──────────────────
+#
+# T9a: input has DEC-PMxxx-D# prefix → strip
+# T9b: input is a URL with embedded colon (no DEC prefix) → unchanged
+# T9c: input is prose with leading qualifier ("Important note:") → unchanged
+# T9d: input has lowercase DEC prefix (case-insensitive match) → strip
+#
+# T9b/c/d cover the over-broad-strip regressions that an unconditional
+# split-on-colon would silently corrupt. T9a is the original happy path.
 
 
-def test_T9_decision_summary_strips_dec_prefix(storage_with_inmemory):
-    """F-r2-6: when input content begins with the conventional
-    ``DEC-PMxxx-D#: <text>`` prefix, ``decision_summary`` must NOT redundantly
-    carry the DEC ID (which is already populated in ``metadata["dec_id"]``).
-    The summary should be the meaningful suffix only.
+import pytest
 
-    This test exercises the same logic the script uses
-    (``content.split("\\n")[0].split(":", 1)[-1].strip()[:200]``) by storing
-    a DEC via the script's metadata convention and asserting the stored
-    payload's ``decision_summary`` lacks the DEC- prefix.
+
+@pytest.mark.parametrize(
+    "first_line,expected_summary,case_id",
+    [
+        (
+            "DEC-PM286-T9: Strip the prefix.",
+            "Strip the prefix.",
+            "T9a-dec-prefix-stripped",
+        ),
+        (
+            "Use Postgres URL https://example.com:5432/db",
+            "Use Postgres URL https://example.com:5432/db",
+            "T9b-url-unchanged",
+        ),
+        (
+            "Important note: Decision X applies",
+            "Important note: Decision X applies",
+            "T9c-prose-qualifier-unchanged",
+        ),
+        (
+            "dec-pm286-t9: lowercase prefix should also strip",
+            "lowercase prefix should also strip",
+            "T9d-case-insensitive-dec-prefix-stripped",
+        ),
+    ],
+)
+def test_T9_decision_summary_regex_strip(
+    storage_with_inmemory, first_line, expected_summary, case_id
+):
+    """The regex-based DEC-prefix strip must:
+      - strip the leading DEC-XXX-D#: prefix when present (T9a, T9d)
+      - leave unrelated colon-bearing content intact (T9b URL, T9c prose)
+
+    This exercises the same regex (`_DEC_PREFIX_RE`) the script uses to
+    derive `decision_summary`, so a future change that loosens the regex
+    (back to over-broad split-on-colon) surfaces here.
     """
     from memory.config import COLLECTION_DISCUSSIONS
     from memory.search import MemorySearch
 
-    storage, config = storage_with_inmemory
-    group_id = "test-td519-t9-prefix-strip"
-    full_content = (
-        "DEC-PM286-T9: Strip the prefix.\nRationale: dec_id already carries it."
+    # Import the regex from the canonical script and exercise it directly so
+    # the test assertion follows the same code path the script's main()
+    # follows when computing decision_summary.
+    import importlib.util
+    from pathlib import Path
+
+    script_path = (
+        Path(__file__).resolve().parent.parent
+        / "scripts"
+        / "memory"
+        / "parzival_save_decision.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "parzival_save_decision_regex_under_test", script_path
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    derived_summary = mod._DEC_PREFIX_RE.sub("", first_line).strip()[:200]
+    assert derived_summary == expected_summary, (
+        f"[{case_id}] regex strip produced {derived_summary!r}; "
+        f"expected {expected_summary!r}"
     )
 
-    # Mirror script's prefix-strip logic (the script computes summary itself
-    # from --content; this test exercises the same string operation as the
-    # script's `decision_summary` derivation).
-    summary = full_content.split("\n")[0].split(":", 1)[-1].strip()[:200]
+    # Round-trip: store via storage layer with the derived summary and
+    # confirm it survives intact (no further mutation in the storage path).
+    storage, config = storage_with_inmemory
+    group_id = f"test-td519-t9-{case_id}"
+    full_content = first_line + "\nRationale: T9 regex coverage check."
 
     storage.store_agent_memory(
         content=full_content,
@@ -439,9 +494,9 @@ def test_T9_decision_summary_strips_dec_prefix(storage_with_inmemory):
         agent_id="parzival",
         group_id=group_id,
         metadata={
-            "dec_id": "DEC-PM286-T9",
+            "dec_id": f"DEC-PM286-T9-{case_id}",
             "pm_number": 286,
-            "decision_summary": summary,
+            "decision_summary": derived_summary,
             "rationale_text": None,
         },
     )
@@ -456,11 +511,7 @@ def test_T9_decision_summary_strips_dec_prefix(storage_with_inmemory):
     )
     assert len(results) == 1
     stored_summary = results[0].get("decision_summary")
-    assert stored_summary is not None
-    assert not stored_summary.startswith("DEC-"), (
-        f"decision_summary must NOT start with 'DEC-' prefix; got {stored_summary!r}. "
-        "F-r2-6 prefix-strip regression."
-    )
-    assert stored_summary == "Strip the prefix.", (
-        f"Expected meaningful suffix only; got {stored_summary!r}"
+    assert stored_summary == expected_summary, (
+        f"[{case_id}] stored summary {stored_summary!r}; expected "
+        f"{expected_summary!r}"
     )
