@@ -113,13 +113,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   because TD-500 enforcement is template-bound. Belt-and-suspenders
   pre-condition at both step entry points covers any future workflow
   refactor. See `oversight/tech-debt/TECH-DEBT-520-td500-enforcement-hardening.md`.
-- **Documentation: expected 0-result Qdrant baseline on fresh install**
-  (Q-5): The post-install verification spec (in the testV2 project's
-  oversight) now explicitly documents that fresh installs (post-`stack.sh nuke`
-  + `rm -rf ~/.ai-memory` + reinstall) produce empty Qdrant collections by
-  design — this is the expected baseline, NOT a regression. Prevents
-  operator false-alarm reads when initial `scroll` queries return zero
-  points. Documentation-only change; no functional impact.
+- **Q-5**: Documented expected 0-result Qdrant baseline on fresh install in
+  `oversight/specs/POST-INSTALL-VERIFICATION-2026-04-25.md` (testV2 +
+  workspace dual-copy per DEC-PM286-D9) to prevent operator false-alarm
+  reads.
 - **Documentation: terminology cleanup for "Tier B Qdrant persistence"**
   (Q-7): Replaced stale "Tier B Qdrant persistence" wording in active
   workspace docs with the shipped "Tier B filesystem persistence" /
