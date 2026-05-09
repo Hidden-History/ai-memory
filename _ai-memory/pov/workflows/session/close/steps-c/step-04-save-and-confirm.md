@@ -61,9 +61,28 @@ Invoke the insight save skill with current task state:
 
 For each DEC entry logged in this session's `PMxxx-D#` block in
 `{oversight_path}/tracking/decision-log.md`, invoke the decision save skill
-once per DEC:
+once per DEC.
 
-/parzival-save-decision --dec-id PMxxx-D# --content "<full DEC text>" --pm-number xxx
+**Use the heredoc pattern below (NOT a single-line `--content "..."` quoted
+string)** — DEC bodies are multi-line by convention (`Decision: ...\nRationale: ...`)
+and frequently contain embedded `"`, `$`, and newlines. Single-line quoting
+silently truncates past the first embedded `"`, corrupts the SHA-256
+`content_hash`, and defeats the D-3 dedup contract with no error signal.
+Per F-r2-2 dual-review consensus.
+
+```bash
+DEC_BODY=$(cat <<'EOF'
+Decision: <full decision text>
+Rationale: <full rationale text, may contain "quotes", $signs, and
+multiple lines>
+EOF
+)
+/parzival-save-decision --dec-id PMxxx-D# --content "$DEC_BODY" --pm-number xxx
+```
+
+The single-quoted heredoc terminator (`'EOF'`) preserves the body verbatim:
+no shell variable expansion, no quote-escaping required. Always use single
+quotes around `EOF` to disable interpolation.
 
 Optional flags: `--rationale "<separate rationale text>"`, `--session-id <id>`.
 
