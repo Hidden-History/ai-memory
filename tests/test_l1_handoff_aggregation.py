@@ -271,7 +271,7 @@ def test_T4_chunks_sorted_by_chunk_index(qdrant_inmemory, mock_embedding, monkey
     # Upsert in a deliberately scrambled order (3, 0, 2, 1).
     insertion_order = [3, 0, 2, 1]
     points = []
-    for ins_idx, idx in enumerate(insertion_order):
+    for _ins_idx, idx in enumerate(insertion_order):
         points.append(
             PointStruct(
                 id=str(uuid.uuid4()),

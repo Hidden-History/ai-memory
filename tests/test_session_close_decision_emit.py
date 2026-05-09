@@ -333,9 +333,11 @@ def test_T6_script_argparse_required_flags():
     assert ns.pm_number is None
 
     # Missing --content must SystemExit (argparse default behavior)
-    with patch.object(mod.sys, "argv", ["script", "--dec-id", "DEC-T6"]):
-        with pytest.raises(SystemExit):
-            mod.parse_args()
+    with (
+        patch.object(mod.sys, "argv", ["script", "--dec-id", "DEC-T6"]),
+        pytest.raises(SystemExit),
+    ):
+        mod.parse_args()
 
 
 def test_T7_script_graceful_qdrant_failure_returns_zero():

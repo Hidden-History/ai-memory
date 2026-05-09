@@ -362,7 +362,7 @@ def _aggregate_chunked_result(client, result: dict) -> dict:
             with_payload=True,
             with_vectors=False,
         )
-    except Exception as exc:  # noqa: BLE001 — never crash bootstrap on aggregation failure
+    except Exception as exc:
         logger.warning(
             "bootstrap_aggregation_failed",
             extra={
