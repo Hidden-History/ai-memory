@@ -30,7 +30,6 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
-
 FIXED_VECTOR = [0.5] * 768
 
 
@@ -171,9 +170,7 @@ def test_T3_reemit_same_dec_dedup_via_content_hash(storage_with_inmemory):
 
     storage, config = storage_with_inmemory
     group_id = "test-td519-t3"
-    content = (
-        "DEC-TEST-IDEM: Idempotency check.\nRationale: Re-emit must dedup."
-    )
+    content = "DEC-TEST-IDEM: Idempotency check.\nRationale: Re-emit must dedup."
 
     first = storage.store_agent_memory(
         content=content,
@@ -226,9 +223,8 @@ def test_T4_decision_stored_whole_no_chunking(storage_with_inmemory):
     # Reasonably long content — well under 8192 token Jina v2 limit but long
     # enough that a wrong content_type_map=PROSE entry would chunk into >1
     # vector with default 512-token thresholds.
-    content = (
-        "DEC-TEST-WHOLE: Long-decision storage shape verification.\n"
-        + ("Rationale paragraph. " * 200)
+    content = "DEC-TEST-WHOLE: Long-decision storage shape verification.\n" + (
+        "Rationale paragraph. " * 200
     )
 
     storage.store_agent_memory(
@@ -283,13 +279,17 @@ def test_T5_closeout_step_04_invokes_save_decision_skill():
     """
     assert _STEP_04_PATH.exists(), f"Missing step-04 file: {_STEP_04_PATH}"
     text = _STEP_04_PATH.read_text(encoding="utf-8")
-    assert "/parzival-save-decision" in text, (
-        "step-04-save-and-confirm.md must invoke /parzival-save-decision per TD-519"
-    )
+    assert (
+        "/parzival-save-decision" in text
+    ), "step-04-save-and-confirm.md must invoke /parzival-save-decision per TD-519"
     assert "TD-519" in text, "step-04 must cite TD-519 for traceability"
     # Ensure the closeout-continues semantics survive in prose
-    assert "decision-log.md" in text, "step-04 must name decision-log.md as primary record"
-    assert "WHOLE" in text or "whole" in text, "step-04 must cite the whole-store contract"
+    assert (
+        "decision-log.md" in text
+    ), "step-04 must name decision-log.md as primary record"
+    assert (
+        "WHOLE" in text or "whole" in text
+    ), "step-04 must cite the whole-store contract"
 
 
 # ─── T6/T7: Mocked unit tests for the script — argparse + graceful failure ──
@@ -454,14 +454,14 @@ def test_T9_decision_summary_regex_strip(
     derive `decision_summary`, so a future change that loosens the regex
     (back to over-broad split-on-colon) surfaces here.
     """
-    from memory.config import COLLECTION_DISCUSSIONS
-    from memory.search import MemorySearch
-
     # Import the regex from the canonical script and exercise it directly so
     # the test assertion follows the same code path the script's main()
     # follows when computing decision_summary.
     import importlib.util
     from pathlib import Path
+
+    from memory.config import COLLECTION_DISCUSSIONS
+    from memory.search import MemorySearch
 
     script_path = (
         Path(__file__).resolve().parent.parent

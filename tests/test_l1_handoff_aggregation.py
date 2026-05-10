@@ -25,7 +25,6 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
-
 FIXED_VECTOR = [0.5] * 768
 
 
@@ -117,7 +116,9 @@ def _make_search_client(qdrant_inmemory, monkeypatch):
 # ─── T1: Whole-emit (total_chunks=1) bypasses aggregation ───────────────────
 
 
-def test_T1_whole_emit_bypasses_aggregation(qdrant_inmemory, mock_embedding, monkeypatch):
+def test_T1_whole_emit_bypasses_aggregation(
+    qdrant_inmemory, mock_embedding, monkeypatch
+):
     """A single-chunk handoff (total_chunks=1) must be returned as-is.
 
     No extra scroll call required; metadata.aggregated_from_chunks should be
@@ -181,18 +182,18 @@ def test_T2_five_chunks_aggregate_byte_equivalent(
 
     handoff_results = [r for r in results if r.get("type") == "agent_handoff"]
     assert len(handoff_results) == 1, "Layer 1 should still produce one logical result"
-    assert handoff_results[0]["content"] == expected_aggregated, (
-        "Aggregated content must be byte-equivalent to original concatenation"
-    )
+    assert (
+        handoff_results[0]["content"] == expected_aggregated
+    ), "Aggregated content must be byte-equivalent to original concatenation"
     cm = handoff_results[0].get("chunking_metadata") or {}
     assert cm.get("aggregated_from_chunks") is True
     # F-r2-5 dual-field shape: complete reassembly → advertised == found
-    assert cm.get("total_chunks_advertised") == 5, (
-        "Original advertised count must be preserved as total_chunks_advertised"
-    )
-    assert cm.get("total_chunks") == 5, (
-        "total_chunks reflects siblings actually concatenated (5 of 5 = complete)"
-    )
+    assert (
+        cm.get("total_chunks_advertised") == 5
+    ), "Original advertised count must be preserved as total_chunks_advertised"
+    assert (
+        cm.get("total_chunks") == 5
+    ), "total_chunks reflects siblings actually concatenated (5 of 5 = complete)"
 
 
 # ─── T3: Missing siblings — fallback returns the trigger chunk + WARN ───────
@@ -230,7 +231,9 @@ def test_T3_missing_siblings_partial_aggregation_warns(
         results = retrieve_bootstrap_context(search, group_id, config)
 
     handoff_results = [r for r in results if r.get("type") == "agent_handoff"]
-    assert len(handoff_results) == 1, "Bootstrap must remain functional under partial aggregation"
+    assert (
+        len(handoff_results) == 1
+    ), "Bootstrap must remain functional under partial aggregation"
     # All 3 found chunks concatenated
     assert handoff_results[0]["content"] == "".join(chunk_bodies)
     # F-r2-5 dual-field shape: drift visible in result metadata, not just WARN
@@ -239,14 +242,14 @@ def test_T3_missing_siblings_partial_aggregation_warns(
         "Original advertised count (5) preserved as total_chunks_advertised "
         "for drift detection"
     )
-    assert cm.get("total_chunks") == 3, (
-        "total_chunks reflects siblings actually found (3 of 5 = partial)"
-    )
+    assert (
+        cm.get("total_chunks") == 3
+    ), "total_chunks reflects siblings actually found (3 of 5 = partial)"
     # Partial WARN emitted
     warn_messages = [r.message for r in caplog.records]
-    assert any("bootstrap_aggregation_partial" in m for m in warn_messages), (
-        f"Expected bootstrap_aggregation_partial WARN; got {warn_messages!r}"
-    )
+    assert any(
+        "bootstrap_aggregation_partial" in m for m in warn_messages
+    ), f"Expected bootstrap_aggregation_partial WARN; got {warn_messages!r}"
 
 
 # ─── T4: Out-of-order insertion — chunk_index sort enforces order ──────────
@@ -298,9 +301,9 @@ def test_T4_chunks_sorted_by_chunk_index(qdrant_inmemory, mock_embedding, monkey
 
     handoff_results = [r for r in results if r.get("type") == "agent_handoff"]
     assert len(handoff_results) == 1
-    assert handoff_results[0]["content"] == "".join(bodies_in_index_order), (
-        "Aggregated content must respect chunk_index order regardless of insertion order"
-    )
+    assert handoff_results[0]["content"] == "".join(
+        bodies_in_index_order
+    ), "Aggregated content must respect chunk_index order regardless of insertion order"
 
 
 # ─── T5: aggregated_from_chunks diagnostic field set ────────────────────────

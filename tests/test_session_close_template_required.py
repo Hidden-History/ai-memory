@@ -22,7 +22,6 @@ from pathlib import Path
 
 import pytest
 
-
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 STEP_02_PATH = (
@@ -73,9 +72,9 @@ def test_T1_step_02_contains_template_required_check(step_02_text: str):
     """step-02 must contain the hard-fail pre-condition for the handoff
     template, naming the template path and the recovery action.
     """
-    assert HARD_FAIL_PHRASE in step_02_text, (
-        f"step-02 must contain hard-fail phrase '{HARD_FAIL_PHRASE}'"
-    )
+    assert (
+        HARD_FAIL_PHRASE in step_02_text
+    ), f"step-02 must contain hard-fail phrase '{HARD_FAIL_PHRASE}'"
     assert TEMPLATE_PATH_LITERAL in step_02_text, (
         f"step-02 must reference the canonical template path "
         f"'{TEMPLATE_PATH_LITERAL}'"
@@ -94,9 +93,9 @@ def test_T2_step_03_contains_template_required_check(step_03_text: str):
     suspenders). Covers workflow refactors that bypass step-02 directly
     to step-03.
     """
-    assert HARD_FAIL_PHRASE in step_03_text, (
-        f"step-03 must contain hard-fail phrase '{HARD_FAIL_PHRASE}'"
-    )
+    assert (
+        HARD_FAIL_PHRASE in step_03_text
+    ), f"step-03 must contain hard-fail phrase '{HARD_FAIL_PHRASE}'"
     assert TEMPLATE_PATH_LITERAL in step_03_text, (
         f"step-03 must reference the canonical template path "
         f"'{TEMPLATE_PATH_LITERAL}'"
