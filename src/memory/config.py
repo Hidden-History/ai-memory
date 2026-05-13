@@ -627,6 +627,20 @@ class MemoryConfig(BaseSettings):
         description="Token budget for Tier 1 bootstrap injection (startup trigger)",
     )
 
+    handoff_ceiling_tokens: int = Field(
+        default=8000,
+        ge=2500,
+        le=10000,
+        description=(
+            "Per-tier ceiling for L1 handoff retrieval — sized for whole-artifact "
+            "aggregation (Jina Embeddings v2 single-vector ceiling). Independent of "
+            "bootstrap_token_budget which sizes snippet content (decisions, insights). "
+            "A handoff aggregated body exceeding this ceiling is rejected at Layer 1 "
+            "pre-filter inside retrieve_bootstrap_context; rejection signals a "
+            "filesystem-fallback via the FALLBACK-NEEDED marker. See BP-158 §5."
+        ),
+    )
+
     injection_confidence_threshold: float = Field(
         default=0.6,
         ge=0.0,

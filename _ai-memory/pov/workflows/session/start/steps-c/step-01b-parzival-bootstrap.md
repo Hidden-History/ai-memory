@@ -54,11 +54,13 @@ After bootstrap returns, apply the handoff load control-flow. The L1 result from
 3. If L1 date ≥ filename date → tag result `[Qdrant:L1-HANDOFF — primary]`. Do NOT read the handoff file. Log that ~4,000 tokens were saved.
 4. If L1 date < filename date → signal **FALLBACK-NEEDED** (Qdrant record is stale).
 
-**CASE B — L1 returns no handoff record OR Qdrant is unavailable/error** → signal **FALLBACK-NEEDED**.
+**CASE B — L1 returns no handoff record OR Qdrant is unavailable/error OR bootstrap output contains a `[FALLBACK-NEEDED: ...]` marker as the first line of the Cross-Session Memory section** → signal **FALLBACK-NEEDED**.
+
+The marker is emitted by the bootstrap skill (BUG-297 / BP-158 P2) when a handoff-class result is rejected by either the Layer 1 per-tier ceiling (`reason=ceiling_exceeded`) or the snippet token budget (`reason=budget_exceeded`). Marker format: `[FALLBACK-NEEDED: reason=<R> type=agent_handoff tokens=<N> budget=<B>]`. Treat its presence the same as "no handoff record returned" — proceed to filesystem fallback.
 
 **If FALLBACK-NEEDED**: Read the most recent `{oversight_path}/session-logs/SESSION_HANDOFF_*.md` file. Tag its content `[FILE-HANDOFF — fallback]`.
 
-> **Design note (audit Q5 line 576)**: A `MINIMUM_HANDOFF_BYTES` threshold can extend the fallback trigger if L1 truncation omits critical sections (e.g., "Next Steps", "Open Questions"): `OR L1 content_length < MINIMUM_HANDOFF_BYTES → FALLBACK-NEEDED`. This threshold is not wired in this patch; it is a documented future extension.
+> **Design note (audit Q5)**: A `MINIMUM_HANDOFF_BYTES` threshold can extend the fallback trigger if L1 truncation omits critical sections (e.g., "Next Steps", "Open Questions"): `OR L1 content_length < MINIMUM_HANDOFF_BYTES → FALLBACK-NEEDED`. This threshold is not wired in this patch; it is a documented future extension.
 
 ---
 

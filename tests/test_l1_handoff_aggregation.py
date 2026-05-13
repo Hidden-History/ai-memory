@@ -138,7 +138,7 @@ def test_T1_whole_emit_bypasses_aggregation(
     )
 
     search, config = _make_search_client(qdrant_inmemory, monkeypatch)
-    results = retrieve_bootstrap_context(search, group_id, config)
+    results, _meta = retrieve_bootstrap_context(search, group_id, config)
 
     handoff_results = [r for r in results if r.get("type") == "agent_handoff"]
     assert len(handoff_results) == 1
@@ -178,7 +178,7 @@ def test_T2_five_chunks_aggregate_byte_equivalent(
     )
 
     search, config = _make_search_client(qdrant_inmemory, monkeypatch)
-    results = retrieve_bootstrap_context(search, group_id, config)
+    results, _meta = retrieve_bootstrap_context(search, group_id, config)
 
     handoff_results = [r for r in results if r.get("type") == "agent_handoff"]
     assert len(handoff_results) == 1, "Layer 1 should still produce one logical result"
@@ -228,7 +228,7 @@ def test_T3_missing_siblings_partial_aggregation_warns(
 
     search, config = _make_search_client(qdrant_inmemory, monkeypatch)
     with caplog.at_level(logging.WARNING, logger="ai_memory.injection"):
-        results = retrieve_bootstrap_context(search, group_id, config)
+        results, _meta = retrieve_bootstrap_context(search, group_id, config)
 
     handoff_results = [r for r in results if r.get("type") == "agent_handoff"]
     assert (
@@ -297,7 +297,7 @@ def test_T4_chunks_sorted_by_chunk_index(qdrant_inmemory, mock_embedding, monkey
     qdrant_inmemory.upsert(collection_name="discussions", points=points)
 
     search, config = _make_search_client(qdrant_inmemory, monkeypatch)
-    results = retrieve_bootstrap_context(search, group_id, config)
+    results, _meta = retrieve_bootstrap_context(search, group_id, config)
 
     handoff_results = [r for r in results if r.get("type") == "agent_handoff"]
     assert len(handoff_results) == 1
@@ -329,7 +329,7 @@ def test_T5_aggregated_from_chunks_diagnostic_field(
     )
 
     search, config = _make_search_client(qdrant_inmemory, monkeypatch)
-    results = retrieve_bootstrap_context(search, group_id, config)
+    results, _meta = retrieve_bootstrap_context(search, group_id, config)
 
     handoff_results = [r for r in results if r.get("type") == "agent_handoff"]
     assert len(handoff_results) == 1

@@ -340,6 +340,59 @@ class TestSelectResultsGreedy:
         selected, _ = select_results_greedy(results, budget=10000)
         assert len(selected) == 1
 
+    def test_return_meta_false_preserves_2_tuple_shape(self):
+        """BUG-297 / BP-158 P2: return_meta=False (default) preserves the
+        legacy 2-tuple shape so existing callers are unaffected.
+        """
+        results = [
+            {"id": "1", "content": "alpha", "score": 0.9},
+            {"id": "2", "content": "beta", "score": 0.85},
+        ]
+        out = select_results_greedy(results, budget=10000)
+        assert isinstance(out, tuple)
+        assert len(out) == 2
+        selected, tokens_used = out
+        assert isinstance(selected, list)
+        assert isinstance(tokens_used, int)
+
+    def test_return_meta_true_emits_fallback_for_budget_rejected_handoff(self):
+        """BUG-297 / BP-158 P2: return_meta=True returns a 3-tuple where
+        meta.fallback_signaled is True iff a budget-rejected result is of
+        type agent_handoff. Score-gap and dedup rejections of handoff do
+        NOT signal fallback (per Q3 decision).
+        """
+        big_handoff = "x" * 20000  # Forces budget rejection
+        small_handoff = "y" * 10
+        results = [
+            {
+                "id": "h-big",
+                "content": big_handoff,
+                "score": 0.99,
+                "type": "agent_handoff",
+                "collection": "discussions",
+            },
+            {
+                "id": "h-small",
+                "content": small_handoff,
+                "score": 0.95,
+                "type": "agent_handoff",
+                "collection": "discussions",
+            },
+        ]
+        out = select_results_greedy(results, budget=200, tier=1, return_meta=True)
+        assert isinstance(out, tuple) and len(out) == 3
+        selected, _tokens_used, meta = out
+        assert isinstance(meta, dict)
+        # The oversized handoff was rejected by budget, signaling fallback
+        assert meta["fallback_signaled"] is True
+        budget_rejects = [
+            r for r in meta["rejects"] if r.get("reason") == "budget_exceeded"
+        ]
+        assert any(r.get("type") == "agent_handoff" for r in budget_rejects)
+        assert meta["budget"] == 200
+        # The small handoff should still be selected within budget
+        assert "h-small" in [s["id"] for s in selected]
+
 
 class TestFormatInjectionOutput:
     """Test injection output formatting."""

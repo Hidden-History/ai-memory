@@ -1850,3 +1850,104 @@ except Exception as e:
         logger.warning(
             "metrics_fork_failed", extra={"error": str(e), "metric": "evaluation"}
         )
+
+
+# BP-158 P1/P3: structured observability for retrieval-filter rejections.
+# Cardinality: 4 reason values x 2 tier values x 5 collection values = 40 series,
+# well under Prometheus OSS cardinality budgets.
+_VALID_REJECT_REASONS = {
+    "budget_exceeded",
+    "ceiling_exceeded",
+    "score_gap",
+    "dedup",
+}
+_VALID_REJECT_TIERS = {"1_bootstrap", "2_injection"}
+
+
+def push_retrieval_reject_metric_async(
+    reason: str,
+    tier: str,
+    collection: str,
+    count: int = 1,
+):
+    """Push retrieval-filter rejection counter asynchronously (fire-and-forget).
+
+    Emitted from select_results_greedy and retrieve_bootstrap_context whenever a
+    retrieval result is excluded by a filter (budget exhaustion, per-tier ceiling,
+    score-gap, or content-hash dedup). BP-158 P1 mandate: every retrieval-filter
+    exclusion emits both a structured log line and this counter so silent-drop
+    defects (BUG-297 class) become observable.
+
+    Args:
+        reason: One of budget_exceeded, ceiling_exceeded, score_gap, dedup.
+        tier: One of 1_bootstrap, 2_injection.
+        collection: code-patterns, conventions, discussions, github, jira-data.
+        count: Number of rejections to record in this push (default 1).
+    """
+    if not PUSHGATEWAY_ENABLED:
+        return
+
+    reason = _validate_label(reason, "reason", _VALID_REJECT_REASONS)
+    tier = _validate_label(tier, "tier", _VALID_REJECT_TIERS)
+    # Intentionally no allowed-set on collection here; F-009 broadens the
+    # global VALID_COLLECTIONS independently. Collection is recorded as-is
+    # so emissions from new collections surface as observable labels rather
+    # than getting silently coerced to "unknown".
+    collection = _validate_label(collection, "collection")
+
+    try:
+        metrics_data = {
+            "reason": reason,
+            "tier": tier,
+            "collection": collection,
+            "count": int(count),
+        }
+
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                f"""
+import json, os
+from prometheus_client import CollectorRegistry, Counter, pushadd_to_gateway
+
+data = json.loads({json.dumps(metrics_data)!r})
+registry = CollectorRegistry()
+
+rejects = Counter(
+    "aimemory_retrieval_budget_reject_total",
+    "Retrieval-filter rejections by reason, tier, and collection (BP-158 P1)",
+    ["reason", "tier", "collection"],
+    registry=registry
+)
+rejects.labels(
+    reason=data["reason"],
+    tier=data["tier"],
+    collection=data["collection"]
+).inc(data["count"])
+
+try:
+    pushadd_to_gateway(
+        os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
+        job="ai_memory_hooks",
+        grouping_key={{"instance": f"reject_{{data['tier']}}"}},
+        registry=registry,
+        timeout=0.5
+    )
+except Exception as e:
+    import logging
+    logging.getLogger("ai_memory.metrics").warning(
+        "pushgateway_async_failed",
+        extra={{"error": str(e), "metric": "retrieval_reject"}}
+    )
+""",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "metrics_fork_failed",
+            extra={"error": str(e), "metric": "retrieval_reject"},
+        )

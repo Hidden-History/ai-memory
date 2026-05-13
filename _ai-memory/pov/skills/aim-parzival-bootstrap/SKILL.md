@@ -112,8 +112,12 @@ try:
     _injection_logger = logging.getLogger("ai_memory.injection")
     _injection_logger.addHandler(_capture)
 
-    # Retrieve bootstrap context from Qdrant
-    results = retrieve_bootstrap_context(search_client, project_name, config)
+    # Retrieve bootstrap context from Qdrant.
+    # BUG-297 / BP-158 P2: retrieve_bootstrap_context returns (results, meta);
+    # meta carries the Layer 1 handoff-ceiling rejection signal.
+    results, retrieval_meta = retrieve_bootstrap_context(
+        search_client, project_name, config
+    )
 
     _injection_logger.removeHandler(_capture)
 
@@ -126,8 +130,32 @@ try:
         _n_fail = len(_capture.failed_layers)
         _qdrant_status = f"degraded ({_n_fail} of 4 layers unreachable)"
 
-    # Greedy-fill within token budget
-    selected, tokens_used = select_results_greedy(results, config.bootstrap_token_budget)
+    # Greedy-fill within token budget.
+    # BUG-297 / BP-158 P2: pass return_meta=True so handoff-class budget
+    # rejections surface as fallback_signaled in the returned meta dict.
+    selected, tokens_used, greedy_meta = select_results_greedy(
+        results,
+        config.bootstrap_token_budget,
+        tier=1,
+        return_meta=True,
+    )
+
+    # BUG-297 / BP-158 P2: merge fallback signals from both retrieval pre-filter
+    # (Layer 1 ceiling) and greedy fill (snippet budget). Either is grounds for
+    # the L1 Handoff Gate to invoke filesystem fallback at step-01b.
+    _fallback_signaled = bool(
+        retrieval_meta.get("fallback_signaled")
+        or greedy_meta.get("fallback_signaled")
+    )
+    _fallback_reject = None
+    for _r in list(retrieval_meta.get("rejects", [])) + list(
+        greedy_meta.get("rejects", [])
+    ):
+        if _r.get("reason") in ("budget_exceeded", "ceiling_exceeded") and (
+            _r.get("type") == "agent_handoff"
+        ):
+            _fallback_reject = _r
+            break
 
     # Format as markdown with attribution
     formatted = format_injection_output(selected, tier=1)
@@ -165,6 +193,29 @@ try:
 
     # Build output
     print("## Cross-Session Memory (Parzival Bootstrap)\n")
+
+    # BUG-297 / BP-158 P2: FALLBACK-NEEDED marker emitted as the FIRST
+    # content line of this block when a handoff-class result was rejected
+    # at retrieval time (ceiling) or by greedy fill (budget). The L1
+    # Handoff Gate at step-01b-parzival-bootstrap (CASE B) parses this
+    # marker to trigger filesystem fallback so cross-session continuity
+    # never silently degrades.
+    if _fallback_signaled:
+        _r = _fallback_reject or {}
+        _r_reason = _r.get("reason", "budget_exceeded")
+        _r_type = _r.get("type", "agent_handoff")
+        _r_tokens = _r.get("tokens", 0)
+        _r_budget = (
+            retrieval_meta.get("budget")
+            if _r_reason == "ceiling_exceeded"
+            else greedy_meta.get("budget", config.bootstrap_token_budget)
+        )
+        if _r_reason == "ceiling_exceeded":
+            _r_budget = config.handoff_ceiling_tokens
+        print(
+            f"[FALLBACK-NEEDED: reason={_r_reason} type={_r_type} "
+            f"tokens={_r_tokens} budget={_r_budget}]\n"
+        )
 
     if not selected:
         print("No cross-session memories found for this project.\n")
