@@ -210,7 +210,9 @@ def main() -> int:
                         True  # WP-2: Belt-and-suspenders pre-filter (Spec §4.5.3)
                     )
                 # H-3: Pass cross-turn dedup list so access_count is incremented once per turn
-                search_kwargs["_access_count_dedup"] = state.access_count_incremented_this_turn
+                search_kwargs["_access_count_dedup"] = (
+                    state.access_count_incremented_this_turn
+                )
                 results = search_client.search(**search_kwargs)
                 for r in results:
                     r["collection"] = route.collection  # Tag with source collection
@@ -395,14 +397,28 @@ def main() -> int:
                 },
             )
 
-        # Greedy fill with deduplication
-        selected, tokens_used = select_results_greedy(
+        # Greedy fill with deduplication.
+        # BUG-297 / BP-158 P2: pass return_meta=True so handoff-class budget
+        # rejections at Tier 2 surface as a debugging marker rather than
+        # silently degrading. tier=2 attributes the rejection counter to the
+        # 2_injection label, distinct from Tier 1 bootstrap rejections.
+        selected, tokens_used, _greedy_meta = select_results_greedy(
             results=all_results,
             budget=budget,
             excluded_ids=state.injected_point_ids,
             score_gap_threshold=config.injection_score_gap_threshold,
             project_id=project_name,
+            tier=2,
+            return_meta=True,
         )
+        _tier2_fallback_reject = None
+        if _greedy_meta.get("fallback_signaled"):
+            for _r in _greedy_meta.get("rejects", []):
+                if _r.get("reason") in ("budget_exceeded", "ceiling_exceeded") and (
+                    _r.get("type") == "agent_handoff"
+                ):
+                    _tier2_fallback_reject = _r
+                    break
 
         # WP-2: Push freshness-blocked counter if any results were blocked this turn
         if _freshness_blocked_count > 0:
@@ -439,6 +455,19 @@ def main() -> int:
 
         # Format output
         formatted = format_injection_output(selected, tier=2, project_id=project_name)
+
+        # BUG-297 / BP-158 P2: Tier-2 fallback marker. Prepended as a comment so
+        # the rejection is observable in the injected context without altering
+        # selection behavior. Tier-2 has no filesystem fallback path; this is
+        # debugging surface only.
+        if _tier2_fallback_reject is not None:
+            _r = _tier2_fallback_reject
+            _marker = (
+                f"# [tier-2 fallback: handoff-class result rejected "
+                f"reason={_r.get('reason')} tokens={_r.get('tokens')} "
+                f"budget={_greedy_meta.get('budget')}]\n"
+            )
+            formatted = _marker + (formatted or "")
 
         # Update session state
         state.injected_point_ids.extend(str(r.get("id", "")) for r in selected)
