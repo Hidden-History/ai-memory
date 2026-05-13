@@ -3,8 +3,8 @@
 PM #287 escape lesson per [[feedback_realistic_size_production_artifact_tests]]:
 synthetic <200-byte fixtures cannot expose budget/scale-emergent defects.
 This file exercises the L1 handoff retrieval + budget pipeline against a
-14,000-byte / ~5,400-token / 40-chunk fixture mirroring Session 47's
-empirical artifact — the actual escape case for BUG-297.
+production-scale fixture (40 chunks, ~32K bytes, ~5,320 tokens) preserving
+Session 47's load-bearing token count — the actual escape case for BUG-297.
 
 Coverage:
     1. Within-ceiling: aggregated handoff included; meta.fallback_signaled False.
@@ -30,18 +30,33 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
+from memory.chunking.truncation import count_tokens
+
 FIXED_VECTOR = [0.5] * 768
 
 # Per MEMORY.md "Optimal Parameters 2026": prose chunks 512-token soft target,
-# 15% overlap. Session 47 (the BUG-297 escape case) emitted 40 chunks with
-# aggregated body ~5,386 tokens. Synthetic content tokenizes at ~5.6 bytes/token
-# (heavier than real English prose at ~2.6 bytes/token), so a 40-chunk fixture
-# preserving Session 47's token count needs ~800-byte chunks. The structurally
-# load-bearing properties are preserved per Q6 dispatch ruling: chunk count 40,
-# aggregated token count ~5,400, per-chunk token count within ≥25 / ≤512.
+# 15% overlap. Session 47 (the BUG-297 escape case) emitted 40 chunks with an
+# aggregated body of ~5,386 tokens (real prose, ~2.76 bytes/token). The
+# synthetic _BASE_SENTENCE below is repetitive structure-rich English which
+# cl100k_base tokenizes more efficiently (~6 bytes/token empirical); bytes-
+# per-chunk is therefore tuned to preserve the *token-count* load-bearing
+# property (which is what the L1 ceiling pre-filter actually gates on) rather
+# than Session 47's byte ratio. Per Q6 dispatch ruling the load-bearing
+# properties are: chunk count = 40, aggregated token count ~5,400, per-chunk
+# token count within chunker spec bounds (>=25, <=512).
+_BASE_SENTENCE = (
+    "This synthetic prose chunk mirrors a real session handoff segment "
+    "with sentence-level rhythm, punctuation, and lexical variety so "
+    "tokenization matches production paragraphs rather than padding. "
+)
+# Empirical measurement at module-load (informational; the load-bearing
+# regression guards are the per-chunk and aggregated assertions in case (a)).
+_BASE_SENTENCE_TOKENS = count_tokens(_BASE_SENTENCE)
 SESSION47_CHUNK_COUNT = 40
-SESSION47_BYTES_PER_CHUNK = 800  # 40 chunks x 800 bytes -> ~32K bytes / ~5,500 tokens
-SESSION47_TOKENS_PER_CHUNK = 140  # ~140 tokens/chunk, within chunker spec bounds
+SESSION47_BYTES_PER_CHUNK = 800  # 40 chunks x 800 bytes -> ~32K bytes / ~5,320 tokens
+SESSION47_TOKENS_PER_CHUNK = (
+    140  # ~133 tokens/chunk empirical, within chunker spec bounds
+)
 
 
 @pytest.fixture(autouse=True)
@@ -85,11 +100,6 @@ def _build_realistic_chunks(
     Content is real English prose (not 'a' x N) so count_tokens() returns a
     realistic token count per chunk rather than a single-character outlier.
     """
-    base_sentence = (
-        "This synthetic prose chunk mirrors a real session handoff segment "
-        "with sentence-level rhythm, punctuation, and lexical variety so "
-        "tokenization matches production paragraphs rather than padding. "
-    )
     chunks: list[str] = []
     for idx in range(chunk_count):
         # Per-chunk preamble keeps content distinct so dedup does not collapse
@@ -97,7 +107,7 @@ def _build_realistic_chunks(
         prefix = f"Chunk {idx:03d} of {chunk_count:03d}. "
         body = prefix
         while len(body.encode("utf-8")) < bytes_per_chunk:
-            body += base_sentence
+            body += _BASE_SENTENCE
         # Trim to target size to keep aggregate stable.
         chunks.append(body[:bytes_per_chunk])
     return chunks
@@ -160,7 +170,7 @@ def _make_search_client(qdrant_inmemory, monkeypatch):
 def test_realistic_handoff_within_ceiling__included_in_results(
     qdrant_inmemory, mock_embedding, monkeypatch
 ):
-    """Session 47-class fixture (40 chunks, ~5,400 tokens, ~14K bytes) fits
+    """Session 47-class fixture (40 chunks, ~5,320 tokens, ~32K bytes) fits
     within the default handoff_ceiling_tokens=8000 and is included in the
     bootstrap result list. meta.fallback_signaled must remain False.
     """
@@ -172,6 +182,14 @@ def test_realistic_handoff_within_ceiling__included_in_results(
         chunk_count=SESSION47_CHUNK_COUNT,
         bytes_per_chunk=SESSION47_BYTES_PER_CHUNK,
     )
+    # Per-chunk token sanity: regression-guards future tokenizer-model
+    # migration (e.g. Jina v3) by flagging if cl100k_base behavior shifts the
+    # synthetic per-chunk token count outside the chunker spec band.
+    chunk0_tokens = count_tokens(chunks[0])
+    assert 100 <= chunk0_tokens <= 200, (
+        f"Per-chunk synthetic token count ({chunk0_tokens}) drifted outside "
+        f"[100, 200]. Audit count_tokens() tokenizer model or _BASE_SENTENCE."
+    )
     _insert_handoff_chunks(
         qdrant_inmemory,
         group_id=group_id,
@@ -181,7 +199,7 @@ def test_realistic_handoff_within_ceiling__included_in_results(
     )
 
     search, config = _make_search_client(qdrant_inmemory, monkeypatch)
-    # default handoff_ceiling_tokens=8000; fixture aggregates to ~5,400 tokens
+    # default handoff_ceiling_tokens=8000; fixture aggregates to ~5,320 tokens
     assert config.handoff_ceiling_tokens == 8000
 
     results, meta = retrieve_bootstrap_context(search, group_id, config)
@@ -191,10 +209,23 @@ def test_realistic_handoff_within_ceiling__included_in_results(
         "Within-ceiling handoff must be present in results — "
         "BUG-297 verification: silent-drop no longer occurs."
     )
+    handoff_content = handoff_results[0]["content"]
     # Aggregation byte-equivalence (precedent: T2 in test_l1_handoff_aggregation)
-    assert handoff_results[0]["content"] == "".join(chunks)
-    # Byte-size load-bearing property: matches Session 47 empirical scale
-    assert len(handoff_results[0]["content"].encode("utf-8")) >= 13_500
+    assert handoff_content == "".join(chunks)
+    # Load-bearing regression guard: aggregated token count must remain within
+    # Session 47's empirical band so a future ratio drift (chunker params,
+    # _BASE_SENTENCE rewrite, count_tokens() model migration) can't silently
+    # flip case (a) into a ceiling-rejection scenario and hide a regression.
+    agg_tokens = count_tokens(handoff_content)
+    assert 4_500 <= agg_tokens <= 6_500, (
+        f"Realistic-size fixture aggregated token count ({agg_tokens}) drifted "
+        f"outside Session 47's empirical band [4500, 6500]. "
+        f"Tighten _build_realistic_chunks params or audit count_tokens() tokenizer model."
+    )
+    # Byte-size sanity: synthetic content tokenizes at ~6 bytes/token, so the
+    # ~5,400-token target lands ~32K bytes (not Session 47's 14.8K, because
+    # real prose tokenizes at ~2.76 b/t — see module-level comment).
+    assert 28_000 <= len(handoff_content.encode("utf-8")) <= 35_000
     assert meta["fallback_signaled"] is False
     assert meta["rejects"] == []
 
@@ -271,8 +302,10 @@ def test_synthetic_12k_token_handoff_exceeds_max_ceiling__triggers_fallback(
 
     group_id = "test-bug297-above-max-ceiling"
     created_at = "2026-05-13T09:10:00Z"
-    # Aim for ~12,000 tokens aggregated: 90 chunks x 350 bytes = ~31,500 bytes
-    # which at ~2.6 chars/token English prose -> ~12,100 tokens
+    # 90 chunks x 800 bytes = ~72,000 bytes / ~11,970 tokens aggregated. The
+    # synthetic content tokenizes at ~6 bytes/token (see module-level comment),
+    # so 90 chunks at SESSION47_BYTES_PER_CHUNK comfortably exceeds the
+    # handoff_ceiling_tokens=10000 Field upper bound.
     chunks = _build_realistic_chunks(
         chunk_count=90,
         bytes_per_chunk=SESSION47_BYTES_PER_CHUNK,
