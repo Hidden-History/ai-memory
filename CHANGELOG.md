@@ -76,6 +76,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions group bump** (PR #113): Bumped 2 actions in `.github/workflows/community.yml`, `dependabot-auto-merge.yml`, `release.yml`. CI-only impact; no runtime change.
 
 ### Fixed
+- **L1 handoff silent-drop on budget rejection** (BUG-297): The TD-518
+  handoff aggregation works correctly (5,386 tokens from 40 chunks of
+  Session 47), but the aggregated body was silently dropped at
+  `select_results_greedy` when it exceeded `bootstrap_token_budget=2500`.
+  No log, no metric, no signal to caller — the `[ST]` Cross-Session
+  Memory block showed an empty `### Last Handoff` despite Qdrant having
+  complete data. Closed via a 3-component MVF bundle ([[BP-158-rag-budget-reject-silent-drop-fallback-sentinel-observability-2026]]
+  P1/P2/§5):
+  - **C-1 observability**: `select_results_greedy` now emits a structured
+    `retrieval_budget_reject` log line and a Prometheus
+    `aimemory_retrieval_budget_reject_total{reason,tier,collection}`
+    counter at every skip-and-continue site (`budget_exceeded`,
+    `score_gap`, `dedup`). Cardinality: 4 × 2 × 5 = 40 series, well
+    under BP-158 §3 budget.
+  - **C-2 typed-sentinel return**: `select_results_greedy` accepts a
+    keyword-only `return_meta` flag (default `False` preserves the
+    2-tuple shape; 15 call sites unaffected). When `True`, returns
+    `(selected, tokens_used, meta)` where `meta.fallback_signaled` is
+    `True` iff any budget-rejected result is `type=="agent_handoff"`.
+    `retrieve_bootstrap_context` returns `(results, meta)` so the
+    Layer 1 ceiling rejection signal composes with the greedy-fill
+    signal. The bootstrap skill emits a `[FALLBACK-NEEDED: ...]`
+    marker as the first content line of the Cross-Session Memory
+    block when `fallback_signaled` is `True`.
+  - **C-3 per-tier ceiling**: New `handoff_ceiling_tokens` MemoryConfig
+    Field (default 8000, ge=2500, le=10000) sized for whole-handoff
+    aggregation against the Jina v2 single-vector ceiling. Applied as
+    a pre-filter inside `retrieve_bootstrap_context` after
+    `_aggregate_chunked_result`: oversized handoffs are excluded from
+    `results` and signaled via `meta.fallback_signaled`.
+    `bootstrap_token_budget` semantics for snippet content (decisions,
+    insights) remain untouched at `le=5000`.
+  - Workflow `step-01b-parzival-bootstrap` CASE B extended to recognize
+    the marker as a filesystem-fallback trigger, so cross-session
+    continuity never silently degrades.
+  - Realistic-size integration test (`tests/test_l1_handoff_realistic_size.py`)
+    gates a Session 47-class fixture (40 chunks, ~5,400 aggregated
+    tokens) against all three components per
+    [[feedback_realistic_size_production_artifact_tests]].
+- **Tier-2 handoff-class rejection observability** (F-010): The Tier-2
+  per-turn injection hook (`context_injection_tier2.py`) now passes
+  `tier=2, return_meta=True` to `select_results_greedy` so the
+  rejection counter is attributed to the `2_injection` label. When a
+  handoff-class result is budget-rejected at Tier 2, a single
+  `# [tier-2 fallback: ...]` comment marker is prepended to the
+  injected output as a debugging surface. Tier 2 has no filesystem
+  fallback path; behavior is otherwise unchanged.
+- **Triggers keyword-collision noise** (F-008): The intentional
+  pattern-substring overlaps in `TRIGGER_CONFIG` (e.g., `'best
+  practice'` inside `'best practices'`) are pattern-design decisions
+  per BP-040, not real trigger conflicts. The collision validator
+  already runs once at module-load time (TECH-DEBT-113); the WARN
+  emission surfaced on every per-process hook invocation, polluting
+  stderr. Downgraded to DEBUG.
+- **Prometheus collection allowlist missing `github`** (F-009): The
+  `github` collection (PLAN-010, separated from `discussions`) was
+  not in `VALID_COLLECTIONS` in `metrics_push.py`, so retrieval
+  metrics with `collection="github"` were coerced to `unknown`. All
+  5 production collections are now allowlisted (`code-patterns`,
+  `conventions`, `discussions`, `github`, `jira-data`).
+- **`/run/secrets` UserWarning suppression** (F-012): pydantic-settings
+  probes `/run/secrets` at every `MemoryConfig()` instantiation for
+  Docker-secrets discovery. The probe is intentional, but the
+  UserWarning emitted per-hook-process polluted stderr on host
+  environments. A scoped `warnings.filterwarnings` is installed at
+  `src/memory/config.py` module-load — in place before any importer
+  instantiates the settings model — to suppress the specific
+  message without masking other warnings.
+- **SKILL.md frontmatter audit** (F-013): Three skills already
+  declared `allowed-tools` correctly per Claude Code Skills spec
+  2026. Four were missing it. Audit added the actual tool set per
+  skill body: `aim-agent-lifecycle` (Bash — tmux send-keys /
+  capture-pane / kill-pane), `aim-parzival-team-builder` (Read —
+  Step 1 reads work-to-be-parallelized; non-standard `context:
+  fork` runtime extension preserved), `aim-agent-dispatch` and
+  `aim-model-dispatch` (Read — reference workflow files consulted
+  when routing). No skill body content modified.
 - **L1 handoff retrieval aggregation** (TD-518 / F-001): Bootstrap Layer 1
   now reassembles multi-chunk `agent_handoff` results via type-agnostic
   scroll-and-concat. Previous behavior returned only the single
