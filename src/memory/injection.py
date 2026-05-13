@@ -491,10 +491,13 @@ def retrieve_bootstrap_context(
             handoff_body = last_handoff[0].get("content", "") or ""
             handoff_tokens = count_tokens(handoff_body)
             if handoff_tokens > config.handoff_ceiling_tokens:
+                # No score field: L1 retrieval is deterministic (get_recent
+                # by recency, not similarity), so a similarity score is
+                # semantically inert here. Greedy-fill rejects on semantic
+                # layers remain score-bearing.
                 reject_record = {
                     "type": "agent_handoff",
                     "tokens": handoff_tokens,
-                    "score": last_handoff[0].get("score", 0),
                     "reason": "ceiling_exceeded",
                     "tier": "1_bootstrap",
                     "collection": COLLECTION_DISCUSSIONS,

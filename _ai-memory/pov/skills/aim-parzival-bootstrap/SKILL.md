@@ -205,13 +205,10 @@ try:
         _r_reason = _r.get("reason", "budget_exceeded")
         _r_type = _r.get("type", "agent_handoff")
         _r_tokens = _r.get("tokens", 0)
-        _r_budget = (
-            retrieval_meta.get("budget")
-            if _r_reason == "ceiling_exceeded"
-            else greedy_meta.get("budget", config.bootstrap_token_budget)
-        )
         if _r_reason == "ceiling_exceeded":
             _r_budget = config.handoff_ceiling_tokens
+        else:
+            _r_budget = greedy_meta.get("budget", config.bootstrap_token_budget)
         print(
             f"[FALLBACK-NEEDED: reason={_r_reason} type={_r_type} "
             f"tokens={_r_tokens} budget={_r_budget}]\n"

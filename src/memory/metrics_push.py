@@ -1895,11 +1895,11 @@ def push_retrieval_reject_metric_async(
 
     reason = _validate_label(reason, "reason", _VALID_REJECT_REASONS)
     tier = _validate_label(tier, "tier", _VALID_REJECT_TIERS)
-    # Intentionally no allowed-set on collection here; F-009 broadens the
-    # global VALID_COLLECTIONS independently. Collection is recorded as-is
-    # so emissions from new collections surface as observable labels rather
-    # than getting silently coerced to "unknown".
-    collection = _validate_label(collection, "collection")
+    # Enforce VALID_COLLECTIONS allowlist so the documented cardinality
+    # claim (4 reasons x 2 tiers x 5 collections = 40 series) is bound at
+    # the call site — unknown collection values surface as observable
+    # `unexpected_label_value` WARN rather than silently widening cardinality.
+    collection = _validate_label(collection, "collection", VALID_COLLECTIONS)
 
     try:
         metrics_data = {

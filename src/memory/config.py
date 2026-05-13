@@ -22,20 +22,21 @@ from functools import lru_cache
 from pathlib import Path
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # F-012: pydantic-settings probes /run/secrets at instantiation time for Docker
 # secrets discovery. On host environments the directory does not exist and the
 # library emits a UserWarning per MemoryConfig() instantiation, polluting hook
-# stderr. The probe is by design; install a scoped filter before any caller
-# instantiates the settings model. The filter is module-load-scoped so it is
-# in place before MemoryConfig() runs in any importer.
+# stderr. Install the scoped filter BEFORE the pydantic_settings import so it
+# is in place even if a future release emits at module-import time rather than
+# only at MemoryConfig() instantiation.
 warnings.filterwarnings(
     "ignore",
     message=r'directory "/run/secrets" does not exist',
     category=UserWarning,
     module="pydantic_settings.sources",
 )
+
+from pydantic_settings import BaseSettings, SettingsConfigDict  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

@@ -123,13 +123,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `# [tier-2 fallback: ...]` comment marker is prepended to the
   injected output as a debugging surface. Tier 2 has no filesystem
   fallback path; behavior is otherwise unchanged.
-- **Triggers keyword-collision noise** (F-008): The intentional
-  pattern-substring overlaps in `TRIGGER_CONFIG` (e.g., `'best
-  practice'` inside `'best practices'`) are pattern-design decisions
-  per BP-040, not real trigger conflicts. The collision validator
-  already runs once at module-load time (TECH-DEBT-113); the WARN
-  emission surfaced on every per-process hook invocation, polluting
-  stderr. Downgraded to DEBUG.
+- **Triggers keyword-collision noise** (F-008): Downgraded the
+  `keyword_pattern_collisions_detected` emission from WARN to DEBUG
+  level — the substring overlaps in `best_practices_keywords` are
+  intentional pattern-design (see BP-040), not real conflicts. The
+  collision validator already runs once at module-load time per
+  TECH-DEBT-113; this fix only adjusts emission severity to prevent
+  per-hook-invocation noise polluting stderr.
 - **Prometheus collection allowlist missing `github`** (F-009): The
   `github` collection (PLAN-010, separated from `discussions`) was
   not in `VALID_COLLECTIONS` in `metrics_push.py`, so retrieval

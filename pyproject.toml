@@ -135,6 +135,12 @@ markers = [
     "quarantine: Quarantined flaky tests excluded from default CI runs",
     "regression: Regression tests requiring live Langfuse + Qdrant (excluded from default pytest run)",
 ]
+# F-012 companion: pytest installs catch_warnings(record=True) + simplefilter("always"),
+# which overrides the production filter in src/memory/config.py. Mirror the
+# /run/secrets ignore here so test output stays clean.
+filterwarnings = [
+    'ignore:directory "/run/secrets" does not exist:UserWarning:pydantic_settings.sources',
+]
 
 # Coverage configuration
 [tool.coverage.run]
