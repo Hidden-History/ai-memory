@@ -307,12 +307,12 @@ def test_synthetic_12k_token_handoff_exceeds_max_ceiling__triggers_fallback(
 def test_ceiling_rejection_emits_prometheus_counter(
     qdrant_inmemory, mock_embedding, monkeypatch
 ):
-    """The push_retrieval_reject_metric_async helper is invoked exactly once
+    """The push_retrieval_reject_metric_async helper is invoked at least once
     per ceiling rejection, with the expected label set
     {reason=ceiling_exceeded, tier=1_bootstrap, collection=discussions}.
     Verifies the BP-158 P3 cardinality discipline at the call site.
     """
-    from memory import injection
+    import memory.metrics_push as _metrics_push_module
     from memory.injection import retrieve_bootstrap_context
 
     group_id = "test-bug297-counter-observability"
@@ -332,20 +332,21 @@ def test_ceiling_rejection_emits_prometheus_counter(
     monkeypatch.setenv("HANDOFF_CEILING_TOKENS", "2500")
     search, config = _make_search_client(qdrant_inmemory, monkeypatch)
 
-    # Patch the metrics helper at the import site used by injection.py.
+    # Patch the metrics helper at the module attribute that injection.py's
+    # inline `from memory.metrics_push import push_retrieval_reject_metric_async`
+    # resolves to. monkeypatch.setattr is more deterministic across Python
+    # versions than unittest.mock.patch combined with parenthesized-with
+    # context managers (one of which deferred to a wraps that was unused).
     push_mock = MagicMock()
-    with (
-        patch.object(
-            injection,
-            "_aggregate_chunked_result",
-            wraps=injection._aggregate_chunked_result,
-        ),
-        patch("memory.metrics_push.push_retrieval_reject_metric_async", push_mock),
-    ):
-        _results, meta = retrieve_bootstrap_context(search, group_id, config)
+    monkeypatch.setattr(
+        _metrics_push_module,
+        "push_retrieval_reject_metric_async",
+        push_mock,
+    )
+
+    _results, meta = retrieve_bootstrap_context(search, group_id, config)
 
     assert meta["fallback_signaled"] is True
-    # At least one call with the ceiling-exceeded label combo
     matching_calls = [
         call
         for call in push_mock.call_args_list
