@@ -1,6 +1,7 @@
 ---
 name: aim-agent-lifecycle
 description: tmux agent lifecycle management for non-Claude providers
+allowed-tools: Bash
 ---
 
 # Agent Lifecycle -- Non-Claude Provider Agent Management

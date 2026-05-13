@@ -1,6 +1,7 @@
 ---
 name: aim-parzival-team-builder
 description: Design agent team structure for parallel work execution
+allowed-tools: Read
 context: fork
 ---
 

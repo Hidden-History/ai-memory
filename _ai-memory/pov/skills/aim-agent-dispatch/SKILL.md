@@ -1,6 +1,7 @@
 ---
 name: aim-agent-dispatch
 description: Generic and BMAD agent selection, instruction preparation, and activation routing
+allowed-tools: Read
 ---
 
 # Agent Dispatch -- Generic and BMAD Agent Activation

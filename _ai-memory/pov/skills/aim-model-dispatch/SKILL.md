@@ -1,6 +1,7 @@
 ---
 name: aim-model-dispatch
 description: Select the appropriate LLM model for each agent based on task complexity and role
+allowed-tools: Read
 ---
 
 # Model Dispatch -- Model Selection and Provider Routing
