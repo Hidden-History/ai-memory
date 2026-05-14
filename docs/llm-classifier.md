@@ -48,10 +48,9 @@ MEMORY_CLASSIFIER_FALLBACK_PROVIDERS=openrouter
 OLLAMA_BASE_URL=http://host.docker.internal:11434
 
 # Model to use (must be pulled first: ollama pull <model>)
-OLLAMA_MODEL=sam860/LFM2:2.6b
+OLLAMA_MODEL=llama3.2:3b
 
 # Recommended models:
-#   sam860/LFM2:2.6b     - Fast, good for classification
 #   llama3.2:3b          - Good quality
 #   phi3:mini            - Good reasoning
 #   mistral:7b           - Balanced
@@ -67,7 +66,7 @@ OPENROUTER_API_KEY=sk-or-v1-your-key-here
 OPENROUTER_MODEL=mistralai/devstral-2512:free
 
 # Recommended models:
-#   google/gemma-2-9b-it:free        - Free tier, good quality
+#   meta-llama/llama-3.2-3b-instruct:free - Free tier, current installer default
 #   mistralai/devstral-2512:free     - Free tier, fast
 #   mistralai/mistral-7b-instruct    - Cheap, reliable
 #   anthropic/claude-3-haiku         - High quality, paid
@@ -80,10 +79,9 @@ OPENROUTER_MODEL=mistralai/devstral-2512:free
 ANTHROPIC_API_KEY=sk-ant-api03-your-key-here
 
 # Model to use
-ANTHROPIC_MODEL=claude-3-haiku-20240307
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001
 
 # Recommended models:
-#   claude-3-haiku-20240307          - Fast, cheapest
 #   claude-3-5-sonnet-20241022       - Best quality/cost ratio
 ```
 
@@ -145,12 +143,12 @@ MEMORY_CLASSIFIER_MAX_INPUT_CHARS=4000
 ```bash
 # 1. Install Ollama: https://ollama.ai
 # 2. Pull a model
-ollama pull sam860/LFM2:2.6b
+ollama pull llama3.2:3b
 
 # 3. Configure docker/.env
 MEMORY_CLASSIFIER_PRIMARY_PROVIDER=ollama
 OLLAMA_BASE_URL=http://host.docker.internal:11434
-OLLAMA_MODEL=sam860/LFM2:2.6b
+OLLAMA_MODEL=llama3.2:3b
 ```
 
 **For OpenRouter:**
@@ -160,7 +158,7 @@ OLLAMA_MODEL=sam860/LFM2:2.6b
 # 2. Configure docker/.env
 MEMORY_CLASSIFIER_PRIMARY_PROVIDER=openrouter
 OPENROUTER_API_KEY=sk-or-v1-your-key-here
-OPENROUTER_MODEL=google/gemma-2-9b-it:free
+OPENROUTER_MODEL=meta-llama/llama-3.2-3b-instruct:free
 ```
 
 ### 3. Configure Fallback (Optional but Recommended)
@@ -254,7 +252,7 @@ Access at: http://localhost:23000 (with `--profile monitoring`)
    curl https://openrouter.ai/api/v1/chat/completions \
      -H "Authorization: Bearer $OPENROUTER_API_KEY" \
      -H "Content-Type: application/json" \
-     -d '{"model": "google/gemma-2-9b-it:free", "messages": [{"role": "user", "content": "Hi"}]}'
+     -d '{"model": "meta-llama/llama-3.2-3b-instruct:free", "messages": [{"role": "user", "content": "Hi"}]}'
    ```
 
 3. Check model availability at https://openrouter.ai/models
@@ -282,7 +280,7 @@ docker compose -f docker/docker-compose.yml restart classifier-worker
 
 2. Use faster model:
    ```bash
-   OLLAMA_MODEL=sam860/LFM2:2.6b  # Smaller, faster
+   OLLAMA_MODEL=llama3.2:3b  # Small, fast model for classification
    ```
 
 3. Reduce input size:

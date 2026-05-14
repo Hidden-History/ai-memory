@@ -47,18 +47,18 @@ allowed-tools: Read
 
 **MANDATORY** for opus, sonnet, haiku -- use the Claude Code native parallel system.
 
-→ [`workflows/claude-native/workflow.md`]({project-root}/_ai-memory/pov/model-dispatch-framework/workflows/claude-native/workflow.md)
+→ [`workflows/claude-native/workflow.md`]({skills_path}/aim-model-dispatch/workflows/claude-native/workflow.md)
 
 ### Path 2: Non-Claude Providers
 
 | Provider | Workflow |
 |----------|----------|
-| openrouter, ollama, gemini, deepseek, groq, cerebras, mistral, openai, vertex-ai, siliconflow | [`tmux-dispatch`]({project-root}/_ai-memory/pov/model-dispatch-framework/workflows/tmux-dispatch/workflow.md) or [`bmad-dispatch`]({project-root}/_ai-memory/pov/model-dispatch-framework/workflows/bmad-dispatch/workflow.md) |
-| api (image/audio/video) | [`api-dispatch`]({project-root}/_ai-memory/pov/model-dispatch-framework/workflows/api-dispatch/workflow.md) |
+| openrouter, ollama, gemini, deepseek, groq, cerebras, mistral, openai, vertex-ai, siliconflow | [`tmux-dispatch`]({skills_path}/aim-model-dispatch/workflows/tmux-dispatch/workflow.md) or [`bmad-dispatch`]({skills_path}/aim-model-dispatch/workflows/bmad-dispatch/workflow.md) |
+| api (image/audio/video) | [`api-dispatch`]({skills_path}/aim-model-dispatch/workflows/api-dispatch/workflow.md) |
 
 ---
 
 ## Framework
 
 All sub-workflows, references, scripts, wrappers, and evals are in:
-`{project-root}/_ai-memory/pov/model-dispatch-framework/`
+`{skills_path}/aim-model-dispatch/`

@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-05-13 — BUG-297 Silent-Drop Fix + Sanctum Identity + Env-Secrets Split + Classifier Resilience
+
+v2.4.0 closes the **BUG-297 silent-drop class** as its marquee item: L1 handoff
+results were dropped at the retrieval budget with no log, no metric, and no
+signal to the caller — fixed via a 3-component bundle (structured WARN +
+Prometheus counter for budget rejects, a typed `fallback_signaled` sentinel
+threaded through `select_results_greedy` and surfaced as a
+`[FALLBACK-NEEDED:]` marker, and a per-tier `handoff_ceiling_tokens=8000`
+ceiling sized for whole-handoff aggregation against the Jina v2 single-vector
+ceiling). Verified end-to-end via PM #289 Session A/B functional gate on a
+live 6,760-token handoff retrieval.
+
+Supporting work shipped in the same release:
+- **Parzival sanctum identity layer** (PLAN-027): source ships an EMPTY
+  sanctum; `aim-agent-sanctum-init` scaffolds 8 universal templates at First
+  Breath. File-level idempotency hard rule — re-runs never overwrite an
+  existing sanctum file. New conversational First Breath workflow fills BOND
+  with owner specifics + LORE with project specifics. Bootstrap path
+  (BUG-283), partial-fill contradiction (BUG-284), and Qdrant status-line
+  accuracy (BUG-285) closed alongside.
+- **`.env` + `.env.secrets` split with Compose `env_file:` directive**
+  (BP-152 / BUG-277 / BUG-279): 25 secret-class keys moved to a `chmod 600`
+  file with last-file-wins precedence; `${PROJECT_ENV_FILE}` enables
+  per-project env layering. Closes TD-477 and retires the
+  `unset QDRANT_API_KEY` ritual.
+- **Installer hardening pass**: BUG-273 (UID/GID readonly), BUG-274 (user
+  input persistence), BUG-275 (consumer-side dual-file read), BUG-281
+  (Docker mount root-owned host dirs), BUG-282 (`.env` dotfile glob skip),
+  BUG-286 (SSoT secrets-split enforcement), BUG-287 (Qdrant read-only API
+  key compose wiring), BUG-292/293 (`run-with-env.sh` + `health_check.sh`
+  secrets-first read), BUG-291 (activation step 5 detect-and-repair).
+- **Classifier provider resilience** (BUG-290/294/295/296): retired
+  OpenRouter default replaced; Ollama cold-start handled via `/api/ps` +
+  `keep_alive: -1`; retired Anthropic default replaced; dual-listed
+  Langfuse blanks removed.
+- **GitHub code-blob sync graceful degradation** (BUG-288, BP-155):
+  abandon-set persistence + reconciliation pre-sort + `/health`-503
+  readiness gate (BUG-289) so `service_healthy` correctly gates startup.
+- **Decision-type emit at session closeout** (TD-519) and **L1 handoff
+  retrieval aggregation** (TD-518) — both close gaps where canonical
+  storage existed (decision-log.md) or chunked storage existed
+  (`agent_handoff`) but Qdrant retrieval was silently empty or
+  single-chunk.
+- **`INSTALL_PARZIVAL=true` install-time opt-in** for non-interactive runs
+  (PR #124).
+
 ### Added
 - **`EMBEDDING_READ_TIMEOUT_CODE` env var** (BUG-288): new per-request read
   timeout override for code-model embedding calls (default 30s). The client-level
@@ -73,6 +119,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`step-02-create-team.md` renamed to `step-02-spawn-agent.md`** (R6 template rename): The workflow step that spawns an agent pane is no longer called "create-team" — naming now reflects the actual action. Templates referencing the old filename have been rewritten.
 - **POV step-file template consolidation** (R6): 63 `steps-e/` and `steps-v/` stub files rewritten to reference two shared templates (`STEP-FILE-TEMPLATE.md` and a variant) instead of carrying boilerplate inline. Replaces ~4,284 lines of duplicated boilerplate with ~780 lines of stubs + 2 shared templates — net −3,500 lines in this one consolidation alone.
 - **Dependency floor: `langfuse>=4.0.6,<4.1.0`** (PR #120): Tightened the langfuse Python SDK lower bound from `4.0.0` to `4.0.6`. Picks up upstream patches v4.0.1-v4.0.6 including asyncio.CancelledError handling in `@observe` (v4.0.2), scores session ID parsing fix (v4.0.2), and experiments propagation context maintenance (v4.0.2). No API-surface changes affecting our V3 SDK usage (`get_client`, `observe`, `propagate_attributes`, `Langfuse`, `span_filter`).
+- **`docker/*/requirements.txt` pin alignment to `pyproject.toml` floors**
+  (TD-385 class audit): `docker/github-sync/requirements.txt` langfuse pin
+  raised to `>=4.0.6,<4.1.0` (was `>=4.0.0,<4.1.0`) so the github-sync
+  container picks up the same v4.0.6 fixes as the host install; anthropic
+  pins in `docker/github-sync/requirements.txt` and
+  `docker/streamlit/requirements.txt` raised from `==0.87.0` to
+  `>=0.89.0,<1.0.0` to match pyproject; `docker/streamlit/requirements.txt`
+  streamlit bumped from `==1.54.0` to `==1.56.0`. Docker build smoke tests
+  pass; prometheus-client was already consistent at `==0.24.1` across all
+  three docker `requirements.txt` files (TD-385 audit no-op for that pin).
 - **GitHub Actions group bump** (PR #113): Bumped 2 actions in `.github/workflows/community.yml`, `dependabot-auto-merge.yml`, `release.yml`. CI-only impact; no runtime change.
 
 ### Fixed
@@ -369,6 +425,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GITHUB_CODE_BLOB_INCLUDE=*.yaml,*.toml,Makefile,Dockerfile` was lost
   across reinstall.
 - **Sanctum architecture redesign (BUG-283 + BUG-284 + BUG-285)**: testV2 lead-dev verification surfaced a contradiction in the prior PM #255 partial-fill sanctum delivery model: source shipped pre-filled `CREED.md` while `init-sanctum.py` `TEMPLATE_FILES` excluded `CREED-template.md`, and directory-level idempotency at `init-sanctum.py:215-218` exited clean if `CREED.md` existed — net result, fresh installs got CREED + 3 empty subdirs only, with Tier B (LORE/BOND) never created. Plus the templates contained literal `{}` placeholders (e.g., `{agent-title}`, `{vibe-prompt}`, `{bond-domain-sections}`) that survived as raw text in scaffolded output because `substitute_vars` only fills 6 specific keys. PLAN-027 redesign: empty-ship sanctum + `TEMPLATE_FILES` extended to 8 (adds CREED, CAPABILITIES, PULSE) + file-level idempotency in 3 write sites (`copy_references`, `copy_scripts`, TEMPLATE_FILES loop) + `CREED-template.md` becomes the authored Parzival philosophy (relocated from prior shipped `CREED.md`) + 5 other templates rewritten as universal scaffolds with substitution-key-only placeholders (no leak-prone `{X}` literals) + new conversational First Breath workflow (3 steps: meet owner → learn project → confirm and begin). Bootstrap fixes (BUG-283): `_bootstrap_skill_dir` path corrected to include `_ai-memory/` segment; `sanctum_tier_b` import wrapped for graceful degrade. Status-line accuracy (BUG-285): per-layer Qdrant status capture via `logging.Handler` subclass distinguishes "available", "degraded (N of 4 layers unreachable)", "unreachable (all retrieval calls failed)" instead of hardcoded "available" that masked Connection refused errors. Activation step 5 detect-and-repair: invokes `/aim-agent-sanctum-init` if any of 8 required sanctum files missing; invokes First Breath workflow if BOND has scaffold markers. 4 regression tests (T1-T4) verify no `{}` placeholder leakage / idempotency / partial-sanctum recovery / customization preservation. See `oversight/bugs/BUG-283-bootstrap-path-and-sanctum-tier-b-import.md`, `oversight/bugs/BUG-284-sanctum-init-contradicts-shipped-creed.md`, `oversight/bugs/BUG-285-bootstrap-status-line-masks-qdrant-unreachable.md`.
+- **Installer (BUG-286 fix)**: enforce env-secrets split for ALL 25 secret-class
+  keys including PP-1 (`GITHUB_TOKEN`, `JIRA_API_TOKEN`). Pre-fix, the recovery
+  menu and `configure_environment` Add Jira/GitHub blocks wrote PP-1 tokens to
+  `docker/.env` (chmod 644) instead of `docker/.env.secrets` (chmod 600) — an
+  active leak in the recovery path, plus latent risk in the configure path.
+  `migrate_secrets_to_split_file` excluded PP-1 from migration scope, and
+  TD-198 backup-and-restore preserved the leaked `.env` across reinstalls so
+  `verify_env_split.py I4` failed on every reinstall of a customized clone.
+  Fix introduces `ALL_SECRET_KEYS` as the single source of truth in
+  `scripts/_env_split_helpers.sh` (25 keys = PP-1 + PP-2 + PP-3), routes
+  recovery-menu writes to `.env.secrets`, replaces `configure_environment`
+  token echoes with blank placeholders, extends migration + detection probes
+  to include PP-1, adds defensive blank-in-`.env` via
+  `persist_user_choices_to_env`, and adds T13/T14/T15 regression tests
+  covering the reinstall #5 scenario, all-25-key enforcement, and
+  idempotency. Cycle-2 dual-review fix-r2 makes the SSoT truly consumed
+  (single iteration over `ALL_SECRET_KEYS` instead of parallel pp1/pp2/pp3
+  arrays) and dedupes the detection grep alternation. See
+  `oversight/bugs/BUG-286-installer-pp1-secrets-leak.md`.
 - **Compose (BUG-287 fix)**: wire `QDRANT__SERVICE__READ_ONLY_API_KEY` into the
   Qdrant container `environment:` block, completing the TD-333 read-only auth
   surface. The producer side (`install.sh` R2.7 key generation + `.env.secrets`
@@ -508,7 +583,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade Instructions
 
-**From v2.3.2 → Unreleased:**
+**From v2.3.2 → v2.4.0:**
 
 This release includes:
 
