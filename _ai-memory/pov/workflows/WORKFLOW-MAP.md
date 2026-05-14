@@ -3,7 +3,7 @@
 > **Purpose**: Parzival reads this file at every session start to determine project state and route to the correct workflow
 > **Loaded**: Immediately after parzival.md and global constraints at activation
 > **Authority**: This is the single source of truth for workflow routing decisions
-> **Reference**: parzival-master-plan.md Section 6
+> **Reference**: oversight/docs/parzival-master-plan-history.md Section 6
 
 ---
 
@@ -259,4 +259,4 @@ End-of-session protocol is implemented by `session/close/workflow.md`. For the p
 
 ---
 
-*Reference: parzival-master-plan.md Build Order*
+*Reference: oversight/docs/parzival-master-plan-history.md Build Order*
