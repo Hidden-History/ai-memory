@@ -4,15 +4,12 @@
 
 | Agent Type | Activation Command |
 |---|---|
-| Developer | `/bmad-agent-bmm-dev` |
-| PM (Product Manager) | `/bmad-agent-bmm-pm` |
-| Analyst | `/bmad-agent-bmm-analyst` |
-| Architect | `/bmad-agent-bmm-architect` |
-| Scrum Master | `/bmad-agent-bmm-sm` |
-| QA Engineer | `/bmad-agent-bmm-qa` |
-| UX Designer | `/bmad-agent-bmm-ux-designer` |
-| Tech Writer | `/bmad-agent-bmm-tech-writer` |
-| Quick Flow Solo Dev | `/bmad-agent-bmm-quick-flow-solo-dev` |
+| Developer | `/bmad-agent-dev` |
+| PM (Product Manager) | `/bmad-agent-pm` |
+| Analyst | `/bmad-agent-analyst` |
+| Architect | `/bmad-agent-architect` |
+| UX Designer | `/bmad-agent-ux-designer` |
+| Tech Writer | `/bmad-agent-tech-writer` |
 | BMAD Master | `/bmad-agent-bmad-master` |
 | Agent Builder | `/bmad-agent-bmb-agent-builder` |
 | Module Builder | `/bmad-agent-bmb-module-builder` |
@@ -36,13 +33,11 @@ When the task description does not specify an agent:
 | Validate a PRD | PM | `VP` |
 | Break down features into stories | PM | `CE` |
 | Design system architecture | Architect | Use menu |
-| Sprint planning | SM | Use menu |
 | Write code / implement a story | DEV | `DS` |
 | Review implemented code | DEV | `CR` |
 | Design user flows | UX Designer | Use menu |
 | Write or review documentation | Tech Writer | `WD` |
 | Validate documentation | Tech Writer | `VD` |
-| Write and run tests | QA | Use menu |
 | Build new BMAD agents | Agent Builder | Use menu |
 | Build new BMAD modules | Module Builder | Use menu |
 | Build new BMAD workflows | Workflow Builder | Use menu |
@@ -53,11 +48,10 @@ When the user specifies a direct workflow command, map it to two-phase activatio
 
 | Direct Command | Activate Agent | Menu Code |
 |---|---|---|
-| `/bmad-bmm-code-review` | `/bmad-agent-bmm-dev` | `CR` |
-| `/bmad-bmm-dev-story` | `/bmad-agent-bmm-dev` | `DS` |
-| `/bmad-bmm-create-prd` | `/bmad-agent-bmm-pm` | `CP` |
-| `/bmad-bmm-validate-prd` | `/bmad-agent-bmm-pm` | `VP` |
-| `/bmad-bmm-create-epics-and-stories` | `/bmad-agent-bmm-pm` | `CE` |
-| `/bmad-bmm-create-architecture` | `/bmad-agent-bmm-architect` | Use menu |
-| `/bmad-bmm-sprint-planning` | `/bmad-agent-bmm-sm` | Use menu |
-| `/bmad-bmm-create-ux-design` | `/bmad-agent-bmm-ux-designer` | Use menu |
+| `/bmad-code-review` | `/bmad-agent-dev` | `CR` |
+| `/bmad-dev-story` | `/bmad-agent-dev` | `DS` |
+| `/bmad-create-prd` | `/bmad-agent-pm` | `CP` |
+| `/bmad-validate-prd` | `/bmad-agent-pm` | `VP` |
+| `/bmad-create-epics-and-stories` | `/bmad-agent-pm` | `CE` |
+| `/bmad-create-architecture` | `/bmad-agent-architect` | Use menu |
+| `/bmad-create-ux-design` | `/bmad-agent-ux-designer` | Use menu |

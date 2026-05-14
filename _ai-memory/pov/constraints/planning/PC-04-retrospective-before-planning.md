@@ -20,7 +20,7 @@ WHY THIS IS REQUIRED:
 - Patterns in review cycle length indicate story complexity problems
 
 RETROSPECTIVE BEFORE PLANNING MEANS:
-- SM runs /bmad-bmm-retrospective before /bmad-bmm-sprint-planning
+- SM runs /bmad-retrospective before /bmad-sprint-planning
 - Retrospective output is given to SM as input for next sprint
 - Sprint [N+1] scope is based on Sprint [N] velocity — not optimism
 

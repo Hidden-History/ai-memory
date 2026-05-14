@@ -12,44 +12,19 @@ nextStepFile: './step-02-architect-designs.md'
 
 Read and verify all inputs before activating any agent. Resolve any ambiguities that would force the Architect to guess or assume.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on reading and verifying inputs — no agents activated
-- 🚫 FORBIDDEN to activate any agent before all inputs are read and ambiguities resolved
-- 💬 Approach: Systematic file review, resolve all ambiguities before proceeding
-- 📋 If ambiguities exist, resolve from files first, then ask user before activating agents
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Read all input documents and resolve pre-architecture questions
-- 💾 Document resolved answers in goals.md or decisions.md
-- 📖 Load next step only after all inputs verified and ambiguities resolved
-- 🚫 FORBIDDEN to proceed with unresolved architecture blockers
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: PRD.md, goals.md, project-context.md, Analyst audit findings (if from init-existing)
 - Focus: Input verification only — do not activate any agents
 - Limits: Do not activate any agents. Only read, verify, and resolve questions.
 - Dependencies: Completed Discovery phase — PRD.md and goals.md must exist
+
+- Focus on reading and verifying inputs — no agents activated
+**Behavioral Constraints:**
+- FORBIDDEN to activate any agent before all inputs are read and ambiguities resolved
+- Approach: Systematic file review, resolve all ambiguities before proceeding
+- If ambiguities exist, resolve from files first, then ask user before activating agents
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -95,22 +70,3 @@ If unresolved: check project files first, then ask user. Document answers in goa
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when all inputs are read and ambiguities resolved, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- PRD.md read in full (not summarized from Discovery)
-- All relevant project files read
-- Pre-architecture ambiguities resolved before Architect activation
-- Answers documented in appropriate files
-
-### ❌ SYSTEM FAILURE:
-
-- Activating Architect with unresolved ambiguities
-- Relying on summaries instead of reading PRD.md
-- Not checking for existing codebase constraints
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

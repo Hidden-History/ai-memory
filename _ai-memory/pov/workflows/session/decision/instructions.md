@@ -2,6 +2,7 @@
 name: 'session-decision-instructions'
 description: 'Decision support: structure options with tradeoffs, facilitate user choice, record to decision log'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # session-decision — Instructions
 

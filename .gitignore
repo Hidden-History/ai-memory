@@ -20,6 +20,7 @@ logs/
 .env.local
 .env.*.local
 docker/.env
+docker/.env.secrets
 
 # Node modules (if applicable)
 node_modules/

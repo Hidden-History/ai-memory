@@ -2,6 +2,7 @@
 name: 'session-status-instructions'
 description: 'Quick status check: read project state and present current phase, task, blockers, and risks'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # session-status — Instructions
 

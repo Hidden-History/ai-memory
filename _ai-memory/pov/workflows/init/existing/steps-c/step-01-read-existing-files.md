@@ -12,45 +12,20 @@ nextStepFile: './step-02-run-analyst-audit.md'
 
 Read ONLY the files needed to determine project state and routing branch. The Analyst agent in Step 2 performs the deep audit — Parzival should NOT read the full codebase here. Context budget matters.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on reading ROUTING files only — deep audit is the Analyst's job in Step 2
-- 🚫 FORBIDDEN to activate any agents or modify any files during this step
-- 🚫 FORBIDDEN to read the full codebase, all docs, or all config files — that wastes context
-- 💬 Approach: Targeted reads of routing-critical files, existence checks for the rest
-- 📋 Treat all documentation as "possibly outdated until verified by Analyst"
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Read only routing-critical files (3 files max) and record findings
-- 💾 Check existence of key project files without reading their full content
-- 📖 Load next step only after routing findings compiled and branch signal identified
-- 🚫 FORBIDDEN to read files beyond the routing set — the Analyst handles everything else
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Routing-critical files only (project-status.md, sprint-status.yaml, README.md)
 - Focus: Determine branch signal for Step 3 routing
 - Limits: Do NOT read PRD, architecture, epics, stories, or source code. The Analyst agent in Step 2 does the deep audit.
 - Dependencies: None — this is the first step of the init-existing workflow
+
+- Focus on reading ROUTING files only — deep audit is the Analyst's job in Step 2
+**Behavioral Constraints:**
+- FORBIDDEN to activate any agents or modify any files during this step
+- FORBIDDEN to read the full codebase, all docs, or all config files — that wastes context
+- Approach: Targeted reads of routing-critical files, existence checks for the rest
+- Treat all documentation as "possibly outdated until verified by Analyst"
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -112,25 +87,3 @@ Based on findings, note the likely branch (confirmed in Step 3):
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when routing files have been read and branch signal identified, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Routing-critical files were read (project-status.md, sprint-status.yaml, README.md)
-- Existence checks completed for key project files
-- Branch signal identified with reasoning
-- Context budget preserved for Analyst audit in Step 2
-- No agents were activated during this step
-
-### ❌ SYSTEM FAILURE:
-
-- Reading the full codebase, all docs, or all config files (context waste)
-- Activating an agent before routing is determined
-- Skipping the existence checks
-- Proceeding without a branch signal
-- Assuming documentation is accurate without noting it needs Analyst verification
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

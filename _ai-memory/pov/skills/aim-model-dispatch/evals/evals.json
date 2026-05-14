@@ -17,7 +17,7 @@
           "type": "workflow_loading"
         },
         {
-          "text": "Agent resolved the correct BMAD agent: Dev agent with activation command /bmad-agent-bmm-dev",
+          "text": "Agent resolved the correct BMAD agent: Dev agent with activation command /bmad-agent-dev",
           "type": "agent_resolution"
         },
         {
@@ -50,7 +50,7 @@
           "type": "workflow_routing"
         },
         {
-          "text": "Agent resolved the correct BMAD agent: PM agent with activation command /bmad-agent-bmm-pm",
+          "text": "Agent resolved the correct BMAD agent: PM agent with activation command /bmad-agent-pm",
           "type": "agent_resolution"
         },
         {
@@ -83,7 +83,7 @@
           "type": "workflow_routing"
         },
         {
-          "text": "Agent resolved the correct BMAD agent: Analyst with activation command /bmad-agent-bmm-analyst",
+          "text": "Agent resolved the correct BMAD agent: Analyst with activation command /bmad-agent-analyst",
           "type": "agent_resolution"
         },
         {

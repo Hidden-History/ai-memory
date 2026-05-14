@@ -15,13 +15,28 @@ References:
 
 import logging
 import os
+import warnings
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# F-012: pydantic-settings probes /run/secrets at instantiation time for Docker
+# secrets discovery. On host environments the directory does not exist and the
+# library emits a UserWarning per MemoryConfig() instantiation, polluting hook
+# stderr. Install the scoped filter BEFORE the pydantic_settings import so it
+# is in place even if a future release emits at module-import time rather than
+# only at MemoryConfig() instantiation.
+warnings.filterwarnings(
+    "ignore",
+    message=r'directory "/run/secrets" does not exist',
+    category=UserWarning,
+    module="pydantic_settings.sources",
+)
+
+from pydantic_settings import BaseSettings, SettingsConfigDict  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -122,25 +137,27 @@ class MemoryConfig(BaseSettings):
         jira_sync_delay_ms: Delay between Jira API requests for rate limiting
     """
 
+    # BUG-275: tuple reads both files; last-wins per pydantic-settings dict.update() — see BP-153 §3/§4
+    _install_dir = Path(
+        os.environ.get("AI_MEMORY_INSTALL_DIR", str(Path.home() / ".ai-memory"))
+    )
+    _docker_env = str(_install_dir / "docker" / ".env")
+    _docker_secrets = str(_install_dir / "docker" / ".env.secrets")
+
     model_config = SettingsConfigDict(
-        env_file=str(
-            Path(
-                os.environ.get(
-                    "AI_MEMORY_INSTALL_DIR",
-                    str(Path.home() / ".ai-memory"),
-                )
-            )
-            / "docker"
-            / ".env"
-        ),
+        env_file=(
+            _docker_env,
+            _docker_secrets,
+        ),  # was: single str; last-wins per dict.update()
         env_file_encoding="utf-8",
-        env_ignore_empty=True,  # Use defaults instead of empty strings
+        env_ignore_empty=True,  # per-file filter — empty .env placeholders don't suppress .env.secrets
         case_sensitive=False,  # SIMILARITY_THRESHOLD = similarity_threshold
         validate_default=True,  # Validate default values
         frozen=True,  # Immutable after creation (thread-safe)
         extra="ignore",  # Allow extra env vars (STREAMLIT_PORT, PLATFORM, etc.)
         populate_by_name=True,  # Allow both field name and validation_alias for init
         hide_input_in_errors=True,  # Prevent SecretStr leaks in validation errors
+        secrets_dir="/run/secrets",  # forward-compat with Docker Swarm/K8s secrets mounts
     )
 
     # Core thresholds (FR42)
@@ -623,6 +640,20 @@ class MemoryConfig(BaseSettings):
         ge=500,
         le=5000,
         description="Token budget for Tier 1 bootstrap injection (startup trigger)",
+    )
+
+    handoff_ceiling_tokens: int = Field(
+        default=8000,
+        ge=2500,
+        le=10000,
+        description=(
+            "Per-tier ceiling for L1 handoff retrieval — sized for whole-artifact "
+            "aggregation (Jina Embeddings v2 single-vector ceiling). Independent of "
+            "bootstrap_token_budget which sizes snippet content (decisions, insights). "
+            "A handoff aggregated body exceeding this ceiling is rejected at Layer 1 "
+            "pre-filter inside retrieve_bootstrap_context; rejection signals a "
+            "filesystem-fallback via the FALLBACK-NEEDED marker. See BP-158 §5."
+        ),
     )
 
     injection_confidence_threshold: float = Field(

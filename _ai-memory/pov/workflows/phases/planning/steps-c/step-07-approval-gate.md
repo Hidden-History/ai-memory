@@ -11,44 +11,19 @@ description: 'Route to approval gate for sprint plan sign-off before Execution b
 
 Route to {workflows_path}/cycles/approval-gate/workflow.md for sprint plan sign-off. On approval, update project status and route to WF-EXECUTION. This is the terminal step.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Route to approval gate cycle and handle all approval outcomes
-- 🚫 FORBIDDEN to begin execution without formal approval through the approval gate
-- 💬 Approach: Present complete sprint package, invoke approval-gate cycle, handle result
-- 📋 On approval, update project status and load WF-EXECUTION; on rejection, return to Step 6
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Prepare complete sprint approval package and invoke approval-gate workflow
-- 💾 Update project-status.md immediately upon approval before loading WF-EXECUTION
-- 📖 Load WF-EXECUTION only after approval gate returns approval result
-- 🚫 FORBIDDEN to begin execution without approval gate sign-off
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Approved sprint plan, all story files
 - Focus: Formal approval gate and phase transition — not execution
 - Limits: Do not begin execution until approval is received.
 - Dependencies: User-confirmed sprint plan from Step 6
+
+- Route to approval gate cycle and handle all approval outcomes
+**Behavioral Constraints:**
+- FORBIDDEN to begin execution without formal approval through the approval gate
+- Approach: Present complete sprint package, invoke approval-gate cycle, handle result
+- On approval, update project status and load WF-EXECUTION; on rejection, return to Step 6
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -106,23 +81,3 @@ Options:
 - Update project-status.md with sprint approval and phase transition
 - Route to WF-EXECUTION after approval gate confirms approval
 - Drop planning constraints and load execution constraints on transition
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Approval gate invoked with complete package
-- First story clearly identified
-- User explicitly approved before execution began
-- Project status updated
-- Clean handoff to WF-EXECUTION
-
-### ❌ SYSTEM FAILURE:
-
-- Starting execution without approval
-- Not identifying first story
-- Bypassing approval gate
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

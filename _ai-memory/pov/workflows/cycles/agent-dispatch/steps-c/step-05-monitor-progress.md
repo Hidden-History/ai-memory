@@ -12,44 +12,19 @@ nextStepFile: './step-06-receive-output.md'
 
 Parzival monitors the teammate's progress while it works. Monitor via teammate idle notifications and TaskList for progress tracking. Intervene immediately if the agent goes out of scope or appears stuck.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on monitoring scope adherence and progress — intervene only when required
-- 🚫 FORBIDDEN to interrupt normal agent progress without specific trigger conditions
-- 💬 Approach: Passive monitoring until intervention condition is triggered
-- 📋 Blocker escalation must include options and Parzival's recommendation before presenting to user
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Monitor via idle notifications and TaskList; intervene on scope breach or unreported blocker
-- 💾 Document any scope breaches, blockers escalated, and resolutions provided
-- 📖 Load next step only when agent signals completion via idle notification or explicit message
-- 🚫 FORBIDDEN to accept completion signal without confirming agent task is within scope
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The dispatched instruction, the agent's task scope, idle notifications, TaskList status
 - Focus: Progress monitoring and intervention only — do not accept output yet
 - Limits: Do not interrupt normal progress. Only intervene when specific conditions are met.
 - Dependencies: Dispatched instruction from step-04, active teammate from step-03
+
+- Focus on monitoring scope adherence and progress — intervene only when required
+**Behavioral Constraints:**
+- FORBIDDEN to interrupt normal agent progress without specific trigger conditions
+- Approach: Passive monitoring until intervention condition is triggered
+- Blocker escalation must include options and Parzival's recommendation before presenting to user
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -129,24 +104,3 @@ When an agent reports a blocker that Parzival cannot resolve:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the agent signals completion (via idle notification or explicit completion message), load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Progress tracked via idle notifications and TaskList
-- Out-of-scope work detected and stopped immediately
-- Blockers assessed and resolved (or escalated) promptly
-- Normal progress not interrupted
-
-### ❌ SYSTEM FAILURE:
-
-- Not monitoring agent progress
-- Missing out-of-scope work
-- Ignoring reported blockers
-- Interrupting normal agent progress
-- Not escalating unresolvable blockers to user
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

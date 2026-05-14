@@ -1778,7 +1778,8 @@ class MemoryStorage:
 
         Args:
             content: Memory content text.
-            memory_type: One of: agent_handoff, agent_memory, agent_task, agent_insight.
+            memory_type: One of: agent_handoff, agent_memory, agent_task,
+                agent_insight, decision.
             agent_id: Agent identifier (default "parzival").
             group_id: Project identifier. Auto-detected from cwd if None.
             session_id: Optional session identifier. Defaults to f"agent_{agent_id}".
@@ -1792,11 +1793,17 @@ class MemoryStorage:
             ValueError: If memory_type is not a valid agent type.
             ValueError: If neither group_id nor cwd is provided.
         """
+        # TD-519 / D-2-A: "decision" added as first-class allowed type so the
+        # /parzival-save-decision skill can emit DEC entries to Qdrant for L2
+        # retrieval. Decisions store WHOLE (1 vector, no chunking) per
+        # Chunking-Strategy-V2 §3.3 + §7 — guaranteed by content_type_map
+        # NOT mapping MemoryType.DECISION (unmapped types skip the chunker).
         VALID_AGENT_TYPES = {
             "agent_handoff",
             "agent_memory",
             "agent_task",
             "agent_insight",
+            "decision",
         }
         if memory_type not in VALID_AGENT_TYPES:
             raise ValueError(

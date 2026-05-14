@@ -12,44 +12,19 @@ nextStepFile: './step-05-user-review-iteration.md'
 
 Before the user sees architecture.md, Parzival reviews it against completeness, PRD alignment, internal consistency, appropriateness, and implementability checklists. Return to Architect for corrections if needed.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on running all five review checklists before presenting architecture to user
-- 🚫 FORBIDDEN to present architecture to user with known issues
-- 💬 Approach: Batch all corrections into a single instruction — no piecemeal fixes
-- 📋 Re-run the full review from scratch after every round of corrections
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Run all five checklists completely and independently
-- 💾 Compile all issues into a single batched correction instruction per review round
-- 📖 Load next step only after architecture passes all five checklists
-- 🚫 FORBIDDEN to skip any checklist or send corrections piecemeal
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: architecture.md draft, PRD.md, goals.md, project-context.md
 - Focus: Parzival review only — user has not seen architecture yet
 - Limits: Parzival reviews only. User has not seen architecture yet. Batch corrections.
 - Dependencies: Steps 2 and 3 complete — architecture draft and UX artifacts (if applicable) received
+
+- Focus on running all five review checklists before presenting architecture to user
+**Behavioral Constraints:**
+- FORBIDDEN to present architecture to user with known issues
+- Approach: Batch all corrections into a single instruction — no piecemeal fixes
+- Re-run the full review from scratch after every round of corrections
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -117,23 +92,3 @@ After corrections, re-run the full review. Repeat until all checks pass.
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when architecture passes all review checks, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All five checklists run completely
-- Issues batched into single correction instruction
-- Corrected architecture re-reviewed from scratch
-- Architecture passes all checks before user sees it
-
-### ❌ SYSTEM FAILURE:
-
-- Presenting architecture to user with known issues
-- Sending corrections piecemeal
-- Not re-reviewing after corrections
-- Skipping any checklist
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

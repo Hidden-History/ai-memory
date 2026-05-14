@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.3.2-green?style=flat-square" alt="Version 2.3.2">
+  <img src="https://img.shields.io/badge/version-2.4.0-green?style=flat-square" alt="Version 2.4.0">
   <a href="https://github.com/Hidden-History/ai-memory/stargazers"><img src="https://img.shields.io/github/stars/Hidden-History/ai-memory?color=blue&style=flat-square" alt="Stars"></a>
   <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
   <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
@@ -424,11 +424,11 @@ MEMORY_CLASSIFIER_FALLBACK_PROVIDERS=openrouter
 
 # For Ollama (free, local)
 OLLAMA_BASE_URL=http://host.docker.internal:11434
-OLLAMA_MODEL=sam860/LFM2:2.6b
+OLLAMA_MODEL=llama3.2:3b
 
 # For OpenRouter (free tier available)
 OPENROUTER_API_KEY=sk-or-v1-your-key
-OPENROUTER_MODEL=google/gemma-2-9b-it:free
+OPENROUTER_MODEL=meta-llama/llama-3.2-3b-instruct:free
 ```
 
 See [docs/llm-classifier.md](docs/llm-classifier.md) for complete setup guide, provider options, and troubleshooting.

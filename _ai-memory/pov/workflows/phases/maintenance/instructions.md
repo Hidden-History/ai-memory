@@ -2,6 +2,7 @@
 name: 'phases-maintenance-instructions'
 description: 'Maintenance phase: triage issue, classify legitimacy, diagnose, dispatch fix, review cycle, approve'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # phases-maintenance — Instructions
 
@@ -9,8 +10,8 @@ description: 'Maintenance phase: triage issue, classify legitimacy, diagnose, di
 
 - Parzival oversight session active
 - A maintenance issue has been reported (bug, regression, performance degradation, or operational concern)
-- Analyst agent (`bmad-bmm-analyst`) is available for diagnosis
-- Dev agent (`bmad-bmm-dev`) is available for fix implementation
+- Analyst agent (`bmad-agent-analyst`) is available for diagnosis
+- Dev agent (`bmad-agent-dev`) is available for fix implementation
 
 ## Workflow Overview
 

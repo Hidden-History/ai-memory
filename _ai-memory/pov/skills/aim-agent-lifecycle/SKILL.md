@@ -1,11 +1,12 @@
 ---
 name: aim-agent-lifecycle
 description: tmux agent lifecycle management for non-Claude providers
+allowed-tools: Bash
 ---
 
 # Agent Lifecycle -- Non-Claude Provider Agent Management
 
-**Purpose**: Manage tmux-spawned agents for non-Claude providers. Invokes /aim-model-dispatch for tmux spawn, sends instructions via tmux send-keys, monitors via tmux capture-pane, and shuts down via tmux kill-pane. Called by /aim-bmad-dispatch and /aim-agent-dispatch when provider is not Claude.
+**Purpose**: Manage tmux-spawned agents for non-Claude providers. Invokes /aim-model-dispatch for tmux spawn, sends instructions via tmux send-keys, monitors via tmux capture-pane, and shuts down via tmux kill-pane. Called by /aim-agent-dispatch when provider is not Claude.
 
 ---
 

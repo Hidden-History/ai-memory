@@ -75,6 +75,28 @@ logger.info(f"Stored memory {mid}")
 - `1`: Non-blocking error (graceful degradation)
 - `2`: Blocking error (rare - only when intentionally blocking Claude)
 
+### Installer env conventions
+
+All new auto-generated secret-class values MUST be written to `SECRETS_FILE`
+(`docker/.env.secrets`) via `write_secret_to_secrets_file()` from
+`scripts/_env_split_helpers.sh`. NEVER write secret-class values to `ENV_FILE`
+(`docker/.env`).
+
+**Classification guidance (BP-154 §6 Producer Pattern):**
+- **PP-1** (user-supplied required): persisted by `persist_user_choices_to_env()` to
+  `.env.secrets`. Do not add new PP-1 keys without updating that function.
+- **PP-2** (auto-generated): use `write_secret_to_secrets_file()` for generation +
+  `_blank_key_in_env()` to ensure `.env` placeholder is blank. The migration wrapper
+  `migrate_secrets_to_split_file()` handles v2.3.x in-place upgrades automatically.
+- **PP-3** (user-supplied optional): enter in `.env` at setup prompts; migration
+  moves them to `.env.secrets` if non-empty. No write-site changes needed for new
+  PP-3 keys — only add them to the `pp3_keys` array in `migrate_secrets_to_split_file`.
+
+After adding new secret-class keys, run the doctor command to verify:
+```bash
+python scripts/verify_env_split.py --install-dir ~/.ai-memory
+```
+
 ## Pull Request Process
 
 1. **Create a feature branch** from `main`:

@@ -12,44 +12,19 @@ nextStepFile: './step-04-create-baseline-files.md'
 
 Verify that the _ai-memory/ directory structure is fully installed and all required components are present. This step validates the installation against constraint IN-04 requirements. No files are created here -- only verification.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on verifying installation completeness — no file creation
-- 🚫 FORBIDDEN to create or modify any _ai-memory/ framework files
-- 💬 Approach: Systematic verification against IN-04 checklist with specific pass/fail reporting
-- 📋 Every check must be individually verified — no vague "looks fine" assessments
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Verify every installation item against the IN-04 constraint checklist
-- 💾 Record verification results with specific pass/fail per item
-- 📖 Load next step only after all checks pass and user confirms
-- 🚫 FORBIDDEN to proceed with missing framework files
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The _ai-memory/ directory in {project-root}, constraint IN-04 installation checklist, confirmed project track from Step 2
 - Focus: Installation verification only — do not create any files
 - Limits: Do not create or modify any _ai-memory/ framework files. Only verify their presence. Project-specific files are created in the next step.
 - Dependencies: Step 2 must be complete with confirmed project foundation
+
+- Focus only on verifying installation completeness — no file creation
+**Behavioral Constraints:**
+- FORBIDDEN to create or modify any _ai-memory/ framework files
+- Approach: Systematic verification against IN-04 checklist with specific pass/fail reporting
+- Every check must be individually verified — no vague "looks fine" assessments
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -149,25 +124,3 @@ Display: "**Installation verification complete. All checks passed. Ready to crea
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN [C continue option] is selected and [all installation verification checks pass], will you then read fully and follow: `{nextStepFile}` to begin creating baseline project files.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every installation check was individually verified
-- Missing items were specifically identified (not vague)
-- Verification completed before any project files are created
-- Track-appropriate configuration is confirmed
-- Menu presented and user input handled correctly
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping installation verification
-- Proceeding with missing framework files
-- Creating project files before installation is verified
-- Reporting vague "looks fine" instead of specific checks
-- Proceeding without user selecting 'C' (Continue)
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

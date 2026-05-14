@@ -12,44 +12,19 @@ nextStepFile: './step-03-dev-full-review.md'
 
 Build the test plan that defines what must pass before integration is approved. Parzival builds this from PRD requirements and architecture integration points -- not delegated to an agent.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Build a complete four-section test plan — Parzival builds it, not an agent
-- 🚫 FORBIDDEN to use generic test descriptions or delegate test plan creation
-- 💬 Approach: Systematic coverage of all PRD features and integration points
-- 📋 Every Must Have feature must have specific test coverage with defined thresholds
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Build test plan from PRD requirements and architecture integration points
-- 💾 Record completed test plan with all four sections before proceeding
-- 📖 Load next step only after test plan is complete with specific tests in all sections
-- 🚫 FORBIDDEN to proceed with generic tests or missing sections
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Integration scope document, PRD.md, architecture.md
 - Focus: Test plan creation only — do not begin agent dispatch or reviews
 - Limits: Parzival builds the test plan. Tests must be specific (not generic).
 - Dependencies: Integration scope document from Step 1 is required
+
+- Build a complete four-section test plan — Parzival builds it, not an agent
+**Behavioral Constraints:**
+- FORBIDDEN to use generic test descriptions or delegate test plan creation
+- Approach: Systematic coverage of all PRD features and integration points
+- Every Must Have feature must have specific test coverage with defined thresholds
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -97,24 +72,3 @@ All tests in Sections 1-4 must pass. Zero legitimate issues from DEV review. Arc
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN the test plan is complete with specific tests in all four sections, will you then read fully and follow: `{nextStepFile}` to begin the DEV full review pass.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All four test plan sections are populated
-- Tests are specific (not generic)
-- Every Must Have feature has test coverage
-- Integration points have explicit boundary tests
-- Pass criteria are defined
-
-### ❌ SYSTEM FAILURE:
-
-- Generic test descriptions ("verify it works")
-- Missing test plan sections
-- Must Have features without test coverage
-- No pass criteria defined
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

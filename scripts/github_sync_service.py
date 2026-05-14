@@ -163,9 +163,7 @@ async def run_sync_cycle(config, skip_projects: set[str] | None = None) -> bool:
             continue
 
         if pid in skip_projects:
-            logger.info(
-                "Skipping project %s (token validation failed at startup)", pid
-            )
+            logger.info("Skipping project %s (token validation failed at startup)", pid)
             continue
 
         # BUG-245: resolve per-project token, fall back to global
@@ -198,6 +196,8 @@ async def run_sync_cycle(config, skip_projects: set[str] | None = None) -> bool:
         # Phase 2: Code blobs (if enabled)
         if config.github_code_blob_enabled:
             try:
+                # BUG-288: Load prior abandon-set for reconciliation pre-sort
+                code_blob_state = engine.load_code_blob_state()
                 client = GitHubClient(
                     token=project_token,
                     repo=project.github_repo,
@@ -213,14 +213,22 @@ async def run_sync_cycle(config, skip_projects: set[str] | None = None) -> bool:
                     code_result = await code_sync.sync_code_blobs(
                         batch_id,
                         total_timeout=config.github_sync_total_timeout,
+                        code_blob_state=code_blob_state,
                     )
+                # BUG-288: Persist abandon-set for next cycle's reconciliation
+                engine.save_code_blob_state(
+                    code_result.abandoned_paths,
+                    code_result.files_synced,
+                    len(code_result.abandoned_paths),
+                )
                 logger.info(
-                    "Code sync: repo=%s synced=%d skipped=%d deleted=%d errors=%d",
+                    "Code sync: repo=%s synced=%d skipped=%d deleted=%d errors=%d abandoned=%d",
                     project.github_repo,
                     code_result.files_synced,
                     code_result.files_skipped,
                     code_result.files_deleted,
                     code_result.errors,
+                    len(code_result.abandoned_paths),
                 )
             except Exception as e:
                 logger.error(

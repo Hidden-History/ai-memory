@@ -255,12 +255,15 @@ FALLBACK_PROVIDERS = os.getenv(
 
 # Provider-specific settings
 OLLAMA_BASE_URL = _detect_ollama_url()
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "sam860/LFM2:2.6b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-3-haiku")
+OPENROUTER_MODEL = os.getenv(
+    "OPENROUTER_MODEL", "meta-llama/llama-3.2-3b-instruct:free"
+)
 
-ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
+# Re-validate Q1 2027 (retirement not before Oct 15, 2026 per Anthropic model lifecycle)
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 
 # =============================================================================
 # CLASSIFICATION THRESHOLDS
@@ -279,7 +282,7 @@ MIN_CONTENT_LENGTH = _get_int_env(
 # PERFORMANCE SETTINGS
 # =============================================================================
 TIMEOUT_SECONDS = _get_int_env(
-    "MEMORY_CLASSIFIER_TIMEOUT", default=10, min_val=1, max_val=300
+    "MEMORY_CLASSIFIER_TIMEOUT", default=120, min_val=1, max_val=300
 )
 MAX_OUTPUT_TOKENS = _get_int_env(
     "MEMORY_CLASSIFIER_MAX_TOKENS", default=500, min_val=50, max_val=4000

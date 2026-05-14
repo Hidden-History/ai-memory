@@ -12,44 +12,19 @@ decisionLogTemplate: '{project-root}/_ai-memory/pov/templates/decision-log.templ
 
 Record the decision, the options considered, and the user's choice in the decision log for future reference and traceability.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on accurate logging of the decision and all options considered
-- 🚫 FORBIDDEN to log a decision the user did not explicitly make
-- 💬 Approach: Factual logging with full field completion; note related tracking impacts
-- 📋 Reference decision in related tracking files where applicable
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Append complete decision entry to decision-log.md with all required fields
-- 💾 Note related tracking updates (task, architecture, blocker) where applicable
-- 📖 Present confirmation to user after logging
-- 🚫 FORBIDDEN to editorialize — log the facts only
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Structured decision from Step 1, user's choice from Step 2
 - Focus: Decision logging only — no further analysis
 - Limits: Log the facts — do not editorialize
 - Dependencies: Decision structure from Step 1 and user's explicit choice from Step 2
+
+- Focus on accurate logging of the decision and all options considered
+**Behavioral Constraints:**
+- FORBIDDEN to log a decision the user did not explicitly make
+- Approach: Factual logging with full field completion; note related tracking impacts
+- Reference decision in related tracking files where applicable
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -99,29 +74,26 @@ Decision: [Option chosen]
 Continue with current work?
 ```
 
+---
+
+### 5. Schedule Follow-Up Review
+
+Every decision must have a closed feedback loop. Before completing this step:
+
+1. **Set follow-up trigger**: Choose the review point — next milestone, after [N] sessions (default: 3), or at a specific sprint close
+2. **Append to DEC-[ID] entry**: Add these lines to the log entry:
+   - `Follow-Up Scheduled:` [trigger — e.g., "Sprint 4 close" or "after 3 sessions"]
+   - `Outcome:` pending — fill at follow-up time
+   - `Status:` Active
+3. **Note in handoff**: Include the follow-up trigger in the session handoff/close notes so it survives session boundaries
+4. **At follow-up time** (future session): Update the DEC-[ID] entry:
+   - `Outcome:` [what actually happened — did the expected result materialize?]
+   - `Status:` Validated | Superseded | Revised (with date and brief note)
+
 ## TERMINATION STEP PROTOCOLS:
 
 - This is a FINAL step — workflow completion required
 - Append decision entry to decision-log.md with all required fields before confirming
+- Follow-up trigger MUST be set in the entry (Section 5) before step completes
 - Note any related tracking updates (task tracker, architecture decisions, blocker log)
 - Present confirmation to user and await their direction to continue work
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Decision is logged with all required fields
-- Entry accurately reflects the user's choice
-- Related tracking files are noted for update
-- User is informed of the logged entry
-
-### ❌ SYSTEM FAILURE:
-
-- Logging a decision the user did not make
-- Omitting options that were considered
-- Failing to append to the decision log
-- Not confirming the logged entry with the user
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -43,6 +43,10 @@ PARZIVAL ENFORCES:
 - Proceeding with a story without verification
 - Proceeding with a story with known outdated technical context
 
+## Cross-Reference
+
+GC-03 (ALWAYS Check Project Files Before Instructing Any Agent) is the agent-dispatch companion to this constraint: EC-01 ensures the story file itself is verified as current before implementation begins; GC-03 ensures Parzival's own understanding of project files is verified before those files are cited in any agent instruction. Both must be satisfied before any agent is dispatched on a story — EC-01 governs the story, GC-03 governs the instruction.
+
 ## Enforcement
 
 Parzival self-checks at every 10-message interval: "Did I verify story requirements against current project files?"

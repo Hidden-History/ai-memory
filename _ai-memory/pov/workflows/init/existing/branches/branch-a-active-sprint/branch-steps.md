@@ -66,15 +66,15 @@ Record the confirmed exit route for use in step-06 approval package.
 ## BRANCH COMPLETION
 When all branch steps are complete, return to the common path: step-04-establish-baseline.md
 
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
+## SYSTEM SUCCESS/FAILURE METRICS
 
-### ✅ SUCCESS:
+### SUCCESS:
 
 - Sprint state fully understood, in-progress stories identified with remaining work
 - Findings confirmed with user before proceeding
 - Exit route is clearly determined and recorded
 
-### ❌ SYSTEM FAILURE:
+### SYSTEM FAILURE:
 
 - Disrupting in-progress work without confirming sprint state first
 - Assuming sprint state without reading sprint-status.yaml and story files

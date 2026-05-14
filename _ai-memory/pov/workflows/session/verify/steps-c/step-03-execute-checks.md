@@ -12,44 +12,19 @@ nextStepFile: './step-04-report-results.md'
 
 Systematically execute every check in the prepared checklist, recording the result and evidence for each.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Execute every check in the prepared checklist completely and honestly
-- 🚫 FORBIDDEN to mark uncertain results as PASS or stop after first FAIL
-- 💬 Approach: Evidence-based evaluation with explicit PASS/FAIL/UNCERTAIN/N/A classification
-- 📋 Read all relevant files fully — no skimming
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Execute each check in order, reading all relevant evidence before evaluating
-- 💾 Record result and evidence for every check in structured table format
-- 📖 Load next step only after all checks are executed and results compiled
-- 🚫 FORBIDDEN to proceed without evidence documented for every check result
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The customized checklist from Step 2, all project files relevant to the work item
 - Focus: Execute checks only — do not generate the final report yet
 - Limits: Do not generate the final report or make approval recommendations — that is Step 4's responsibility
 - Dependencies: Customized and confirmed checklist from Step 2
+
+- Execute every check in the prepared checklist completely and honestly
+**Behavioral Constraints:**
+- FORBIDDEN to mark uncertain results as PASS or stop after first FAIL
+- Approach: Evidence-based evaluation with explicit PASS/FAIL/UNCERTAIN/N/A classification
+- Read all relevant files fully — no skimming
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -106,25 +81,3 @@ Organize results into a structured table:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when ALL checks have been executed and results recorded, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every check in the checklist was executed
-- Results are honest (UNCERTAIN is used when appropriate)
-- Evidence is documented for every result
-- All checks were executed even after failures
-- No checks were skimmed
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping checks
-- Marking uncertain results as PASS
-- Stopping after the first FAIL
-- Providing results without evidence
-- Skimming files instead of reading them fully
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

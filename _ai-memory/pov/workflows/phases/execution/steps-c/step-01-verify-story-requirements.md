@@ -12,44 +12,19 @@ nextStepFile: './step-02-prepare-instruction.md'
 
 Before any agent is activated, Parzival reads and verifies the story thoroughly against current project state. Ensure story references are current and no ambiguities exist.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on verification — do not activate agents or begin implementation
-- 🚫 FORBIDDEN to dispatch any agent before verification completes
-- 💬 Approach: Systematic verification against all four source files
-- 📋 If story requires update, route to SM before proceeding
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Read and verify story against all current project documents
-- 💾 Document any story issues before routing to SM for correction
-- 📖 Load next step only after story verification passes with no issues
-- 🚫 FORBIDDEN to proceed while any verification issue remains unresolved
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Current story file, architecture.md, project-context.md, PRD.md
 - Focus: Verification only — do not activate agents or begin implementation
 - Limits: Only verify. Do not activate agents. Do not begin implementation.
 - Dependencies: None — this is the first step of the execution workflow
+
+- Focus only on verification — do not activate agents or begin implementation
+**Behavioral Constraints:**
+- FORBIDDEN to dispatch any agent before verification completes
+- Approach: Systematic verification against all four source files
+- If story requires update, route to SM before proceeding
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -112,22 +87,3 @@ If NO: proceed to instruction preparation.
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN story verification passes with no issues, will you then read fully and follow: `{nextStepFile}` to begin instruction preparation.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Story read in full (all seven sections)
-- Verified against current architecture.md, project-context.md, and PRD.md
-- Outdated references identified and corrected
-- Pre-execution questions resolved
-
-### ❌ SYSTEM FAILURE:
-
-- Dispatching DEV with outdated story references
-- Not verifying against current project state
-- Leaving ambiguities for DEV to resolve
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

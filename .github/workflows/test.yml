@@ -109,6 +109,7 @@ jobs:
           - 6334:6334
         env:
           QDRANT__SERVICE__API_KEY: ci-integration-test-key
+          QDRANT__SERVICE__READ_ONLY_API_KEY: ci-integration-test-key-ro
         # Health check via Python step below (preferred over bash /dev/tcp for maintainability)
 
     steps:
@@ -162,6 +163,7 @@ jobs:
           QDRANT_HOST: localhost
           QDRANT_PORT: "6333"
           QDRANT_API_KEY: ci-integration-test-key
+          QDRANT_READ_ONLY_API_KEY: ci-integration-test-key-ro
 
   # ============================================================================
   # E2E TESTS - Playwright browser tests (optional, runs after integration)

@@ -79,16 +79,16 @@ Record the confirmed exit route for use in step-06 approval package.
 ## BRANCH COMPLETION
 When all branch steps are complete, return to the common path: step-04-establish-baseline.md
 
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
+## SYSTEM SUCCESS/FAILURE METRICS
 
-### ✅ SUCCESS:
+### SUCCESS:
 
 - All documentation verified against actual code (not trusted blindly)
 - Knowledge gaps identified, blocking ones resolved and documented in decisions.md
 - Answers from user documented in decisions.md for future reference
 - Exit route is clearly determined and recorded
 
-### ❌ SYSTEM FAILURE:
+### SYSTEM FAILURE:
 
 - Trusting inherited documentation without verifying claims against the actual code
 - Proceeding with unresolved blocking knowledge gaps

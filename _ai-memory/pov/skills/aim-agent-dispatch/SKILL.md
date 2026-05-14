@@ -1,41 +1,42 @@
 ---
 name: aim-agent-dispatch
-description: Generic agent instruction preparation and activation
+description: Generic and BMAD agent selection, instruction preparation, and activation routing
+allowed-tools: Read
 ---
 
-# Agent Dispatch -- Generic Agent Activation
+# Agent Dispatch -- Generic and BMAD Agent Activation
 
-**Purpose**: Prepare instructions for generic agents (no BMAD persona). For BMAD agents, use /aim-bmad-dispatch instead.
+**Purpose**: Prepare instructions for all agents (generic and BMAD). Determines if BMAD persona is needed and routes accordingly. BMAD routing is handled within this skill -- aim-bmad-dispatch no longer exists as a separate skill.
 
 ---
 
 ## Embedded Constraints (Layer 3)
 
-- **EC-02 (moved from Execution phase)**: MUST use the instruction template for every agent dispatch. Story files are planning artifacts -- implementation instructions translate requirements into precise, actionable specifications.
+- **EC-02**: MUST use the instruction template for every agent dispatch. Story files are planning artifacts -- implementation instructions translate requirements into precise, actionable specifications.
 - **GC-11 L3**: ALWAYS use the instruction template for every agent dispatch. Every requirement must cite a project file. Every DONE WHEN criterion must be objectively measurable.
+- **DC-08**: Analyst research MUST precede PM when input is thin. When goals.md is the only input, Analyst must run before PM begins. PM does NOT begin from goals.md alone when input is thin.
+- **Agent activation verification**: Never send an instruction to an unverified agent. Verify activation before proceeding.
+- **One task per instruction**: Never combine multiple tasks in a single dispatch.
 
 ---
 
-## When to Use This Skill
+## Step 1: Determine Dispatch Type
 
-Use aim-agent-dispatch when:
-- The agent does NOT need a BMAD persona (no /bmad-agent-bmm-* activation)
+**BMAD dispatch** (use the [BMAD Agent Dispatch](#bmad-agent-dispatch) section below) when:
+- The task requires ANY BMAD agent role (Analyst, PM, Architect, DEV, SM, UX Designer, etc.)
+- The agent requires persona activation via `/bmad-agent-*` commands
+
+**Generic dispatch** (use the [Generic Agent Dispatch](#generic-agent-dispatch) section below) when:
+- The agent does NOT need a BMAD persona
 - The agent is a generic worker spawned for a specific task
 - Examples: code-reviewer agent, verify-implementation agent, skill-creator agent
 
-Use aim-bmad-dispatch instead when:
-- The agent IS a BMAD agent (Analyst, PM, Architect, DEV, SM, UX Designer)
-- The agent requires persona activation via /bmad-agent-bmm-* commands
-
 ---
 
-## Dispatch Process
-
-### 1. Determine if BMAD Activation Needed
-- If the task requires a BMAD agent role (Analyst, PM, Architect, DEV, SM, UX Designer) -- route to aim-bmad-dispatch
-- If the task uses a generic agent -- continue here
+## Generic Agent Dispatch
 
 ### 2. Prepare Instruction Using Template
+
 Build the instruction using the instruction template (`templates/agent-instruction.template.md`):
 
 - **TASK**: Single, specific, unambiguous description. One task per instruction.
@@ -48,6 +49,7 @@ Build the instruction using the instruction template (`templates/agent-instructi
 - **IF YOU ENCOUNTER A BLOCKER**: Stop and report immediately. Do not guess.
 
 ### 3. Verify Instruction Quality
+
 Before dispatching, verify the instruction is:
 - Complete (all template sections filled)
 - Unambiguous (could not be interpreted multiple ways)
@@ -69,11 +71,185 @@ Pass: instruction, AI_MEMORY_AGENT_ID, model from dispatch plan.
 → /aim-agent-lifecycle (MANDATORY next step)
 Pass: instruction, AI_MEMORY_AGENT_ID, provider, model from dispatch plan.
 
-MUST spawn fresh agent for every task — never reuse across roles or stories.
+MUST spawn fresh agent for every task -- never reuse across roles or stories.
 
 ### 5. Dispatch Complete
 
 Agent instruction prepared and routed. Downstream skill handles spawn and activation.
+
+---
+
+## BMAD Agent Dispatch
+
+### Agent Selection Guide
+
+See [agent-selection-guide.md](data/agent-selection-guide.md) for detailed role descriptions, selection criteria, and dispatch decision tree.
+
+### Quick Selection Matrix
+
+| Task Type | Correct Agent | Wrong Agent | Mode |
+|---|---|---|---|
+| Research current codebase state | Analyst | Architect | Planning |
+| Create, validate, or update PRD | PM | Analyst | Planning |
+| Break down features into stories | PM | SM | Planning |
+| Design system architecture | Architect | PM | Planning |
+| Check if implementation is ready | Architect | DEV | Planning |
+| Plan and initialize a sprint | SM | PM | Planning |
+| Create individual story files | SM | PM | Execution |
+| Write code / implement a story | DEV | Any other | Execution |
+| Review implemented code | DEV | Architect | Execution |
+| Design user flows and screens | UX Designer | PM | Planning |
+| Write or review documentation | Tech Writer | PM | Execution |
+| Write and run tests | QA Engineer | DEV | Execution |
+| Design test architecture/strategy | Test Architect (TEA) | QA Engineer | Planning |
+| Small feature, solo workflow | Quick Flow Solo Dev | DEV | Execution |
+| Build new BMAD agents | Agent Builder | DEV | Execution |
+| Build new BMAD modules | Module Builder | DEV | Execution |
+| Build new BMAD workflows | Workflow Builder | DEV | Execution |
+| BMAD framework guidance | BMAD Master | PM | Planning |
+| Brainstorming / ideation session | Brainstorming Coach | Analyst | Planning |
+| Creative problem solving | Creative Problem Solver | Analyst | Planning |
+| Design thinking facilitation | Design Thinking Coach | UX Designer | Planning |
+| Innovation strategy | Innovation Strategist | PM | Planning |
+| Presentation creation/coaching | Presentation Master | Tech Writer | Execution |
+| Narrative and storytelling | Storyteller | Tech Writer | Execution |
+
+### Agent Combination Sequences
+
+Some phases require agents in sequence:
+
+- **Discovery phase:** Analyst (research) -> PM (PRD creation)
+- **Architecture phase:** Architect (design) -> PM (epics/stories) -> Architect (readiness check)
+- **Execution cycle:** DEV (implement) -> DEV (code review) -> [loop if issues] -> DEV (re-review)
+- **Integration phase:** DEV (full review) -> Architect (cohesion check)
+- **Release phase:** SM (retrospective) -> PM or Analyst (documentation update)
+
+---
+
+### Steps
+
+#### B1. Select the Correct Agent
+
+Use the selection guide and matrix above. When uncertain, assess the primary skill required by the task, not the phase you are in.
+
+If still uncertain, use `/bmad-help` -- it can answer questions about which agent and workflow to use for a given task.
+
+#### B2. Prepare BMAD-Specific Instruction
+
+Extends the generic instruction template (from the Generic Agent Dispatch section above) with:
+- Persona confirmation requirement
+- BMAD activation command reference
+
+#### B3. Route Based on Provider
+
+Check provider from the dispatch plan:
+
+**Claude provider:**
+→ /aim-model-dispatch (MANDATORY next step)
+Pass: BMAD activation command, instruction, AI_MEMORY_AGENT_ID, model from dispatch plan.
+
+**Non-Claude provider:**
+→ /aim-agent-lifecycle (MANDATORY next step)
+Pass: BMAD activation command, instruction, AI_MEMORY_AGENT_ID, provider, model from dispatch plan.
+
+MUST spawn fresh agent for every task -- never reuse across roles or stories.
+
+#### Core Project Agents
+
+| Agent | Activation Command | Description |
+|-------|-------------------|-------------|
+| Analyst | `/bmad-agent-analyst` | Research, codebase analysis, domain investigation |
+| PM (Product Manager) | `/bmad-agent-pm` | PRD creation/validation, epics and stories |
+| Architect | `/bmad-agent-architect` | System architecture design, readiness checks |
+| Developer (DEV) | `/bmad-agent-dev` | Code implementation ONLY |
+| Developer (review) | `/bmad-code-review` | Code review ONLY -- MUST use this for ALL review agents, never /bmad-agent-dev |
+| Scrum Master (SM) | `/bmad-agent-sm` (NOT INSTALLED -- 2026-04-11) | Sprint planning, story creation, retrospectives |
+| QA Engineer | `/bmad-agent-qa` (NOT INSTALLED -- 2026-04-11) | Test planning, test execution, quality validation |
+| UX Designer | `/bmad-agent-ux-designer` | User flows, screen design, UX research |
+| Tech Writer | `/bmad-agent-tech-writer` | Documentation writing and validation |
+| Quick Flow Solo Dev | `/bmad-agent-quick-flow-solo-dev` (NOT INSTALLED -- 2026-04-11) | Lightweight single-dev flow (analysis through implementation) |
+
+MUST use `/bmad-agent-tech-writer` for ALL documentation tasks (writing, updating, reviewing docs). MUST use `/bmad-code-review` for ALL review agents (never `/bmad-agent-dev`). MUST use `/bmad-help` whenever unsure which agent or workflow to use -- the tables above are NOT exhaustive.
+
+#### BMAD Framework Agents
+
+| Agent | Activation Command | Description |
+|-------|-------------------|-------------|
+| BMAD Master | `/bmad-agent-bmad-master` | BMAD framework orchestration and guidance |
+
+#### Builder Agents (bmb-)
+
+| Agent | Activation Command | Description |
+|-------|-------------------|-------------|
+| Agent Builder | `/bmad-agent-builder` | Build new BMAD agent definitions |
+| Module Builder | `/bmad-module-builder` | Build new BMAD modules |
+| Workflow Builder | `/bmad-workflow-builder` | Build new BMAD workflows |
+
+#### CIS Coaches (cis-)
+
+| Agent | Activation Command | Description |
+|-------|-------------------|-------------|
+| Brainstorming Coach | `/bmad-cis-agent-brainstorming-coach` | Facilitated brainstorming sessions |
+| Creative Problem Solver | `/bmad-cis-agent-creative-problem-solver` | Creative approaches to complex problems |
+| Design Thinking Coach | `/bmad-cis-agent-design-thinking-coach` | Design thinking methodology facilitation |
+| Innovation Strategist | `/bmad-cis-agent-innovation-strategist` | Innovation strategy and ideation |
+| Presentation Master | `/bmad-cis-agent-presentation-master` | Presentation creation and coaching |
+| Storyteller | `/bmad-cis-agent-storyteller` | Narrative crafting and storytelling |
+
+#### Test Agents (tea-)
+
+| Agent | Activation Command | Description |
+|-------|-------------------|-------------|
+| Test Architect (TEA) | `/bmad-tea` | Test architecture and strategy design |
+
+**Workflow commands by phase** (sent AFTER activation, when in planning mode):
+
+| Phase | Agent | Workflow Command |
+|-------|-------|-----------------|
+| Research | Analyst | `/bmad-market-research`, `/bmad-domain-research`, `/bmad-technical-research` |
+| Discovery | Analyst | `/bmad-product-brief` |
+| Discovery (or any phase) | PM | `/bmad-create-prd`, `/bmad-validate-prd`, `/bmad-edit-prd` |
+| Architecture | Architect | `/bmad-create-architecture` |
+| Architecture | PM | `/bmad-create-epics-and-stories` |
+| Architecture | Architect | `/bmad-check-implementation-readiness` |
+| Architecture | UX Designer | `/bmad-create-ux-design` |
+| Planning | SM | `/bmad-sprint-planning`, `/bmad-create-story` |
+| Execution | DEV | `/bmad-dev-story` |
+| Execution | DEV | `/bmad-code-review` |
+| Release | SM | `/bmad-retrospective` |
+
+Set `AI_MEMORY_AGENT_ID` environment variable when spawning.
+
+#### B4. Verify Activation
+
+Confirm the agent is active and ready:
+- Agent responds with its identity/role confirmation
+- Agent is in a clean state (no prior task context)
+- Agent is ready to receive instruction
+
+If activation fails:
+- Retry the activation command
+- If repeated failure, check configuration
+- Do not send instruction to an unverified agent
+
+#### B5. Dispatch Complete
+
+Agent selection and instruction complete. Downstream skill handles spawn and activation.
+
+---
+
+## Common Dispatch Errors
+
+| Error | Prevention |
+|---|---|
+| Sending vague instruction | Always complete the full instruction template |
+| Combining multiple tasks | One task per instruction -- always |
+| Activating wrong agent | Use the BMAD selection matrix above |
+| Accepting partial output | Review all DONE WHEN criteria |
+| Passing raw agent output to user | Always prepare summary |
+| Running agents without verification | Complete instruction checklist first |
+| Starting new task before prior accepted | One active task per agent at a time |
+| PM activated with thin input | Run Analyst first (DC-08) |
 
 ---
 

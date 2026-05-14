@@ -12,44 +12,19 @@ nextStepFile: './step-05-establish-teams.md'
 
 Create the project's foundational files using confirmed user information from Step 2. These files are Parzival's working documents. Every field must trace to user-confirmed input -- no assumptions, no generic content.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on creating baseline files from confirmed user input only
-- 🚫 FORBIDDEN to invent content or use generic placeholder text
-- 💬 Approach: Every field must trace directly to user-confirmed input from Step 2
-- 📋 Mark anything not explicitly confirmed as TBD — never assume
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Create all four baseline files using confirmed user input
-- 💾 Verify each file exists and contains correct content after creation
-- 📖 Load next step only after all files are created and verified
-- 🚫 FORBIDDEN to proceed with missing or incomplete baseline files
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Confirmed project information from Step 2, verified _ai-memory/ installation from Step 3
 - Focus: File creation only — populate from confirmed input, mark unknowns as TBD
 - Limits: Every file entry must trace to user-confirmed input. Do not invent content. Mark anything not explicitly confirmed as TBD.
 - Dependencies: Step 2 (confirmed project foundation) and Step 3 (verified installation) must be complete
+
+- Focus on creating baseline files from confirmed user input only
+**Behavioral Constraints:**
+- FORBIDDEN to invent content or use generic placeholder text
+- Approach: Every field must trace directly to user-confirmed input from Step 2
+- Mark anything not explicitly confirmed as TBD — never assume
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -189,26 +164,3 @@ Display: "**All four baseline files created and verified. Ready to establish tea
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN [C continue option] is selected and [all four baseline files are created and verified], will you then read fully and follow: `{nextStepFile}` to begin establishing teams.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All four files created with correct content
-- Every field traces to user-confirmed input
-- TBD items are clearly marked
-- No assumptions or generic content in any file
-- Open items from Step 2 are reflected in goals.md
-- Menu presented and user input handled correctly
-
-### ❌ SYSTEM FAILURE:
-
-- Creating files with assumed content
-- Filling goals.md with generic placeholder text
-- Missing required fields in project-status.md
-- Not marking TBD items clearly in project-context.md
-- Proceeding without user selecting 'C' (Continue)
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

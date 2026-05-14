@@ -2,6 +2,7 @@
 name: 'cycles-research-protocol-instructions'
 description: 'Research protocol: define question, check project files, search docs, dispatch analyst, escalate to user, document answer'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # cycles-research-protocol — Instructions
 
@@ -9,7 +10,7 @@ description: 'Research protocol: define question, check project files, search do
 
 - A specific research question has been identified
 - Project documentation, specification files, and oversight workspace are accessible
-- Analyst agent (`bmad-bmm-analyst`) is available for layer 3 research
+- Analyst agent (`bmad-agent-analyst`) is available for layer 3 research
 
 ## Workflow Overview
 

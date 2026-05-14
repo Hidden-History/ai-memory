@@ -15,19 +15,7 @@ productionTemplate: '{project-root}/_ai-memory/pov/templates/verification-produc
 
 ## WORKFLOW ARCHITECTURE
 
-This uses **step-file architecture** for disciplined execution:
-
-### Step Processing Rules
-1. **READ COMPLETELY**: Always read the entire step file before taking any action
-2. **FOLLOW SEQUENCE**: Execute numbered sections in order
-3. **WAIT FOR INPUT**: Halt at decision points and wait for user direction
-4. **LOAD NEXT**: When directed, load and execute the next step file
-
-### Critical Rules
-- NEVER load multiple step files simultaneously
-- ALWAYS read entire step file before execution
-- NEVER skip steps unless explicitly optional
-- ALWAYS follow exact instructions in step files
+See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md) for Step Processing Rules and Critical Rules.
 
 ### Verification Types
 This workflow supports three verification types:

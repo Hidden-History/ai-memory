@@ -88,7 +88,9 @@ def main() -> int:
             select_results_greedy,
         )
 
-        results = retrieve_bootstrap_context(search_client, project_name, config)
+        results, _retrieval_meta = retrieve_bootstrap_context(
+            search_client, project_name, config
+        )
         selected, tokens_used = select_results_greedy(
             results, config.bootstrap_token_budget
         )

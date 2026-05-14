@@ -37,11 +37,6 @@ EXCEPTION:
 
 ## Examples
 
-**Gold-plating**:
-- Microservices for a project with 2-3 bounded contexts
-- Event sourcing for a simple CRUD application
-- Multi-region deployment for a prototype
-
 **Justified complexity**:
 - Microservices when PRD specifies independent scaling of 10+ distinct services
 - Caching when PRD performance requirements cannot be met without it

@@ -10,6 +10,7 @@ Tests AC 2.1.1-2.1.5:
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -156,8 +157,13 @@ class TestHookInfrastructure:
         )
 
         # Check stderr for log output (structured format)
-        # Should NOT contain f-string patterns like "Storing memory {id}"
-        assert "f'" not in result.stderr.lower(), "Must not use f-strings in logging"
+        # Should NOT contain logger.<level>(f"...") anti-pattern.
+        # Matches logger.info(f"...") etc. but not Pydantic warnings that contain f' as a substring.
+        logger_fstring_pattern = re.compile(r"logger\.\w+\(\s*f['\"]", re.IGNORECASE)
+        assert not logger_fstring_pattern.search(result.stderr), (
+            "Must not use f-strings in logging — "
+            'use logger.info("msg", extra={...}) instead'
+        )
 
 
 # AC 2.1.2: Async Storage Script with Graceful Degradation

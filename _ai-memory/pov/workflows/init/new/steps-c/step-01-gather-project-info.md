@@ -14,44 +14,19 @@ nextStepFile: './step-02-validate-and-clarify.md'
 
 Ask the user for all required project information upfront in a single structured request. Do not ask piecemeal across multiple exchanges. Collect everything needed to create the project baseline.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on gathering project information — no file creation yet
-- 🚫 FORBIDDEN to assume answers or pre-fill any fields
-- 💬 Approach: Single structured request, not piecemeal questioning
-- 📋 If user provides existing documents, read them BEFORE asking questions
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Present all required questions in one structured request
-- 💾 Record user responses verbatim without interpretation
-- 📖 Load next step only after user responds with project information
-- 🚫 FORBIDDEN to proceed without receiving user response
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: No project files exist. This is a brand new project.
 - Focus: Information gathering only — do not begin creating files
 - Limits: Do not assume any answers. Do not pre-fill any fields. Do not begin creating files yet.
 - Dependencies: None — this is the first step of the init-new workflow
+
+- Focus only on gathering project information — no file creation yet
+**Behavioral Constraints:**
+- FORBIDDEN to assume answers or pre-fill any fields
+- Approach: Single structured request, not piecemeal questioning
+- If user provides existing documents, read them BEFORE asking questions
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -121,25 +96,3 @@ Display: "**Project information received. Ready to validate.**"
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN [C continue option] is selected and [all user responses recorded], will you then read fully and follow: `{nextStepFile}` to begin validation and clarification.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All required fields were requested in a single structured message
-- User responses are recorded verbatim without interpretation
-- Existing documents (if provided) were read before asking questions
-- Only genuinely missing information was asked for
-- Menu presented and user input handled correctly
-
-### ❌ SYSTEM FAILURE:
-
-- Asking questions piecemeal across multiple exchanges
-- Pre-filling any fields with assumptions
-- Asking for information already provided in an existing document
-- Proceeding without receiving user response
-- Proceeding without user selecting 'C' (Continue)
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

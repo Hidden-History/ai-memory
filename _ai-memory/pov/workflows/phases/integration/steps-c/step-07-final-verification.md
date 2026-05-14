@@ -12,44 +12,19 @@ nextStepFile: './step-08-approval-gate.md'
 
 When fix cycle reports zero issues and all test plan items pass, run a final verification to confirm everything is clean before presenting to the user.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Confirm zero issues, all test plan items pass, and cohesion confirmed before approval gate
-- 🚫 FORBIDDEN to proceed to approval gate with any unresolved items or unverified checks
-- 💬 Approach: Three-area verification against all prior step results
-- 📋 If any check fails, return to step-06 — do not proceed
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Verify all three areas: DEV results, Architect results, and Parzival verification
-- 💾 Confirm zero issues across all sources before loading next step
-- 📖 Load next step only when all verification checks pass
-- 🚫 FORBIDDEN to proceed with any unverified items or partial test plan pass
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Fix cycle results, test plan results, cohesion check results
 - Focus: Final verification only — no new fixes or changes in this step
 - Limits: If any check fails, return to fix cycle.
 - Dependencies: Fix cycle completion from Step 6 (or Step 5 if zero issues found)
+
+- Confirm zero issues, all test plan items pass, and cohesion confirmed before approval gate
+**Behavioral Constraints:**
+- FORBIDDEN to proceed to approval gate with any unresolved items or unverified checks
+- Approach: Three-area verification against all prior step results
+- If any check fails, return to step-06 — do not proceed
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -88,23 +63,3 @@ When fix cycle reports zero issues and all test plan items pass, run a final ver
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN all verification checks pass, will you then read fully and follow: `{nextStepFile}` to begin the approval gate.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All three verification areas checked
-- Zero issues confirmed from all sources
-- All test plan items passed
-- Cohesion confirmed
-- Four-source verification applied
-
-### ❌ SYSTEM FAILURE:
-
-- Proceeding with unverified items
-- Accepting partial test plan pass
-- Not re-confirming cohesion after fixes
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

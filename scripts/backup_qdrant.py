@@ -35,6 +35,12 @@ except ImportError:
     )
     sys.exit(1)
 
+# BUG-275: load split env files before module-level os.environ.get() reads (BP-153 §3)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _env_loader import load_install_env
+
+load_install_env()
+
 # Default configuration
 # Backup to repo directory (survives reinstall), not install directory
 SCRIPT_DIR = Path(__file__).resolve().parent

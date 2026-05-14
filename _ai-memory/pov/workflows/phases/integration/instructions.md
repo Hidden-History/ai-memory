@@ -2,14 +2,15 @@
 name: 'phases-integration-instructions'
 description: 'Integration phase: establish scope, cross-story review, architect cohesion check, fix cycle, approve'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # phases-integration — Instructions
 
 ## Prerequisites
 
 - All stories in the sprint have been completed through the execution phase
-- Dev agent (`bmad-bmm-dev`) is available for full review and fix implementation
-- Architect agent (`bmad-bmm-architect`) is available for cohesion review
+- Dev agent (`bmad-agent-dev`) is available for full review and fix implementation
+- Architect agent (`bmad-agent-architect`) is available for cohesion review
 - Feature branch is in a state ready for integration testing
 
 ## Workflow Overview

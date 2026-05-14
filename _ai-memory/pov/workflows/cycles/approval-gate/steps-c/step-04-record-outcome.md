@@ -11,44 +11,19 @@ description: 'Record the approval outcome and phase-specific exit requirements v
 
 Regardless of the user's response, the outcome is recorded in the standard format. For phase-level approvals, verify phase-specific exit requirements are met before recording.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Record the outcome accurately and completely for all approval types
-- 🚫 FORBIDDEN to skip exit requirement verification for phase-level approvals
-- 💬 Approach: Factual, complete recording — no interpretation
-- 📋 For phase approvals, all exit requirements must be verified before closing
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Complete the approval record with all required fields
-- 💾 Verify phase exit requirements before finalizing phase-level approvals
-- 📖 Confirm routing matches the determination from step-03
-- 🚫 FORBIDDEN to close the workflow with an incomplete or unverified record
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The user's response, the processing result from step-03, the approval type, phase-specific exit requirements
 - Focus: Accurate recording and exit verification only — do not begin new workflows
 - Limits: Record factually. This is the terminal step.
 - Dependencies: Routing determination from step-03
+
+- Record the outcome accurately and completely for all approval types
+**Behavioral Constraints:**
+- FORBIDDEN to skip exit requirement verification for phase-level approvals
+- Approach: Factual, complete recording — no interpretation
+- For phase approvals, all exit requirements must be verified before closing
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -119,23 +94,3 @@ The approval record is complete. Route to the next workflow as determined in ste
 - Update tracking files with the recorded outcome
 - Route to the next workflow as determined in step-03
 - Mark the approval gate cycle as complete in project-status.md
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Approval record is complete with all fields
-- Phase exit requirements verified for phase-level approvals
-- Routing matches the determination from step-03
-- project-status.md updated with workflow completion
-
-### ❌ SYSTEM FAILURE:
-
-- Incomplete approval record
-- Phase approval recorded without verifying exit requirements
-- Routing does not match step-03 determination
-- Workflow closed without updating project-status.md
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

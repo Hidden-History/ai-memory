@@ -2,9 +2,9 @@
 name: 'step-02-present-to-user'
 description: 'Present the approval package to the user in the appropriate format and wait for explicit response'
 nextStepFile: './step-03-process-response.md'
-taskApprovalTemplate: '../templates/task-approval.md'
-phaseApprovalTemplate: '../templates/phase-milestone-approval.md'
-decisionPointTemplate: '../templates/decision-point.md'
+taskApprovalTemplate: '{workflows_path}/cycles/approval-gate/templates/task-approval.md'
+phaseApprovalTemplate: '{workflows_path}/cycles/approval-gate/templates/phase-milestone-approval.md'
+decisionPointTemplate: '{workflows_path}/cycles/approval-gate/templates/decision-point.md'
 ---
 
 # Step 2: Present to User
@@ -15,44 +15,19 @@ decisionPointTemplate: '../templates/decision-point.md'
 
 Present the assembled approval package to the user using the correct format for the approval type (task, phase milestone, or decision point). Wait for an explicit response. Never proceed without it.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on presenting one approval at a time in the correct format
-- 🚫 FORBIDDEN to stack multiple decisions or proceed without explicit user response
-- 💬 Approach: Clear structured presentation, wait for explicit response
-- 📋 Handle pushback gracefully while maintaining the gate
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Select and apply the correct format for the approval type
-- 💾 Record the user's explicit response before proceeding
-- 📖 Load next step only after user provides explicit Approve/Reject/Hold response
-- 🚫 FORBIDDEN to interpret silence or ambiguity as approval
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The assembled approval package from step-01, the approval type
 - Focus: Presentation and response collection only — do not process the response yet
 - Limits: Present ONE approval at a time. Never stack multiple decisions. Always wait for explicit response.
 - Dependencies: Completed approval package from step-01
+
+- Focus on presenting one approval at a time in the correct format
+**Behavioral Constraints:**
+- FORBIDDEN to stack multiple decisions or proceed without explicit user response
+- Approach: Clear structured presentation, wait for explicit response
+- Handle pushback gracefully while maintaining the gate
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -107,24 +82,3 @@ Halt and wait. Do not proceed without the user's explicit response. Do not inter
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the user provides an explicit response (Approve, Reject, or Hold), load and read fully `{nextStepFile}`
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Correct format used for the approval type
-- One approval presented at a time
-- User provided explicit response before proceeding
-- Pushback handled gracefully while maintaining the gate
-
-### ❌ SYSTEM FAILURE:
-
-- Stacking multiple decisions in one presentation
-- Using wrong format for the approval type
-- Proceeding without explicit user response
-- Interpreting silence as approval
-- Skipping the gate entirely
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -1,55 +1,30 @@
 ---
 name: 'step-01b-parzival-bootstrap'
 description: 'Retrieve cross-session memory from Qdrant via aim-parzival-bootstrap skill'
-nextStepFile: './step-01c-parzival-constraints.md'
+nextStepFile: './step-02-compile-status.md'
 ---
 
 # Step 1b: Parzival Cross-Session Memory Bootstrap
 
-**Progress: Step 1b of 5** — Next: Load Parzival Behavioral Constraints
+**Progress: Step 1b of 4** — Next: Compile Status Report
 
 ## STEP GOAL:
 
 Retrieve cross-session memory from Qdrant to enrich the file-based context loaded in Step 1. This invokes the L1-L4 layered priority retrieval defined in Pipeline-V2 spec.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Invoke the bootstrap skill and merge Qdrant results with file-based context
-- 🚫 FORBIDDEN to block session start on Qdrant unavailability
-- 💬 Approach: Graceful degradation — file context is primary, Qdrant is supplementary
-- 📋 All Qdrant-retrieved results must be tagged [Qdrant] to distinguish from file-sourced context
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Invoke /aim-parzival-bootstrap skill exactly once
-- 💾 Tag all Qdrant-retrieved content as [Qdrant] and merge with Step 1 context
-- 📖 Load next step only after retrieval is complete or gracefully degraded
-- 🚫 FORBIDDEN to retry Qdrant in a loop or block on failure
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: File-based context from Step 1
 - Focus: Cross-session memory enrichment only — do not compile status yet
 - Limits: Qdrant retrieval is supplementary — file context from Step 1 is the primary record
 - Dependencies: Organized context from Step 1
+
+- Invoke the bootstrap skill and merge Qdrant results with file-based context
+**Behavioral Constraints:**
+- FORBIDDEN to block session start on Qdrant unavailability
+- Approach: Graceful degradation — file context is primary, Qdrant is supplementary
+- All Qdrant-retrieved results must be tagged [Qdrant] to distinguish from file-sourced context
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -64,6 +39,28 @@ This retrieves (in layer order):
 - L2 [DETERMINISTIC]: Recent decisions (5)
 - L3 [SEMANTIC]: Recent insights (3) — agent_id=parzival
 - L4 [SEMANTIC]: GitHub enrichment (10) — since last handoff
+
+---
+
+### 1b. L1 Handoff Gate
+
+After bootstrap returns, apply the handoff load control-flow. The L1 result from the bootstrap determines whether the handoff is loaded from Qdrant (primary) or from the file system (fallback).
+
+**Pre-gate**: Identify the most recent `SESSION_HANDOFF_*.md` filename under `{oversight_path}/session-logs/` (filename-date extraction only — no file read). Record the date for the staleness check below.
+
+**CASE A — L1 contains `type=agent_handoff, agent_id=parzival`**:
+1. Take the record with the most recent timestamp from the L1 results.
+2. Compare the L1 record date against the most recent `SESSION_HANDOFF_*.md` filename date.
+3. If L1 date ≥ filename date → tag result `[Qdrant:L1-HANDOFF — primary]`. Do NOT read the handoff file. Log that ~4,000 tokens were saved.
+4. If L1 date < filename date → signal **FALLBACK-NEEDED** (Qdrant record is stale).
+
+**CASE B — L1 returns no handoff record OR Qdrant is unavailable/error OR bootstrap output contains a `[FALLBACK-NEEDED: ...]` marker as the first line of the Cross-Session Memory section** → signal **FALLBACK-NEEDED**.
+
+The marker is emitted by the bootstrap skill (BUG-297 / BP-158 P2) when a handoff-class result is rejected by either the Layer 1 per-tier ceiling (`reason=ceiling_exceeded`) or the snippet token budget (`reason=budget_exceeded`). Marker format: `[FALLBACK-NEEDED: reason=<R> type=agent_handoff tokens=<N> budget=<B>]`. Treat its presence the same as "no handoff record returned" — proceed to filesystem fallback.
+
+**If FALLBACK-NEEDED**: Read the most recent `{oversight_path}/session-logs/SESSION_HANDOFF_*.md` file. Tag its content `[FILE-HANDOFF — fallback]`.
+
+> **Design note (audit Q5)**: A `MINIMUM_HANDOFF_BYTES` threshold can extend the fallback trigger if L1 truncation omits critical sections (e.g., "Next Steps", "Open Questions"): `OR L1 content_length < MINIMUM_HANDOFF_BYTES → FALLBACK-NEEDED`. This threshold is not wired in this patch; it is a documented future extension.
 
 ---
 
@@ -83,28 +80,25 @@ This retrieves (in layer order):
 
 ### 3. Merge Context
 
-Add any Qdrant-retrieved context to the compiled context from Step 1, tagged as [Qdrant] to distinguish from file-sourced context. Do not duplicate information already present from file context.
+Add all retrieved context to the compiled session context. Use the following tags to distinguish sources:
+- `[Qdrant:L1-HANDOFF — primary]` — handoff loaded from Qdrant L1 (file read skipped)
+- `[FILE-HANDOFF — fallback]` — handoff loaded from filesystem (Qdrant unavailable or stale)
+- `[Qdrant]` — all other Qdrant-sourced content (decisions, insights, GitHub enrichment)
+
+Do not duplicate information already present from file context.
+
+---
+
+### 4. Load Sanctum Tier B Files
+
+Load the sanctum files designated for session-start (Tier B):
+
+1. **LORE.md** — Read `{project-root}/_ai-memory/sanctum/parzival/LORE.md`. Internalize as earned project knowledge: architecture, design decisions, validated patterns, project-specific idioms. This supplements Qdrant context with curated, distilled understanding.
+
+2. **BOND.md** — Read `{project-root}/_ai-memory/sanctum/parzival/BOND.md`. Internalize as the system-wide user preference authority: how the user prefers to work, what to avoid, what earns trust. Apply these preferences for the remainder of the session.
+
+**If files not found** (sanctum not yet initialized): Note and continue silently. Sanctum Tier B is supplementary — session-start proceeds without it.
 
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when cross-session memory retrieval is complete (or gracefully degraded), load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Bootstrap skill was invoked
-- Results were incorporated or unavailability was noted
-- No blocking on Qdrant failures
-- Context is ready for constraint loading
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping bootstrap entirely without attempting
-- Blocking session start because Qdrant is unavailable
-- Retrying Qdrant in a loop
-- Losing file-based context from Step 1
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -12,44 +12,19 @@ nextStepFile: './step-03-process-review-report.md'
 
 After DEV applies fixes and re-reviews, Parzival verifies each fix, checks for new issues introduced by fixes, and runs WF-LEGITIMACY-CHECK again on the updated review report. This step loops back to step-03 for re-processing.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Independently verify each fix — do not trust DEV self-assessment alone
-- 🚫 FORBIDDEN to skip verification of any fix or allow out-of-scope changes
-- 💬 Approach: Read each fix directly, check root cause and compliance
-- 📋 Always route DEV's re-review report back to step-03 for full re-processing
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Verify each fix against root cause, requirements, and scope compliance
-- 💾 Update cycle tracking with pass data before routing to re-processing
-- 📖 Route back to step-03 after fix verification is complete
-- 🚫 FORBIDDEN to accept DEV's re-review without independent fix verification
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: DEV's fix report, DEV's re-review report, prior pass correction instruction, all prior pass records
 - Focus: Fix verification and cycle tracking update — do not re-classify original issues
 - Limits: Do not trust DEV's self-assessment alone — Parzival reads each fix and verifies independently
 - Dependencies: DEV fix report and re-review from step-04 correction instruction; prior pass records from step-06
+
+- Independently verify each fix — do not trust DEV self-assessment alone
+**Behavioral Constraints:**
+- FORBIDDEN to skip verification of any fix or allow out-of-scope changes
+- Approach: Read each fix directly, check root cause and compliance
+- Always route DEV's re-review report back to step-03 for full re-processing
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -104,27 +79,3 @@ The DEV re-review produces a new report. This report must be processed through s
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when fix verification is complete and cycle tracking is updated, load and read fully {nextStepFile} to re-process the updated review report.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every fix was independently verified by Parzival (not just DEV's claim)
-- Fix scope compliance was checked
-- New issues introduced by fixes were identified
-- Uncertain issues were correctly tracked
-- Cycle tracking record was updated
-- Re-review report routed back to step-03 for full processing
-
-### ❌ SYSTEM FAILURE:
-
-- Trusting DEV's self-assessment without independent verification
-- Missing new issues introduced by fixes
-- Allowing changes outside fix scope to pass
-- Touching uncertain issues without resolution
-- Skipping cycle tracking update
-- Not routing back to step-03 for re-processing
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

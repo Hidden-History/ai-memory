@@ -12,44 +12,19 @@ nextStepFile: './step-03-activate-agent.md'
 
 Each agent is spawned via the backend-appropriate mechanism determined by aim-model-dispatch. For Claude-native backend: `TeamCreate` + `Agent` tool (enables `SendMessage` communication). For non-Claude backends: tmux sub-workflows. Each agent starts with fresh context to prevent contamination between tasks.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on team creation and teammate spawn — no instruction sending yet
-- 🚫 FORBIDDEN to send the instruction or activate the BMAD agent before spawn is confirmed
-- 💬 Approach: Systematic team configuration, fresh context per task
-- 📋 AI_MEMORY_AGENT_ID must always be set with the correct naming pattern on spawn
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Spawn the correct agent via the backend-appropriate mechanism with fresh context
-- 💾 Store the returned task_id in working context for downstream steps
-- 📖 Load next step only when team is confirmed and teammate is spawned with fresh context
-- 🚫 FORBIDDEN to proceed without confirming fresh context on the spawned teammate
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The verified instruction from step-01, the target agent identity, team configuration
 - Focus: Team creation and teammate spawning only — do not send instruction or activate BMAD agent
 - Limits: Only create/spawn what is needed. Do not spawn multiple agents simultaneously unless the workflow explicitly requires parallel execution.
 - Dependencies: Verified instruction from step-01, including identified agent role and task scope
+
+- Focus on team creation and teammate spawn — no instruction sending yet
+**Behavioral Constraints:**
+- FORBIDDEN to send the instruction or activate the BMAD agent before spawn is confirmed
+- Approach: Systematic team configuration, fresh context per task
+- AI_MEMORY_AGENT_ID must always be set with the correct naming pattern on spawn
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -127,14 +102,15 @@ NEVER carry over context from:
 
 ---
 
-### 5b. MANDATORY: Lifecycle Handoff
+### 5b. Provider-Conditional: Lifecycle Handoff
 
-After spawn and activation are complete, aim-agent-lifecycle [ALWAYS-MANDATORY-4] MUST be invoked for Steps 4-9 (send, monitor, review, accept/loop, shutdown, summary). Skipping lifecycle is a GC-21 CRITICAL violation.
+For **non-Claude providers**: aim-agent-lifecycle MUST be invoked for Steps 4-9 (send, monitor, review, accept/loop, shutdown, summary). Skipping lifecycle for non-Claude agents is a GC-21 CRITICAL violation.
 
-- **Claude-native agents**: Lifecycle uses `SendMessage` for `Agent` tool-spawned agents, `tmux send-keys` / `tmux capture-pane` for tmux-spawned agents.
-- **Non-Claude agents**: Lifecycle uses `tmux send-keys` / `tmux capture-pane`.
+For **Claude-native agents**: aim-agent-lifecycle is NOT used. Lifecycle is handled natively:
+- `SendMessage` for `Agent` tool-spawned agents
+- `tmux send-keys` / `tmux capture-pane` for tmux-spawned agents
 
-**MANDATORY**: BMAD two-phase activation applies to BOTH paths. Phase 1 sends `/bmad-agent-bmm-{type}` (activation). Phase 2 sends workflow command after menu appears. For Agent-tool path: both phases via `SendMessage`. For tmux path: both phases via `tmux send-keys`. Sending both phases in a single message breaks BMAD persona loading.
+**MANDATORY**: BMAD two-phase activation applies to BOTH paths. Phase 1 sends `/bmad-agent-{type}` (activation). Phase 2 sends workflow command after menu appears. For Agent-tool path: both phases via `SendMessage`. For tmux path: both phases via `tmux send-keys`. Sending both phases in a single message breaks BMAD persona loading.
 
 ---
 
@@ -166,34 +142,3 @@ Cross-session task persistence requires CLAUDE_CODE_TASK_LIST_ID to be set.
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the team is created/confirmed and the teammate is spawned with fresh context, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Claude-native: `TeamCreate` used, agent spawned via `Agent` tool with `SendMessage` capability
-- Non-Claude: agent spawned via tmux sub-workflow
-- Correct agent is spawned for the task
-- Agent has fresh context (no contamination)
-- Naming convention followed
-- AI_MEMORY_AGENT_ID set with correct naming pattern
-- aim-agent-lifecycle [ALWAYS-MANDATORY-4] handoff confirmed
-- task_id stored in working context for downstream steps
-- TaskCreate skipped gracefully when CLAUDE_CODE_TASK_LIST_ID not set (task_id = null)
-
-### ❌ SYSTEM FAILURE:
-
-- Spawning agent without AI_MEMORY_AGENT_ID or outside both tmux and Agent tool
-- Spawning wrong agent for the task
-- Carrying over context from prior tasks
-- Running same agent as multiple simultaneous sessions
-- Not using fresh context for new tasks
-- Not setting AI_MEMORY_AGENT_ID on agent spawn
-- Skipping aim-agent-lifecycle [ALWAYS-MANDATORY-4] after spawn (GC-21 CRITICAL)
-- Sending both BMAD activation phases in a single message (breaks persona loading)
-- Calling TaskCreate without storing returned task_id
-- Failing to handle missing CLAUDE_CODE_TASK_LIST_ID gracefully
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

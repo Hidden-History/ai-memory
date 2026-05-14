@@ -2,6 +2,7 @@
 name: 'cycles-legitimacy-check-instructions'
 description: 'Issue classification: read issue, check project files, classify LEGITIMATE/NON-ISSUE/UNCERTAIN, record, prioritize'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # cycles-legitimacy-check — Instructions
 

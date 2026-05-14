@@ -7,21 +7,603 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-05-13 — BUG-297 Silent-Drop Fix + Sanctum Identity + Env-Secrets Split + Classifier Resilience
+
+v2.4.0 closes the **BUG-297 silent-drop class** as its marquee item: L1 handoff
+results were dropped at the retrieval budget with no log, no metric, and no
+signal to the caller — fixed via a 3-component bundle (structured WARN +
+Prometheus counter for budget rejects, a typed `fallback_signaled` sentinel
+threaded through `select_results_greedy` and surfaced as a
+`[FALLBACK-NEEDED:]` marker, and a per-tier `handoff_ceiling_tokens=8000`
+ceiling sized for whole-handoff aggregation against the Jina v2 single-vector
+ceiling). Verified end-to-end via PM #289 Session A/B functional gate on a
+live 6,760-token handoff retrieval.
+
+Supporting work shipped in the same release:
+- **Parzival sanctum identity layer** (PLAN-027): source ships an EMPTY
+  sanctum; `aim-agent-sanctum-init` scaffolds 8 universal templates at First
+  Breath. File-level idempotency hard rule — re-runs never overwrite an
+  existing sanctum file. New conversational First Breath workflow fills BOND
+  with owner specifics + LORE with project specifics. Bootstrap path
+  (BUG-283), partial-fill contradiction (BUG-284), and Qdrant status-line
+  accuracy (BUG-285) closed alongside.
+- **`.env` + `.env.secrets` split with Compose `env_file:` directive**
+  (BP-152 / BUG-277 / BUG-279): 25 secret-class keys moved to a `chmod 600`
+  file with last-file-wins precedence; `${PROJECT_ENV_FILE}` enables
+  per-project env layering. Closes TD-477 and retires the
+  `unset QDRANT_API_KEY` ritual.
+- **Installer hardening pass**: BUG-273 (UID/GID readonly), BUG-274 (user
+  input persistence), BUG-275 (consumer-side dual-file read), BUG-281
+  (Docker mount root-owned host dirs), BUG-282 (`.env` dotfile glob skip),
+  BUG-286 (SSoT secrets-split enforcement), BUG-287 (Qdrant read-only API
+  key compose wiring), BUG-292/293 (`run-with-env.sh` + `health_check.sh`
+  secrets-first read), BUG-291 (activation step 5 detect-and-repair).
+- **Classifier provider resilience** (BUG-290/294/295/296): retired
+  OpenRouter default replaced; Ollama cold-start handled via `/api/ps` +
+  `keep_alive: -1`; retired Anthropic default replaced; dual-listed
+  Langfuse blanks removed.
+- **GitHub code-blob sync graceful degradation** (BUG-288, BP-155):
+  abandon-set persistence + reconciliation pre-sort + `/health`-503
+  readiness gate (BUG-289) so `service_healthy` correctly gates startup.
+- **Decision-type emit at session closeout** (TD-519) and **L1 handoff
+  retrieval aggregation** (TD-518) — both close gaps where canonical
+  storage existed (decision-log.md) or chunked storage existed
+  (`agent_handoff`) but Qdrant retrieval was silently empty or
+  single-chunk.
+- **`INSTALL_PARZIVAL=true` install-time opt-in** for non-interactive runs
+  (PR #124).
+
 ### Added
+- **`EMBEDDING_READ_TIMEOUT_CODE` env var** (BUG-288): new per-request read
+  timeout override for code-model embedding calls (default 30s). The client-level
+  `EMBEDDING_READ_TIMEOUT` (default 15s) is designed for fast en-model requests;
+  code-model requests under CPU load regularly approach 20-30s, causing
+  per-file timeout false positives. The code-model override is applied inline in
+  `EmbeddingClient._embed_once()` when `model="code"` without affecting en-model
+  or sparse/late calls. Documented in `docker/.env.example`.
+- **Prometheus metrics for sync abandonment** (BUG-288):
+  `github_code_sync_abandoned_files_total` (Counter) tracks files abandoned per
+  sync cycle due to total-timeout or circuit-breaker;
+  `github_code_sync_completion_ratio` (Gauge, 0.0-1.0) reports the ratio of
+  eligible files successfully synced. Both pushed to Pushgateway with the
+  existing `grouping_key={"instance": repo_slug}` scope. Enables alerting on
+  recurring partial-sync cycles.
+- **`GitHubSyncEngine.load_code_blob_state()` / `save_code_blob_state()`**
+  (BUG-288): two new methods on `GitHubSyncEngine` that read and write the
+  `code_blobs` sub-key of `github_sync_state_*.json` via the existing
+  POSIX-atomic `_load_state()` / `_save_state()` mechanism. Forward-compatible:
+  state files that pre-date BUG-288 simply lack the key and return `{}`.
+- **`CodeSyncResult.abandoned_paths`** (BUG-288): new list field on
+  `CodeSyncResult` accumulating paths of all files cut off by total-timeout or
+  circuit-breaker in a given sync cycle. Populated from two sources: tasks
+  cancelled mid-flight by `_cancel_pending()` and entries that were never
+  dispatched before the index was clamped to `total_eligible`.
+- **Parzival sanctum identity layer**: Introduces per-instance Parzival identity storage under `_ai-memory/sanctum/parzival/`. Source ships an EMPTY sanctum directory; `aim-agent-sanctum-init` scaffolds all 8 standard files from universal templates at First Breath: Tier A `CREED.md` + `PERSONA.md` (philosophical anchor + identity, loaded at activation); Tier B `LORE.md` + `BOND.md` + `MEMORY.md` (project knowledge + owner relationship + working memory, loaded at session-start); Tier C `CAPABILITIES.md` + `INDEX.md` + `PULSE.md` (workflows + sanctum map + autonomous heartbeat scaffold, loaded on-demand via Read tool when referenced). New conversational First Breath workflow (`pov/workflows/first-breath/`) fills BOND with owner specifics + LORE with project specifics on first activation. File-level idempotency hard rule: re-running scaffolding NEVER overwrites an existing sanctum file — owner customizations survive every reinstall. Filesystem-only — no Qdrant storage for sanctum files. AI Memory is a multi-user system; universal templates ensure every install starts from the same authored Parzival baseline and grows its own identity through use.
+- **Tier B sanctum wiring into `aim-parzival-bootstrap`**: New `sanctum_tier_b.py` sibling module (Option P pattern) reads `LORE.md` + `BOND.md` and prepends their content under `## Sanctum — LORE` / `## Sanctum — BOND` headers before the existing L1-L4 cross-session Qdrant retrieval output. Graceful degradation: missing/empty files skip silently (valid pre-First-Breath state). 6 pytest unit tests covering both-present, only-LORE, only-BOND, neither, empty-file, and OSError paths.
+- **Pre-spawn model-catalog validation gate**: `aim-model-dispatch` step-02 now validates the requested model ID against the per-provider model catalog (`models-claude.md`, etc.) before attempting to spawn. Prevents reviewer dispatches from silently downgrading when a requested model is missing from the per-provider catalog.
+- **Three-marker CWD sentinel**: Agent-lifecycle and dispatch workflows now verify three distinctive directory markers (`_ai-memory/` + `_bmad/` + `oversight/`) instead of a single marker before spawning agents. Detects accidental shell-`cd` drift into sibling repos (e.g., `ai-memory/` source repo vs. `dev-ai-memory/` workspace).
 - **`INSTALL_PARZIVAL=true` install-time opt-in** (PR #124, contributed by Phil): Enables the full Parzival V2 setup path during `NON_INTERACTIVE=true` installer runs (CI / add-project automation). Default non-interactive behavior is unchanged — still skips Parzival unless opted in.
+- **Compose `env_file:` directive + sensitive-secret split** (BP-152, ENV-MANAGEMENT-V2.md): `docker/docker-compose.yml` refactored to use a YAML anchor `x-python-service-defaults: &python-service-defaults` with `env_file:` directive applied to 4 Python services (`monitoring-api`, `streamlit`, `classifier-worker`, `github-sync`). Replaces per-key `${KEY:-default}` hand-mapping with a single source of truth: `.env` (required) + `.env.secrets` (optional sensitive split, chmod 600) + `${PROJECT_ENV_FILE:-/dev/null}` (optional per-project layer). `environment:` blocks retained only for service-specific overrides (container hostnames, ports, image-tag interpolation). Closes TD-477 (15 of 17 user-tunable env keys silently fell back to code defaults inside containers because `environment:` blocks did not propagate them) and the BUG-184 shadow class — the `unset QDRANT_API_KEY` ritual is no longer required for compose operations.
+- **`docker/.env.secrets.example` template**: New file documenting 25 sensitive keys (API keys, passwords, tokens) split out from `.env.example` for `chmod 600` enforcement. The real `.env.secrets` is gitignored. Installer copies the template and applies `chmod 600` on deploy.
+- **`${PROJECT_ENV_FILE}` multi-project env layering**: When the installer is given a project name, `scripts/install.sh` writes `PROJECT_ENV_FILE=<absolute-path>` into `docker/.env` so Compose can resolve a per-project override file at `~/.ai-memory/projects.d/<name>/.env`. When no project name is given, the variable resolves to `/dev/null` (safe no-op).
+- **`scripts/check_env_completeness.py` Pydantic drift gate**: New script that introspects `MemoryConfig.model_fields` + `AliasChoices` and asserts every field is documented in `docker/.env.example` (active or commented). Exits non-zero on drift with a clear remediation message. Self-contained for CLI invocation (`PYTHONPATH=src python3 scripts/check_env_completeness.py`). Currently 100 fields documented, 0 drift.
+- **`.github/workflows/env-drift.yml` CI gate**: Triggers on PRs that touch `config.py`, `docker/.env.example`, `docker/.env.secrets.example`, `docker-compose.yml`, or `check_env_completeness.py`. Runs `dotenv-linter check` on each env file separately + `python3 scripts/check_env_completeness.py`.
+- **`tests/test_env_management.py` (5 tests)**: defaults-only `MemoryConfig()` instantiation; `env_file` reading; `secrets_dir` honored when `env_file` does not contain the key; drift-gate orphan detection via direct-import; v2.3.2 backward-compat without `.env.secrets` present.
+- **`secrets_dir='/run/secrets'` Pydantic Settings forward-compat**: `MemoryConfig.model_config` adds Docker Swarm / Kubernetes Secrets compatibility. No behavior change today; positions the project for future secrets-mount workflows. `extra='ignore'` was already present.
+- **Per-instance sanctum backup/restore in `deploy_parzival_v2()`**: Installer Option 1 updates now mirror the existing `_memory/` PID-suffixed backup/restore pattern for `sanctum/`. Per-instance content (LORE.md, BOND.md, accumulated Tier-C in `sessions/`/`capabilities/`/`references/`) is preserved across updates. CREED.md frontmatter merge preserves 4 specifically-mutating fields (`sessions_completed`, `last_session`, `updated`, `tier_promoted_on`) per DQ-3 (a); static identity fields come from the new template body. Closes the HIGH-severity sanctum data-loss path discovered in PM #261 pre-install audit.
+- **`scripts/_merge_sanctum_creed_frontmatter.py`**: New stdlib-`re`-based YAML frontmatter merger invoked by `deploy_parzival_v2()`. Atomic write via `tempfile` + `os.replace` (mirrors the `merge_settings.py` pattern). Module docstring documents single-line scalar limitation + `ruamel.yaml` upgrade path if the preserve set later expands to multi-line block scalars. Helper script path is overridable at install time via `${CREED_MERGE_SCRIPT}` for failure-mode regression testing.
+- **`tests/test_install_sanctum_preservation.py` (31 tests)**: Covers the Python helper directly + bash-subprocess integration tests for `deploy_parzival_v2()`. Includes `test_creed_merge_failure_falls_back_to_backup` regression test that exercises the failure path: when the merge helper exits non-zero, install logs an error and `cp`-restores the backup CREED.md verbatim, preserving per-instance frontmatter rather than letting the fresh template body wipe user state.
 
 ### Changed
+- **`EmbeddingClient._embed_once()` per-request code-model timeout** (BUG-288):
+  when `model="code"`, `_embed_once()` now passes an explicit
+  `httpx.Timeout(read=EMBEDDING_READ_TIMEOUT_CODE)` on the individual `.post()`
+  call, overriding the client-level `EMBEDDING_READ_TIMEOUT` for that request
+  only. En-model and sparse/late calls are unaffected. Tunable via new
+  `EMBEDDING_READ_TIMEOUT_CODE` env var (default 30s; configurable in
+  `docker/.env`).
+- **`sync_code_blobs()` signature** (BUG-288): new optional `code_blob_state`
+  parameter (default `None`) carries the prior cycle's abandon-set dict.
+  Callers that do not pass the parameter receive identical behaviour to the
+  prior release (no prior abandoned files → no reconciliation pre-sort).
+- **Total-timeout log level in `sync_code_blobs()`** (BUG-288): two
+  `logger.warning` calls that fire when the 1800s total timeout is reached
+  upgraded to `logger.error`. Silent WARNING was the reason large-repo
+  abandonment went unnoticed in production (WARNING filtered in standard
+  configs).
+- **`GITHUB_SYNC_TOTAL_TIMEOUT` comment in `docker/.env.example`**: updated
+  to note that files exceeding the timeout are recorded and prioritized on
+  the next cycle (reconciliation), replacing the misleading "max 7d" guidance.
+- **Parzival POV subsystem rebaselined**: Full rebaseline replacing the pre-existing source-repo `_ai-memory/pov/` tree with a canonical evolution developed across multiple iterations of dispatch-discipline embeds, 4-layer architecture refinement for orchestration skills, `§2a`/`§2b` instruction-form split for dispatch briefs, BMAD Intent picker support, and accumulated remediation landings. Net ~−7.2k lines (346 files changed; +7,303 / −14,524).
+- **Orchestration skill consolidation**: `aim-model-dispatch/` absorbs the prior `model-dispatch-framework/` scaffolding (references, scripts, workflows, wrappers, evals) — the post-installer-merge runtime layout now matches the shipping-source layout. Reduces indirection during agent dispatch debugging.
+- **`step-02-create-team.md` renamed to `step-02-spawn-agent.md`** (R6 template rename): The workflow step that spawns an agent pane is no longer called "create-team" — naming now reflects the actual action. Templates referencing the old filename have been rewritten.
+- **POV step-file template consolidation** (R6): 63 `steps-e/` and `steps-v/` stub files rewritten to reference two shared templates (`STEP-FILE-TEMPLATE.md` and a variant) instead of carrying boilerplate inline. Replaces ~4,284 lines of duplicated boilerplate with ~780 lines of stubs + 2 shared templates — net −3,500 lines in this one consolidation alone.
 - **Dependency floor: `langfuse>=4.0.6,<4.1.0`** (PR #120): Tightened the langfuse Python SDK lower bound from `4.0.0` to `4.0.6`. Picks up upstream patches v4.0.1-v4.0.6 including asyncio.CancelledError handling in `@observe` (v4.0.2), scores session ID parsing fix (v4.0.2), and experiments propagation context maintenance (v4.0.2). No API-surface changes affecting our V3 SDK usage (`get_client`, `observe`, `propagate_attributes`, `Langfuse`, `span_filter`).
+- **`docker/*/requirements.txt` pin alignment to `pyproject.toml` floors**
+  (TD-385 class audit): `docker/github-sync/requirements.txt` langfuse pin
+  raised to `>=4.0.6,<4.1.0` (was `>=4.0.0,<4.1.0`) so the github-sync
+  container picks up the same v4.0.6 fixes as the host install; anthropic
+  pins in `docker/github-sync/requirements.txt` and
+  `docker/streamlit/requirements.txt` raised from `==0.87.0` to
+  `>=0.89.0,<1.0.0` to match pyproject; `docker/streamlit/requirements.txt`
+  streamlit bumped from `==1.54.0` to `==1.56.0`. Docker build smoke tests
+  pass; prometheus-client was already consistent at `==0.24.1` across all
+  three docker `requirements.txt` files (TD-385 audit no-op for that pin).
 - **GitHub Actions group bump** (PR #113): Bumped 2 actions in `.github/workflows/community.yml`, `dependabot-auto-merge.yml`, `release.yml`. CI-only impact; no runtime change.
 
+### Fixed
+- **L1 handoff silent-drop on budget rejection** (BUG-297): The TD-518
+  handoff aggregation works correctly (5,386 tokens from 40 chunks of
+  Session 47), but the aggregated body was silently dropped at
+  `select_results_greedy` when it exceeded `bootstrap_token_budget=2500`.
+  No log, no metric, no signal to caller — the `[ST]` Cross-Session
+  Memory block showed an empty `### Last Handoff` despite Qdrant having
+  complete data. Closed via a 3-component MVF bundle ([[BP-158-rag-budget-reject-silent-drop-fallback-sentinel-observability-2026]]
+  P1/P2/§5):
+  - **C-1 observability**: `select_results_greedy` now emits a structured
+    `retrieval_budget_reject` log line and a Prometheus
+    `aimemory_retrieval_budget_reject_total{reason,tier,collection}`
+    counter at every skip-and-continue site (`budget_exceeded`,
+    `score_gap`, `dedup`). Cardinality: 4 × 2 × 5 = 40 series, well
+    under BP-158 §3 budget.
+  - **C-2 typed-sentinel return**: `select_results_greedy` accepts a
+    keyword-only `return_meta` flag (default `False` preserves the
+    2-tuple shape; 15 call sites unaffected). When `True`, returns
+    `(selected, tokens_used, meta)` where `meta.fallback_signaled` is
+    `True` iff any budget-rejected result is `type=="agent_handoff"`.
+    `retrieve_bootstrap_context` returns `(results, meta)` so the
+    Layer 1 ceiling rejection signal composes with the greedy-fill
+    signal. The bootstrap skill emits a `[FALLBACK-NEEDED: ...]`
+    marker as the first content line of the Cross-Session Memory
+    block when `fallback_signaled` is `True`.
+  - **C-3 per-tier ceiling**: New `handoff_ceiling_tokens` MemoryConfig
+    Field (default 8000, ge=2500, le=10000) sized for whole-handoff
+    aggregation against the Jina v2 single-vector ceiling. Applied as
+    a pre-filter inside `retrieve_bootstrap_context` after
+    `_aggregate_chunked_result`: oversized handoffs are excluded from
+    `results` and signaled via `meta.fallback_signaled`.
+    `bootstrap_token_budget` semantics for snippet content (decisions,
+    insights) remain untouched at `le=5000`.
+  - Workflow `step-01b-parzival-bootstrap` CASE B extended to recognize
+    the marker as a filesystem-fallback trigger, so cross-session
+    continuity never silently degrades.
+  - Realistic-size integration test (`tests/test_l1_handoff_realistic_size.py`)
+    gates a Session 47-class fixture (40 chunks, ~5,400 aggregated
+    tokens) against all three components per
+    [[feedback_realistic_size_production_artifact_tests]].
+- **Tier-2 handoff-class rejection observability** (F-010): The Tier-2
+  per-turn injection hook (`context_injection_tier2.py`) now passes
+  `tier=2, return_meta=True` to `select_results_greedy` so the
+  rejection counter is attributed to the `2_injection` label. When a
+  handoff-class result is budget-rejected at Tier 2, a single
+  `# [tier-2 fallback: ...]` comment marker is prepended to the
+  injected output as a debugging surface. Tier 2 has no filesystem
+  fallback path; behavior is otherwise unchanged.
+- **Triggers keyword-collision noise** (F-008): Downgraded the
+  `keyword_pattern_collisions_detected` emission from WARN to DEBUG
+  level — the substring overlaps in `best_practices_keywords` are
+  intentional pattern-design (see BP-040), not real conflicts. The
+  collision validator already runs once at module-load time per
+  TECH-DEBT-113; this fix only adjusts emission severity to prevent
+  per-hook-invocation noise polluting stderr.
+- **Prometheus collection allowlist missing `github`** (F-009): The
+  `github` collection (PLAN-010, separated from `discussions`) was
+  not in `VALID_COLLECTIONS` in `metrics_push.py`, so retrieval
+  metrics with `collection="github"` were coerced to `unknown`. All
+  5 production collections are now allowlisted (`code-patterns`,
+  `conventions`, `discussions`, `github`, `jira-data`).
+- **`/run/secrets` UserWarning suppression** (F-012): pydantic-settings
+  probes `/run/secrets` at every `MemoryConfig()` instantiation for
+  Docker-secrets discovery. The probe is intentional, but the
+  UserWarning emitted per-hook-process polluted stderr on host
+  environments. A scoped `warnings.filterwarnings` is installed at
+  `src/memory/config.py` module-load — in place before any importer
+  instantiates the settings model — to suppress the specific
+  message without masking other warnings.
+- **SKILL.md frontmatter audit** (F-013): Three skills already
+  declared `allowed-tools` correctly per Claude Code Skills spec
+  2026. Four were missing it. Audit added the actual tool set per
+  skill body: `aim-agent-lifecycle` (Bash — tmux send-keys /
+  capture-pane / kill-pane), `aim-parzival-team-builder` (Read —
+  Step 1 reads work-to-be-parallelized; non-standard `context:
+  fork` runtime extension preserved), `aim-agent-dispatch` and
+  `aim-model-dispatch` (Read — reference workflow files consulted
+  when routing). No skill body content modified.
+- **L1 handoff retrieval aggregation** (TD-518 / F-001): Bootstrap Layer 1
+  now reassembles multi-chunk `agent_handoff` results via type-agnostic
+  scroll-and-concat. Previous behavior returned only the single
+  highest-scoring chunk — testV2 Session 45 measured this delivering a
+  102-byte trailer (~0.5%) of a 20,039-byte handoff body across 37 chunks,
+  silently breaking cross-session continuity. Trigger condition is purely
+  metadata-based (`chunking_metadata.total_chunks > 1`); whole-emit
+  handoffs (`total_chunks=1`) bypass aggregation, no perf regression.
+  Fallback returns the original chunk + `bootstrap_aggregation_*` WARN
+  on any scroll/match-key failure (never crashes bootstrap). Aggregated
+  results expose `chunking_metadata.aggregated_from_chunks=True` for
+  diagnostic visibility. Composes with future emit types that ever chunk.
+  See `oversight/tech-debt/TECH-DEBT-518-handoff-retrieval-aggregation.md`.
+- **Decision-type emit at session closeout** (TD-519 / F-002): Closes the
+  long-standing gap where session decisions were canonical-stored in
+  `oversight/tracking/decision-log.md` but never emitted to Qdrant.
+  Bootstrap L2 retrieval (`memory_type=["decision"]`) was permanently
+  empty as a result. New `/parzival-save-decision` skill fires once per
+  DEC entry from session-close `step-04-save-and-confirm.md`; per-DEC
+  failure is non-fatal (`decision-log.md` is the primary record, script
+  returns 0). Storage shape is whole, 1 vector, no chunking, no
+  thresholds, no truncation per Chunking-Strategy-V2 §3.3 + §7
+  (guaranteed by `content_type_map` not mapping `MemoryType.DECISION`,
+  so the chunker is skipped entirely). Re-emit is idempotent via
+  SHA-256 `content_hash` dedup. Adds `"decision"` to the
+  `store_agent_memory` allowlist (D-2-A) — purely additive. See
+  `oversight/tech-debt/TECH-DEBT-519-decision-emit-additive.md`.
+- **Closeout hard-fails on missing handoff template** (TD-520 / F-C6):
+  Session-close `step-02-update-tracking.md` and `step-03-create-handoff.md`
+  now both check for `_ai-memory/pov/templates/session-handoff.template.md`
+  at entry. If missing, halt with an operator-actionable error
+  ("Handoff template missing — cannot enforce TD-500 empirical
+  commits-ahead capture. Restore template before continuing: ..."). Was
+  a silent skip risk for the TD-500 empirical commits-ahead mandate
+  because TD-500 enforcement is template-bound. Belt-and-suspenders
+  pre-condition at both step entry points covers any future workflow
+  refactor. See `oversight/tech-debt/TECH-DEBT-520-td500-enforcement-hardening.md`.
+- **Q-5**: Documented expected 0-result Qdrant baseline on fresh install in
+  `oversight/specs/POST-INSTALL-VERIFICATION-2026-04-25.md` (testV2 +
+  workspace dual-copy per DEC-PM286-D9) to prevent operator false-alarm
+  reads.
+- **Documentation: terminology cleanup for "Tier B Qdrant persistence"**
+  (Q-7): Replaced stale "Tier B Qdrant persistence" wording in active
+  workspace docs with the shipped "Tier B filesystem persistence" /
+  "Tier B sanctum reload" terminology per DEC-253-14. Tier B is
+  filesystem-only in v2.4.0; the future Qdrant-overlay enhancement is
+  logged as TD-470 (PLAN-025 backlog — no standalone TECH-DEBT file yet,
+  registered in the plan progress doc). Historical/archived docs
+  preserved (accurate at their writing date). Documentation-only change;
+  no functional impact.
+- **TD-518 follow-up — collection-aware aggregation + drift signal**: L1
+  handoff aggregation in `src/memory/injection.py::_aggregate_chunked_result`
+  is now collection-aware via `result.get("collection") or COLLECTION_DISCUSSIONS`
+  — composes with future emit types routed to non-discussions collections
+  (default-to-discussions preserves backward-compat for callers whose result
+  dict lacks the `collection` key). The aggregated result also preserves the
+  original advertised count separately as
+  `chunking_metadata.total_chunks_advertised` while
+  `chunking_metadata.total_chunks` reflects siblings actually concatenated,
+  making partial-drift detectable from result metadata, not just the
+  `bootstrap_aggregation_partial` WARN log. Two new tests cover the
+  collection-aware contract and the default-to-discussions backward-compat
+  path. Workspace TD-518 spec §"Fix Design" item 5 + AC #4 updated to reflect
+  the dual-field shape.
+- **TD-519 follow-up — `decision_summary` prefix-strip**: the
+  `decision_summary` payload field captured by the `/parzival-save-decision`
+  skill now strips the leading `DEC-XXX-D#:` prefix when present, since the
+  `dec_id` payload field already carries the ID. The summary stores the
+  meaningful suffix only (e.g., `"Add 'decision' to allowlist"` rather than
+  `"DEC-PM286-D2: Add 'decision' to allowlist"`). Applied symmetrically in
+  both `scripts/memory/parzival_save_decision.py` and the inline
+  `.claude/skills/parzival-save-decision/SKILL.md` copy.
+- **TD-519 follow-up — closeout step-04 multi-line DEC body safety**: the
+  closeout `step-04-save-and-confirm.md` `Emit Decisions to Qdrant` sub-step
+  now uses a single-quoted heredoc pattern
+  (`DEC_BODY=$(cat <<'PARZIVAL_DEC_END' ... PARZIVAL_DEC_END)`) instead of single-line
+  `--content "<text>"` shell quoting. Multi-line DEC bodies with embedded
+  `"`, `$`, or newlines were previously vulnerable to silent truncation past
+  the first embedded `"`, corrupting the SHA-256 `content_hash` and
+  defeating the per-DEC dedup contract with no error signal.
+- **TD-518/TD-519 test visibility**: dropped `@pytest.mark.integration` from
+  9 in-memory tests in `tests/test_l1_handoff_aggregation.py` and
+  `tests/test_session_close_decision_emit.py` — they use only
+  `QdrantClient(":memory:")` (zero Docker), but the marker was auto-skipping
+  them under default `pytest tests/` invocation while the integration test
+  job in CI only targets `tests/integration/` directly. The 9 tests now run
+  at the unit-tier gate without any CI workflow change.
+- **`src/memory/injection.py` import grouping**: moved `qdrant_client.models`
+  import from inside the first-party `from memory.*` block to the
+  third-party section alongside `numpy`. PEP 8 / isort alignment; no
+  runtime impact.
+- **Langfuse setup `_fixup_init_user` postgres role/db concatenation
+  (TD-512 fix)**: `scripts/langfuse_setup.sh _fixup_init_user` was
+  concatenating `"$prefix"langfuse` to construct postgres `-U` (role) and
+  `-d` (database) arguments for `docker exec ... psql`. With `prefix="ai-memory"`
+  (compose project name), the result was `ai-memorylangfuse` — but the
+  actual postgres role/db inside the container is `langfuse` (per
+  `docker/docker-compose.langfuse.yml` `POSTGRES_USER` and `POSTGRES_DB`
+  declarations). Result: 2 FATAL events at fresh-install startup
+  (`role "ai-memorylangfuse" does not exist`). No functional impact (Will
+  verified login works PM #283; FATAL did not recur on restart). Fix:
+  drop `$prefix` from `-U` and `-d` arguments; postgres role/db are literal
+  `langfuse` inside the container, while `$prefix` remains correct for
+  container/volume naming. See
+  `oversight/tech-debt/TECH-DEBT-512-langfuse-setup-prefix-concat.md`.
+- **`run-with-env.sh::load_env_var` reads secrets from `.env` only** (BUG-292 HIGH):
+  `load_env_var` now applies a secrets-first / env-fallback dual-source pattern,
+  mirroring `_env_split_helpers.sh::_read_env_key`. PP-2 key `QDRANT_API_KEY` and
+  PP-1 key `GITHUB_TOKEN` were blank after the BUG-277 split (real values moved to
+  `docker/.env.secrets`), causing Qdrant 401 errors in every maintenance script
+  invoked via `run-with-env.sh` (`process_retry_queue.py`, `post_work_store_async.py`,
+  `collection_stats.py`). `SECRETS_FILE` is now derived from `ENV_FILE` and read first;
+  `ENV_FILE` serves as fallback for non-secret config and pre-BUG-277 installs.
+  Script header updated to acknowledge the dual-file architecture.
+- **`health_check.sh` QDRANT_API_KEY read site reads from `.env` only** (BUG-293 MED):
+  Added `SECRETS_FILE` variable and a two-step secrets-first / env-fallback read for
+  `QDRANT_API_KEY`. Post-BUG-277 installs had a blank key → Qdrant `/collections`
+  endpoint returned 401 → operator lost collection-count diagnostics. Non-auth probe
+  endpoints (`/readyz`, `/healthz`) were unaffected (auth-whitelisted).
+- **Three install.sh subshells source only `.env` before invoking Python** (W1-F1 MED,
+  defense-in-depth pattern alignment): `setup_github_indexes`, `run_initial_github_sync`,
+  and `drain_pending_queue` now each source `docker/.env.secrets` in addition to
+  `docker/.env`, matching the `setup_collections` BUG-275 reference pattern. All three
+  subshells are restructured to the parenthesized multi-line format of `setup_collections`
+  for full architectural consistency. Current runtime was safe (`MemoryStorage`/`MemoryConfig`
+  dual-file pydantic-settings read compensates for blank shell-exported vars via
+  `env_ignore_empty=True`; W1-F2 trace confirmed `process_retry_queue.py` uses only
+  `MemoryStorage`, not direct `os.getenv()` for PP-1/PP-2 keys). The fix ensures
+  future direct env reads in these subshells will also receive correct PP-1/PP-2 values.
+  "Re-run manually" log hint in `run_initial_github_sync` updated to move `.env.secrets`
+  source within the `set -a` / `set +a` scope (robust for installs where `.env` lacks
+  the key as a placeholder). Note: `drain_pending_queue` aligned to `setup_collections`
+  architecture — `.venv/bin/activate` source + system `python3` fallback removed;
+  `.venv/bin/python` invoked directly (`.venv` is guaranteed present by install order;
+  consistent with `setup_collections` reference pattern).
+- **HIGH: sanctum data-loss on installer Option 1 updates**: Before this fix, `deploy_parzival_v2()` ran `rm -rf "$dst"` then `cp -r` from the source-repo template, wiping LORE/BOND/CREED-frontmatter/Tier-C accumulation on every update — only `_memory/` had explicit preservation. Discovered in PM #261 pre-install audit (testV2 Parzival). Fix mirrors the `_memory/` PID-suffix backup/restore pattern + adds CREED.md frontmatter merge for the 4 mutating fields. Closes F-H1.
+- **CREED frontmatter merge silent-failure path** (cycle-1 review F-M2): Previous implementation chained `python3 ... CREED.md || true` followed by an unconditional `log_debug "Merged"` — a merge failure would silently destroy per-instance frontmatter while logging success. Replaced with explicit if/else: on success, log debug confirmation; on failure, log error + `cp` backup CREED.md verbatim to preserve user identity. Install continues in both paths. Subsequent installer runs retry the merge.
+- **streamlit `restart: on-failure:3` regression** (cycle-1 review F-M1): When the new `<<: *python-service-defaults` anchor was applied to the streamlit service, the anchor's `restart: unless-stopped` silently overrode streamlit's original `restart: on-failure:3`. Restored via explicit service-level override: `restart: on-failure:3` placed at the streamlit service, taking YAML-merge precedence over the anchor.
+- **Installer (BUG-273 fix)**: filter `UID` and `GID` from the bash `source` of `docker/.env` at the four sites in `setup_github_indexes()`, `run_initial_github_sync()`, `drain_pending_queue()`, and the manual re-run instruction string. Pre-fix, `docker/.env.example` since v2.3.0 contains `UID=1000` and `GID=1000`; bash treats these as readonly built-ins, so `set -a && source docker/.env` short-circuited the `&&` chain before reaching the Python helpers, causing GitHub index creation and initial sync to silently fail with install exit code 1. Fix: `source <(grep -v -E '^(UID|GID)=' docker/.env)`. Latent in v2.3.0–v2.3.2. See `oversight/bugs/BUG-273-install-source-env-uid-readonly.md`.
+- **Installer (BUG-274 fix)**: persist user-provided GitHub / Jira / Langfuse answers
+  to `docker/.env` and `docker/.env.secrets` via the existing `set_env_value` helper.
+  Pre-fix, fresh installs lost user choices because the install script collected
+  answers into shell variables but never wrote them back to the runtime env files;
+  later subshells that sourced from `.env` re-imported template defaults, breaking
+  GitHub sync (and any other feature whose enablement was answered "yes"). Sibling
+  to BUG-273 — both manifest at the same install.sh region. See
+  `oversight/bugs/BUG-274-install-user-input-not-persisted-to-env.md`.
+- **Installer (BUG-275 fix)**: extend pydantic-settings consumer-side loading to read
+  both `docker/.env` and `docker/.env.secrets`. Pre-fix, `MemoryConfig.model_config`
+  declared a single-string `env_file=docker/.env`, so secrets persisted by the
+  BUG-274 fix to `docker/.env.secrets` (chmod 600) were invisible to every Python
+  entry into `memory.*`. Fresh installs with `GITHUB_SYNC_ENABLED=true` exited 1 at
+  the `setup_collections` step with a `ValidationError`. Sibling of BUG-273 (UID/GID
+  readonly source) and BUG-274 (user-input persistence) — same install region,
+  consumer-side root cause. Fix research-validated by BP-153 (pydantic-settings
+  2.7.1 source code + live test). Pattern A: 1-line tuple `env_file=(_docker_env,
+  _docker_secrets)` in `MemoryConfig`. Pattern B: install.sh subshell sources both
+  files at the `setup_collections()` call site (defense-in-depth). Pattern C: extend
+  manual dotenv loaders in `migrate_v221_hybrid_vectors.py` and the user-invoked CLI
+  scripts (`backup_qdrant.py`, `restore_qdrant.py`, `list_projects.py`) to load
+  both files via shared helper `scripts/_env_loader.py`. Achieved precedence:
+  shell > `.env.secrets` > `.env` > Field defaults. See
+  `oversight/bugs/BUG-275-memoryconfig-single-env-file-secrets-blind.md` and
+  `oversight/knowledge/best-practices/BP-153-pydantic-settings-split-env-consumers-2026.md`.
+- **Installer (BUG-277 fix)**: migrate all 25 secret-class keys from `docker/.env`
+  (chmod 644) to `docker/.env.secrets` (chmod 600) — completing the ENV-MANAGEMENT-V2
+  split-file architecture (PM #261-262). Prior to this fix, only GITHUB_TOKEN and
+  JIRA_API_TOKEN were correctly written to `.env.secrets` (BUG-274); 17 auto-generated
+  keys (Qdrant, Grafana, Prometheus, Langfuse infra/project/bootstrap) and 6
+  user-supplied optional keys remained at chmod 644. Fix architecture: 17 PP-2 write
+  sites moved in install.sh and langfuse_setup.sh; Option γ atomic migration
+  (write-to-tempfile → chmod 600 → atomic mv → verify → blank source) for v2.3.x
+  in-place upgrades; langfuse_setup.sh env_get()/env_has() extended to read from
+  .env.secrets. Rollback (v2.3.x reinstall): auto-generated credentials regenerate;
+  user-supplied tokens (GITHUB_TOKEN, JIRA_API_TOKEN) re-prompt. Research-validated
+  by BP-154 (POSIX rename() + Docker Compose v5.0.2 live test + compose-spec/compose-go
+  source, PM #270). See oversight/bugs/BUG-277-secrets-class-keys-written-to-env-not-secrets.md
+  and oversight/knowledge/best-practices/BP-154-env-secrets-migration-2026.md.
+- **Installer + stack scripts (BUG-279 fix)**: pass `docker/.env.secrets` as a
+  second `--env-file` flag to every `docker compose` invocation in
+  `scripts/install.sh`, `scripts/stack.sh`, `scripts/langfuse_setup.sh`,
+  `scripts/enable-hybrid-search.sh`, and `scripts/rollback.sh`. Without this,
+  Compose's auto-loaded `.env` interpolation reads the BLANK PP-2 keys
+  post-BUG-277 R3 migration, producing `QDRANT__SERVICE__API_KEY=""` in the
+  Qdrant container (locked-out: 401 on all auth-required endpoints) and
+  `LANGFUSE_PUBLIC_KEY=""` / `DATABASE_URL` interpolation failures across the
+  Langfuse stack — affects all 29 secret-class `${VAR}` interpolation sites
+  in `docker-compose.yml` + `docker-compose.langfuse.yml`. Empirically
+  verified: `docker compose --env-file .env --env-file .env.secrets config`
+  resolves all secret interpolations to real values. Compose v2.21+
+  multi-env-file last-file-wins precedence per BP-154 §Q2. See
+  `oversight/bugs/BUG-279-compose-env-secrets-not-loaded-by-wrappers.md`.
+- **Installer (BUG-281 fix)**: pre-create `${INSTALL_DIR}/config/projects.d`
+  and `${INSTALL_DIR}/github-state/logs` in `create_directories()` so the
+  github-sync container's volume mounts find existing parzival-owned host
+  paths instead of triggering Docker daemon auto-create (which runs as root
+  and would leave host paths root-owned, locking out subsequent
+  `register_project_sync()` writes from install.sh). Sibling consumer-side
+  resolution to BUG-279. See
+  `oversight/bugs/BUG-281-docker-mount-creates-root-owned-host-dir.md`.
+- **Installer (BUG-282 fix)**: explicitly copy `docker/.env` (dotfile) from
+  source to install dir during fresh install. Bulk `cp -r .../docker/*` in
+  `copy_files()` uses shell glob `*` which excludes dotfiles, so `.env` was
+  silently skipped — leaving the install dir without a `.env` until the
+  merge ELSE branch fell back to copying `.env.example` over `.env`,
+  silently overwriting user customizations (uncommented opt-in keys like
+  `GITHUB_CODE_BLOB_INCLUDE`, `DECAY_*`, `FRESHNESS_PENALTY_*`, `INJECTION_*`
+  thresholds reverted to commented template defaults). Sibling of BUG-040
+  (which only handled `.env.example` dotfile copying); fix mirrors the
+  same explicit-cp pattern, gated by `! -f "$INSTALL_DIR/docker/.env"` so
+  it only fires for fresh installs and does not interfere with the
+  TD-198 backup/restore + merge logic for Option 1 reinstalls. Discovered
+  during PM #274 P4-08 verification when a customized
+  `GITHUB_CODE_BLOB_INCLUDE=*.yaml,*.toml,Makefile,Dockerfile` was lost
+  across reinstall.
+- **Sanctum architecture redesign (BUG-283 + BUG-284 + BUG-285)**: testV2 lead-dev verification surfaced a contradiction in the prior PM #255 partial-fill sanctum delivery model: source shipped pre-filled `CREED.md` while `init-sanctum.py` `TEMPLATE_FILES` excluded `CREED-template.md`, and directory-level idempotency at `init-sanctum.py:215-218` exited clean if `CREED.md` existed — net result, fresh installs got CREED + 3 empty subdirs only, with Tier B (LORE/BOND) never created. Plus the templates contained literal `{}` placeholders (e.g., `{agent-title}`, `{vibe-prompt}`, `{bond-domain-sections}`) that survived as raw text in scaffolded output because `substitute_vars` only fills 6 specific keys. PLAN-027 redesign: empty-ship sanctum + `TEMPLATE_FILES` extended to 8 (adds CREED, CAPABILITIES, PULSE) + file-level idempotency in 3 write sites (`copy_references`, `copy_scripts`, TEMPLATE_FILES loop) + `CREED-template.md` becomes the authored Parzival philosophy (relocated from prior shipped `CREED.md`) + 5 other templates rewritten as universal scaffolds with substitution-key-only placeholders (no leak-prone `{X}` literals) + new conversational First Breath workflow (3 steps: meet owner → learn project → confirm and begin). Bootstrap fixes (BUG-283): `_bootstrap_skill_dir` path corrected to include `_ai-memory/` segment; `sanctum_tier_b` import wrapped for graceful degrade. Status-line accuracy (BUG-285): per-layer Qdrant status capture via `logging.Handler` subclass distinguishes "available", "degraded (N of 4 layers unreachable)", "unreachable (all retrieval calls failed)" instead of hardcoded "available" that masked Connection refused errors. Activation step 5 detect-and-repair: invokes `/aim-agent-sanctum-init` if any of 8 required sanctum files missing; invokes First Breath workflow if BOND has scaffold markers. 4 regression tests (T1-T4) verify no `{}` placeholder leakage / idempotency / partial-sanctum recovery / customization preservation. See `oversight/bugs/BUG-283-bootstrap-path-and-sanctum-tier-b-import.md`, `oversight/bugs/BUG-284-sanctum-init-contradicts-shipped-creed.md`, `oversight/bugs/BUG-285-bootstrap-status-line-masks-qdrant-unreachable.md`.
+- **Installer (BUG-286 fix)**: enforce env-secrets split for ALL 25 secret-class
+  keys including PP-1 (`GITHUB_TOKEN`, `JIRA_API_TOKEN`). Pre-fix, the recovery
+  menu and `configure_environment` Add Jira/GitHub blocks wrote PP-1 tokens to
+  `docker/.env` (chmod 644) instead of `docker/.env.secrets` (chmod 600) — an
+  active leak in the recovery path, plus latent risk in the configure path.
+  `migrate_secrets_to_split_file` excluded PP-1 from migration scope, and
+  TD-198 backup-and-restore preserved the leaked `.env` across reinstalls so
+  `verify_env_split.py I4` failed on every reinstall of a customized clone.
+  Fix introduces `ALL_SECRET_KEYS` as the single source of truth in
+  `scripts/_env_split_helpers.sh` (25 keys = PP-1 + PP-2 + PP-3), routes
+  recovery-menu writes to `.env.secrets`, replaces `configure_environment`
+  token echoes with blank placeholders, extends migration + detection probes
+  to include PP-1, adds defensive blank-in-`.env` via
+  `persist_user_choices_to_env`, and adds T13/T14/T15 regression tests
+  covering the reinstall #5 scenario, all-25-key enforcement, and
+  idempotency. Cycle-2 dual-review fix-r2 makes the SSoT truly consumed
+  (single iteration over `ALL_SECRET_KEYS` instead of parallel pp1/pp2/pp3
+  arrays) and dedupes the detection grep alternation. See
+  `oversight/bugs/BUG-286-installer-pp1-secrets-leak.md`.
+- **Compose (BUG-287 fix)**: wire `QDRANT__SERVICE__READ_ONLY_API_KEY` into the
+  Qdrant container `environment:` block, completing the TD-333 read-only auth
+  surface. The producer side (`install.sh` R2.7 key generation + `.env.secrets`
+  write site via `configure_environment`) and consumer side
+  (`MemoryConfig.qdrant_read_only_api_key` field + `get_qdrant_client(read_only=True)`
+  key-swap branch) were fully implemented; the server-side compose wiring was the
+  only missing piece. Without this line, Qdrant rejects the read-only key with
+  HTTP 401 — the generated 32-byte secret-class key was wasted. Adds regression
+  tests: `test_compose_qdrant_wiring.py` (NEW unit-layer test, runs in unit CI tier —
+  no Docker required); `tests/integration/test_qdrant_read_only_wiring.py` (integration
+  tier — live container probes with PUT-403 write-rejection assertion). See
+  `oversight/bugs/BUG-287-qdrant-read-only-api-key-not-wired-in-compose.md`.
+- **Compose (BUG-287 fix-r2)**: cycle-2 dual-review hardening (Sonnet CHANGES-REQUESTED
+  + Opus APPROVE-WITH-NITS). All 12 findings addressed: split test placement so
+  YAML-parse test (`test_compose_wires_read_only_api_key`) runs in unit CI tier via
+  `test_compose_qdrant_wiring.py` with `_find_repo_root()` helper and prefix-match
+  assertions (Sonnet F-1 + Opus M1 + Opus L4 + Opus L7); CI env injection for
+  `QDRANT_READ_ONLY_API_KEY` + `QDRANT__SERVICE__READ_ONLY_API_KEY` in
+  `integration-tests` job (Sonnet F-2); write-rejection probe (PUT → 403) added
+  per bug-doc verification step 4 with try/finally best-effort cleanup (Sonnet F-3 +
+  Opus M2); Python consumer probe via `get_qdrant_client(read_only=True)` added as
+  `test_qdrant_read_only_key_python_consumer` (Opus M3); CHANGELOG claim updated to
+  reflect unit-tier test relocation (Sonnet F-4); URL fallback aligned to
+  `localhost:26350` (Opus L6); exception catch broadened to `httpx.RequestError`
+  (Sonnet F-7); compose BUG-184 caveat enumerates both `QDRANT_API_KEY` and
+  `QDRANT_READ_ONLY_API_KEY` (Opus L5); CHANGELOG BUG-287 entry repositioned after
+  BUG-283/284/285 to restore ascending order (Sonnet F-6); fix-r2 commit subjects
+  ≤72 chars (Sonnet F-5). **Known limitation (TD-494)**: integration-tests CI job
+  still skips `test_qdrant_read_only_key_accepted_by_container` and the new Python
+  consumer probe due to a pre-existing `tests/conftest.py:integration_test_env`
+  autouse fixture that unconditionally pins `QDRANT_URL=http://localhost:26350`,
+  overriding the workflow step env; CI Qdrant binds host port 6333, so
+  `_qdrant_reachable()` returns False and the live probes still skip in CI.
+  Pre-existing wider issue affecting all `tests/integration/*` modules; surfaced
+  by Opus cycle-2 review NEW-1; tracked for v2.4.1+ via TD-494. Production
+  behavior of the read-only API key wiring is fully validated empirically
+  (PM #276 reinstall #6 in-container env shows both keys; live verification
+  passed before push of `82e4fcb`). See `oversight/reports/bug287-review-sonnet.md`,
+  `oversight/reports/bug287-review-opus.md`,
+  `oversight/reports/bug287-review-r2-sonnet.md`,
+  `oversight/reports/bug287-review-r2-opus.md`.
+
+- **GitHub code-blob sync (BUG-288 fix)**: resolve silent data-loss when the
+  1800s total timeout cuts off >50% of files on large repositories. Five-part
+  fix: (1) `CodeSyncResult.abandoned_paths` field records every file that was
+  cut off by total-timeout or circuit-breaker; (2) `sync_code_blobs()` accepts
+  a new `code_blob_state` dict carrying the prior cycle's abandon-set — on the
+  next run, previously abandoned files are sorted to the front of the eligible
+  queue (`reconciliation pre-sort`, BP-155 §3) so they are least likely to be
+  cut off again; (3) `GitHubSyncEngine.load_code_blob_state()` /
+  `save_code_blob_state()` persist the abandon-set as a `code_blobs` sub-key
+  in the existing POSIX-atomic `github_sync_state_*.json` state file —
+  forward-compatible (old state files lacking the key return `{}`);
+  (4) `github_sync_service.py` Phase 2 block threads state through the call
+  (load before sync, save after); (5) `CodeBlobSync._wait_for_embedding_ready()`
+  pre-sync probe polls `/health` before the file-tree fetch; if the embedding
+  service is not ready within 60s, sync proceeds anyway (probe is advisory).
+  Total-timeout log sites upgraded from `WARNING` to `ERROR`. New Prometheus
+  metrics: `github_code_sync_abandoned_files_total` (Counter) +
+  `github_code_sync_completion_ratio` (Gauge). See
+  `oversight/bugs/BUG-288-github-code-sync-silent-data-loss.md` and
+  `oversight/knowledge/best-practices/BP-155-graceful-sync-degradation-and-reconciliation-2026.md`.
+- **Embedding service `/health` endpoint (BUG-289 fix)**: `/health` now returns
+  HTTP 503 (with full JSON body) when `model_loaded=False`, enabling Docker
+  Compose `depends_on: condition: service_healthy` (`curl -f`) to correctly
+  gate `github-sync` startup on actual model readiness rather than mere process
+  liveness. Previously `/health` always returned HTTP 200 regardless of whether
+  the Jina v2 en/code models had finished loading, causing `github-sync` to
+  start before code-model embeddings were functional. See
+  `oversight/bugs/BUG-289-embedding-health-endpoint-no-status-gating.md`.
+- **Classifier `all_providers_failed` cascade (BUG-290 fix)**: Three simultaneous
+  provider failures caused the classifier to fail on every call, leaving all new
+  memories unclassified. Three root causes addressed: (1) OpenRouter default model
+  `google/gemma-2-9b-it:free` retired — replaced with
+  `meta-llama/llama-3.2-3b-instruct:free` in `config.py` and `docker/.env.example`
+  (stable-namespace model per BP-156 §1.4 policy); (2) Ollama cold-start timeout —
+  `keep_alive: -1` added as a top-level key in `OllamaProvider.classify()` POST body
+  to prevent model eviction between classify calls; `MEMORY_CLASSIFIER_TIMEOUT` default
+  raised from 10 s to 120 s; `docker/.env.example` updated with
+  `MEMORY_CLASSIFIER_TIMEOUT=120` and an `OLLAMA_KEEP_ALIVE=-1` host-side guidance
+  comment block (server variable, cannot be set from the compose env block; block
+  covers Linux systemd, compose-managed Ollama, and Windows/macOS); `docker/docker-compose.yml`
+  propagates the new timeout default to the `classifier-worker` env block; (3)
+  `OllamaProvider.is_available()` probe used `/api/tags` (disk-downloaded model list)
+  instead of `/api/ps` (VRAM-loaded model list) — replaced with a two-tier hybrid
+  probe: `/api/ps` returns `True` immediately when the model is VRAM-loaded, logs
+  `ollama_model_cold` WARNING (structured fields: `model`, `action`) when cold but
+  reachable, and falls back to `/api/tags` for older Ollama daemons lacking `/api/ps`.
+  Cold probe returns `True` so the circuit breaker still routes to Ollama — cold-start
+  is recoverable; daemon-down is not. See
+  `oversight/bugs/BUG-290-classifier-all-providers-failed-cascade.md` and
+  `oversight/knowledge/best-practices/BP-156-classifier-provider-resilience-2026.md`.
+- **Ollama default model user-namespace risk (BUG-294 fix)**: `OLLAMA_MODEL` default
+  changed from `sam860/LFM2:2.6b` (user-namespace model — upstream removal risk) to
+  `llama3.2:3b` (official Ollama project namespace). `docker/.env.example` `OLLAMA_MODEL`
+  updated to match; inline comment added warning against user-namespace models (BP-156
+  §1.4). See `oversight/bugs/BUG-294-ollama-model-third-party-upstream-removal-risk.md`.
+- **Anthropic retired model default (BUG-295 HIGH fix)**: `ANTHROPIC_MODEL` default
+  changed from `claude-3-5-haiku-20241022` (retired Feb 19, 2026) to
+  `claude-haiku-4-5-20251001` (versioned ID; Anthropic lifecycle commitment through
+  Oct 15, 2026 minimum). `config.py` and `docker/.env.example` both updated; re-validation
+  comment added for Q1 2027. See `oversight/bugs/BUG-295-anthropic-model-stale-default.md`.
+- **Langfuse keys dual-listed in `.env.example` (BUG-296 LOW fix)**: Removed 5 blank
+  Langfuse placeholder entries (`LANGFUSE_DB_PASSWORD`, `LANGFUSE_CLICKHOUSE_PASSWORD`,
+  `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_SALT`, `LANGFUSE_ENCRYPTION_KEY`) from the
+  Section 2 "Auto-generated" block of `docker/.env.example`. These keys were already
+  (correctly) documented in `docker/.env.secrets.example`; the dual-listing created a
+  risk of the `.env` blank overriding the `.env.secrets` real value under certain env-file
+  ordering. Replaced with a single cross-reference comment directing operators to
+  `.env.secrets.example`. See
+  `oversight/bugs/BUG-296-langfuse-blank-secrets-dual-listed.md`.
+- **Parzival activation step 5 detect-and-repair refinement (BUG-291
+  closure)**: PLAN-027 §53 F4 was largely implemented by Phase D commits
+  `bb8a6b5` (sanctum bootstrap path/status fixes) + `b88fef4` (cycle-2
+  refinements). This commit closes the 2 remaining gaps in
+  `_ai-memory/pov/agents/parzival.md` step 5: (1) adds explicit
+  failure-mode handling bullet for `init-sanctum.py` non-zero exit
+  (log error + warn-and-continue per W-04 self-heal pattern; activation
+  does not block on scaffolding failure), (2) tightens the First Breath
+  scaffold-marker check from a broad pattern to the literal
+  `_Filled during First Breath:` match per `BOND-template.md` actual
+  scaffold marker text. Adds 3 new regression tests (T5-T7) verifying
+  step 5 decision logic. T1-T4 (init-sanctum.py file-level idempotency)
+  were landed by Phase D in
+  `_ai-memory/pov/skills/aim-agent-sanctum-init/tests/test_init_sanctum_idempotency.py`.
+  Closes BUG-291. See `oversight/bugs/BUG-291-init-sanctum-not-auto-invoked.md`
+  and `oversight/plans/PLAN-027-sanctum-redesign.md` §53 + Phase D F4.
+
+### Removed
+- **`aim-bmad-dispatch/` skill**: The BMAD-specific dispatch skill is removed — `aim-agent-dispatch/` now handles both BMAD and generic agents via a unified routing path. All references to `/aim-bmad-dispatch` in prior orchestration pipeline documentation are superseded by `/aim-agent-dispatch`.
+- **`step-01c-parzival-constraints.md`** (Phase 3 startup pipeline optimization): The Parzival session-start workflow no longer runs a dedicated constraints-loading step — constraints are now loaded during activation (step 4) and re-injected during `aim-parzival-bootstrap` (step 1b) when needed. Net token reduction on session start.
+
 ### Documentation
+- **`claude-opus-4-7` added to model catalog**: `_ai-memory/pov/skills/aim-model-dispatch/references/models-claude.md` now lists Opus 4.7 as the newest Opus model (ordered newest-first), plus a row in the Model Selection Guide table and appended to the OpenRouter model list as `anthropic/claude-opus-4-7`. Aligns the catalog with the current Opus default for reviewer dispatches.
 - **INSTALL.md non-interactive Parzival section** (PR #124 follow-up): Documented the new `INSTALL_PARZIVAL=true` env var alongside the existing `NON_INTERACTIVE=true` guidance.
+- **Authoritative env-management knowledge**: New `oversight/knowledge/best-practices/BP-152-docker-compose-env-management-pydantic-multi-container-2026.md` (367 lines, 15 cited 2024-2026 sources) + `oversight/specs/ENV-MANAGEMENT-V2.md` (Parzival-direct synthesis from BP-152, 8 sections covering Compose pattern, Pydantic Settings layering, sensitive split, drift gate, multi-project layering). Drives the env-mgmt refactor in this release.
 
 ### Upgrade Instructions
 
-**From v2.3.2 → Unreleased:**
+**From v2.3.2 → v2.4.0:**
 
-This release includes a langfuse SDK floor bump that **requires a Python container rebuild** for the change to take effect at runtime. Pure config/docs changes need only the standard installer Option 1 update.
+This release includes:
+
+1. A **Parzival POV subsystem rebaseline**. Existing Parzival users must re-run installer Option 1 to pick up the new `_ai-memory/pov/` tree, the `aim-agent-sanctum-init` scaffolding skill, and the sanctum directory structure. Sanctum files (`sanctum/parzival/LORE.md`, `BOND.md`, etc.) are created at First Breath by the scaffolding — no pre-existing Parzival identity is disturbed.
+2. Removal of `aim-bmad-dispatch/` skill. The DEPRECATED redirect stub at `.claude/skills/aim-bmad-dispatch/SKILL.md` ships for one release as a backward-compat shim — it routes invocations of `/aim-bmad-dispatch` to `/aim-agent-dispatch`. Existing `settings.json` references continue to work via the stub. Direct callers should update the skill path to `/aim-agent-dispatch` before the stub is removed in a later release. The installer does not modify `settings.json`.
+3. A **langfuse SDK floor bump** that **requires a Python container rebuild** for the change to take effect at runtime. Pure config/docs changes need only the standard installer Option 1 update.
+4. A **Compose env-management refactor** (BP-152 / ENV-MANAGEMENT-V2). The 4 Python services (`monitoring-api`, `streamlit`, `classifier-worker`, `github-sync`) now read env from `.env` + optional `.env.secrets` via `env_file:` directive instead of per-key `environment:` mapping. Existing `docker/.env` continues to work — sensitive keys can stay in `.env` (everything still loads) or be moved to `.env.secrets` for `chmod 600` enforcement (see post-install steps below). The `unset QDRANT_API_KEY` ritual previously required before compose operations is no longer needed.
+5. A **HIGH-severity sanctum data-loss fix** in `deploy_parzival_v2()`. Existing per-instance Parzival identity (LORE.md content, BOND.md content, Tier-C accumulation in `sessions/`/`capabilities/`/`references/`, CREED frontmatter mutations like `sessions_completed`) is now preserved across installer Option 1 updates. No user action required — preservation is automatic.
+6. A **sanctum architecture redesign** (BUG-283 + BUG-284 + BUG-285). The prior partial-fill model (source ships pre-filled CREED.md, init-sanctum.py exits clean if CREED.md exists, Tier B never created) is replaced with empty-ship + file-level idempotency. `init-sanctum.py` now scaffolds all 8 standard sanctum files (CREED, PERSONA, INDEX, BOND, LORE, MEMORY, CAPABILITIES, PULSE) from universal templates at First Breath, with per-file idempotency guards in 3 write paths so existing files are never overwritten. New conversational First Breath workflow (`pov/workflows/first-breath/`) fills BOND with owner specifics + LORE with project specifics on first activation. Bootstrap path bug (BUG-283) and Qdrant status-line accuracy bug (BUG-285) also closed. No user action required for fresh installs — `aim-agent-sanctum-init` runs automatically on first activation.
+7. **BUG-289 breaking change** (embedding `/health` status code): the embedding
+   service `/health` endpoint now returns HTTP 503 instead of HTTP 200 when
+   models are not yet loaded. **External monitors** that alert on HTTP non-200
+   from `/health` will now correctly fire during the model-load window (up to
+   ~5 minutes on first startup). **`curl -f` healthchecks** (as used by Docker
+   Compose `depends_on: condition: service_healthy`) will now correctly fail
+   during loading. No action required for standard Docker Compose deployments
+   — the compose healthcheck is the intended consumer and the 503-on-load
+   behavior is exactly what BUG-289 was designed to enable.
+
+**Partial-sanctum recovery (BUG-283/284/285)**: If you previously installed pre-PLAN-027 v2.4.0-candidate code and your `~/.ai-memory/_ai-memory/sanctum/parzival/` contains only `CREED.md` + 3 empty subdirs (no PERSONA/INDEX/BOND/LORE/MEMORY/CAPABILITIES/PULSE), the new file-level idempotency will detect-and-repair on next `/pov:parzival` activation: parzival.md activation step 5 checks for the 8 required sanctum files; missing files trigger `aim-agent-sanctum-init` which scaffolds only what's missing. Existing CREED.md is preserved verbatim (file-level idempotency means the script never overwrites an existing sanctum file). After scaffolding, BOND.md will have unfilled scaffold markers — activation invokes the new First Breath workflow to fill BOND with owner specifics + seed LORE with project specifics. No manual intervention required.
 
 1. **Pull the latest from main:**
    ```bash
@@ -56,6 +638,47 @@ This release includes a langfuse SDK floor bump that **requires a Python contain
    # Expect: zero output (all healthy)
    ```
 
+**Optional: Move sensitive keys to `.env.secrets`** (recommended; existing `.env` continues to work):
+
+```bash
+cd ~/.ai-memory/docker
+
+# Copy the template (do this once)
+cp .env.secrets.example .env.secrets
+chmod 600 .env.secrets
+
+# Move sensitive values from .env to .env.secrets
+# Edit .env.secrets — paste actual API keys, passwords, tokens
+# Edit .env — delete the lines for keys now in .env.secrets
+
+# Restart containers to pick up the split
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile '*' up -d
+```
+
+The 4 Python services read both files automatically via `env_file:` directive; values from `.env.secrets` take precedence on overlap. If `.env.secrets` is absent, behavior matches v2.3.2 (everything from `.env`).
+
+**Optional: Per-project env layering via `${PROJECT_ENV_FILE}`**:
+
+```bash
+# Create per-project override (only applies when PROJECT_ENV_FILE is set in docker/.env)
+mkdir -p ~/.ai-memory/projects.d/my-project
+cat > ~/.ai-memory/projects.d/my-project/.env <<EOF
+FRESHNESS_PENALTY_HALFLIFE_SECONDS=86400
+DECAY_MIN_SCORE=0.45
+EOF
+
+# install.sh writes PROJECT_ENV_FILE=<path> to docker/.env when given a project name.
+# To enable manually: add PROJECT_ENV_FILE=/home/$USER/.ai-memory/projects.d/my-project/.env to docker/.env
+```
+
+**Verify env propagation to containers** (post-restart):
+
+```bash
+docker exec ai-memory-classifier-worker env | grep DECAY_MIN_SCORE
+# Expect: shows the value from .env (or per-project override if PROJECT_ENV_FILE set).
+# Before this release, this would have been empty for 15 of 17 user-tunable keys (TD-477).
+```
+
 **Optional new flag for non-interactive installs:**
 
 ```bash
@@ -68,6 +691,93 @@ NON_INTERACTIVE=true INSTALL_PARZIVAL=true \
 `INSTALL_PARZIVAL=true` enables the full Parzival V2 setup path during CI / scripted installs. See `INSTALL.md` for full details.
 
 **Skipped for this upgrade**: GitHub Actions bump (#113) is CI-only and applies on the next workflow trigger automatically.
+
+**Special case: stuck install with root-owned `~/.ai-memory/config/`** (rare,
+only affects users who hit the BUG-281 trigger before pulling the fix):
+
+If a prior install attempt left root-owned subdirectories in `~/.ai-memory/`
+(e.g., `~/.ai-memory/config/projects.d/` owned by `root` from Docker
+auto-create), plain `rm -rf ~/.ai-memory` fails at the root-owned subdir.
+Recovery requires sudo, one-time:
+
+```bash
+sudo rm -rf ~/.ai-memory
+cd /path/to/your/clone
+git pull origin main           # ensure BUG-281 fix is in place
+./scripts/install.sh /path/to/project
+```
+
+Future installs (with the BUG-281 fix in place) will not produce root-owned
+host paths because `create_directories()` pre-creates `config/projects.d/`
+and `github-state/logs/` with parzival ownership before any container starts.
+
+**Customized `docker/.env` preservation across reinstall** (BUG-282 fix):
+
+Fresh installs now correctly copy your customized `docker/.env` from the
+source repo into the install dir. Before this fix, the bulk `cp -r` glob
+silently skipped `.env` (a dotfile), causing the merge fallback to
+overwrite with `.env.example` template defaults — losing uncommented
+values for opt-in keys like `GITHUB_CODE_BLOB_INCLUDE`, `DECAY_*`,
+`FRESHNESS_PENALTY_*`, and `INJECTION_*` thresholds. No user action
+required for v2.4.0+ — your customizations now survive across both fresh
+installs and Option 1 reinstalls.
+
+**Classifier provider defaults updated (BUG-290/294/295 fix)**:
+
+If you previously customized `OPENROUTER_MODEL`, `OLLAMA_MODEL`, or `ANTHROPIC_MODEL`
+in `docker/.env`, your values are preserved — the new defaults apply only to fresh
+installs or Option 1 reinstalls that do not already have those keys set.
+
+> **ACTION REQUIRED for operators with a customized `ANTHROPIC_MODEL`**: If your
+> `docker/.env` explicitly sets `ANTHROPIC_MODEL=claude-3-5-haiku-20241022` or
+> `ANTHROPIC_MODEL=claude-3-haiku-20240307` (both retired by Anthropic), the
+> "values are preserved" rule above **leaves you broken** — the Anthropic classifier
+> provider will fail on every call with a model-not-found error. You must manually
+> update your `docker/.env`:
+>
+> ```
+> ANTHROPIC_MODEL=claude-haiku-4-5-20251001
+> ```
+>
+> No container rebuild required — a `docker compose up -d` restart picks up the
+> new value. Operators who never customized this key (used the old code default)
+> receive the correct new value automatically via installer Option 1.
+
+> **ACTION REQUIRED for operators with a customized `OPENROUTER_MODEL`**: If your
+> `docker/.env` explicitly sets `OPENROUTER_MODEL=google/gemma-2-9b-it:free` (retired
+> by OpenRouter; absent from the live `/api/v1/models` catalog as of PM #281
+> verification), the OpenRouter classifier provider will fail on every call with
+> a model-not-found error, dropping you to Ollama-only. You must manually update
+> your `docker/.env`:
+>
+> ```
+> OPENROUTER_MODEL=meta-llama/llama-3.2-3b-instruct:free
+> ```
+>
+> No container rebuild required — a `docker compose up -d` restart picks up the
+> new value. Operators who never customized this key receive the correct new
+> value automatically via installer Option 1.
+
+**Advisory: customized `OLLAMA_MODEL` and `MEMORY_CLASSIFIER_TIMEOUT`**:
+
+If your `docker/.env` sets `OLLAMA_MODEL=sam860/LFM2:2.6b` (the prior code default
+— a user-namespace model with upstream removal risk per BP-156 §1.4), the model
+still works today but is not ecosystem-stable. Recommended: switch to the new
+official-namespace default `OLLAMA_MODEL=llama3.2:3b` at your convenience.
+
+If your `docker/.env` sets `MEMORY_CLASSIFIER_TIMEOUT=10` (the prior code default),
+the classifier will time out on Ollama cold-starts under CPU load. Recommended:
+raise to `MEMORY_CLASSIFIER_TIMEOUT=120` to match the new default. Combine with
+`OLLAMA_KEEP_ALIVE=-1` on the Ollama host (see §4.1 of `docker/.env.example`) to
+prevent eviction-induced cold-starts entirely.
+
+If you are using the defaults unchanged, the new values take effect after pulling
+the latest and running the installer Option 1. No container rebuild required — only
+`docker/.env` and `docker/docker-compose.yml` changed.
+
+Recommended: set `OLLAMA_KEEP_ALIVE=-1` on your Ollama host daemon (see the
+`OLLAMA_KEEP_ALIVE` comment block in `docker/.env.example` §4.1 for per-platform
+instructions) to prevent cold-start latency on the classifier's Ollama primary.
 
 ## [2.3.2] - 2026-04-13
 

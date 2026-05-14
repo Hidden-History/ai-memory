@@ -12,23 +12,11 @@ firstStep: './steps-c/step-01-compile-release.md'
 
 ## WORKFLOW ARCHITECTURE
 
-This uses **step-file architecture** for disciplined execution:
-
-### Step Processing Rules
-1. **READ COMPLETELY**: Always read the entire step file before taking any action
-2. **FOLLOW SEQUENCE**: Execute numbered sections in order
-3. **WAIT FOR INPUT**: Halt at decision points and wait for user direction
-4. **LOAD NEXT**: When directed, load and execute the next step file
-
-### Critical Rules
-- NEVER load multiple step files simultaneously
-- ALWAYS read entire step file before execution
-- NEVER skip steps unless explicitly optional
-- ALWAYS follow exact instructions in step files
+See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md) for Step Processing Rules and Critical Rules.
 
 ### Step Chain Overview
 1. **step-01** -- Compile what is being released
-2. **step-02** -- SM creates release notes and changelog
+2. **step-02** -- SM creates release notes and changelog — for a comprehensive documentation pass, dispatch `bmad-agent-tech-writer` via `{project-root}/.claude/skills/bmad-agent-tech-writer/SKILL.md`
 3. **step-03** -- Build deployment checklist
 4. **step-04** -- Build rollback plan
 5. **step-05** -- DEV deployment verification

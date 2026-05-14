@@ -10,6 +10,22 @@ x-ai-memory-labels: &ai-memory-labels
   ai-memory.stack: "core"
   org.opencontainers.image.vendor: "ai-memory"
 
+# BP-152 §3.1/3.4/3.5: DRY env injection for Python services via env_file: directive.
+# Applied to: monitoring-api, streamlit, classifier-worker, github-sync.
+# Not applied to: qdrant (uses QDRANT__SERVICE__* config key naming — see qdrant service comment),
+#   embedding (image-specific model vars, no MemoryConfig overlap),
+#   prometheus-init (one-shot, two-key explicit block is cleaner),
+#   prometheus/pushgateway/grafana (non-Python or Langfuse stack with own config).
+x-python-service-defaults: &python-service-defaults
+  env_file:
+    - path: .env
+      required: true          # fail-fast if .env missing — Compose 2.24.0+ required
+    - path: .env.secrets
+      required: false         # optional sensitive split (chmod 600); absent in dev is OK
+    - path: ${PROJECT_ENV_FILE:-/dev/null}
+      required: false         # per-project override from projects.d/<name>/.env
+  restart: unless-stopped
+
 services:
   qdrant:
     image: qdrant/qdrant:v1.16.3
@@ -22,11 +38,19 @@ services:
       - "127.0.0.1:${QDRANT_GRPC_PORT:-26351}:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
+    # Qdrant uses its own config key naming (QDRANT__SERVICE__*) — the env_file: pattern
+    # is not applicable here because Qdrant reads QDRANT__SERVICE__API_KEY, not QDRANT_API_KEY.
+    # QDRANT_API_KEY and QDRANT_READ_ONLY_API_KEY interpolation are both known BUG-184-class
+    # limitations; both require the unset-ritual workaround until Qdrant's config schema
+    # permits a direct remap.
     environment:
       - QDRANT__LOG_LEVEL=${QDRANT_LOG_LEVEL:-INFO}
       # API Key Authentication (BP-040) - Requires TLS for production
       # For localhost-only development, API key provides basic access control
       - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY}
+      # BUG-287: Wire read-only API key to Qdrant container so TD-333
+      # `get_qdrant_client(read_only=True)` callers work end-to-end.
+      - QDRANT__SERVICE__READ_ONLY_API_KEY=${QDRANT_READ_ONLY_API_KEY}
     restart: unless-stopped
     # TD-341: HTTP readiness check via /readyz (BP-145). Auth-whitelisted since Qdrant v1.5.0.
     healthcheck:
@@ -49,6 +73,8 @@ services:
     volumes:
       # fastembed stores models in ~/.cache/fastembed, mount entire cache dir
       - embedding_cache:/home/embedding/.cache
+    # Embedding service uses image-specific model vars (MODEL_NAME_EN, FASTEMBED_CACHE_PATH)
+    # with minimal overlap with MemoryConfig; explicit block is cleaner than the anchor here.
     environment:
       # SPEC-010: Dual embedding model configuration
       - MODEL_NAME_EN=${MODEL_NAME_EN:-jinaai/jina-embeddings-v2-base-en}
@@ -83,16 +109,15 @@ services:
     profiles: ["testing", "monitoring"]
     ports:
       - "127.0.0.1:28000:8000"
+    <<: *python-service-defaults
     environment:
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
-      - QDRANT_API_KEY=${QDRANT_API_KEY}
-      - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
-      - VECTOR_DIMENSIONS=768
+      # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
+      - QDRANT_HOST=qdrant       # container-internal hostname (not localhost)
+      - QDRANT_PORT=6333         # container-internal port (not host port QDRANT_PORT)
+      - VECTOR_DIMENSIONS=768    # hardcoded — not user-tunable via .env
     depends_on:
       qdrant:
         condition: service_healthy
-    restart: unless-stopped
     # Security hardening (2026 best practices)
     security_opt:
       - no-new-privileges:true
@@ -123,6 +148,7 @@ services:
       - ./prometheus/web.yml:/etc/prometheus/web.yml.template:ro
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml.template:ro
       - ./prometheus/gen-prometheus-config.py:/scripts/gen-prometheus-config.py:ro
+    # One-shot init container: only needs 2 keys; explicit block is cleaner than the full anchor.
     environment:
       - PROMETHEUS_ADMIN_PASSWORD=${PROMETHEUS_ADMIN_PASSWORD}
       - QDRANT_API_KEY=${QDRANT_API_KEY}
@@ -222,6 +248,8 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
+    # Grafana uses its own GF_* config key namespace and does not share MemoryConfig schema.
+    # The explicit environment: block is correct here — env_file: anchor is for Python services.
     environment:
       # Admin Credentials (BP-040) - Only applies on FIRST LAUNCH
       # To change existing password: docker exec -it ai-memory-grafana grafana-cli admin reset-admin-password <new_password>
@@ -288,22 +316,20 @@ services:
       - ${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/queue:/app/queue:ro
       # Mount src/ for memory.models import (DRY - single source of truth for types)
       - ../src:/app/src:ro
+    <<: *python-service-defaults
+    restart: on-failure:3  # F-M1 fix: explicit restart override prevents anchor inheritance regression to unless-stopped
     environment:
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
-      - QDRANT_API_KEY=${QDRANT_API_KEY}
-      - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
-      - QDRANT_USE_HTTPS=${QDRANT_USE_HTTPS:-false}
-      - QDRANT_EXTERNAL_PORT=26350
-      - EMBEDDING_SERVICE_URL=http://embedding:8080
-      # Pass install dir for activity log path
-      - AI_MEMORY_INSTALL_DIR=/app
+      # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
+      - QDRANT_HOST=qdrant                             # container-internal hostname
+      - QDRANT_PORT=6333                               # container-internal port
+      - QDRANT_EXTERNAL_PORT=26350                     # hardcoded external reference for UI links
+      - EMBEDDING_SERVICE_URL=http://embedding:8080    # container-internal URL
+      - AI_MEMORY_INSTALL_DIR=/app                     # container path override
     depends_on:
       qdrant:
         condition: service_healthy
       embedding:
         condition: service_healthy
-    restart: on-failure:3
     # Security hardening (2026 best practices)
     # Note: read_only disabled to allow Streamlit machine ID creation
     security_opt:
@@ -344,41 +370,19 @@ services:
       <<: *ai-memory-labels
       ai-memory.service: "classifier-worker"
     profiles: ["monitoring"]  # Only runs with monitoring profile
-    restart: unless-stopped
+    <<: *python-service-defaults
     environment:
-      # Qdrant connection
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
-      - QDRANT_API_KEY=${QDRANT_API_KEY}
-      - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
-      - PUSHGATEWAY_URL=pushgateway:9091
-      # Langfuse trace emission kill-switch (BUG-150)
-      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
+      # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
+      - QDRANT_HOST=qdrant                            # container-internal hostname
+      - QDRANT_PORT=6333                              # container-internal port
+      - PUSHGATEWAY_URL=pushgateway:9091              # container-internal URL
+      - LANGFUSE_BASE_URL=http://langfuse-web:3000    # container-internal URL
+      # BUG-150: LANGFUSE_TRACING_ENABLED mirrors LANGFUSE_ENABLED — Docker-only alias,
+      # not a MemoryConfig field; must remain explicit until both share the same key.
       - LANGFUSE_TRACING_ENABLED=${LANGFUSE_ENABLED:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_BASE_URL=http://langfuse-web:3000
-      # Match volume mount path so trace_buffer.py resolves to /app/trace_buffer
-      - AI_MEMORY_INSTALL_DIR=/app
-      - AI_MEMORY_QUEUE_DIR=/app/queue
-      # Classifier configuration
-      - MEMORY_CLASSIFIER_ENABLED=${MEMORY_CLASSIFIER_ENABLED:-true}
-      - MEMORY_CLASSIFIER_PRIMARY_PROVIDER=${MEMORY_CLASSIFIER_PRIMARY_PROVIDER:-ollama}
-      - MEMORY_CLASSIFIER_FALLBACK_PROVIDERS=${MEMORY_CLASSIFIER_FALLBACK_PROVIDERS:-}
-      - MEMORY_CLASSIFIER_CONFIDENCE_THRESHOLD=${MEMORY_CLASSIFIER_CONFIDENCE_THRESHOLD:-0.7}
-      - MEMORY_CLASSIFIER_TIMEOUT=${MEMORY_CLASSIFIER_TIMEOUT:-30}
-      # Ollama
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-sam860/LFM2:2.6b}
-      # OpenRouter
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-google/gemma-2-9b-it:free}
-      # Anthropic Claude
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-3-haiku-20240307}
-      # OpenAI
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - AI_MEMORY_INSTALL_DIR=/app                    # container path override
+      - AI_MEMORY_QUEUE_DIR=/app/queue                # container path override
+      - MEMORY_CLASSIFIER_TIMEOUT=120                 # BUG-290: explicit override — cold-start defense-in-depth
     volumes:
       - ../src:/app/src:ro
       - ../scripts:/app/scripts:ro
@@ -431,49 +435,21 @@ services:
       <<: *ai-memory-labels
       ai-memory.service: "github-sync"
     profiles: ["github"]
+    <<: *python-service-defaults
     environment:
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
-      - QDRANT_API_KEY=${QDRANT_API_KEY}
-      - QDRANT_TIMEOUT=${QDRANT_TIMEOUT:-30}
-      - EMBEDDING_HOST=embedding
-      - EMBEDDING_PORT=8080
-      - PUSHGATEWAY_URL=pushgateway:9091
-      - GITHUB_SYNC_ENABLED=${GITHUB_SYNC_ENABLED:-false}
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - GITHUB_REPO=${GITHUB_REPO}
-      - GITHUB_SYNC_INTERVAL=${GITHUB_SYNC_INTERVAL:-1800}
-      - GITHUB_SYNC_ON_START=${GITHUB_SYNC_ON_START:-true}
-      - GITHUB_BRANCH=${GITHUB_BRANCH:-main}
-      - GITHUB_CODE_BLOB_ENABLED=${GITHUB_CODE_BLOB_ENABLED:-true}
-      - GITHUB_CODE_BLOB_MAX_SIZE=${GITHUB_CODE_BLOB_MAX_SIZE:-102400}
-      - GITHUB_CODE_BLOB_INCLUDE=${GITHUB_CODE_BLOB_INCLUDE:-}
-      - GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE=${GITHUB_CODE_BLOB_INCLUDE_MAX_SIZE:-}
-      - GITHUB_CODE_BLOB_EXCLUDE=${GITHUB_CODE_BLOB_EXCLUDE:-node_modules,*.min.js,.git,__pycache__,*.pyc,build,dist,*.egg-info}
-      # BUG-112: GitHub sync resilience settings
-      - GITHUB_SYNC_TOTAL_TIMEOUT=${GITHUB_SYNC_TOTAL_TIMEOUT:-1800}
-      - GITHUB_SYNC_INSTALL_TIMEOUT=${GITHUB_SYNC_INSTALL_TIMEOUT:-600}
-      - GITHUB_SYNC_PER_FILE_TIMEOUT=${GITHUB_SYNC_PER_FILE_TIMEOUT:-60}
-      - GITHUB_SYNC_CIRCUIT_BREAKER_THRESHOLD=${GITHUB_SYNC_CIRCUIT_BREAKER_THRESHOLD:-5}
-      - GITHUB_SYNC_CIRCUIT_BREAKER_RESET=${GITHUB_SYNC_CIRCUIT_BREAKER_RESET:-60}
-      # GitHub code blob batching / bounded file concurrency
-      - GITHUB_CODE_BLOB_FILE_CONCURRENCY=${GITHUB_CODE_BLOB_FILE_CONCURRENCY:-2}
-      - GITHUB_CODE_BLOB_CHUNK_BATCH_SIZE=${GITHUB_CODE_BLOB_CHUNK_BATCH_SIZE:-8}
-      - GITHUB_CODE_BLOB_BATCH_STORAGE_ENABLED=${GITHUB_CODE_BLOB_BATCH_STORAGE_ENABLED:-true}
-      # BUG-113: Embedding retry settings
-      - EMBEDDING_MAX_RETRIES=${EMBEDDING_MAX_RETRIES:-2}
-      - EMBEDDING_BACKOFF_BASE=${EMBEDDING_BACKOFF_BASE:-1.0}
-      - EMBEDDING_BACKOFF_CAP=${EMBEDDING_BACKOFF_CAP:-15.0}
-      - AI_MEMORY_PROJECT_ID=${AI_MEMORY_PROJECT_ID}
-      - SECURITY_SCAN_GITHUB_MODE=${SECURITY_SCAN_GITHUB_MODE:-relaxed}
-      - SECURITY_SCAN_SESSION_MODE=${SECURITY_SCAN_SESSION_MODE:-relaxed}
-      - LOG_LEVEL=${AI_MEMORY_LOG_LEVEL:-INFO}
-      # Langfuse observability (Wave 3, PLAN-011)
-      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
+      # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
+      - QDRANT_HOST=qdrant                            # container-internal hostname
+      - QDRANT_PORT=6333                              # container-internal port
+      - EMBEDDING_HOST=embedding                      # container-internal hostname
+      - EMBEDDING_PORT=8080                           # container-internal port
+      - PUSHGATEWAY_URL=pushgateway:9091              # container-internal URL
+      - LANGFUSE_BASE_URL=http://langfuse-web:3000    # container-internal URL
+      # BUG-150: LANGFUSE_TRACING_ENABLED mirrors LANGFUSE_ENABLED — Docker-only alias.
       - LANGFUSE_TRACING_ENABLED=${LANGFUSE_ENABLED:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_BASE_URL=http://langfuse-web:3000
+      # LOG_LEVEL alias: github-sync reads LOG_LEVEL; AI_MEMORY_LOG_LEVEL is the primary key.
+      # Both are accepted by MemoryConfig (validation_alias), but LOG_LEVEL is explicit here
+      # to ensure the service receives it regardless of which alias the user sets.
+      - LOG_LEVEL=${AI_MEMORY_LOG_LEVEL:-INFO}
       # PLAN-009: Tell discover_projects() where the mounted projects.d lives.
       # Path.home() inside the container is not /config, so we must be explicit.
       - AI_MEMORY_PROJECTS_DIR=/config/projects.d

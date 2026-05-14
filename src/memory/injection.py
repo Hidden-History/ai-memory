@@ -37,6 +37,9 @@ from typing import NamedTuple
 
 import numpy as np
 
+# TD-518: Aggregation imports for chunked retrieval reassembly.
+from qdrant_client.models import FieldCondition, Filter, MatchValue
+
 from memory.chunking.truncation import count_tokens
 from memory.config import (
     COLLECTION_CODE_PATTERNS,
@@ -252,11 +255,175 @@ def _build_github_enrichment(
     return filtered[:10]
 
 
+def _aggregate_chunked_result(client, result: dict) -> dict:
+    """Aggregate sibling chunks of a chunked retrieval result via scroll-and-concat.
+
+    TD-518 (F-001): When a retrieval result is a single chunk of a multi-chunk
+    emit (e.g., a long agent_handoff that was chunked at store time),
+    dense-vector retrieval scores chunks individually and returns only the
+    highest-scoring chunk — which may be a small trailer fragment carrying
+    <1% of the intended payload. This helper scrolls the discussions
+    collection for siblings sharing ``(group_id, type, created_at)``, sorts
+    them by ``chunking_metadata.chunk_index`` ascending, and concatenates
+    ``content`` into a single aggregated string.
+
+    Type-agnostic: triggers on any chunked result whose
+    ``chunking_metadata.total_chunks`` is greater than 1, regardless of
+    ``memory_type``. Composes with future emit types that ever chunk.
+
+    Collection-aware (TD-518): the scroll target collection is
+    extracted from ``result.get("collection", COLLECTION_DISCUSSIONS)``, so
+    chunked emits routed to non-discussions collections (e.g., a future
+    type stored in ``code-patterns`` or ``conventions``) are handled
+    correctly. Default falls back to ``COLLECTION_DISCUSSIONS`` for
+    backward-compatibility with any caller whose result dict lacks the
+    ``collection`` key.
+
+    Drift signal (TD-518): the aggregated result preserves the
+    original advertised count separately from the count actually
+    concatenated, so diagnostic tools can detect partial aggregation
+    without parsing logs:
+
+    - ``chunking_metadata.total_chunks_advertised``: original N from the
+      trigger chunk's metadata
+    - ``chunking_metadata.total_chunks``: K, the count of siblings actually
+      found and concatenated (matches TECH-DEBT-518 Fix Design item 5)
+
+    Complete reassembly: ``total_chunks_advertised == total_chunks``.
+    Partial drift: ``total_chunks_advertised > total_chunks`` (also emits
+    ``bootstrap_aggregation_partial`` WARN).
+
+    Failure handling: on any scroll failure, missing match keys, or no
+    siblings found, logs a structured warning and returns the original
+    result unchanged. Bootstrap is never made worse than today.
+
+    Args:
+        client: Qdrant client (e.g., ``MemorySearch.client``).
+        result: A single retrieval result dict including payload fields
+            (``group_id``, ``type``, ``created_at``/``timestamp``,
+            ``collection``, ``chunking_metadata``, ``content``).
+
+    Returns:
+        Aggregated result dict with ``content`` reassembled from siblings
+        and ``chunking_metadata.aggregated_from_chunks`` set to True for
+        diagnostic visibility. On failure, returns ``result`` unchanged.
+
+    References:
+        TECH-DEBT-518 §"Fix Design" item 5
+        Chunking-Strategy-V2 §3.3
+    """
+    metadata = result.get("chunking_metadata") or {}
+    total_chunks = metadata.get("total_chunks", 1)
+    if not isinstance(total_chunks, int) or total_chunks <= 1:
+        # Whole-emit (or absent metadata): bypass aggregation, no extra cost.
+        return result
+
+    group_id = result.get("group_id")
+    memory_type = result.get("type")
+    created_at = result.get("created_at") or result.get("timestamp")
+
+    if not (group_id and memory_type and created_at):
+        logger.warning(
+            "bootstrap_aggregation_skipped",
+            extra={
+                "reason": "missing_match_keys",
+                "has_group_id": bool(group_id),
+                "has_type": bool(memory_type),
+                "has_created_at": bool(created_at),
+                "total_chunks": total_chunks,
+            },
+        )
+        return result
+
+    # Extract collection from result; default to discussions for
+    # backward-compatibility with any caller whose result dict lacks the key.
+    # The `or`-fallthrough is intentional and defensive: it falls back for
+    # BOTH missing key (None) AND empty-string value (e.g., from a buggy
+    # upstream serialization that produces `result["collection"] = ""`).
+    # Silent degradation to discussions is preferred over letting Qdrant
+    # raise on `scroll(collection_name="")` — the helper's contract is
+    # "never crash bootstrap"; an upstream bug surfaces via the WARN
+    # `bootstrap_aggregation_no_siblings` log if discussions has no
+    # matching keys.
+    target_collection = result.get("collection") or COLLECTION_DISCUSSIONS
+
+    try:
+        filter_conditions = [
+            FieldCondition(key="group_id", match=MatchValue(value=group_id)),
+            FieldCondition(key="type", match=MatchValue(value=memory_type)),
+            FieldCondition(key="created_at", match=MatchValue(value=created_at)),
+        ]
+        # Generous limit absorbs metadata drift; 37-chunk Session 44 case fits easily.
+        scroll_limit = max(total_chunks * 2, 100)
+        points, _next_offset = client.scroll(
+            collection_name=target_collection,
+            scroll_filter=Filter(must=filter_conditions),
+            limit=scroll_limit,
+            with_payload=True,
+            with_vectors=False,
+        )
+    except Exception as exc:
+        logger.warning(
+            "bootstrap_aggregation_failed",
+            extra={
+                "error": str(exc),
+                "type": memory_type,
+                "total_chunks": total_chunks,
+            },
+        )
+        return result
+
+    if not points:
+        logger.warning(
+            "bootstrap_aggregation_no_siblings",
+            extra={"type": memory_type, "expected_chunks": total_chunks},
+        )
+        return result
+
+    # Sort siblings by chunk_index ascending. Missing index sorts to end so
+    # mis-tagged chunks land last and don't disrupt the ordered prefix.
+    def _chunk_idx(point) -> int:
+        cm = (getattr(point, "payload", None) or {}).get("chunking_metadata") or {}
+        idx = cm.get("chunk_index")
+        return idx if isinstance(idx, int) else 99999
+
+    sorted_points = sorted(points, key=_chunk_idx)
+
+    aggregated_content = "".join(
+        ((getattr(p, "payload", None) or {}).get("content") or "")
+        for p in sorted_points
+    )
+
+    if len(sorted_points) < total_chunks:
+        logger.warning(
+            "bootstrap_aggregation_partial",
+            extra={
+                "type": memory_type,
+                "found_chunks": len(sorted_points),
+                "expected_chunks": total_chunks,
+            },
+        )
+
+    aggregated = dict(result)
+    aggregated["content"] = aggregated_content
+    # TD-518: dual-field shape — preserve advertised count separately from
+    # actual concatenated count so partial-drift is observable in result
+    # metadata, not just in WARN logs.
+    aggregated["chunking_metadata"] = {
+        **metadata,
+        "chunk_type": "whole_aggregated",
+        "total_chunks_advertised": total_chunks,
+        "total_chunks": len(sorted_points),
+        "aggregated_from_chunks": True,
+    }
+    return aggregated
+
+
 def retrieve_bootstrap_context(
     search_client: MemorySearch,
     project_name: str,
     config: MemoryConfig,
-) -> list[dict]:
+) -> tuple[list[dict], dict]:
     """Retrieve bootstrap context for Parzival session startup.
 
     Uses layered priority retrieval (no score-sorting):
@@ -267,19 +434,33 @@ def retrieve_bootstrap_context(
 
     Caller is responsible for gating on config.parzival_enabled.
 
+    Layer 1 applies a per-tier ceiling check (config.handoff_ceiling_tokens)
+    AFTER chunk aggregation but BEFORE results extension: oversized handoffs
+    are excluded and the rejection is signaled via the returned meta dict
+    (BP-158 P2 typed-sentinel pattern). The bootstrap consumer surfaces a
+    FALLBACK-NEEDED marker when meta.fallback_signaled is True.
+
     Args:
         search_client: MemorySearch instance
         project_name: Project group_id for filtering
         config: Memory configuration
 
     Returns:
-        List of result dicts in layer priority order, ready for greedy fill.
+        Tuple of (results, meta) where results is the list of result dicts
+        in layer priority order ready for greedy fill, and meta is a dict
+        carrying {fallback_signaled, rejects} populated by the Layer 1
+        ceiling pre-filter (BP-158 P2).
     """
     _trace_start = datetime.now(tz=timezone.utc)
     results = []
     _decisions_count = 0
     _agent_count = 0
     _github_count = 0
+
+    # BP-158 P2: meta dict carries the C-3 ceiling rejection signal so the
+    # bootstrap consumer can emit a FALLBACK-NEEDED marker without the
+    # caller needing to compute it independently.
+    meta: dict = {"fallback_signaled": False, "rejects": []}
 
     # LAYERED PRIORITY RETRIEVAL for Parzival sessions
     # No conventions — they are noise for PM oversight
@@ -294,6 +475,62 @@ def retrieve_bootstrap_context(
             agent_id="parzival",
             limit=1,
         )
+        # TD-518 (F-001): If the retrieved chunk is part of a multi-chunk emit,
+        # aggregate siblings via scroll-and-concat so cross-session continuity
+        # delivers the full handoff body rather than a fragment.
+        if last_handoff:
+            last_handoff[0] = _aggregate_chunked_result(
+                search_client.client, last_handoff[0]
+            )
+            # BUG-297 / BP-158 §5: Layer 1 per-tier ceiling pre-filter.
+            # Aggregated handoff body that exceeds handoff_ceiling_tokens
+            # is rejected at retrieval time so the downstream greedy fill
+            # never silently drops it on bootstrap_token_budget grounds.
+            # Rejection is signaled via meta.fallback_signaled so the
+            # bootstrap skill can emit the FALLBACK-NEEDED marker.
+            handoff_body = last_handoff[0].get("content", "") or ""
+            handoff_tokens = count_tokens(handoff_body)
+            if handoff_tokens > config.handoff_ceiling_tokens:
+                # No score field: L1 retrieval is deterministic (get_recent
+                # by recency, not similarity), so a similarity score is
+                # semantically inert here. Greedy-fill rejects on semantic
+                # layers remain score-bearing.
+                reject_record = {
+                    "type": "agent_handoff",
+                    "tokens": handoff_tokens,
+                    "reason": "ceiling_exceeded",
+                    "tier": "1_bootstrap",
+                    "collection": COLLECTION_DISCUSSIONS,
+                }
+                meta["rejects"].append(reject_record)
+                meta["fallback_signaled"] = True
+                with contextlib.suppress(Exception):
+                    logger.warning(
+                        "retrieval_budget_reject",
+                        extra={
+                            "reason": "ceiling_exceeded",
+                            "tier": "1_bootstrap",
+                            "collection": COLLECTION_DISCUSSIONS,
+                            "type": "agent_handoff",
+                            "tokens": handoff_tokens,
+                            "ceiling": config.handoff_ceiling_tokens,
+                        },
+                    )
+                try:
+                    from memory.metrics_push import (
+                        push_retrieval_reject_metric_async,
+                    )
+
+                    push_retrieval_reject_metric_async(
+                        reason="ceiling_exceeded",
+                        tier="1_bootstrap",
+                        collection=COLLECTION_DISCUSSIONS,
+                    )
+                except Exception:
+                    pass
+                # Exclude the oversized handoff from results so downstream
+                # greedy fill operates only on snippet-class layers.
+                last_handoff = []
         results.extend(last_handoff)
     except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
         logger.warning(
@@ -403,7 +640,7 @@ def retrieve_bootstrap_context(
         except Exception:
             pass
 
-    return results
+    return results, meta
 
 
 def route_collections(
@@ -581,7 +818,10 @@ def select_results_greedy(
     excluded_ids: list[str] | None = None,
     score_gap_threshold: float = _SCORE_GAP_THRESHOLD_DEFAULT,
     project_id: str | None = None,
-) -> tuple[list[dict], int]:
+    *,
+    tier: int = 1,
+    return_meta: bool = False,
+) -> tuple[list[dict], int] | tuple[list[dict], int, dict]:
     """Select results using greedy fill until budget exhausted.
 
     Per AD-6: No truncation of individual results. Each chunk is fully
@@ -591,9 +831,20 @@ def select_results_greedy(
         results: Search results sorted by score descending
         budget: Token budget to fill
         excluded_ids: Point IDs to skip (already injected)
+        score_gap_threshold: Score-gap multiplier for BUG-173 filter
+        project_id: Project group_id for trace attribution
+        tier: 1 for bootstrap (Tier 1), 2 for per-turn injection (Tier 2).
+            Maps to retrieval-reject Prometheus counter label per BP-158 P3.
+        return_meta: When False (default), returns the legacy 2-tuple shape
+            so existing callers are unaffected. When True, returns a 3-tuple
+            (selected, tokens_used, meta) where meta is a dict carrying
+            {fallback_signaled, rejects, budget, tokens_used}. BP-158 P2
+            typed-sentinel pattern: fallback_signaled is True iff any
+            budget-rejected result was of type "agent_handoff".
 
     Returns:
-        Tuple of (selected_results, total_tokens_used).
+        Tuple of (selected_results, total_tokens_used) when return_meta=False,
+        else (selected_results, total_tokens_used, meta) per above.
     """
     _trace_start = datetime.now(tz=timezone.utc)
     excluded = set(excluded_ids or [])
@@ -602,6 +853,68 @@ def select_results_greedy(
     tokens_used = 0
     _dedup_skipped = 0
     _score_gap_skipped = 0
+
+    # BP-158 P1: per-reject record accumulator for the typed-sentinel meta.
+    rejects: list[dict] = []
+    tier_label = "1_bootstrap" if tier == 1 else "2_injection"
+    fallback_signaled = False
+
+    def _record_reject(
+        result: dict,
+        reason: str,
+        result_tokens: int | None = None,
+    ) -> None:
+        """Accumulate a reject record and emit observability (log + counter).
+
+        Wrapped in try/except per BP-158 P1 — observability never raises.
+        Uniform shape across budget_exceeded, score_gap, dedup so meta.rejects
+        is debuggable end-to-end.
+        """
+        nonlocal fallback_signaled
+        result_type = result.get("type", "unknown")
+        collection_label = result.get("collection", "unknown") or "unknown"
+        rejects.append(
+            {
+                "type": result_type,
+                "tokens": result_tokens,
+                "score": result.get("score", 0),
+                "reason": reason,
+                "tier": tier_label,
+                "collection": collection_label,
+            }
+        )
+        # BP-158 P2: only budget/ceiling rejection of handoff-class results
+        # signals fallback. Score-gap and dedup of handoff are not fallback
+        # triggers (Layer 1 is deterministic limit=1; dedup of handoff means
+        # a fresher copy was already accepted).
+        if reason in ("budget_exceeded", "ceiling_exceeded") and (
+            result_type == "agent_handoff"
+        ):
+            fallback_signaled = True
+        with contextlib.suppress(Exception):
+            logger.warning(
+                "retrieval_budget_reject",
+                extra={
+                    "reason": reason,
+                    "tier": tier_label,
+                    "collection": collection_label,
+                    "type": result_type,
+                    "tokens": result_tokens,
+                    "score": result.get("score", 0),
+                    "budget": budget,
+                    "tokens_used": tokens_used,
+                },
+            )
+        try:
+            from memory.metrics_push import push_retrieval_reject_metric_async
+
+            push_retrieval_reject_metric_async(
+                reason=reason,
+                tier=tier_label,
+                collection=collection_label,
+            )
+        except Exception:
+            pass
 
     # BUG-172: Content-hash deduplication for cross-type duplicates
     seen_hashes: set[str] = set()
@@ -627,6 +940,7 @@ def select_results_greedy(
         content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
         if content_hash in seen_hashes:
             _dedup_skipped += 1
+            _record_reject(result, "dedup")
             continue
         seen_hashes.add(content_hash)
 
@@ -641,6 +955,7 @@ def select_results_greedy(
         result_score = result.get("score", 0)
         if best_score > 0 and result_score < best_score * score_gap_threshold:
             _score_gap_skipped += 1
+            _record_reject(result, "score_gap")
             continue
 
         # Count tokens accurately
@@ -654,6 +969,10 @@ def select_results_greedy(
         else:
             # Skip-and-continue: try next smaller result
             # (AD-6: don't truncate, don't stop — keep trying)
+            # BUG-297 / BP-158 P1: emit structured observability so this
+            # silent-drop class is no longer silent. fallback_signaled fires
+            # when an agent_handoff is the rejected result.
+            _record_reject(result, "budget_exceeded", result_tokens=result_tokens)
             continue
 
     # SPEC-021: Emit greedy fill trace event
@@ -707,6 +1026,14 @@ def select_results_greedy(
         except Exception:
             pass
 
+    if return_meta:
+        meta = {
+            "fallback_signaled": fallback_signaled,
+            "rejects": rejects,
+            "budget": budget,
+            "tokens_used": tokens_used,
+        }
+        return selected, tokens_used, meta
     return selected, tokens_used
 
 

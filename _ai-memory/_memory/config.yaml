@@ -2,9 +2,10 @@
 # AI Memory System
 # Version: 1.0.0
 # Date: 2026-03-01
+# SoT for shared fields (user_name, communication_language): pov/config.yaml. Sync on install.
 
 # Core Configuration Values
-user_name: wbsolutions
+user_name: "{USER_NAME}"
 communication_language: English
 document_output_language: English
 output_folder: "{project-root}/_ai-memory-output"

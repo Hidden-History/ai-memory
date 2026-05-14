@@ -12,44 +12,19 @@ nextStepFile: './step-04-record-outcome.md'
 
 Process the user's explicit response and route to the appropriate action. Approve advances to next step. Reject returns to the appropriate workflow. Hold pauses all work until the user resumes.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Classify and route the user's response to the appropriate action
-- 🚫 FORBIDDEN to act without confirming understanding of rejection feedback
-- 💬 Approach: Precise routing based on response type — Approve, Reject, or Hold
-- 📋 Always confirm rejection interpretation before routing back
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Identify the response type and execute the matching routing path
-- 💾 Update project-status.md after every response before proceeding
-- 📖 Load next step only after routing action is determined and confirmed
-- 🚫 FORBIDDEN to start new work while an approval is pending or unconfirmed
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The user's response, the approval package, the current task/phase context
 - Focus: Response classification and routing only — do not begin execution of next work
 - Limits: Only act on the user's explicit response. Never assume, guess, or interpret ambiguous responses.
 - Dependencies: User's explicit response from step-02
+
+- Classify and route the user's response to the appropriate action
+**Behavioral Constraints:**
+- FORBIDDEN to act without confirming understanding of rejection feedback
+- Approach: Precise routing based on response type — Approve, Reject, or Hold
+- Always confirm rejection interpretation before routing back
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -117,25 +92,3 @@ If a session ends with an approval pending:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the user's response has been fully processed and the appropriate action is determined, load and read fully `{nextStepFile}`
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- User response correctly identified and classified
-- Reject feedback fully understood and confirmed before acting
-- project-status.md updated after every response
-- Hold acknowledged immediately with clear instructions for resuming
-- Pending approvals re-presented at next session start
-
-### ❌ SYSTEM FAILURE:
-
-- Assuming understanding of rejection feedback without confirming
-- Not updating project-status.md
-- Interpreting ambiguous response as approval
-- Starting work while approval is pending
-- Not re-presenting pending approvals at session start
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

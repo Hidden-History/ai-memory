@@ -2,7 +2,7 @@
 name: 'step-02-trigger-code-review'
 description: 'Instruct the DEV agent to run a thorough code review on the verified implementation'
 nextStepFile: './step-03-process-review-report.md'
-codeReviewTemplate: '../templates/code-review-instruction.md'
+codeReviewTemplate: '{workflows_path}/cycles/review-cycle/templates/code-review-instruction.md'
 ---
 
 # Step 2: Trigger DEV Code Review
@@ -13,44 +13,19 @@ codeReviewTemplate: '../templates/code-review-instruction.md'
 
 Once implementation is verified as complete, Parzival instructs the DEV agent to run a thorough code review covering correctness, security, architecture compliance, standards compliance, requirements compliance, edge cases, error handling, pre-existing issues, test coverage, and future risk.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Build comprehensive code review instruction using {codeReviewTemplate}
-- 🚫 FORBIDDEN to run the code review yourself — DEV runs the review
-- 💬 Approach: Complete instruction in one send — no piecemeal delivery
-- 📋 Wait for complete review report before loading next step
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Construct complete code review instruction with all files and requirements
-- 💾 Record that instruction was sent and awaiting DEV report
-- 📖 Load next step only after receiving complete DEV review report
-- 🚫 FORBIDDEN to proceed with partial review or incomplete report
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The verified implementation output, task requirements (PRD, architecture, standards, story criteria), list of files changed or created
 - Focus: Code review instruction building and dispatch — do not process results yet
 - Limits: Parzival does not run the code review himself — DEV runs the review
 - Dependencies: Verified complete implementation from step-01
+
+- Build comprehensive code review instruction using {codeReviewTemplate}
+**Behavioral Constraints:**
+- FORBIDDEN to run the code review yourself — DEV runs the review
+- Approach: Complete instruction in one send — no piecemeal delivery
+- Wait for complete review report before loading next step
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -82,23 +57,3 @@ Using {codeReviewTemplate}, construct the code review instruction with:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when DEV returns a complete code review report, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Code review instruction includes all files in scope
-- Code review instruction cites specific project requirements
-- DEV review covers all required areas
-- Complete review report received before proceeding
-
-### ❌ SYSTEM FAILURE:
-
-- Sending vague or incomplete review instruction
-- Omitting files from the review scope
-- Not citing specific requirements to review against
-- Proceeding before receiving a complete review report
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

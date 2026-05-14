@@ -47,7 +47,10 @@ import requests
 
 # Add src to path for local imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Add scripts/ for shared helpers (BUG-275)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _env_loader import load_install_env
 from qdrant_client.models import (
     Modifier,
     PointVectors,
@@ -572,41 +575,44 @@ def main():
         print("  PLAN-013 Migration: Hybrid Search Sparse Vectors (v2.2.1)")
     print(f"{'=' * 60}\n")
 
-    # Load docker/.env into environment so get_config() picks up Qdrant credentials.
-    # get_config() uses pydantic-settings which reads .env from CWD, but the migration
-    # script may run from any directory. We explicitly source docker/.env here.
+    # BUG-275: load both docker/.env and docker/.env.secrets so get_config() and direct
+    # os.environ reads pick up all credentials. load_install_env() uses secrets-first
+    # precedence: shell env > .env.secrets > .env > defaults (BP-153 §3).
+    load_install_env()
+
     install_dir = Path(
         os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
     )
     docker_env = install_dir / "docker" / ".env"
-    if docker_env.exists():
-        for line in docker_env.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" in line:
-                key, _, val = line.partition("=")
-                key = key.strip()
-                val = val.strip().strip('"').strip("'")
-                # Only set if not already in shell env (shell env takes precedence)
-                if key not in os.environ:
-                    os.environ[key] = val
-        print(f"  Loaded env from: {docker_env}")
+    docker_secrets = install_dir / "docker" / ".env.secrets"
+    if docker_env.exists() or docker_secrets.exists():
+        print(f"  Loaded env from: {install_dir}/docker/(.env + .env.secrets)")
     else:
-        print(f"  {YELLOW}WARNING: docker/.env not found at {docker_env}{RESET}")
+        print(
+            f"  {YELLOW}WARNING: neither docker/.env nor docker/.env.secrets found at {install_dir}/docker/{RESET}"
+        )
 
-    # Check for shell env override (BUG-202 pattern)
-    shell_key = os.environ.get("QDRANT_API_KEY")
-    if shell_key and docker_env.exists():
-        for line in docker_env.read_text().splitlines():
-            if line.strip().startswith("QDRANT_API_KEY="):
-                file_key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                if shell_key != file_key:
-                    print(
-                        f"  {YELLOW}WARNING: Shell QDRANT_API_KEY differs from docker/.env value{RESET}"
-                    )
-                    print(f"  {YELLOW}Run: unset QDRANT_API_KEY{RESET}")
+    # Check for shell env override (BUG-202 pattern) — compare against merged file value
+    pre_shell_key = os.environ.get("QDRANT_API_KEY")
+    if pre_shell_key:
+        # Determine effective file value (same precedence as load_install_env)
+        file_key = None
+        for env_path in [docker_secrets, docker_env]:
+            if not env_path.exists():
+                continue
+            for line in env_path.read_text().splitlines():
+                if line.strip().startswith("QDRANT_API_KEY="):
+                    candidate = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    if candidate:
+                        file_key = candidate
+                        break
+            if file_key:
                 break
+        if file_key and pre_shell_key != file_key:
+            print(
+                f"  {YELLOW}WARNING: Shell QDRANT_API_KEY differs from installed env value{RESET}"
+            )
+            print(f"  {YELLOW}Run: unset QDRANT_API_KEY{RESET}")
 
     # Connect to Qdrant
     try:

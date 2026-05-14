@@ -71,6 +71,8 @@ def _make_sync_for_batching(
     sync._detect_deleted_files = AsyncMock(return_value=0)
     sync._push_metrics = MagicMock()
     sync._batch_update_last_synced = MagicMock()
+    # BUG-288: pre-sync embedding probe — mock out so tests don't wait for timeout
+    sync._wait_for_embedding_ready = AsyncMock(return_value=True)
     return sync, mock_storage, mock_client
 
 

@@ -6,9 +6,18 @@ This guide explains how to backup and restore your AI Memory Qdrant database.
 
 ### What Gets Backed Up
 
-- **3 Collections**: `discussions`, `conventions`, `code-patterns`
+- **5 Collections**: `discussions`, `conventions`, `code-patterns`, `github`, `jira-data`
 - **Configuration files**: `settings.json`, `.env` (from install directory)
 - **Optional**: Log files (with `--include-logs` flag)
+
+> **v2.4.0+ env file note**: The automated backup script covers Qdrant data and `settings.json`. If you are running v2.4.0 or later, you must also manually back up **both** env files from your install directory:
+>
+> - `docker/.env` — non-secret configuration (world-readable)
+> - `docker/.env.secrets` — secret-class keys (chmod 600; contains Qdrant, Grafana, Prometheus, and Langfuse credentials)
+>
+> After restoring `.env.secrets`, re-apply permissions: `chmod 600 docker/.env.secrets`
+>
+> Failure to restore `.env.secrets` will leave all auto-generated PP-2 secret keys absent; services that depend on them (Grafana, Prometheus, Langfuse) will fail to start. See `docker/.env.example`, `docker/.env.secrets.example`, and `docs/CONFIGURATION.md` § `docker/.env.secrets` for the full key list (BUG-277 / v2.4.0).
 
 ### Where Backups Are Stored
 

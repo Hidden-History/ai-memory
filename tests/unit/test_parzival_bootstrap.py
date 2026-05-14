@@ -110,7 +110,7 @@ class TestParzivalBootstrap:
         config.parzival_enabled = True
         config.github_sync_enabled = False
 
-        results = retrieve_bootstrap_context(mock_search, "test-project", config)
+        results, _meta = retrieve_bootstrap_context(mock_search, "test-project", config)
         assert isinstance(results, list)
         assert len(results) == 0
 
@@ -131,7 +131,7 @@ class TestParzivalBootstrap:
         config.github_sync_enabled = False
 
         # Should not raise
-        results = retrieve_bootstrap_context(mock_search, "test-project", config)
+        results, _meta = retrieve_bootstrap_context(mock_search, "test-project", config)
         assert isinstance(results, list)
 
     def test_parzival_bootstrap_includes_github_enrichment(self):
@@ -167,8 +167,10 @@ class TestParzivalBootstrap:
         config = MagicMock(spec=MemoryConfig)
         config.parzival_enabled = True
         config.github_sync_enabled = True
+        # BUG-297: ceiling check runs on the handoff content; mock needs the field
+        config.handoff_ceiling_tokens = 8000
 
-        results = retrieve_bootstrap_context(mock_search, "test-project", config)
+        results, _meta = retrieve_bootstrap_context(mock_search, "test-project", config)
 
         # Should contain both the handoff and the github result
         assert handoff_result in results

@@ -23,6 +23,12 @@ description: "Session handoff template for creating end-of-session state snapsho
 - **Blockers**: {blockers}
 - **In Progress**: {in_progress_items}
 
+## Branch State (TD-500: empirically measured, never extrapolated)
+
+- **Branch**: {branch_name}
+- **Head**: {head_sha}
+- **Commits ahead of base**: {commits_ahead} (verified via `git rev-list --count origin/main..HEAD`, NOT extrapolated from prior session)
+
 ## Issues Encountered
 
 {issues_encountered}

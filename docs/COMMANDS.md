@@ -410,7 +410,9 @@ Searches by *meaning*, not exact text matching:
 | `discussions` | Session summaries | Current project only |
 | `code-patterns` | Code patterns | Current project only |
 | `conventions` | Universal patterns | ALL projects (shared) |
-| `all` (default) | All three collections | Mixed filtering |
+| `github` | GitHub PRs, issues, commits, CI results, code blobs | Current project only |
+| `jira-data` | Jira issues and comments | Current Jira instance |
+| `all` (default) | All five collections | Mixed filtering |
 
 **Relevance Scoring:**
 Results are scored by similarity (0-100%):
@@ -861,7 +863,7 @@ In addition to slash commands, AI-Memory includes skills (auto-activated by Clau
 **Activation:** When you ask to search memories, recall past decisions, or find previous discussions.
 
 **What It Does:**
-1. Searches across all memory collections (code-patterns, conventions, discussions)
+1. Searches across all memory collections (code-patterns, conventions, discussions, github, jira-data)
 2. Uses semantic search to find relevant memories
 3. Returns formatted results with source and confidence
 

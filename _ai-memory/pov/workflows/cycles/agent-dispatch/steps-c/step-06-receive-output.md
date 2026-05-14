@@ -12,44 +12,19 @@ nextStepFile: './step-07-accept-or-loop.md'
 
 When the agent signals completion, Parzival reviews the output before anything else happens. Verify against all DONE WHEN criteria, OUTPUT EXPECTED specifications, requirements, and standards. Route implementation output to WF-REVIEW-CYCLE.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on reviewing output against all DONE WHEN criteria and routing correctly
-- 🚫 FORBIDDEN to accept incomplete output or skip any checklist item
-- 💬 Approach: Systematic checklist verification before any routing decision
-- 📋 Implementation output ALWAYS routes to WF-REVIEW-CYCLE — no exceptions
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Run the full output review checklist against DONE WHEN criteria and OUTPUT EXPECTED specification
-- 💾 Record checklist results, output type, and routing decision
-- 📖 Load next step only when routing decision is made (accept, correct, or WF-REVIEW-CYCLE)
-- 🚫 FORBIDDEN to present output to user before checklist is complete
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The agent's output, the original instruction (DONE WHEN criteria, OUTPUT EXPECTED, requirements, scope), project files
 - Focus: Output review and routing only — do not accept or present output to user until all checks pass
 - Limits: Do not accept output that fails any check. Do not present incomplete output to user.
 - Dependencies: Agent output signal from step-05 and original instruction from step-01
+
+- Focus on reviewing output against all DONE WHEN criteria and routing correctly
+**Behavioral Constraints:**
+- FORBIDDEN to accept incomplete output or skip any checklist item
+- Approach: Systematic checklist verification before any routing decision
+- Implementation output ALWAYS routes to WF-REVIEW-CYCLE — no exceptions
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -98,23 +73,3 @@ Document the review result:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the output has been reviewed and a routing decision is made (accept, correct, or WF-REVIEW-CYCLE), load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every DONE WHEN criterion checked individually
-- Output type correctly identified and routed
-- Implementation output always routed to WF-REVIEW-CYCLE
-- Incomplete output identified and not accepted
-
-### ❌ SYSTEM FAILURE:
-
-- Accepting output without checking all DONE WHEN criteria
-- Accepting implementation output without WF-REVIEW-CYCLE
-- Presenting incomplete output to user
-- Not identifying scope violations in output
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

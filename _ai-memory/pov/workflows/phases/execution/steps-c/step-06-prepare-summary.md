@@ -12,44 +12,19 @@ nextStepFile: './step-07-approval-gate.md'
 
 After verification passes, compile the story completion summary. This summarizes what was built, how the review cycle went, and confirms all acceptance criteria are satisfied.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on compiling the accurate story completion summary
-- 🚫 FORBIDDEN to copy DEV output directly into the summary
-- 💬 Approach: Compile in Parzival's words with all required fields accurate
-- 📋 Verify summary accuracy against actual review cycle records before proceeding
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Compile the story completion summary from review cycle records
-- 💾 Confirm all acceptance criteria are listed and marked satisfied
-- 📖 Load next step only after summary is complete and verified for accuracy
-- 🚫 FORBIDDEN to proceed with summary containing copied DEV output or missing criteria
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Review cycle records, implementation details, acceptance criteria
 - Focus: Summary compilation only — do not present or request approval yet
 - Limits: Summary is in Parzival's words, not copied from DEV output.
 - Dependencies: All four-source verification passed from Step 5
+
+- Focus only on compiling the accurate story completion summary
+**Behavioral Constraints:**
+- FORBIDDEN to copy DEV output directly into the summary
+- Approach: Compile in Parzival's words with all required fields accurate
+- Verify summary accuracy against actual review cycle records before proceeding
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -95,23 +70,3 @@ After verification passes, compile the story completion summary. This summarizes
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN the summary is complete and verified, will you then read fully and follow: `{nextStepFile}` to begin the approval gate.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Summary is in Parzival's words (not DEV output copy)
-- All acceptance criteria confirmed satisfied
-- Review cycle metrics are accurate
-- Notable findings are genuinely notable
-
-### ❌ SYSTEM FAILURE:
-
-- Copying DEV output into summary
-- Missing acceptance criteria in status list
-- Inaccurate review cycle metrics
-- Including non-notable items as findings
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

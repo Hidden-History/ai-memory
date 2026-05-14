@@ -12,44 +12,19 @@ nextStepFile: './step-03-ux-design.md'
 
 Define the architecture requirements and dispatch the Architect agent via the agent-dispatch cycle to design the complete technical architecture. The track determines depth. Architecture must cover all eight required sections with rationale for every decision.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on preparing the Architect instruction and dispatching via agent-dispatch cycle
-- 🚫 FORBIDDEN to present architecture to user before Parzival reviews it (Step 4)
-- 💬 Approach: Track-appropriate depth, all eight required sections, explicit rationale for every decision
-- 📋 Architecture draft is received but held — do not present to user yet
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Prepare Architect instruction with track-appropriate depth and all eight sections
-- 💾 Receive architecture draft without presenting to user
-- 📖 Load next step only after architecture draft is received from Architect
-- 🚫 FORBIDDEN to bypass agent-dispatch cycle or skip any required architecture section
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: PRD.md, goals.md, project-context.md, resolved pre-architecture questions
 - Focus: Dispatching Architect and receiving architecture draft — no user review yet
 - Limits: Architect designs. Parzival reviews in a later step. Architect does NOT self-approve.
 - Dependencies: Step 1 complete — all inputs verified and ambiguities resolved
+
+- Focus on preparing the Architect instruction and dispatching via agent-dispatch cycle
+**Behavioral Constraints:**
+- FORBIDDEN to present architecture to user before Parzival reviews it (Step 4)
+- Approach: Track-appropriate depth, all eight required sections, explicit rationale for every decision
+- Architecture draft is received but held — do not present to user yet
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -103,23 +78,3 @@ Receive architecture.md from the Architect. Do not present to user yet.
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when Architect has delivered the architecture draft, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Architect dispatched through agent-dispatch workflow
-- All eight sections requested in instruction
-- Track-appropriate depth specified
-- Architecture draft received without presenting to user
-
-### ❌ SYSTEM FAILURE:
-
-- Presenting architecture to user before Parzival reviews
-- Not specifying all eight required sections
-- Gold-plating beyond project scale
-- Architect dispatched directly instead of through agent-dispatch
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

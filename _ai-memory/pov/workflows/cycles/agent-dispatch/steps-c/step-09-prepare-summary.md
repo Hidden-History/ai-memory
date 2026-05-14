@@ -11,44 +11,19 @@ description: 'Prepare the user-facing summary of what the agent accomplished. Ra
 
 After agent output is accepted, Parzival prepares the summary for the user. Raw agent output never reaches the user directly. The summary is written in Parzival's own words and follows the standard format.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on composing the user-facing summary in Parzival's own words
-- 🚫 FORBIDDEN to copy or paste agent output directly into the summary
-- 💬 Approach: Synthesize verified, reviewed output into the standard 5-section summary format
-- 📋 Route to appropriate next workflow based on task type before closing dispatch log
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Build the 5-section summary from the accepted, verified output
-- 💾 Update dispatch log with final status before presenting summary to user
-- 📖 No next step — this is the terminal step; route to appropriate next workflow after summary
-- 🚫 FORBIDDEN to present summary before dispatch log is updated with final status
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The accepted agent output, the dispatch log for this task, any issues found and resolved, any decisions made
 - Focus: Summary composition and dispatch log finalization only
 - Limits: Write in Parzival's own words. Never copy-paste agent output. Present only verified, reviewed information.
 - Dependencies: Accepted output from step-07, task_id for TaskUpdate confirmation, teammate shutdown confirmed in step-08
+
+- Focus on composing the user-facing summary in Parzival's own words
+**Behavioral Constraints:**
+- FORBIDDEN to copy or paste agent output directly into the summary
+- Approach: Synthesize verified, reviewed output into the standard 5-section summary format
+- Route to appropriate next workflow based on task type before closing dispatch log
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -106,23 +81,3 @@ Based on the task type:
 - Call TaskUpdate(completed) now if not already called in step-07
 - Route to WF-APPROVAL-GATE (implementation) or directly to user/next workflow (planning/docs)
 - Mark agent dispatch cycle as complete in project context
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Summary written in Parzival's own words
-- All five summary sections addressed (skip any marked N/A)
-- Dispatch log updated with final status
-- Routed to appropriate next workflow
-
-### ❌ SYSTEM FAILURE:
-
-- Copying agent output into summary
-- Missing summary sections
-- Not updating dispatch log
-- Not routing to next workflow
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -1,7 +1,7 @@
 ---
 id: RC-07
 name: Integration Must Have Passed Before Release Begins
-severity: CRITICAL
+severity: HIGH
 phase: release
 ---
 
@@ -40,6 +40,10 @@ PARZIVAL ENFORCES:
 - Starting release without a passed integration gate
 - Bypassing integration because "the changes are small"
 - Running release in parallel with integration
+
+## Cross-Reference
+
+IC-04 (Integration Issues Cannot Be Deferred to Next Sprint) is the upstream quality gate: IC-04 ensures all integration issues are resolved; RC-07 ensures that passing integration is a prerequisite before Release begins. These two constraints form a sequential chain — IC-04 must be satisfied before RC-07 becomes relevant.
 
 ## Enforcement
 

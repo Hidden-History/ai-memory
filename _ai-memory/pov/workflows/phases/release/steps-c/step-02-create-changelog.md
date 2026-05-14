@@ -12,44 +12,19 @@ nextStepFile: './step-03-deployment-checklist.md'
 
 Define the changelog requirements and dispatch the SM agent via the agent-dispatch cycle to create release notes and update CHANGELOG.md. Every changelog entry must trace to a completed story. Nothing implemented is omitted. Nothing not implemented is included.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on scoping the SM dispatch and receiving accurate changelog and release notes
-- 🚫 FORBIDDEN to include non-implemented features or omit implemented ones
-- 💬 Approach: Every changelog entry traces to a completed story
-- 📋 Breaking changes must be prominently flagged
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Prepare SM instruction with accuracy requirements, dispatch via agent-dispatch
-- 💾 Receive and record changelog and release notes from SM
-- 📖 Load next step only after changelog and release notes are received
-- 🚫 FORBIDDEN to proceed without receiving SM's deliverables
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Release summary from Step 1, completed story files, PRD.md, existing CHANGELOG.md
 - Focus: Changelog and release notes creation — not deployment planning
 - Limits: SM creates. Parzival reviews in Step 6.
 - Dependencies: Release summary from Step 1
+
+- Focus on scoping the SM dispatch and receiving accurate changelog and release notes
+**Behavioral Constraints:**
+- FORBIDDEN to include non-implemented features or omit implemented ones
+- Approach: Every changelog entry traces to a completed story
+- Breaking changes must be prominently flagged
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -98,23 +73,3 @@ Receive CHANGELOG.md and release notes. Parzival reviews in Step 6.
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when changelog and release notes are received, load and read fully `{nextStepFile}`
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- SM dispatched through agent-dispatch workflow
-- Keep a Changelog format followed
-- Release notes in plain language
-- Every entry traces to a story
-
-### ❌ SYSTEM FAILURE:
-
-- Changelog created from memory
-- Technical jargon in release notes
-- Missing implemented features
-- Including non-implemented features
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

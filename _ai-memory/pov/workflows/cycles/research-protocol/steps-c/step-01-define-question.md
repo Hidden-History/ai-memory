@@ -12,44 +12,19 @@ nextStepFile: './step-02-layer1-project-files.md'
 
 Vague questions produce vague answers. Before any research begins, Parzival must articulate the exact question being asked using the question definition template. Do not begin research until the template is complete.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on question definition — do not begin research at this stage
-- 🚫 FORBIDDEN to begin searching for answers before the template is complete
-- 💬 Approach: Systematic question formulation using the definition template
-- 📋 Refine the question until it is specific and unambiguous before proceeding
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Complete the Question Definition Template with all required fields
-- 💾 Record the completed template verbatim before proceeding
-- 📖 Load next step only after the question is specific and unambiguous
-- 🚫 FORBIDDEN to begin research without a fully completed template
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The uncertainty that triggered this protocol, the context in which it arose (review, implementation, planning)
 - Focus: Question formulation only — do not begin researching answers
 - Limits: Do not begin searching for answers at this stage. This step is question formulation only.
 - Dependencies: None — this is the first step of the research protocol
+
+- Focus only on question definition — do not begin research at this stage
+**Behavioral Constraints:**
+- FORBIDDEN to begin searching for answers before the template is complete
+- Approach: Systematic question formulation using the definition template
+- Refine the question until it is specific and unambiguous before proceeding
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -94,23 +69,3 @@ A poorly defined question wastes research cycles and produces unreliable answers
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the question definition template is complete and the question is specific and unambiguous, will you then read fully and follow: `{nextStepFile}` to begin Layer 1 project file research.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Question is specific (one question, not a topic area)
-- Downstream impact is clearly articulated
-- Prior knowledge and gaps are documented
-- Acceptable answer forms are identified
-
-### ❌ SYSTEM FAILURE:
-
-- Vague or multi-part question
-- Beginning research without completing the template
-- Not documenting what has already been checked
-- Not identifying what a satisfactory answer looks like
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

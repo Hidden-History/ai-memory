@@ -295,7 +295,7 @@ These are **safe** to use as labels:
 |-------|-------------|----------|
 | `hook_type` | ~5 | `PostToolUse`, `SessionStart`, `PreToolUse`, `PreCompact`, `Stop` |
 | `status` | ~3 | `success`, `failed`, `queued` |
-| `collection` | ~3 | `code-patterns`, `conventions`, `discussions` |
+| `collection` | ~5 | `code-patterns`, `conventions`, `discussions`, `github`, `jira-data` |
 | `component` | ~4 | `qdrant`, `embedding`, `queue`, `hook` |
 | `error_code` | ~5 | `QDRANT_UNAVAILABLE`, `EMBEDDING_TIMEOUT`, etc. |
 | `project` | <100 | Project names (acceptable if bounded) |

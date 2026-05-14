@@ -6,50 +6,25 @@ nextStepFile: './step-03-present-and-wait.md'
 
 # Step 2: Compile Status Report
 
-**Progress: Step 2 of 5** — Next: Present and Wait for Direction
+**Progress: Step 2 of 4** — Next: Present and Wait for Direction
 
 ## STEP GOAL:
 
-Take the context loaded in Steps 1, 1b, and 1c and compile it into a structured status report ready for presentation to the user.
+Take the context loaded in Steps 1 and 1b and compile it into a structured status report ready for presentation to the user.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Compile status fields factually from loaded context — no recommendations or interpretations
-- 🚫 FORBIDDEN to add recommendations or opinions to the compiled report
-- 💬 Approach: Factual compilation — flag anomalies but do not resolve them
-- 📋 All loaded context from Steps 1, 1b, and 1c must be reflected in the report
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Compile all loaded context into structured status report fields
-- 💾 Format report for presentation but do NOT present — Step 3 handles presentation
-- 📖 Load next step only after the full report is compiled and formatted
-- 🚫 FORBIDDEN to present the report or start work during compilation
-
-## CONTEXT BOUNDARIES:
-
-- Available context: All context loaded and organized in Steps 1, 1b, and 1c
+**Scope:**
+- Available context: All context loaded and organized in Steps 1 and 1b
 - Focus: Status compilation only — recommendations are added in Step 3 based on this compiled data
 - Limits: Compile status facts only — do not present or act on the report
-- Dependencies: Organized context from Steps 1, 1b, and 1c
+- Dependencies: Organized context from Steps 1 and 1b
+
+- Compile status fields factually from loaded context — no recommendations or interpretations
+**Behavioral Constraints:**
+- FORBIDDEN to add recommendations or opinions to the compiled report
+- Approach: Factual compilation — flag anomalies but do not resolve them
+- All loaded context from Steps 1 and 1b must be reflected in the report
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -123,23 +98,3 @@ Structure the compiled data using the presentation format defined in the next st
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the status report is fully compiled, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All loaded context is reflected in the status report
-- Status fields are factual, not interpretive
-- Anomalies are noted without recommendations
-- Report is ready for presentation
-
-### ❌ SYSTEM FAILURE:
-
-- Omitting loaded context from the report
-- Adding recommendations or opinions to the compiled report
-- Presenting the report before it is fully compiled
-- Ignoring anomalies between tracking files
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

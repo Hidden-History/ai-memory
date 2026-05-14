@@ -119,11 +119,15 @@ ENV_FILE="${DOCKER_DIR}/.env"
 # Without this, docker compose crashes if --env-file points to a missing file.
 # =============================================================================
 _compose() {
-    if [[ -f "${ENV_FILE}" ]]; then
-        docker compose --env-file "${ENV_FILE}" "$@"
-    else
-        docker compose "$@"
-    fi
+    # BUG-279: Pass .env.secrets as second --env-file so secret-class ${VAR}
+    # interpolations (QDRANT_API_KEY, LANGFUSE_*, GRAFANA_*, PROMETHEUS_*, etc.)
+    # resolve to real values post-BUG-277 R3 migration. Compose v2.21+ multi-
+    # env-file: last-file-wins precedence per BP-154 §Q2 (verified live on v5.0.2).
+    local _args=()
+    [[ -f "${ENV_FILE}" ]] && _args+=(--env-file "${ENV_FILE}")
+    local _secrets="${DOCKER_DIR}/.env.secrets"
+    [[ -f "${_secrets}" ]] && _args+=(--env-file "${_secrets}")
+    docker compose "${_args[@]}" "$@"
 }
 
 # =============================================================================
@@ -142,6 +146,16 @@ load_env() {
     set -a
     # shellcheck disable=SC1090
     source <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "${ENV_FILE}") 2>/dev/null || true
+
+    # BUG-279: Also source .env.secrets if present so shell-side conditionals
+    # (e.g., LANGFUSE_ENABLED checks elsewhere in stack.sh) see complete env.
+    # Compose CLI ${VAR} interpolation handled separately by _compose() multi
+    # --env-file flags above.
+    local _secrets_file="${DOCKER_DIR}/.env.secrets"
+    if [[ -f "${_secrets_file}" ]]; then
+        # shellcheck disable=SC1090
+        source <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "${_secrets_file}") 2>/dev/null || true
+    fi
     set +a
 }
 

@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""
+Pydantic-aware drift gate: asserts every MemoryConfig field is documented
+in docker/.env.example (as an active line or a commented-out line).
+
+Exit 0 — no drift detected.
+Exit 1 — one or more MemoryConfig fields have no corresponding documentation
+         in docker/.env.example.
+
+Usage:
+    python3 scripts/check_env_completeness.py
+    PYTHONPATH=src python3 scripts/check_env_completeness.py  # from repo root
+
+BP-152 §5.2 — Pydantic-aware completeness check.
+"""
+
+import sys
+from pathlib import Path
+
+# Self-contained import: resolve src/ relative to this script so the script
+# works both as `python3 scripts/check_env_completeness.py` and when
+# PYTHONPATH=src is set externally (CI does both as belt-and-suspenders).
+_repo_root = Path(__file__).resolve().parent.parent
+_src_dir = _repo_root / "src"
+if str(_src_dir) not in sys.path:
+    sys.path.insert(0, str(_src_dir))
+
+try:
+    from memory.config import MemoryConfig
+except ImportError as exc:
+    print(f"FAIL: cannot import MemoryConfig — {exc}", file=sys.stderr)
+    print(f"      Run from repo root: PYTHONPATH=src python3 scripts/check_env_completeness.py", file=sys.stderr)
+    sys.exit(2)
+
+try:
+    from pydantic.fields import FieldInfo
+    from pydantic_settings import BaseSettings
+    from pydantic.aliases import AliasChoices, AliasPath
+except ImportError as exc:
+    print(f"FAIL: pydantic/pydantic_settings import error — {exc}", file=sys.stderr)
+    sys.exit(2)
+
+
+# Fields that are internal/computed and intentionally absent from .env.example.
+# These are excluded from the drift check because:
+#   - Path fields (AUDIT_DIR, QUEUE_PATH, SESSION_LOG_PATH) are derived from INSTALL_DIR.
+#   - Connection fields (EMBEDDING_HOST, MONITORING_HOST, MONITORING_PORT) have
+#     no meaningful user-facing tuning surface.
+#   - EMBEDDING_DIMENSION is fixed at model build time.
+#   - LOG_FORMAT is an internal formatting choice without user docs.
+#   - COLLECTION_SIZE_WARNING/CRITICAL are rarely tuned ops-level thresholds.
+EXCLUDED_FIELDS = {
+    "AUDIT_DIR",
+    "COLLECTION_SIZE_CRITICAL",
+    "COLLECTION_SIZE_WARNING",
+    "EMBEDDING_DIMENSION",
+    "EMBEDDING_HOST",
+    "LOG_FORMAT",
+    "MONITORING_HOST",
+    "MONITORING_PORT",
+    "QUEUE_PATH",
+    "SESSION_LOG_PATH",
+}
+
+
+def _alias_env_names(field_name: str, field_info: FieldInfo) -> set[str]:
+    """Return all env var names for a field: uppercased field name + any AliasChoices."""
+    names = {field_name.upper()}
+    alias = field_info.validation_alias
+    if alias is None:
+        return names
+    if isinstance(alias, str):
+        names.add(alias.upper())
+    elif isinstance(alias, AliasChoices):
+        for choice in alias.choices:
+            if isinstance(choice, str):
+                names.add(choice.upper())
+            elif isinstance(choice, AliasPath) and choice.path:
+                # AliasPath first element is the env key name when used with pydantic-settings
+                first = choice.path[0]
+                if isinstance(first, str):
+                    names.add(first.upper())
+    return names
+
+
+def _parse_env_file_documented_keys(path: Path) -> set[str]:
+    """Return all keys present in an env file — both active and commented-out lines."""
+    keys: set[str] = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        # Active key
+        if not stripped.startswith("#") and "=" in stripped:
+            key = stripped.split("=", 1)[0].strip()
+            if key:
+                keys.add(key.upper())
+        # Commented-out key (single #, then optional space, then KEY=...)
+        elif stripped.startswith("#"):
+            candidate = stripped.lstrip("#").strip()
+            if "=" in candidate and not candidate.startswith(" "):
+                # Strict: no leading space after # (avoids matching prose comments)
+                key = candidate.split("=", 1)[0].strip()
+                if key and key == key.upper() and "_" in key:
+                    keys.add(key.upper())
+    return keys
+
+
+def main() -> int:
+    env_example = _repo_root / "docker" / ".env.example"
+    if not env_example.exists():
+        print(f"FAIL: docker/.env.example not found at {env_example}", file=sys.stderr)
+        return 1
+
+    documented_keys = _parse_env_file_documented_keys(env_example)
+
+    missing: list[str] = []
+    for field_name, field_info in MemoryConfig.model_fields.items():
+        env_names = _alias_env_names(field_name, field_info)
+        canonical = field_name.upper()
+
+        if canonical in EXCLUDED_FIELDS:
+            continue
+
+        if not env_names.intersection(documented_keys):
+            missing.append(f"  {canonical}  (also checked aliases: {sorted(env_names - {canonical})})")
+
+    if missing:
+        print("FAIL: MemoryConfig fields not documented in docker/.env.example:")
+        for item in sorted(missing):
+            print(item)
+        print(f"\nTotal undocumented: {len(missing)}")
+        print("Add these keys (active or commented) to docker/.env.example to fix.")
+        return 1
+
+    print(f"OK: all {len(MemoryConfig.model_fields) - len(EXCLUDED_FIELDS)} checked MemoryConfig fields are documented in docker/.env.example")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -63,5 +63,5 @@ class TestSessionRoundTrip:
             search = MemorySearch()
             config = MemoryConfig(_env_file=None, parzival_enabled=True)
 
-            results = retrieve_bootstrap_context(search, "test-project", config)
+            results, _meta = retrieve_bootstrap_context(search, "test-project", config)
             assert isinstance(results, list)

@@ -1,6 +1,7 @@
 ---
 name: aim-parzival-team-builder
 description: Design agent team structure for parallel work execution
+allowed-tools: Read
 context: fork
 ---
 
@@ -19,7 +20,7 @@ When the work is a single task that does not benefit from parallelization:
 2. Assign agent role and AI_MEMORY_AGENT_ID (Step 2.3)
 3. Prepare the context block (Step 4 format)
 4. Present compact output for approval
-5. Route to /aim-bmad-dispatch or /aim-agent-dispatch
+5. Route to /aim-agent-dispatch (handles both BMAD and generic)
 
 **Criteria for single agent path:**
 - One task, one agent, one review cycle
@@ -34,7 +35,7 @@ Agent: [role] (AI_MEMORY_AGENT_ID: [id], Model: [model tier])
 Mode: [execution | planning]
 Task: [one-line description]
 Files: [list]
-Route: [aim-bmad-dispatch or aim-agent-dispatch]
+Route: aim-agent-dispatch
 Approve?
 ```
 Do not produce a full activation greeting, menu display, or multi-step analysis for a single-task dispatch. The fast path should be fast.
@@ -50,35 +51,35 @@ Before running the full 6-step design process, check if the work matches a prese
 ### Preset: Sprint Development (`sprint-dev`)
 **When**: 2-3 stories need parallel implementation with code review
 **Structure**: 2-tier — SM Lead (Opus) → 2 DEV workers (Sonnet) + 1 DEV reviewer (Opus)
-**Workflow commands**: Workers run `/bmad-bmm-dev-story`, reviewer runs `/bmad-bmm-code-review`
+**Workflow commands**: Workers run `/bmad-dev-story`, reviewer runs `/bmad-code-review`
 **Requires**: sprint-status.yaml, architecture doc
 **Customize**: story assignments, file ownership per story
 
 ### Preset: Story Preparation (`story-prep`)
 **When**: Multiple stories need to be created from epics in bulk
 **Structure**: 2-tier — PM Lead (Opus) → 2-3 SM story creators (Sonnet)
-**Workflow commands**: Workers run `/bmad-bmm-create-story`
+**Workflow commands**: Workers run `/bmad-create-story`
 **Requires**: epics doc, sprint-status.yaml
 **Customize**: which stories to create, epic references
 
 ### Preset: Test Automation (`test-automation`)
 **When**: Completed stories need automated test coverage
 **Structure**: 2-tier — TEA Lead (Opus) → 2 QA workers (Sonnet)
-**Workflow commands**: Workers run `/bmad-bmm-qa-automate`
+**Workflow commands**: Workers run `/bmad-qa-generate-e2e-tests` — generates automated API and E2E tests for completed story implementations
 **Requires**: sprint-status.yaml, TEA module installed
 **Customize**: which stories to test, test framework
 
 ### Preset: Architecture Review (`architecture-review`)
 **When**: Pre-sprint architecture work with parallel research
 **Structure**: 2-tier — Architect Lead (Opus) → Analyst worker (Sonnet) + UX Designer worker (Sonnet)
-**Workflow commands**: Analyst runs `/bmad-bmm-technical-research`, UX runs `/bmad-bmm-create-ux-design`
+**Workflow commands**: Analyst runs `/bmad-technical-research`, UX runs `/bmad-create-ux-design`
 **Requires**: PRD
 **Customize**: research focus areas, UX scope
 
 ### Preset: Research (`research`)
 **When**: Phase 1 parallel research across market, domain, and technical
 **Structure**: 2-tier — Analyst Lead (Opus) → 3 Analyst workers (Sonnet)
-**Workflow commands**: `/bmad-bmm-market-research`, `/bmad-bmm-domain-research`, `/bmad-bmm-technical-research`
+**Workflow commands**: `/bmad-market-research`, `/bmad-domain-research`, `/bmad-technical-research`
 **Requires**: Nothing (recommended: project-context.md)
 **Customize**: research focus, industry, technology areas
 
@@ -221,7 +222,6 @@ The team design document (Steps 1-6) is the deliverable. It feeds into the agent
 Parzival activates all agents himself — the user does not run agents.
 
 **MANDATORY NEXT STEP**: After user approves the dispatch plan:
-- BMAD agents → /aim-bmad-dispatch
-- Generic agents → /aim-agent-dispatch
+- All agents (BMAD and generic) → /aim-agent-dispatch
 
 Pass the full dispatch plan (provider, model, agent role, task, files, mode) to the next skill.

@@ -11,44 +11,19 @@ description: 'Document the research answer in project files and record the resea
 
 Every answer found through this protocol must be documented so it does not need to be researched again. Record the answer in the appropriate project file and maintain the research log.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Determine the correct documentation target based on the source layer
-- 🚫 FORBIDDEN to add interpretation beyond what was determined in research
-- 💬 Approach: Factual documentation with source, reasoning, and confidence level
-- 📋 Confirm user decision documentation accuracy before completing this step
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Document the answer in the appropriate project file using the standard format
-- 💾 Record the complete research log entry with all required fields
-- 📖 Return to calling workflow with the verified answer and confidence level
-- 🚫 FORBIDDEN to complete this step without confirmed documentation
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The research question, the verified answer, the source layer, the confidence level, the user decision (if escalated)
 - Focus: Documentation only — do not re-litigate research decisions
 - Limits: Document factually. Do not add interpretation beyond what was determined.
 - Dependencies: Verified answer, source layer, confidence level, and user decision (if escalated) from Steps 1–5
+
+- Determine the correct documentation target based on the source layer
+**Behavioral Constraints:**
+- FORBIDDEN to add interpretation beyond what was determined in research
+- Approach: Factual documentation with source, reasoning, and confidence level
+- Confirm user decision documentation accuracy before completing this step
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -128,25 +103,3 @@ Documented:  [where the answer was added to project files]
 - Return to the calling workflow with the verified answer and confidence level
 - All documentation must be complete and confirmed before returning
 - Research log entry must be recorded before returning
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Answer is documented in the appropriate project file
-- Documentation includes source, reasoning, and applicability
-- Confidence level is assigned correctly
-- Research log entry is complete
-- User decisions are confirmed as accurately documented
-
-### ❌ SYSTEM FAILURE:
-
-- Not documenting the answer after finding it
-- Documenting in the wrong project file
-- Missing source or reasoning in documentation
-- Not recording the research log entry
-- Not confirming user decision documentation accuracy
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

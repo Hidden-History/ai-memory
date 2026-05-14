@@ -1,7 +1,7 @@
 ---
 id: GC-12
 name: ALWAYS Loop Dev-Review Until Zero Legitimate Issues Confirmed
-severity: CRITICAL
+severity: HIGH
 phase: global
 category: Communication
 ---
@@ -31,6 +31,10 @@ The only exit condition is a review that returns zero legitimate issues.
 - Number of passes completed
 
 This data is included in the user summary when the task closes.
+
+## Cross-Reference
+
+GC-05 (ALWAYS Verify Fixes Against Project Requirements and Best Practices) defines what "correctly fixed" means within this loop: each fix iteration must satisfy all four verification sources before a re-review pass can proceed. A fix that looks complete but fails four-source verification (GC-05) does not qualify as fixed — the loop cannot exit until GC-05 is satisfied.
 
 ## Enforcement
 

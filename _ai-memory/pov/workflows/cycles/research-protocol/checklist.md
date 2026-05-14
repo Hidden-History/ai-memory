@@ -2,6 +2,7 @@
 name: 'cycles-research-protocol-checklist'
 description: 'Quality gate rubric for cycles-research-protocol'
 ---
+> **Note**: This file is a BMAD module quality gate summary. The authoritative execution path is `workflow.md` → step files. If this checklist conflicts with step file content, the step files are canonical.
 
 # Cycles Research Protocol — Validation Checklist
 

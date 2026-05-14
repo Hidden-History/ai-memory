@@ -96,6 +96,7 @@ class CodeSyncResult:
     errors: int = 0
     duration_seconds: float = 0.0
     error_details: list[str] = field(default_factory=list)
+    abandoned_paths: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dict for metrics and logging."""
@@ -105,6 +106,7 @@ class CodeSyncResult:
             "files_deleted": self.files_deleted,
             "chunks_created": self.chunks_created,
             "errors": self.errors,
+            "abandoned_paths": list(self.abandoned_paths),
             "duration_seconds": round(self.duration_seconds, 2),
         }
 
@@ -757,6 +759,7 @@ class CodeBlobSync:
         self,
         batch_id: str,
         total_timeout: int | None = None,
+        code_blob_state: dict | None = None,
     ) -> CodeSyncResult:
         """Sync code blobs from repository.
 
@@ -764,18 +767,26 @@ class CodeBlobSync:
         1. Fetch file tree from GitHub
         2. Filter eligible files (size, patterns, binary)
         3. Compare blob_hash against stored versions
+        3b. Reconciliation pre-sort: previously abandoned files processed first
         4. Fetch, chunk, and store changed/new files (with per-file timeout)
+        4b. Record abandon-set for next-cycle reconciliation
         5. Detect and mark deleted files
 
         BUG-112: Added total_timeout, per-file timeout, circuit breaker, and
         progress logging to prevent indefinite hangs during code blob sync.
+        BUG-288: Added reconciliation via code_blob_state (abandon-set tracking
+        and priority re-sort on next cycle — BP-155 §3).
 
         Args:
             batch_id: Sync batch ID for versioning (BP-074)
             total_timeout: Total timeout in seconds. Defaults to config value.
+            code_blob_state: State dict from previous cycle (load via
+                ``GitHubSyncEngine.load_code_blob_state()``). Used to populate
+                the reconciliation priority queue. Pass ``None`` or ``{}`` for
+                first run (no prior abandoned files).
 
         Returns:
-            CodeSyncResult with file/chunk counts
+            CodeSyncResult with file/chunk counts and abandoned_paths list
         """
         try:
             with propagate_attributes(
@@ -796,6 +807,10 @@ class CodeBlobSync:
                     total_timeout,
                     per_file_timeout,
                 )
+
+                # Pre-sync probe: verify embedding service is accepting requests
+                # (BUG-288: embedding restart mid-sync causes silent failures)
+                await self._wait_for_embedding_ready()
 
                 # Step 1: Fetch file tree
                 try:
@@ -839,6 +854,30 @@ class CodeBlobSync:
                     len(tree_entries),
                 )
 
+                # Step 3b: Reconciliation pre-sort — previously abandoned files
+                # are moved to the front so they are least likely to be cut off again
+                prior_abandoned: set[str] = set(
+                    (code_blob_state or {}).get("abandoned", [])
+                )
+                if prior_abandoned:
+                    priority_entries = [
+                        ep
+                        for ep in eligible_entries
+                        if ep[0]["path"] in prior_abandoned
+                    ]
+                    delta_entries = [
+                        ep
+                        for ep in eligible_entries
+                        if ep[0]["path"] not in prior_abandoned
+                    ]
+                    eligible_entries = priority_entries + delta_entries
+                    logger.info(
+                        "Code blob sync: %d reconciliation-priority file(s) "
+                        "(previously abandoned), %d new/changed",
+                        len(priority_entries),
+                        len(delta_entries),
+                    )
+
                 # Step 4: Sync eligible files with bounded concurrency, timeouts, CB
                 cb_provider = "code_blob_sync"  # Circuit breaker provider key
                 file_concurrency = max(1, self.config.github_code_blob_file_concurrency)
@@ -854,6 +893,13 @@ class CodeBlobSync:
                     return total_eligible - completed_files
 
                 total_timeout_recorded = False
+                # BUG-288: Two lists that together form the abandon-set:
+                # • cancelled_paths  — tasks that were in-flight when cutoff fired
+                # • not_dispatched_paths — tasks that had not yet been dispatched
+                # Both are populated before next_entry_index is clamped to
+                # total_eligible, so eligible_entries[next_entry_index:] is still valid.
+                cancelled_paths: list[str] = []
+                not_dispatched_paths: list[str] = []
 
                 def _record_total_timeout(elapsed: float) -> None:
                     nonlocal total_timeout_recorded
@@ -887,8 +933,9 @@ class CodeBlobSync:
 
                 async def _cancel_pending(cancel_reason: str) -> None:
                     cancelled = len(pending_tasks)
-                    for task in pending_tasks:
+                    for task, (entry, _stored_hash) in pending_tasks.items():
                         task.cancel()
+                        cancelled_paths.append(entry["path"])
                     if not pending_tasks:
                         return
                     await asyncio.gather(*pending_tasks, return_exceptions=True)
@@ -907,12 +954,17 @@ class CodeBlobSync:
                         elapsed = time.monotonic() - start
                         if elapsed >= total_timeout:
                             remaining = _remaining_files()
-                            logger.warning(
+                            logger.error(
                                 "Code blob sync total timeout reached (%.0fs >= %ds). "
                                 "Stopping with %d files remaining.",
                                 elapsed,
                                 total_timeout,
                                 remaining,
+                            )
+                            # Capture not-yet-dispatched BEFORE clamping index (Step 4b)
+                            not_dispatched_paths.extend(
+                                entry["path"]
+                                for entry, _ in eligible_entries[next_entry_index:]
                             )
                             await _cancel_pending("due to total timeout")
                             _record_total_timeout(elapsed)
@@ -926,6 +978,11 @@ class CodeBlobSync:
                                 "Stopping with %d files remaining.",
                                 self._circuit_breaker.failure_threshold,
                                 remaining,
+                            )
+                            # Capture not-yet-dispatched BEFORE clamping index (Step 4b)
+                            not_dispatched_paths.extend(
+                                entry["path"]
+                                for entry, _ in eligible_entries[next_entry_index:]
                             )
                             await _cancel_pending("after circuit breaker opened")
                             _record_circuit_breaker_open()
@@ -955,7 +1012,7 @@ class CodeBlobSync:
                     if not done:
                         elapsed = time.monotonic() - start
                         remaining = _remaining_files()
-                        logger.warning(
+                        logger.error(
                             "Code blob sync total timeout reached (%.0fs >= %ds). "
                             "Stopping with %d files remaining.",
                             elapsed,
@@ -1038,6 +1095,28 @@ class CodeBlobSync:
                         _record_circuit_breaker_open()
                         break
 
+                # Step 4b: Compute abandon-set for reconciliation on next cycle
+                # (BUG-288: files that timed out or were cancelled mid-sync get
+                # prioritized at the front of the next sync's eligible queue)
+                # Three disjoint sources:
+                # 1. cancelled_paths    — in-flight tasks cancelled by _cancel_pending
+                # 2. not_dispatched_paths — captured before next_entry_index was clamped
+                # 3. tail slice         — entries never reached in outer-loop break cases
+                result.abandoned_paths = (
+                    cancelled_paths
+                    + not_dispatched_paths
+                    + [
+                        entry["path"]
+                        for entry, _ in eligible_entries[next_entry_index:]
+                    ]
+                )
+                if result.abandoned_paths:
+                    logger.warning(
+                        "Code blob sync: %d file(s) abandoned — will be "
+                        "prioritized on the next reconciliation cycle",
+                        len(result.abandoned_paths),
+                    )
+
                 if unchanged_paths:
                     try:
                         await asyncio.wait_for(
@@ -1077,6 +1156,51 @@ class CodeBlobSync:
             if _langfuse_get_client is not None:
                 with contextlib.suppress(Exception):
                     _langfuse_get_client().flush()
+
+    async def _wait_for_embedding_ready(
+        self, max_wait_seconds: int = 60, poll_interval: float = 5.0
+    ) -> bool:
+        """Poll the embedding service health endpoint until it is ready.
+
+        BUG-288: The embedding service may restart mid-sync. This probe ensures
+        it is accepting requests before any embedding work begins.
+
+        Args:
+            max_wait_seconds: Give up after this many seconds. Default 60s.
+            poll_interval: Seconds between probes. Default 5s.
+
+        Returns:
+            True if the embedding service responded healthy within the timeout.
+            False if max_wait_seconds elapsed; caller proceeds regardless
+            (probe is advisory, not a hard gate — BUG-288 §Phase-3a).
+        """
+        from memory.embeddings import EmbeddingClient
+
+        with EmbeddingClient(self.config) as embed_client:
+            deadline = time.monotonic() + max_wait_seconds
+            attempt = 0
+            while time.monotonic() < deadline:
+                attempt += 1
+                try:
+                    if embed_client.health_check():
+                        if attempt > 1:
+                            logger.info(
+                                "Embedding service ready after %d probe(s)", attempt
+                            )
+                        return True
+                except Exception as exc:
+                    logger.debug("Embedding health probe %d failed: %s", attempt, exc)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(poll_interval, remaining))
+            logger.error(
+                "Embedding service not ready after %ds (%d probe(s)); "
+                "proceeding with sync (degraded quality expected)",
+                max_wait_seconds,
+                attempt,
+            )
+            return False
 
     async def _walk_tree(self) -> list[dict[str, Any]]:
         """Fetch and filter repository file tree.
@@ -1693,12 +1817,39 @@ class CodeBlobSync:
                 registry=registry,
             )
 
+            abandoned_total = Counter(
+                "github_code_sync_abandoned_files_total",
+                "Total code files abandoned due to timeout or circuit-breaker",
+                registry=registry,
+            )
+            completion_ratio = Gauge(
+                "github_code_sync_completion_ratio",
+                "Ratio of eligible files synced vs total attempted (0.0-1.0)",
+                registry=registry,
+            )
+
             files_total.labels(status="synced").inc(result.files_synced)
             files_total.labels(status="skipped").inc(result.files_skipped)
             files_total.labels(status="deleted").inc(result.files_deleted)
             files_total.labels(status="error").inc(result.errors)
             chunks_total.inc(result.chunks_created)
             duration.set(result.duration_seconds)
+            abandoned_total.inc(len(result.abandoned_paths))
+            # completion_ratio denominator includes `result.errors` — intentional
+            # deviation from BP-155 §7 formula `synced/(synced+abandoned)`.
+            # Rationale: when ALL eligible files error out (errors=N, abandoned=0,
+            # synced=0), BP-155 formula yields 0/0 → sentinel 1.0, which does NOT
+            # fire the 0.95 alert threshold. Including errors gives 0.0, correctly
+            # triggering the alert. Accepted deviation per Parzival adjudication
+            # PM #278 (surfaced by cycle-2 review F-1 Sonnet LOW).
+            total_eligible_count = (
+                result.files_synced + result.errors + len(result.abandoned_paths)
+            )
+            completion_ratio.set(
+                result.files_synced / total_eligible_count
+                if total_eligible_count > 0
+                else 1.0
+            )
 
             pushadd_to_gateway(
                 os.getenv("PUSHGATEWAY_URL", "localhost:29091"),

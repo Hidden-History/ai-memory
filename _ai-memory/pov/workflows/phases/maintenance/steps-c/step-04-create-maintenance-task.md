@@ -12,44 +12,19 @@ nextStepFile: './step-05-dev-implements-fix.md'
 
 Create a maintenance task document that scopes the fix precisely. Every maintenance fix has a task document -- not just a verbal description. This ensures the fix is scoped, reviewable, and tracked.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on creating a complete, scoped maintenance task document
-- 🚫 FORBIDDEN to expand scope beyond the reported issue
-- 💬 Approach: Tight scope, specific acceptance criteria, explicit out-of-scope
-- 📋 Every maintenance fix must have a task document before any code changes begin
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Build complete maintenance task document with all required sections
-- 💾 Save the task document with STATUS: ready before proceeding
-- 📖 Load next step only after the complete task document is produced
-- 🚫 FORBIDDEN to dispatch DEV without a complete task document
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Triage summary, Analyst diagnosis (if ran), architecture.md, project-context.md
 - Focus: Task creation only — do not implement the fix
 - Limits: Task scope is tight. Fix addresses the reported issue only. Improvements beyond the fix require a separate story.
 - Dependencies: Triage summary and Analyst diagnosis (if ran) from prior steps
+
+- Focus on creating a complete, scoped maintenance task document
+**Behavioral Constraints:**
+- FORBIDDEN to expand scope beyond the reported issue
+- Approach: Tight scope, specific acceptance criteria, explicit out-of-scope
+- Every maintenance fix must have a task document before any code changes begin
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -113,24 +88,3 @@ STATUS: ready
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the maintenance task is complete, load and read fully `{nextStepFile}`
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Task document has all required sections
-- Fix scope is tight (not expanding into refactor)
-- Acceptance criteria are specific
-- Fix protocol matches severity
-- Out of scope is explicit
-
-### ❌ SYSTEM FAILURE:
-
-- Missing acceptance criteria
-- Scope expanding beyond the reported issue
-- No testing requirements
-- Wrong fix protocol for severity
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

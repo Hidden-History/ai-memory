@@ -1,7 +1,7 @@
 ---
 id: GC-16
 name: Mandatory Bug Tracking Protocol
-severity: CRITICAL
+severity: HIGH
 phase: global
 category: Quality
 ---

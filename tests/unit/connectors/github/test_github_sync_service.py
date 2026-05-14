@@ -35,12 +35,16 @@ async def test_run_sync_cycle_both_engines():
         ci_results_synced=2,
         errors=0,
     )
+    # BUG-288: load/save_code_blob_state are sync methods — override on AsyncMock
+    mock_engine.load_code_blob_state = MagicMock(return_value={})
+    mock_engine.save_code_blob_state = MagicMock()
 
     mock_code_result = MagicMock(
         files_synced=10,
         files_skipped=5,
         files_deleted=1,
         errors=0,
+        abandoned_paths=[],
     )
     mock_code_sync = AsyncMock()
     mock_code_sync.sync_code_blobs.return_value = mock_code_result
@@ -84,8 +88,11 @@ async def test_run_sync_cycle_both_engines():
     mock_cs_cls.assert_called_once_with(
         mock_client, config, repo="owner/repo", branch=project.github_branch
     )
+    # BUG-288: code_blob_state threaded through for reconciliation
     mock_code_sync.sync_code_blobs.assert_awaited_once_with(
-        "batch-1", total_timeout=config.github_sync_total_timeout
+        "batch-1",
+        total_timeout=config.github_sync_total_timeout,
+        code_blob_state={},
     )
 
 
@@ -137,12 +144,16 @@ async def test_run_sync_cycle_engine_failure_continues():
 
     mock_engine = AsyncMock()
     mock_engine.sync.side_effect = RuntimeError("Engine failed")
+    # BUG-288: load/save_code_blob_state are sync methods — override on AsyncMock
+    mock_engine.load_code_blob_state = MagicMock(return_value={})
+    mock_engine.save_code_blob_state = MagicMock()
 
     mock_code_result = MagicMock(
         files_synced=5,
         files_skipped=0,
         files_deleted=0,
         errors=0,
+        abandoned_paths=[],
     )
     mock_code_sync = AsyncMock()
     mock_code_sync.sync_code_blobs.return_value = mock_code_result
@@ -172,8 +183,11 @@ async def test_run_sync_cycle_engine_failure_continues():
 
     # Engine failed so sync_ok is False, but code blob sync still ran
     assert result is False
+    # BUG-288: code_blob_state threaded through for reconciliation
     mock_code_sync.sync_code_blobs.assert_awaited_once_with(
-        "batch-1", total_timeout=config.github_sync_total_timeout
+        "batch-1",
+        total_timeout=config.github_sync_total_timeout,
+        code_blob_state={},
     )
 
 

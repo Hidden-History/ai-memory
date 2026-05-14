@@ -12,54 +12,41 @@ nextStepFile: './step-04-layer3-analyst-research.md'
 
 When project files do not answer the question, consult the authoritative external sources for the specific technology in use. Always verify the exact version and confirm the answer fits the project's specific context.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Identify the exact technology version before searching any source
-- 🚫 FORBIDDEN to use invalid sources (blog posts, unverified answers, AI recommendations without citation)
-- 💬 Approach: Priority-ordered source consultation with full citation recording
-- 📋 Verify every answer fits project-specific context before accepting it
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Consult sources in Tier priority order (Tier 1 → Tier 2 → Tier 3 → Tier 4)
-- 💾 Record findings with source, version, section, and applicability assessment
-- 📖 Load next step only after Layer 2 results are fully evaluated
-- 🚫 FORBIDDEN to accept answers that cannot be verified against authoritative sources
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: The research question, Layer 1 results, the project's technology stack and versions from project-context.md
 - Focus: External documentation only — do not re-search project files
 - Limits: Only consult sources at Tier 1-4 authority levels. Do not accept unverified sources.
 - Dependencies: Research question from Step 1, Layer 1 results and NOT FOUND determination from Step 2
 
+- Identify the exact technology version before searching any source
+**Behavioral Constraints:**
+- FORBIDDEN to use invalid sources (blog posts, unverified answers, AI recommendations without citation)
+- Approach: Priority-ordered source consultation with full citation recording
+- Verify every answer fits project-specific context before accepting it
+
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
-### 1. Identify the Exact Technology
+### 1. Invoke Best Practices Research Skill
+
+For questions about established best practices, technology decisions, or patterns, invoke:
+
+```
+/aim-best-practices-researcher [question]
+```
+
+This skill conducts structured research against authoritative sources. Its output counts as Tier 3–4 evidence. Use it first at Layer 2 — then supplement with direct source consultation (Tier 1–2) if the skill output requires confirmation or the question is version-specific. Do not substitute the skill for direct Tier 1–2 consultation when exact version behavior is the question.
+
+---
+
+### 2. Identify the Exact Technology
 
 Not just "React" -- "React 18.2 with TypeScript 5.0" (or whatever the exact version is from project-context.md).
 
 ---
 
-### 2. Consult Sources in Priority Order
+### 3. Consult Sources in Priority Order
 
 **TIER 1 -- Official documentation:**
 - The official docs for the exact library/framework/language version in use
@@ -81,7 +68,7 @@ Not just "React" -- "React 18.2 with TypeScript 5.0" (or whatever the exact vers
 
 ---
 
-### 3. Invalid Sources (Do NOT Use)
+### 4. Invalid Sources (Do NOT Use)
 
 - Generic "best practices" without a named source
 - Stack Overflow answers without verification against official docs
@@ -93,7 +80,7 @@ Not just "React" -- "React 18.2 with TypeScript 5.0" (or whatever the exact vers
 
 ---
 
-### 4. Research Process
+### 5. Research Process
 
 1. Go to the official documentation for the exact version
 2. Search for the specific question -- not the topic area
@@ -109,7 +96,7 @@ Not just "React" -- "React 18.2 with TypeScript 5.0" (or whatever the exact vers
 
 ---
 
-### 5. Evaluate Layer 2 Results
+### 6. Evaluate Layer 2 Results
 
 **FOUND -- verified answer from authoritative source:**
 - Record citation (source, version, section)
@@ -133,25 +120,3 @@ Not just "React" -- "React 18.2 with TypeScript 5.0" (or whatever the exact vers
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when Layer 2 research is complete and results evaluated, will you then either return to calling workflow (if answer found) or read fully and follow: `{nextStepFile}` to begin Layer 3 Analyst research.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Exact technology version identified before searching
-- Sources consulted in priority order
-- Findings include full citations with source, version, section
-- Answer verified against project-specific context
-- Conflicts documented when found
-
-### ❌ SYSTEM FAILURE:
-
-- Using sources from a different version
-- Accepting blog posts or forum answers as authoritative
-- Not verifying answer fits project context
-- Picking arbitrarily between conflicting sources
-- Stopping when an answer "sounds right" instead of when it is verified
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

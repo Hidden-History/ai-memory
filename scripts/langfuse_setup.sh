@@ -8,6 +8,30 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_DIR="${SCRIPT_DIR}/../docker"
 ENV_FILE="${DOCKER_DIR}/.env"
+SECRETS_FILE="${DOCKER_DIR}/.env.secrets"
+
+_HELPERS="${SCRIPT_DIR}/_env_split_helpers.sh"
+if [[ ! -f "$_HELPERS" ]]; then
+    echo "[ERROR] Required helper not found: ${_HELPERS}" >&2
+    exit 1
+fi
+# shellcheck disable=SC1090
+source "$_HELPERS"
+unset _HELPERS
+
+# ── Compose wrapper ───────────────────────────────────────────────────────────
+# BUG-279: Pass .env + .env.secrets as --env-file flags so secret-class ${VAR}
+# interpolations (LANGFUSE_PUBLIC_KEY, DATABASE_URL embeds, etc.) resolve to
+# real values post-BUG-277 R3 migration. Compose v2.21+ multi-env-file:
+# last-file-wins precedence per BP-154 §Q2. Function is exported so it remains
+# visible inside (cd "$DOCKER_DIR"; ...) subshells used throughout this script.
+_lf_compose() {
+    local _envflags=()
+    [[ -f "${ENV_FILE}" ]] && _envflags+=(--env-file "${ENV_FILE}")
+    [[ -f "${SECRETS_FILE}" ]] && _envflags+=(--env-file "${SECRETS_FILE}")
+    docker compose "${_envflags[@]}" "$@"
+}
+export -f _lf_compose
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -70,13 +94,14 @@ if [[ ! -f "$ENV_FILE" ]]; then
     log_error "Run the main installer first: scripts/install.sh"
     exit 1
 fi
+ensure_secrets_file_exists "$SECRETS_FILE"
 
 # ── .env helpers ──────────────────────────────────────────────────────────────
 
-# Get value of a key from .env (returns empty string if not set)
+# Get value of a key — checks .env.secrets first, falls through to .env
 env_get() {
     local key="$1"
-    grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true
+    _read_env_key "$key" "$SECRETS_FILE" "$ENV_FILE"
 }
 
 # Set or update a key=value in .env (idempotent; appends if absent)
@@ -104,7 +129,7 @@ generate_secrets() {
     step "Generate Langfuse Secrets"
     local generated=0
 
-    # Helper: generate and store secret if not already set
+    # Helper: generate and store secret-class key to .env.secrets if not already set
     gen_secret() {
         local key="$1"
         local cmd="$2"
@@ -113,7 +138,9 @@ generate_secrets() {
         else
             local val
             val=$(eval "$cmd")
-            env_set "$key" "$val"
+            write_secret_to_secrets_file "$key" "$val" "$SECRETS_FILE" \
+                || { _h_log_error "Failed to write ${key} to .env.secrets"; return 1; }
+            _blank_key_in_env "$key" "$ENV_FILE"
             log_success "  ${key} — generated."
             generated=$((generated + 1))
         fi
@@ -128,7 +155,7 @@ generate_secrets() {
     gen_secret "LANGFUSE_S3_SECRET_KEY"         "openssl rand -hex 32"
 
     if [[ $generated -gt 0 ]]; then
-        log_success "Generated ${generated} new secret(s) → ${ENV_FILE}"
+        log_success "Generated ${generated} new secret(s) → ${SECRETS_FILE}"
     else
         log_info "All secrets already set — no changes."
     fi
@@ -149,20 +176,29 @@ setup_project_keys() {
     local admin_password
     admin_password="Lf$(openssl rand -hex 6)!$(openssl rand -hex 4)"
 
-    # Write Langfuse v3 bootstrap env vars — picked up by langfuse-web on first start
+    # Non-secret bootstrap vars — written to .env (visible to Docker Compose bootstrap)
     env_set "LANGFUSE_INIT_ORG_ID"                "ai-memory-org"
     env_set "LANGFUSE_INIT_ORG_NAME"              "AI Memory"
     env_set "LANGFUSE_INIT_PROJECT_ID"            "ai-memory-project"
     env_set "LANGFUSE_INIT_PROJECT_NAME"          "ai-memory"
-    env_set "LANGFUSE_INIT_PROJECT_PUBLIC_KEY"    "$public_key"
-    env_set "LANGFUSE_INIT_PROJECT_SECRET_KEY"    "$secret_key"
     env_set "LANGFUSE_INIT_USER_EMAIL"            "admin@example.com"
     env_set "LANGFUSE_INIT_USER_NAME"             "admin"
-    env_set "LANGFUSE_INIT_USER_PASSWORD"         "$admin_password"
 
-    # Runtime API keys used by Python SDK and model registration
-    env_set "LANGFUSE_PUBLIC_KEY"      "$public_key"
-    env_set "LANGFUSE_SECRET_KEY"      "$secret_key"
+    # PP-2 secret-class keys — written to .env.secrets (chmod 600)
+    write_secret_to_secrets_file "LANGFUSE_INIT_PROJECT_PUBLIC_KEY" "$public_key"  "$SECRETS_FILE"
+    _blank_key_in_env             "LANGFUSE_INIT_PROJECT_PUBLIC_KEY"               "$ENV_FILE"
+    write_secret_to_secrets_file "LANGFUSE_INIT_PROJECT_SECRET_KEY" "$secret_key"  "$SECRETS_FILE"
+    _blank_key_in_env             "LANGFUSE_INIT_PROJECT_SECRET_KEY"               "$ENV_FILE"
+    write_secret_to_secrets_file "LANGFUSE_INIT_USER_PASSWORD"      "$admin_password" "$SECRETS_FILE"
+    _blank_key_in_env             "LANGFUSE_INIT_USER_PASSWORD"                    "$ENV_FILE"
+
+    # Runtime API keys — PP-2 secret-class; written to .env.secrets (chmod 600)
+    write_secret_to_secrets_file "LANGFUSE_PUBLIC_KEY" "$public_key" "$SECRETS_FILE"
+    _blank_key_in_env             "LANGFUSE_PUBLIC_KEY"              "$ENV_FILE"
+    write_secret_to_secrets_file "LANGFUSE_SECRET_KEY" "$secret_key" "$SECRETS_FILE"
+    _blank_key_in_env             "LANGFUSE_SECRET_KEY"              "$ENV_FILE"
+
+    # Non-secret runtime flags — stay in .env
     env_set "LANGFUSE_ENABLED"         "true"
     # Hook tracing config — install.sh reads these to inject into project settings
     local web_port
@@ -172,11 +208,11 @@ setup_project_keys() {
     env_set "LANGFUSE_TRACE_HOOKS"     "true"
     env_set "LANGFUSE_TRACE_SESSIONS"  "true"
 
-    log_success "API keys generated and written to .env"
+    log_success "API keys generated and written to .env.secrets"
     log_info "  Admin email:    admin@example.com"
     log_info "  Admin password: ${admin_password} (stored as LANGFUSE_INIT_USER_PASSWORD)"
     log_info "  Public key:     ${public_key}"
-    log_warning "Protect ${ENV_FILE} — it contains secrets."
+    log_warning "Protect ${SECRETS_FILE} — it contains secrets."
 }
 
 # ── Step 3: Create MinIO bucket ───────────────────────────────────────────────
@@ -198,7 +234,7 @@ create_minio_bucket() {
     log_info "Starting MinIO service..."
     (
         cd "$DOCKER_DIR"
-        docker compose -f docker-compose.yml -f docker-compose.langfuse.yml \
+        _lf_compose -f docker-compose.yml -f docker-compose.langfuse.yml \
             --profile langfuse up -d langfuse-minio
     )
 
@@ -257,12 +293,12 @@ start_services() {
     log_info "Running: docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse build --no-cache && up -d"
     (
         cd "$DOCKER_DIR"
-        docker compose \
+        _lf_compose \
             -f docker-compose.yml \
             -f docker-compose.langfuse.yml \
             --profile langfuse \
             build --no-cache
-        docker compose \
+        _lf_compose \
             -f docker-compose.yml \
             -f docker-compose.langfuse.yml \
             --profile langfuse \
@@ -371,7 +407,7 @@ except Exception:
         fi
 
         log_info "Fixing up init user: email_verified + admin flag..."
-        docker exec "$pg_container" psql -U "$prefix"langfuse -d "$prefix"langfuse \
+        docker exec "$pg_container" psql -U langfuse -d langfuse \
             -v email="$init_email" \
             -c "UPDATE users SET email_verified = NOW(), admin = true WHERE email = :'email' AND email_verified IS NULL;" \
             2>/dev/null || log_warning "Could not fix up init user (non-critical)"
@@ -382,7 +418,7 @@ except Exception:
         init_project_id=$(env_get "LANGFUSE_INIT_PROJECT_ID")
         if [[ -n "$init_project_id" ]]; then
             log_info "Ensuring project membership for init user..."
-            docker exec "$pg_container" psql -U "$prefix"langfuse -d "$prefix"langfuse \
+            docker exec "$pg_container" psql -U langfuse -d langfuse \
                 -v email="$init_email" -v project_id="$init_project_id" \
                 -c "INSERT INTO project_memberships (project_id, user_id, org_membership_id, role)
                 SELECT :'project_id', u.id, om.id, 'OWNER'
@@ -407,10 +443,10 @@ except Exception:
 
     (
         cd "$DOCKER_DIR"
-        docker compose -f docker-compose.yml -f docker-compose.langfuse.yml \
+        _lf_compose -f docker-compose.yml -f docker-compose.langfuse.yml \
             --profile langfuse stop \
             langfuse-web langfuse-worker langfuse-postgres langfuse-clickhouse langfuse-redis langfuse-minio
-        docker compose -f docker-compose.yml -f docker-compose.langfuse.yml \
+        _lf_compose -f docker-compose.yml -f docker-compose.langfuse.yml \
             --profile langfuse rm -f \
             langfuse-web langfuse-worker langfuse-postgres langfuse-clickhouse langfuse-redis langfuse-minio
     )

@@ -12,44 +12,19 @@ nextStepFile: './step-02-create-changelog.md'
 
 Before any release artifact is created, compile the complete picture of what is changing. Read all sources and produce a comprehensive release summary.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on reading and compiling from actual story files, not memory
-- 🚫 FORBIDDEN to compile release summary from memory or estimates
-- 💬 Approach: Read every source document before producing the summary
-- 📋 PRD coverage must be documented — requirements fulfilled and remaining
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Read all story files, integration findings, PRD, and architecture before compiling
-- 💾 Record complete release summary with all required sections
-- 📖 Load next step only after release summary is complete
-- 🚫 FORBIDDEN to create release artifacts without a complete release summary
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: sprint-status.yaml, story files, integration findings, PRD.md, architecture.md
 - Focus: Compilation only — do not create release artifacts yet
 - Limits: Only compile. Do not create artifacts yet.
 - Dependencies: Sprint completion confirmation and all completed story files
+
+- Focus on reading and compiling from actual story files, not memory
+**Behavioral Constraints:**
+- FORBIDDEN to compile release summary from memory or estimates
+- Approach: Read every source document before producing the summary
+- PRD coverage must be documented — requirements fulfilled and remaining
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -108,23 +83,3 @@ Compile:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when release summary is compiled, load and read fully `{nextStepFile}`
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All stories read (not summarized from memory)
-- Changes to existing behavior explicitly identified
-- Database and configuration changes captured
-- PRD coverage documented
-
-### ❌ SYSTEM FAILURE:
-
-- Compiling from memory instead of reading story files
-- Missing behavior changes to existing features
-- Not identifying database migrations
-- Not checking PRD coverage
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

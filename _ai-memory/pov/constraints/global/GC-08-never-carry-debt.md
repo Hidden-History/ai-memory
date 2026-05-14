@@ -1,7 +1,7 @@
 ---
 id: GC-08
 name: NEVER Carry Tech Debt or Bugs Forward
-severity: CRITICAL
+severity: HIGH
 phase: global
 category: Quality
 ---

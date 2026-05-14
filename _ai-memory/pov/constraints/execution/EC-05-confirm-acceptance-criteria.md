@@ -1,7 +1,7 @@
 ---
 id: EC-05
 name: All Acceptance Criteria Must Be Explicitly Confirmed Satisfied
-severity: CRITICAL
+severity: HIGH
 phase: execution
 ---
 

@@ -13,50 +13,74 @@ handoffTemplate: '{project-root}/_ai-memory/pov/templates/session-handoff.templa
 
 Write the session handoff document for the next Parzival session and update the SESSION_WORK_INDEX with a reference to it.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on writing the handoff document and updating SESSION_WORK_INDEX
-- 🚫 FORBIDDEN to save to Qdrant in this step — that is Step 4
-- 💬 Approach: Load template if available, write document, verify, then update index
-- 📋 Verify the written handoff by reading it back before marking complete
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Write a complete handoff with all sections populated — no empty sections allowed
-- 💾 Verify handoff by reading file back before updating SESSION_WORK_INDEX
-- 📖 Load next step only after handoff is written, verified, and index is updated
-- 🚫 FORBIDDEN to proceed if any handoff section is empty or contains only placeholders
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Session summary from Step 1, updated tracking from Step 2
 - Focus: Handoff document creation and SESSION_WORK_INDEX update only
 - Limits: Write the handoff and update the index — Qdrant save is in the next step
 - Dependencies: Session summary from Step 1 and updated tracking from Step 2
 
+- Focus on writing the handoff document and updating SESSION_WORK_INDEX
+**Behavioral Constraints:**
+- FORBIDDEN to save to Qdrant in this step — that is Step 4
+- Approach: Load template if available, write document, verify, then update index
+- Verify the written handoff by reading it back before marking complete
+
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
+
+### 0. Pre-condition: Verify Handoff Template Exists (TD-520 / TD-500)
+
+Before composing handoff content, confirm the handoff template exists at its
+canonical location. The template is the binding site for the TD-500 empirical
+commits-ahead capture mandate; the §1 fallback ("use the format below") MUST
+NOT silently fire when the template is missing — that path produces a handoff
+without the Branch State block.
+
+Check: `_ai-memory/pov/templates/session-handoff.template.md` exists.
+
+**If missing — HALT session-close** with the explicit error:
+
+> Handoff template missing — cannot enforce TD-500 empirical commits-ahead
+> capture. Restore template before continuing:
+> `_ai-memory/pov/templates/session-handoff.template.md`.
+
+Do NOT degrade to the §1 fallback. Do NOT auto-recover. Operator must restore
+the template (e.g., `git checkout _ai-memory/pov/templates/session-handoff.template.md`
+or re-run installer) before resuming session-close.
+
+This check is a belt-and-suspenders companion to the same check at step-02
+entry — covers any future workflow refactor that bypasses step-02 directly to
+step-03.
+
+---
 
 ### 1. Load Template (If Available)
 
 If `{handoffTemplate}` exists, use it as the format guide. Otherwise, use the format below.
+
+---
+
+### 1b. Capture Branch State Empirically (TD-500 Discipline)
+
+**MANDATORY** — before writing the handoff body, capture branch state with empirical commands. Do NOT extrapolate from prior session counts.
+
+For git-backed projects with a tracked upstream:
+
+```bash
+# Commits ahead of base (typically origin/main):
+git rev-list --count origin/main..HEAD
+# Current HEAD short SHA:
+git rev-parse --short HEAD
+# Branch name:
+git branch --show-current
+```
+
+Record the empirical output of each command. Cite the exact integer + SHA + branch name in the handoff body. **NEVER** write "X commits ahead" by adding the previous handoff's count to a session-delta estimate — that is the off-by-one drift pattern TD-500 was logged to prevent (PM #277 said 22, actual was 47; PM #278 said 47, actual was 48).
+
+For non-git projects or when no upstream is configured, note "branch state: N/A (no upstream)" and skip.
+
+**Why this matters**: future Parzival relies on the commits-ahead stat for "how big is this branch" sanity checks. Drift compounds across sessions if each handoff extrapolates rather than empirically re-counts. Per `feedback_multi_session_plan_handoff_protocol` §10 mandate.
 
 ---
 
@@ -83,6 +107,11 @@ Where `{date}` is today's date in YYYY-MM-DD format.
 - **Active Task**: [ID] [Title] - [Status]
 - **Blockers**: [List or "None"]
 - **In Progress**: [What is partially done]
+
+## Branch State (TD-500: empirically measured, never extrapolated)
+- **Branch**: [output of `git branch --show-current`]
+- **Head**: [output of `git rev-parse --short HEAD`]
+- **Commits ahead of base**: [output of `git rev-list --count origin/main..HEAD`] (verified via `git rev-list`, NOT extrapolated from prior session)
 
 ## Issues Encountered
 [For each issue:]
@@ -143,23 +172,3 @@ Add entry to `{oversight_path}/SESSION_WORK_INDEX.md`:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the handoff is written, verified, and the index is updated, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Handoff document is created with all sections populated
-- No empty or placeholder sections
-- SESSION_WORK_INDEX is updated with a reference to the handoff
-- Handoff is verified after writing
-
-### ❌ SYSTEM FAILURE:
-
-- Empty or vague handoff sections
-- Not verifying the written handoff
-- Not updating SESSION_WORK_INDEX
-- "Context for Future Parzival" is empty or generic
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

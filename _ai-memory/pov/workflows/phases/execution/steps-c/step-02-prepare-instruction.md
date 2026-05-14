@@ -12,44 +12,19 @@ nextStepFile: './step-03-activate-dev.md'
 
 Build the implementation instruction -- the most important document Parzival produces per story. This translates the story file into a precise, executable instruction for the DEV agent. Every field must be specific enough that DEV can implement with no other context.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on building the implementation instruction — no agent dispatch yet
-- 🚫 FORBIDDEN to send story file directly instead of building instruction
-- 💬 Approach: Systematic instruction building with all required sections
-- 📋 Run quality check before marking instruction ready
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Research best practices first, then build the implementation instruction
-- 💾 Record instruction quality check results before proceeding
-- 📖 Load next step only after instruction passes all quality checks
-- 🚫 FORBIDDEN to dispatch DEV with an instruction that fails any quality check
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Verified story file, architecture.md, project-context.md
 - Focus: Instruction building only — do not dispatch agents yet
 - Limits: Instruction must be complete and self-contained. DEV should not need to read other files.
 - Dependencies: Verified story from Step 1 — must pass before proceeding
+
+- Focus only on building the implementation instruction — no agent dispatch yet
+**Behavioral Constraints:**
+- FORBIDDEN to send story file directly instead of building instruction
+- Approach: Systematic instruction building with all required sections
+- Run quality check before marking instruction ready
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -126,23 +101,3 @@ Before dispatching:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN the instruction passes the quality check, will you then read fully and follow: `{nextStepFile}` to begin DEV activation.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Instruction includes all required sections
-- Every field is specific (not vague)
-- Quality check passes
-- DEV could implement with this instruction alone
-
-### ❌ SYSTEM FAILURE:
-
-- Sending story file directly instead of building instruction
-- Vague file references ("the relevant files")
-- Missing security requirements
-- Quality check not run before dispatch
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

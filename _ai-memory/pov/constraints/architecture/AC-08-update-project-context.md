@@ -27,14 +27,14 @@ WHY THIS MATTERS:
 
 PARZIVAL ENFORCES:
 - Architecture phase does not exit until project-context.md is updated or generated from the finalized architecture
-- Use /bmad-bmm-generate-project-context to generate or update
+- Use /bmad-generate-project-context to generate or update
 - Review generated content for accuracy before accepting
 
 ## Examples
 
 **Permitted**:
 - Updating project-context.md with all confirmed architecture decisions before exiting
-- Generating project-context.md from finalized architecture using /bmad-bmm-generate-project-context
+- Generating project-context.md from finalized architecture using /bmad-generate-project-context
 
 **Never permitted**:
 - Exiting Architecture without updating project-context.md

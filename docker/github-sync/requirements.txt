@@ -1,6 +1,6 @@
 # GitHub Sync Service Dependencies
 # Subset of main requirements.txt — only what the sync engine needs
-# Last audited: 2026-04-01
+# Last audited: 2026-04-27
 
 # Vector Database
 qdrant-client==1.17.1
@@ -19,12 +19,12 @@ prometheus-client==0.24.1
 tenacity==9.1.4
 
 # Langfuse observability (Wave 3, PLAN-011)
-langfuse>=4.0.0,<4.1.0
+langfuse>=4.0.6,<4.1.0
 
 # Required by memory module import chain (memory/__init__.py)
 # BUG-086: memory/__init__.py unconditionally imports async_sdk_wrapper (anthropic)
 # and logging_config (structlog). Any container importing memory.* needs these.
-anthropic==0.87.0
+anthropic>=0.89.0,<1.0.0
 structlog>=24.0.0,<26.0.0
 
 # Token counting (memory.chunking.truncation import chain)

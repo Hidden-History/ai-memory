@@ -776,10 +776,14 @@ def validate_keyword_patterns() -> list[str]:
     return warnings
 
 
-# TECH-DEBT-113: Run validation at module load (development check)
+# TECH-DEBT-113: Run validation at module load (development check).
+# F-008: Emit at DEBUG level — the substring overlaps in TRIGGER_CONFIG (e.g.,
+# "best practice" inside "best practices") are intentional pattern-design
+# substrings, not real conflicts, so this is informational not a defect signal.
+# Hooks run per-process so a WARNING on stderr surfaced on every invocation.
 _collision_warnings = validate_keyword_patterns()
 if _collision_warnings:
-    logger.warning(
+    logger.debug(
         "keyword_pattern_collisions_detected",
         extra={
             "collision_count": len(_collision_warnings),

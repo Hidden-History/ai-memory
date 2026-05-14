@@ -12,44 +12,19 @@ nextStepFile: './step-06-pm-creates-epics-stories.md'
 
 Present the reviewed architecture to the user for feedback. Iterate until the user has no more changes. Architecture changes cascade -- assess impact on other sections for each change.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on presenting architecture clearly and processing every piece of user feedback
-- 🚫 FORBIDDEN to present updated architecture without re-running Parzival review first
-- 💬 Approach: Present-feedback-correct cycle until user explicitly confirms satisfaction
-- 📋 Assess cascade impact for every change — architecture changes are not isolated
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Present architecture with cascade-change warning before soliciting feedback
-- 💾 Batch all corrections into a single instruction per iteration round
-- 📖 Load next step only after user explicitly confirms no more changes
-- 🚫 FORBIDDEN to proceed without user explicitly confirming satisfaction
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Reviewed architecture.md, PRD.md
 - Focus: User review and iteration — present, gather feedback, correct, repeat
 - Limits: User feedback drives changes. Architecture changes cascade -- a database change affects data models, API design, and possibly infrastructure.
 - Dependencies: Step 4 complete — Parzival has reviewed and architecture passes all checks
+
+- Focus on presenting architecture clearly and processing every piece of user feedback
+**Behavioral Constraints:**
+- FORBIDDEN to present updated architecture without re-running Parzival review first
+- Approach: Present-feedback-correct cycle until user explicitly confirms satisfaction
+- Assess cascade impact for every change — architecture changes are not isolated
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -107,23 +82,3 @@ Continue the present-feedback-correct cycle until user has no more changes.
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the user indicates no more changes, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Architecture presented with cascading-change warning
-- Every piece of feedback addressed
-- Impact assessment performed for each change
-- Corrections batched and re-reviewed
-- User explicitly confirmed satisfaction
-
-### ❌ SYSTEM FAILURE:
-
-- Not assessing cascade impact of changes
-- Presenting updated architecture without re-review
-- Dismissing user feedback
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

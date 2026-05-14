@@ -12,44 +12,19 @@ nextStepFile: './step-02-analyze-and-resolve.md'
 
 Precisely capture what is blocked, the impact on current work, and the severity level so that analysis can proceed on solid ground.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on capturing blocker details precisely — do not analyze or propose solutions
-- 🚫 FORBIDDEN to attempt root cause analysis or propose resolutions in this step
-- 💬 Approach: Ask targeted questions if description is insufficient — do not proceed with vague descriptions
-- 📋 Check failure pattern library and past issues before completing capture
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Extract blocker details: what's blocked, expected/actual behavior, error messages
-- 💾 Compile the complete Blocker Record (BLK-ID, severity, affected task, error/symptom)
-- 📖 Load next step only after blocker record is fully assembled
-- 🚫 FORBIDDEN to proceed with vague or incomplete blocker descriptions
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: User's description of the blocker, current task context from `{oversight_path}/tracking/task-tracker.md`
 - Focus: Blocker capture only — do not analyze or resolve in this step
 - Limits: Capture only — do not analyze or propose resolutions in this step
 - Dependencies: None — this is the first step of the blocker workflow
+
+- Focus on capturing blocker details precisely — do not analyze or propose solutions
+**Behavioral Constraints:**
+- FORBIDDEN to attempt root cause analysis or propose resolutions in this step
+- Approach: Ask targeted questions if description is insufficient — do not proceed with vague descriptions
+- Check failure pattern library and past issues before completing capture
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -105,24 +80,3 @@ Assemble the captured details:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN all blocker details are captured and compiled, will you then read fully and follow: `{nextStepFile}` to begin analysis and resolution.
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Blocker description is specific and actionable
-- Severity is assigned using the defined scale
-- Impact is assessed with affected task IDs
-- Past issues were checked
-- No analysis or resolution was attempted in this step
-
-### ❌ SYSTEM FAILURE:
-
-- Accepting vague blocker descriptions
-- Skipping severity assessment
-- Not checking for similar past issues
-- Attempting to solve the blocker before fully capturing it
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

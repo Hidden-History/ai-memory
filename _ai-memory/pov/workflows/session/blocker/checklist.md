@@ -2,6 +2,7 @@
 name: 'session-blocker-checklist'
 description: 'Quality gate rubric for session-blocker'
 ---
+> **Note**: This file is a BMAD module quality gate summary. The authoritative execution path is `workflow.md` → step files. If this checklist conflicts with step file content, the step files are canonical.
 
 # Session Blocker — Validation Checklist
 

@@ -8,6 +8,10 @@ pov_output_folder: "{project-root}/_ai-memory-output/pov"
 constraints_path: "{project-root}/_ai-memory/pov/constraints"
 workflows_path: "{project-root}/_ai-memory/pov/workflows"
 oversight_path: "{project-root}/oversight"
+skills_path: "{project-root}/_ai-memory/pov/skills"
+knowledge_path: "{project-root}/_ai-memory/pov/knowledge"
+sanctum_path: "{project-root}/_ai-memory/sanctum"
+scripts_path: "{project-root}/_ai-memory/pov/scripts"
 teams_enabled: true
 
 # Core Configuration Values

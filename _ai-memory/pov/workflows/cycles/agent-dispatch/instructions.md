@@ -2,6 +2,7 @@
 name: 'cycles-agent-dispatch-instructions'
 description: 'Agent dispatch lifecycle: prepare instruction, create team, dispatch, monitor, review, accept or correct, shutdown'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # cycles-agent-dispatch — Instructions
 
@@ -14,7 +15,7 @@ description: 'Agent dispatch lifecycle: prepare instruction, create team, dispat
 
 ## Workflow Overview
 
-The agent-dispatch cycle is the standard mechanism for Parzival to delegate work to BMAD agents. It covers the full lifecycle from instruction preparation through output acceptance: composing a clear instruction, creating the agent team, activating the agent, sending the instruction, monitoring progress, receiving output, deciding whether to accept or loop for corrections, shutting down the teammate, and summarizing the result.
+The agent-dispatch cycle is the standard mechanism for Parzival to delegate work to BMAD agents. It covers the full lifecycle from instruction preparation through output acceptance: composing a clear instruction, spawning the agent via the backend-appropriate mechanism, activating the agent, sending the instruction, monitoring progress, receiving output, deciding whether to accept or loop for corrections, shutting down the teammate, and summarizing the result.
 
 This cycle enforces that no agent is dispatched without a complete instruction and that all agent output passes through Parzival's accept-or-loop gate before being used downstream. The cycle may repeat steps 3–7 if the output requires revision.
 
@@ -23,7 +24,7 @@ This cycle enforces that no agent is dispatched without a complete instruction a
 | Step | File | Purpose |
 |------|------|---------|
 | 1 | `step-01-prepare-instruction.md` | Compose a complete, unambiguous instruction for the target agent |
-| 2 | `step-02-create-team.md` | Create the agent team using TeamCreate with the target agent configuration |
+| 2 | `step-02-spawn-agent.md` | Spawn the agent via TeamCreate + Agent tool (Claude-native) or tmux (non-Claude backends) |
 | 3 | `step-03-activate-agent.md` | Activate the agent within the team context |
 | 4 | `step-04-send-instruction.md` | Send the prepared instruction to the active agent via SendMessage |
 | 5 | `step-05-monitor-progress.md` | Monitor agent progress; intervene if the agent stalls or deviates |

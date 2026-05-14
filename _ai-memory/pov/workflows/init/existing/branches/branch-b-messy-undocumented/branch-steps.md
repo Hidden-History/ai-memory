@@ -11,12 +11,14 @@ Document the actual current state of the project before any work can be directed
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
 ### 1. Generate Project Context
-Activate Analyst via {workflows_path}/cycles/agent-dispatch/workflow.md to generate project-context.md by scanning the codebase:
+Activate Analyst via {workflows_path}/cycles/agent-dispatch/workflow.md to generate project-context.md by scanning the codebase. Dispatch `bmad-generate-project-context` via `{project-root}/.claude/skills/bmad-generate-project-context/SKILL.md` for structured context extraction:
 - Technology stack and versions
 - Code organization patterns
 - Naming conventions
 - Testing approaches
 - Framework-specific patterns
+
+If documentation artifacts (README, architecture docs, API docs) are missing or incomplete, follow up with `bmad-document-project` via `{project-root}/.claude/skills/bmad-document-project/SKILL.md` to generate them from the codebase scan.
 
 ---
 
@@ -79,16 +81,16 @@ Record the confirmed exit route for use in step-06 approval package.
 ## BRANCH COMPLETION
 When all branch steps are complete, return to the common path: step-04-establish-baseline.md
 
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
+## SYSTEM SUCCESS/FAILURE METRICS
 
-### ✅ SUCCESS:
+### SUCCESS:
 
 - Project context generated and verified against actual codebase
 - PRD and architecture state assessed, missing or outdated files addressed
 - Missing baseline files (project-status.md, goals.md, decisions.md) created
 - Exit route is clearly determined and recorded
 
-### ❌ SYSTEM FAILURE:
+### SYSTEM FAILURE:
 
 - Skipping Analyst audit and accepting generated context without verification
 - Accepting unverified generated context as accurate without review

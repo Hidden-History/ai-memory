@@ -32,6 +32,7 @@ jobs:
         with:
           languages: python
           queries: +security-extended
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4

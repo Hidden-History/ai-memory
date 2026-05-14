@@ -2,6 +2,7 @@
 name: 'phases-discovery-instructions'
 description: 'Discovery phase: assess inputs, gather requirements, create PRD with user collaboration and approval'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # phases-discovery — Instructions
 
@@ -10,7 +11,7 @@ description: 'Discovery phase: assess inputs, gather requirements, create PRD wi
 - Parzival oversight session active with the discovery phase loaded
 - A new project or feature initiative has been identified requiring formal discovery
 - PRD template is accessible at the configured template path
-- PM agent (`bmad-bmm-pm`) and Analyst agent (`bmad-bmm-analyst`) are available for dispatching
+- PM agent (`bmad-agent-pm`) and Analyst agent (`bmad-agent-analyst`) are available for dispatching
 
 ## Workflow Overview
 

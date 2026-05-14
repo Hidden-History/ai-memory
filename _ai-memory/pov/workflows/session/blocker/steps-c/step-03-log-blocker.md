@@ -11,44 +11,19 @@ description: 'Log the blocker and chosen resolution to the blockers tracking fil
 
 Record the blocker, analysis, and chosen resolution (or deferral) in the blockers log for cross-session visibility. If this is a new failure pattern, note it for the failure pattern library.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on accurate logging of blocker, analysis, and user's chosen resolution
-- 🚫 FORBIDDEN to editorialize or add commentary beyond the facts
-- 💬 Approach: Factual, structured logging with full field completion
-- 📋 Flag new patterns for the failure pattern library
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Append complete blocker entry to blockers-log.md with all required fields
-- 💾 Note new failure patterns for the failure pattern library if applicable
-- 📖 Present confirmation to user after logging
-- 🚫 FORBIDDEN to log a resolution the user did not choose
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Blocker details from Step 1, analysis and user decision from Step 2
 - Focus: Logging the blocker accurately — no further analysis
 - Limits: Log the facts — do not editorialize or add commentary
 - Dependencies: Blocker record from Step 1 and user's chosen resolution from Step 2
+
+- Focus on accurate logging of blocker, analysis, and user's chosen resolution
+**Behavioral Constraints:**
+- FORBIDDEN to editorialize or add commentary beyond the facts
+- Approach: Factual, structured logging with full field completion
+- Flag new patterns for the failure pattern library
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -101,23 +76,3 @@ Continue with current work?
 - Append blocker entry to blockers-log.md with all required fields before confirming
 - Flag new failure patterns for the failure pattern library if applicable
 - Present confirmation to user and await their direction to continue work
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Blocker is logged with all required fields
-- Entry accurately reflects the captured details and user's chosen resolution
-- User is informed of the logged entry
-- New patterns are flagged for the failure pattern library
-
-### ❌ SYSTEM FAILURE:
-
-- Logging incomplete or vague blocker information
-- Logging a resolution the user did not choose
-- Failing to append to the blockers log file
-- Skipping the confirmation step
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

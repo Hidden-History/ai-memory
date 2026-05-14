@@ -98,6 +98,11 @@ class EmbeddingClient:
         # CPU mode (7B model): 20-30s typical, use 60s for safety
         # GPU mode: <2s (NFR-P2 compliant)
         read_timeout = float(os.getenv("EMBEDDING_READ_TIMEOUT", "15.0"))
+        # BUG-288: Code model is slower than en model under CPU load.
+        # Per-request override applied in _embed_once() when model="code".
+        self._read_timeout_code = float(
+            os.getenv("EMBEDDING_READ_TIMEOUT_CODE", "30.0")
+        )
         timeout_config = httpx.Timeout(
             connect=3.0,  # Connection establishment timeout
             read=read_timeout,  # Read timeout - configurable for CPU vs GPU mode
@@ -193,10 +198,25 @@ class EmbeddingClient:
         """
         start_time = time.perf_counter()
 
+        # BUG-288: Code model embeddings take longer under CPU load.
+        # Override the client-level read timeout for code model requests only.
+        _request_timeout: httpx.Timeout | None = (
+            httpx.Timeout(
+                connect=3.0, read=self._read_timeout_code, write=5.0, pool=3.0
+            )
+            if model == "code"
+            else None  # None → httpx uses the client-level timeout
+        )
+
         try:
             response = self.client.post(
                 f"{self.base_url}/embed/dense",
                 json={"texts": texts, "model": model},
+                **(
+                    {"timeout": _request_timeout}
+                    if _request_timeout is not None
+                    else {}
+                ),
             )
             response.raise_for_status()
             embeddings = response.json()["embeddings"]

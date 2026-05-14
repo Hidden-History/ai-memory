@@ -28,6 +28,16 @@ shopt -s nullglob
 # Script directory for relative path resolution
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# shellcheck source=scripts/_env_split_helpers.sh
+_HELPERS="${SCRIPT_DIR}/_env_split_helpers.sh"
+if [[ ! -f "$_HELPERS" ]]; then
+    echo "[ERROR] Required helper not found: ${_HELPERS}" >&2
+    exit 1
+fi
+# shellcheck disable=SC1090
+source "$_HELPERS"
+unset _HELPERS
+
 # Project path handling - accept target project as argument
 # Usage: ./install.sh [PROJECT_PATH] [PROJECT_NAME]
 PROJECT_PATH="${1:-.}"
@@ -755,17 +765,15 @@ else:
                             else
                                 log_warning "New shared token returned HTTP $test_code — updating anyway"
                             fi
-                            # Update docker/.env with new shared token
+                            # Update docker/.env.secrets with new shared token (BUG-286: PP-1
+                            # secrets belong in .env.secrets, not docker/.env).
                             local env_file="$INSTALL_DIR/docker/.env"
-                            if [[ -f "$env_file" ]]; then
-                                # BSD-safe sed: replace the GITHUB_TOKEN line
-                                local tmp_env="${env_file}.tmp"
-                                grep -v '^GITHUB_TOKEN=' "$env_file" > "$tmp_env" || true
-                                echo "GITHUB_TOKEN=\"${new_shared_token}\"" >> "$tmp_env"
-                                mv "$tmp_env" "$env_file"
-                                chmod 600 "$env_file" 2>/dev/null || true
-                                log_success "Updated shared GITHUB_TOKEN in ${env_file}"
-                            fi
+                            local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+                            ensure_secrets_file_exists "$secrets_file"
+                            set_env_value "GITHUB_TOKEN" "$(_sed_escape "$new_shared_token")" "$secrets_file"
+                            # Blank GITHUB_TOKEN in .env if it has a value (defense-in-depth, BUG-286)
+                            _blank_key_in_env "GITHUB_TOKEN" "$env_file"
+                            log_success "Updated shared GITHUB_TOKEN in $(basename "$secrets_file")"
                             GITHUB_TOKEN="$new_shared_token"
                         else
                             log_warning "Empty token — keeping existing shared token"
@@ -1296,9 +1304,11 @@ main() {
         step "File Deployment"
         copy_files
         import_user_env
+        persist_user_choices_to_env
         step "Python Environment"
         install_python_dependencies
         step "Environment Configuration"
+        migrate_existing_env_secrets
         configure_environment
         validate_external_services
         configure_secrets_backend
@@ -1384,6 +1394,18 @@ main() {
     elif [[ "$GITHUB_SYNC_ENABLED" == "true" && -n "$GITHUB_REPO" ]]; then
         # Full install mode: use global GITHUB_REPO
         register_project_sync "$PROJECT_NAME" "$GITHUB_REPO" "$PROJECT_PATH" "${GITHUB_BRANCH:-main}"
+    fi
+
+    # Verify env split invariants post-install (BUG-277 doctor check)
+    if [[ "$INSTALL_MODE" == "full" ]]; then
+        if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/verify_env_split.py" \
+                --install-dir "$INSTALL_DIR"; then
+            log_success "Env split verification passed"
+        else
+            log_error "Env split verification failed — secrets may not be in docker/.env.secrets"
+            log_info "Run: python $INSTALL_DIR/scripts/verify_env_split.py --install-dir $INSTALL_DIR"
+            exit 1
+        fi
     fi
 
     # Record project in manifest for cross-filesystem recovery discovery
@@ -1491,7 +1513,14 @@ handle_reinstall() {
                     reinstall_profile_args+=(--profile github)
                 fi
             fi
-            (cd "$INSTALL_DIR/docker" && docker compose "${reinstall_profile_args[@]}" down 2>/dev/null) || true
+            # BUG-279: pass .env + .env.secrets via --env-file flags so secret
+            # interpolations resolve during reinstall down. Inline (not _compose)
+            # because this runs in a subshell before start_services defines it.
+            (cd "$INSTALL_DIR/docker" && {
+                _envflags=(--env-file .env)
+                [[ -f .env.secrets ]] && _envflags+=(--env-file .env.secrets)
+                docker compose "${_envflags[@]}" "${reinstall_profile_args[@]}" down 2>/dev/null
+            }) || true
         fi
         log_success "Services stopped"
     fi
@@ -1621,7 +1650,7 @@ update_shared_scripts() {
     mkdir -p "$INSTALL_DIR/.claude/hooks/scripts"
 
     # BUG-244: Use shared sync function for all non-Docker file syncing
-    # SOURCE_DIR is set at line 823 in add-project mode before this function is called
+    # SOURCE_DIR is set by main() in the add-project branch (derived from SCRIPT_DIR) before this function is called
     sync_installed_files "$SOURCE_DIR" "$INSTALL_DIR"
 
     # BUG-034: Archive stale hooks not in source (unique to Option 1 add-project)
@@ -1992,7 +2021,12 @@ create_directories() {
     fi
 
     # Create main installation directory and subdirectories
-    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,.claude/commands,logs,queue,.locks,trace_buffer,_ai-memory}
+    # BUG-281: pre-create config/projects.d + github-state/logs so the
+    # github-sync container's volume mounts find existing parzival-owned dirs
+    # instead of triggering Docker-daemon auto-create (which runs as root and
+    # leaves host paths root-owned, locking out subsequent install.sh writes
+    # from register_project_sync).
+    mkdir -p "$INSTALL_DIR"/{docker,src/memory,scripts,.claude/hooks/scripts,.claude/skills,.claude/agents,.claude/commands,logs,queue,.locks,trace_buffer,_ai-memory,config/projects.d,github-state/logs}
 
     # Create queue directory with restricted permissions (security best practice 2026)
     # Queue is shared across all projects - single classifier worker processes all
@@ -2203,6 +2237,20 @@ copy_files() {
         log_debug "Restored docker/.env after bulk copy"
     fi
 
+    # BUG-282 (sibling of BUG-040): Explicitly copy docker/.env from source if
+    # the install doesn't yet have one. The bulk `cp -r .../docker/*` above
+    # does NOT copy dotfiles (shell glob skips files starting with `.`), so
+    # without this, fresh installs whose source repo has a customized
+    # docker/.env (typical for users who edited their clone's .env before
+    # running the installer) silently fall back to the .env.example template
+    # in the merge ELSE branch below — destroying user customizations for
+    # opt-in keys (GITHUB_CODE_BLOB_INCLUDE, DECAY_*, FRESHNESS_PENALTY_*,
+    # INJECTION_* thresholds, etc.) that ship as commented in the template.
+    if [[ -f "$SOURCE_DIR/docker/.env" && ! -f "$INSTALL_DIR/docker/.env" ]]; then
+        cp "$SOURCE_DIR/docker/.env" "$INSTALL_DIR/docker/.env"
+        log_debug "Copied source docker/.env to install dir (dotfile glob workaround)"
+    fi
+
     # BUG-040: Explicitly copy dotfiles - glob .* matches . and .. causing failures
     # Deploy .env: merge strategy preserves user customizations (TD-198)
     if [[ -f "$SOURCE_DIR/docker/.env.example" ]]; then
@@ -2229,6 +2277,19 @@ copy_files() {
         fi
     fi
 
+    # Deploy .env.secrets template (BP-152 §3.4 sensitive split).
+    # Required: false in docker-compose.yml — absent file is OK; presence adds a second env layer.
+    local _secrets_example="$SOURCE_DIR/docker/.env.secrets.example"
+    local _secrets_live="$INSTALL_DIR/docker/.env.secrets"
+    if [[ -f "$_secrets_example" ]]; then
+        cp "$_secrets_example" "$INSTALL_DIR/docker/.env.secrets.example"
+        if [[ ! -f "$_secrets_live" ]]; then
+            cp "$_secrets_example" "$_secrets_live"
+            chmod 600 "$_secrets_live" 2>/dev/null || log_warning "chmod 600 on .env.secrets failed"
+            log_debug "Created docker/.env.secrets (chmod 600)"
+        fi
+    fi
+
     # BUG-244: Use shared sync function for all non-Docker file syncing
     sync_installed_files "$SOURCE_DIR" "$INSTALL_DIR"
 
@@ -2237,7 +2298,7 @@ copy_files() {
 
 # DEPRECATED: import_user_env() no longer imports from root .env.
 # docker/.env is the single source of truth for all configuration.
-# This function is kept as a stub to preserve call sites at line 746 and 1078.
+# This function is kept as a stub to preserve call sites in main() and update_shared_scripts().
 import_user_env() {
     local source_root="${SOURCE_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
     local user_env="$source_root/.env"
@@ -2283,12 +2344,130 @@ validate_github_repo() {
     return 0
 }
 
+# Escape characters that have special meaning in sed REPLACEMENT side: &, \, |
+# (| is the chosen delimiter in set_env_value's substitution).
+# Used by persist_user_choices_to_env for user-supplied URL / email / token / JSON values.
+# BUG-274 fix-r2 (F-R1.1): & was a back-reference corruption vector for URLs/emails
+# containing query params or RFC-5321 local-parts with &; | broke the s|..| delimiter.
+# Order: escape \ first — otherwise the & and | escapes would introduce new \ chars
+# that would themselves be escaped again on a subsequent pass.
+_sed_escape() {
+    local v="$1"
+    v="${v//\\/\\\\}"   # escape backslash FIRST (prevents double-escaping of later substitutions)
+    v="${v//&/\\&}"     # escape & (sed back-reference)
+    v="${v//|/\\|}"     # escape | (substitution delimiter)
+    printf '%s' "$v"
+}
+
+# BUG-274: write user-collected env-bound shell vars to runtime config files.
+# Called from main() after copy_files() deploys the .env templates (which carry
+# placeholder defaults for every key) and before any subshell sources from those
+# files. Without this, template defaults silently overwrite user answers because
+# configure_environment's append guards see the keys as already present.
+# Uses set_env_value (defined below) which is idempotent: updates an existing key
+# via sed or appends if missing — so re-running with the same answers is safe.
+persist_user_choices_to_env() {
+    local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+
+    # Belt-and-suspenders: copy_files() already creates .env.secrets from .example,
+    # but guard here in case it is missing (ENV-MANAGEMENT-V2 §1 sensitive split).
+    if [[ ! -f "$secrets_file" ]]; then
+        if [[ -f "$INSTALL_DIR/docker/.env.secrets.example" ]]; then
+            cp "$INSTALL_DIR/docker/.env.secrets.example" "$secrets_file"
+        else
+            touch "$secrets_file"
+        fi
+    fi
+    chmod 600 "$secrets_file" 2>/dev/null || log_warning "chmod 600 on .env.secrets failed"
+
+    # Non-secret config → docker/.env (ENV-MANAGEMENT-V2 §1 single-env source-of-truth)
+    # Write enable flags unconditionally (configure_options always sets them true/false).
+    # Skip-empty guard: [[ -n "..." ]] prevents writing when var is unset (non-interactive).
+    # Enable flags are literal "true"/"false" — no sed metacharacters, _sed_escape not needed.
+    [[ -n "${LANGFUSE_ENABLED:-}" ]] && set_env_value "LANGFUSE_ENABLED" "$LANGFUSE_ENABLED"
+    [[ -n "${GITHUB_SYNC_ENABLED:-}" ]] && set_env_value "GITHUB_SYNC_ENABLED" "$GITHUB_SYNC_ENABLED"
+    [[ -n "${JIRA_SYNC_ENABLED:-}" ]] && set_env_value "JIRA_SYNC_ENABLED" "$JIRA_SYNC_ENABLED"
+
+    # Dependent non-secret vars: only when feature enabled and value non-empty.
+    # String-class values use _sed_escape (BUG-274 fix-r2 F-R1.1): URL/email/token/JSON
+    # values may contain & (sed back-reference) or | (delimiter) in sed replacement.
+    if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]]; then
+        [[ -n "${GITHUB_REPO:-}" ]] && set_env_value "GITHUB_REPO" "$(_sed_escape "$GITHUB_REPO")"
+    fi
+
+    if [[ "${JIRA_SYNC_ENABLED:-}" == "true" ]]; then
+        [[ -n "${JIRA_INSTANCE_URL:-}" ]] && set_env_value "JIRA_INSTANCE_URL" "$(_sed_escape "$JIRA_INSTANCE_URL")"
+        [[ -n "${JIRA_EMAIL:-}" ]] && set_env_value "JIRA_EMAIL" "$(_sed_escape "$JIRA_EMAIL")"
+        if [[ -n "${JIRA_PROJECTS:-}" ]]; then
+            local jira_json
+            # Guard: if already JSON array (pre-set env var), skip format_jira_projects_json
+            if [[ "${JIRA_PROJECTS}" =~ ^\[ ]]; then
+                jira_json="$JIRA_PROJECTS"
+            else
+                jira_json=$(format_jira_projects_json "$JIRA_PROJECTS")
+            fi
+            set_env_value "JIRA_PROJECTS" "'$(_sed_escape "$jira_json")'"
+        fi
+    fi
+
+    # Secrets → docker/.env.secrets (ENV-MANAGEMENT-V2 §1 sensitive split, chmod 600)
+    if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" && -n "${GITHUB_TOKEN:-}" ]]; then
+        set_env_value "GITHUB_TOKEN" "$(_sed_escape "$GITHUB_TOKEN")" "$secrets_file"
+    fi
+    # BUG-286: Defensive blank — ensure GITHUB_TOKEN has no non-empty value in .env regardless
+    # of how it got there (historical write path, recovery menu pre-fix, etc.). Idempotent.
+    _blank_key_in_env "GITHUB_TOKEN" "$env_file"
+
+    if [[ "${JIRA_SYNC_ENABLED:-}" == "true" && -n "${JIRA_API_TOKEN:-}" ]]; then
+        set_env_value "JIRA_API_TOKEN" "$(_sed_escape "$JIRA_API_TOKEN")" "$secrets_file"
+    fi
+    # BUG-286: Defensive blank — ensure JIRA_API_TOKEN has no non-empty value in .env.
+    _blank_key_in_env "JIRA_API_TOKEN" "$env_file"
+
+    chmod 600 "$secrets_file" 2>/dev/null || true
+    log_debug "BUG-274: persisted user choices to docker/.env and docker/.env.secrets"
+}
+
+# migrate_existing_env_secrets — R3: v2.3.x in-place upgrade migration.
+# Detects existing docker/.env with non-blank secret-class keys and migrates
+# all 25 applicable keys to docker/.env.secrets via migrate_secrets_to_split_file().
+# PP-1 keys (GITHUB_TOKEN, JIRA_API_TOKEN) now included in detection + migration scope
+# as defense-in-depth (BUG-286): any historical .env write of PP-1 is cleaned up atomically.
+# Idempotent: fresh install (.env has blank placeholders) → probe empty → no-op.
+migrate_existing_env_secrets() {
+    local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+
+    [[ ! -f "$env_file" ]] && return 0
+
+    # Upgrade detection: any secret-class key non-blank in .env means migration needed.
+    # Detection pattern built from ALL_SECRET_KEYS (BUG-286 fix-r2: true SSoT — no hardcoded list).
+    # Includes all 25 keys (PP-1/PP-2/PP-3); probe fires on any non-empty secret-class value.
+    local detection_pattern
+    detection_pattern=$(IFS='|'; echo "${ALL_SECRET_KEYS[*]}")
+    if ! grep -qE "^(${detection_pattern})=.+" "$env_file" 2>/dev/null; then
+        return 0
+    fi
+
+    log_info "Detected secret-class keys in docker/.env — migrating all 25 keys to docker/.env.secrets..."
+    ensure_secrets_file_exists "$secrets_file"
+    migrate_secrets_to_split_file "$env_file" "$secrets_file" || {
+        log_error "Secrets migration failed — halting install. Re-run after investigating."
+        exit 1
+    }
+}
+
 # Environment configuration (AC 7.1.6)
 # BUG-040: Docker Compose runs from $INSTALL_DIR/docker/ and needs .env there
 configure_environment() {
     log_info "Configuring environment..."
 
     local docker_env="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+
+    # Ensure .env.secrets exists with chmod 600 before any secret writes
+    ensure_secrets_file_exists "$secrets_file"
 
     # Check if .env was copied from source (has credentials)
     if [[ -f "$docker_env" ]]; then
@@ -2329,7 +2508,7 @@ configure_environment() {
             echo "JIRA_SYNC_ENABLED=$JIRA_SYNC_ENABLED" >> "$docker_env"
             echo "JIRA_INSTANCE_URL=$JIRA_INSTANCE_URL" >> "$docker_env"
             echo "JIRA_EMAIL=$JIRA_EMAIL" >> "$docker_env"
-            echo "JIRA_API_TOKEN=$JIRA_API_TOKEN" >> "$docker_env"
+            echo "JIRA_API_TOKEN=" >> "$docker_env"  # BUG-286: PP-1 secret written to .env.secrets by persist_user_choices_to_env
             echo "JIRA_PROJECTS='$(format_jira_projects_json "${JIRA_PROJECTS:-}")'" >> "$docker_env"
             echo "JIRA_SYNC_DELAY_MS=100" >> "$docker_env"
             log_debug "Added Jira configuration to .env"
@@ -2347,7 +2526,7 @@ configure_environment() {
             echo "" >> "$docker_env"
             echo "# GitHub Integration (added by installer)" >> "$docker_env"
             echo "GITHUB_SYNC_ENABLED=$GITHUB_SYNC_ENABLED" >> "$docker_env"
-            echo "GITHUB_TOKEN=$GITHUB_TOKEN" >> "$docker_env"
+            echo "GITHUB_TOKEN=" >> "$docker_env"  # BUG-286: PP-1 secret written to .env.secrets by persist_user_choices_to_env
             echo "GITHUB_REPO=$GITHUB_REPO" >> "$docker_env"
             echo "GITHUB_SYNC_INTERVAL=${GITHUB_SYNC_INTERVAL:-1800}" >> "$docker_env"
             echo "GITHUB_BRANCH=${GITHUB_BRANCH:-main}" >> "$docker_env"
@@ -2380,6 +2559,26 @@ configure_environment() {
                 log_debug "Using folder name as project ID: $PROJECT_NAME"
             fi
             log_debug "Added AI_MEMORY_PROJECT_ID=$PROJECT_NAME to .env"
+        fi
+
+        # ENV-MANAGEMENT-V2 §3.1 Phase 3: per-project env overlay for multi-project installs.
+        # Compose reads ${PROJECT_ENV_FILE:-/dev/null} as a third env_file: layer.
+        # If this project has a named projects.d entry, point PROJECT_ENV_FILE there.
+        # (B-Q7 Option A: installer writes path; Compose uses /dev/null if unset.)
+        if [[ -n "${PROJECT_NAME:-}" ]]; then
+            local _safe_proj
+            _safe_proj=$(echo "$PROJECT_NAME" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
+            local _proj_env_dir="$INSTALL_DIR/projects.d/${_safe_proj}"
+            local _proj_env_file="$_proj_env_dir/.env"
+            if [[ -f "$_proj_env_file" ]]; then
+                # Per-project .env exists — write path into docker/.env so Compose can find it
+                if grep -q "^PROJECT_ENV_FILE=" "$docker_env" 2>/dev/null; then
+                    sed -i.bak "s|^PROJECT_ENV_FILE=.*|PROJECT_ENV_FILE=${_proj_env_file}|" "$docker_env" && rm -f "$docker_env.bak"
+                else
+                    echo "PROJECT_ENV_FILE=${_proj_env_file}" >> "$docker_env"
+                fi
+                log_debug "Set PROJECT_ENV_FILE=${_proj_env_file} for multi-project env layering"
+            fi
         fi
 
         # BUG-241: Write installer metadata if not already present
@@ -2480,36 +2679,44 @@ EOF
     # Uses Python secrets module for cryptographically secure random values
     local _gen_secret="import secrets; print(secrets.token_urlsafe(18))"
 
-    if ! grep -q "^QDRANT_API_KEY=.\+" "$docker_env" 2>/dev/null || grep -q "^QDRANT_API_KEY=changeme$" "$docker_env" 2>/dev/null; then
+    # BUG-277 fix (R2.2): Write QDRANT_API_KEY to .env.secrets (PP-2 move).
+    # Guard checks both files: skip if already present in secrets_file (idempotence).
+    if { ! grep -q "^QDRANT_API_KEY=.\+" "$docker_env" 2>/dev/null && \
+         ! grep -q "^QDRANT_API_KEY=.\+" "$secrets_file" 2>/dev/null; } || \
+       grep -q "^QDRANT_API_KEY=changeme$" "$docker_env" 2>/dev/null; then
         # Prefer environment variable (e.g., CI sets QDRANT_API_KEY=test-ci-key)
         local gen_key="${QDRANT_API_KEY:-}"
         if [[ -z "$gen_key" ]]; then
             gen_key=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret") || { log_error "Failed to generate secret"; exit 1; }
         fi
         if [[ -n "$gen_key" ]]; then
-            if grep -q "^QDRANT_API_KEY=" "$docker_env" 2>/dev/null; then
-                sed -i.bak "s|^QDRANT_API_KEY=.*|QDRANT_API_KEY=$gen_key|" "$docker_env" && rm -f "$docker_env.bak"
-            else
-                echo "QDRANT_API_KEY=$gen_key" >> "$docker_env"
-            fi
-            if [[ -n "${QDRANT_API_KEY:-}" ]]; then
-                log_success "Wrote QDRANT_API_KEY from environment to docker/.env"
-            else
-                log_success "Auto-generated QDRANT_API_KEY"
-            fi
+            write_secret_to_secrets_file "QDRANT_API_KEY" "$gen_key" "$secrets_file" \
+                || { log_error "Failed to write QDRANT_API_KEY to .env.secrets"; exit 1; }
+            _blank_key_in_env "QDRANT_API_KEY" "$docker_env"
         fi
     fi
 
-    if ! grep -q "^GRAFANA_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null || grep -q "^GRAFANA_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
+    # BUG-277 fix (R2.7): Generate QDRANT_READ_ONLY_API_KEY (PP-2 per BP-154 §13 Q1 accepted default).
+    # Enforcing read-only separation is only useful if the key actually exists.
+    if ! grep -q "^QDRANT_READ_ONLY_API_KEY=.\+" "$secrets_file" 2>/dev/null && \
+       ! grep -q "^QDRANT_READ_ONLY_API_KEY=.\+" "$docker_env" 2>/dev/null; then
+        local gen_rokey
+        gen_rokey=$(openssl rand -hex 32) || { log_error "Failed to generate QDRANT_READ_ONLY_API_KEY"; exit 1; }
+        write_secret_to_secrets_file "QDRANT_READ_ONLY_API_KEY" "$gen_rokey" "$secrets_file" \
+            || { log_error "Failed to write QDRANT_READ_ONLY_API_KEY to .env.secrets"; exit 1; }
+        _blank_key_in_env "QDRANT_READ_ONLY_API_KEY" "$docker_env"
+    fi
+
+    # BUG-277 fix (R2.3): Write GRAFANA_ADMIN_PASSWORD to .env.secrets (PP-2 move).
+    if { ! grep -q "^GRAFANA_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null && \
+         ! grep -q "^GRAFANA_ADMIN_PASSWORD=.\+" "$secrets_file" 2>/dev/null; } || \
+       grep -q "^GRAFANA_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
         local gen_gf
         gen_gf=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret") || { log_error "Failed to generate secret"; exit 1; }
         if [[ -n "$gen_gf" ]]; then
-            if grep -q "^GRAFANA_ADMIN_PASSWORD=" "$docker_env" 2>/dev/null; then
-                sed -i.bak "s|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=$gen_gf|" "$docker_env" && rm -f "$docker_env.bak"
-            else
-                echo "GRAFANA_ADMIN_PASSWORD=$gen_gf" >> "$docker_env"
-            fi
-            log_success "Auto-generated GRAFANA_ADMIN_PASSWORD"
+            write_secret_to_secrets_file "GRAFANA_ADMIN_PASSWORD" "$gen_gf" "$secrets_file" \
+                || { log_error "Failed to write GRAFANA_ADMIN_PASSWORD to .env.secrets"; exit 1; }
+            _blank_key_in_env "GRAFANA_ADMIN_PASSWORD" "$docker_env"
         fi
     fi
 
@@ -2519,34 +2726,34 @@ EOF
         log_debug "Added SECURITY_SCAN_SESSION_MODE=relaxed to .env"
     fi
 
-    if ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null || grep -q "^PROMETHEUS_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
+    # BUG-277 fix (R2.4): Write PROMETHEUS_ADMIN_PASSWORD to .env.secrets (PP-2 move).
+    if { ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$docker_env" 2>/dev/null && \
+         ! grep -q "^PROMETHEUS_ADMIN_PASSWORD=.\+" "$secrets_file" 2>/dev/null; } || \
+       grep -q "^PROMETHEUS_ADMIN_PASSWORD=changeme$" "$docker_env" 2>/dev/null; then
         local gen_prom
         gen_prom=$("$INSTALL_DIR/.venv/bin/python" -c "$_gen_secret") || { log_error "Failed to generate secret"; exit 1; }
         if [[ -n "$gen_prom" ]]; then
-            if grep -q "^PROMETHEUS_ADMIN_PASSWORD=" "$docker_env" 2>/dev/null; then
-                sed -i.bak "s|^PROMETHEUS_ADMIN_PASSWORD=.*|PROMETHEUS_ADMIN_PASSWORD=$gen_prom|" "$docker_env" && rm -f "$docker_env.bak"
-            else
-                echo "PROMETHEUS_ADMIN_PASSWORD=$gen_prom" >> "$docker_env"
-            fi
-            log_success "Auto-generated PROMETHEUS_ADMIN_PASSWORD"
+            write_secret_to_secrets_file "PROMETHEUS_ADMIN_PASSWORD" "$gen_prom" "$secrets_file" \
+                || { log_error "Failed to write PROMETHEUS_ADMIN_PASSWORD to .env.secrets"; exit 1; }
+            _blank_key_in_env "PROMETHEUS_ADMIN_PASSWORD" "$docker_env"
         fi
     fi
 
-    if ! grep -q "^GRAFANA_SECRET_KEY=.\+" "$docker_env" 2>/dev/null || grep -q "^GRAFANA_SECRET_KEY=changeme$" "$docker_env" 2>/dev/null; then
+    # BUG-277 fix (R2.6): Write GRAFANA_SECRET_KEY to .env.secrets (PP-2 move).
+    if { ! grep -q "^GRAFANA_SECRET_KEY=.\+" "$docker_env" 2>/dev/null && \
+         ! grep -q "^GRAFANA_SECRET_KEY=.\+" "$secrets_file" 2>/dev/null; } || \
+       grep -q "^GRAFANA_SECRET_KEY=changeme$" "$docker_env" 2>/dev/null; then
         local gen_gsk
         gen_gsk=$("$INSTALL_DIR/.venv/bin/python" -c "import secrets; print(secrets.token_hex(32))") || { log_error "Failed to generate secret"; exit 1; }
         if [[ -n "$gen_gsk" ]]; then
-            if grep -q "^GRAFANA_SECRET_KEY=" "$docker_env" 2>/dev/null; then
-                sed -i.bak "s|^GRAFANA_SECRET_KEY=.*|GRAFANA_SECRET_KEY=$gen_gsk|" "$docker_env" && rm -f "$docker_env.bak"
-            else
-                echo "GRAFANA_SECRET_KEY=$gen_gsk" >> "$docker_env"
-            fi
-            log_success "Auto-generated GRAFANA_SECRET_KEY"
+            write_secret_to_secrets_file "GRAFANA_SECRET_KEY" "$gen_gsk" "$secrets_file" \
+                || { log_error "Failed to write GRAFANA_SECRET_KEY to .env.secrets"; exit 1; }
+            _blank_key_in_env "GRAFANA_SECRET_KEY" "$docker_env"
         fi
     fi
 
-    # Generate Prometheus healthcheck auth header from password
-    generate_prometheus_auth
+    # BUG-277 fix (R2.5): Generate Prometheus auth header; write to .env.secrets.
+    generate_prometheus_auth "$secrets_file"
 }
 
 # Post-dependency validation for external services (BP-053: Two-Phase Validation)
@@ -2605,13 +2812,15 @@ sys.exit(asyncio.run(validate()))
     fi
 }
 
-# Generate Prometheus basic auth configuration from PROMETHEUS_ADMIN_PASSWORD
+# Generate Prometheus basic auth configuration from PROMETHEUS_ADMIN_PASSWORD.
+# BUG-277 fix (R2.5): reads password from .env.secrets (PP-2 move); writes header to .env.secrets.
 generate_prometheus_auth() {
+    local secrets_file="${1:-$INSTALL_DIR/docker/.env.secrets}"
     local docker_env="$INSTALL_DIR/docker/.env"
 
-    # Read password from .env
+    # Read password from .env.secrets first (post-R2.4 location), fall through to .env
     local prometheus_password
-    prometheus_password=$(grep "^PROMETHEUS_ADMIN_PASSWORD=" "$docker_env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
+    prometheus_password=$(_read_env_key "PROMETHEUS_ADMIN_PASSWORD" "$secrets_file" "$docker_env")
 
     if [[ -z "$prometheus_password" ]]; then
         log_warning "PROMETHEUS_ADMIN_PASSWORD not set - Prometheus auth may not work"
@@ -2625,15 +2834,10 @@ generate_prometheus_auth() {
     # BUG-089: Generate Base64 auth header for Prometheus healthcheck
     local auth_header
     auth_header="Basic $(echo -n "admin:$prometheus_password" | base64)"
-    # Append or update in .env
-    if grep -q "^PROMETHEUS_BASIC_AUTH_HEADER=" "$docker_env" 2>/dev/null; then
-        sed -i.bak "s|^PROMETHEUS_BASIC_AUTH_HEADER=.*|PROMETHEUS_BASIC_AUTH_HEADER='$auth_header'|" "$docker_env" && rm -f "$docker_env.bak"
-    else
-        echo "" >> "$docker_env"
-        echo "# Prometheus healthcheck auth (auto-generated by install.sh)" >> "$docker_env"
-        echo "PROMETHEUS_BASIC_AUTH_HEADER='$auth_header'" >> "$docker_env"
-    fi
-    log_success "Generated Prometheus healthcheck auth header"
+    # Write to .env.secrets (PP-2); blank any value in .env
+    write_secret_to_secrets_file "PROMETHEUS_BASIC_AUTH_HEADER" "$auth_header" "$secrets_file" \
+        || { log_error "Failed to write PROMETHEUS_BASIC_AUTH_HEADER to .env.secrets"; exit 1; }
+    _blank_key_in_env "PROMETHEUS_BASIC_AUTH_HEADER" "$docker_env"
 }
 
 # Log Docker container state for debugging (P1: container disappearance diagnosis)
@@ -2656,6 +2860,20 @@ start_services() {
     cd "$INSTALL_DIR/docker" || {
         log_error "Failed to navigate to $INSTALL_DIR/docker"
         exit 1
+    }
+
+    # BUG-279: Wrap docker compose to always pass .env + .env.secrets as
+    # --env-file flags. Without .env.secrets, ${QDRANT_API_KEY} (and 28 other
+    # secret-class ${VAR} interpolations across docker-compose.yml +
+    # docker-compose.langfuse.yml) resolve to blank post-BUG-277 R3 migration,
+    # producing QDRANT__SERVICE__API_KEY="" in the container — Qdrant treats
+    # empty-string-set as configured-but-locked → 401 on all auth-required
+    # endpoints. Compose v2.21+ multi-env-file: last-file-wins per BP-154 §Q2.
+    # Mirrors stack.sh::_compose() pattern.
+    _compose() {
+        local _args=(--env-file .env)
+        [[ -f .env.secrets ]] && _args+=(--env-file .env.secrets)
+        docker compose "${_args[@]}" "$@"
     }
 
     # Check Docker daemon is reachable (BUG-094: works with Docker Engine, Desktop, Colima, etc.)
@@ -2702,16 +2920,20 @@ start_services() {
 
     # ── Phase 1: Pull ALL images first ──
     log_info "Pulling Docker images (this may take a few minutes)..."
-    docker compose $profile_flags pull
+    # BUG-279: _compose wrapper passes both --env-file flags
+    _compose $profile_flags pull
 
     # ── Phase 2: Start CORE services first (no --build, no profiles) ──
     # Qdrant uses a pre-built image (no build context). Embedding has a build
     # context but we build it separately to avoid memory pressure from building
     # multiple images simultaneously on low-RAM systems.
     log_info "Phase 1/2: Starting core services (qdrant + embedding)..."
-    docker compose up -d qdrant
-    docker compose build --no-cache embedding
-    docker compose up -d embedding
+    _compose up -d qdrant
+    _compose build --no-cache embedding
+    # BUG-289: --no-recreate prevents Compose from restarting an already-running
+    # embedding container mid-install, which would reset model_loaded to False and
+    # cause the github-sync depends_on healthcheck gate to briefly fail.
+    _compose up -d --no-recreate embedding
 
     _log_docker_state "after core startup"
 
@@ -2732,7 +2954,7 @@ start_services() {
     if [[ $core_attempt -ge $core_timeout ]]; then
         log_error "Qdrant failed to become healthy within ${core_timeout}s"
         _log_docker_state "qdrant timeout"
-        docker compose logs qdrant 2>&1 | tail -20 | while IFS= read -r line; do log_error "  $line"; done
+        _compose logs qdrant 2>&1 | tail -20 | while IFS= read -r line; do log_error "  $line"; done
         exit 1
     fi
 
@@ -2751,9 +2973,7 @@ start_services() {
     # readiness endpoint (/readyz); /collections requires a valid api-key header.
     # docker/.env is the CWD (start_services cd's there at the top).
     local _qdrant_auth_key=""
-    if [[ -f ".env" ]]; then
-        _qdrant_auth_key=$(grep '^QDRANT_API_KEY=' ".env" | head -1 | cut -d= -f2- | tr -d '"'"'" 2>/dev/null || true)
-    fi
+    _qdrant_auth_key=$(_read_env_key "QDRANT_API_KEY" ".env.secrets" ".env")
     if [[ -z "$_qdrant_auth_key" ]]; then
         log_warn "No QDRANT_API_KEY found in docker/.env — skipping auth verification"
     else
@@ -2789,8 +3009,9 @@ start_services() {
     if [[ -n "$profile_flags" ]]; then
         log_info "Phase 2/2: Starting profile services ($profile_flags)..."
         # BUG-079: --build forces rebuild of source-built containers
-        docker compose $profile_flags build --no-cache
-        docker compose $profile_flags up -d --no-recreate
+        # BUG-279: _compose wrapper passes both --env-file flags (defined at start_services top)
+        _compose $profile_flags build --no-cache
+        _compose $profile_flags up -d --no-recreate
         _log_docker_state "after profile startup"
 
         # Verify core services survived profile startup
@@ -2986,8 +3207,16 @@ wait_for_services() {
 setup_collections() {
     log_info "Setting up Qdrant collections..."
 
-    # Run the setup script
-    if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/setup-collections.py" 2>&1; then
+    # BUG-275 defense-in-depth: source both env files so setup-collections.py
+    # gets full env in the subshell. Pattern A in MemoryConfig is the primary fix;
+    # this subshell ensures env is available even if MemoryConfig path is bypassed.
+    # .env source filters UID/GID per BUG-273; .env.secrets has no UID/GID.
+    if (set -a
+        [ -f "$INSTALL_DIR/docker/.env" ] && \
+          source <(grep -v -E '^(UID|GID)=' "$INSTALL_DIR/docker/.env")
+        [ -f "$INSTALL_DIR/docker/.env.secrets" ] && \
+          source "$INSTALL_DIR/docker/.env.secrets"
+        "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/setup-collections.py" 2>&1); then
         log_success "Qdrant collections created (code-patterns, conventions, discussions, github, jira-data)"
     else
         log_error "Collection setup FAILED - re-run: $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/setup-collections.py"
@@ -3012,6 +3241,26 @@ copy_env_template() {
         fi
     else
         log_warning "Template docker/.env.example not found - skipping"
+    fi
+
+    # Deploy .env.secrets template for sensitive key split (BP-152 §3.4).
+    # .env.secrets is loaded as a second env_file: layer in docker-compose.yml (required: false).
+    # chmod 600 enforced — only the owner should read API keys and passwords.
+    local secrets_example="$SCRIPT_DIR/../docker/.env.secrets.example"
+    local secrets_dest="$INSTALL_DIR/docker/.env.secrets.example"
+    local secrets_live="$INSTALL_DIR/docker/.env.secrets"
+    if [ -f "$secrets_example" ]; then
+        cp "$secrets_example" "$secrets_dest"
+        log_debug "Secrets template copied to $secrets_dest"
+        if [ ! -f "$secrets_live" ]; then
+            cp "$secrets_example" "$secrets_live"
+            chmod 600 "$secrets_live" 2>/dev/null || log_warning "chmod 600 on .env.secrets failed — set permissions manually"
+            log_success "Created $secrets_live (chmod 600) — add sensitive API keys here"
+        else
+            log_debug "Existing docker/.env.secrets detected — preserving; verify permissions: chmod 600 $secrets_live"
+        fi
+    else
+        log_debug "docker/.env.secrets.example not found — skipping secrets template"
     fi
 }
 
@@ -3199,32 +3448,26 @@ configure_project_hooks() {
     #   - cut -d= -f2- captures everything after first = (base64 keys contain =)
     #   - tr -d removes quotes from .env values like QDRANT_API_KEY="value"
     #   - || echo "" prevents grep exit 1 from crashing under set -e
-    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
-        QDRANT_API_KEY=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
-        export QDRANT_API_KEY
-        if [[ -n "$QDRANT_API_KEY" ]]; then
-            log_debug "Loaded QDRANT_API_KEY from docker/.env (${#QDRANT_API_KEY} chars)"
-        else
-            log_warning "QDRANT_API_KEY not found or empty in docker/.env"
-        fi
+    QDRANT_API_KEY=$(_read_env_key "QDRANT_API_KEY" "$INSTALL_DIR/docker/.env.secrets" "$INSTALL_DIR/docker/.env")
+    export QDRANT_API_KEY
+    if [[ -n "$QDRANT_API_KEY" ]]; then
+        log_debug "Loaded QDRANT_API_KEY from docker/.env.secrets or docker/.env (${#QDRANT_API_KEY} chars)"
     else
-        log_warning "docker/.env not found - QDRANT_API_KEY will be empty"
+        log_warning "QDRANT_API_KEY not found or empty in docker/.env.secrets or docker/.env"
     fi
 
     # Export Langfuse vars if enabled, so generate_settings.py/merge_settings.py can inject them
     # Reads from shared docker/.env (needed in both full and add-project mode)
-    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
-        local langfuse_enabled_in_env
-        langfuse_enabled_in_env=$(grep "^LANGFUSE_ENABLED=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
-        if [[ "$langfuse_enabled_in_env" == "true" ]]; then
-            for _lf_var in LANGFUSE_ENABLED LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_BASE_URL LANGFUSE_TRACE_HOOKS LANGFUSE_TRACE_SESSIONS; do
-                local _lf_val
-                _lf_val=$(grep "^${_lf_var}=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
-                # Only export if value is non-empty; let generate_settings.py defaults apply otherwise
-                [[ -n "$_lf_val" ]] && export "${_lf_var}=${_lf_val}"
-            done
-            log_debug "Exported LANGFUSE_* env vars for settings generation"
-        fi
+    local langfuse_enabled_in_env
+    langfuse_enabled_in_env=$(_read_env_key "LANGFUSE_ENABLED" "$INSTALL_DIR/docker/.env.secrets" "$INSTALL_DIR/docker/.env")
+    if [[ "$langfuse_enabled_in_env" == "true" ]]; then
+        for _lf_var in LANGFUSE_ENABLED LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_BASE_URL LANGFUSE_TRACE_HOOKS LANGFUSE_TRACE_SESSIONS; do
+            local _lf_val
+            _lf_val=$(_read_env_key "$_lf_var" "$INSTALL_DIR/docker/.env.secrets" "$INSTALL_DIR/docker/.env")
+            # Only export if value is non-empty; let generate_settings.py defaults apply otherwise
+            [[ -n "$_lf_val" ]] && export "${_lf_var}=${_lf_val}"
+        done
+        log_debug "Exported LANGFUSE_* env vars for settings generation"
     fi
 
     # Check if project already has settings.json
@@ -3525,11 +3768,9 @@ print(f'✓ AI_MEMORY_PROJECT_ID set to: {project_id}')
 run_health_check() {
     log_info "Running health checks..."
 
-    # BUG-041: Export QDRANT_API_KEY from docker/.env for authenticated health check
-    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
-        QDRANT_API_KEY=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
-        export QDRANT_API_KEY
-    fi
+    # BUG-041: Export QDRANT_API_KEY for authenticated health check
+    QDRANT_API_KEY=$(_read_env_key "QDRANT_API_KEY" "$INSTALL_DIR/docker/.env.secrets" "$INSTALL_DIR/docker/.env")
+    export QDRANT_API_KEY
 
     # BUG-096: Must use venv Python (has httpx), not system python3 (doesn't)
     if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/health-check.py"; then
@@ -3679,22 +3920,17 @@ drain_pending_queue() {
     count=$(wc -l < "$queue_file" 2>/dev/null || echo "0")
     log_debug "Processing $count queued events..."
 
-    # Run in subshell to contain venv activation and env sourcing
-    (
-        # Source docker/.env for Qdrant connection settings
-        if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
-            set -a
-            source "$INSTALL_DIR/docker/.env"
-            set +a
-        fi
-
-        # Activate venv for Python dependencies
-        if [[ -f "$INSTALL_DIR/.venv/bin/activate" ]]; then
-            # shellcheck disable=SC1091
-            source "$INSTALL_DIR/.venv/bin/activate"
-        fi
-
-        python3 "$INSTALL_DIR/scripts/memory/process_retry_queue.py"
+    # Run in subshell to contain env sourcing; mirrors setup_collections dual-source pattern.
+    # W1-F1 defense-in-depth: source .env.secrets so PP-2 keys are available if accessed directly
+    # in future scripts. process_retry_queue.py currently uses MemoryStorage/MemoryConfig (safe);
+    # this fix ensures pattern consistency with setup_collections (W1-F1 / W1-F2 RESOLVED).
+    (   set -a
+        # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
+        [ -f "$INSTALL_DIR/docker/.env" ] && \
+          source <(grep -v -E '^(UID|GID)=' "$INSTALL_DIR/docker/.env")
+        [ -f "$INSTALL_DIR/docker/.env.secrets" ] && \
+          source "$INSTALL_DIR/docker/.env.secrets"
+        "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/memory/process_retry_queue.py"
     ) 2>&1 | tee -a "$INSTALL_LOG" || {
         log_warning "Queue drain completed with errors (non-fatal)"
     }
@@ -3718,9 +3954,20 @@ setup_github_indexes() {
     log_debug "Creating GitHub payload indexes on discussions collection..."
 
     local result rc=0
-    # BUG-098: Source .env so pydantic MemoryConfig reads env vars even when
-    # env_file=".env" doesn't resolve (CWD is docker/ but pydantic may not find it)
-    result=$(cd "$INSTALL_DIR/docker" && [[ -f .env ]] || { echo "FAILED: docker/.env not found"; exit 1; } && set -a && source .env && set +a && "$INSTALL_DIR/.venv/bin/python" -c "
+    # BUG-098: Source both env files so pydantic MemoryConfig reads env vars even when
+    # env_file=".env" doesn't resolve (CWD is docker/ but pydantic may not find it).
+    # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly.
+    # W1-F1: also source .env.secrets so PP-2 keys (QDRANT_API_KEY) are available in subshell;
+    # mirrors setup_collections dual-source pattern (BUG-292 fix).
+    result=$(
+        cd "$INSTALL_DIR/docker" || { echo "FAILED: cannot enter $INSTALL_DIR/docker"; exit 1; }
+        [[ -f .env ]] || { echo "FAILED: docker/.env not found"; exit 1; }
+        set -a
+        # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
+        source <(grep -v -E '^(UID|GID)=' .env)
+        [ -f "$INSTALL_DIR/docker/.env.secrets" ] && \
+          source "$INSTALL_DIR/docker/.env.secrets"
+        "$INSTALL_DIR/.venv/bin/python" -c "
 import sys
 sys.path.insert(0, '$INSTALL_DIR/src')
 from memory.qdrant_client import get_qdrant_client
@@ -3730,7 +3977,8 @@ counts = create_github_indexes(client)
 created = counts.get('created', 0)
 existing = counts.get('skipped', 0)
 print(f'OK: {created} created, {existing} already existed')
-" 2>&1) || rc=$?
+" 2>&1
+    ) || rc=$?
     if [[ $rc -ne 0 || -z "$result" ]]; then
         result="FAILED (exit=$rc): ${result:-no output}"
     fi
@@ -3756,8 +4004,19 @@ run_initial_github_sync() {
         # and other env vars — .env is at docker/.env but CWD is $INSTALL_DIR
         # BUG-117: --no-code-blobs skips code blob sync during install; the github-sync
         # service container handles code blobs automatically on startup (GITHUB_SYNC_ON_START=true)
+        # W1-F1: also source docker/.env.secrets so PP-1/PP-2 keys available in subshell;
+        # mirrors setup_collections dual-source pattern (BUG-292 fix).
         local exit_code=0
-        (cd "$INSTALL_DIR" && [[ -f docker/.env ]] || { echo "[ERROR] docker/.env not found"; exit 1; } && set -a && source docker/.env && set +a && ".venv/bin/python" "scripts/github_sync.py" --full --no-code-blobs) 2>&1 | tee "$INSTALL_DIR/logs/github_initial_sync.log"
+        (
+            cd "$INSTALL_DIR" || { echo "FAILED: cannot enter $INSTALL_DIR"; exit 1; }
+            [[ -f docker/.env ]] || { echo "FAILED: docker/.env not found"; exit 1; }
+            set -a
+            # BUG-273: filter readonly bash built-ins UID/GID before sourcing; Compose reads them directly
+            source <(grep -v -E '^(UID|GID)=' docker/.env)
+            [ -f docker/.env.secrets ] && \
+              source docker/.env.secrets
+            ".venv/bin/python" "scripts/github_sync.py" --full --no-code-blobs
+        ) 2>&1 | tee "$INSTALL_DIR/logs/github_initial_sync.log"
         exit_code=${PIPESTATUS[0]}
 
         case $exit_code in
@@ -3768,7 +4027,7 @@ run_initial_github_sync() {
             *)
                 GITHUB_SYNC_STATUS="error"
                 log_warning "Initial sync had errors (exit code: $exit_code) — check $INSTALL_DIR/logs/github_initial_sync.log"
-                log_info "Re-run manually: cd $INSTALL_DIR && set -a && source docker/.env && set +a && .venv/bin/python scripts/github_sync.py --full"
+                log_info "Re-run manually: cd $INSTALL_DIR && set -a && source <(grep -v -E '^(UID|GID)=' docker/.env) && [ -f docker/.env.secrets ] && source docker/.env.secrets && set +a && .venv/bin/python scripts/github_sync.py --full"
                 ;;
         esac
     fi
@@ -4166,8 +4425,18 @@ deploy_parzival_v2() {
         log_debug "Preserved _memory/ user data for restore"
     fi
 
+    # Preserve sanctum/ per-instance identity on update (installer-audit.md §E2)
+    # PID-suffixed path prevents race conditions with parallel installs
+    local sanctum_backup="$INSTALL_DIR/.parzival-sanctum-backup-$$"
+    rm -rf "$sanctum_backup" 2>/dev/null || true
+    if [[ -d "$dst/sanctum" ]]; then
+        mkdir -p "$sanctum_backup"
+        cp -r "$dst/sanctum" "$sanctum_backup/"
+        log_debug "Preserved sanctum/ user identity for restore"
+    fi
+
     # Clean destination to remove stale files (R1-Finding-4)
-    # _memory/ is already backed up above
+    # _memory/ and sanctum/ are already backed up above
     if [[ -d "$dst" ]]; then
         rm -rf "$dst"
     fi
@@ -4196,6 +4465,41 @@ deploy_parzival_v2() {
         rm -rf "$mem_backup"
         log_debug "Restored user-created _memory/ files"
     fi
+
+    # Restore per-instance sanctum/ identity files (parzival-answers.md DQ-1)
+    # Only restores files NOT present in the fresh template (user/instance-created content only)
+    if [[ -d "$sanctum_backup/sanctum" ]]; then
+        while IFS= read -r -d '' user_file; do
+            local rel="${user_file#$sanctum_backup/sanctum/}"
+            local template_file="$dst/sanctum/$rel"
+            if [[ ! -f "$template_file" ]]; then
+                local target_dir
+                target_dir=$(dirname "$dst/sanctum/$rel")
+                mkdir -p "$target_dir"
+                cp "$user_file" "$dst/sanctum/$rel"
+            fi
+        done < <(find "$sanctum_backup/sanctum" -type f -print0 2>/dev/null)
+        log_debug "Restored per-instance sanctum/ identity files"
+    fi
+
+    # Merge preserved CREED.md frontmatter fields (parzival-answers.md DQ-3 (a))
+    # Preserved fields: sessions_completed, last_session, updated, tier_promoted_on
+    # Static identity fields come from new template
+    # F-M2 fix: helper path injectable for failure-mode regression test
+    local _creed_merge_script="${CREED_MERGE_SCRIPT:-$SCRIPT_DIR/_merge_sanctum_creed_frontmatter.py}"
+    if [[ -f "$sanctum_backup/sanctum/parzival/CREED.md" ]]; then
+        if python3 "$_creed_merge_script" \
+                "$sanctum_backup/sanctum/parzival/CREED.md" \
+                "$dst/sanctum/parzival/CREED.md"; then
+            log_debug "Merged CREED.md frontmatter from backup"
+        else
+            local merge_rc=$?
+            log_error "CREED frontmatter merge failed (rc=$merge_rc) — restoring backup CREED.md verbatim to preserve user identity"
+            cp "$sanctum_backup/sanctum/parzival/CREED.md" "$dst/sanctum/parzival/CREED.md"
+        fi
+    fi
+
+    rm -rf "$sanctum_backup" 2>/dev/null || true
 
     local file_count
     file_count=$(find "$dst" -type f | wc -l)
@@ -4728,10 +5032,8 @@ set_env_value() {
 
 create_agent_id_index() {
     local qdrant_url="http://localhost:${QDRANT_PORT:-26350}"
-    local api_key=""
-    if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
-        api_key=$(grep "^QDRANT_API_KEY=" "$INSTALL_DIR/docker/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'"'" || echo "")
-    fi
+    local api_key
+    api_key=$(_read_env_key "QDRANT_API_KEY" "$INSTALL_DIR/docker/.env.secrets" "$INSTALL_DIR/docker/.env")
 
     log_debug "Creating agent_id payload index on discussions collection..."
 

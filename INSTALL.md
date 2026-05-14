@@ -634,6 +634,22 @@ python scripts/migrate_v205_to_v206.py
 - Existing hooks are updated automatically by the installer
 - New skills available immediately after upgrade
 
+### Upgrading to v2.4.0
+
+v2.4.0 moves secret-class credentials from `docker/.env` to `docker/.env.secrets`
+(chmod 600). The installer performs this migration automatically when upgrading from
+v2.3.x — existing auto-generated secrets (Qdrant, Grafana, Prometheus, Langfuse) are
+moved to `.env.secrets` and blanked in `.env` via an atomic write-verify step.
+
+If you roll back to v2.3.x, re-run the installer; it will regenerate auto-generated
+credentials and re-prompt for user-supplied tokens (GITHUB_TOKEN, JIRA_API_TOKEN).
+No manual migration is required.
+
+To verify the split after upgrading:
+```bash
+python ~/.ai-memory/scripts/verify_env_split.py --install-dir ~/.ai-memory
+```
+
 ### Version Check
 
 To verify your installed version:

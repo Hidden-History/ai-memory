@@ -12,44 +12,19 @@ nextStepFile: './step-07-readiness-check.md'
 
 After architecture is approved by Parzival, define the epic/story structure requirements and dispatch the PM via the agent-dispatch cycle to break down the PRD into epics and stories. Stories must be informed by architecture decisions -- this is why epics come after architecture, not before.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on preparing the PM instruction with both PRD and architecture as mandatory inputs
-- 🚫 FORBIDDEN to dispatch PM without providing architecture.md as input
-- 💬 Approach: Stories must reference architecture decisions — never create stories in isolation from architecture
-- 📋 Parzival reviews epics/stories before proceeding — PM output is not self-approving
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Prepare PM instruction with full story requirements including technical context from architecture
-- 💾 Receive epics/stories and hold for Parzival review before proceeding
-- 📖 Load next step only after epics and stories pass Parzival review
-- 🚫 FORBIDDEN to proceed with stories that span component boundaries or lack technical context
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: PRD.md, architecture.md (approved by Parzival), UX design artifacts (if created)
 - Focus: PM epics/stories dispatch and Parzival review — architecture decisions determine work breakdown
 - Limits: PM creates epics/stories. Parzival reviews them. Architecture decisions determine how work is broken down.
 - Dependencies: Step 5 complete — user has approved architecture with no more changes
+
+- Focus on preparing the PM instruction with both PRD and architecture as mandatory inputs
+**Behavioral Constraints:**
+- FORBIDDEN to dispatch PM without providing architecture.md as input
+- Approach: Stories must reference architecture decisions — never create stories in isolation from architecture
+- Parzival reviews epics/stories before proceeding — PM output is not self-approving
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -113,24 +88,3 @@ If stories need correction, send specific issues per story via {workflows_path}/
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when epics and stories pass Parzival's review, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- PM received both PRD and architecture as inputs
-- Stories reference architecture decisions for technical context
-- Every PRD Must Have feature has a story
-- Stories do not span component boundaries
-- Parzival reviewed before proceeding
-
-### ❌ SYSTEM FAILURE:
-
-- Writing stories without architecture as input
-- Stories that span component boundaries
-- PRD features without corresponding stories
-- PM dispatched without architecture.md
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

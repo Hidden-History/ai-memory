@@ -12,44 +12,19 @@ nextStepFile: './step-04-rollback-plan.md'
 
 Build a step-by-step deployment guide specific to this release. Not a generic deployment guide -- specific to the changes in this release, including database migrations, configuration changes, and post-deployment verification.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on building a release-specific, executable deployment guide
-- 🚫 FORBIDDEN to produce a generic deployment guide not specific to this release
-- 💬 Approach: Every step must have a specific action, exact command, and expected result
-- 📋 Rollback trigger conditions must be explicitly defined
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Build deployment checklist specific to this release's changes
-- 💾 Record complete checklist with all sections before proceeding
-- 📖 Load next step only after complete deployment checklist is produced
-- 🚫 FORBIDDEN to proceed without rollback trigger conditions defined
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: Release summary, architecture.md deployment section
 - Focus: Deployment checklist creation — specific to this release
 - Limits: Steps must be specific and executable. Parzival builds this.
 - Dependencies: Release summary from Step 1
+
+- Focus on building a release-specific, executable deployment guide
+**Behavioral Constraints:**
+- FORBIDDEN to produce a generic deployment guide not specific to this release
+- Approach: Every step must have a specific action, exact command, and expected result
+- Rollback trigger conditions must be explicitly defined
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -115,23 +90,3 @@ Each step with:
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the deployment checklist is complete, load and read fully `{nextStepFile}`
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Checklist is specific to this release
-- Database steps account for all migrations
-- Post-deployment verification is meaningful
-- Rollback triggers are defined
-
-### ❌ SYSTEM FAILURE:
-
-- Generic deployment guide
-- Missing database migration steps
-- Vague verification ("check it works")
-- No rollback triggers defined
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

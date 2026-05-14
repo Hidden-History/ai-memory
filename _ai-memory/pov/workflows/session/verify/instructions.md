@@ -2,6 +2,7 @@
 name: 'session-verify-instructions'
 description: 'Verification protocol: determine type, select template, run checks, present pass/fail report'
 ---
+> **Note**: This file is a BMAD module summary. The authoritative execution path is `workflow.md` → step files (firstStep/nextStepFile chain). If this summary conflicts with step file content, the step files are canonical.
 
 # session-verify — Instructions
 

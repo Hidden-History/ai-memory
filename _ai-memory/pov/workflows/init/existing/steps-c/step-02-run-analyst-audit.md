@@ -12,44 +12,19 @@ nextStepFile: './step-03-identify-branch.md'
 
 After reading all available files, activate the Analyst agent via {workflows_path}/cycles/agent-dispatch/workflow.md to audit the actual codebase state. The audit verifies documentation against reality and produces a comprehensive picture of the current project state.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
 
-### Universal Rules:
-
-- 🛑 NEVER take action without verifying against project files first
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 📋 YOU ARE AN OVERSIGHT AGENT, not an implementer
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Parzival — Technical PM & Quality Gatekeeper
-- ✅ Maintain confidence levels on all claims (Verified/Informed/Inferred/Uncertain/Unknown)
-- ✅ Parzival recommends, the user decides
-- ✅ All implementation is delegated through the execution pipeline
-- ✅ Maintain professional advisory tone throughout
-
-### Step-Specific Rules:
-
-- 🎯 Focus on dispatching and reviewing the Analyst audit — not doing the audit yourself
-- 🚫 FORBIDDEN to skip the agent-dispatch workflow or bypass Parzival review of output
-- 💬 Approach: Prepare precise instructions, dispatch via agent-dispatch, review output adversarially
-- 📋 All six audit areas must be covered with specific findings before proceeding
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Prepare audit instruction covering all six areas, dispatch via agent-dispatch workflow
-- 💾 Compile combined assessment merging Step 1 reading with Analyst findings
-- 📖 Load next step only after Analyst audit is complete and reviewed by Parzival
-- 🚫 FORBIDDEN to accept vague findings — request specifics if incomplete
-
-## CONTEXT BOUNDARIES:
-
+**Scope:**
 - Available context: All findings from Step 1, the existing project codebase
 - Focus: Dispatching Analyst audit and reviewing output — not conducting the audit yourself
 - Limits: The Analyst audits only — no modifications. Parzival reviews the audit output for completeness before proceeding.
 - Dependencies: Step 1 reading findings must be complete before Analyst dispatch
+
+- Focus on dispatching and reviewing the Analyst audit — not doing the audit yourself
+**Behavioral Constraints:**
+- FORBIDDEN to skip the agent-dispatch workflow or bypass Parzival review of output
+- Approach: Prepare precise instructions, dispatch via agent-dispatch, review output adversarially
+- All six audit areas must be covered with specific findings before proceeding
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
@@ -99,24 +74,3 @@ Merge Parzival's own reading findings (Step 1) with Analyst audit results into a
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when the Analyst audit is complete and reviewed by Parzival, load and read fully {nextStepFile}
-
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Analyst was dispatched through the agent-dispatch workflow (not directly)
-- All six audit areas are covered with specific findings
-- Documentation vs. reality discrepancies are explicitly identified
-- Parzival reviewed the audit output before proceeding
-- Combined assessment merges Step 1 reading with Analyst findings
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping the Analyst audit to save time
-- Accepting vague audit findings without requesting specifics
-- Not reviewing the audit output before proceeding
-- Activating the Analyst without using agent-dispatch workflow
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

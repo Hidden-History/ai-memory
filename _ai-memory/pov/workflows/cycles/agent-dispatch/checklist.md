@@ -2,6 +2,7 @@
 name: 'cycles-agent-dispatch-checklist'
 description: 'Quality gate rubric for cycles-agent-dispatch'
 ---
+> **Note**: This file is a BMAD module quality gate summary. The authoritative execution path is `workflow.md` → step files. If this checklist conflicts with step file content, the step files are canonical.
 
 # Cycles Agent Dispatch — Validation Checklist
 
@@ -19,7 +20,7 @@ description: 'Quality gate rubric for cycles-agent-dispatch'
 - [ ] DONE WHEN criteria are specific and measurable
 - [ ] Instruction is unambiguous
 
-### Step 2: Create Team (step-02-create-team)
+### Step 2: Spawn Agent (step-02-spawn-agent)
 - [ ] Team is created or confirmed active
 - [ ] Correct teammate is spawned for the task
 - [ ] Teammate has fresh context (no contamination from prior tasks)
@@ -34,11 +35,9 @@ description: 'Quality gate rubric for cycles-agent-dispatch'
 - [ ] Clean state confirmed (no prior context)
 
 ### Step 4: Send Instruction (step-04-send-instruction)
-- [ ] Complete instruction sent without modification
-- [ ] No conversational preamble added
-- [ ] Instruction sent exactly once
-- [ ] Agent acknowledged receipt
-- [ ] Clarification requests handled with citations
+- [ ] **Generic agents:** Complete instruction sent without modification; no preamble; once only; agent acknowledged receipt
+- [ ] **BMAD skill-driven agents:** First SendMessage is recommendation request (TASK + minimal context + "what do you recommend and why?"); recommendation received before proceeding
+- [ ] Clarification requests handled with citations, never guessed
 
 ### Step 5: Monitor Progress (step-05-monitor-progress)
 - [ ] Progress tracked via idle notifications and TaskList
@@ -92,11 +91,14 @@ description: 'Quality gate rubric for cycles-agent-dispatch'
 - [ ] Did NOT: Failing to handle missing CLAUDE_CODE_TASK_LIST_ID gracefully
 - [ ] Did NOT activate wrong agent
 - [ ] Did NOT send instruction before verifying activation
-- [ ] Did NOT abbreviate or summarize the instruction before sending
-- [ ] Did NOT add casual preamble to the instruction
+- [ ] Did NOT send full template instruction to a BMAD skill-driven agent (use lightweight recommendation-request form)
+- [ ] Did NOT ask BMAD agent to "state your planned approach" (ask "what do you recommend and why?" instead)
+- [ ] Did NOT abbreviate or modify the full instruction for generic agents
+- [ ] Did NOT add casual preamble to the instruction (generic agents)
 - [ ] Did NOT re-send instruction while agent was working
+- [ ] Did NOT pre-read the dispatched agent's skill or workflow files
 - [ ] Did NOT: Guessing clarifications instead of checking project files
-- [ ] Did NOT: Not waiting for agent acknowledgment
+- [ ] Did NOT: Not waiting for agent acknowledgment or recommendation (per agent type)
 - [ ] Did NOT miss out-of-scope work
 - [ ] Did NOT interrupt normal agent progress
 - [ ] Did NOT: Not monitoring agent progress

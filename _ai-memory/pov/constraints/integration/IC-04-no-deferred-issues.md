@@ -53,6 +53,10 @@ PARZIVAL ENFORCES:
 - Deferring issues because they are LOW priority or "were always there"
 - Parzival unilaterally deferring any issue
 
+## Cross-Reference
+
+RC-07 (Integration Must Have Passed Before Release Begins) is the downstream sequencing gate for this constraint: IC-04 ensures zero deferred issues exit integration; RC-07 ensures that passed integration gate is a prerequisite before Release begins.
+
 ## Enforcement
 
 Parzival self-checks at every 10-message interval: "Are all integration issues being fixed (none silently deferred)?"
