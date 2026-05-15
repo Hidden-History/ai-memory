@@ -419,7 +419,9 @@ def test_bug301_consumer_pipeline_rejection_path__no_attribute_error(
        greedy_meta.fallback_signaled is False (empty results → nothing for greedy
        to reject via budget).
     4. Consumer grouping loop (handoffs / decisions / insights / github) runs on
-       selected=[] without AttributeError — the exact crash site from BUG-301.
+       selected=[] without AttributeError. The true crash occurred inside
+       select_results_greedy when the un-unpacked 2-tuple was passed as results;
+       the negative sub-test below demonstrates this directly.
 
     Production-size fixture: 40 chunks / ~5,320 tokens (Session 47-class, same
     as cases a-d). Ceiling override: 2500 tokens to force L1 ceiling rejection so
@@ -490,21 +492,25 @@ def test_bug301_consumer_pipeline_rejection_path__no_attribute_error(
         "even when greedy_meta.fallback_signaled=False (empty results → nothing to reject)."
     )
 
-    # Step 4: Consumer grouping loop on selected=[] must not raise AttributeError.
-    # This is the exact crash site from BUG-301: .get() called on a non-dict element
-    # when the old consumer passed the raw (list, dict) tuple as the results argument.
-    try:
-        handoffs = [r for r in selected if r.get("type") == "agent_handoff"]
-        decisions = [
-            r for r in selected if r.get("type") in ("decision", "agent_memory")
-        ]
-        insights = [r for r in selected if r.get("type") == "agent_insight"]
-        github = [r for r in selected if r.get("type", "").startswith("github_")]
-    except AttributeError as exc:
-        pytest.fail(
-            f"BUG-301 regression: consumer grouping loop raised AttributeError: {exc}. "
-            f"results={results!r}, selected={selected!r}"
-        )
+    # Negative sub-test: prove the pre-v2.4.0 buggy consumer pattern raises
+    # AttributeError. The old SKILL.md assigned the whole 2-tuple to `results`
+    # without unpacking, then iterated it. Iterating (list, dict) yields the
+    # results list as the first element; calling .get() on a list raises:
+    #   AttributeError: 'list' object has no attribute 'get'
+    # This is the true crash mechanism — inside select_results_greedy's
+    # `for result in results` loop when handed the un-unpacked tuple.
+    buggy_consumer_input = retrieve_result  # raw 2-tuple — pre-fix consumer pattern
+    with pytest.raises(AttributeError, match="'list' object has no attribute 'get'"):
+        _ = [r for r in buggy_consumer_input if r.get("type") == "agent_handoff"]
+
+    # Step 4: Consumer grouping loop on selected=[] completes without AttributeError.
+    # The crash (demonstrated by the negative sub-test above) occurred in
+    # select_results_greedy, not here. This postcondition confirms the correct
+    # consumer pattern produces the expected empty groups.
+    handoffs = [r for r in selected if r.get("type") == "agent_handoff"]
+    decisions = [r for r in selected if r.get("type") in ("decision", "agent_memory")]
+    insights = [r for r in selected if r.get("type") == "agent_insight"]
+    github = [r for r in selected if r.get("type", "").startswith("github_")]
 
     # All groups empty when selected=[] (ceiling rejection leaves nothing to group)
     assert handoffs == [] and decisions == [] and insights == [] and github == []
