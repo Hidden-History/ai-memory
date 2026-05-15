@@ -10,7 +10,7 @@ to end against a real Qdrant instance, using a production-shape collection:
   so the snapshot exercises the multi-chunk download path rather than a
   toy fixture (per the realistic-size production-artifact testing rule).
 
-Two scenarios:
+Four scenarios:
 
 1. ``test_round_trip_fresh_install`` — back up, delete the collection, then
    restore via the real ``restore_qdrant.py`` CLI. Asserts byte-equivalent
@@ -20,9 +20,22 @@ Two scenarios:
    restores).
 
 2. ``test_rollback_preserves_existing_on_failure`` — back up, mutate the
-   live collection, then run a restore that fails mid-flight. Asserts the
-   pre-existing collection is rolled back to exactly its mutated state
-   (TD-517 R-6).
+   live collection, then run a restore that fails *after* a successful
+   snapshot recover (the failure is injected via a tampered manifest point
+   count so the post-recover R-5 verify fails). Asserts the pre-existing
+   collection is rolled back to exactly its mutated state — the genuine
+   TD-517 R-6 guard, since at the failure point the live collection has
+   already been overwritten by the backup.
+
+3. ``test_restore_force_over_populated_collection`` — back up, mutate the
+   live collection to a larger count, then ``restore --force`` over it.
+   Asserts the collection returns to the backed-up count and content — the
+   most common operator path (existing-target success, TD-517 R-2/R-3/R-5).
+
+4. ``test_restore_target_name_over_existing`` — back up one collection and
+   restore it over a *different* pre-existing collection via ``--target-name``
+   (TD-517 R-7), exercising the target-name redirect on the existing-target
+   path and the disk pre-flight loop.
 
 Requirements: a reachable Qdrant at ``QDRANT_URL`` (default
 ``http://localhost:26350``). Marked ``integration`` automatically by
@@ -354,7 +367,22 @@ def test_round_trip_fresh_install(tmp_path: Path) -> None:
 
 
 def test_rollback_preserves_existing_on_failure(tmp_path: Path) -> None:
-    """A restore that fails mid-flight rolls a pre-existing collection back (R-6)."""
+    """A restore that fails AFTER a successful recover rolls the pre-existing
+    collection back to its exact prior state (TD-517 R-6).
+
+    The failure is injected *after* ``recover_collection`` has already
+    overwritten the live collection — by tampering the manifest's recorded
+    point count so the post-recover R-5 count verify fails. This is what makes
+    the test a genuine R-6 guard: at the point of failure the live collection
+    has been replaced by the backup's POINT_COUNT points, so a working
+    rollback must restore it to the mutated state, while a no-op rollback
+    leaves it at POINT_COUNT. The final count assertion therefore
+    discriminates a working rollback from a broken one.
+
+    (An earlier revision corrupted the snapshot file, which failed the restore
+    at ``upload_snapshot`` — before any collection mutation — so its assertion
+    passed whether or not rollback worked.)
+    """
     collection = f"test_backup_restore_rb_{uuid.uuid4().hex[:8]}"
     output_dir = tmp_path / "backup_out"
     output_dir.mkdir()
@@ -365,28 +393,43 @@ def test_rollback_preserves_existing_on_failure(tmp_path: Path) -> None:
         _insert_points(collection, POINT_COUNT, "backup")
         backup_dir = _run_backup(collection, output_dir)
 
-        # Mutate the live collection AFTER backup so its state is distinct.
+        # Mutate the live collection AFTER backup so its state is distinct
+        # from the backup. This mutated state is what a correct rollback must
+        # restore.
         mutated_total = POINT_COUNT + 30
         _insert_points(collection, mutated_total, "mutated")
         assert _count(collection) == mutated_total
 
-        # Corrupt the snapshot so the upload fails after the rollback snapshot
-        # is taken. --skip-checksum-verify lets the corrupt file reach upload.
-        snapshot = next((backup_dir / "qdrant").glob("*.snapshot"))
-        snapshot.write_bytes(b"corrupted-not-a-real-snapshot")
+        # Inject the failure AFTER recover: tamper the manifest's recorded
+        # point count so the post-recover R-5 verify fails. recover_collection
+        # still runs and overwrites the live collection with the backup's
+        # POINT_COUNT points; the count mismatch then triggers _do_rollback
+        # and exit 4.
+        manifest_path = backup_dir / "manifest.json"
+        manifest_data = json.loads(manifest_path.read_text())
+        tampered_records = POINT_COUNT + 500  # deliberately != the real count
+        manifest_data["collections"][collection]["records"] = tampered_records
+        manifest_path.write_text(json.dumps(manifest_data, indent=2))
 
-        proc = _run_restore(backup_dir, ["--force", "--skip-checksum-verify"])
+        # --skip-checksum-verify: the manifest edit invalidates
+        # CHECKSUMS.sha256; checksum drift is orthogonal to the rollback path
+        # under test and would otherwise abort before recover ever runs.
+        proc = _run_restore(
+            backup_dir,
+            ["--collection", collection, "--force", "--skip-checksum-verify"],
+        )
         assert proc.returncode == 4, (
-            f"expected restore failure exit 4, got {proc.returncode}\n"
-            f"STDOUT:\n{proc.stdout}"
+            f"expected post-recover count-verify failure exit 4, got "
+            f"{proc.returncode}\nSTDOUT:\n{proc.stdout}"
         )
 
-        # TD-517 R-6: the pre-existing collection must survive intact at its
-        # mutated state — the failed restore must not have left it empty or
-        # partially overwritten.
+        # TD-517 R-6: recover overwrote the collection with the backup's
+        # POINT_COUNT points, then the count mismatch triggered rollback. A
+        # working rollback restores the mutated state; a no-op rollback leaves
+        # POINT_COUNT. This assertion fails for a broken/no-op rollback.
         assert _count(collection) == mutated_total, (
             "rollback did not restore the pre-existing collection to its "
-            "pre-restore state"
+            "pre-restore (mutated) state"
         )
         fingerprint = _schema_fingerprint(collection)
         assert "colbert" in (
@@ -394,3 +437,106 @@ def test_rollback_preserves_existing_on_failure(tmp_path: Path) -> None:
         ), "rollback left the collection with a degraded schema"
     finally:
         _delete_collection(collection)
+
+
+def test_restore_force_over_populated_collection(tmp_path: Path) -> None:
+    """``restore --force`` over a populated live collection returns it to the
+    backed-up state (TD-517 R-2/R-3/R-5 existing-target success path).
+
+    This is the most common operator path — restoring over a live install —
+    and was previously uncovered: the fresh-install and failure paths were
+    tested, the existing-target *success* path was not. The collection is
+    backed up at POINT_COUNT points, mutated to a strictly larger count, then
+    restored; the restore must bring it back to exactly the backup count and
+    content, confirming that ``recover priority=snapshot`` wholesale-replaces
+    rather than merges.
+    """
+    collection = f"test_backup_restore_ov_{uuid.uuid4().hex[:8]}"
+    output_dir = tmp_path / "backup_out"
+    output_dir.mkdir()
+
+    try:
+        # Backup state: POINT_COUNT points tagged "base".
+        _create_production_collection(collection)
+        _insert_points(collection, POINT_COUNT, "base")
+        sample_ids = list(range(1, POINT_COUNT + 1, 20))  # ~5% sample
+        backup_dir = _run_backup(collection, output_dir)
+
+        # Mutate to a strictly larger count with different content. recover
+        # priority=snapshot must wholesale-replace this, not merge.
+        mutated_total = POINT_COUNT + 40
+        _insert_points(collection, mutated_total, "stale")
+        assert _count(collection) == mutated_total
+
+        # restore --force over the existing populated collection.
+        proc = _run_restore(backup_dir, ["--collection", collection, "--force"])
+        assert proc.returncode == 0, (
+            f"restore over populated collection failed (rc={proc.returncode})\n"
+            f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        )
+
+        # Count returns to the backup state — recover wholesale-replaced the
+        # extra mutated points (TD-517 R-5).
+        assert (
+            _count(collection) == POINT_COUNT
+        ), "restore did not return the collection to the backed-up point count"
+
+        # Content reverted to the backed-up "base" payload, not the "stale"
+        # mutation — proves the live data was genuinely replaced.
+        for point in _retrieve(collection, sample_ids):
+            content = point["payload"]["content"]
+            assert content.startswith(
+                "base point "
+            ), f"point {point['id']} retains mutated content: {content[:40]!r}"
+    finally:
+        _delete_collection(collection)
+
+
+def test_restore_target_name_over_existing(tmp_path: Path) -> None:
+    """``--target-name`` restores a backed-up collection over a *different*
+    pre-existing collection (TD-517 R-7).
+
+    Exercises the ``--target-name`` redirect on the existing-target restore
+    path, which also drives the disk pre-flight loop with target-name
+    redirection (the site of the F-S-1 manifest-vs-target key handling). The
+    source collection must be left untouched.
+    """
+    source = f"test_backup_restore_src_{uuid.uuid4().hex[:8]}"
+    target = f"test_backup_restore_tgt_{uuid.uuid4().hex[:8]}"
+    output_dir = tmp_path / "backup_out"
+    output_dir.mkdir()
+
+    try:
+        # Back up `source` at POINT_COUNT points.
+        _create_production_collection(source)
+        _insert_points(source, POINT_COUNT, "source")
+        backup_dir = _run_backup(source, output_dir)
+
+        # Pre-create `target` with the same schema and a different point count
+        # so it qualifies as an existing collection for the restore.
+        preexisting_total = POINT_COUNT + 25
+        _create_production_collection(target)
+        _insert_points(target, preexisting_total, "preexisting")
+        assert _count(target) == preexisting_total
+
+        # Restore the `source` backup over `target` via --target-name.
+        proc = _run_restore(
+            backup_dir,
+            ["--collection", source, "--target-name", target, "--force"],
+        )
+        assert proc.returncode == 0, (
+            f"--target-name restore failed (rc={proc.returncode})\n"
+            f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        )
+
+        # `target` now holds the source backup's points.
+        assert (
+            _count(target) == POINT_COUNT
+        ), "--target-name restore did not bring the target to the backup count"
+        # The source collection must not have been modified.
+        assert (
+            _count(source) == POINT_COUNT
+        ), "--target-name restore must not modify the source collection"
+    finally:
+        _delete_collection(source)
+        _delete_collection(target)
