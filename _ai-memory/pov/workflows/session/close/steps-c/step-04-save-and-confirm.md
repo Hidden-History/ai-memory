@@ -11,8 +11,6 @@ description: 'Attempt Qdrant save with graceful degradation, then present final 
 
 Attempt to save the handoff and task state to Qdrant for cross-session AI-searchable retrieval. If Qdrant is unavailable, log and continue -- file writes are the primary record. Then present the final closeout confirmation.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: Handoff document from Step 3, session summary from Step 1
 - Focus: Qdrant save attempts and final closeout confirmation
@@ -25,7 +23,7 @@ Attempt to save the handoff and task state to Qdrant for cross-session AI-search
 - Approach: Attempt saves gracefully, present final checklist, handle user requests
 - File writes are the primary record — Qdrant is secondary and optional
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Attempt Qdrant Handoff Save
 

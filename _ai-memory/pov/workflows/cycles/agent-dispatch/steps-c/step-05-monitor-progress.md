@@ -12,8 +12,6 @@ nextStepFile: './step-06-receive-output.md'
 
 Parzival monitors the teammate's progress while it works. Monitor via teammate idle notifications and TaskList for progress tracking. Intervene immediately if the agent goes out of scope or appears stuck.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: The dispatched instruction, the agent's task scope, idle notifications, TaskList status
 - Focus: Progress monitoring and intervention only — do not accept output yet
@@ -26,7 +24,7 @@ Parzival monitors the teammate's progress while it works. Monitor via teammate i
 - Approach: Passive monitoring until intervention condition is triggered
 - Blocker escalation must include options and Parzival's recommendation before presenting to user
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Monitor via Idle Notifications and TaskList
 

@@ -13,8 +13,6 @@ handoffTemplate: '{project-root}/_ai-memory/pov/templates/session-handoff.templa
 
 Write the session handoff document for the next Parzival session and update the SESSION_WORK_INDEX with a reference to it.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: Session summary from Step 1, updated tracking from Step 2
 - Focus: Handoff document creation and SESSION_WORK_INDEX update only
@@ -27,7 +25,7 @@ Write the session handoff document for the next Parzival session and update the 
 - Approach: Load template if available, write document, verify, then update index
 - Verify the written handoff by reading it back before marking complete
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 0. Pre-condition: Verify Handoff Template Exists (TD-520 / TD-500)
 

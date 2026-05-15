@@ -12,8 +12,6 @@ nextStepFile: './step-03-present-and-wait.md'
 
 Take the context loaded in Steps 1 and 1b and compile it into a structured status report ready for presentation to the user.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: All context loaded and organized in Steps 1 and 1b
 - Focus: Status compilation only — recommendations are added in Step 3 based on this compiled data
@@ -26,7 +24,7 @@ Take the context loaded in Steps 1 and 1b and compile it into a structured statu
 - Approach: Factual compilation — flag anomalies but do not resolve them
 - All loaded context from Steps 1 and 1b must be reflected in the report
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Determine Session Continuity
 

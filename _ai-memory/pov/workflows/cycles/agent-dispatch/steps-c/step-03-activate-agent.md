@@ -12,8 +12,6 @@ nextStepFile: './step-04-send-instruction.md'
 
 Once the teammate is spawned with fresh context, activate the correct agent. For BMAD agents, use the appropriate activation command and verify readiness. For generic (non-BMAD) agents, no activation command is needed — proceed directly with instruction delivery.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: The spawned teammate from step-02, the target agent identity
 - Focus: Agent activation and verification only — do not send instruction
@@ -26,7 +24,7 @@ Once the teammate is spawned with fresh context, activate the correct agent. For
 - Approach: BMAD — activate, verify, then proceed. Generic — spawn and proceed to step-04. One agent per teammate only.
 - If BMAD activation fails, retry before proceeding — never send to unverified BMAD agent
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Activate the BMAD Agent
 
