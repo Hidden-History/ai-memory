@@ -19,6 +19,7 @@ Usage:
 
 import argparse
 import contextlib
+import hashlib
 import json
 import os
 import shutil
@@ -156,6 +157,53 @@ def verify_backup(backup_dir: Path) -> BackupManifest:
             raise RuntimeError(f"Missing snapshot file: {snapshot_path}")
 
     return manifest
+
+
+def _sha256_file(path: Path) -> str:
+    """Compute the SHA-256 hex digest of a file, streaming in 1MB chunks."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_checksums(backup_dir: Path) -> tuple[bool, list[str]]:
+    """Verify backup files against CHECKSUMS.sha256 (TD-517 R-9).
+
+    A v2.4.1+ backup writes CHECKSUMS.sha256 over manifest.json and every
+    snapshot file. This re-hashes each listed file and reports drift before
+    the restore uploads anything to Qdrant.
+
+    Returns:
+        Tuple of (all_ok, problems). When CHECKSUMS.sha256 is absent — a
+        legacy backup predating the checksum feature — returns (True, [])
+        with a note left to the caller; absence is not itself a failure.
+    """
+    checksums_path = backup_dir / "CHECKSUMS.sha256"
+    if not checksums_path.exists():
+        return True, []
+
+    problems: list[str] = []
+    for raw_line in checksums_path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # sha256sum format: "<hex>  <relative-path>"
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            problems.append(f"malformed checksum line: {line}")
+            continue
+        expected_hex, rel_path = parts[0], parts[1].strip()
+        target = backup_dir / rel_path
+        if not target.exists():
+            problems.append(f"missing file listed in checksums: {rel_path}")
+            continue
+        actual_hex = _sha256_file(target)
+        if actual_hex != expected_hex:
+            problems.append(f"checksum mismatch: {rel_path}")
+
+    return (not problems), problems
 
 
 def collection_exists(collection_name: str) -> bool:
@@ -469,23 +517,28 @@ def recover_collection(collection_name: str, snapshot_name: str) -> bool:
 def restore_config_files(
     backup_dir: Path, target_dir: Path, force: bool = False
 ) -> tuple[list[str], list[str]]:
-    """
-    Restore configuration files from backup.
+    """Restore configuration files from a backup.
+
+    TD-517 R-10: restores the BUG-277 split env layout
+    (``docker/.env`` + ``docker/.env.secrets``) in addition to the legacy
+    root ``.env``. The secrets file is re-chmod'd to 600 after copy to
+    preserve the BUG-277 permission convention regardless of the backup
+    medium's behaviour.
 
     Args:
-        backup_dir: Path to backup directory
-        target_dir: Path to installation directory
-        force: If True, overwrite existing .env file
+        backup_dir: Path to backup directory.
+        target_dir: Path to installation directory.
+        force: If True, overwrite existing credential files.
 
     Returns:
-        Tuple of (restored filenames, skipped filenames)
+        Tuple of (restored labels, skipped labels).
 
-    Note: .env files contain credentials and are only overwritten with --force
-    to prevent accidental credential replacement.
+    Note: credential-bearing files are only overwritten with --force to
+    prevent accidental credential replacement.
     """
     config_source = backup_dir / "config"
-    restored = []
-    skipped = []
+    restored: list[str] = []
+    skipped: list[str] = []
 
     if not config_source.exists():
         return restored, skipped
@@ -498,15 +551,38 @@ def restore_config_files(
         shutil.copy2(settings_src, settings_dest)
         restored.append("settings.json")
 
-    # Restore .env (requires --force if exists - contains credentials)
-    env_src = config_source / ".env"
-    if env_src.exists():
-        env_dest = target_dir / ".env"
-        if env_dest.exists() and not force:
-            skipped.append(".env (exists, use --force to overwrite)")
-        else:
-            shutil.copy2(env_src, env_dest)
-            restored.append(".env")
+    def _restore_credential_file(
+        src: Path, dest: Path, label: str, mode: int | None = None
+    ) -> None:
+        """Copy a credential-bearing file, honoring --force, then fix mode."""
+        if not src.exists():
+            return
+        if dest.exists() and not force:
+            skipped.append(f"{label} (exists, use --force to overwrite)")
+            return
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        if mode is not None:
+            with contextlib.suppress(OSError):
+                dest.chmod(mode)
+        restored.append(label)
+
+    # Legacy root .env (pre-BUG-277 layout)
+    _restore_credential_file(config_source / ".env", target_dir / ".env", ".env")
+
+    # BUG-277 split env layout: docker/.env (644) + docker/.env.secrets (600)
+    _restore_credential_file(
+        config_source / "docker" / ".env",
+        target_dir / "docker" / ".env",
+        "docker/.env",
+        mode=0o644,
+    )
+    _restore_credential_file(
+        config_source / "docker" / ".env.secrets",
+        target_dir / "docker" / ".env.secrets",
+        "docker/.env.secrets",
+        mode=0o600,
+    )
 
     return restored, skipped
 
@@ -522,7 +598,37 @@ def main() -> int:
         action="store_true",
         help="Overwrite existing collections without confirmation",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the restore plan without mutating Qdrant",
+    )
+    parser.add_argument(
+        "--collection",
+        type=str,
+        default=None,
+        help="Restore a single collection from the backup (default: all)",
+    )
+    parser.add_argument(
+        "--target-name",
+        type=str,
+        default=None,
+        help=(
+            "Restore the selected collection under a different name "
+            "(requires --collection; useful for staging and round-trip tests)"
+        ),
+    )
+    parser.add_argument(
+        "--skip-checksum-verify",
+        action="store_true",
+        help="Skip CHECKSUMS.sha256 verification before upload",
+    )
     args = parser.parse_args()
+
+    # TD-517 R-7: --target-name only makes sense for a single collection.
+    if args.target_name and not args.collection:
+        print(f"{RED}Error: --target-name requires --collection{RESET}")
+        return 1
 
     backup_dir = Path(args.backup_dir)
 
@@ -566,6 +672,34 @@ def main() -> int:
         print(f"    {RED}✗ {e}{RESET}")
         return 2
 
+    # TD-517 R-7: restrict to a single collection when --collection is given.
+    if args.collection:
+        if args.collection not in manifest.collections:
+            print(
+                f"    {RED}✗ Collection '{args.collection}' not present in this backup{RESET}"
+            )
+            print(f"    {GRAY}  Backup contains: {sorted(manifest.collections)}{RESET}")
+            return 2
+        manifest.collections = {args.collection: manifest.collections[args.collection]}
+
+    # TD-517 R-9: verify CHECKSUMS.sha256 before uploading anything to Qdrant.
+    if not args.skip_checksum_verify:
+        print()
+        print("  Verifying checksums...")
+        ok, problems = verify_checksums(backup_dir)
+        if not ok:
+            print(f"    {RED}✗ Checksum verification failed:{RESET}")
+            for problem in problems:
+                print(f"      {RED}- {problem}{RESET}")
+            print(f"    {GRAY}  Re-run with --skip-checksum-verify to override.{RESET}")
+            return 2
+        if (backup_dir / "CHECKSUMS.sha256").exists():
+            print(f"    {GREEN}✓{RESET} Checksums valid")
+        else:
+            print(
+                f"    {YELLOW}!{RESET} No CHECKSUMS.sha256 (legacy backup) — skipping"
+            )
+
     # Check Qdrant connectivity
     print()
     print(f"  Connecting to Qdrant ({QDRANT_HOST}:{QDRANT_PORT})...")
@@ -586,13 +720,19 @@ def main() -> int:
         print(f"    {RED}✗ Cannot connect to Qdrant: {e}{RESET}")
         return 3  # Exit code 3 = Qdrant connection failed
 
-    # Check for existing collections
+    # TD-517 R-7: with --target-name the collection is restored under a
+    # different Qdrant name. Manifest lookups still key on the original name;
+    # Qdrant operations use the target name.
+    def _target_for(manifest_name: str) -> str:
+        return args.target_name or manifest_name
+
+    # Check for existing collections (by Qdrant target name).
     existing_collections = []
     for name in manifest.collections:
-        if collection_exists(name):
-            existing_collections.append(name)
+        if collection_exists(_target_for(name)):
+            existing_collections.append(_target_for(name))
 
-    if existing_collections and not args.force:
+    if existing_collections and not args.force and not args.dry_run:
         print()
         print(f"  {YELLOW}!{RESET} Existing collections found: {existing_collections}")
         print(f"  {GRAY}Use --force to overwrite{RESET}")
@@ -675,8 +815,10 @@ def main() -> int:
         snapshot_file = info.get("snapshot_file", f"{name}.snapshot")
         snapshot_path = backup_dir / "qdrant" / snapshot_file
         manifest_schema = info.get("schema")
+        target = _target_for(name)
 
-        print(f"    Restoring {name} ({records} records)...")
+        label = name if target == name else f"{name} -> {target}"
+        print(f"    Restoring {label} ({records} records)...")
 
         # TD-517 R-1 backward-compat: legacy manifests (pre-v2.4.1) lack the
         # schema fingerprint. The pre-fix restore would silently default to a
@@ -696,17 +838,31 @@ def main() -> int:
             _do_rollback()
             return 2
 
+        # TD-517 R-7: --dry-run previews the plan without mutating Qdrant.
+        if args.dry_run:
+            if target in existing_collections:
+                print(
+                    f"      {GRAY}[dry-run] would snapshot '{target}' for rollback, "
+                    f"then recover {records} records over it{RESET}"
+                )
+            else:
+                print(
+                    f"      {GRAY}[dry-run] would create '{target}' from manifest "
+                    f"schema and recover {records} records{RESET}"
+                )
+            continue
+
         try:
-            if name in existing_collections:
+            if target in existing_collections:
                 # TD-517 R-2: hard-fail on schema fingerprint drift between
                 # the backup and the live target. Cross-version restore is
                 # explicitly out of scope for this script; operators are
                 # routed to a per-version migrate_*.py instead.
-                live_schema = fetch_live_schema(name)
+                live_schema = fetch_live_schema(target)
                 manifest_sig = _fingerprint_signature(manifest_schema)
                 live_sig = _fingerprint_signature(live_schema)
                 if manifest_sig != live_sig:
-                    print(f"      {RED}✗ Schema mismatch on '{name}'.{RESET}")
+                    print(f"      {RED}✗ Schema mismatch on '{target}'.{RESET}")
                     print(
                         f"      {GRAY}  Backup fingerprint differs from live target.{RESET}"
                     )
@@ -722,30 +878,32 @@ def main() -> int:
                 # TD-517 R-6: snapshot the pre-existing collection's current
                 # state BEFORE the snapshot recover replaces its contents, so
                 # a later failure can roll it back exactly.
-                rollback_snap = create_server_snapshot(name)
+                rollback_snap = create_server_snapshot(target)
                 if rollback_snap is None:
                     print(
-                        f"      {RED}✗ Could not snapshot existing '{name}' for rollback safety{RESET}"
+                        f"      {RED}✗ Could not snapshot existing '{target}' for rollback safety{RESET}"
                     )
                     _do_rollback()
                     return 4
-                rollback_snapshots[name] = rollback_snap
+                rollback_snapshots[target] = rollback_snap
                 print(f"      {GREEN}✓{RESET} Schema match; pre-restore snapshot taken")
             else:
                 # Absent target (fresh-install path): recreate the collection
                 # from the manifest's schema fingerprint so the subsequent
                 # snapshot upload sees a byte-equivalent target.
                 print("      Creating collection from manifest schema...")
-                ok, err = create_collection_from_manifest_schema(name, manifest_schema)
+                ok, err = create_collection_from_manifest_schema(
+                    target, manifest_schema
+                )
                 if not ok:
                     print(f"      {RED}✗ Failed to create collection: {err}{RESET}")
                     _do_rollback()
                     return 4
-                created_fresh.append(name)
+                created_fresh.append(target)
                 print(f"      {GREEN}✓{RESET} Collection created from manifest schema")
 
             # Upload snapshot (collection must exist).
-            if not upload_snapshot(name, snapshot_path):
+            if not upload_snapshot(target, snapshot_path):
                 print(f"      {RED}✗ Snapshot upload failed{RESET}")
                 _do_rollback()
                 return 4
@@ -753,7 +911,7 @@ def main() -> int:
 
             # Recover collection from the uploaded snapshot.
             uploaded_name = snapshot_file
-            if not recover_collection(name, uploaded_name):
+            if not recover_collection(target, uploaded_name):
                 print(f"      {RED}✗ Collection recovery failed{RESET}")
                 _do_rollback()
                 return 4
@@ -761,15 +919,15 @@ def main() -> int:
 
             # TD-517 R-5: verify the restored point count against the manifest
             # rather than trusting the recover endpoint's HTTP 200 alone.
-            restored_count = count_points(name)
+            restored_count = count_points(target)
             expected_count = info.get("records", 0)
             if restored_count is None:
                 print(
-                    f"      {YELLOW}!{RESET} Could not verify point count for '{name}'"
+                    f"      {YELLOW}!{RESET} Could not verify point count for '{target}'"
                 )
             elif restored_count != expected_count:
                 print(
-                    f"      {RED}✗ Point count mismatch on '{name}': "
+                    f"      {RED}✗ Point count mismatch on '{target}': "
                     f"expected {expected_count}, found {restored_count}{RESET}"
                 )
                 _do_rollback()
@@ -781,6 +939,11 @@ def main() -> int:
             print(f"      {RED}✗ Error: {e}{RESET}")
             _do_rollback()
             return 4
+
+    if args.dry_run:
+        print()
+        print(f"  {GRAY}[dry-run] no changes made.{RESET}")
+        return 0
 
     # TD-517 R-6: full restore succeeded — drop the rollback snapshots.
     _cleanup_rollback_snapshots()

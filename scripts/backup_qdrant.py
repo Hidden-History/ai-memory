@@ -119,12 +119,23 @@ def get_headers() -> dict:
     return {}
 
 
-def get_ai_memory_version() -> str:
-    """Get AI Memory version from package or default."""
+def get_ai_memory_version(override: str | None = None) -> str:
+    """Get AI Memory version from an override, version.txt, or default.
+
+    TD-517 B-6: when version.txt is missing the previous code silently
+    recorded ``"unknown"`` in the manifest. It now emits a WARN so operators
+    notice, and accepts an explicit ``--version`` override.
+    """
+    if override:
+        return override
     try:
         version_file = Path(INSTALL_DIR) / "version.txt"
         if version_file.exists():
             return version_file.read_text().strip()
+        print(
+            f"  {YELLOW}!{RESET} version.txt not found at {version_file}; "
+            f"manifest version will be 'unknown' (use --version to override)"
+        )
     except Exception:
         pass
     return "unknown"
@@ -316,12 +327,17 @@ def create_snapshot(collection_name: str) -> str:
 
 
 def download_snapshot(
-    collection_name: str, snapshot_name: str, output_path: Path
+    collection_name: str, snapshot_name: str, output_path: Path, retries: int = 0
 ) -> int:
-    """
-    Download a snapshot to the specified path.
+    """Download a snapshot to the specified path.
 
-    Returns: file size in bytes
+    TD-517 B-4: ``retries`` re-attempts the download on a timeout or
+    transport error. A partial download is discarded before each retry so a
+    truncated file is never left behind. ``retries=0`` preserves the prior
+    single-attempt behaviour.
+
+    Returns:
+        File size in bytes.
     """
     timeout_config = httpx.Timeout(
         connect=3.0, read=float(SNAPSHOT_DOWNLOAD_TIMEOUT), write=5.0, pool=3.0
@@ -329,26 +345,47 @@ def download_snapshot(
 
     url = f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/{snapshot_name}"
 
-    with httpx.stream(
-        "GET", url, headers=get_headers(), timeout=timeout_config
-    ) as response:
-        if response.status_code != 200:
-            raise RuntimeError(
-                f"Failed to download snapshot: HTTP {response.status_code}"
-            )
+    attempts = max(1, retries + 1)
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with httpx.stream(
+                "GET", url, headers=get_headers(), timeout=timeout_config
+            ) as response:
+                if response.status_code != 200:
+                    raise RuntimeError(
+                        f"Failed to download snapshot: HTTP {response.status_code}"
+                    )
+                with open(output_path, "wb") as f:
+                    for chunk in response.iter_bytes():
+                        f.write(chunk)
+            return output_path.stat().st_size
+        except (httpx.TimeoutException, httpx.TransportError, RuntimeError) as e:
+            last_error = e
+            # Discard any partial download before retrying.
+            if output_path.exists():
+                output_path.unlink()
+            if attempt < attempts:
+                print(
+                    f"    {YELLOW}!{RESET} Download attempt {attempt}/{attempts} "
+                    f"failed ({e}); retrying..."
+                )
 
-        with open(output_path, "wb") as f:
-            for chunk in response.iter_bytes():
-                f.write(chunk)
-
-    return output_path.stat().st_size
+    raise RuntimeError(
+        f"Failed to download snapshot after {attempts} attempt(s): {last_error}"
+    )
 
 
 def backup_config_files(backup_dir: Path) -> list[str]:
-    """
-    Copy configuration files to backup directory.
+    """Copy configuration files to the backup directory.
 
-    Returns: list of copied filenames
+    TD-517 R-10: captures the BUG-277 split env layout
+    (``docker/.env`` + ``docker/.env.secrets``) in addition to the legacy
+    root ``.env``, so a restore can rehydrate whichever layout the install
+    uses. File permissions are preserved via ``shutil.copy2``.
+
+    Returns:
+        List of copied file labels.
     """
     config_dir = backup_dir / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -361,11 +398,20 @@ def backup_config_files(backup_dir: Path) -> list[str]:
         shutil.copy2(settings_path, config_dir / "settings.json")
         copied_files.append("settings.json")
 
-    # Environment file
-    env_path = Path(INSTALL_DIR) / ".env"
-    if env_path.exists():
-        shutil.copy2(env_path, config_dir / ".env")
+    # Legacy root environment file (pre-BUG-277 layout)
+    legacy_env = Path(INSTALL_DIR) / ".env"
+    if legacy_env.exists():
+        shutil.copy2(legacy_env, config_dir / ".env")
         copied_files.append(".env")
+
+    # BUG-277 split env layout: docker/.env (644) + docker/.env.secrets (600)
+    docker_config_dir = config_dir / "docker"
+    for env_name in (".env", ".env.secrets"):
+        src = Path(INSTALL_DIR) / "docker" / env_name
+        if src.exists():
+            docker_config_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, docker_config_dir / env_name)
+            copied_files.append(f"docker/{env_name}")
 
     return copied_files
 
@@ -394,11 +440,12 @@ def create_manifest(
     config_files: list,
     includes_logs: bool,
     runtime_flags: dict | None = None,
+    version_override: str | None = None,
 ) -> None:
     """Write manifest.json to backup directory."""
     manifest = BackupManifest(
         backup_date=datetime.now(timezone.utc).isoformat(),
-        ai_memory_version=get_ai_memory_version(),
+        ai_memory_version=get_ai_memory_version(version_override),
         qdrant_host=QDRANT_HOST,
         qdrant_port=QDRANT_PORT,
         collections={c.name: asdict(c) for c in collections},
@@ -459,7 +506,30 @@ def main() -> int:
     parser.add_argument(
         "--include-logs", action="store_true", help="Include logs directory in backup"
     )
+    parser.add_argument(
+        "--collection",
+        type=str,
+        default=None,
+        choices=COLLECTIONS,
+        help="Back up a single collection only (default: all collections)",
+    )
+    parser.add_argument(
+        "--retry",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Retry a failed snapshot download up to N times (default: 0)",
+    )
+    parser.add_argument(
+        "--version",
+        type=str,
+        default=None,
+        help="Override the AI Memory version recorded in the manifest",
+    )
     args = parser.parse_args()
+
+    # TD-517 B-5: restrict to a single collection when --collection is given.
+    collections_to_backup = [args.collection] if args.collection else list(COLLECTIONS)
 
     # Create timestamped backup directory
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -497,7 +567,7 @@ def main() -> int:
     print("  Checking disk space...")
     try:
         total_points = 0
-        for collection in COLLECTIONS:
+        for collection in collections_to_backup:
             info = get_collection_info(collection)
             total_points += info["points_count"]
 
@@ -520,7 +590,7 @@ def main() -> int:
     total_records = 0
     total_size = 0
 
-    for collection in COLLECTIONS:
+    for collection in collections_to_backup:
         print(f"  Backing up {collection}...")
 
         try:
@@ -532,9 +602,11 @@ def main() -> int:
             # 2. Create snapshot
             snapshot_name = create_snapshot(collection)
 
-            # 3. Download snapshot
+            # 3. Download snapshot (TD-517 B-4: retry on transient failure)
             output_path = backup_dir / "qdrant" / f"{collection}.snapshot"
-            size_bytes = download_snapshot(collection, snapshot_name, output_path)
+            size_bytes = download_snapshot(
+                collection, snapshot_name, output_path, retries=args.retry
+            )
             total_size += size_bytes
 
             # 4. Clean up server-side snapshot to prevent accumulation
@@ -598,6 +670,7 @@ def main() -> int:
         config_files,
         includes_logs,
         runtime_flags=get_runtime_flags(),
+        version_override=args.version,
     )
 
     # TD-517 B-2: write CHECKSUMS.sha256 for restore-time integrity verification
