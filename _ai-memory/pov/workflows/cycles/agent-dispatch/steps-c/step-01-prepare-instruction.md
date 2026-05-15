@@ -13,8 +13,6 @@ instructionTemplate: '{skills_path}/aim-agent-dispatch/templates/agent-instructi
 
 Before creating any team or spawning any agent, Parzival prepares a complete, verified instruction. No agent is activated until the instruction is ready and verified against project files.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: Current task/story, project files (PRD.md, architecture.md, project-context.md, story files), scope definition
 - Focus: Instruction preparation only — do not activate agents or create teams
@@ -28,7 +26,7 @@ Before creating any team or spawning any agent, Parzival prepares a complete, ve
 - Approach: Systematic verification against project files before writing instruction
 - Every requirement in the instruction must cite a specific project file and section
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Complete the Instruction Checklist
 
