@@ -417,7 +417,7 @@ except Exception:
         # Shell-expand the email directly into the SQL string instead of relying on -v interpolation.
         docker exec "$pg_container" psql -U langfuse -d langfuse \
             -c "UPDATE users SET email_verified = NOW(), admin = true WHERE email = '$init_email' AND email_verified IS NULL;" \
-            || log_error "Failed to fix up init user (BLOCKING — Langfuse UI will redirect to onboarding)"
+            || log_error "Langfuse user fix-up failed — UI may redirect to onboarding; core install continues"
 
         # Langfuse INIT creates org_membership but NOT project_membership.
         # Without it the UI redirects to the setup/onboarding page.
@@ -436,7 +436,7 @@ except Exception:
                 JOIN organization_memberships om ON om.user_id = u.id
                 WHERE u.email = '$init_email'
                 ON CONFLICT (project_id, user_id) DO NOTHING;" \
-                || log_error "Failed to ensure project membership (BLOCKING — Langfuse UI will redirect to onboarding)"
+                || log_error "Langfuse project membership fix-up failed — UI may redirect to onboarding; core install continues"
         fi
     }
 
