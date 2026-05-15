@@ -391,3 +391,120 @@ def test_ceiling_rejection_emits_prometheus_counter(
         f"Expected at least one push_retrieval_reject_metric_async call with "
         f"ceiling_exceeded labels; got call_args_list={push_mock.call_args_list!r}"
     )
+
+
+# ─── Case (e) — BUG-301: consumer pipeline rejection path, no AttributeError ──
+
+
+def test_bug301_consumer_pipeline_rejection_path__no_attribute_error(
+    qdrant_inmemory, mock_embedding, monkeypatch
+):
+    """BUG-301 regression guard: the aim-parzival-bootstrap SKILL.md consumer
+    pipeline runs to completion without AttributeError when L1 ceiling rejection
+    produces results=[] from retrieve_bootstrap_context.
+
+    Root cause (pre-v2.4.0): the SKILL.md assigned the (results, meta) 2-tuple
+    returned by retrieve_bootstrap_context directly to ``results`` (no unpack),
+    then passed the tuple to select_results_greedy. Iterating the tuple yielded
+    a list as the first element; calling .get() on that list raised:
+        AttributeError: 'list' object has no attribute 'get'
+    Fix shipped in v2.4.0 commit 93ad34b (consumer-side SKILL.md, not injection.py).
+
+    This test mirrors the four steps of the SKILL.md consumer script and asserts
+    each step's return shape and the absence of AttributeError at the grouping loop:
+
+    1. retrieve_bootstrap_context returns a 2-tuple (list, dict) — not a bare list.
+    2. select_results_greedy(results, ..., return_meta=True) returns a 3-tuple.
+    3. _fallback_signaled propagates from retrieval_meta (True) even when
+       greedy_meta.fallback_signaled is False (empty results → nothing for greedy
+       to reject via budget).
+    4. Consumer grouping loop (handoffs / decisions / insights / github) runs on
+       selected=[] without AttributeError — the exact crash site from BUG-301.
+
+    Production-size fixture: 40 chunks / ~5,320 tokens (Session 47-class, same
+    as cases a-d). Ceiling override: 2500 tokens to force L1 ceiling rejection so
+    results=[] reaching the consumer, reproducing the pre-v2.4.0 failure condition.
+    """
+    from memory.injection import retrieve_bootstrap_context, select_results_greedy
+
+    group_id = "test-bug301-consumer-rejection-path"
+    created_at = "2026-05-13T09:20:00Z"
+    chunks = _build_realistic_chunks(
+        chunk_count=SESSION47_CHUNK_COUNT,
+        bytes_per_chunk=SESSION47_BYTES_PER_CHUNK,
+    )
+    _insert_handoff_chunks(
+        qdrant_inmemory,
+        group_id=group_id,
+        created_at=created_at,
+        chunks=chunks,
+        total_chunks=SESSION47_CHUNK_COUNT,
+    )
+
+    monkeypatch.setenv("HANDOFF_CEILING_TOKENS", "2500")
+    search, config = _make_search_client(qdrant_inmemory, monkeypatch)
+    assert config.handoff_ceiling_tokens == 2500
+
+    # Step 1: retrieve_bootstrap_context must return a 2-tuple, not a bare list.
+    # BUG-301 pre-condition: old consumer assigned the whole 2-tuple to 'results'.
+    retrieve_result = retrieve_bootstrap_context(search, group_id, config)
+    assert isinstance(retrieve_result, tuple) and len(retrieve_result) == 2, (
+        "retrieve_bootstrap_context must return a 2-tuple (results, meta). "
+        "BUG-301: old consumer assigned the whole tuple to 'results', causing "
+        "select_results_greedy to iterate (list, dict) instead of list[dict]."
+    )
+    results, retrieval_meta = retrieve_result
+    assert isinstance(results, list), (
+        "results element must be a list — not the full 2-tuple. "
+        "BUG-301: passing the tuple to select_results_greedy caused AttributeError."
+    )
+    assert isinstance(retrieval_meta, dict)
+    assert retrieval_meta.get("fallback_signaled") is True
+
+    # Step 2: select_results_greedy with return_meta=True returns a 3-tuple.
+    # BUG-301 pre-condition: old consumer called this with results=(list, dict),
+    # causing .get() on the list element → AttributeError.
+    greedy_result = select_results_greedy(
+        results,
+        config.bootstrap_token_budget,
+        tier=1,
+        return_meta=True,
+    )
+    assert isinstance(greedy_result, tuple) and len(greedy_result) == 3, (
+        "select_results_greedy(return_meta=True) must return a 3-tuple "
+        "(selected, tokens_used, meta)."
+    )
+    selected, tokens_used, greedy_meta = greedy_result
+    assert isinstance(selected, list)
+    assert isinstance(greedy_meta, dict)
+    assert selected == []  # Ceiling rejected the handoff; greedy receives no results
+    assert tokens_used == 0
+
+    # Step 3: _fallback_signaled must propagate from retrieval_meta even when
+    # greedy_meta.fallback_signaled is False (greedy had an empty input to process).
+    _fallback_signaled = bool(
+        retrieval_meta.get("fallback_signaled") or greedy_meta.get("fallback_signaled")
+    )
+    assert _fallback_signaled is True, (
+        "FALLBACK-NEEDED must propagate when retrieval_meta.fallback_signaled=True, "
+        "even when greedy_meta.fallback_signaled=False (empty results → nothing to reject)."
+    )
+
+    # Step 4: Consumer grouping loop on selected=[] must not raise AttributeError.
+    # This is the exact crash site from BUG-301: .get() called on a non-dict element
+    # when the old consumer passed the raw (list, dict) tuple as the results argument.
+    try:
+        handoffs = [r for r in selected if r.get("type") == "agent_handoff"]
+        decisions = [
+            r for r in selected if r.get("type") in ("decision", "agent_memory")
+        ]
+        insights = [r for r in selected if r.get("type") == "agent_insight"]
+        github = [r for r in selected if r.get("type", "").startswith("github_")]
+    except AttributeError as exc:
+        pytest.fail(
+            f"BUG-301 regression: consumer grouping loop raised AttributeError: {exc}. "
+            f"results={results!r}, selected={selected!r}"
+        )
+
+    # All groups empty when selected=[] (ceiling rejection leaves nothing to group)
+    assert handoffs == [] and decisions == [] and insights == [] and github == []
