@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- E2E test `test_collection_type_system_e2e` used the generic two-word query `"database queries"` which scored below the default `similarity_threshold=0.7` on the Jina v2 code model (cosine similarity 0.5857), producing zero results in CI where defaults apply. Replaced with `"async await database queries"` (cosine similarity 0.9497) to pass the default threshold while preserving the test's intent of verifying type-filtered retrieval of implementation memories. No production code change; test query text only.
+
 ## [2.4.0] - 2026-05-13 — BUG-297 Silent-Drop Fix + Sanctum Identity + Env-Secrets Split + Classifier Resilience
 
 v2.4.0 closes the **BUG-297 silent-drop class** as its marquee item: L1 handoff

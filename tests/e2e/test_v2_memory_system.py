@@ -210,7 +210,7 @@ def test_collection_type_system_e2e(
     # 4. Verify type filtering returns only matching types
     # Search code-patterns for implementation type
     impl_results = search_memories(
-        query="database queries",
+        query="async await database queries",
         group_id=test_group_id,
         collection=COLLECTION_CODE_PATTERNS,
         memory_type=[MemoryType.IMPLEMENTATION.value],
