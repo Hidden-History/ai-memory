@@ -18,6 +18,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -227,15 +228,33 @@ def get_collection_info(collection_name: str) -> dict:
     }
 
 
+def _normalize_payload_schema(payload_schema: dict | None) -> dict:
+    """Strip volatile per-field point counts from a payload_schema block.
+
+    Qdrant's ``payload_schema`` entries carry a ``points`` count that changes
+    as data is written. Keeping it would make two structurally identical
+    collections compare unequal whenever their row counts differ, so the
+    fingerprint retains only the structural fields (``data_type``, ``params``).
+    """
+    normalized: dict = {}
+    for field_name, field_info in (payload_schema or {}).items():
+        if not isinstance(field_info, dict):
+            normalized[field_name] = field_info
+            continue
+        normalized[field_name] = {k: v for k, v in field_info.items() if k != "points"}
+    return normalized
+
+
 def _build_schema_fingerprint(get_collection_result: dict) -> dict:
     """Distill Qdrant's GET /collections/{name} payload into a stable manifest fingerprint.
 
     Keeps only the fields needed to recreate the collection (vector params,
     sparse vectors, multivector config, HNSW, quantization, on-disk payload,
-    shard count, and the payload index schema). Discards runtime status fields
-    (``optimizer_status``, ``warnings``, ``segments_count``,
-    ``indexed_vectors_count``) that drift between calls and would otherwise
-    create spurious manifest diffs.
+    shard count, and the structural payload index schema). Discards runtime
+    status fields (``optimizer_status``, ``warnings``, ``segments_count``,
+    ``indexed_vectors_count``) and the volatile per-field ``points`` count so
+    the fingerprint stays stable across backup/restore comparison regardless
+    of row count.
     """
     config = get_collection_result.get("config", {}) or {}
     params = config.get("params", {}) or {}
@@ -248,7 +267,9 @@ def _build_schema_fingerprint(get_collection_result: dict) -> dict:
         },
         "hnsw_config": config.get("hnsw_config"),
         "quantization_config": config.get("quantization_config"),
-        "payload_schema": get_collection_result.get("payload_schema") or {},
+        "payload_schema": _normalize_payload_schema(
+            get_collection_result.get("payload_schema")
+        ),
     }
 
 
@@ -389,6 +410,41 @@ def create_manifest(
     manifest_path = backup_dir / "manifest.json"
     with open(manifest_path, "w") as f:
         json.dump(asdict(manifest), f, indent=2)
+
+
+def _sha256_file(path: Path) -> str:
+    """Compute the SHA-256 hex digest of a file, streaming in 1MB chunks."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_checksums(backup_dir: Path) -> Path:
+    """Write CHECKSUMS.sha256 over manifest.json and every snapshot file.
+
+    TD-517 B-2: enables integrity verification before restore upload. The
+    output format is ``sha256sum -c`` compatible (``<hex>  <relative-path>``)
+    so operators can validate a backup independently of the restore script.
+    """
+    entries: list[tuple[str, str]] = []
+
+    manifest_path = backup_dir / "manifest.json"
+    if manifest_path.exists():
+        entries.append((_sha256_file(manifest_path), "manifest.json"))
+
+    qdrant_dir = backup_dir / "qdrant"
+    if qdrant_dir.exists():
+        for snapshot_path in sorted(qdrant_dir.glob("*.snapshot")):
+            rel = snapshot_path.relative_to(backup_dir).as_posix()
+            entries.append((_sha256_file(snapshot_path), rel))
+
+    checksums_path = backup_dir / "CHECKSUMS.sha256"
+    with open(checksums_path, "w") as f:
+        for digest, rel in entries:
+            f.write(f"{digest}  {rel}\n")
+    return checksums_path
 
 
 def main() -> int:
@@ -543,6 +599,13 @@ def main() -> int:
         includes_logs,
         runtime_flags=get_runtime_flags(),
     )
+
+    # TD-517 B-2: write CHECKSUMS.sha256 for restore-time integrity verification
+    try:
+        checksums_path = write_checksums(backup_dir)
+        print(f"  {GREEN}✓{RESET} Checksums written: {checksums_path.name}")
+    except Exception as e:
+        print(f"  {YELLOW}!{RESET} Could not write checksums (non-critical): {e}")
 
     # Print summary
     print(f"\n{'='*60}")

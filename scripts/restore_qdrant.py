@@ -21,6 +21,7 @@ import argparse
 import contextlib
 import json
 import os
+import shutil
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -185,6 +186,90 @@ def delete_collection(collection_name: str) -> bool:
     return response.status_code == 200
 
 
+def count_points(collection_name: str) -> int | None:
+    """Return the exact point count for a collection, or None on failure.
+
+    TD-517 R-5: used to verify a restored collection's point count against
+    the manifest after recovery, instead of trusting the recover endpoint's
+    HTTP 200 alone.
+    """
+    timeout_config = httpx.Timeout(connect=3.0, read=30.0, write=5.0, pool=3.0)
+    try:
+        response = httpx.post(
+            f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/points/count",
+            headers={**get_headers(), "Content-Type": "application/json"},
+            json={"exact": True},
+            timeout=timeout_config,
+        )
+        if response.status_code == 200:
+            return response.json().get("result", {}).get("count")
+    except Exception:
+        return None
+    return None
+
+
+def create_server_snapshot(collection_name: str) -> str | None:
+    """Create a server-side snapshot of an existing collection for rollback.
+
+    TD-517 R-6: before a destructive restore overwrites a pre-existing
+    collection, snapshot its current state so a failed restore can roll the
+    collection back to exactly what the operator had. Uses Qdrant's own
+    snapshot endpoint — fast and bounded by the live collection size.
+
+    Returns:
+        The snapshot name, or None if the snapshot could not be created.
+    """
+    timeout_config = httpx.Timeout(connect=3.0, read=300.0, write=5.0, pool=3.0)
+    try:
+        response = httpx.post(
+            f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots",
+            headers=get_headers(),
+            timeout=timeout_config,
+        )
+        if response.status_code == 200:
+            return response.json().get("result", {}).get("name")
+    except Exception:
+        return None
+    return None
+
+
+def delete_server_snapshot(collection_name: str, snapshot_name: str) -> bool:
+    """Delete a server-side snapshot once it is no longer needed for rollback."""
+    timeout_config = httpx.Timeout(connect=3.0, read=30.0, write=5.0, pool=3.0)
+    try:
+        response = httpx.delete(
+            f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/{snapshot_name}",
+            headers=get_headers(),
+            timeout=timeout_config,
+        )
+        return response.status_code == 200
+    except Exception:
+        return False
+
+
+def rollback_from_server_snapshot(collection_name: str, snapshot_name: str) -> bool:
+    """Recover a collection from its pre-restore server-side snapshot (TD-517 R-6).
+
+    Used when a restore fails partway through, to return a pre-existing
+    collection to exactly the state it held before the restore began.
+    """
+    timeout_config = httpx.Timeout(
+        connect=3.0, read=float(SNAPSHOT_RECOVER_TIMEOUT), write=5.0, pool=3.0
+    )
+    headers = {**get_headers(), "Content-Type": "application/json"}
+    snapshot_location = f"file:///qdrant/snapshots/{collection_name}/{snapshot_name}"
+    try:
+        response = httpx.put(
+            f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/recover",
+            headers=headers,
+            json={"location": snapshot_location, "priority": "snapshot"},
+            timeout=timeout_config,
+        )
+        return response.status_code == 200
+    except Exception:
+        return False
+
+
 def create_collection_from_manifest_schema(
     target_name: str, schema_payload: dict
 ) -> tuple[bool, str]:
@@ -265,6 +350,23 @@ def create_collection_from_manifest_schema(
 # shared-helper refactor is tracked as a separate post-merge low-severity TD.
 
 
+def _normalize_payload_schema(payload_schema: dict | None) -> dict:
+    """Strip volatile per-field point counts from a payload_schema block.
+
+    Kept byte-identical to backup_qdrant.py:_normalize_payload_schema — the
+    volatile ``points`` count must be excluded on both sides or two
+    structurally identical collections compare unequal whenever their row
+    counts differ.
+    """
+    normalized: dict = {}
+    for field_name, field_info in (payload_schema or {}).items():
+        if not isinstance(field_info, dict):
+            normalized[field_name] = field_info
+            continue
+        normalized[field_name] = {k: v for k, v in field_info.items() if k != "points"}
+    return normalized
+
+
 def _build_schema_fingerprint(get_collection_result: dict) -> dict:
     """Distill GET /collections/{name} into the same shape backup_qdrant.py records."""
     config = (get_collection_result or {}).get("config", {}) or {}
@@ -278,7 +380,9 @@ def _build_schema_fingerprint(get_collection_result: dict) -> dict:
         },
         "hnsw_config": config.get("hnsw_config"),
         "quantization_config": config.get("quantization_config"),
-        "payload_schema": (get_collection_result or {}).get("payload_schema") or {},
+        "payload_schema": _normalize_payload_schema(
+            (get_collection_result or {}).get("payload_schema")
+        ),
     }
 
 
@@ -379,8 +483,6 @@ def restore_config_files(
     Note: .env files contain credentials and are only overwritten with --force
     to prevent accidental credential replacement.
     """
-    import shutil
-
     config_source = backup_dir / "config"
     restored = []
     skipped = []
@@ -504,11 +606,68 @@ def main() -> int:
             print("\n  Restore cancelled.")
             return 0
 
+    # TD-517 R-6: best-effort disk pre-flight. Restoring over an existing
+    # collection first snapshots its current state for rollback safety, which
+    # transiently consumes disk inside the Qdrant volume. We cannot introspect
+    # the container volume from the host, so this uses the sum of backup
+    # snapshot sizes as a proxy for live collection size. WARN-only — the
+    # operator retains agency to proceed (DEC-PM291-D17 Q-4).
+    if existing_collections:
+        try:
+            total_snapshot_bytes = sum(
+                int(manifest.collections[n].get("size_bytes", 0))
+                for n in existing_collections
+            )
+            free_bytes = shutil.disk_usage(Path(INSTALL_DIR).anchor or "/").free
+            if total_snapshot_bytes * 2 > free_bytes:
+                print()
+                print(
+                    f"  {YELLOW}!{RESET} Disk pre-flight: rollback snapshots may need "
+                    f"~{format_size(total_snapshot_bytes * 2)}; "
+                    f"{format_size(free_bytes)} free. Proceeding (operator override)."
+                )
+        except Exception:
+            pass
+
     # Restore collections with rollback on failure
     print()
     print("  Restoring collections...")
     total_records = 0
-    restored_collections = []  # Track for rollback on failure
+
+    # TD-517 R-6: two rollback tracks.
+    #  - created_fresh: collections that did not exist before restore — on
+    #    failure these are simply deleted (nothing pre-existing to lose).
+    #  - rollback_snapshots: pre-existing collections — before destructive
+    #    ops we snapshot their current state; on failure we recover from that
+    #    snapshot so the operator's data is returned exactly as it was.
+    created_fresh: list[str] = []
+    rollback_snapshots: dict[str, str] = {}
+
+    def _do_rollback() -> None:
+        """Undo partial restore: delete fresh collections, recover pre-existing."""
+        if created_fresh:
+            print(
+                f"    {YELLOW}Rolling back {len(created_fresh)} created collections...{RESET}"
+            )
+            for fresh in created_fresh:
+                delete_collection(fresh)
+        if rollback_snapshots:
+            print(
+                f"    {YELLOW}Restoring {len(rollback_snapshots)} pre-existing collections to prior state...{RESET}"
+            )
+            for coll, snap in rollback_snapshots.items():
+                if rollback_from_server_snapshot(coll, snap):
+                    print(f"      {GREEN}✓{RESET} {coll} rolled back")
+                else:
+                    print(
+                        f"      {RED}✗ {coll} rollback FAILED — recover manually "
+                        f"from server snapshot '{snap}'{RESET}"
+                    )
+
+    def _cleanup_rollback_snapshots() -> None:
+        """Delete rollback snapshots after a fully successful restore."""
+        for coll, snap in rollback_snapshots.items():
+            delete_server_snapshot(coll, snap)
 
     for name, info in manifest.collections.items():
         records = info.get("records", 0)
@@ -534,12 +693,7 @@ def main() -> int:
             print(
                 f"      {GRAY}  Run scripts/setup-collections.py to provision collections first, then retry.{RESET}"
             )
-            if restored_collections:
-                print(
-                    f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
-                )
-                for restored in restored_collections:
-                    delete_collection(restored)
+            _do_rollback()
             return 2
 
         try:
@@ -562,16 +716,21 @@ def main() -> int:
                     print(
                         f"      {GRAY}  Use a per-version migrate_*.py script. See oversight/specs/BACKUP-RESTORE.md.{RESET}"
                     )
-                    if restored_collections:
-                        print(
-                            f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
-                        )
-                        for restored in restored_collections:
-                            delete_collection(restored)
+                    _do_rollback()
                     return 4
-                # Existing target with matching schema: snapshot recover will
-                # replace its contents in place.
-                print(f"      {GREEN}✓{RESET} Schema fingerprint match")
+
+                # TD-517 R-6: snapshot the pre-existing collection's current
+                # state BEFORE the snapshot recover replaces its contents, so
+                # a later failure can roll it back exactly.
+                rollback_snap = create_server_snapshot(name)
+                if rollback_snap is None:
+                    print(
+                        f"      {RED}✗ Could not snapshot existing '{name}' for rollback safety{RESET}"
+                    )
+                    _do_rollback()
+                    return 4
+                rollback_snapshots[name] = rollback_snap
+                print(f"      {GREEN}✓{RESET} Schema match; pre-restore snapshot taken")
             else:
                 # Absent target (fresh-install path): recreate the collection
                 # from the manifest's schema fingerprint so the subsequent
@@ -580,24 +739,15 @@ def main() -> int:
                 ok, err = create_collection_from_manifest_schema(name, manifest_schema)
                 if not ok:
                     print(f"      {RED}✗ Failed to create collection: {err}{RESET}")
-                    if restored_collections:
-                        print(
-                            f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
-                        )
-                        for restored in restored_collections:
-                            delete_collection(restored)
+                    _do_rollback()
                     return 4
+                created_fresh.append(name)
                 print(f"      {GREEN}✓{RESET} Collection created from manifest schema")
 
             # Upload snapshot (collection must exist).
             if not upload_snapshot(name, snapshot_path):
                 print(f"      {RED}✗ Snapshot upload failed{RESET}")
-                if restored_collections:
-                    print(
-                        f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
-                    )
-                    for restored in restored_collections:
-                        delete_collection(restored)
+                _do_rollback()
                 return 4
             print(f"      {GREEN}✓{RESET} Snapshot uploaded")
 
@@ -605,27 +755,35 @@ def main() -> int:
             uploaded_name = snapshot_file
             if not recover_collection(name, uploaded_name):
                 print(f"      {RED}✗ Collection recovery failed{RESET}")
-                if restored_collections:
-                    print(
-                        f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
-                    )
-                    for restored in restored_collections:
-                        delete_collection(restored)
+                _do_rollback()
                 return 4
             print(f"      {GREEN}✓{RESET} Collection recovered")
 
-            # Track successful restoration for potential rollback.
-            restored_collections.append(name)
+            # TD-517 R-5: verify the restored point count against the manifest
+            # rather than trusting the recover endpoint's HTTP 200 alone.
+            restored_count = count_points(name)
+            expected_count = info.get("records", 0)
+            if restored_count is None:
+                print(
+                    f"      {YELLOW}!{RESET} Could not verify point count for '{name}'"
+                )
+            elif restored_count != expected_count:
+                print(
+                    f"      {RED}✗ Point count mismatch on '{name}': "
+                    f"expected {expected_count}, found {restored_count}{RESET}"
+                )
+                _do_rollback()
+                return 4
+            else:
+                print(f"      {GREEN}✓{RESET} Point count verified ({restored_count})")
 
         except Exception as e:
             print(f"      {RED}✗ Error: {e}{RESET}")
-            if restored_collections:
-                print(
-                    f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
-                )
-                for restored in restored_collections:
-                    delete_collection(restored)
+            _do_rollback()
             return 4
+
+    # TD-517 R-6: full restore succeeded — drop the rollback snapshots.
+    _cleanup_rollback_snapshots()
 
     # Optionally restore config files
     if args.restore_config:
