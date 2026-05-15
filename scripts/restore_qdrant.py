@@ -18,6 +18,7 @@ Usage:
 """
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -64,18 +65,31 @@ RESET = "\033[0m"
 
 @dataclass
 class CollectionBackup:
-    """Metadata for a single collection backup."""
+    """Metadata for a single collection backup.
+
+    TD-517 B-1: ``schema`` is the captured Qdrant fingerprint
+    (vectors_config + sparse_vectors_config + hnsw_config +
+    quantization_config + on_disk_payload + shard_number +
+    payload_schema). Present on manifests produced by v2.4.1+ backups;
+    absent on legacy manifests. Restore treats absence as a fail-fast
+    condition rather than silently defaulting to a single-vector prefab.
+    """
 
     name: str
     records: int
     snapshot_file: str
     size_bytes: int
     created_at: str
+    schema: dict | None = None
 
 
 @dataclass
 class BackupManifest:
-    """Complete backup manifest for verification during restore."""
+    """Complete backup manifest for verification during restore.
+
+    TD-517 B-7: ``runtime_flags`` carries diagnostic feature-flag context
+    captured at backup time. Not consulted for schema decisions.
+    """
 
     backup_date: str
     ai_memory_version: str
@@ -84,6 +98,7 @@ class BackupManifest:
     collections: dict  # name -> CollectionBackup dict
     config_files: list
     includes_logs: bool
+    runtime_flags: dict | None = None
 
 
 def get_headers() -> dict:
@@ -128,6 +143,7 @@ def verify_backup(backup_dir: Path) -> BackupManifest:
         collections=data.get("collections", {}),
         config_files=data.get("config_files", []),
         includes_logs=data.get("includes_logs", False),
+        runtime_flags=data.get("runtime_flags") or {},
     )
 
     # Verify all snapshot files exist
@@ -169,34 +185,120 @@ def delete_collection(collection_name: str) -> bool:
     return response.status_code == 200
 
 
-def create_collection_for_restore(collection_name: str) -> bool:
-    """
-    Create an empty collection for snapshot restore (fresh install case).
+def create_collection_from_manifest_schema(
+    target_name: str, schema_payload: dict
+) -> tuple[bool, str]:
+    """Recreate a collection from a manifest schema fingerprint (TD-517 R-1).
 
-    Uses AI Memory default vector configuration. The snapshot recover
-    operation will replace collection data with the backup contents.
-
-    Args:
-        collection_name: Name of the collection to create
+    Replaces the legacy hardcoded single-vector ``create_collection_for_restore``
+    helper. Provides Qdrant with the full original collection configuration
+    (named vectors, sparse vectors, multivector config, HNSW, quantization,
+    on-disk payload, shard number) so the subsequent snapshot upload sees a
+    byte-equivalent target. Then recreates every payload index captured in the
+    manifest's ``payload_schema`` so multi-tenancy, full-text, and freshness
+    filters survive the round-trip.
 
     Returns:
-        True if collection created successfully
+        Tuple of (success, error_message). On success, error_message is "".
     """
+    params = (schema_payload or {}).get("params") or {}
+    vectors = params.get("vectors")
+    if vectors is None:
+        return False, "schema fingerprint missing config.params.vectors"
+
+    body: dict = {"vectors": vectors}
+    sparse = params.get("sparse_vectors")
+    if sparse:
+        body["sparse_vectors"] = sparse
+    if params.get("shard_number") is not None:
+        body["shard_number"] = params["shard_number"]
+    if params.get("on_disk_payload") is not None:
+        body["on_disk_payload"] = params["on_disk_payload"]
+    if schema_payload.get("hnsw_config"):
+        body["hnsw_config"] = schema_payload["hnsw_config"]
+    if schema_payload.get("quantization_config"):
+        body["quantization_config"] = schema_payload["quantization_config"]
+
     timeout_config = httpx.Timeout(connect=3.0, read=30.0, write=5.0, pool=3.0)
+    headers = {**get_headers(), "Content-Type": "application/json"}
 
     response = httpx.put(
-        f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}",
-        headers=get_headers(),
-        json={
-            "vectors": {
-                "size": 768,  # DEC-010: Jina Embeddings v2 Base Code
-                "distance": "Cosine",
-            }
-        },
+        f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{target_name}",
+        headers=headers,
+        json=body,
         timeout=timeout_config,
     )
+    if response.status_code != 200:
+        return (
+            False,
+            f"create_collection HTTP {response.status_code}: {response.text[:300]}",
+        )
 
-    return response.status_code == 200
+    # Recreate payload indexes from the captured payload_schema. Mirrors the
+    # `recreate_payload_indices` helper in scripts/migrate_v221_hybrid_vectors.py:
+    # prefer ``params`` (carries is_tenant, tokenizer settings, etc.) and fall
+    # back to bare ``data_type`` when no params block was captured.
+    payload_schema = schema_payload.get("payload_schema") or {}
+    for field_name, field_info in payload_schema.items():
+        if not isinstance(field_info, dict):
+            continue
+        field_schema = field_info.get("params") or field_info.get("data_type")
+        if not field_schema:
+            continue
+        # Best-effort: keep recreating remaining indexes if one errors. A
+        # missing payload index degrades search but does not prevent restore;
+        # surfaced indirectly via post-restore count + sample checks.
+        with contextlib.suppress(Exception):
+            httpx.put(
+                f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{target_name}/index",
+                headers=headers,
+                json={"field_name": field_name, "field_schema": field_schema},
+                timeout=timeout_config,
+            )
+
+    return True, ""
+
+
+# TD-517 R-2: schema-fingerprint helpers. Mirror the distillation in
+# scripts/backup_qdrant.py:_build_schema_fingerprint so a live collection can
+# be compared against a manifest entry without importing across scripts. The
+# shared-helper refactor is tracked as a separate post-merge low-severity TD.
+
+
+def _build_schema_fingerprint(get_collection_result: dict) -> dict:
+    """Distill GET /collections/{name} into the same shape backup_qdrant.py records."""
+    config = (get_collection_result or {}).get("config", {}) or {}
+    params = config.get("params", {}) or {}
+    return {
+        "params": {
+            "vectors": params.get("vectors"),
+            "sparse_vectors": params.get("sparse_vectors"),
+            "shard_number": params.get("shard_number"),
+            "on_disk_payload": params.get("on_disk_payload"),
+        },
+        "hnsw_config": config.get("hnsw_config"),
+        "quantization_config": config.get("quantization_config"),
+        "payload_schema": (get_collection_result or {}).get("payload_schema") or {},
+    }
+
+
+def _fingerprint_signature(schema: dict | None) -> str:
+    """Stable JSON encoding of a schema fingerprint for diff display."""
+    return json.dumps(schema or {}, sort_keys=True, separators=(",", ":"))
+
+
+def fetch_live_schema(collection_name: str) -> dict | None:
+    """Fetch the live target's schema fingerprint, or None if the collection is absent."""
+    timeout_config = httpx.Timeout(connect=3.0, read=10.0, write=5.0, pool=3.0)
+    response = httpx.get(
+        f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}",
+        headers=get_headers(),
+        timeout=timeout_config,
+    )
+    if response.status_code != 200:
+        return None
+    data = response.json().get("result", {}) or {}
+    return _build_schema_fingerprint(data)
 
 
 def upload_snapshot(collection_name: str, snapshot_path: Path) -> bool:
@@ -229,13 +331,16 @@ def upload_snapshot(collection_name: str, snapshot_path: Path) -> bool:
 
 
 def recover_collection(collection_name: str, snapshot_name: str) -> bool:
-    """
-    Recover a collection from an uploaded snapshot.
+    """Recover a collection from an uploaded snapshot.
+
+    TD-517 R-3: passes ``priority=snapshot`` so the snapshot's data wins over
+    any partial state already on the node. The default ``replica`` priority
+    keeps local data and only fills missing gaps from the snapshot, which is
+    the wrong semantics for an explicit operator-driven restore — operators
+    expect the backup to be canonical.
 
     Qdrant 1.16+ requires the snapshot location in the request body.
-    Uploaded snapshots are stored at /qdrant/snapshots/{collection}/{snapshot}
-
-    Returns: True if successful
+    Uploaded snapshots are stored at /qdrant/snapshots/{collection}/{snapshot}.
     """
     timeout_config = httpx.Timeout(
         connect=3.0, read=float(SNAPSHOT_RECOVER_TIMEOUT), write=5.0, pool=3.0
@@ -250,7 +355,7 @@ def recover_collection(collection_name: str, snapshot_name: str) -> bool:
     response = httpx.put(
         f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/recover",
         headers=headers,
-        json={"location": snapshot_location},
+        json={"location": snapshot_location, "priority": "snapshot"},
         timeout=timeout_config,
     )
 
@@ -410,20 +515,53 @@ def main() -> int:
         total_records += records
         snapshot_file = info.get("snapshot_file", f"{name}.snapshot")
         snapshot_path = backup_dir / "qdrant" / snapshot_file
+        manifest_schema = info.get("schema")
 
         print(f"    Restoring {name} ({records} records)...")
 
-        try:
-            # Note: We don't delete existing collections before restore.
-            # Qdrant's snapshot recover replaces collection data in-place.
-            # Deleting first would cause upload to fail with 404.
+        # TD-517 R-1 backward-compat: legacy manifests (pre-v2.4.1) lack the
+        # schema fingerprint. The pre-fix restore would silently default to a
+        # single-vector 768/Cosine collection that fails snapshot upload with
+        # HTTP 400 schema-incompatibility — exactly the bug this rewrite
+        # closes. Fail loud with an actionable message instead.
+        if manifest_schema is None:
+            print(
+                f"      {RED}✗ Manifest predates v2.4.1: no schema fingerprint for '{name}'{RESET}"
+            )
+            print(
+                f"      {GRAY}  Restore cannot recreate the target collection without the captured schema.{RESET}"
+            )
+            print(
+                f"      {GRAY}  Run scripts/setup-collections.py to provision collections first, then retry.{RESET}"
+            )
+            if restored_collections:
+                print(
+                    f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
+                )
+                for restored in restored_collections:
+                    delete_collection(restored)
+            return 2
 
-            # If collection doesn't exist (fresh install), create it first
-            if name not in existing_collections:
-                print("      Creating collection...")
-                if not create_collection_for_restore(name):
-                    print(f"      {RED}✗ Failed to create collection{RESET}")
-                    # Rollback previously restored collections
+        try:
+            if name in existing_collections:
+                # TD-517 R-2: hard-fail on schema fingerprint drift between
+                # the backup and the live target. Cross-version restore is
+                # explicitly out of scope for this script; operators are
+                # routed to a per-version migrate_*.py instead.
+                live_schema = fetch_live_schema(name)
+                manifest_sig = _fingerprint_signature(manifest_schema)
+                live_sig = _fingerprint_signature(live_schema)
+                if manifest_sig != live_sig:
+                    print(f"      {RED}✗ Schema mismatch on '{name}'.{RESET}")
+                    print(
+                        f"      {GRAY}  Backup fingerprint differs from live target.{RESET}"
+                    )
+                    print(
+                        f"      {GRAY}  Cross-version restore is not supported by backup_qdrant.py / restore_qdrant.py.{RESET}"
+                    )
+                    print(
+                        f"      {GRAY}  Use a per-version migrate_*.py script. See oversight/specs/BACKUP-RESTORE.md.{RESET}"
+                    )
                     if restored_collections:
                         print(
                             f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
@@ -431,12 +569,29 @@ def main() -> int:
                         for restored in restored_collections:
                             delete_collection(restored)
                     return 4
-                print(f"      {GREEN}✓{RESET} Collection created")
+                # Existing target with matching schema: snapshot recover will
+                # replace its contents in place.
+                print(f"      {GREEN}✓{RESET} Schema fingerprint match")
+            else:
+                # Absent target (fresh-install path): recreate the collection
+                # from the manifest's schema fingerprint so the subsequent
+                # snapshot upload sees a byte-equivalent target.
+                print("      Creating collection from manifest schema...")
+                ok, err = create_collection_from_manifest_schema(name, manifest_schema)
+                if not ok:
+                    print(f"      {RED}✗ Failed to create collection: {err}{RESET}")
+                    if restored_collections:
+                        print(
+                            f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
+                        )
+                        for restored in restored_collections:
+                            delete_collection(restored)
+                    return 4
+                print(f"      {GREEN}✓{RESET} Collection created from manifest schema")
 
-            # Upload snapshot (collection must exist)
+            # Upload snapshot (collection must exist).
             if not upload_snapshot(name, snapshot_path):
                 print(f"      {RED}✗ Snapshot upload failed{RESET}")
-                # Rollback previously restored collections
                 if restored_collections:
                     print(
                         f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
@@ -446,13 +601,10 @@ def main() -> int:
                 return 4
             print(f"      {GREEN}✓{RESET} Snapshot uploaded")
 
-            # Get the uploaded snapshot name (it's the filename)
+            # Recover collection from the uploaded snapshot.
             uploaded_name = snapshot_file
-
-            # Recover collection from snapshot
             if not recover_collection(name, uploaded_name):
                 print(f"      {RED}✗ Collection recovery failed{RESET}")
-                # Rollback previously restored collections
                 if restored_collections:
                     print(
                         f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
@@ -462,12 +614,11 @@ def main() -> int:
                 return 4
             print(f"      {GREEN}✓{RESET} Collection recovered")
 
-            # Track successful restoration for potential rollback
+            # Track successful restoration for potential rollback.
             restored_collections.append(name)
 
         except Exception as e:
             print(f"      {RED}✗ Error: {e}{RESET}")
-            # Rollback previously restored collections
             if restored_collections:
                 print(
                     f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
