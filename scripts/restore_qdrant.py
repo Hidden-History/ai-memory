@@ -119,9 +119,16 @@ def format_size(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
-def verify_backup(backup_dir: Path) -> BackupManifest:
+def verify_backup(backup_dir: Path, collection: str | None = None) -> BackupManifest:
     """
     Verify backup directory and parse manifest.
+
+    Args:
+        backup_dir: Path to the backup directory.
+        collection: When given and present in the manifest, only that
+            collection's snapshot file is checked for existence (TD-517
+            F-O-3) — an unrelated collection's missing snapshot must not
+            abort a ``--collection``-scoped restore.
 
     Returns: BackupManifest object
     Raises: RuntimeError if verification fails
@@ -148,9 +155,16 @@ def verify_backup(backup_dir: Path) -> BackupManifest:
         runtime_flags=data.get("runtime_flags") or {},
     )
 
-    # Verify all snapshot files exist
+    # Verify snapshot files exist. TD-517 F-O-3: when --collection scopes the
+    # restore to one collection, only that collection's snapshot file is
+    # required here — an unrelated collection's missing snapshot must not abort
+    # a scoped restore. An unknown --collection name is left for main() to
+    # report, so it is intentionally not filtered out.
     qdrant_dir = backup_dir / "qdrant"
-    for name, info in manifest.collections.items():
+    collections_to_check = manifest.collections
+    if collection is not None and collection in manifest.collections:
+        collections_to_check = {collection: manifest.collections[collection]}
+    for name, info in collections_to_check.items():
         snapshot_file = info.get("snapshot_file", f"{name}.snapshot")
         snapshot_path = qdrant_dir / snapshot_file
         if not snapshot_path.exists():
@@ -379,14 +393,27 @@ def create_collection_from_manifest_schema(
         if not field_schema:
             continue
         # Best-effort: keep recreating remaining indexes if one errors. A
-        # missing payload index degrades search but does not prevent restore;
-        # surfaced indirectly via post-restore count + sample checks.
-        with contextlib.suppress(Exception):
-            httpx.put(
+        # missing payload index degrades search but does not prevent restore.
+        # TD-517 F-S-3: surface each failure as a YELLOW warning rather than
+        # suppressing it silently — degraded search was previously the only
+        # (and much later) symptom an operator had to go on.
+        try:
+            index_response = httpx.put(
                 f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{target_name}/index",
                 headers=headers,
                 json={"field_name": field_name, "field_schema": field_schema},
                 timeout=timeout_config,
+            )
+            if index_response.status_code != 200:
+                print(
+                    f"      {YELLOW}!{RESET} Payload index '{field_name}' not "
+                    f"recreated (HTTP {index_response.status_code}) — search on "
+                    f"this field may be degraded"
+                )
+        except Exception as e:
+            print(
+                f"      {YELLOW}!{RESET} Payload index '{field_name}' not "
+                f"recreated ({e}) — search on this field may be degraded"
             )
 
     return True, ""
@@ -645,34 +672,16 @@ def main() -> int:
     print()
     print("  Verifying backup...")
     try:
-        manifest = verify_backup(backup_dir)
+        manifest = verify_backup(backup_dir, args.collection)
         print(f"    {GREEN}✓{RESET} manifest.json valid")
-
-        # Parse and display backup date
-        try:
-            backup_date = datetime.fromisoformat(
-                manifest.backup_date.replace("Z", "+00:00")
-            )
-            print(f"  Backup date: {backup_date.strftime('%Y-%m-%d %H:%M:%S')}")
-        except Exception:
-            print(f"  Backup date: {manifest.backup_date}")
-
-        print(f"  Version: {manifest.ai_memory_version}")
-        print()
-
-        # Verify snapshot files
-        qdrant_dir = backup_dir / "qdrant"
-        for name, info in manifest.collections.items():
-            snapshot_file = info.get("snapshot_file", f"{name}.snapshot")
-            snapshot_path = qdrant_dir / snapshot_file
-            size = snapshot_path.stat().st_size
-            print(f"    {GREEN}✓{RESET} {snapshot_file} ({format_size(size)})")
-
     except RuntimeError as e:
         print(f"    {RED}✗ {e}{RESET}")
         return 2
 
-    # TD-517 R-7: restrict to a single collection when --collection is given.
+    # TD-517 R-7 / F-O-3: restrict to a single collection BEFORE the snapshot
+    # display and the restore loop. Filtering here means an unrelated
+    # collection's missing snapshot file never reaches the .stat() display
+    # below nor aborts a scoped --collection restore.
     if args.collection:
         if args.collection not in manifest.collections:
             print(
@@ -681,6 +690,26 @@ def main() -> int:
             print(f"    {GRAY}  Backup contains: {sorted(manifest.collections)}{RESET}")
             return 2
         manifest.collections = {args.collection: manifest.collections[args.collection]}
+
+    # Parse and display backup date
+    try:
+        backup_date = datetime.fromisoformat(
+            manifest.backup_date.replace("Z", "+00:00")
+        )
+        print(f"  Backup date: {backup_date.strftime('%Y-%m-%d %H:%M:%S')}")
+    except Exception:
+        print(f"  Backup date: {manifest.backup_date}")
+
+    print(f"  Version: {manifest.ai_memory_version}")
+    print()
+
+    # Verify snapshot files
+    qdrant_dir = backup_dir / "qdrant"
+    for name, info in manifest.collections.items():
+        snapshot_file = info.get("snapshot_file", f"{name}.snapshot")
+        snapshot_path = qdrant_dir / snapshot_file
+        size = snapshot_path.stat().st_size
+        print(f"    {GREEN}✓{RESET} {snapshot_file} ({format_size(size)})")
 
     # TD-517 R-9: verify CHECKSUMS.sha256 before uploading anything to Qdrant.
     if not args.skip_checksum_verify:
@@ -754,9 +783,14 @@ def main() -> int:
     # operator retains agency to proceed (DEC-PM291-D17 Q-4).
     if existing_collections:
         try:
+            # TD-517 F-S-1: existing_collections holds Qdrant target names,
+            # but manifest.collections is keyed by source/manifest names.
+            # Iterate the manifest entries and map each through _target_for
+            # so a --target-name restore does not raise KeyError here.
             total_snapshot_bytes = sum(
-                int(manifest.collections[n].get("size_bytes", 0))
-                for n in existing_collections
+                int(info.get("size_bytes", 0))
+                for name, info in manifest.collections.items()
+                if _target_for(name) in existing_collections
             )
             free_bytes = shutil.disk_usage(Path(INSTALL_DIR).anchor or "/").free
             if total_snapshot_bytes * 2 > free_bytes:
