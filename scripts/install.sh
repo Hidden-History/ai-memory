@@ -2304,9 +2304,8 @@ import_user_env() {
     local user_env="$source_root/.env"
 
     if [[ -f "$user_env" ]]; then
-        log_warning "Found legacy root .env at $user_env"
-        log_warning "The root .env is no longer used. All configuration lives in docker/.env"
-        log_warning "If you have API keys in $user_env, add them to $INSTALL_DIR/docker/.env Section 1"
+        log_info "Found legacy root .env at $user_env — credentials are not auto-imported."
+        log_info "To migrate API keys: copy them manually from $user_env to $INSTALL_DIR/docker/.env"
     fi
     return 0
 }
