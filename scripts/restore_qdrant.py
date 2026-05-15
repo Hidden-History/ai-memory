@@ -870,7 +870,7 @@ def main() -> int:
                         f"      {GRAY}  Cross-version restore is not supported by backup_qdrant.py / restore_qdrant.py.{RESET}"
                     )
                     print(
-                        f"      {GRAY}  Use a per-version migrate_*.py script. See oversight/specs/BACKUP-RESTORE.md.{RESET}"
+                        f"      {GRAY}  Use a per-version migrate_*.py script. See docs/BACKUP-RESTORE.md.{RESET}"
                     )
                     _do_rollback()
                     return 4
