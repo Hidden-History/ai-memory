@@ -58,9 +58,11 @@ QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
 # Collections to backup (must match config.py — includes jira-data from v2.0.5, github from v2.0.9)
 COLLECTIONS = ["discussions", "conventions", "code-patterns", "jira-data", "github"]
 
-# Timeouts
-SNAPSHOT_CREATE_TIMEOUT = 60  # Creating snapshot can take time for large collections
-SNAPSHOT_DOWNLOAD_TIMEOUT = 300  # 5 minutes for large downloads
+# Timeouts (TD-517 B-3: bumped default to 300s; env-overridable)
+SNAPSHOT_CREATE_TIMEOUT = int(os.environ.get("BACKUP_SNAPSHOT_CREATE_TIMEOUT", "300"))
+SNAPSHOT_DOWNLOAD_TIMEOUT = int(
+    os.environ.get("BACKUP_SNAPSHOT_DOWNLOAD_TIMEOUT", "300")
+)
 
 # Colors
 GREEN = "\033[92m"
@@ -72,18 +74,32 @@ RESET = "\033[0m"
 
 @dataclass
 class CollectionBackup:
-    """Metadata for a single collection backup."""
+    """Metadata for a single collection backup.
+
+    TD-517 B-1: ``schema`` captures the full Qdrant collection fingerprint
+    (vectors_config + sparse_vectors_config + multivector_config + hnsw_config
+    + quantization_config + on_disk_payload + shard_number + payload_schema)
+    so the restore path can recreate the target collection with byte-equivalent
+    structure before snapshot upload. Absent on pre-v2.4.1 manifests; restore
+    treats absence as a fail-fast condition.
+    """
 
     name: str
     records: int
     snapshot_file: str
     size_bytes: int
     created_at: str
+    schema: dict | None = None
 
 
 @dataclass
 class BackupManifest:
-    """Complete backup manifest for verification during restore."""
+    """Complete backup manifest for verification during restore.
+
+    TD-517 B-7: ``runtime_flags`` records the embedding/search feature flags
+    that were active at backup time. Diagnostic-only — the authoritative
+    schema source is each ``CollectionBackup.schema`` fingerprint.
+    """
 
     backup_date: str
     ai_memory_version: str
@@ -92,6 +108,7 @@ class BackupManifest:
     collections: dict  # name -> CollectionBackup
     config_files: list
     includes_logs: bool
+    runtime_flags: dict | None = None
 
 
 def get_headers() -> dict:
@@ -137,7 +154,7 @@ def check_disk_space(backup_dir: Path, estimated_size: int) -> tuple[bool, int]:
     if not check_path.exists():
         check_path = Path.home()  # Fallback to home directory
 
-    total, used, free = shutil.disk_usage(check_path)
+    _total, _used, free = shutil.disk_usage(check_path)
 
     # Require 2x estimated size for safety margin
     required = estimated_size * 2
@@ -171,10 +188,20 @@ def delete_server_snapshot(collection_name: str, snapshot_name: str) -> bool:
 
 
 def get_collection_info(collection_name: str) -> dict:
-    """
-    Get collection information including record count.
+    """Get collection information including record count and schema fingerprint.
 
-    Returns: {"name": str, "points_count": int, "vectors_count": int}
+    TD-517 B-1: a single GET ``/collections/{name}`` call now also yields the
+    full schema fingerprint that the restore path needs to recreate the
+    collection before snapshot upload. No extra round-trip vs the previous
+    counts-only implementation.
+
+    Returns:
+        Dict with keys ``name``, ``points_count``, ``vectors_count``, and
+        ``schema``. The ``schema`` value is the raw ``result`` payload from
+        Qdrant containing ``config.params.vectors``,
+        ``config.params.sparse_vectors``, ``config.params.shard_number``,
+        ``config.params.on_disk_payload``, ``config.hnsw_config``,
+        ``config.quantization_config`` and ``payload_schema``.
     """
     timeout_config = httpx.Timeout(connect=3.0, read=10.0, write=5.0, pool=3.0)
 
@@ -196,7 +223,49 @@ def get_collection_info(collection_name: str) -> dict:
         "name": collection_name,
         "points_count": result.get("points_count", 0),
         "vectors_count": result.get("vectors_count", 0),
+        "schema": _build_schema_fingerprint(result),
     }
+
+
+def _build_schema_fingerprint(get_collection_result: dict) -> dict:
+    """Distill Qdrant's GET /collections/{name} payload into a stable manifest fingerprint.
+
+    Keeps only the fields needed to recreate the collection (vector params,
+    sparse vectors, multivector config, HNSW, quantization, on-disk payload,
+    shard count, and the payload index schema). Discards runtime status fields
+    (``optimizer_status``, ``warnings``, ``segments_count``,
+    ``indexed_vectors_count``) that drift between calls and would otherwise
+    create spurious manifest diffs.
+    """
+    config = get_collection_result.get("config", {}) or {}
+    params = config.get("params", {}) or {}
+    return {
+        "params": {
+            "vectors": params.get("vectors"),
+            "sparse_vectors": params.get("sparse_vectors"),
+            "shard_number": params.get("shard_number"),
+            "on_disk_payload": params.get("on_disk_payload"),
+        },
+        "hnsw_config": config.get("hnsw_config"),
+        "quantization_config": config.get("quantization_config"),
+        "payload_schema": get_collection_result.get("payload_schema") or {},
+    }
+
+
+def get_runtime_flags() -> dict:
+    """Capture the embedding/search feature flags that were active at backup time.
+
+    TD-517 B-7: diagnostic-only. Restore does NOT consult these for schema
+    decisions (the authoritative source is each ``CollectionBackup.schema``).
+    Useful when an operator inspects a manifest months later and needs to know
+    which feature flags the snapshot was taken under.
+    """
+    flag_names = (
+        "COLBERT_RERANKING_ENABLED",
+        "HYBRID_SEARCH_ENABLED",
+        "BM25_SPARSE_ENABLED",
+    )
+    return {flag: os.environ.get(flag, "") for flag in flag_names}
 
 
 def create_snapshot(collection_name: str) -> str:
@@ -303,6 +372,7 @@ def create_manifest(
     collections: list[CollectionBackup],
     config_files: list,
     includes_logs: bool,
+    runtime_flags: dict | None = None,
 ) -> None:
     """Write manifest.json to backup directory."""
     manifest = BackupManifest(
@@ -313,6 +383,7 @@ def create_manifest(
         collections={c.name: asdict(c) for c in collections},
         config_files=config_files,
         includes_logs=includes_logs,
+        runtime_flags=runtime_flags or {},
     )
 
     manifest_path = backup_dir / "manifest.json"
@@ -397,7 +468,7 @@ def main() -> int:
         print(f"  Backing up {collection}...")
 
         try:
-            # 1. Get collection info
+            # 1. Get collection info + schema fingerprint (TD-517 B-1)
             info = get_collection_info(collection)
             records = info["points_count"]
             total_records += records
@@ -418,13 +489,16 @@ def main() -> int:
                     f"    {YELLOW}!{RESET} Could not delete server snapshot (non-critical)"
                 )
 
-            # 5. Store metadata
+            # 5. Store metadata — TD-517 B-1 includes the schema fingerprint
+            #    so restore can rebuild the collection with byte-equivalent
+            #    config before snapshot upload.
             backup = CollectionBackup(
                 name=collection,
                 records=records,
                 snapshot_file=f"{collection}.snapshot",
                 size_bytes=size_bytes,
                 created_at=datetime.now(timezone.utc).isoformat(),
+                schema=info.get("schema"),
             )
             collection_backups.append(backup)
 
@@ -461,8 +535,14 @@ def main() -> int:
         else:
             print(f"    {YELLOW}!{RESET} No logs found or copy failed")
 
-    # Create manifest
-    create_manifest(backup_dir, collection_backups, config_files, includes_logs)
+    # Create manifest — TD-517 B-7 records runtime flags for diagnostic context
+    create_manifest(
+        backup_dir,
+        collection_backups,
+        config_files,
+        includes_logs,
+        runtime_flags=get_runtime_flags(),
+    )
 
     # Print summary
     print(f"\n{'='*60}")
