@@ -809,7 +809,7 @@ Counts individual result rejections during bootstrap context fill. A result is r
 | `tier` | `1_bootstrap`, `2_injection` |
 | `collection` | `code-patterns`, `conventions`, `discussions`, `github`, `jira-data` |
 
-**Cardinality:** ~40 series (4 reasons × 2 tiers × 5 collections)
+**Cardinality:** ~40 sparse series (4 reasons × 2 tiers × 5 collections)
 
 **Queries:**
 
@@ -817,7 +817,7 @@ Counts individual result rejections during bootstrap context fill. A result is r
 # Total rejections by reason (last 1 hour)
 sum by (reason) (increase(aimemory_retrieval_budget_reject_total[1h]))
 
-# Rejections from the discussions collection (handoff ceiling hits)
+# Rejections from the discussions collection (all reasons)
 aimemory_retrieval_budget_reject_total{collection="discussions"}
 
 # Ceiling-exceeded rejections only — these trigger filesystem fallback at session start

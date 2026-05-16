@@ -134,7 +134,7 @@ Outputs empty context and logs a warning. Claude continues without memory inject
 
 **Fallback (handoff too large — `[FALLBACK-NEEDED: ...]` marker):**
 
-When the most recent Parzival handoff record is retrieved from Qdrant but its aggregated body exceeds `HANDOFF_CEILING_TOKENS` (default 8 000 tokens), the bootstrap layer rejects it and emits a marker as the first line of the Cross-Session Memory section:
+When the most recent Parzival handoff record is retrieved from Qdrant but its aggregated body exceeds `HANDOFF_CEILING_TOKENS` (default 8 000 tokens), the bootstrap layer rejects it and emits a marker as the first content line of the Cross-Session Memory section (immediately after the section header):
 
 ```
 [FALLBACK-NEEDED: reason=ceiling_exceeded type=agent_handoff tokens=<N> budget=<B>]

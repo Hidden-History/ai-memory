@@ -18,6 +18,7 @@ from memory.metrics_push import (
     push_embedding_metrics_async,
     push_failure_metrics_async,
     push_retrieval_metrics_async,
+    push_retrieval_reject_metric_async,
     push_token_metrics_async,
     push_trigger_metrics_async,
 )
@@ -452,3 +453,65 @@ class TestPushSkillMetrics:
 
             assert '"skill_name": "memory-status"' in inline_script
             assert '"status": "empty"' in inline_script
+
+
+class TestPushRetrievalRejectGroupingKey:
+    """Regression for H-1: grouping_key must include collection to prevent clobber.
+
+    The pushgateway `pushadd_to_gateway` replaces the entire metric family within a
+    grouping_key scope. If two rejects share the same tier+reason but differ only in
+    collection, the second push overwrites the first unless `collection` is part of
+    the key. This test verifies that all three dimensions are present.
+
+    Guard property: MUST fail against pre-H-1 code (grouping_key only had tier+reason).
+    After H-1 fix (grouping_key includes collection), this test passes.
+    """
+
+    def test_grouping_key_includes_tier_reason_and_collection(self):
+        """All three dimensions — tier, reason, collection — must appear in grouping_key.
+
+        Fails against pre-H-1 code where the grouping_key instance string was
+        `reject_{data['tier']}_{data['reason']}` (missing `_{data['collection']}`),
+        allowing same-tier/same-reason rejects from different collections to clobber
+        each other in the pushgateway.
+        """
+        with patch("subprocess.Popen") as mock_popen:
+            push_retrieval_reject_metric_async(
+                reason="budget_exceeded",
+                tier="1_bootstrap",
+                collection="code-patterns",
+                count=1,
+            )
+            assert mock_popen.called
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]
+
+            # The grouping_key instance in the subprocess script must encode all three.
+            # Post-H-1: reject_{data['tier']}_{data['reason']}_{data['collection']}
+            # Pre-H-1:  reject_{data['tier']}_{data['reason']}   ← collection absent
+            assert (
+                "reject_{data['tier']}_{data['reason']}_{data['collection']}"
+                in inline_script
+            ), (
+                "grouping_key does not include collection — "
+                "same-tier/same-reason pushes from different collections will clobber each other. "
+                "Expected: reject_{data['tier']}_{data['reason']}_{data['collection']}"
+            )
+
+    def test_all_three_label_dimensions_in_metrics_data(self):
+        """reason, tier, and collection must all be serialised into the subprocess data dict."""
+        with patch("subprocess.Popen") as mock_popen:
+            push_retrieval_reject_metric_async(
+                reason="ceiling_exceeded",
+                tier="2_injection",
+                collection="discussions",
+                count=2,
+            )
+            assert mock_popen.called
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]
+
+            assert '"reason": "ceiling_exceeded"' in inline_script
+            assert '"tier": "2_injection"' in inline_script
+            assert '"collection": "discussions"' in inline_script
+            assert '"count": 2' in inline_script

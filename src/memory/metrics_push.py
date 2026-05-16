@@ -1936,7 +1936,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
-        grouping_key={{"instance": f"reject_{{data['tier']}}_{{data['reason']}}"}},
+        grouping_key={{"instance": f"reject_{{data['tier']}}_{{data['reason']}}_{{data['collection']}}"}},
         registry=registry,
         timeout=0.5
     )

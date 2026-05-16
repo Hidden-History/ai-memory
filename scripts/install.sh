@@ -1701,7 +1701,7 @@ update_shared_scripts() {
         local _env_backup=""
         if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
             _env_backup="$(mktemp)"
-            cp "$INSTALL_DIR/docker/.env" "$_env_backup"
+            cp -p "$INSTALL_DIR/docker/.env" "$_env_backup"
             log_debug "Backed up existing docker/.env before bulk copy"
         fi
 
@@ -1719,7 +1719,7 @@ update_shared_scripts() {
 
         # Restore docker/.env if it was backed up (bulk cp may have overwritten with template)
         if [[ -n "$_env_backup" ]]; then
-            cp "$_env_backup" "$INSTALL_DIR/docker/.env"
+            cp -p "$_env_backup" "$INSTALL_DIR/docker/.env"
             rm -f "$_env_backup"
             log_debug "Restored docker/.env after bulk copy"
         fi
@@ -2223,7 +2223,7 @@ copy_files() {
     local _env_backup=""
     if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
         _env_backup="$(mktemp)"
-        cp "$INSTALL_DIR/docker/.env" "$_env_backup"
+        cp -p "$INSTALL_DIR/docker/.env" "$_env_backup"
         log_debug "Backed up existing docker/.env before bulk copy"
     fi
 
@@ -2232,7 +2232,7 @@ copy_files() {
 
     # Restore docker/.env if it was backed up (bulk cp may have overwritten with template)
     if [[ -n "$_env_backup" ]]; then
-        cp "$_env_backup" "$INSTALL_DIR/docker/.env"
+        cp -p "$_env_backup" "$INSTALL_DIR/docker/.env"
         rm -f "$_env_backup"
         log_debug "Restored docker/.env after bulk copy"
     fi

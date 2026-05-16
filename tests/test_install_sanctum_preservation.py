@@ -18,8 +18,10 @@ CREED.md policy (parzival-answers.md DQ-3 (a)):
   load, tier) come from new template.
 """
 
+import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -514,3 +516,59 @@ deploy_parzival_v2
         assert (
             "sessions_completed: 5" in creed_content
         ), "cp-fallback should restore backup CREED.md verbatim (sessions_completed: 5)"
+
+
+# ---------------------------------------------------------------------------
+# Class 3: mtime preservation regression (BUG-299 / F1)
+# ---------------------------------------------------------------------------
+
+
+class TestDeployParzivalV2MtimePreservation:
+    """Regression for BUG-299: user files under _memory/ retain original mtime on reinstall.
+
+    Requires install.sh to restore _memory/ user files with `cp -p` (BUG-299 fix).
+    Without `cp -p` the restored file's mtime is the time of the install run, not
+    the original — breaking `stat` / `find -newer` audit checks across reinstalls.
+    """
+
+    def test_memory_user_file_mtime_preserved(
+        self, install_sh_no_main, sanctum_install_dirs
+    ):
+        """V2→V2 reinstall must preserve mtime for user-created _memory/ files.
+
+        Sets up a pre-existing user file with a known mtime 24 hours in the past,
+        runs deploy_parzival_v2, and asserts the restored file's mtime matches the
+        original. Fails when install.sh uses `cp` without `-p` for _memory/ restore.
+        """
+        install_dir, project_dir = sanctum_install_dirs
+
+        # Create a user-created file under _memory/ (not present in source template)
+        memory_dir = project_dir / "_ai-memory" / "_memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        user_file = memory_dir / "user-note.md"
+        user_file.write_text("user note content — mtime sentinel", encoding="utf-8")
+
+        # Pin mtime to 24 h ago so it is clearly distinct from "now"
+        original_mtime = time.time() - 86400
+        os.utime(str(user_file), (original_mtime, original_mtime))
+
+        result = _run_deploy_parzival_v2(install_sh_no_main, install_dir, project_dir)
+        assert result.returncode == 0, f"deploy_parzival_v2 failed:\n{result.stderr}"
+
+        restored_file = project_dir / "_ai-memory" / "_memory" / "user-note.md"
+        assert restored_file.exists(), "_memory/user-note.md was not restored"
+        assert (
+            restored_file.read_text(encoding="utf-8")
+            == "user note content — mtime sentinel"
+        )
+
+        restored_mtime = restored_file.stat().st_mtime
+
+        # mtime must match original (within 2-second tolerance for filesystem precision).
+        # Without `cp -p`, restored_mtime would be approximately now (>> original_mtime).
+        assert abs(restored_mtime - original_mtime) < 2, (
+            f"_memory/ user file mtime not preserved across reinstall: "
+            f"original={original_mtime:.1f}, restored={restored_mtime:.1f} "
+            f"(delta={abs(restored_mtime - original_mtime):.1f}s). "
+            "Ensure install.sh restores _memory/ user files with `cp -p`."
+        )

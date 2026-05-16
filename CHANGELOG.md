@@ -19,17 +19,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Sanctum and `_memory/` file modification timestamps are now preserved across
+- `_memory/` user file modification timestamps are now preserved across
   reinstalls. The installer's backup and restore copy steps now pass `cp -p`,
   so `stat` and `find -newer` audit checks remain meaningful after an upgrade.
-  File content was already preserved across reinstalls; only the timestamps
-  were being reset. (BUG-299)
+  Per-instance sanctum identity files (LORE.md, BOND.md, sessions) also retain
+  their original timestamps on the restore path. Note: CREED.md is rewritten by
+  the frontmatter merge step on the normal update path; only the failure-fallback
+  `cp` retains its original mtime. File content was already preserved across
+  reinstalls; only the timestamps were being reset. (BUG-299)
 - The pushgateway `grouping_key` for retrieval-budget rejection metrics now
-  includes the rejection reason. Previously, two rejections with different
-  reasons at the same tier within a single bootstrap could overwrite each
-  other in the pushgateway, making alerting on a specific
-  `aimemory_retrieval_budget_reject_total{reason=...}` series intermittent.
-  (BUG-300)
+  includes `collection` in addition to tier and reason. Previously,
+  same-tier/same-reason rejects from different collections clobbered each other
+  in the pushgateway, preventing the documented ~40 sparse series (4 reasons ×
+  2 tiers × 5 collections) from being achievable in practice. The `grouping_key`
+  instance now encodes all three dimensions:
+  `reject_{tier}_{reason}_{collection}`. Alerting on
+  `aimemory_retrieval_budget_reject_total{reason,tier,collection}` is now
+  reliable across all label combinations. (BUG-300)
 
 ## [2.4.0] - 2026-05-13 — BUG-297 Silent-Drop Fix + Sanctum Identity + Env-Secrets Split + Classifier Resilience
 
