@@ -547,6 +547,25 @@ class TestPushContextInjectionGroupingKey:
                 "Expected: ctx_injection_{data['hook_type']}_{data['collection']}"
             )
 
+    def test_all_label_dimensions_in_metrics_data(self):
+        """hook_type, collection, project, and token_count must all be serialised into the subprocess data dict.
+
+        Guards against refactors that drop a key from metrics_data — the grouping_key
+        template guard still passes in that case, but the subprocess KeyErrors at runtime.
+        """
+        with patch("subprocess.Popen") as mock_popen:
+            push_context_injection_metrics_async(
+                "SessionStart", "code-patterns", "test-project", 500
+            )
+            assert mock_popen.called
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]
+
+            assert '"hook_type": "SessionStart"' in inline_script
+            assert '"collection": "code-patterns"' in inline_script
+            assert '"project": "test-project"' in inline_script
+            assert '"token_count": 500' in inline_script
+
 
 class TestPushCaptureGroupingKey:
     """Regression for H-1b: capture grouping_key must include collection (BUG-304).
@@ -576,3 +595,23 @@ class TestPushCaptureGroupingKey:
                 "same-hook_type pushes from different collections will clobber each other. "
                 "Expected: capture_{data['hook_type']}_{data['collection']}"
             )
+
+    def test_all_label_dimensions_in_metrics_data(self):
+        """hook_type, status, collection, project, and count must all be serialised into the subprocess data dict.
+
+        Guards against refactors that drop a key from metrics_data — the grouping_key
+        template guard still passes in that case, but the subprocess KeyErrors at runtime.
+        """
+        with patch("subprocess.Popen") as mock_popen:
+            push_capture_metrics_async(
+                "PostToolUse", "success", "test-project", "conventions", 1
+            )
+            assert mock_popen.called
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]
+
+            assert '"hook_type": "PostToolUse"' in inline_script
+            assert '"status": "success"' in inline_script
+            assert '"collection": "conventions"' in inline_script
+            assert '"project": "test-project"' in inline_script
+            assert '"count": 1' in inline_script

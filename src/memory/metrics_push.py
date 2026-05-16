@@ -477,7 +477,7 @@ def push_context_injection_metrics_async(
 
     # Validate labels (HIGH-1)
     hook_type = _validate_label(hook_type, "hook_type", VALID_HOOK_TYPES)
-    collection = _validate_label(collection, "collection")
+    collection = _validate_label(collection, "collection", VALID_COLLECTIONS)
     project = _validate_label(project, "project")
 
     try:
