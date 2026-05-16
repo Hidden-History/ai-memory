@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `restore_qdrant.py` gains `--dry-run`, `--collection`, `--target-name`, and `--skip-checksum-verify` flags (TD-517).
 - Integration test covering the production-shape backup/restore round-trip and the failed-restore rollback path (`tests/integration/test_backup_restore_round_trip.py`).
 - Regression coverage for Parzival bootstrap consumer pipeline handling L1 ceiling rejection without `AttributeError` (BUG-301). Root cause was a pre-v2.4.0 SKILL.md consumer that did not unpack the `retrieve_bootstrap_context` 2-tuple, passing the raw tuple to `select_results_greedy` and triggering `.get()` on a list element. Fix shipped in v2.4.0; regression coverage added in v2.4.1 (`tests/test_l1_handoff_realistic_size.py` case e, production-size 40-chunk fixture). Negative sub-test proves the pre-fix pattern raises `AttributeError: 'list' object has no attribute 'get'`.
+- POV bootstrap observability documentation. `docs/prometheus-queries.md` now
+  documents the `aimemory_retrieval_budget_reject_total` counter — its labels,
+  cardinality, example PromQL queries, and alerting guidance.
+  `docs/CONFIGURATION.md` documents the `HANDOFF_CEILING_TOKENS` environment
+  variable, including default, valid range, and ceiling-breach behavior.
+  `docs/PARZIVAL-SESSION-GUIDE.md` describes the `[FALLBACK-NEEDED:]` marker
+  contract for the session-start handoff fallback. (TD-526)
 
 ### Fixed
 
@@ -26,6 +33,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restore now hard-fails with actionable guidance when the backup's schema fingerprint does not match the live target (cross-version restore) or when a legacy backup carries no fingerprint, instead of silently producing a broken collection (TD-517).
 - Backups now write `CHECKSUMS.sha256` over the manifest and every snapshot file, and restore verifies it before uploading anything (TD-517).
 - Backup and restore now handle the BUG-277 split env layout, capturing and restoring `docker/.env` and `docker/.env.secrets` (with `644`/`600` permissions) alongside the legacy root `.env` (TD-517).
+- `_memory/` user file modification timestamps are now preserved across
+  reinstalls. The installer's backup and restore copy steps now pass `cp -p`,
+  so `stat` and `find -newer` audit checks remain meaningful after an upgrade.
+  Per-instance sanctum identity files (LORE.md, BOND.md, sessions) also retain
+  their original timestamps on the restore path. Note: CREED.md is rewritten by
+  the frontmatter merge step on the normal update path; only the failure-fallback
+  `cp` retains its original mtime. File content was already preserved across
+  reinstalls; only the timestamps were being reset. (BUG-299)
+- The pushgateway `grouping_key` for pushgateway-emitting metric functions now
+  includes `collection` to prevent per-collection series from clobbering each
+  other. Three paths were affected: retrieval-budget rejection
+  (`push_retrieval_reject_metric_async`), context injection
+  (`push_context_injection_metrics_async`), and capture
+  (`push_capture_metrics_async`). Previously, pushes sharing the same
+  tier+reason or hook_type but differing only in collection overwrote each
+  other in the pushgateway scope. The `grouping_key` instance for each function
+  now encodes collection as an additional dimension —
+  `reject_{tier}_{reason}_{collection}`,
+  `ctx_injection_{hook_type}_{collection}`, and
+  `capture_{hook_type}_{collection}` respectively — making the documented ~40
+  sparse series (4 reasons × 2 tiers × 5 collections) achievable in practice.
+  (BUG-300, BUG-304)
 
 ## [2.4.0] - 2026-05-13 — BUG-297 Silent-Drop Fix + Sanctum Identity + Env-Secrets Split + Classifier Resilience
 

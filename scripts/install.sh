@@ -1701,7 +1701,7 @@ update_shared_scripts() {
         local _env_backup=""
         if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
             _env_backup="$(mktemp)"
-            cp "$INSTALL_DIR/docker/.env" "$_env_backup"
+            cp -p "$INSTALL_DIR/docker/.env" "$_env_backup"
             log_debug "Backed up existing docker/.env before bulk copy"
         fi
 
@@ -1719,7 +1719,7 @@ update_shared_scripts() {
 
         # Restore docker/.env if it was backed up (bulk cp may have overwritten with template)
         if [[ -n "$_env_backup" ]]; then
-            cp "$_env_backup" "$INSTALL_DIR/docker/.env"
+            cp -p "$_env_backup" "$INSTALL_DIR/docker/.env"
             rm -f "$_env_backup"
             log_debug "Restored docker/.env after bulk copy"
         fi
@@ -2223,7 +2223,7 @@ copy_files() {
     local _env_backup=""
     if [[ -f "$INSTALL_DIR/docker/.env" ]]; then
         _env_backup="$(mktemp)"
-        cp "$INSTALL_DIR/docker/.env" "$_env_backup"
+        cp -p "$INSTALL_DIR/docker/.env" "$_env_backup"
         log_debug "Backed up existing docker/.env before bulk copy"
     fi
 
@@ -2232,7 +2232,7 @@ copy_files() {
 
     # Restore docker/.env if it was backed up (bulk cp may have overwritten with template)
     if [[ -n "$_env_backup" ]]; then
-        cp "$_env_backup" "$INSTALL_DIR/docker/.env"
+        cp -p "$_env_backup" "$INSTALL_DIR/docker/.env"
         rm -f "$_env_backup"
         log_debug "Restored docker/.env after bulk copy"
     fi
@@ -4420,7 +4420,7 @@ deploy_parzival_v2() {
     rm -rf "$mem_backup" 2>/dev/null || true
     if [[ -d "$dst/_memory" ]]; then
         mkdir -p "$mem_backup"
-        cp -r "$dst/_memory" "$mem_backup/"
+        cp -rp "$dst/_memory" "$mem_backup/"
         log_debug "Preserved _memory/ user data for restore"
     fi
 
@@ -4430,7 +4430,7 @@ deploy_parzival_v2() {
     rm -rf "$sanctum_backup" 2>/dev/null || true
     if [[ -d "$dst/sanctum" ]]; then
         mkdir -p "$sanctum_backup"
-        cp -r "$dst/sanctum" "$sanctum_backup/"
+        cp -rp "$dst/sanctum" "$sanctum_backup/"
         log_debug "Preserved sanctum/ user identity for restore"
     fi
 
@@ -4458,7 +4458,7 @@ deploy_parzival_v2() {
                 local target_dir
                 target_dir=$(dirname "$dst/_memory/$rel")
                 mkdir -p "$target_dir"
-                cp "$user_file" "$dst/_memory/$rel"
+                cp -p "$user_file" "$dst/_memory/$rel"
             fi
         done < <(find "$mem_backup/_memory" -type f -print0 2>/dev/null)
         rm -rf "$mem_backup"
@@ -4475,7 +4475,7 @@ deploy_parzival_v2() {
                 local target_dir
                 target_dir=$(dirname "$dst/sanctum/$rel")
                 mkdir -p "$target_dir"
-                cp "$user_file" "$dst/sanctum/$rel"
+                cp -p "$user_file" "$dst/sanctum/$rel"
             fi
         done < <(find "$sanctum_backup/sanctum" -type f -print0 2>/dev/null)
         log_debug "Restored per-instance sanctum/ identity files"
@@ -4494,7 +4494,7 @@ deploy_parzival_v2() {
         else
             local merge_rc=$?
             log_error "CREED frontmatter merge failed (rc=$merge_rc) — restoring backup CREED.md verbatim to preserve user identity"
-            cp "$sanctum_backup/sanctum/parzival/CREED.md" "$dst/sanctum/parzival/CREED.md"
+            cp -p "$sanctum_backup/sanctum/parzival/CREED.md" "$dst/sanctum/parzival/CREED.md"
         fi
     fi
 

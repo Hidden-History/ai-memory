@@ -477,7 +477,7 @@ def push_context_injection_metrics_async(
 
     # Validate labels (HIGH-1)
     hook_type = _validate_label(hook_type, "hook_type", VALID_HOOK_TYPES)
-    collection = _validate_label(collection, "collection")
+    collection = _validate_label(collection, "collection", VALID_COLLECTIONS)
     project = _validate_label(project, "project")
 
     try:
@@ -518,7 +518,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
-        grouping_key={{"instance": f"ctx_injection_{{data['hook_type']}}"}},
+        grouping_key={{"instance": f"ctx_injection_{{data['hook_type']}}_{{data['collection']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -603,7 +603,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
-        grouping_key={{"instance": f"capture_{{data['hook_type']}}"}},
+        grouping_key={{"instance": f"capture_{{data['hook_type']}}_{{data['collection']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -1936,7 +1936,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
-        grouping_key={{"instance": f"reject_{{data['tier']}}"}},
+        grouping_key={{"instance": f"reject_{{data['tier']}}_{{data['reason']}}_{{data['collection']}}"}},
         registry=registry,
         timeout=0.5
     )
