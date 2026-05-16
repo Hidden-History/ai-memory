@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `backup_qdrant.py` gains `--collection`, `--retry`, and `--version` flags, and honors `BACKUP_SNAPSHOT_CREATE_TIMEOUT` / `BACKUP_SNAPSHOT_DOWNLOAD_TIMEOUT` environment overrides; the snapshot-create timeout default is raised to 300s (TD-517).
+- `restore_qdrant.py` gains `--dry-run`, `--collection`, `--target-name`, and `--skip-checksum-verify` flags (TD-517).
+- Integration test covering the production-shape backup/restore round-trip and the failed-restore rollback path (`tests/integration/test_backup_restore_round_trip.py`).
+- Regression coverage for Parzival bootstrap consumer pipeline handling L1 ceiling rejection without `AttributeError` (BUG-301). Root cause was a pre-v2.4.0 SKILL.md consumer that did not unpack the `retrieve_bootstrap_context` 2-tuple, passing the raw tuple to `select_results_greedy` and triggering `.get()` on a list element. Fix shipped in v2.4.0; regression coverage added in v2.4.1 (`tests/test_l1_handoff_realistic_size.py` case e, production-size 40-chunk fixture). Negative sub-test proves the pre-fix pattern raises `AttributeError: 'list' object has no attribute 'get'`.
+
 ### Fixed
 
 - E2E test `test_collection_type_system_e2e` used the generic two-word query `"database queries"` which scored below the default `similarity_threshold=0.7` on the Jina v2 code model (cosine similarity 0.5857), producing zero results in CI where defaults apply. Replaced with `"async await database queries"` (cosine similarity 0.9497) to pass the default threshold while preserving the test's intent of verifying type-filtered retrieval of implementation memories. No production code change; test query text only.
@@ -19,16 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restore now hard-fails with actionable guidance when the backup's schema fingerprint does not match the live target (cross-version restore) or when a legacy backup carries no fingerprint, instead of silently producing a broken collection (TD-517).
 - Backups now write `CHECKSUMS.sha256` over the manifest and every snapshot file, and restore verifies it before uploading anything (TD-517).
 - Backup and restore now handle the BUG-277 split env layout, capturing and restoring `docker/.env` and `docker/.env.secrets` (with `644`/`600` permissions) alongside the legacy root `.env` (TD-517).
-
-### Tests
-
-- Regression coverage for Parzival bootstrap consumer pipeline handling L1 ceiling rejection without `AttributeError` (BUG-301). Root cause was a pre-v2.4.0 SKILL.md consumer that did not unpack the `retrieve_bootstrap_context` 2-tuple, passing the raw tuple to `select_results_greedy` and triggering `.get()` on a list element. Fix shipped in v2.4.0; regression coverage added in v2.4.1 (`tests/test_l1_handoff_realistic_size.py` case e, production-size 40-chunk fixture). Negative sub-test proves the pre-fix pattern raises `AttributeError: 'list' object has no attribute 'get'`.
-
-### Added
-
-- `backup_qdrant.py` gains `--collection`, `--retry`, and `--version` flags, and honors `BACKUP_SNAPSHOT_CREATE_TIMEOUT` / `BACKUP_SNAPSHOT_DOWNLOAD_TIMEOUT` environment overrides; the snapshot-create timeout default is raised to 300s (TD-517).
-- `restore_qdrant.py` gains `--dry-run`, `--collection`, `--target-name`, and `--skip-checksum-verify` flags (TD-517).
-- Integration test covering the production-shape backup/restore round-trip and the failed-restore rollback path (`tests/integration/test_backup_restore_round_trip.py`).
 
 ## [2.4.0] - 2026-05-13 — BUG-297 Silent-Drop Fix + Sanctum Identity + Env-Secrets Split + Classifier Resilience
 
