@@ -27,15 +27,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the frontmatter merge step on the normal update path; only the failure-fallback
   `cp` retains its original mtime. File content was already preserved across
   reinstalls; only the timestamps were being reset. (BUG-299)
-- The pushgateway `grouping_key` for retrieval-budget rejection metrics now
-  includes `collection` in addition to tier and reason. Previously,
-  same-tier/same-reason rejects from different collections clobbered each other
-  in the pushgateway, preventing the documented ~40 sparse series (4 reasons ×
-  2 tiers × 5 collections) from being achievable in practice. The `grouping_key`
-  instance now encodes all three dimensions:
-  `reject_{tier}_{reason}_{collection}`. Alerting on
-  `aimemory_retrieval_budget_reject_total{reason,tier,collection}` is now
-  reliable across all label combinations. (BUG-300)
+- The pushgateway `grouping_key` for pushgateway-emitting metric functions now
+  includes `collection` to prevent per-collection series from clobbering each
+  other. Three paths were affected: retrieval-budget rejection
+  (`push_retrieval_reject_metric_async`), context injection
+  (`push_context_injection_metrics_async`), and capture
+  (`push_capture_metrics_async`). Previously, pushes sharing the same
+  tier+reason or hook_type but differing only in collection overwrote each
+  other in the pushgateway scope. The `grouping_key` instance for each function
+  now encodes collection as an additional dimension —
+  `reject_{tier}_{reason}_{collection}`,
+  `ctx_injection_{hook_type}_{collection}`, and
+  `capture_{hook_type}_{collection}` respectively — making the documented ~40
+  sparse series (4 reasons × 2 tiers × 5 collections) achievable in practice.
+  (BUG-300, BUG-304)
 
 ## [2.4.0] - 2026-05-13 — BUG-297 Silent-Drop Fix + Sanctum Identity + Env-Secrets Split + Classifier Resilience
 

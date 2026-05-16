@@ -515,3 +515,64 @@ class TestPushRetrievalRejectGroupingKey:
             assert '"tier": "2_injection"' in inline_script
             assert '"collection": "discussions"' in inline_script
             assert '"count": 2' in inline_script
+
+
+class TestPushContextInjectionGroupingKey:
+    """Regression for H-1b: ctx_injection grouping_key must include collection (BUG-304).
+
+    Guard property: MUST fail against pre-H-1b code (grouping_key only had hook_type).
+    After H-1b fix (grouping_key includes collection), this test passes.
+    """
+
+    def test_grouping_key_includes_hook_type_and_collection(self):
+        """hook_type and collection must both appear in the grouping_key instance string.
+
+        Fails against pre-H-1b code where the grouping_key instance was
+        `ctx_injection_{data['hook_type']}` (missing `_{data['collection']}`),
+        allowing same-hook_type pushes from different collections to clobber
+        each other in the pushgateway.
+        """
+        with patch("subprocess.Popen") as mock_popen:
+            push_context_injection_metrics_async(
+                "SessionStart", "code-patterns", "test-project", 500
+            )
+            assert mock_popen.called
+            inline_script = mock_popen.call_args[0][0][2]
+            assert (
+                "ctx_injection_{data['hook_type']}_{data['collection']}"
+                in inline_script
+            ), (
+                "grouping_key does not include collection — "
+                "same-hook_type pushes from different collections will clobber each other. "
+                "Expected: ctx_injection_{data['hook_type']}_{data['collection']}"
+            )
+
+
+class TestPushCaptureGroupingKey:
+    """Regression for H-1b: capture grouping_key must include collection (BUG-304).
+
+    Guard property: MUST fail against pre-H-1b code (grouping_key only had hook_type).
+    After H-1b fix (grouping_key includes collection), this test passes.
+    """
+
+    def test_grouping_key_includes_hook_type_and_collection(self):
+        """hook_type and collection must both appear in the grouping_key instance string.
+
+        Fails against pre-H-1b code where the grouping_key instance was
+        `capture_{data['hook_type']}` (missing `_{data['collection']}`),
+        allowing same-hook_type pushes from different collections to clobber
+        each other in the pushgateway.
+        """
+        with patch("subprocess.Popen") as mock_popen:
+            push_capture_metrics_async(
+                "PostToolUse", "success", "test-project", "conventions", 1
+            )
+            assert mock_popen.called
+            inline_script = mock_popen.call_args[0][0][2]
+            assert (
+                "capture_{data['hook_type']}_{data['collection']}" in inline_script
+            ), (
+                "grouping_key does not include collection — "
+                "same-hook_type pushes from different collections will clobber each other. "
+                "Expected: capture_{data['hook_type']}_{data['collection']}"
+            )

@@ -518,7 +518,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
-        grouping_key={{"instance": f"ctx_injection_{{data['hook_type']}}"}},
+        grouping_key={{"instance": f"ctx_injection_{{data['hook_type']}}_{{data['collection']}}"}},
         registry=registry,
         timeout=0.5
     )
@@ -603,7 +603,7 @@ try:
     pushadd_to_gateway(
         os.getenv("PUSHGATEWAY_URL", "localhost:29091"),
         job="ai_memory_hooks",
-        grouping_key={{"instance": f"capture_{{data['hook_type']}}"}},
+        grouping_key={{"instance": f"capture_{{data['hook_type']}}_{{data['collection']}}"}},
         registry=registry,
         timeout=0.5
     )
