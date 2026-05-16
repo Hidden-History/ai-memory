@@ -789,6 +789,52 @@ max_over_time(ai_memory_queue_size[1h])
 
 ---
 
+## POV Bootstrap Metrics
+
+Metrics emitted during Parzival session bootstrap (Tier 1 startup and Tier 2 per-turn context injection).
+
+---
+
+### Retrieval-budget rejection (POV bootstrap)
+
+**Counter:** `aimemory_retrieval_budget_reject_total`
+
+Counts individual result rejections during bootstrap context fill. A result is rejected when it is excluded by the greedy token-fill loop (budget overflow), the Layer 1 per-tier handoff ceiling, score-gap filtering, or deduplication.
+
+**Labels:**
+
+| Label | Values |
+|-------|--------|
+| `reason` | `budget_exceeded`, `ceiling_exceeded`, `score_gap`, `dedup` |
+| `tier` | `1_bootstrap`, `2_injection` |
+| `collection` | `code-patterns`, `conventions`, `discussions`, `github`, `jira-data` |
+
+**Cardinality:** ~40 series (4 reasons × 2 tiers × 5 collections)
+
+**Queries:**
+
+```promql
+# Total rejections by reason (last 1 hour)
+sum by (reason) (increase(aimemory_retrieval_budget_reject_total[1h]))
+
+# Rejections from the discussions collection (handoff ceiling hits)
+aimemory_retrieval_budget_reject_total{collection="discussions"}
+
+# Ceiling-exceeded rejections only — these trigger filesystem fallback at session start
+aimemory_retrieval_budget_reject_total{reason="ceiling_exceeded"}
+
+# Per-tier rejection breakdown
+sum by (tier, reason) (increase(aimemory_retrieval_budget_reject_total[1h]))
+```
+
+**Alerting guidance:**
+- A spike in `reason=ceiling_exceeded` for `collection="discussions"` indicates that the last Parzival handoff exceeds `HANDOFF_CEILING_TOKENS` and the bootstrap layer has fallen back to the filesystem copy. See `HANDOFF_CEILING_TOKENS` in CONFIGURATION.md and the `[FALLBACK-NEEDED: ...]` marker described in PARZIVAL-SESSION-GUIDE.md.
+- A high sustained rate of `reason=budget_exceeded` suggests the `BOOTSTRAP_TOKEN_BUDGET` is too small for current handoff volumes.
+
+**Source:** `src/memory/metrics_push.py` (`push_retrieval_reject_metric_async`)
+
+---
+
 ## Dashboard Query Examples
 
 Complete working queries extracted from our Grafana dashboards (`docker/grafana/dashboards/*.json`).

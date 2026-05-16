@@ -132,6 +132,16 @@ Calls `retrieve_bootstrap_context()` via `MemorySearch`, querying Qdrant for con
 
 Outputs empty context and logs a warning. Claude continues without memory injection.
 
+**Fallback (handoff too large — `[FALLBACK-NEEDED: ...]` marker):**
+
+When the most recent Parzival handoff record is retrieved from Qdrant but its aggregated body exceeds `HANDOFF_CEILING_TOKENS` (default 8 000 tokens), the bootstrap layer rejects it and emits a marker as the first line of the Cross-Session Memory section:
+
+```
+[FALLBACK-NEEDED: reason=ceiling_exceeded type=agent_handoff tokens=<N> budget=<B>]
+```
+
+The same marker is emitted with `reason=budget_exceeded` when the handoff is rejected by the greedy token-fill budget rather than the hard ceiling. In both cases, the Parzival startup workflow (`/pov:parzival-start`) detects the marker and reads the most recent `oversight/session-logs/SESSION_HANDOFF_*.md` file from the filesystem instead — so cross-session continuity is preserved even when the Qdrant record is too large to inject directly. The `aimemory_retrieval_budget_reject_total{reason="ceiling_exceeded", collection="discussions"}` counter increments on each ceiling-triggered fallback; see prometheus-queries.md § Retrieval-budget rejection for alerting guidance.
+
 ### Layer 2 — Manual: `/pov:parzival-start` Command
 
 Reads local oversight files for PM-level project status. Always reads from the filesystem — does not require Qdrant:
