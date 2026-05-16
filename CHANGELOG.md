@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- POV bootstrap observability documentation. `docs/prometheus-queries.md` now
+  documents the `aimemory_retrieval_budget_reject_total` counter — its labels,
+  cardinality, example PromQL queries, and alerting guidance.
+  `docs/CONFIGURATION.md` documents the `HANDOFF_CEILING_TOKENS` environment
+  variable, including default, valid range, and ceiling-breach behavior.
+  `docs/PARZIVAL-SESSION-GUIDE.md` describes the `[FALLBACK-NEEDED:]` marker
+  contract for the session-start handoff fallback. (TD-526)
+
+### Fixed
+
+- Sanctum and `_memory/` file modification timestamps are now preserved across
+  reinstalls. The installer's backup and restore copy steps now pass `cp -p`,
+  so `stat` and `find -newer` audit checks remain meaningful after an upgrade.
+  File content was already preserved across reinstalls; only the timestamps
+  were being reset. (BUG-299)
+- The pushgateway `grouping_key` for retrieval-budget rejection metrics now
+  includes the rejection reason. Previously, two rejections with different
+  reasons at the same tier within a single bootstrap could overwrite each
+  other in the pushgateway, making alerting on a specific
+  `aimemory_retrieval_budget_reject_total{reason=...}` series intermittent.
+  (BUG-300)
+
 ## [2.4.0] - 2026-05-13 — BUG-297 Silent-Drop Fix + Sanctum Identity + Env-Secrets Split + Classifier Resilience
 
 v2.4.0 closes the **BUG-297 silent-drop class** as its marquee item: L1 handoff
