@@ -18,6 +18,7 @@ from memory.metrics_push import (
     push_embedding_metrics_async,
     push_failure_metrics_async,
     push_retrieval_metrics_async,
+    push_retrieval_reject_metric_async,
     push_token_metrics_async,
     push_trigger_metrics_async,
 )
@@ -452,3 +453,165 @@ class TestPushSkillMetrics:
 
             assert '"skill_name": "memory-status"' in inline_script
             assert '"status": "empty"' in inline_script
+
+
+class TestPushRetrievalRejectGroupingKey:
+    """Regression for H-1: grouping_key must include collection to prevent clobber.
+
+    The pushgateway `pushadd_to_gateway` replaces the entire metric family within a
+    grouping_key scope. If two rejects share the same tier+reason but differ only in
+    collection, the second push overwrites the first unless `collection` is part of
+    the key. This test verifies that all three dimensions are present.
+
+    Guard property: MUST fail against pre-H-1 code (grouping_key only had tier+reason).
+    After H-1 fix (grouping_key includes collection), this test passes.
+    """
+
+    def test_grouping_key_includes_tier_reason_and_collection(self):
+        """All three dimensions — tier, reason, collection — must appear in grouping_key.
+
+        Fails against pre-H-1 code where the grouping_key instance string was
+        `reject_{data['tier']}_{data['reason']}` (missing `_{data['collection']}`),
+        allowing same-tier/same-reason rejects from different collections to clobber
+        each other in the pushgateway.
+        """
+        with patch("subprocess.Popen") as mock_popen:
+            push_retrieval_reject_metric_async(
+                reason="budget_exceeded",
+                tier="1_bootstrap",
+                collection="code-patterns",
+                count=1,
+            )
+            assert mock_popen.called
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]
+
+            # The grouping_key instance in the subprocess script must encode all three.
+            # Post-H-1: reject_{data['tier']}_{data['reason']}_{data['collection']}
+            # Pre-H-1:  reject_{data['tier']}_{data['reason']}   ← collection absent
+            assert (
+                "reject_{data['tier']}_{data['reason']}_{data['collection']}"
+                in inline_script
+            ), (
+                "grouping_key does not include collection — "
+                "same-tier/same-reason pushes from different collections will clobber each other. "
+                "Expected: reject_{data['tier']}_{data['reason']}_{data['collection']}"
+            )
+
+    def test_all_three_label_dimensions_in_metrics_data(self):
+        """reason, tier, and collection must all be serialised into the subprocess data dict."""
+        with patch("subprocess.Popen") as mock_popen:
+            push_retrieval_reject_metric_async(
+                reason="ceiling_exceeded",
+                tier="2_injection",
+                collection="discussions",
+                count=2,
+            )
+            assert mock_popen.called
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]
+
+            assert '"reason": "ceiling_exceeded"' in inline_script
+            assert '"tier": "2_injection"' in inline_script
+            assert '"collection": "discussions"' in inline_script
+            assert '"count": 2' in inline_script
+
+
+class TestPushContextInjectionGroupingKey:
+    """Regression for H-1b: ctx_injection grouping_key must include collection (BUG-304).
+
+    Guard property: MUST fail against pre-H-1b code (grouping_key only had hook_type).
+    After H-1b fix (grouping_key includes collection), this test passes.
+    """
+
+    def test_grouping_key_includes_hook_type_and_collection(self):
+        """hook_type and collection must both appear in the grouping_key instance string.
+
+        Fails against pre-H-1b code where the grouping_key instance was
+        `ctx_injection_{data['hook_type']}` (missing `_{data['collection']}`),
+        allowing same-hook_type pushes from different collections to clobber
+        each other in the pushgateway.
+        """
+        with patch("subprocess.Popen") as mock_popen:
+            push_context_injection_metrics_async(
+                "SessionStart", "code-patterns", "test-project", 500
+            )
+            assert mock_popen.called
+            inline_script = mock_popen.call_args[0][0][2]
+            assert (
+                "ctx_injection_{data['hook_type']}_{data['collection']}"
+                in inline_script
+            ), (
+                "grouping_key does not include collection — "
+                "same-hook_type pushes from different collections will clobber each other. "
+                "Expected: ctx_injection_{data['hook_type']}_{data['collection']}"
+            )
+
+    def test_all_label_dimensions_in_metrics_data(self):
+        """hook_type, collection, project, and token_count must all be serialised into the subprocess data dict.
+
+        Guards against refactors that drop a key from metrics_data — the grouping_key
+        template guard still passes in that case, but the subprocess KeyErrors at runtime.
+        """
+        with patch("subprocess.Popen") as mock_popen:
+            push_context_injection_metrics_async(
+                "SessionStart", "code-patterns", "test-project", 500
+            )
+            assert mock_popen.called
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]
+
+            assert '"hook_type": "SessionStart"' in inline_script
+            assert '"collection": "code-patterns"' in inline_script
+            assert '"project": "test-project"' in inline_script
+            assert '"token_count": 500' in inline_script
+
+
+class TestPushCaptureGroupingKey:
+    """Regression for H-1b: capture grouping_key must include collection (BUG-304).
+
+    Guard property: MUST fail against pre-H-1b code (grouping_key only had hook_type).
+    After H-1b fix (grouping_key includes collection), this test passes.
+    """
+
+    def test_grouping_key_includes_hook_type_and_collection(self):
+        """hook_type and collection must both appear in the grouping_key instance string.
+
+        Fails against pre-H-1b code where the grouping_key instance was
+        `capture_{data['hook_type']}` (missing `_{data['collection']}`),
+        allowing same-hook_type pushes from different collections to clobber
+        each other in the pushgateway.
+        """
+        with patch("subprocess.Popen") as mock_popen:
+            push_capture_metrics_async(
+                "PostToolUse", "success", "test-project", "conventions", 1
+            )
+            assert mock_popen.called
+            inline_script = mock_popen.call_args[0][0][2]
+            assert (
+                "capture_{data['hook_type']}_{data['collection']}" in inline_script
+            ), (
+                "grouping_key does not include collection — "
+                "same-hook_type pushes from different collections will clobber each other. "
+                "Expected: capture_{data['hook_type']}_{data['collection']}"
+            )
+
+    def test_all_label_dimensions_in_metrics_data(self):
+        """hook_type, status, collection, project, and count must all be serialised into the subprocess data dict.
+
+        Guards against refactors that drop a key from metrics_data — the grouping_key
+        template guard still passes in that case, but the subprocess KeyErrors at runtime.
+        """
+        with patch("subprocess.Popen") as mock_popen:
+            push_capture_metrics_async(
+                "PostToolUse", "success", "test-project", "conventions", 1
+            )
+            assert mock_popen.called
+            call_args = mock_popen.call_args[0][0]
+            inline_script = call_args[2]
+
+            assert '"hook_type": "PostToolUse"' in inline_script
+            assert '"status": "success"' in inline_script
+            assert '"collection": "conventions"' in inline_script
+            assert '"project": "test-project"' in inline_script
+            assert '"count": 1' in inline_script

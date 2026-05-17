@@ -18,6 +18,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -58,9 +59,11 @@ QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
 # Collections to backup (must match config.py — includes jira-data from v2.0.5, github from v2.0.9)
 COLLECTIONS = ["discussions", "conventions", "code-patterns", "jira-data", "github"]
 
-# Timeouts
-SNAPSHOT_CREATE_TIMEOUT = 60  # Creating snapshot can take time for large collections
-SNAPSHOT_DOWNLOAD_TIMEOUT = 300  # 5 minutes for large downloads
+# Timeouts (TD-517 B-3: bumped default to 300s; env-overridable)
+SNAPSHOT_CREATE_TIMEOUT = int(os.environ.get("BACKUP_SNAPSHOT_CREATE_TIMEOUT", "300"))
+SNAPSHOT_DOWNLOAD_TIMEOUT = int(
+    os.environ.get("BACKUP_SNAPSHOT_DOWNLOAD_TIMEOUT", "300")
+)
 
 # Colors
 GREEN = "\033[92m"
@@ -72,18 +75,32 @@ RESET = "\033[0m"
 
 @dataclass
 class CollectionBackup:
-    """Metadata for a single collection backup."""
+    """Metadata for a single collection backup.
+
+    TD-517 B-1: ``schema`` captures the full Qdrant collection fingerprint
+    (vectors_config + sparse_vectors_config + multivector_config + hnsw_config
+    + quantization_config + on_disk_payload + shard_number + payload_schema)
+    so the restore path can recreate the target collection with byte-equivalent
+    structure before snapshot upload. Absent on pre-v2.4.1 manifests; restore
+    treats absence as a fail-fast condition.
+    """
 
     name: str
     records: int
     snapshot_file: str
     size_bytes: int
     created_at: str
+    schema: dict | None = None
 
 
 @dataclass
 class BackupManifest:
-    """Complete backup manifest for verification during restore."""
+    """Complete backup manifest for verification during restore.
+
+    TD-517 B-7: ``runtime_flags`` records the embedding/search feature flags
+    that were active at backup time. Diagnostic-only — the authoritative
+    schema source is each ``CollectionBackup.schema`` fingerprint.
+    """
 
     backup_date: str
     ai_memory_version: str
@@ -92,6 +109,7 @@ class BackupManifest:
     collections: dict  # name -> CollectionBackup
     config_files: list
     includes_logs: bool
+    runtime_flags: dict | None = None
 
 
 def get_headers() -> dict:
@@ -101,12 +119,23 @@ def get_headers() -> dict:
     return {}
 
 
-def get_ai_memory_version() -> str:
-    """Get AI Memory version from package or default."""
+def get_ai_memory_version(override: str | None = None) -> str:
+    """Get AI Memory version from an override, version.txt, or default.
+
+    TD-517 B-6: when version.txt is missing the previous code silently
+    recorded ``"unknown"`` in the manifest. It now emits a WARN so operators
+    notice, and accepts an explicit ``--version`` override.
+    """
+    if override:
+        return override
     try:
         version_file = Path(INSTALL_DIR) / "version.txt"
         if version_file.exists():
             return version_file.read_text().strip()
+        print(
+            f"  {YELLOW}!{RESET} version.txt not found at {version_file}; "
+            f"manifest version will be 'unknown' (use --version to override)"
+        )
     except Exception:
         pass
     return "unknown"
@@ -137,7 +166,7 @@ def check_disk_space(backup_dir: Path, estimated_size: int) -> tuple[bool, int]:
     if not check_path.exists():
         check_path = Path.home()  # Fallback to home directory
 
-    total, used, free = shutil.disk_usage(check_path)
+    _total, _used, free = shutil.disk_usage(check_path)
 
     # Require 2x estimated size for safety margin
     required = estimated_size * 2
@@ -171,10 +200,20 @@ def delete_server_snapshot(collection_name: str, snapshot_name: str) -> bool:
 
 
 def get_collection_info(collection_name: str) -> dict:
-    """
-    Get collection information including record count.
+    """Get collection information including record count and schema fingerprint.
 
-    Returns: {"name": str, "points_count": int, "vectors_count": int}
+    TD-517 B-1: a single GET ``/collections/{name}`` call now also yields the
+    full schema fingerprint that the restore path needs to recreate the
+    collection before snapshot upload. No extra round-trip vs the previous
+    counts-only implementation.
+
+    Returns:
+        Dict with keys ``name``, ``points_count``, ``vectors_count``, and
+        ``schema``. The ``schema`` value is the raw ``result`` payload from
+        Qdrant containing ``config.params.vectors``,
+        ``config.params.sparse_vectors``, ``config.params.shard_number``,
+        ``config.params.on_disk_payload``, ``config.hnsw_config``,
+        ``config.quantization_config`` and ``payload_schema``.
     """
     timeout_config = httpx.Timeout(connect=3.0, read=10.0, write=5.0, pool=3.0)
 
@@ -196,7 +235,69 @@ def get_collection_info(collection_name: str) -> dict:
         "name": collection_name,
         "points_count": result.get("points_count", 0),
         "vectors_count": result.get("vectors_count", 0),
+        "schema": _build_schema_fingerprint(result),
     }
+
+
+def _normalize_payload_schema(payload_schema: dict | None) -> dict:
+    """Strip volatile per-field point counts from a payload_schema block.
+
+    Qdrant's ``payload_schema`` entries carry a ``points`` count that changes
+    as data is written. Keeping it would make two structurally identical
+    collections compare unequal whenever their row counts differ, so the
+    fingerprint retains only the structural fields (``data_type``, ``params``).
+    """
+    normalized: dict = {}
+    for field_name, field_info in (payload_schema or {}).items():
+        if not isinstance(field_info, dict):
+            normalized[field_name] = field_info
+            continue
+        normalized[field_name] = {k: v for k, v in field_info.items() if k != "points"}
+    return normalized
+
+
+def _build_schema_fingerprint(get_collection_result: dict) -> dict:
+    """Distill Qdrant's GET /collections/{name} payload into a stable manifest fingerprint.
+
+    Keeps only the fields needed to recreate the collection (vector params,
+    sparse vectors, multivector config, HNSW, quantization, on-disk payload,
+    shard count, and the structural payload index schema). Discards runtime
+    status fields (``optimizer_status``, ``warnings``, ``segments_count``,
+    ``indexed_vectors_count``) and the volatile per-field ``points`` count so
+    the fingerprint stays stable across backup/restore comparison regardless
+    of row count.
+    """
+    config = get_collection_result.get("config", {}) or {}
+    params = config.get("params", {}) or {}
+    return {
+        "params": {
+            "vectors": params.get("vectors"),
+            "sparse_vectors": params.get("sparse_vectors"),
+            "shard_number": params.get("shard_number"),
+            "on_disk_payload": params.get("on_disk_payload"),
+        },
+        "hnsw_config": config.get("hnsw_config"),
+        "quantization_config": config.get("quantization_config"),
+        "payload_schema": _normalize_payload_schema(
+            get_collection_result.get("payload_schema")
+        ),
+    }
+
+
+def get_runtime_flags() -> dict:
+    """Capture the embedding/search feature flags that were active at backup time.
+
+    TD-517 B-7: diagnostic-only. Restore does NOT consult these for schema
+    decisions (the authoritative source is each ``CollectionBackup.schema``).
+    Useful when an operator inspects a manifest months later and needs to know
+    which feature flags the snapshot was taken under.
+    """
+    flag_names = (
+        "COLBERT_RERANKING_ENABLED",
+        "HYBRID_SEARCH_ENABLED",
+        "BM25_SPARSE_ENABLED",
+    )
+    return {flag: os.environ.get(flag, "") for flag in flag_names}
 
 
 def create_snapshot(collection_name: str) -> str:
@@ -226,12 +327,17 @@ def create_snapshot(collection_name: str) -> str:
 
 
 def download_snapshot(
-    collection_name: str, snapshot_name: str, output_path: Path
+    collection_name: str, snapshot_name: str, output_path: Path, retries: int = 0
 ) -> int:
-    """
-    Download a snapshot to the specified path.
+    """Download a snapshot to the specified path.
 
-    Returns: file size in bytes
+    TD-517 B-4: ``retries`` re-attempts the download on a timeout or
+    transport error. A partial download is discarded before each retry so a
+    truncated file is never left behind. ``retries=0`` preserves the prior
+    single-attempt behaviour.
+
+    Returns:
+        File size in bytes.
     """
     timeout_config = httpx.Timeout(
         connect=3.0, read=float(SNAPSHOT_DOWNLOAD_TIMEOUT), write=5.0, pool=3.0
@@ -239,26 +345,47 @@ def download_snapshot(
 
     url = f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/{snapshot_name}"
 
-    with httpx.stream(
-        "GET", url, headers=get_headers(), timeout=timeout_config
-    ) as response:
-        if response.status_code != 200:
-            raise RuntimeError(
-                f"Failed to download snapshot: HTTP {response.status_code}"
-            )
+    attempts = max(1, retries + 1)
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with httpx.stream(
+                "GET", url, headers=get_headers(), timeout=timeout_config
+            ) as response:
+                if response.status_code != 200:
+                    raise RuntimeError(
+                        f"Failed to download snapshot: HTTP {response.status_code}"
+                    )
+                with open(output_path, "wb") as f:
+                    for chunk in response.iter_bytes():
+                        f.write(chunk)
+            return output_path.stat().st_size
+        except (httpx.TimeoutException, httpx.TransportError, RuntimeError) as e:
+            last_error = e
+            # Discard any partial download before retrying.
+            if output_path.exists():
+                output_path.unlink()
+            if attempt < attempts:
+                print(
+                    f"    {YELLOW}!{RESET} Download attempt {attempt}/{attempts} "
+                    f"failed ({e}); retrying..."
+                )
 
-        with open(output_path, "wb") as f:
-            for chunk in response.iter_bytes():
-                f.write(chunk)
-
-    return output_path.stat().st_size
+    raise RuntimeError(
+        f"Failed to download snapshot after {attempts} attempt(s): {last_error}"
+    )
 
 
 def backup_config_files(backup_dir: Path) -> list[str]:
-    """
-    Copy configuration files to backup directory.
+    """Copy configuration files to the backup directory.
 
-    Returns: list of copied filenames
+    TD-517 R-10: captures the BUG-277 split env layout
+    (``docker/.env`` + ``docker/.env.secrets``) in addition to the legacy
+    root ``.env``, so a restore can rehydrate whichever layout the install
+    uses. File permissions are preserved via ``shutil.copy2``.
+
+    Returns:
+        List of copied file labels.
     """
     config_dir = backup_dir / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -271,11 +398,20 @@ def backup_config_files(backup_dir: Path) -> list[str]:
         shutil.copy2(settings_path, config_dir / "settings.json")
         copied_files.append("settings.json")
 
-    # Environment file
-    env_path = Path(INSTALL_DIR) / ".env"
-    if env_path.exists():
-        shutil.copy2(env_path, config_dir / ".env")
+    # Legacy root environment file (pre-BUG-277 layout)
+    legacy_env = Path(INSTALL_DIR) / ".env"
+    if legacy_env.exists():
+        shutil.copy2(legacy_env, config_dir / ".env")
         copied_files.append(".env")
+
+    # BUG-277 split env layout: docker/.env (644) + docker/.env.secrets (600)
+    docker_config_dir = config_dir / "docker"
+    for env_name in (".env", ".env.secrets"):
+        src = Path(INSTALL_DIR) / "docker" / env_name
+        if src.exists():
+            docker_config_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, docker_config_dir / env_name)
+            copied_files.append(f"docker/{env_name}")
 
     return copied_files
 
@@ -303,21 +439,59 @@ def create_manifest(
     collections: list[CollectionBackup],
     config_files: list,
     includes_logs: bool,
+    runtime_flags: dict | None = None,
+    version_override: str | None = None,
 ) -> None:
     """Write manifest.json to backup directory."""
     manifest = BackupManifest(
         backup_date=datetime.now(timezone.utc).isoformat(),
-        ai_memory_version=get_ai_memory_version(),
+        ai_memory_version=get_ai_memory_version(version_override),
         qdrant_host=QDRANT_HOST,
         qdrant_port=QDRANT_PORT,
         collections={c.name: asdict(c) for c in collections},
         config_files=config_files,
         includes_logs=includes_logs,
+        runtime_flags=runtime_flags or {},
     )
 
     manifest_path = backup_dir / "manifest.json"
     with open(manifest_path, "w") as f:
         json.dump(asdict(manifest), f, indent=2)
+
+
+def _sha256_file(path: Path) -> str:
+    """Compute the SHA-256 hex digest of a file, streaming in 1MB chunks."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_checksums(backup_dir: Path) -> Path:
+    """Write CHECKSUMS.sha256 over manifest.json and every snapshot file.
+
+    TD-517 B-2: enables integrity verification before restore upload. The
+    output format is ``sha256sum -c`` compatible (``<hex>  <relative-path>``)
+    so operators can validate a backup independently of the restore script.
+    """
+    entries: list[tuple[str, str]] = []
+
+    manifest_path = backup_dir / "manifest.json"
+    if manifest_path.exists():
+        entries.append((_sha256_file(manifest_path), "manifest.json"))
+
+    qdrant_dir = backup_dir / "qdrant"
+    if qdrant_dir.exists():
+        for snapshot_path in sorted(qdrant_dir.glob("*.snapshot")):
+            rel = snapshot_path.relative_to(backup_dir).as_posix()
+            entries.append((_sha256_file(snapshot_path), rel))
+
+    checksums_path = backup_dir / "CHECKSUMS.sha256"
+    with open(checksums_path, "w") as f:
+        for digest, rel in entries:
+            f.write(f"{digest}  {rel}\n")
+    return checksums_path
 
 
 def main() -> int:
@@ -332,7 +506,30 @@ def main() -> int:
     parser.add_argument(
         "--include-logs", action="store_true", help="Include logs directory in backup"
     )
+    parser.add_argument(
+        "--collection",
+        type=str,
+        default=None,
+        choices=COLLECTIONS,
+        help="Back up a single collection only (default: all collections)",
+    )
+    parser.add_argument(
+        "--retry",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Retry a failed snapshot download up to N times (default: 0)",
+    )
+    parser.add_argument(
+        "--version",
+        type=str,
+        default=None,
+        help="Override the AI Memory version recorded in the manifest",
+    )
     args = parser.parse_args()
+
+    # TD-517 B-5: restrict to a single collection when --collection is given.
+    collections_to_backup = [args.collection] if args.collection else list(COLLECTIONS)
 
     # Create timestamped backup directory
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -370,7 +567,7 @@ def main() -> int:
     print("  Checking disk space...")
     try:
         total_points = 0
-        for collection in COLLECTIONS:
+        for collection in collections_to_backup:
             info = get_collection_info(collection)
             total_points += info["points_count"]
 
@@ -393,11 +590,11 @@ def main() -> int:
     total_records = 0
     total_size = 0
 
-    for collection in COLLECTIONS:
+    for collection in collections_to_backup:
         print(f"  Backing up {collection}...")
 
         try:
-            # 1. Get collection info
+            # 1. Get collection info + schema fingerprint (TD-517 B-1)
             info = get_collection_info(collection)
             records = info["points_count"]
             total_records += records
@@ -405,9 +602,11 @@ def main() -> int:
             # 2. Create snapshot
             snapshot_name = create_snapshot(collection)
 
-            # 3. Download snapshot
+            # 3. Download snapshot (TD-517 B-4: retry on transient failure)
             output_path = backup_dir / "qdrant" / f"{collection}.snapshot"
-            size_bytes = download_snapshot(collection, snapshot_name, output_path)
+            size_bytes = download_snapshot(
+                collection, snapshot_name, output_path, retries=args.retry
+            )
             total_size += size_bytes
 
             # 4. Clean up server-side snapshot to prevent accumulation
@@ -418,13 +617,16 @@ def main() -> int:
                     f"    {YELLOW}!{RESET} Could not delete server snapshot (non-critical)"
                 )
 
-            # 5. Store metadata
+            # 5. Store metadata — TD-517 B-1 includes the schema fingerprint
+            #    so restore can rebuild the collection with byte-equivalent
+            #    config before snapshot upload.
             backup = CollectionBackup(
                 name=collection,
                 records=records,
                 snapshot_file=f"{collection}.snapshot",
                 size_bytes=size_bytes,
                 created_at=datetime.now(timezone.utc).isoformat(),
+                schema=info.get("schema"),
             )
             collection_backups.append(backup)
 
@@ -461,8 +663,22 @@ def main() -> int:
         else:
             print(f"    {YELLOW}!{RESET} No logs found or copy failed")
 
-    # Create manifest
-    create_manifest(backup_dir, collection_backups, config_files, includes_logs)
+    # Create manifest — TD-517 B-7 records runtime flags for diagnostic context
+    create_manifest(
+        backup_dir,
+        collection_backups,
+        config_files,
+        includes_logs,
+        runtime_flags=get_runtime_flags(),
+        version_override=args.version,
+    )
+
+    # TD-517 B-2: write CHECKSUMS.sha256 for restore-time integrity verification
+    try:
+        checksums_path = write_checksums(backup_dir)
+        print(f"  {GREEN}✓{RESET} Checksums written: {checksums_path.name}")
+    except Exception as e:
+        print(f"  {YELLOW}!{RESET} Could not write checksums (non-critical): {e}")
 
     # Print summary
     print(f"\n{'='*60}")

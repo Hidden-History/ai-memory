@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-05-16
+
+### Added
+
+- `backup_qdrant.py` gains `--collection`, `--retry`, and `--version` flags, and honors `BACKUP_SNAPSHOT_CREATE_TIMEOUT` / `BACKUP_SNAPSHOT_DOWNLOAD_TIMEOUT` environment overrides; the snapshot-create timeout default is raised to 300s (TD-517).
+- `restore_qdrant.py` gains `--dry-run`, `--collection`, `--target-name`, and `--skip-checksum-verify` flags (TD-517).
+- Integration test covering the production-shape backup/restore round-trip and the failed-restore rollback path (`tests/integration/test_backup_restore_round_trip.py`).
+- Regression coverage for Parzival bootstrap consumer pipeline handling L1 ceiling rejection without `AttributeError` (BUG-301). Root cause was a pre-v2.4.0 SKILL.md consumer that did not unpack the `retrieve_bootstrap_context` 2-tuple, passing the raw tuple to `select_results_greedy` and triggering `.get()` on a list element. Fix shipped in v2.4.0; regression coverage added in v2.4.1 (`tests/test_l1_handoff_realistic_size.py` case e, production-size 40-chunk fixture). Negative sub-test proves the pre-fix pattern raises `AttributeError: 'list' object has no attribute 'get'`.
+- POV bootstrap observability documentation. `docs/prometheus-queries.md` now
+  documents the `aimemory_retrieval_budget_reject_total` counter — its labels,
+  cardinality, example PromQL queries, and alerting guidance.
+  `docs/CONFIGURATION.md` documents the `HANDOFF_CEILING_TOKENS` environment
+  variable, including default, valid range, and ceiling-breach behavior.
+  `docs/PARZIVAL-SESSION-GUIDE.md` describes the `[FALLBACK-NEEDED:]` marker
+  contract for the session-start handoff fallback. (TD-526)
+
+### Fixed
+
+- E2E test `test_collection_type_system_e2e` used the generic two-word query `"database queries"` which scored below the default `similarity_threshold=0.7` on the Jina v2 code model (cosine similarity 0.5857), producing zero results in CI where defaults apply. Replaced with `"async await database queries"` (cosine similarity 0.9497) to pass the default threshold while preserving the test's intent of verifying type-filtered retrieval of implementation memories. No production code change; test query text only.
+- Langfuse post-init membership fix-up now succeeds on fresh install (BUG-298). `psql -c` (single-command mode) does not expand `:'var'` quoted-variable substitutions; the `-v`/`:'var'` pattern passed the literal colon-string to postgres, producing a syntax error that was silently swallowed by `2>/dev/null`. Replaced with shell-expanded SQL in `_fixup_init_user` (both the `UPDATE users` and `INSERT INTO project_memberships` blocks). Added input validation for `init_email` and `init_project_id`. Removed `2>/dev/null` and upgraded error severity to `log_error` so failures surface in the install log. Effect: `users.admin=true`, `users.email_verified` set, and `project_memberships` row created on every fresh install — Langfuse UI lands on the init project instead of the onboarding page.
+- Installer `import_user_env` warning text updated to accurately describe stub behavior (TD-523). The previous warning stated "The root `.env` is no longer used" alongside guidance to manually add API keys — a contradiction that misled operators. Updated to informational messages: root `.env` present is acknowledged and credentials-not-auto-imported is stated clearly.
+- Same-version backup/restore round-trip is now correct for hybrid-schema collections (TD-517). On a fresh-install restore the previous code created the target collection with a hardcoded single-vector 768/Cosine config; Qdrant then rejected the snapshot upload with an HTTP 400 schema mismatch, leaving the backup unrestorable. Backup manifests now capture a full schema fingerprint (vectors, sparse vectors, multivector config, HNSW config, quantization config, payload indexes) and restore recreates the target collection byte-equivalently before uploading the snapshot.
+- Snapshot recover now requests snapshot priority, so a restore makes the backup data canonical instead of merely filling gaps and leaving stale local points in place (TD-517).
+- Restore now verifies the recovered point count against the manifest, and fails fast — rather than reporting a misleading success — when a collection comes back partially populated (TD-517).
+- Restore over an existing collection now snapshots that collection's current state first; if the restore fails partway through, every pre-existing collection is recovered to exactly its prior state and freshly created collections are removed (TD-517).
+- Restore now hard-fails with actionable guidance when the backup's schema fingerprint does not match the live target (cross-version restore) or when a legacy backup carries no fingerprint, instead of silently producing a broken collection (TD-517).
+- Backups now write `CHECKSUMS.sha256` over the manifest and every snapshot file, and restore verifies it before uploading anything (TD-517).
+- Backup and restore now handle the BUG-277 split env layout, capturing and restoring `docker/.env` and `docker/.env.secrets` (with `644`/`600` permissions) alongside the legacy root `.env` (TD-517).
+- `_memory/` user file modification timestamps are now preserved across
+  reinstalls. The installer's backup and restore copy steps now pass `cp -p`,
+  so `stat` and `find -newer` audit checks remain meaningful after an upgrade.
+  Per-instance sanctum identity files (LORE.md, BOND.md, sessions) also retain
+  their original timestamps on the restore path. Note: CREED.md is rewritten by
+  the frontmatter merge step on the normal update path; only the failure-fallback
+  `cp` retains its original mtime. File content was already preserved across
+  reinstalls; only the timestamps were being reset. (BUG-299)
+- The pushgateway `grouping_key` for pushgateway-emitting metric functions now
+  includes `collection` to prevent per-collection series from clobbering each
+  other. Three paths were affected: retrieval-budget rejection
+  (`push_retrieval_reject_metric_async`), context injection
+  (`push_context_injection_metrics_async`), and capture
+  (`push_capture_metrics_async`). Previously, pushes sharing the same
+  tier+reason or hook_type but differing only in collection overwrote each
+  other in the pushgateway scope. The `grouping_key` instance for each function
+  now encodes collection as an additional dimension —
+  `reject_{tier}_{reason}_{collection}`,
+  `ctx_injection_{hook_type}_{collection}`, and
+  `capture_{hook_type}_{collection}` respectively — making the documented ~40
+  sparse series (4 reasons × 2 tiers × 5 collections) achievable in practice.
+  (BUG-300, BUG-304)
+
+### Upgrade Instructions
+
+**From v2.4.0 → v2.4.1:**
+
+Maintenance release — bug fixes and backup/restore tooling hardening. No breaking changes, no data migration.
+
+1. Pull the latest:
+   ```bash
+   cd /path/to/ai-memory
+   git fetch origin && git checkout main && git pull
+   ```
+2. Re-run the installer:
+   ```bash
+   ./scripts/install.sh /path/to/your-project
+   ```
+
+The installer preserves your data, credentials, and Parzival sanctum. New config keys are migrated into `docker/.env` automatically. No manual steps.
+
 ## [2.4.0] - 2026-05-13 — BUG-297 Silent-Drop Fix + Sanctum Identity + Env-Secrets Split + Classifier Resilience
 
 v2.4.0 closes the **BUG-297 silent-drop class** as its marquee item: L1 handoff
@@ -2531,7 +2600,8 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.2.1...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/Hidden-History/ai-memory/compare/v2.4.0...v2.4.1
 [2.2.1]: https://github.com/Hidden-History/ai-memory/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/Hidden-History/ai-memory/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/Hidden-History/ai-memory/compare/v2.0.9...v2.1.0

@@ -1320,6 +1320,37 @@ export BOOTSTRAP_TOKEN_BUDGET=5000
 
 ---
 
+#### HANDOFF_CEILING_TOKENS
+**Purpose:** Per-tier token ceiling for Layer 1 handoff retrieval — the maximum token size of an aggregated Parzival handoff body that will be accepted into the bootstrap context fill
+
+**Default:** `8000`
+
+**Format:** Integer (tokens, range 2500–10000)
+
+**Example:**
+```bash
+# Default (accepts handoffs up to 8 000 tokens)
+export HANDOFF_CEILING_TOKENS=8000
+
+# Tighter ceiling (reject oversized handoffs sooner)
+export HANDOFF_CEILING_TOKENS=4000
+
+# Wider ceiling (accept larger handoffs before falling back)
+export HANDOFF_CEILING_TOKENS=10000
+```
+
+**When to change:**
+- **Lower**: If session-start latency is high and large handoffs are the bottleneck — a tighter ceiling forces earlier filesystem fallback, which is faster than injecting a very large Qdrant record.
+- **Higher**: If handoffs are legitimately large (long sessions, rich context) and you want to avoid filesystem fallback.
+
+**Behavior on ceiling breach:** When an aggregated handoff body exceeds this limit, the retrieval layer rejects the record and sets `meta.fallback_signaled = True`. The bootstrap skill emits a `[FALLBACK-NEEDED: reason=ceiling_exceeded ...]` marker, and the Parzival startup workflow reads the most recent `oversight/session-logs/SESSION_HANDOFF_*.md` file instead. See PARZIVAL-SESSION-GUIDE.md for the full fallback contract.
+
+**Observability:** Ceiling rejections increment `aimemory_retrieval_budget_reject_total{reason="ceiling_exceeded", collection="discussions"}`. See prometheus-queries.md § Retrieval-budget rejection.
+
+**Range:** 2500–10000 (validated at startup; values outside this range raise a configuration error)
+
+---
+
 #### INJECTION_CONFIDENCE_THRESHOLD
 **Purpose:** Minimum retrieval confidence score for Tier 2 per-turn injection — if the best match is below this threshold, injection is skipped entirely for that turn
 

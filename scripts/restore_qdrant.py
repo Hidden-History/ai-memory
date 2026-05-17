@@ -18,8 +18,11 @@ Usage:
 """
 
 import argparse
+import contextlib
+import hashlib
 import json
 import os
+import shutil
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -64,18 +67,31 @@ RESET = "\033[0m"
 
 @dataclass
 class CollectionBackup:
-    """Metadata for a single collection backup."""
+    """Metadata for a single collection backup.
+
+    TD-517 B-1: ``schema`` is the captured Qdrant fingerprint
+    (vectors_config + sparse_vectors_config + hnsw_config +
+    quantization_config + on_disk_payload + shard_number +
+    payload_schema). Present on manifests produced by v2.4.1+ backups;
+    absent on legacy manifests. Restore treats absence as a fail-fast
+    condition rather than silently defaulting to a single-vector prefab.
+    """
 
     name: str
     records: int
     snapshot_file: str
     size_bytes: int
     created_at: str
+    schema: dict | None = None
 
 
 @dataclass
 class BackupManifest:
-    """Complete backup manifest for verification during restore."""
+    """Complete backup manifest for verification during restore.
+
+    TD-517 B-7: ``runtime_flags`` carries diagnostic feature-flag context
+    captured at backup time. Not consulted for schema decisions.
+    """
 
     backup_date: str
     ai_memory_version: str
@@ -84,6 +100,7 @@ class BackupManifest:
     collections: dict  # name -> CollectionBackup dict
     config_files: list
     includes_logs: bool
+    runtime_flags: dict | None = None
 
 
 def get_headers() -> dict:
@@ -102,9 +119,16 @@ def format_size(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
-def verify_backup(backup_dir: Path) -> BackupManifest:
+def verify_backup(backup_dir: Path, collection: str | None = None) -> BackupManifest:
     """
     Verify backup directory and parse manifest.
+
+    Args:
+        backup_dir: Path to the backup directory.
+        collection: When given and present in the manifest, only that
+            collection's snapshot file is checked for existence (TD-517
+            F-O-3) — an unrelated collection's missing snapshot must not
+            abort a ``--collection``-scoped restore.
 
     Returns: BackupManifest object
     Raises: RuntimeError if verification fails
@@ -128,17 +152,72 @@ def verify_backup(backup_dir: Path) -> BackupManifest:
         collections=data.get("collections", {}),
         config_files=data.get("config_files", []),
         includes_logs=data.get("includes_logs", False),
+        runtime_flags=data.get("runtime_flags") or {},
     )
 
-    # Verify all snapshot files exist
+    # Verify snapshot files exist. TD-517 F-O-3: when --collection scopes the
+    # restore to one collection, only that collection's snapshot file is
+    # required here — an unrelated collection's missing snapshot must not abort
+    # a scoped restore. An unknown --collection name is left for main() to
+    # report, so it is intentionally not filtered out.
     qdrant_dir = backup_dir / "qdrant"
-    for name, info in manifest.collections.items():
+    collections_to_check = manifest.collections
+    if collection is not None and collection in manifest.collections:
+        collections_to_check = {collection: manifest.collections[collection]}
+    for name, info in collections_to_check.items():
         snapshot_file = info.get("snapshot_file", f"{name}.snapshot")
         snapshot_path = qdrant_dir / snapshot_file
         if not snapshot_path.exists():
             raise RuntimeError(f"Missing snapshot file: {snapshot_path}")
 
     return manifest
+
+
+def _sha256_file(path: Path) -> str:
+    """Compute the SHA-256 hex digest of a file, streaming in 1MB chunks."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_checksums(backup_dir: Path) -> tuple[bool, list[str]]:
+    """Verify backup files against CHECKSUMS.sha256 (TD-517 R-9).
+
+    A v2.4.1+ backup writes CHECKSUMS.sha256 over manifest.json and every
+    snapshot file. This re-hashes each listed file and reports drift before
+    the restore uploads anything to Qdrant.
+
+    Returns:
+        Tuple of (all_ok, problems). When CHECKSUMS.sha256 is absent — a
+        legacy backup predating the checksum feature — returns (True, [])
+        with a note left to the caller; absence is not itself a failure.
+    """
+    checksums_path = backup_dir / "CHECKSUMS.sha256"
+    if not checksums_path.exists():
+        return True, []
+
+    problems: list[str] = []
+    for raw_line in checksums_path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # sha256sum format: "<hex>  <relative-path>"
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            problems.append(f"malformed checksum line: {line}")
+            continue
+        expected_hex, rel_path = parts[0], parts[1].strip()
+        target = backup_dir / rel_path
+        if not target.exists():
+            problems.append(f"missing file listed in checksums: {rel_path}")
+            continue
+        actual_hex = _sha256_file(target)
+        if actual_hex != expected_hex:
+            problems.append(f"checksum mismatch: {rel_path}")
+
+    return (not problems), problems
 
 
 def collection_exists(collection_name: str) -> bool:
@@ -169,34 +248,236 @@ def delete_collection(collection_name: str) -> bool:
     return response.status_code == 200
 
 
-def create_collection_for_restore(collection_name: str) -> bool:
-    """
-    Create an empty collection for snapshot restore (fresh install case).
+def count_points(collection_name: str) -> int | None:
+    """Return the exact point count for a collection, or None on failure.
 
-    Uses AI Memory default vector configuration. The snapshot recover
-    operation will replace collection data with the backup contents.
-
-    Args:
-        collection_name: Name of the collection to create
-
-    Returns:
-        True if collection created successfully
+    TD-517 R-5: used to verify a restored collection's point count against
+    the manifest after recovery, instead of trusting the recover endpoint's
+    HTTP 200 alone.
     """
     timeout_config = httpx.Timeout(connect=3.0, read=30.0, write=5.0, pool=3.0)
+    try:
+        response = httpx.post(
+            f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/points/count",
+            headers={**get_headers(), "Content-Type": "application/json"},
+            json={"exact": True},
+            timeout=timeout_config,
+        )
+        if response.status_code == 200:
+            return response.json().get("result", {}).get("count")
+    except Exception:
+        return None
+    return None
+
+
+def create_server_snapshot(collection_name: str) -> str | None:
+    """Create a server-side snapshot of an existing collection for rollback.
+
+    TD-517 R-6: before a destructive restore overwrites a pre-existing
+    collection, snapshot its current state so a failed restore can roll the
+    collection back to exactly what the operator had. Uses Qdrant's own
+    snapshot endpoint — fast and bounded by the live collection size.
+
+    Returns:
+        The snapshot name, or None if the snapshot could not be created.
+    """
+    timeout_config = httpx.Timeout(connect=3.0, read=300.0, write=5.0, pool=3.0)
+    try:
+        response = httpx.post(
+            f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots",
+            headers=get_headers(),
+            timeout=timeout_config,
+        )
+        if response.status_code == 200:
+            return response.json().get("result", {}).get("name")
+    except Exception:
+        return None
+    return None
+
+
+def delete_server_snapshot(collection_name: str, snapshot_name: str) -> bool:
+    """Delete a server-side snapshot once it is no longer needed for rollback."""
+    timeout_config = httpx.Timeout(connect=3.0, read=30.0, write=5.0, pool=3.0)
+    try:
+        response = httpx.delete(
+            f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/{snapshot_name}",
+            headers=get_headers(),
+            timeout=timeout_config,
+        )
+        return response.status_code == 200
+    except Exception:
+        return False
+
+
+def rollback_from_server_snapshot(collection_name: str, snapshot_name: str) -> bool:
+    """Recover a collection from its pre-restore server-side snapshot (TD-517 R-6).
+
+    Used when a restore fails partway through, to return a pre-existing
+    collection to exactly the state it held before the restore began.
+    """
+    timeout_config = httpx.Timeout(
+        connect=3.0, read=float(SNAPSHOT_RECOVER_TIMEOUT), write=5.0, pool=3.0
+    )
+    headers = {**get_headers(), "Content-Type": "application/json"}
+    snapshot_location = f"file:///qdrant/snapshots/{collection_name}/{snapshot_name}"
+    try:
+        response = httpx.put(
+            f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/recover",
+            headers=headers,
+            json={"location": snapshot_location, "priority": "snapshot"},
+            timeout=timeout_config,
+        )
+        return response.status_code == 200
+    except Exception:
+        return False
+
+
+def create_collection_from_manifest_schema(
+    target_name: str, schema_payload: dict
+) -> tuple[bool, str]:
+    """Recreate a collection from a manifest schema fingerprint (TD-517 R-1).
+
+    Replaces the legacy hardcoded single-vector ``create_collection_for_restore``
+    helper. Provides Qdrant with the full original collection configuration
+    (named vectors, sparse vectors, multivector config, HNSW, quantization,
+    on-disk payload, shard number) so the subsequent snapshot upload sees a
+    byte-equivalent target. Then recreates every payload index captured in the
+    manifest's ``payload_schema`` so multi-tenancy, full-text, and freshness
+    filters survive the round-trip.
+
+    Returns:
+        Tuple of (success, error_message). On success, error_message is "".
+    """
+    params = (schema_payload or {}).get("params") or {}
+    vectors = params.get("vectors")
+    if vectors is None:
+        return False, "schema fingerprint missing config.params.vectors"
+
+    body: dict = {"vectors": vectors}
+    sparse = params.get("sparse_vectors")
+    if sparse:
+        body["sparse_vectors"] = sparse
+    if params.get("shard_number") is not None:
+        body["shard_number"] = params["shard_number"]
+    if params.get("on_disk_payload") is not None:
+        body["on_disk_payload"] = params["on_disk_payload"]
+    if schema_payload.get("hnsw_config"):
+        body["hnsw_config"] = schema_payload["hnsw_config"]
+    if schema_payload.get("quantization_config"):
+        body["quantization_config"] = schema_payload["quantization_config"]
+
+    timeout_config = httpx.Timeout(connect=3.0, read=30.0, write=5.0, pool=3.0)
+    headers = {**get_headers(), "Content-Type": "application/json"}
 
     response = httpx.put(
-        f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}",
-        headers=get_headers(),
-        json={
-            "vectors": {
-                "size": 768,  # DEC-010: Jina Embeddings v2 Base Code
-                "distance": "Cosine",
-            }
-        },
+        f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{target_name}",
+        headers=headers,
+        json=body,
         timeout=timeout_config,
     )
+    if response.status_code != 200:
+        return (
+            False,
+            f"create_collection HTTP {response.status_code}: {response.text[:300]}",
+        )
 
-    return response.status_code == 200
+    # Recreate payload indexes from the captured payload_schema. Mirrors the
+    # `recreate_payload_indices` helper in scripts/migrate_v221_hybrid_vectors.py:
+    # prefer ``params`` (carries is_tenant, tokenizer settings, etc.) and fall
+    # back to bare ``data_type`` when no params block was captured.
+    payload_schema = schema_payload.get("payload_schema") or {}
+    for field_name, field_info in payload_schema.items():
+        if not isinstance(field_info, dict):
+            continue
+        field_schema = field_info.get("params") or field_info.get("data_type")
+        if not field_schema:
+            continue
+        # Best-effort: keep recreating remaining indexes if one errors. A
+        # missing payload index degrades search but does not prevent restore.
+        # TD-517 F-S-3: surface each failure as a YELLOW warning rather than
+        # suppressing it silently — degraded search was previously the only
+        # (and much later) symptom an operator had to go on.
+        try:
+            index_response = httpx.put(
+                f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{target_name}/index",
+                headers=headers,
+                json={"field_name": field_name, "field_schema": field_schema},
+                timeout=timeout_config,
+            )
+            if index_response.status_code != 200:
+                print(
+                    f"      {YELLOW}!{RESET} Payload index '{field_name}' not "
+                    f"recreated (HTTP {index_response.status_code}) — search on "
+                    f"this field may be degraded"
+                )
+        except Exception as e:
+            print(
+                f"      {YELLOW}!{RESET} Payload index '{field_name}' not "
+                f"recreated ({e}) — search on this field may be degraded"
+            )
+
+    return True, ""
+
+
+# TD-517 R-2: schema-fingerprint helpers. Mirror the distillation in
+# scripts/backup_qdrant.py:_build_schema_fingerprint so a live collection can
+# be compared against a manifest entry without importing across scripts. The
+# shared-helper refactor is tracked as a separate post-merge low-severity TD.
+
+
+def _normalize_payload_schema(payload_schema: dict | None) -> dict:
+    """Strip volatile per-field point counts from a payload_schema block.
+
+    Kept byte-identical to backup_qdrant.py:_normalize_payload_schema — the
+    volatile ``points`` count must be excluded on both sides or two
+    structurally identical collections compare unequal whenever their row
+    counts differ.
+    """
+    normalized: dict = {}
+    for field_name, field_info in (payload_schema or {}).items():
+        if not isinstance(field_info, dict):
+            normalized[field_name] = field_info
+            continue
+        normalized[field_name] = {k: v for k, v in field_info.items() if k != "points"}
+    return normalized
+
+
+def _build_schema_fingerprint(get_collection_result: dict) -> dict:
+    """Distill GET /collections/{name} into the same shape backup_qdrant.py records."""
+    config = (get_collection_result or {}).get("config", {}) or {}
+    params = config.get("params", {}) or {}
+    return {
+        "params": {
+            "vectors": params.get("vectors"),
+            "sparse_vectors": params.get("sparse_vectors"),
+            "shard_number": params.get("shard_number"),
+            "on_disk_payload": params.get("on_disk_payload"),
+        },
+        "hnsw_config": config.get("hnsw_config"),
+        "quantization_config": config.get("quantization_config"),
+        "payload_schema": _normalize_payload_schema(
+            (get_collection_result or {}).get("payload_schema")
+        ),
+    }
+
+
+def _fingerprint_signature(schema: dict | None) -> str:
+    """Stable JSON encoding of a schema fingerprint for diff display."""
+    return json.dumps(schema or {}, sort_keys=True, separators=(",", ":"))
+
+
+def fetch_live_schema(collection_name: str) -> dict | None:
+    """Fetch the live target's schema fingerprint, or None if the collection is absent."""
+    timeout_config = httpx.Timeout(connect=3.0, read=10.0, write=5.0, pool=3.0)
+    response = httpx.get(
+        f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}",
+        headers=get_headers(),
+        timeout=timeout_config,
+    )
+    if response.status_code != 200:
+        return None
+    data = response.json().get("result", {}) or {}
+    return _build_schema_fingerprint(data)
 
 
 def upload_snapshot(collection_name: str, snapshot_path: Path) -> bool:
@@ -229,13 +510,16 @@ def upload_snapshot(collection_name: str, snapshot_path: Path) -> bool:
 
 
 def recover_collection(collection_name: str, snapshot_name: str) -> bool:
-    """
-    Recover a collection from an uploaded snapshot.
+    """Recover a collection from an uploaded snapshot.
+
+    TD-517 R-3: passes ``priority=snapshot`` so the snapshot's data wins over
+    any partial state already on the node. The default ``replica`` priority
+    keeps local data and only fills missing gaps from the snapshot, which is
+    the wrong semantics for an explicit operator-driven restore — operators
+    expect the backup to be canonical.
 
     Qdrant 1.16+ requires the snapshot location in the request body.
-    Uploaded snapshots are stored at /qdrant/snapshots/{collection}/{snapshot}
-
-    Returns: True if successful
+    Uploaded snapshots are stored at /qdrant/snapshots/{collection}/{snapshot}.
     """
     timeout_config = httpx.Timeout(
         connect=3.0, read=float(SNAPSHOT_RECOVER_TIMEOUT), write=5.0, pool=3.0
@@ -250,7 +534,7 @@ def recover_collection(collection_name: str, snapshot_name: str) -> bool:
     response = httpx.put(
         f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/snapshots/recover",
         headers=headers,
-        json={"location": snapshot_location},
+        json={"location": snapshot_location, "priority": "snapshot"},
         timeout=timeout_config,
     )
 
@@ -260,25 +544,28 @@ def recover_collection(collection_name: str, snapshot_name: str) -> bool:
 def restore_config_files(
     backup_dir: Path, target_dir: Path, force: bool = False
 ) -> tuple[list[str], list[str]]:
-    """
-    Restore configuration files from backup.
+    """Restore configuration files from a backup.
+
+    TD-517 R-10: restores the BUG-277 split env layout
+    (``docker/.env`` + ``docker/.env.secrets``) in addition to the legacy
+    root ``.env``. The secrets file is re-chmod'd to 600 after copy to
+    preserve the BUG-277 permission convention regardless of the backup
+    medium's behaviour.
 
     Args:
-        backup_dir: Path to backup directory
-        target_dir: Path to installation directory
-        force: If True, overwrite existing .env file
+        backup_dir: Path to backup directory.
+        target_dir: Path to installation directory.
+        force: If True, overwrite existing credential files.
 
     Returns:
-        Tuple of (restored filenames, skipped filenames)
+        Tuple of (restored labels, skipped labels).
 
-    Note: .env files contain credentials and are only overwritten with --force
-    to prevent accidental credential replacement.
+    Note: credential-bearing files are only overwritten with --force to
+    prevent accidental credential replacement.
     """
-    import shutil
-
     config_source = backup_dir / "config"
-    restored = []
-    skipped = []
+    restored: list[str] = []
+    skipped: list[str] = []
 
     if not config_source.exists():
         return restored, skipped
@@ -291,15 +578,38 @@ def restore_config_files(
         shutil.copy2(settings_src, settings_dest)
         restored.append("settings.json")
 
-    # Restore .env (requires --force if exists - contains credentials)
-    env_src = config_source / ".env"
-    if env_src.exists():
-        env_dest = target_dir / ".env"
-        if env_dest.exists() and not force:
-            skipped.append(".env (exists, use --force to overwrite)")
-        else:
-            shutil.copy2(env_src, env_dest)
-            restored.append(".env")
+    def _restore_credential_file(
+        src: Path, dest: Path, label: str, mode: int | None = None
+    ) -> None:
+        """Copy a credential-bearing file, honoring --force, then fix mode."""
+        if not src.exists():
+            return
+        if dest.exists() and not force:
+            skipped.append(f"{label} (exists, use --force to overwrite)")
+            return
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        if mode is not None:
+            with contextlib.suppress(OSError):
+                dest.chmod(mode)
+        restored.append(label)
+
+    # Legacy root .env (pre-BUG-277 layout)
+    _restore_credential_file(config_source / ".env", target_dir / ".env", ".env")
+
+    # BUG-277 split env layout: docker/.env (644) + docker/.env.secrets (600)
+    _restore_credential_file(
+        config_source / "docker" / ".env",
+        target_dir / "docker" / ".env",
+        "docker/.env",
+        mode=0o644,
+    )
+    _restore_credential_file(
+        config_source / "docker" / ".env.secrets",
+        target_dir / "docker" / ".env.secrets",
+        "docker/.env.secrets",
+        mode=0o600,
+    )
 
     return restored, skipped
 
@@ -315,7 +625,37 @@ def main() -> int:
         action="store_true",
         help="Overwrite existing collections without confirmation",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the restore plan without mutating Qdrant",
+    )
+    parser.add_argument(
+        "--collection",
+        type=str,
+        default=None,
+        help="Restore a single collection from the backup (default: all)",
+    )
+    parser.add_argument(
+        "--target-name",
+        type=str,
+        default=None,
+        help=(
+            "Restore the selected collection under a different name "
+            "(requires --collection; useful for staging and round-trip tests)"
+        ),
+    )
+    parser.add_argument(
+        "--skip-checksum-verify",
+        action="store_true",
+        help="Skip CHECKSUMS.sha256 verification before upload",
+    )
     args = parser.parse_args()
+
+    # TD-517 R-7: --target-name only makes sense for a single collection.
+    if args.target_name and not args.collection:
+        print(f"{RED}Error: --target-name requires --collection{RESET}")
+        return 1
 
     backup_dir = Path(args.backup_dir)
 
@@ -332,32 +672,62 @@ def main() -> int:
     print()
     print("  Verifying backup...")
     try:
-        manifest = verify_backup(backup_dir)
+        manifest = verify_backup(backup_dir, args.collection)
         print(f"    {GREEN}✓{RESET} manifest.json valid")
-
-        # Parse and display backup date
-        try:
-            backup_date = datetime.fromisoformat(
-                manifest.backup_date.replace("Z", "+00:00")
-            )
-            print(f"  Backup date: {backup_date.strftime('%Y-%m-%d %H:%M:%S')}")
-        except Exception:
-            print(f"  Backup date: {manifest.backup_date}")
-
-        print(f"  Version: {manifest.ai_memory_version}")
-        print()
-
-        # Verify snapshot files
-        qdrant_dir = backup_dir / "qdrant"
-        for name, info in manifest.collections.items():
-            snapshot_file = info.get("snapshot_file", f"{name}.snapshot")
-            snapshot_path = qdrant_dir / snapshot_file
-            size = snapshot_path.stat().st_size
-            print(f"    {GREEN}✓{RESET} {snapshot_file} ({format_size(size)})")
-
     except RuntimeError as e:
         print(f"    {RED}✗ {e}{RESET}")
         return 2
+
+    # TD-517 R-7 / F-O-3: restrict to a single collection BEFORE the snapshot
+    # display and the restore loop. Filtering here means an unrelated
+    # collection's missing snapshot file never reaches the .stat() display
+    # below nor aborts a scoped --collection restore.
+    if args.collection:
+        if args.collection not in manifest.collections:
+            print(
+                f"    {RED}✗ Collection '{args.collection}' not present in this backup{RESET}"
+            )
+            print(f"    {GRAY}  Backup contains: {sorted(manifest.collections)}{RESET}")
+            return 2
+        manifest.collections = {args.collection: manifest.collections[args.collection]}
+
+    # Parse and display backup date
+    try:
+        backup_date = datetime.fromisoformat(
+            manifest.backup_date.replace("Z", "+00:00")
+        )
+        print(f"  Backup date: {backup_date.strftime('%Y-%m-%d %H:%M:%S')}")
+    except Exception:
+        print(f"  Backup date: {manifest.backup_date}")
+
+    print(f"  Version: {manifest.ai_memory_version}")
+    print()
+
+    # Verify snapshot files
+    qdrant_dir = backup_dir / "qdrant"
+    for name, info in manifest.collections.items():
+        snapshot_file = info.get("snapshot_file", f"{name}.snapshot")
+        snapshot_path = qdrant_dir / snapshot_file
+        size = snapshot_path.stat().st_size
+        print(f"    {GREEN}✓{RESET} {snapshot_file} ({format_size(size)})")
+
+    # TD-517 R-9: verify CHECKSUMS.sha256 before uploading anything to Qdrant.
+    if not args.skip_checksum_verify:
+        print()
+        print("  Verifying checksums...")
+        ok, problems = verify_checksums(backup_dir)
+        if not ok:
+            print(f"    {RED}✗ Checksum verification failed:{RESET}")
+            for problem in problems:
+                print(f"      {RED}- {problem}{RESET}")
+            print(f"    {GRAY}  Re-run with --skip-checksum-verify to override.{RESET}")
+            return 2
+        if (backup_dir / "CHECKSUMS.sha256").exists():
+            print(f"    {GREEN}✓{RESET} Checksums valid")
+        else:
+            print(
+                f"    {YELLOW}!{RESET} No CHECKSUMS.sha256 (legacy backup) — skipping"
+            )
 
     # Check Qdrant connectivity
     print()
@@ -379,13 +749,19 @@ def main() -> int:
         print(f"    {RED}✗ Cannot connect to Qdrant: {e}{RESET}")
         return 3  # Exit code 3 = Qdrant connection failed
 
-    # Check for existing collections
+    # TD-517 R-7: with --target-name the collection is restored under a
+    # different Qdrant name. Manifest lookups still key on the original name;
+    # Qdrant operations use the target name.
+    def _target_for(manifest_name: str) -> str:
+        return args.target_name or manifest_name
+
+    # Check for existing collections (by Qdrant target name).
     existing_collections = []
     for name in manifest.collections:
-        if collection_exists(name):
-            existing_collections.append(name)
+        if collection_exists(_target_for(name)):
+            existing_collections.append(_target_for(name))
 
-    if existing_collections and not args.force:
+    if existing_collections and not args.force and not args.dry_run:
         print()
         print(f"  {YELLOW}!{RESET} Existing collections found: {existing_collections}")
         print(f"  {GRAY}Use --force to overwrite{RESET}")
@@ -399,82 +775,212 @@ def main() -> int:
             print("\n  Restore cancelled.")
             return 0
 
+    # TD-517 R-6: best-effort disk pre-flight. Restoring over an existing
+    # collection first snapshots its current state for rollback safety, which
+    # transiently consumes disk inside the Qdrant volume. We cannot introspect
+    # the container volume from the host, so this uses the sum of backup
+    # snapshot sizes as a proxy for live collection size. WARN-only — the
+    # operator retains agency to proceed (DEC-PM291-D17 Q-4).
+    if existing_collections:
+        try:
+            # TD-517 F-S-1: existing_collections holds Qdrant target names,
+            # but manifest.collections is keyed by source/manifest names.
+            # Iterate the manifest entries and map each through _target_for
+            # so a --target-name restore does not raise KeyError here.
+            total_snapshot_bytes = sum(
+                int(info.get("size_bytes", 0))
+                for name, info in manifest.collections.items()
+                if _target_for(name) in existing_collections
+            )
+            free_bytes = shutil.disk_usage(Path(INSTALL_DIR).anchor or "/").free
+            if total_snapshot_bytes * 2 > free_bytes:
+                print()
+                print(
+                    f"  {YELLOW}!{RESET} Disk pre-flight: rollback snapshots may need "
+                    f"~{format_size(total_snapshot_bytes * 2)}; "
+                    f"{format_size(free_bytes)} free. Proceeding (operator override)."
+                )
+        except Exception:
+            pass
+
     # Restore collections with rollback on failure
     print()
     print("  Restoring collections...")
     total_records = 0
-    restored_collections = []  # Track for rollback on failure
+
+    # TD-517 R-6: two rollback tracks.
+    #  - created_fresh: collections that did not exist before restore — on
+    #    failure these are simply deleted (nothing pre-existing to lose).
+    #  - rollback_snapshots: pre-existing collections — before destructive
+    #    ops we snapshot their current state; on failure we recover from that
+    #    snapshot so the operator's data is returned exactly as it was.
+    created_fresh: list[str] = []
+    rollback_snapshots: dict[str, str] = {}
+
+    def _do_rollback() -> None:
+        """Undo partial restore: delete fresh collections, recover pre-existing."""
+        if created_fresh:
+            print(
+                f"    {YELLOW}Rolling back {len(created_fresh)} created collections...{RESET}"
+            )
+            for fresh in created_fresh:
+                delete_collection(fresh)
+        if rollback_snapshots:
+            print(
+                f"    {YELLOW}Restoring {len(rollback_snapshots)} pre-existing collections to prior state...{RESET}"
+            )
+            for coll, snap in rollback_snapshots.items():
+                if rollback_from_server_snapshot(coll, snap):
+                    print(f"      {GREEN}✓{RESET} {coll} rolled back")
+                else:
+                    print(
+                        f"      {RED}✗ {coll} rollback FAILED — recover manually "
+                        f"from server snapshot '{snap}'{RESET}"
+                    )
+
+    def _cleanup_rollback_snapshots() -> None:
+        """Delete rollback snapshots after a fully successful restore."""
+        for coll, snap in rollback_snapshots.items():
+            delete_server_snapshot(coll, snap)
 
     for name, info in manifest.collections.items():
         records = info.get("records", 0)
         total_records += records
         snapshot_file = info.get("snapshot_file", f"{name}.snapshot")
         snapshot_path = backup_dir / "qdrant" / snapshot_file
+        manifest_schema = info.get("schema")
+        target = _target_for(name)
 
-        print(f"    Restoring {name} ({records} records)...")
+        label = name if target == name else f"{name} -> {target}"
+        print(f"    Restoring {label} ({records} records)...")
+
+        # TD-517 R-1 backward-compat: legacy manifests (pre-v2.4.1) lack the
+        # schema fingerprint. The pre-fix restore would silently default to a
+        # single-vector 768/Cosine collection that fails snapshot upload with
+        # HTTP 400 schema-incompatibility — exactly the bug this rewrite
+        # closes. Fail loud with an actionable message instead.
+        if manifest_schema is None:
+            print(
+                f"      {RED}✗ Manifest predates v2.4.1: no schema fingerprint for '{name}'{RESET}"
+            )
+            print(
+                f"      {GRAY}  Restore cannot recreate the target collection without the captured schema.{RESET}"
+            )
+            print(
+                f"      {GRAY}  Run scripts/setup-collections.py to provision collections first, then retry.{RESET}"
+            )
+            _do_rollback()
+            return 2
+
+        # TD-517 R-7: --dry-run previews the plan without mutating Qdrant.
+        if args.dry_run:
+            if target in existing_collections:
+                print(
+                    f"      {GRAY}[dry-run] would snapshot '{target}' for rollback, "
+                    f"then recover {records} records over it{RESET}"
+                )
+            else:
+                print(
+                    f"      {GRAY}[dry-run] would create '{target}' from manifest "
+                    f"schema and recover {records} records{RESET}"
+                )
+            continue
 
         try:
-            # Note: We don't delete existing collections before restore.
-            # Qdrant's snapshot recover replaces collection data in-place.
-            # Deleting first would cause upload to fail with 404.
-
-            # If collection doesn't exist (fresh install), create it first
-            if name not in existing_collections:
-                print("      Creating collection...")
-                if not create_collection_for_restore(name):
-                    print(f"      {RED}✗ Failed to create collection{RESET}")
-                    # Rollback previously restored collections
-                    if restored_collections:
-                        print(
-                            f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
-                        )
-                        for restored in restored_collections:
-                            delete_collection(restored)
-                    return 4
-                print(f"      {GREEN}✓{RESET} Collection created")
-
-            # Upload snapshot (collection must exist)
-            if not upload_snapshot(name, snapshot_path):
-                print(f"      {RED}✗ Snapshot upload failed{RESET}")
-                # Rollback previously restored collections
-                if restored_collections:
+            if target in existing_collections:
+                # TD-517 R-2: hard-fail on schema fingerprint drift between
+                # the backup and the live target. Cross-version restore is
+                # explicitly out of scope for this script; operators are
+                # routed to a per-version migrate_*.py instead.
+                live_schema = fetch_live_schema(target)
+                manifest_sig = _fingerprint_signature(manifest_schema)
+                live_sig = _fingerprint_signature(live_schema)
+                if manifest_sig != live_sig:
+                    print(f"      {RED}✗ Schema mismatch on '{target}'.{RESET}")
                     print(
-                        f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
+                        f"      {GRAY}  Backup fingerprint differs from live target.{RESET}"
                     )
-                    for restored in restored_collections:
-                        delete_collection(restored)
+                    print(
+                        f"      {GRAY}  Cross-version restore is not supported by backup_qdrant.py / restore_qdrant.py.{RESET}"
+                    )
+                    print(
+                        f"      {GRAY}  Use a per-version migrate_*.py script. See docs/BACKUP-RESTORE.md.{RESET}"
+                    )
+                    _do_rollback()
+                    return 4
+
+                # TD-517 R-6: snapshot the pre-existing collection's current
+                # state BEFORE the snapshot recover replaces its contents, so
+                # a later failure can roll it back exactly.
+                rollback_snap = create_server_snapshot(target)
+                if rollback_snap is None:
+                    print(
+                        f"      {RED}✗ Could not snapshot existing '{target}' for rollback safety{RESET}"
+                    )
+                    _do_rollback()
+                    return 4
+                rollback_snapshots[target] = rollback_snap
+                print(f"      {GREEN}✓{RESET} Schema match; pre-restore snapshot taken")
+            else:
+                # Absent target (fresh-install path): recreate the collection
+                # from the manifest's schema fingerprint so the subsequent
+                # snapshot upload sees a byte-equivalent target.
+                print("      Creating collection from manifest schema...")
+                ok, err = create_collection_from_manifest_schema(
+                    target, manifest_schema
+                )
+                if not ok:
+                    print(f"      {RED}✗ Failed to create collection: {err}{RESET}")
+                    _do_rollback()
+                    return 4
+                created_fresh.append(target)
+                print(f"      {GREEN}✓{RESET} Collection created from manifest schema")
+
+            # Upload snapshot (collection must exist).
+            if not upload_snapshot(target, snapshot_path):
+                print(f"      {RED}✗ Snapshot upload failed{RESET}")
+                _do_rollback()
                 return 4
             print(f"      {GREEN}✓{RESET} Snapshot uploaded")
 
-            # Get the uploaded snapshot name (it's the filename)
+            # Recover collection from the uploaded snapshot.
             uploaded_name = snapshot_file
-
-            # Recover collection from snapshot
-            if not recover_collection(name, uploaded_name):
+            if not recover_collection(target, uploaded_name):
                 print(f"      {RED}✗ Collection recovery failed{RESET}")
-                # Rollback previously restored collections
-                if restored_collections:
-                    print(
-                        f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
-                    )
-                    for restored in restored_collections:
-                        delete_collection(restored)
+                _do_rollback()
                 return 4
             print(f"      {GREEN}✓{RESET} Collection recovered")
 
-            # Track successful restoration for potential rollback
-            restored_collections.append(name)
+            # TD-517 R-5: verify the restored point count against the manifest
+            # rather than trusting the recover endpoint's HTTP 200 alone.
+            restored_count = count_points(target)
+            expected_count = info.get("records", 0)
+            if restored_count is None:
+                print(
+                    f"      {YELLOW}!{RESET} Could not verify point count for '{target}'"
+                )
+            elif restored_count != expected_count:
+                print(
+                    f"      {RED}✗ Point count mismatch on '{target}': "
+                    f"expected {expected_count}, found {restored_count}{RESET}"
+                )
+                _do_rollback()
+                return 4
+            else:
+                print(f"      {GREEN}✓{RESET} Point count verified ({restored_count})")
 
         except Exception as e:
             print(f"      {RED}✗ Error: {e}{RESET}")
-            # Rollback previously restored collections
-            if restored_collections:
-                print(
-                    f"    {YELLOW}Rolling back {len(restored_collections)} restored collections...{RESET}"
-                )
-                for restored in restored_collections:
-                    delete_collection(restored)
+            _do_rollback()
             return 4
+
+    if args.dry_run:
+        print()
+        print(f"  {GRAY}[dry-run] no changes made.{RESET}")
+        return 0
+
+    # TD-517 R-6: full restore succeeded — drop the rollback snapshots.
+    _cleanup_rollback_snapshots()
 
     # Optionally restore config files
     if args.restore_config:

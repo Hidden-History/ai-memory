@@ -406,27 +406,37 @@ except Exception:
             return 0
         fi
 
+        # Validate inputs before shell-expanding into SQL (defense in depth for controlled config values)
+        if [[ ! "$init_email" =~ ^[A-Za-z0-9._@+-]+$ ]]; then
+            log_error "_fixup_init_user: init_email contains unexpected characters: $init_email"
+            return 1
+        fi
+
         log_info "Fixing up init user: email_verified + admin flag..."
+        # BUG-298: psql -c (single-command mode) does not expand :'var' quoted-variable substitution.
+        # Shell-expand the email directly into the SQL string instead of relying on -v interpolation.
         docker exec "$pg_container" psql -U langfuse -d langfuse \
-            -v email="$init_email" \
-            -c "UPDATE users SET email_verified = NOW(), admin = true WHERE email = :'email' AND email_verified IS NULL;" \
-            2>/dev/null || log_warning "Could not fix up init user (non-critical)"
+            -c "UPDATE users SET email_verified = NOW(), admin = true WHERE email = '$init_email' AND email_verified IS NULL;" \
+            || log_error "Langfuse user fix-up failed — UI may redirect to onboarding; core install continues"
 
         # Langfuse INIT creates org_membership but NOT project_membership.
         # Without it the UI redirects to the setup/onboarding page.
         local init_project_id
         init_project_id=$(env_get "LANGFUSE_INIT_PROJECT_ID")
         if [[ -n "$init_project_id" ]]; then
+            if [[ ! "$init_project_id" =~ ^[A-Za-z0-9._-]+$ ]]; then
+                log_error "_fixup_init_user: init_project_id contains unexpected characters: $init_project_id"
+                return 1
+            fi
             log_info "Ensuring project membership for init user..."
             docker exec "$pg_container" psql -U langfuse -d langfuse \
-                -v email="$init_email" -v project_id="$init_project_id" \
                 -c "INSERT INTO project_memberships (project_id, user_id, org_membership_id, role)
-                SELECT :'project_id', u.id, om.id, 'OWNER'
+                SELECT '$init_project_id', u.id, om.id, 'OWNER'
                 FROM users u
                 JOIN organization_memberships om ON om.user_id = u.id
-                WHERE u.email = :'email'
+                WHERE u.email = '$init_email'
                 ON CONFLICT (project_id, user_id) DO NOTHING;" \
-                2>/dev/null || log_warning "Could not ensure project membership (non-critical)"
+                || log_error "Langfuse project membership fix-up failed — UI may redirect to onboarding; core install continues"
         fi
     }
 
