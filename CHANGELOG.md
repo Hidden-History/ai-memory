@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-05-16
+
 ### Added
 
 - `backup_qdrant.py` gains `--collection`, `--retry`, and `--version` flags, and honors `BACKUP_SNAPSHOT_CREATE_TIMEOUT` / `BACKUP_SNAPSHOT_DOWNLOAD_TIMEOUT` environment overrides; the snapshot-create timeout default is raised to 300s (TD-517).
@@ -55,6 +57,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `capture_{hook_type}_{collection}` respectively — making the documented ~40
   sparse series (4 reasons × 2 tiers × 5 collections) achievable in practice.
   (BUG-300, BUG-304)
+
+### Upgrade Instructions
+
+**From v2.4.0 → v2.4.1:**
+
+Maintenance release — bug fixes and backup/restore tooling hardening. No breaking changes, no data migration.
+
+1. Pull the latest:
+   ```bash
+   cd /path/to/ai-memory
+   git fetch origin && git checkout main && git pull
+   ```
+2. Re-run the installer:
+   ```bash
+   ./scripts/install.sh /path/to/your-project
+   ```
+
+The installer preserves your data, credentials, and Parzival sanctum. New config keys are migrated into `docker/.env` automatically. No manual steps.
 
 ## [2.4.0] - 2026-05-13 — BUG-297 Silent-Drop Fix + Sanctum Identity + Env-Secrets Split + Classifier Resilience
 
@@ -2580,7 +2600,8 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.2.1...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/Hidden-History/ai-memory/compare/v2.4.0...v2.4.1
 [2.2.1]: https://github.com/Hidden-History/ai-memory/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/Hidden-History/ai-memory/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/Hidden-History/ai-memory/compare/v2.0.9...v2.1.0
