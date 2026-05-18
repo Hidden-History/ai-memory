@@ -87,11 +87,11 @@ migration. Your memories, credentials, and Parzival sanctum are untouched.
    ./scripts/install.sh /path/to/your-project
    ```
 
-The installer refreshes the POV files in place: new `references/` files are
-added, the relocated master-plan is handled automatically, and your data and
-sanctum identity are preserved. This is the same single step for every user —
-a fresh install, an operator updating an existing project, or an add-project
-user. No manual steps.
+Re-running the installer refreshes all POV files in place: new files are added,
+and obsolete or superseded files from earlier versions are removed
+automatically. Your data and sanctum identity are preserved. This is the same
+single step for every user — a fresh install, an operator updating an existing
+project, or an add-project user. No manual steps.
 
 ## [2.4.1] - 2026-05-16
 
