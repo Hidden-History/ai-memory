@@ -74,6 +74,37 @@ class TestMarkerReaders:
         with pytest.raises(cvc.MarkerError):
             cvc.read_version_txt(tmp_path)
 
+    def test_pyproject_reader_missing_file_raises(self, tmp_path):
+        with pytest.raises(cvc.MarkerError):
+            cvc.read_pyproject_version(tmp_path)
+
+    def test_pyproject_reader_missing_project_table_raises(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.ruff]\ntarget-version = "py310"\n', encoding="utf-8"
+        )
+        with pytest.raises(cvc.MarkerError):
+            cvc.read_pyproject_version(tmp_path)
+
+    def test_pyproject_reader_missing_version_key_raises(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "ai-memory"\n', encoding="utf-8"
+        )
+        with pytest.raises(cvc.MarkerError):
+            cvc.read_pyproject_version(tmp_path)
+
+    def test_version_py_reader_missing_file_raises(self, tmp_path):
+        with pytest.raises(cvc.MarkerError):
+            cvc.read_version_py(tmp_path)
+
+    def test_version_py_reader_missing_assignment_raises(self, tmp_path):
+        version_dir = tmp_path / "src" / "memory"
+        version_dir.mkdir(parents=True)
+        (version_dir / "__version__.py").write_text(
+            '"""No version assignment here."""\n', encoding="utf-8"
+        )
+        with pytest.raises(cvc.MarkerError):
+            cvc.read_version_py(tmp_path)
+
 
 class TestCheckConsistency:
     """The pure comparison logic."""
@@ -130,10 +161,41 @@ class TestMainExitCodes:
         _write_repo(tmp_path, "2.4.1", "2.4.1", "2.4.1", _CHANGELOG)
         assert cvc.main(["--root", str(tmp_path), "--tag", "v2.4.2"]) == 1
 
+    def test_main_tag_mode_changelog_mismatch_exits_one(self, tmp_path, capsys):
+        # All three markers agree with the tag, but the CHANGELOG's latest
+        # release heading lags behind it.
+        _write_repo(tmp_path, "2.4.2", "2.4.2", "2.4.2", _CHANGELOG)
+        assert cvc.main(["--root", str(tmp_path), "--tag", "v2.4.2"]) == 1
+        captured = capsys.readouterr()
+        assert "FAILED" in captured.err
+        assert "CHANGELOG" in captured.err
+
     def test_main_unreadable_marker_exits_two(self, tmp_path, capsys):
         # No marker files written at all.
         assert cvc.main(["--root", str(tmp_path)]) == 2
         assert "cannot read" in capsys.readouterr().err
+
+
+class TestEmitActionsError:
+    """The GitHub Actions annotation path."""
+
+    def test_emits_single_line_annotation_under_github_actions(
+        self, monkeypatch, capsys
+    ):
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        cvc._emit_actions_error("line one\nline two")
+        out = capsys.readouterr().out.strip()
+        # A workflow command must be a single line.
+        assert "\n" not in out
+        assert out.startswith("::error ")
+        assert "title=Version consistency::" in out
+        # The newline is replaced by a space, not dropped.
+        assert "line one line two" in out
+
+    def test_emits_nothing_outside_github_actions(self, monkeypatch, capsys):
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+        cvc._emit_actions_error("some error")
+        assert capsys.readouterr().out == ""
 
 
 class TestLiveRepository:
