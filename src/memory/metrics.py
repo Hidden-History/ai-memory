@@ -30,7 +30,10 @@ try:
 
     _VERSION = pkg_version("ai-memory")
 except Exception:
-    _VERSION = "2.3.2"
+    # Fall back to the in-tree single source of truth when package metadata is
+    # unavailable (e.g. running from a source checkout). memory.__version__ is a
+    # leaf module with no imports, so this cannot cause a circular import.
+    from memory.__version__ import __version__ as _VERSION
 
 # ==============================================================================
 # COUNTERS - Monotonically increasing values
