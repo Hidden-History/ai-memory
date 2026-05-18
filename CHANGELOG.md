@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `aim-tracking-freshness` POV skill (`_ai-memory/pov/skills/aim-tracking-freshness/`) — scans `oversight/bugs/BUG-*.md` and `oversight/tech-debt/TECH-DEBT-*.md`, classifies each record as open or closed from its authoritative `**Status**` header, and regenerates both `INDEX.md` files on demand. Replaces the manual rebuild process introduced in PM #296. `--check` mode is strictly read-only and prints a staleness report (divergences, companions excluded, orphan INDEX rows, missing records); `--write` regenerates both INDEX files and then prints the same report. Handles three Status header formats (colon-outside-bold (`**Status**:`), colon-inside-bold (`**Status:**`), and table-row (`| **Status** | … |`)), two closed-class keyword sets (bugs vs tech-debt), and the `LIKELY FIXED` open-class edge case. Companion files sharing a numeric ID are excluded from INDEX generation and listed explicitly in the report. Oversight root is configurable via `--oversight-root` or `AI_MEMORY_OVERSIGHT_ROOT` env var. (PLAN-028 P0-4c)
+
 ## [2.4.2] - 2026-05-17
 
 ### Added
