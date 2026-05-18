@@ -12,8 +12,6 @@ nextStepFile: './step-02-write-handoff.md'
 
 Capture a complete snapshot of the current session state: what is done, what is in progress, what is blocked, and what context would be lost if the session ended.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: Current conversation context, task tracker at `{oversight_path}/tracking/task-tracker.md`, files being modified
 - Focus: State capture and documentation only — do not write the handoff file yet
@@ -26,7 +24,7 @@ Capture a complete snapshot of the current session state: what is done, what is 
 - Approach: Systematic state capture with specific, verifiable detail
 - "Context that would be lost" section must be substantive — this is the most critical capture
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Capture Active Work State
 

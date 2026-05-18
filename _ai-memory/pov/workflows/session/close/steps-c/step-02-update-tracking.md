@@ -12,8 +12,6 @@ nextStepFile: './step-03-create-handoff.md'
 
 Update all tracking files to reflect the session's outcomes. Task status changes require user confirmation. Unlogged decisions and blockers are added to their respective logs.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: Session summary from Step 1, tracking files at `{oversight_path}/tracking/`
 - Focus: Tracking file updates only — do not create handoff document yet
@@ -26,7 +24,7 @@ Update all tracking files to reflect the session's outcomes. Task status changes
 - Approach: Present proposed changes, wait for confirmation, then execute
 - Unlogged decisions and blockers must be added even if no task status changes occur
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 0. Pre-condition: Verify Handoff Template Exists (TD-520 / TD-500)
 

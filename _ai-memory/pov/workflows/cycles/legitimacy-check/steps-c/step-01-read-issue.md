@@ -12,8 +12,6 @@ nextStepFile: './step-02-check-project-files.md'
 
 Before classifying, Parzival must fully understand what is being reported. Never classify an issue you have not fully read and understood.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: The issue being assessed, the review report it came from, the implementation context
 - Focus: Understanding only — do not begin classification at this stage
@@ -26,7 +24,7 @@ Before classifying, Parzival must fully understand what is being reported. Never
 - Approach: Systematic checklist — answer every item before proceeding
 - Confirm understanding is complete before loading next step
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Complete the Understanding Checklist
 

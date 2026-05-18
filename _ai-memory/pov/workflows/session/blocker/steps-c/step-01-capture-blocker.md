@@ -12,8 +12,6 @@ nextStepFile: './step-02-analyze-and-resolve.md'
 
 Precisely capture what is blocked, the impact on current work, and the severity level so that analysis can proceed on solid ground.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: User's description of the blocker, current task context from `{oversight_path}/tracking/task-tracker.md`
 - Focus: Blocker capture only — do not analyze or resolve in this step
@@ -26,7 +24,7 @@ Precisely capture what is blocked, the impact on current work, and the severity 
 - Approach: Ask targeted questions if description is insufficient — do not proceed with vague descriptions
 - Check failure pattern library and past issues before completing capture
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Identify What Is Blocked
 

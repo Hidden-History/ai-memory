@@ -11,8 +11,6 @@ description: 'Present the compiled session status to the user and wait for direc
 
 Present the compiled status report to the user in a clear format and wait for their direction on what to work on. This is a terminal step.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: The compiled status report from Step 2, WORKFLOW-MAP routing logic
 - Focus: Presentation and user direction only — do not start work
@@ -25,7 +23,7 @@ Present the compiled status report to the user in a clear format and wait for th
 - Approach: Clear presentation with recommendation and reasoning — then wait
 - This is a TERMINAL step — no nextStepFile, workflow ends after user is asked for direction
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Present Status Report
 

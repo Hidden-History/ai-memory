@@ -12,8 +12,6 @@ nextStepFile: './step-02-present-decision.md'
 
 Frame the decision clearly: what needs to be decided, why now, what constraints apply, and what the viable options are with their tradeoffs.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: User's decision topic, project constraints at `{constraints_path}/`, architecture decisions, relevant project files
 - Focus: Decision structuring only — do not present to user yet
@@ -26,7 +24,7 @@ Frame the decision clearly: what needs to be decided, why now, what constraints 
 - Approach: Generate at least 2 options (3 preferred); include "do nothing" if viable
 - Check constraint files and architecture decisions before generating options
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Frame the Decision
 

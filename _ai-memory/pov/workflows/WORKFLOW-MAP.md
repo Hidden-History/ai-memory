@@ -3,7 +3,7 @@
 > **Purpose**: Parzival reads this file at every session start to determine project state and route to the correct workflow
 > **Loaded**: Immediately after parzival.md and global constraints at activation
 > **Authority**: This is the single source of truth for workflow routing decisions
-> **Reference**: parzival-master-plan.md Section 6
+> **Reference**: oversight/docs/parzival-master-plan-history.md Section 6
 
 ---
 
@@ -155,78 +155,7 @@ Starting: Init Existing -> [branch name]
 
 ---
 
-## Phase Workflows -- Summary
-
-### Discovery
-```
-WHEN:    Phase 1 -- after init baseline established, no approved PRD yet
-AGENTS:  Analyst -> PM
-GOAL:    Produce approved PRD.md with user sign-off on scope
-REPEATS: Only if major scope pivot occurs post-approval
-EXIT TO: {workflows_path}/phases/architecture/workflow.md
-LOADS:   {constraints_path}/discovery/constraints.md
-```
-
-### Architecture
-```
-WHEN:    Phase 2 -- PRD approved, no architecture.md yet
-AGENTS:  Architect -> PM (epics/stories) -> Architect (readiness check via [IR] bmad-check-implementation-readiness)
-GOAL:    Produce approved architecture.md + epics + implementation readiness confirmed
-REPEATS: Revisited for major new features that change architecture decisions
-EXIT TO: {workflows_path}/phases/planning/workflow.md
-LOADS:   {constraints_path}/architecture/constraints.md
-```
-
-### Planning
-```
-WHEN:    Phase 3 -- architecture approved, sprint needs initialization or refresh
-AGENTS:  SM (sprint planning + story creation)
-GOAL:    Initialize or refresh sprint-status.yaml + story files ready for execution
-REPEATS: Every sprint or milestone boundary
-EXIT TO: {workflows_path}/phases/execution/workflow.md (first task of sprint)
-LOADS:   {constraints_path}/planning/constraints.md
-```
-
-### Execution
-```
-WHEN:    Phase 4 -- task assigned from sprint, constant cycle
-AGENTS:  DEV (implement) -> DEV (code review) -> loop until zero issues
-GOAL:    Complete assigned task to zero legitimate issues, user approves
-REPEATS: Every task -- this is the primary operating mode
-EXIT TO: {workflows_path}/phases/planning/workflow.md (next task) or {workflows_path}/phases/integration/workflow.md (milestone hit)
-LOADS:   {constraints_path}/execution/constraints.md
-CYCLES:  review-cycle, legitimacy-check, approval-gate
-```
-
-### Integration
-```
-WHEN:    Phase 5 -- milestone hit, feature set complete
-AGENTS:  DEV (full review pass) + Architect (cohesion check)
-GOAL:    All modules integrate cleanly, full test plan passed, zero issues
-REPEATS: Per milestone
-EXIT TO: {workflows_path}/phases/release/workflow.md (if integration passes) or {workflows_path}/phases/execution/workflow.md (if issues found)
-LOADS:   {constraints_path}/integration/constraints.md
-```
-
-### Release
-```
-WHEN:    Phase 6 -- integration approved, ready to ship
-AGENTS:  SM (retrospective) + documentation pass
-GOAL:    Changelog complete, rollback plan exists, human sign-off checklist done
-REPEATS: Per release
-EXIT TO: {workflows_path}/phases/maintenance/workflow.md
-LOADS:   {constraints_path}/release/constraints.md
-```
-
-### Maintenance
-```
-WHEN:    Phase 7 -- post-release, bug report or improvement request received
-AGENTS:  Routes to correct agent based on issue type
-GOAL:    Resolve reported issue, fix all legitimate related issues in same cycle
-REPEATS: Ongoing -- every bug or improvement request
-EXIT TO: {workflows_path}/phases/planning/workflow.md (if improvement) or {workflows_path}/phases/execution/workflow.md (if bug fix)
-LOADS:   {constraints_path}/maintenance/constraints.md
-```
+For per-phase WHEN/AGENTS/GOAL/REPEATS/EXIT details, see each phase's workflow.md header or `{project-root}/_ai-memory/pov/references/workflow-map-details.md` ## Phase Summaries.
 
 ---
 
@@ -290,78 +219,15 @@ Parzival distinguishes three verification surfaces. They are not interchangeable
 
 ---
 
-## Phase Transition Rules
-
-Parzival never advances to the next phase without completing the current phase exit condition. These gates are non-negotiable.
-
-| From | To | Exit Condition Required |
-|---|---|---|
-| Init New | Discovery | project-status.md + goals.md created, user confirms |
-| Init Existing | Correct phase | Audit complete, current state documented, user confirms |
-| Discovery | Architecture | PRD.md approved by user with explicit sign-off |
-| Architecture | Planning | architecture.md approved + epics created + readiness check passed (dispatch [IR] bmad-check-implementation-readiness) |
-| Planning | Execution | sprint-status.yaml initialized + at least one story file ready + test design reviewed ([TA] bmad-testarch-test-design) |
-| Execution | Planning | Task complete, zero legitimate issues, user approved |
-| Execution | Integration | Milestone hit + all milestone tasks complete to zero issues |
-| Integration | Release | Full test plan passed, cohesion check passed, zero issues |
-| Release | Maintenance | Changelog complete, rollback plan exists, user sign-off complete |
-| Maintenance | Planning or Execution | Issue resolved to zero legitimate issues, user approved |
-
-**If an exit condition is not met -- the phase does not advance. No exceptions.**
+For phase exit conditions, see each phase's workflow.md or `{project-root}/_ai-memory/pov/references/workflow-map-details.md` ## Phase Transition Rules.
 
 ---
 
-## Project Status File Schema
-
-`project-status.md` is what Parzival reads at every session start. It must always be kept current. This is the project's heartbeat file.
-
-```yaml
-# project-status.md
-
-project_name: [name]
-created: [date]
-last_updated: [date]
-current_phase: [discovery|architecture|planning|execution|integration|release|maintenance]
-current_sprint: [sprint number or null]
-active_task: [story file path or null]
-baseline_complete: [true|false]
-
-phases_complete:
-  discovery: [true|false]
-  architecture: [true|false]
-  planning_initialized: [true|false]
-
-key_files:
-  prd: [path or null]
-  architecture: [path or null]
-  project_context: [path or null]
-  sprint_status: [path or null]
-
-last_session_summary: |
-  [Brief summary of what was done last session -- one paragraph]
-
-open_issues: [count of known legitimate open issues]
-notes: |
-  [Any important context Parzival needs at next session start]
-```
-
-Parzival updates `project-status.md` at the end of every session before closing.
+For project-status.md YAML schema, see `{project-root}/_ai-memory/pov/references/workflow-map-details.md` ## project-status.md Schema. **ENFORCE: each YAML field is short-form; long prose belongs in session-logs/SESSION_HANDOFF_*.md.**
 
 ---
 
-## Workflow File Header Standard
-
-Every workflow file must begin with this header so Parzival knows exactly what to load:
-
-```markdown
-## [Workflow Name]
-Load with:      {constraints_path}/global/constraints.md + {constraints_path}/[phase]/constraints.md
-Drop on exit:   {constraints_path}/[phase]/constraints.md
-Context slice:  [list of specific files only]
-Agents used:    [list of agents activated in this workflow]
-Exit to:        [next workflow]
-Exit condition: [specific, measurable condition that must be met]
-```
+Workflow file header standard: see `{project-root}/_ai-memory/pov/references/workflow-map-details.md`.
 
 ---
 
@@ -389,39 +255,8 @@ CONFLICTING SIGNALS (e.g., PRD exists but phase says "discovery")
 
 ---
 
-## End of Session Protocol
-
-Before every session ends, Parzival must:
-
-```
-1. Update project-status.md:
-   - current_phase (confirm or update)
-   - active_task (current story or null)
-   - last_session_summary (one paragraph of what happened)
-   - open_issues (current count of known legitimate open issues)
-   - notes (anything important for next session)
-
-2. Confirm with user:
-   - What was completed this session
-   - What is in progress
-   - What the next session should start with
-
-3. Shut down all active agent teammates via shutdown_request
-```
-
-**Parzival end-of-session message**:
-```
-Session closing.
-
-Completed: [summary]
-In progress: [any open tasks]
-Open issues: [count]
-project-status.md: Updated
-Next session starts: [workflow + first action]
-
-Parzival standing down.
-```
+End-of-session protocol is implemented by `session/close/workflow.md`. For the prose narrative, see `{project-root}/_ai-memory/pov/references/workflow-map-details.md`.
 
 ---
 
-*Reference: parzival-master-plan.md Build Order*
+*Reference: oversight/docs/parzival-master-plan-history.md Build Order*

@@ -12,8 +12,6 @@ nextStepFile: './step-02-load-checklist.md'
 
 Identify which verification type to run based on the work item being verified and any explicit user direction.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: User's input describing the work item to verify, task tracker at `{oversight_path}/tracking/task-tracker.md`
 - Focus: Determine verification type only — do not begin loading checklists or executing checks
@@ -26,7 +24,7 @@ Identify which verification type to run based on the work item being verified an
 - Approach: Systematic determination using work item type and explicit user direction
 - Confirm selected type with user before proceeding to next step
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Identify the Work Item
 

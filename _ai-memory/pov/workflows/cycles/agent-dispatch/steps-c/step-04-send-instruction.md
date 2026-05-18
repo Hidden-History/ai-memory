@@ -12,8 +12,6 @@ nextStepFile: './step-05-monitor-progress.md'
 
 After agent activation, send the prepared instruction to the teammate using SendMessage. The form depends on agent type: generic agents receive the complete instruction; BMAD skill-driven agents receive a recommendation request (target + minimal context) — not a full work order.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: The verified instruction from step-01, the activated agent from step-03
 - Focus: Instruction delivery only — do not begin monitoring or interpret agent responses as output
@@ -25,7 +23,7 @@ After agent activation, send the prepared instruction to the teammate using Send
 - For BMAD skill-driven agents: FORBIDDEN to send a full work plan; FORBIDDEN to ask "state your planned approach"
 - Clarification requests must be resolved from project files, never guessed
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Send the Instruction (Agent-Type Conditional)
 

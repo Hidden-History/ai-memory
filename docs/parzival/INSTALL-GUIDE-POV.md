@@ -298,7 +298,9 @@ If you already have Parzival installed and want to update:
 ./scripts/install.sh
 ```
 
-This safely updates all module code, regenerates skill shims, cleans up stale 2.0 files, and syncs config — without touching your oversight data.
+This safely updates all module code, regenerates skill shims, removes stale files from earlier versions, and syncs config — without touching your oversight data.
+
+Re-running `install.sh` is the entire update process. It adds any new module files, removes files that older versions placed elsewhere, and leaves your `oversight/` data untouched. There is no manual file surgery, no data migration, and no breaking changes between versions.
 
 ---
 
@@ -315,12 +317,12 @@ This safely updates all module code, regenerates skill shims, cleans up stale 2.
 
 | Component | Update Method | Your Data Safe? |
 |-----------|---------------|-----------------|
-| Module code (`_ai-memory/pov/`) | Overwritten | N/A (no user data) |
+| Module code (`_ai-memory/pov/`) | Full replace — new files added, relocated/removed files cleaned up | N/A (no user data) |
 | Commands (`.claude/commands/pov/`) | Overwritten | N/A (no user data) |
 | Agent def (`.claude/agents/pov/`) | Overwritten | N/A (no user data) |
 | Skill shims (`.claude/skills/aim-*`) | Regenerated from `_ai-memory/pov/skills/` | N/A (auto-generated) |
 | Config (`_ai-memory/pov/config.yaml`) | `user_name` synced from `.env` | ✅ Other fields preserved |
-| Stale 2.0 files | Removed automatically | N/A (obsolete files) |
+| Stale files from earlier versions | Removed automatically | N/A (obsolete files) |
 | Oversight data (`oversight/`) | **NEVER touched** | ✅ Always safe |
 
 ### Pre-Update Checklist
@@ -429,7 +431,7 @@ The unified `install.sh` guarantees your data is never accidentally lost:
 │  - Updates module code in _ai-memory/pov/                   │
 │  - Regenerates skill shims in .claude/skills/               │
 │  - Syncs config from .env (user_name only)                  │
-│  - Cleans up stale 2.0 files automatically                  │
+│  - Removes stale files from earlier versions automatically    │
 │  - Deploys oversight templates (no-clobber — never          │
 │    overwrites existing files)                               │
 │  - NEVER touches existing oversight/ data                   │
@@ -467,6 +469,7 @@ my-project/
 │       │   └── parzival.md         # Main agent definition
 │       ├── constraints/            # Global + phase constraints
 │       ├── data/                   # Reference data (complexity, confidence, escalation, etc.)
+│       ├── references/             # Lazy-loaded reference docs (loaded on-demand)
 │       ├── workflows/              # Phase workflows
 │       ├── skills/                 # 7 Parzival skills (source of truth)
 │       │   ├── aim-parzival-bootstrap/

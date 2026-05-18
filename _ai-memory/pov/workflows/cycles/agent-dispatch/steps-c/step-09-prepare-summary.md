@@ -11,8 +11,6 @@ description: 'Prepare the user-facing summary of what the agent accomplished. Ra
 
 After agent output is accepted, Parzival prepares the summary for the user. Raw agent output never reaches the user directly. The summary is written in Parzival's own words and follows the standard format.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: The accepted agent output, the dispatch log for this task, any issues found and resolved, any decisions made
 - Focus: Summary composition and dispatch log finalization only
@@ -25,7 +23,7 @@ After agent output is accepted, Parzival prepares the summary for the user. Raw 
 - Approach: Synthesize verified, reviewed output into the standard 5-section summary format
 - Route to appropriate next workflow based on task type before closing dispatch log
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Build the Summary
 

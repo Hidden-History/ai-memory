@@ -4,6 +4,12 @@ description: Load Parzival cross-session memory from Qdrant
 allowed-tools: Bash
 ---
 
+## Load Policy
+
+This skill is invoked **only on demand** from `[ST]` Session Start workflow step-01b. It does NOT auto-load at activation.
+
+`parzival.md` activation step 4 verifies the **presence** of the core skills (aim-parzival-bootstrap, aim-parzival-constraints) in `{skills_path}` without reading their content. Per `parzival.md <rules> r6` ("Load files ONLY when executing user-chosen workflow"), skill content is read only when the menu command that uses the skill is invoked.
+
 # Parzival Bootstrap — Cross-Session Memory
 
 Load cross-session context from previous Parzival sessions stored in Qdrant. This replaces the automatic startup injection with an on-demand skill invocation.

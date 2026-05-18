@@ -12,8 +12,6 @@ nextStepFile: './step-02-compile-status.md'
 
 Retrieve cross-session memory from Qdrant to enrich the file-based context loaded in Step 1. This invokes the L1-L4 layered priority retrieval defined in Pipeline-V2 spec.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: File-based context from Step 1
 - Focus: Cross-session memory enrichment only — do not compile status yet
@@ -26,7 +24,7 @@ Retrieve cross-session memory from Qdrant to enrich the file-based context loade
 - Approach: Graceful degradation — file context is primary, Qdrant is supplementary
 - All Qdrant-retrieved results must be tagged [Qdrant] to distinguish from file-sourced context
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Invoke Cross-Session Memory Retrieval
 
@@ -98,6 +96,8 @@ Load the sanctum files designated for session-start (Tier B):
 2. **BOND.md** — Read `{project-root}/_ai-memory/sanctum/parzival/BOND.md`. Internalize as the system-wide user preference authority: how the user prefers to work, what to avoid, what earns trust. Apply these preferences for the remainder of the session.
 
 **If files not found** (sanctum not yet initialized): Note and continue silently. Sanctum Tier B is supplementary — session-start proceeds without it.
+
+> **Reference**: For keeping the Claude Code per-project auto-memory directory (`~/.claude/projects/<project>/memory/MEMORY.md`) lean, see the lazy-loaded reference `{project-root}/_ai-memory/pov/references/auto-memory-best-practices.md`.
 
 ## CRITICAL STEP COMPLETION NOTE
 

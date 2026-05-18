@@ -12,8 +12,6 @@ nextStepFile: './step-02-update-tracking.md'
 
 Create a comprehensive summary of everything accomplished during this session: tasks completed, decisions made, blockers encountered, issues resolved, and files modified.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: Full conversation history from this session, task tracker at `{oversight_path}/tracking/task-tracker.md`, decision log, blockers log
 - Focus: Session summarization only — do not begin tracking file updates
@@ -26,7 +24,7 @@ Create a comprehensive summary of everything accomplished during this session: t
 - Approach: Systematic cataloging of completed work, decisions, blockers, and learnings
 - Session index maintenance must be checked before compiling executive summary
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Catalog Completed Work
 

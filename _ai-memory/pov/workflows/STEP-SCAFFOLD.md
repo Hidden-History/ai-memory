@@ -70,7 +70,7 @@ ALWAYS halt and wait for user input after presenting options.
 Use **one** of the following, matching the step's actual nature:
 
 - **Strict-order step** (tasks have data dependencies or gate each other):
-  `## Sequence of Instructions (Do not deviate, skip, or optimize)`
+  `## Sequence`
 
 - **Parallel-gather step** (tasks are independent reads or checks):
   `## Context to Load` / `## Sources to Check` / `## Checks to Apply` — followed by a one-sentence outcome statement.

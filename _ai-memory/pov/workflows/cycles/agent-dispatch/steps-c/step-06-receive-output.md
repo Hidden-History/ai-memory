@@ -12,8 +12,6 @@ nextStepFile: './step-07-accept-or-loop.md'
 
 When the agent signals completion, Parzival reviews the output before anything else happens. Verify against all DONE WHEN criteria, OUTPUT EXPECTED specifications, requirements, and standards. Route implementation output to WF-REVIEW-CYCLE.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: The agent's output, the original instruction (DONE WHEN criteria, OUTPUT EXPECTED, requirements, scope), project files
 - Focus: Output review and routing only — do not accept or present output to user until all checks pass
@@ -26,7 +24,7 @@ When the agent signals completion, Parzival reviews the output before anything e
 - Approach: Systematic checklist verification before any routing decision
 - Implementation output ALWAYS routes to WF-REVIEW-CYCLE — no exceptions
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Run Output Review Checklist
 

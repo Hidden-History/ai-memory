@@ -13,8 +13,6 @@ correctionTemplate: '{skills_path}/aim-agent-lifecycle/templates/agent-correctio
 
 Based on the output review from step-06, either accept the output (all checks pass) or send a correction instruction back to the agent. The correction loop continues until output meets all criteria.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: The output review result from step-06, the original instruction, the agent's output
 - Focus: Accept/reject decision and correction construction only
@@ -27,7 +25,7 @@ Based on the output review from step-06, either accept the output (all checks pa
 - Approach: Corrections must be specific with cited locations and requirements
 - Track correction loop count — multiple loops may indicate instruction quality issue
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Determine Acceptance or Correction
 

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-05-17
+
 ### Added
 
 - Version-marker consistency check (`scripts/check_version_consistency.py`) that asserts the three repository version markers always agree: `version.txt`, `pyproject.toml` `[project] version`, and `src/memory/__version__.py` `__version__`. It runs on every pull request and push via the `Test Suite` workflow, and on a release build additionally asserts the markers equal the release tag and the latest non-`[Unreleased]` `CHANGELOG.md` heading. Covered by `tests/test_check_version_consistency.py` (agree, disagree, and tag-mode cases). (BUG-307)
@@ -16,6 +18,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `src/memory/__version__.py` `__version__` was stale at `2.3.2` while `version.txt` and `pyproject.toml` declared `2.4.1`, so v2.4.0/v2.4.1 installs self-reported the wrong version and the `Release Management` workflow's version-consistency step failed on every tag-cut. Corrected `__version__` to `2.4.1` and added version-history lines for 2.4.0 and 2.4.1. (BUG-307)
 - `src/memory/metrics.py` no longer carries an independent hardcoded version string for its Prometheus version `Info` metric. The `importlib.metadata` fallback now reads `src/memory/__version__.py` instead of a literal, so the metric value cannot drift from the single source of truth. (BUG-307)
 - The `Release Management` workflow's release-validation summary now names the specific validation step that failed — and surfaces the version-mismatch detail — instead of emitting a generic "Release validation failed" message. (BUG-307)
+
+### v2.4.2 — POV Token Budget Restructure
+
+Reduces Parzival activation surface and full-session token cost by deduplicating identity content between `parzival.md`, sanctum templates (CREED + PERSONA), and constraint summaries; collapses inline boilerplate in step files to single-source references; extracts low-frequency reference material from eager-loaded workflow files into lazy-loaded reference docs. Source-repo PR scope only; per-operator user-data hygiene (project-status.md, oversight/tracking files, sanctum CREED/PERSONA/BOND/LORE per-instance) is operator-side and not in this release.
+
+#### Acceptance criteria (module-only profile, Anthropic SDK `count_tokens` authoritative)
+
+| AC | Target | Measured | Verdict |
+|----|--------|----------|---------|
+| AC-01 | Activation surface ≤9,000 SDK tokens | 10,546 | Approached, not met (over by 1,546). Deferred to v2.4.4 dedicated cleanup PR. |
+| AC-02 | Activation + `[ST]` ≤25,000 SDK tokens | 18,294 | PASS — margin +6,706 |
+| AC-03 | Full session (`[ST]` + `[DA]` + `[CL]`) ≤35,000 SDK tokens | 34,104 | PASS — margin +896 |
+
+Cumulative reduction: full-session 37,160 → 34,104 SDK tokens (−8.2%); activation 12,642 → 10,546 SDK tokens (−16.6%).
+
+#### Highlights
+
+- **EDIT-A** (`_ai-memory/pov/agents/parzival.md`): dedupes 11 rules → 7 operational rules; collapses `<persona>` and `<constraints critical="true">` blocks to single-line pointers into CREED.md sections; replaces verbose confidence-levels behavior body with PERSONA.md reference. Activation surface delta: −1,011 SDK tokens.
+- **EDIT-B** (`_ai-memory/pov/constraints/global/constraints.md`): removes Self-Check Schedule and Violation Severity Reference sections that re-stated information already present in the 21-row Constraint Summary table and in each individual `GC-NN-*.md` body file. Replaces with one 3-line pointer block. Activation surface delta: −1,085 SDK tokens.
+- **EDIT-C** (`_ai-memory/pov/workflows/WORKFLOW-MAP.md`): 5-section eager/lazy split. Routing logic, init entry points, cycle workflow table, user-invoked command table, and Verification Hierarchy stay eager-loaded; phase summaries, phase transition rules, project-status.md schema, workflow header standard, and end-of-session protocol move to new `_ai-memory/pov/references/workflow-map-details.md` lazy reference (EDIT-D).
+- **EDIT-E** (`STEP-PREAMBLE.md`): adds Standard Step Frame as single-source location for universal step preamble + sequence admonition wording.
+- **EDIT-F** (21 step files): removes the inline preamble pointer line + collapses the verbose `## Sequence of Instructions (Do not deviate, skip, or optimize)` header to `## Sequence`. Applied to `steps-c/` step files across 8 subdirectories: `cycles/agent-dispatch/` (9 steps), `session/close/` (4 steps), `session/start/` (3 steps — step-01b/02/03), and `step-01` of `cycles/legitimacy-check/`, `session/blocker/`, `session/decision/`, `session/handoff/`, and `session/verify/`. Of the 21, the 12 that sit on the AC-03-measured surface account for the bulk surface delta of −720 SDK tokens (12 files × −60 SDK/file); the remaining 9 off-surface files received the same mechanical edit for consistency.
+- **EDIT-G** (`CREED-template.md` + `PERSONA-template.md`): slims duplicate identity content per dedupe map (CREED 699→613 words, PERSONA 510→430 words).
+- **EDIT-H** (aim-parzival-bootstrap `SKILL.md`): adds Load Policy section clarifying skill content loads only on invocation, not at agent activation.
+- **EDIT-I** (`oversight/docs/`): moves `_ai-memory/pov/knowledge/parzival-master-plan.md` to new `oversight/docs/parzival-master-plan-history.md`. Historical planning artifact retained in source repo but removed from runtime install scope. Three external references repointed.
+- **EDIT-J** (`_ai-memory/pov/references/auto-memory-best-practices.md`): new lazy-loaded reference doc for per-Claude-user `MEMORY.md` hygiene guidance.
+- **EDIT-K** (workflow-map-details.md schema hardening): ≤80-word caps and DO / DO-NOT examples on the project-status.md schema fields.
+
+#### Methodology lessons (documented for future token-budget work)
+
+This release surfaces two empirical rules for projecting token cost of markdown content edits:
+
+1. **Content-type density variance**: token cost per word varies materially by content type. Measured densities (Anthropic SDK, `claude-opus-4-7`): XML prose 1.722 tok/word; markdown tables 2.385 tok/word (+38%); inline-code-heavy markdown 3.545 tok/word (+106%); step-file boilerplate 4.369 tok/word (+154%). Word-count proxies (`words × 1.3`) are insufficient for content with elevated token-boundary density. Direct `count_tokens` measurement is the reliable path.
+
+2. **Chunking-boundary discount**: content-only measurement of a deletion block (extracted to an isolated blob and measured) systematically overstates the resulting file-surface delta by approximately 32%. Validated empirically across EDIT-B (31.3% loss content-only → surface) and EDIT-F sample (32.5% loss). Sample-then-bulk methodology using surface-measured per-file delta as the extrapolation baseline avoided this entirely: EDIT-F bulk projection landed at 0.0% divergence against the −720 SDK projection (12 files × empirically-measured −60 SDK/file).
+
+#### Tooling
+
+- New: `scripts/measure_tokens.py` — measurement script for activation / `[ST]` / `[DA]` / `[CL]` token surfaces using Anthropic SDK `count_tokens` as authoritative tokenizer; tiktoken `cl100k_base` cross-reference; module-only profile excludes per-operator user data for AC-binding measurements. Output to JSON + Markdown.
+
+#### Out of scope (deferred)
+
+- Per-operator user-data hygiene (project-status.md slim, oversight/tracking active-only, sanctum per-instance content) — operator-side, post-install per release notes.
+- Approximately 30 additional step files in non-AC-measured surfaces (`session/{blocker,decision,verify,handoff}/steps-c/` and `cycles/legitimacy-check/steps-c/` outside `step-01`, all `cycles/{review-cycle,approval-gate,research-protocol}/steps-c/`) — deferred to v2.4.4 dedicated cleanup PR. Sample-then-bulk methodology now proven and re-applies cleanly.
+- AC-01 full close (activation surface ≤9,000 SDK) — deferred to v2.4.4 dedicated cleanup PR.
+- `measure_tokens.py` `--output` path-truncation bug on multi-dot paths — deferred to v2.4.3.
+
+#### Compatibility note
+
+Sanctum template changes (`CREED-template.md`, `PERSONA-template.md` slim per EDIT-G) only affect new sanctums created at First Breath after install. Existing operator sanctums (already-filled `CREED.md` / `PERSONA.md` / `BOND.md` / `LORE.md` per-instance files) are not modified by this release; they remain as the operator filled them. Operators who want the slim template prose can manually re-init their sanctum, but this is not required for v2.4.2 functionality.
+
+### Upgrade Instructions
+
+**From v2.4.1 → v2.4.2:**
+
+POV-content restructure release — Parzival identity and workflow files were
+deduplicated and reorganized to reduce token cost. No breaking changes, no data
+migration. Your memories, credentials, and Parzival sanctum are untouched.
+
+1. Pull the latest:
+   ```bash
+   cd /path/to/ai-memory
+   git fetch origin && git checkout main && git pull
+   ```
+2. Re-run the installer:
+   ```bash
+   ./scripts/install.sh /path/to/your-project
+   ```
+
+Re-running the installer refreshes all POV files in place: new files are added,
+and obsolete or superseded files from earlier versions are removed
+automatically. Your data and sanctum identity are preserved. This is the same
+single step for every user — a fresh install, an operator updating an existing
+project, or an add-project user. No manual steps.
 
 ## [2.4.1] - 2026-05-16
 
@@ -2610,8 +2686,13 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.4.2...HEAD
+[2.4.2]: https://github.com/Hidden-History/ai-memory/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/Hidden-History/ai-memory/compare/v2.4.0...v2.4.1
+[2.4.0]: https://github.com/Hidden-History/ai-memory/compare/v2.3.2...v2.4.0
+[2.3.2]: https://github.com/Hidden-History/ai-memory/compare/v2.3.1...v2.3.2
+[2.3.1]: https://github.com/Hidden-History/ai-memory/compare/v2.3.0...v2.3.1
+[2.3.0]: https://github.com/Hidden-History/ai-memory/compare/v2.2.1...v2.3.0
 [2.2.1]: https://github.com/Hidden-History/ai-memory/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/Hidden-History/ai-memory/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/Hidden-History/ai-memory/compare/v2.0.9...v2.1.0

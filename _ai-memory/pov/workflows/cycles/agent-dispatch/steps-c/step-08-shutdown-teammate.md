@@ -12,8 +12,6 @@ nextStepFile: './step-09-prepare-summary.md'
 
 When an agent's task is fully complete and output is accepted, gracefully shut down the teammate using SendMessage with type "shutdown_request". Clean up all active agent sessions appropriately.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: The accepted output, the active teammate, the session state
 - Focus: Teammate lifecycle management only — do not begin dispatch summary
@@ -26,7 +24,7 @@ When an agent's task is fully complete and output is accepted, gracefully shut d
 - Approach: Verify task completion status before any shutdown action
 - No orphaned teammates — all teammates must be explicitly handled at session end
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Determine Shutdown or Keep Active
 

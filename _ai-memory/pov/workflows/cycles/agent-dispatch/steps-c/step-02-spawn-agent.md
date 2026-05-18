@@ -12,8 +12,6 @@ nextStepFile: './step-03-activate-agent.md'
 
 Each agent is spawned via the backend-appropriate mechanism determined by aim-model-dispatch. For Claude-native backend: `TeamCreate` + `Agent` tool (enables `SendMessage` communication). For non-Claude backends: tmux sub-workflows. Each agent starts with fresh context to prevent contamination between tasks.
 
-> **Preamble**: All universal rules, role reinforcement, execution protocols apply. See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md).
-
 **Scope:**
 - Available context: The verified instruction from step-01, the target agent identity, team configuration
 - Focus: Team creation and teammate spawning only — do not send instruction or activate BMAD agent
@@ -26,7 +24,7 @@ Each agent is spawned via the backend-appropriate mechanism determined by aim-mo
 - Approach: Systematic team configuration, fresh context per task
 - AI_MEMORY_AGENT_ID must always be set with the correct naming pattern on spawn
 
-## Sequence of Instructions (Do not deviate, skip, or optimize)
+## Sequence
 
 ### 1. Determine Agent Configuration
 
