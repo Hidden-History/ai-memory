@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-05-17
+
 ### Added
 
 - Version-marker consistency check (`scripts/check_version_consistency.py`) that asserts the three repository version markers always agree: `version.txt`, `pyproject.toml` `[project] version`, and `src/memory/__version__.py` `__version__`. It runs on every pull request and push via the `Test Suite` workflow, and on a release build additionally asserts the markers equal the release tag and the latest non-`[Unreleased]` `CHANGELOG.md` heading. Covered by `tests/test_check_version_consistency.py` (agree, disagree, and tag-mode cases). (BUG-307)
@@ -66,6 +68,30 @@ This release surfaces two empirical rules for projecting token cost of markdown 
 #### Compatibility note
 
 Sanctum template changes (`CREED-template.md`, `PERSONA-template.md` slim per EDIT-G) only affect new sanctums created at First Breath after install. Existing operator sanctums (already-filled `CREED.md` / `PERSONA.md` / `BOND.md` / `LORE.md` per-instance files) are not modified by this release; they remain as the operator filled them. Operators who want the slim template prose can manually re-init their sanctum, but this is not required for v2.4.2 functionality.
+
+### Upgrade Instructions
+
+**From v2.4.1 → v2.4.2:**
+
+POV-content restructure release — Parzival identity and workflow files were
+deduplicated and reorganized to reduce token cost. No breaking changes, no data
+migration. Your memories, credentials, and Parzival sanctum are untouched.
+
+1. Pull the latest:
+   ```bash
+   cd /path/to/ai-memory
+   git fetch origin && git checkout main && git pull
+   ```
+2. Re-run the installer:
+   ```bash
+   ./scripts/install.sh /path/to/your-project
+   ```
+
+The installer refreshes the POV files in place: new `references/` files are
+added, the relocated master-plan is handled automatically, and your data and
+sanctum identity are preserved. This is the same single step for every user —
+a fresh install, an operator updating an existing project, or an add-project
+user. No manual steps.
 
 ## [2.4.1] - 2026-05-16
 
@@ -2660,8 +2686,13 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.4.2...HEAD
+[2.4.2]: https://github.com/Hidden-History/ai-memory/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/Hidden-History/ai-memory/compare/v2.4.0...v2.4.1
+[2.4.0]: https://github.com/Hidden-History/ai-memory/compare/v2.3.2...v2.4.0
+[2.3.2]: https://github.com/Hidden-History/ai-memory/compare/v2.3.1...v2.3.2
+[2.3.1]: https://github.com/Hidden-History/ai-memory/compare/v2.3.0...v2.3.1
+[2.3.0]: https://github.com/Hidden-History/ai-memory/compare/v2.2.1...v2.3.0
 [2.2.1]: https://github.com/Hidden-History/ai-memory/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/Hidden-History/ai-memory/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/Hidden-History/ai-memory/compare/v2.0.9...v2.1.0

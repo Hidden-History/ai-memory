@@ -4,10 +4,11 @@ Single source of truth for version number.
 Follows PEP 440 and semantic versioning principles.
 """
 
-__version__ = "2.4.1"
+__version__ = "2.4.2"
 __version_info__ = tuple(int(part) for part in __version__.split("."))
 
 # Version history:
+# 2.4.2 - POV token-budget restructure: identity-content dedupe, step-file boilerplate collapse, lazy-loaded reference docs
 # 2.4.1 - Backup/restore hardening, Langfuse install fixup, pushgateway and bootstrap fixes (TD-517, BUG-298)
 # 2.4.0 - Silent-drop fix, Sanctum identity, env-secrets split, classifier resilience (BUG-297)
 # 2.3.2 - Security patches, group_id normalization, Phase B live-verify fixes (PRs #110, #111, #112)
