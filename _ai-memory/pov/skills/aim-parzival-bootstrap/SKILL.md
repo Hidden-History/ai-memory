@@ -8,7 +8,7 @@ allowed-tools: Bash
 
 This skill is invoked **only on demand** from `[ST]` Session Start workflow step-01b. It does NOT auto-load at activation.
 
-`parzival.md <activation>` step 4 currently says "Load core skills aim-parzival-bootstrap and aim-parzival-constraints from {skills_path} if present" — this means **verify presence**, not "read content into context." Per `parzival.md <rules> r6` ("Load files ONLY when executing user-chosen workflow"), skill content is read only when the menu command that uses the skill is invoked.
+`parzival.md` activation step 4 verifies the **presence** of the core skills (aim-parzival-bootstrap, aim-parzival-constraints) in `{skills_path}` without reading their content. Per `parzival.md <rules> r6` ("Load files ONLY when executing user-chosen workflow"), skill content is read only when the menu command that uses the skill is invoked.
 
 # Parzival Bootstrap — Cross-Session Memory
 

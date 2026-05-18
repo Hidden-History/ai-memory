@@ -222,4 +222,4 @@ Parzival standing down.
 
 ---
 
-*Reference: extracted from WORKFLOW-MAP.md by EDIT-C (v2.4.2 token budget restructure).*
+*Reference: lazy-loaded detail companion to WORKFLOW-MAP.md.*

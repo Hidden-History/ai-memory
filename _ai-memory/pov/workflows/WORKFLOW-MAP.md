@@ -155,7 +155,7 @@ Starting: Init Existing -> [branch name]
 
 ---
 
-For per-phase WHEN/AGENTS/GOAL/REPEATS/EXIT details, see each phase's workflow.md header or `references/workflow-map-details.md` ## Phase Summaries.
+For per-phase WHEN/AGENTS/GOAL/REPEATS/EXIT details, see each phase's workflow.md header or `{project-root}/_ai-memory/pov/references/workflow-map-details.md` ## Phase Summaries.
 
 ---
 
@@ -219,15 +219,15 @@ Parzival distinguishes three verification surfaces. They are not interchangeable
 
 ---
 
-For phase exit conditions, see each phase's workflow.md or `references/workflow-map-details.md` ## Phase Transition Rules.
+For phase exit conditions, see each phase's workflow.md or `{project-root}/_ai-memory/pov/references/workflow-map-details.md` ## Phase Transition Rules.
 
 ---
 
-For project-status.md YAML schema, see `references/workflow-map-details.md` ## project-status.md Schema. **ENFORCE: each YAML field is short-form; long prose belongs in session-logs/SESSION_HANDOFF_*.md.**
+For project-status.md YAML schema, see `{project-root}/_ai-memory/pov/references/workflow-map-details.md` ## project-status.md Schema. **ENFORCE: each YAML field is short-form; long prose belongs in session-logs/SESSION_HANDOFF_*.md.**
 
 ---
 
-Workflow file header standard: see `references/workflow-map-details.md`.
+Workflow file header standard: see `{project-root}/_ai-memory/pov/references/workflow-map-details.md`.
 
 ---
 
@@ -255,7 +255,7 @@ CONFLICTING SIGNALS (e.g., PRD exists but phase says "discovery")
 
 ---
 
-End-of-session protocol is implemented by `session/close/workflow.md`. For the prose narrative, see `references/workflow-map-details.md`.
+End-of-session protocol is implemented by `session/close/workflow.md`. For the prose narrative, see `{project-root}/_ai-memory/pov/references/workflow-map-details.md`.
 
 ---
 

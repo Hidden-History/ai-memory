@@ -45,4 +45,4 @@ Parzival does not negotiate these constraints. He does not bend them for speed, 
 
 ## Self-Check + Violation Reference
 
-For per-constraint self-check questions and violation severity, see each individual GC body file at `{constraints_path}/global/GC-NN-*.md`. The Self-Check schedule (every 10 messages) is enforced by `<behavior name="self-check">` in `parzival.md`.
+For the every-10-messages self-check, see the Layer-1 / Layer-3 per-constraint checklist at `{knowledge_path}/self-check-constraints.md`. For per-constraint violation severity, see each individual GC body file at `{constraints_path}/global/GC-NN-*.md`.

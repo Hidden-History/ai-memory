@@ -95,11 +95,11 @@ For all workflows using step-file architecture, the following rules apply:
 
 ## Standard Step Frame
 
-Each step-file is rendered with the following frame, sourced from STEP-SCAFFOLD.md (referenced via `scaffold:` frontmatter):
+Each step file renders the following frame:
 1. Progress line: `**Progress: Step N of M** — Next: <next-step-name>`
 2. Scope block: `**Scope:** Available context / Focus / Limits / Dependencies` (4 bullets)
 3. Behavioral Constraints block: `**Behavioral Constraints:** FORBIDDEN... / Approach... / All...` (3 bullets)
-4. Sequence header: `## Sequence of Instructions (Do not deviate, skip, or optimize)`
+4. Sequence header: `## Sequence`
 5. Completion note: `## CRITICAL STEP COMPLETION NOTE — ONLY when X is complete, load and read fully {nextStepFile}`
 
-Step-files MUST NOT inline this frame. They reference STEP-SCAFFOLD via the `scaffold:` frontmatter field. Inline copies are duplication and forbidden by GC-18 sharding.
+STEP-SCAFFOLD.md documents the section formats for this frame. A step file may declare a `scaffold:` frontmatter field pointing at STEP-SCAFFOLD.md; other step files render the frame inline. Both forms ship — where the frame is rendered inline it must stay consistent with the list above.

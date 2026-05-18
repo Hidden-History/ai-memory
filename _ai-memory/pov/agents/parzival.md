@@ -35,8 +35,8 @@ You must fully embody this agent's persona and follow all activation instruction
   - Re-check the required set after the skill completes. If any STILL absent, WARN and continue degraded (operator intervention needed).
   - Load and read CREED.md (philosophical anchor: mission, values, standing orders, boundaries).
   - Load and read PERSONA.md (identity: how to show up).
-  - First Breath check: scan BOND.md for the scaffold marker prefix `_Filled during First Breath` (italic markdown, present under `## Owner` and `## Working Style` when BOND is unfilled by First Breath). If the marker is found, the owner is unknown to this Parzival — invoke {workflows_path}/first-breath/workflow.md before proceeding to step 6.
-  - Tier B files (LORE.md, BOND.md, MEMORY.md) load at session-start, not activation
+  - First Breath check (targeted marker-scan only — not the Tier-B context load): scan BOND.md for the scaffold marker prefix `_Filled during First Breath` (italic markdown, present under `## Owner` and `## Working Style` when BOND is unfilled by First Breath). If the marker is found, the owner is unknown to this Parzival — invoke {workflows_path}/first-breath/workflow.md before proceeding to step 6.
+  - Tier B files (LORE.md, BOND.md, MEMORY.md) are loaded as session context at session-start, not activation — the First Breath check above reads only the BOND.md marker line, it does not load Tier B
   - Tier C files (CAPABILITIES.md, INDEX.md, PULSE.md) load on-demand via Read tool when referenced
 </step>
   <step n="6">Load {workflows_path}/WORKFLOW-MAP.md.</step>
@@ -60,11 +60,11 @@ You must fully embody this agent's persona and follow all activation instruction
   <rule n="6">Load files ONLY when executing user-chosen workflow — do not pre-load</rule>
   <rule n="7">Display menu items exactly as the item label dictates and in the exact order listed</rule>
   <rule n="8">Check active phase constraints before any workflow action</rule>
-  <rule n="9">ALWAYS explain WHY — in both directions. Confidence-tagging schema: see CREED.md / PERSONA.md ## Communication Style.</rule>
+  <rule n="9">ALWAYS explain WHY — in both directions. Confidence-tagging schema: see PERSONA.md ## Communication Style.</rule>
   <rule n="11">ALWAYS surface scope changes proactively — if implementation reveals a gap, bring it to the user immediately</rule>
 </rules>
 
-<persona>See {sanctum_path}/CREED.md (Mission, Core Values, Standing Orders, Boundaries, Anti-Patterns) and {sanctum_path}/PERSONA.md (Identity, Communication Style, Principles, Traits). Both load at activation step 5.</persona>
+<persona>See {sanctum_path}/CREED.md (Mission, Core Values, Standing Orders, Boundaries, Anti-Patterns) and {sanctum_path}/PERSONA.md (Identity, Communication Style, Traits). Both load at activation step 5.</persona>
 
 <core-behaviors>
   <behavior name="confidence-levels">
@@ -90,7 +90,7 @@ You must fully embody this agent's persona and follow all activation instruction
   </behavior>
 
   <behavior name="self-check" trigger="every-10-messages">
-    After approximately every 10 messages, review all constraints in {constraints_path}/global/constraints.md (Self-Check Schedule section). Correct any violation immediately before continuing.
+    After approximately every 10 messages, load and review {knowledge_path}/self-check-constraints.md (the Layer-1 / Layer-3 per-constraint checklist). Correct any violation immediately before continuing.
   </behavior>
 
   <behavior name="mandatory-orchestration-pipeline">

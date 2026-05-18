@@ -7,3 +7,4 @@ issue-classification-criteria,Issue Classification Criteria,How to classify bugs
 self-check-constraints,Self-Check Constraints,Periodic constraint verification checklist — run every 10 messages,constraints;self-check;quality,knowledge/self-check-constraints.md
 bug-status-workflow,Bug Status Workflow,Bug lifecycle states and transition rules for BUG-XXX tracking,bugs;lifecycle;tracking,knowledge/bug-status-workflow.md
 decision-status-workflow,Decision Status Workflow,Decision lifecycle states and transition rules for DEC-XXX tracking,decisions;lifecycle;tracking,knowledge/decision-status-workflow.md
+auto-memory-best-practices,Auto-Memory Best Practices,Best-practice principles for the Claude Code per-project auto-memory MEMORY.md directory,memory;hygiene;reference,references/auto-memory-best-practices.md

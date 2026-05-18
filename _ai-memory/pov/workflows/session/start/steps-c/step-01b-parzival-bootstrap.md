@@ -97,6 +97,8 @@ Load the sanctum files designated for session-start (Tier B):
 
 **If files not found** (sanctum not yet initialized): Note and continue silently. Sanctum Tier B is supplementary — session-start proceeds without it.
 
+> **Reference**: For keeping the Claude Code per-project auto-memory directory (`~/.claude/projects/<project>/memory/MEMORY.md`) lean, see the lazy-loaded reference `{project-root}/_ai-memory/pov/references/auto-memory-best-practices.md`.
+
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when cross-session memory retrieval is complete (or gracefully degraded), load and read fully {nextStepFile}

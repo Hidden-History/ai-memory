@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-DEFAULT_MODEL = "claude-sonnet-4-5"
+DEFAULT_MODEL = "claude-opus-4-7"
 DRIFT_TAG = "[Inferred -- 3-5% drift]"
 ESTIMATE_TAG = "[Estimated -- char-div-4]"
 SURFACES = ("activation", "st_additional", "da_additional", "cl_additional")
@@ -43,6 +43,7 @@ PHASES = (
     "planning",
     "integration",
     "release",
+    "maintenance",
 )
 PROFILES = ("full", "module-only")
 SANCTUM_TIER_A = ("CREED.md", "PERSONA.md")
@@ -209,10 +210,11 @@ def build_activation_files(
 
     Step 1: parzival.md agent file (loaded by /pov:parzival).
     Step 2: config.yaml (session variables).
-    Step 3 (line 28): project-status.md (project root) for phase detection,
+    Step 3: project-status.md (project root) for phase detection,
         then constraints/global/constraints.md + constraints/{phase}/constraints.md.
-    Step 5 (Tier A full-load, parzival.md lines 36-37): CREED.md + PERSONA.md
-        (Tier B per line 39 = LORE + BOND + MEMORY, deferred to st_additional).
+    Step 5 (Tier A full-load — the CREED.md + PERSONA.md read bullets):
+        CREED.md + PERSONA.md (Tier B per the step-5 deferred-load note
+        = LORE + BOND + MEMORY, deferred to st_additional).
     Step 6: WORKFLOW-MAP.md.
 
     profile=module-only (r2 Section 5 Track B carveout): drop project-status.md
