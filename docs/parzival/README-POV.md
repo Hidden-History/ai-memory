@@ -626,6 +626,10 @@ _ai-memory/pov/                            # POV module definition
 │   ├── maintenance/                       # Phase-specific: MC-01 through MC-08
 │   └── init/                              # Init phase: IN-01 through IN-05
 ├── data/                                  # Reference data (escalation, confidence, etc.)
+├── references/                            # Lazy-loaded reference docs (loaded on-demand only)
+│   ├── workflow-map-details.md            # WORKFLOW-MAP detail (phase summaries, transitions)
+│   ├── auto-memory-best-practices.md      # Claude Code auto-memory directory guidance
+│   └── live-functionality-testing.md      # Live functionality test guidance
 ├── skills/                                # Full skill definitions (loaded on-demand)
 │   ├── aim-parzival-bootstrap/            # Cross-session memory bootstrap
 │   ├── aim-parzival-constraints/          # Constraint loading
@@ -644,6 +648,7 @@ _ai-memory/pov/                            # POV module definition
 │   └── verification-story.template.md
 └── workflows/                             # Workflow engine
     ├── WORKFLOW-MAP.md                    # Master router (routing decision tree)
+    ├── STEP-PREAMBLE.md                   # Shared boilerplate referenced by every step file
     ├── cycles/                            # Reusable atomic cycles
     │   ├── agent-dispatch/                # Agent team management (9 steps)
     │   ├── approval-gate/                 # User approval protocol
@@ -668,6 +673,8 @@ _ai-memory/pov/                            # POV module definition
 | `_ai-memory/pov/constraints/global/constraints.md` | Global constraints summary + self-check (GC-01 through GC-15 + GC-19 + GC-20) | Activation step 4 |
 | `_ai-memory/pov/config.yaml` | Module configuration | Activation step 2 |
 | `_ai-memory/pov/workflows/WORKFLOW-MAP.md` | Master routing decision tree | Activation step 6 |
+| `_ai-memory/pov/workflows/STEP-PREAMBLE.md` | Shared step-file boilerplate (universal rules, role reinforcement) | Referenced by every step file |
+| `_ai-memory/pov/references/*.md` | Lazy-loaded reference detail (workflow-map detail, auto-memory, live testing) | On-demand only |
 | `_ai-memory/pov/skills/*/SKILL.md` | Dispatch skill definitions | On-demand during execution |
 | `.claude/skills/aim-*/SKILL.md` | Thin shims pointing to full skill files | When skill invoked |
 
