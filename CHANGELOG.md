@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Version-marker consistency check (`scripts/check_version_consistency.py`) that asserts the three repository version markers always agree: `version.txt`, `pyproject.toml` `[project] version`, and `src/memory/__version__.py` `__version__`. It runs on every pull request and push via the `Test Suite` workflow, and on a release build additionally asserts the markers equal the release tag and the latest non-`[Unreleased]` `CHANGELOG.md` heading. Covered by `tests/test_check_version_consistency.py` (agree, disagree, and tag-mode cases). (BUG-307)
+
+### Fixed
+
+- `src/memory/__version__.py` `__version__` was stale at `2.3.2` while `version.txt` and `pyproject.toml` declared `2.4.1`, so v2.4.0/v2.4.1 installs self-reported the wrong version and the `Release Management` workflow's version-consistency step failed on every tag-cut. Corrected `__version__` to `2.4.1` and added version-history lines for 2.4.0 and 2.4.1. (BUG-307)
+- `src/memory/metrics.py` no longer carries an independent hardcoded version string for its Prometheus version `Info` metric. The `importlib.metadata` fallback now reads `src/memory/__version__.py` instead of a literal, so the metric value cannot drift from the single source of truth. (BUG-307)
+- The `Release Management` workflow's release-validation summary now names the specific validation step that failed — and surfaces the version-mismatch detail — instead of emitting a generic "Release validation failed" message. (BUG-307)
+
 ## [2.4.1] - 2026-05-16
 
 ### Added

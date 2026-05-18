@@ -108,35 +108,26 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run tests
+        id: tests
         run: |
           pytest tests/ -v --ignore=tests/e2e --ignore=tests/integration -m "not quarantine" -p no:randomly
 
       - name: Verify Docker stack
+        id: docker
         run: |
           # Just validate docker-compose.yml syntax
           docker compose -f docker/docker-compose.yml config
 
       - name: Check version consistency
+        id: version_check
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          VERSION_FILE="src/memory/__version__.py"
-
-          # Extract version from __version__.py
-          PYTHON_VERSION=$(grep -oP '__version__\s*=\s*"\K[^"]+' $VERSION_FILE)
-
-          echo "Release tag: $TAG"
-          echo "Python __version__: $PYTHON_VERSION"
-
-          # Strip 'v' prefix from tag if present
-          TAG_VERSION="${TAG#v}"
-
-          if [ "$TAG_VERSION" != "$PYTHON_VERSION" ]; then
-            echo "❌ Version mismatch!"
-            echo "Release tag $TAG does not match __version__.py ($PYTHON_VERSION)"
-            exit 1
-          fi
-
-          echo "✅ Version consistency verified!"
+          set -o pipefail
+          # The shared check asserts the three version markers agree and,
+          # with --tag, that they also equal the release tag and the latest
+          # CHANGELOG heading. It emits ::error:: annotations on mismatch.
+          # Output is teed to a log so the comment step can surface the detail.
+          python scripts/check_version_consistency.py \
+            --tag "${{ github.event.release.tag_name }}" 2>&1 | tee version_check.log
 
       - name: Comment validation result
         if: always()
@@ -144,15 +135,50 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const releaseId = context.payload.release.id;
-            const conclusion = '${{ job.status }}';
+            const fs = require('fs');
 
-            let emoji = conclusion === 'success' ? '✅' : '❌';
-            let message = conclusion === 'success'
-              ? 'Release validation passed! All tests and checks successful.'
-              : 'Release validation failed. Please review the workflow logs.';
+            // Map each validation step to its outcome so a failure names the
+            // specific check that failed instead of a generic message.
+            const checks = [
+              { name: 'Run tests', outcome: '${{ steps.tests.outcome }}' },
+              { name: 'Verify Docker stack', outcome: '${{ steps.docker.outcome }}' },
+              { name: 'Check version consistency', outcome: '${{ steps.version_check.outcome }}' },
+            ];
+            const failed = checks.filter((c) => c.outcome === 'failure');
+
+            let emoji;
+            let message;
+            if (failed.length === 0) {
+              emoji = '✅';
+              message = 'Release validation passed! All tests and checks successful.';
+            } else {
+              emoji = '❌';
+              const names = failed.map((c) => c.name).join(', ');
+              message = `Release validation failed at: ${names}.`;
+
+              // Surface the version-consistency mismatch detail, if any.
+              if (failed.some((c) => c.name === 'Check version consistency')) {
+                try {
+                  const log = fs.readFileSync('version_check.log', 'utf8').trim();
+                  if (log) {
+                    message += `\n\nVersion consistency detail:\n${log}`;
+                  }
+                } catch (err) {
+                  console.log(`Could not read version_check.log: ${err}`);
+                }
+              }
+            }
 
             // Note: GitHub REST API does not have createReleaseDiscussion.
-            // Log validation result as a workflow annotation instead.
+            // Surface the result as a workflow annotation and job summary.
             console.log(`${emoji} Release Validation: ${message}`);
             console.log(`Workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`);
+
+            await core.summary
+              .addHeading(`${emoji} Release Validation`)
+              .addRaw(message)
+              .write();
+
+            if (failed.length > 0) {
+              core.setFailed(message);
+            }
