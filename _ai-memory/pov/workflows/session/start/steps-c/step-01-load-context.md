@@ -77,7 +77,22 @@ Extract:
 
 ---
 
-### 6. Compile Loaded Context
+### 6. Read Bug / Tech-Debt INDEX Summaries
+
+Read **only** the `## Quick Stats` table of `{oversight_path}/bugs/INDEX.md` and `{oversight_path}/tech-debt/INDEX.md` to obtain open/closed bug and tech-debt totals.
+
+🚫 FORBIDDEN: do NOT read individual `BUG-*.md` or `TECH-DEBT-*.md` record files at startup — there can be hundreds. The compact INDEX `## Quick Stats` table is the only startup-read surface for bug/TD state.
+
+If an INDEX file does not exist (a fresh project, or `aim-tracking-freshness` has not run yet), note "no bug/TD INDEX — run `/aim-tracking-freshness --write` to generate it" and proceed. A missing INDEX does not block.
+
+Extract:
+- Open / closed bug totals
+- Open / closed tech-debt totals
+- Each INDEX's `**Last Updated**` date (for the staleness check in Step 2)
+
+---
+
+### 7. Compile Loaded Context
 
 Organize the loaded information into these categories:
 - **Last session**: date, topic, outcome

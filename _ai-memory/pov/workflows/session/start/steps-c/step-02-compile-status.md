@@ -56,6 +56,11 @@ Compile each field from the loaded context:
 - Count of high/critical risks
 - Brief description of each (1 line per risk)
 
+**Tracking Totals** (from the bug/TD INDEX `## Quick Stats` loaded in Step 1):
+- Bugs: N open / M closed
+- Tech-Debt: N open / M closed
+- If an INDEX was missing, note that here instead of counts
+
 **Continuation Point**:
 - Where work should resume based on handoff "Next Steps" or current task status
 
@@ -68,6 +73,7 @@ Flag if:
 - Blockers reference tasks that are marked as done
 - Risk register has not been updated recently
 - Any tracking file was missing
+- A bug/TD INDEX `**Last Updated**` date is well behind the current session — stale INDEX; flag it (run `/aim-tracking-freshness` to refresh)
 
 Note these as items to mention during presentation, not as recommendations.
 

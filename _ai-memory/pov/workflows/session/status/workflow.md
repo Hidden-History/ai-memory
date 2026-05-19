@@ -38,6 +38,10 @@ Read the following files. If any file does not exist, note it as "Not found" in 
 2. `{oversight_path}/tracking/task-tracker.md` -- task statuses
 3. `{oversight_path}/tracking/blockers-log.md` -- active blockers
 4. `{oversight_path}/tracking/risk-register.md` -- high/critical risks
+5. `{oversight_path}/bugs/INDEX.md` -- **`## Quick Stats` table only** -- bug totals
+6. `{oversight_path}/tech-debt/INDEX.md` -- **`## Quick Stats` table only** -- tech-debt totals
+
+🚫 Read the bug/TD INDEX `## Quick Stats` tables only -- never the individual `BUG-*.md` / `TECH-DEBT-*.md` record files. If an INDEX is absent, note "no INDEX -- run `/aim-tracking-freshness --write`" and continue.
 
 ### 2. Find Last Session
 
@@ -66,6 +70,10 @@ Present using this exact format:
 
 ### Risks ([Count] High/Critical)
 - [RISK-ID]: [Brief description] - [Status]
+
+### Bug / Tech-Debt
+- **Bugs**: [N open / M closed, from bugs/INDEX.md Quick Stats — or "no INDEX"]
+- **Tech-Debt**: [N open / M closed, from tech-debt/INDEX.md Quick Stats — or "no INDEX"]
 
 ### Last Session
 - **Date**: [Date]

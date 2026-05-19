@@ -9,15 +9,16 @@ description: 'Quick status check: read project state and present current phase, 
 ## Prerequisites
 
 - Parzival oversight workspace exists at the configured `oversight_path`
-- Four tracking files are accessible:
+- Tracking files are accessible under `oversight_path`:
   - `SESSION_WORK_INDEX.md`
-  - `sprint-status.yaml` (or equivalent sprint tracking file)
-  - `blockers-log.md`
-  - `decision-log.md`
+  - `tracking/task-tracker.md`
+  - `tracking/blockers-log.md`
+  - `tracking/risk-register.md`
+  - `bugs/INDEX.md` and `tech-debt/INDEX.md` — `## Quick Stats` table only (never the individual record files)
 
 ## Workflow Overview
 
-Session-status is a lightweight inline workflow — it has no step files. The entire logic executes in a single sequence without loading separate step files. It reads four tracking files, identifies the last session from the work index, compiles a Quick Status block, and presents it. No session is started, no files are modified.
+Session-status is a lightweight inline workflow — it has no step files. The entire logic executes in a single sequence without loading separate step files. It reads the tracking files plus the compact bug/TD INDEX `## Quick Stats` summaries, identifies the last session from the work index, compiles a Quick Status block, and presents it. No session is started, no files are modified.
 
 This workflow is used when the user needs a fast project orientation without triggering a full session-start initialization. It is intentionally minimal: read, summarize, present. It does not load Qdrant memory, does not inject constraints, and does not ask the user for direction afterward.
 
@@ -26,7 +27,7 @@ This workflow is used when the user needs a fast project orientation without tri
 | Step | File | Purpose |
 |------|--------|---------|
 | 1 | Inline (`workflow.md`) | Read `SESSION_WORK_INDEX.md` to find the last completed session |
-| 2 | Inline (`workflow.md`) | Read sprint tracking, blockers-log, and decision-log to extract current state |
+| 2 | Inline (`workflow.md`) | Read task-tracker, blockers-log, risk-register, and the bug/TD INDEX `## Quick Stats` (never individual record files) to extract current state |
 | 3 | Inline (`workflow.md`) | Compile and present Quick Status block (sprint state, open blockers, pending decisions, last session summary) |
 
 ## Key Decisions
