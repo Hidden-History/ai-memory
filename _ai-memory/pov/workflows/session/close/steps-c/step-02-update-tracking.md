@@ -106,13 +106,34 @@ Wait for user response. Execute any requested documentation updates.
 
 ---
 
-### 5. Verify Tracking State
+### 5. Reconcile the Bug / Tech-Debt INDEX
+
+Run the tracking-freshness skill so the bug and tech-debt `INDEX.md` files are
+reconciled against the current `bugs/*.md` and `tech-debt/*.md` records before
+the session closes:
+
+/aim-tracking-freshness --check
+
+- Reports `INDEX files are fully in sync` → note it and proceed.
+- Reports any divergence, missing-from-INDEX, orphan row, missing INDEX file, or
+  skipped / no-status record → present the summary to the user; on confirmation
+  run `/aim-tracking-freshness --write` to regenerate the INDEX files, then
+  re-run `--check` to confirm sync.
+
+This applies to `bugs/INDEX.md` + `tech-debt/INDEX.md` the same close-time
+discipline already applied to `SESSION_WORK_INDEX.md`. Skipping it is the drift
+root-caused in `oversight/tracking/RCA-tracking-system-drift-PM296.md` (RC-1).
+
+---
+
+### 6. Verify Tracking State
 
 After all updates, confirm:
 - Task tracker reflects current reality
 - Decision log includes all session decisions
 - Blockers log includes all session blockers
 - Risk register is current (update if user requested)
+- Bug/TD INDEX reconciled and in sync (per section 5)
 
 ## CRITICAL STEP COMPLETION NOTE
 

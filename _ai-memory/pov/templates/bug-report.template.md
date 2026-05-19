@@ -57,6 +57,7 @@ New → In Progress → Fixed → Verified → Closed
                       ↓
                   Reopened (if verification fails) → In Progress
 ```
+Closed-class statuses: Fixed, Verified, Closed. Open-class: New, In Progress, Reopened.
 
 ### Severity Guide
 - **Critical**: System down, data loss, security vulnerability
