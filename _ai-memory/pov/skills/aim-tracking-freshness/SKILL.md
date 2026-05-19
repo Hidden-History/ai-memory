@@ -97,11 +97,15 @@ contract, not on any single project's live tree:
 
 Both `BUG-NNN.md` and `BUG-NNN-<slug>.md` are accepted as valid record
 filenames (and the analogous `TECH-DEBT-NNN.md` / `TECH-DEBT-NNN-<slug>.md`
-forms). The slug portion `[a-z0-9-]+` is case-insensitive and optional.
+forms). The slug portion `[a-z0-9-]+` is matched case-insensitively
+(`re.IGNORECASE`), so a slug using uppercase or mixed-case letters (e.g.
+`BUG-005-BADSLUG.md`) is **accepted** as a normal record.
 
-Files that start with `BUG-` or `TECH-DEBT-` but fail the full pattern
-(uppercase slug, underscore slug, wrong extension, etc.) are reported as
-**skipped** and count toward `--check` failure.
+Files that start with `BUG-` or `TECH-DEBT-` but fail the full pattern are
+reported as **skipped** and count toward `--check` failure.  A file is skipped
+when its slug contains characters outside `[a-z0-9-]` (most commonly an
+underscore, e.g. `BUG-005-BAD_SLUG.md`), or when it has the wrong file
+extension (e.g. `.txt`).
 
 ### Closed-class tokens
 

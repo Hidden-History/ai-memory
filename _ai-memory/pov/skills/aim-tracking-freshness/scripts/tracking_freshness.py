@@ -1093,15 +1093,31 @@ def main() -> None:
     )
 
     # ── Write mode: regenerate INDEX files first ──────────────────────────
+    # CR-1 guard: if a collection's directory is absent, skip writing its INDEX
+    # and report it the same way --check does (NOTE to stderr). --write must
+    # never crash on a missing subdir.
     if mode == "write":
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        bugs_content = render_bugs_index(bugs_records, bug_companions, now_str)
-        td_content = render_td_index(td_records, td_companions, now_str)
 
-        bugs_idx.write_text(bugs_content, encoding="utf-8")
-        print(f"Wrote: {bugs_idx}")
-        td_idx.write_text(td_content, encoding="utf-8")
-        print(f"Wrote: {td_idx}")
+        if bugs_dir.is_dir():
+            bugs_content = render_bugs_index(bugs_records, bug_companions, now_str)
+            bugs_idx.write_text(bugs_content, encoding="utf-8")
+            print(f"Wrote: {bugs_idx}")
+        else:
+            print(
+                f"NOTE: bugs directory absent — not scaffolded: {bugs_dir}",
+                file=sys.stderr,
+            )
+
+        if td_dir.is_dir():
+            td_content = render_td_index(td_records, td_companions, now_str)
+            td_idx.write_text(td_content, encoding="utf-8")
+            print(f"Wrote: {td_idx}")
+        else:
+            print(
+                f"NOTE: tech-debt directory absent — not scaffolded: {td_dir}",
+                file=sys.stderr,
+            )
 
     # ── Print report (both modes) ─────────────────────────────────────────
     print_staleness_report(staleness, bugs_records, td_records, mode)

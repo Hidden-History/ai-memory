@@ -528,6 +528,30 @@ class TestCompanionExclusion:
         assert "BUG-008-real.md" in records
         assert "BUG-007-some-bug.txt" in skipped
 
+    def test_uppercase_only_slug_is_accepted_as_record(self, tmp_path: Path) -> None:
+        """BUG-005-BADSLUG.md (uppercase letters, no underscore) is accepted.
+
+        CR-4 regression: BUG_RECORD_RE uses re.IGNORECASE, so the character
+        class [a-z0-9-] also matches uppercase letters.  A slug that contains
+        only letters and hyphens (no underscore, no wrong extension) is valid
+        regardless of case.  SKILL.md previously misstated that an uppercase
+        slug is skipped — only underscores / wrong extensions / etc. cause a
+        skip.
+        """
+        _write_file(tmp_path, "BUG-005-BADSLUG.md")
+        _write_file(tmp_path, "BUG-006-good-slug.md")
+
+        records, _companions, skipped = find_records(tmp_path, BUG_RECORD_RE, "bug")
+
+        # Uppercase-only slug: accepted as a normal record, NOT skipped
+        assert (
+            "BUG-005-BADSLUG.md" in records
+        ), "BUG-005-BADSLUG.md should be accepted — re.IGNORECASE covers uppercase slugs."
+        assert (
+            "BUG-005-BADSLUG.md" not in skipped
+        ), "BUG-005-BADSLUG.md must NOT appear in the skipped set."
+        assert "BUG-006-good-slug.md" in records
+
 
 # ---------------------------------------------------------------------------
 # TestTitleExtraction
@@ -1227,3 +1251,137 @@ class TestCheckWriteContract:
 
         assert bugs_index.read_text(encoding="utf-8") == first_bugs
         assert td_index.read_text(encoding="utf-8") == first_td
+
+    # ── CR-1 regression: --write must not crash on absent subdir ─────────
+
+    def test_write_absent_bugs_dir_does_not_crash(self, tmp_path: Path) -> None:
+        """--write exits 0 and does not crash when bugs/ is absent.
+
+        CR-1 regression: before the fix, writing bugs/INDEX.md when bugs/ did
+        not exist raised FileNotFoundError.  After the fix, the absent collection
+        is skipped gracefully (NOTE to stderr) and --write succeeds.
+        """
+        oversight = tmp_path / "oversight"
+        td_dir = oversight / "tech-debt"
+        td_dir.mkdir(parents=True)
+        (td_dir / "TECH-DEBT-001-some-td.md").write_text(
+            "# TECH-DEBT-001\n\n**Status**: OPEN\n", encoding="utf-8"
+        )
+        # No bugs/ dir at all
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(_SCRIPT_PATH),
+                "--write",
+                "--oversight-root",
+                str(oversight),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert "Traceback" not in result.stderr, (
+            f"--write must not raise an exception when bugs/ is absent.\n"
+            f"stderr: {result.stderr}"
+        )
+        assert "FileNotFoundError" not in result.stderr, (
+            f"--write must not raise FileNotFoundError when bugs/ is absent.\n"
+            f"stderr: {result.stderr}"
+        )
+        assert result.returncode == 0, (
+            f"--write should exit 0 even when bugs/ is absent.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        # The td INDEX must still be written
+        assert (
+            td_dir / "INDEX.md"
+        ).exists(), "tech-debt/INDEX.md must be created even when bugs/ is absent."
+
+    def test_write_absent_td_dir_does_not_crash(self, tmp_path: Path) -> None:
+        """--write exits 0 and does not crash when tech-debt/ is absent.
+
+        Symmetric regression test for the tech-debt side of CR-1.
+        """
+        oversight = tmp_path / "oversight"
+        bugs_dir = oversight / "bugs"
+        bugs_dir.mkdir(parents=True)
+        (bugs_dir / "BUG-001-some-bug.md").write_text(
+            "# BUG-001\n\n**Status**: OPEN\n**Severity**: HIGH\n",
+            encoding="utf-8",
+        )
+        # No tech-debt/ dir at all
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(_SCRIPT_PATH),
+                "--write",
+                "--oversight-root",
+                str(oversight),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert "Traceback" not in result.stderr, (
+            f"--write must not raise an exception when tech-debt/ is absent.\n"
+            f"stderr: {result.stderr}"
+        )
+        assert result.returncode == 0, (
+            f"--write should exit 0 even when tech-debt/ is absent.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        assert (
+            bugs_dir / "INDEX.md"
+        ).exists(), "bugs/INDEX.md must be created even when tech-debt/ is absent."
+
+    # ── CR-2 regression: --check must detect missing INDEX per collection ──
+
+    def test_check_missing_index_detected_when_other_dir_absent(
+        self, tmp_path: Path
+    ) -> None:
+        """--check flags a missing bugs INDEX even when tech-debt/ dir is absent.
+
+        CR-2 regression: per-collection missing-INDEX detection must fire
+        independently.  A present collection (bugs/ exists + records found) with
+        no INDEX.md is always a counted issue and forces a non-zero exit, even
+        when the other collection's directory (tech-debt/) does not exist.
+        """
+        oversight = tmp_path / "oversight"
+        bugs_dir = oversight / "bugs"
+        bugs_dir.mkdir(parents=True)
+        (bugs_dir / "BUG-001-open-record.md").write_text(
+            "# BUG-001: Open Record\n\n**Status**: OPEN\n**Severity**: HIGH\n",
+            encoding="utf-8",
+        )
+        # No bugs/INDEX.md
+        # No tech-debt/ directory at all
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(_SCRIPT_PATH),
+                "--check",
+                "--oversight-root",
+                str(oversight),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 1, (
+            "--check must exit 1 when bugs/ has records but no INDEX.md, "
+            "regardless of tech-debt/ being absent.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        # Must surface the missing INDEX, not a false-clean ✓
+        assert (
+            "MISSING INDEX FILES" in result.stdout
+        ), "'MISSING INDEX FILES' section must be present in output."
+        assert (
+            "bugs/INDEX.md" in result.stdout
+        ), "'bugs/INDEX.md' must appear in the MISSING INDEX section."
+        assert (
+            "fully in sync" not in result.stdout
+        ), "--check must NOT print 'fully in sync ✓' — that is a false-clean."
