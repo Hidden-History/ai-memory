@@ -49,12 +49,15 @@ except ImportError as exc:
 #   - EMBEDDING_DIMENSION is fixed at model build time.
 #   - LOG_FORMAT is an internal formatting choice without user docs.
 #   - COLLECTION_SIZE_WARNING/CRITICAL are rarely tuned ops-level thresholds.
+#   - GITHUB_SYNC_USABLE is a derived flag set by the validate_github_config
+#     model-validator (PLAN-028 P1 RC-B); never user-set, so not documented.
 EXCLUDED_FIELDS = {
     "AUDIT_DIR",
     "COLLECTION_SIZE_CRITICAL",
     "COLLECTION_SIZE_WARNING",
     "EMBEDDING_DIMENSION",
     "EMBEDDING_HOST",
+    "GITHUB_SYNC_USABLE",
     "LOG_FORMAT",
     "MONITORING_HOST",
     "MONITORING_PORT",

@@ -365,6 +365,15 @@ class MemoryConfig(BaseSettings):
         default="",
         description="Target repository (owner/repo). Auto-detected from .git/config.",
     )
+    github_sync_usable: bool = Field(
+        default=False,
+        description=(
+            "Derived flag (set by validate_github_config): True when "
+            "github_sync_enabled=true AND token + repo are both valid. "
+            "GitHub sync entrypoints check this instead of raising at "
+            "MemoryConfig() construction time (PLAN-028 P1 RC-B fix)."
+        ),
+    )
 
     # --- GitHub Integration (Tier 2: defaults) ---
     github_sync_interval: int = Field(
@@ -980,14 +989,40 @@ class MemoryConfig(BaseSettings):
 
     @model_validator(mode="after")
     def validate_github_config(self) -> "MemoryConfig":
-        """Validate GitHub config is complete when enabled."""
+        """Validate GitHub config completeness; set github_sync_usable flag.
+
+        PLAN-028 P1 RC-B: Previously raised ValueError when GITHUB_SYNC_ENABLED=true
+        with incomplete credentials, which fatally blocked ALL MemoryConfig() callers
+        (storage, search, embeddings, etc.) even though GitHub sync is an optional
+        feature. Caller triage confirmed no consumer relies on construction-time failure:
+        - GitHubSync.__init__ validates independently after get_config()
+        - All other callers (embeddings, storage, search, adapters) do not use
+          github_sync_enabled at construction time.
+
+        Fix: downgrade to a warning + derive github_sync_usable so the sync
+        entrypoint can check usability without MemoryConfig() raising for non-sync
+        consumers.
+        """
         if self.github_sync_enabled:
-            if not self.github_token.get_secret_value():
-                raise ValueError("GITHUB_TOKEN required when GITHUB_SYNC_ENABLED=true")
-            if not self.github_repo:
-                raise ValueError("GITHUB_REPO required when GITHUB_SYNC_ENABLED=true")
-            if "/" not in self.github_repo:
-                raise ValueError("GITHUB_REPO must be in owner/repo format")
+            token_ok = bool(self.github_token.get_secret_value())
+            repo_ok = bool(self.github_repo) and "/" in self.github_repo
+            usable = token_ok and repo_ok
+            if not usable:
+                missing = []
+                if not token_ok:
+                    missing.append("GITHUB_TOKEN")
+                if not repo_ok:
+                    missing.append("GITHUB_REPO (must be owner/repo format)")
+                logger.warning(
+                    "github_sync_not_usable",
+                    extra={
+                        "reason": "incomplete_credentials",
+                        "missing": missing,
+                    },
+                )
+            object.__setattr__(self, "github_sync_usable", usable)
+        else:
+            object.__setattr__(self, "github_sync_usable", False)
         return self
 
     @model_validator(mode="after")

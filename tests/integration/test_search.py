@@ -140,11 +140,11 @@ class TestSearchIntegration:
             group_id=self.test_group_id,
         )
 
-        # Search best_practices (likely empty for test project)
+        # Search conventions (likely empty for test project)
         bp_results = search.search(
             query="implementation",
             collection="conventions",
-            # No group_id filter - best_practices are shared
+            # No group_id filter — returns all vectors regardless of project
         )
 
         # Both should be valid lists

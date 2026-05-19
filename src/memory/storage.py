@@ -2015,20 +2015,23 @@ def store_best_practice(
     session_id: str,
     source_hook: str = "manual",
     config: MemoryConfig | None = None,
+    group_id: str | None = None,
     **kwargs,
 ) -> dict:
-    """Store best practice accessible from all projects.
+    """Store a best practice under an explicitly-provided project (project-scoped).
 
-    Implements AC 4.3.1 (Best Practices Storage) and FR16 (Cross-Project Sharing).
+    Implements AC 4.3.1 (Best Practices Storage) and FR16 (Project-Scoped per W-01).
 
-    Best practices use a special 'shared' group_id marker and are stored
-    in the 'conventions' collection for cross-project accessibility.
+    Best practices are stored in the 'conventions' collection under the caller's
+    project group_id, identical to how code-patterns and other collections work.
+    The former cross-project "shared" tier was removed in PLAN-028 P1 (W-01).
 
-    Unlike code-patterns (Story 4.2), best practices:
-    - Use group_id="shared" (not project-specific)
-    - Stored in 'conventions' collection (not 'code-patterns')
-    - NO cwd parameter required (intentionally global)
-    - Accessible from ALL projects without filtering
+    Project scope is REQUIRED-EXPLICIT (DEC-PM298-D4 / W-09): the caller MUST pass
+    a non-empty group_id. There is no working-directory fallback — detect_project()
+    never fails (it returns a directory basename, or "unknown-project" on error),
+    so any implicit cwd/os.getcwd() fallback would silently re-create the
+    cross-project contamination PLAN-028 P1 exists to eliminate. When group_id is
+    absent or empty this function fails loudly with a ValueError.
 
     Args:
         content: Best practice text content (10-100,000 chars)
@@ -2037,6 +2040,8 @@ def store_best_practice(
                      "manual" is used for skill-based or API-driven storage
                      Added in Story 4.3 for explicit best practice capture
         config: Optional MemoryConfig instance. Uses get_config() if not provided.
+        group_id: REQUIRED explicit project identifier. Must be a non-empty string;
+                  there is no auto-detection fallback (DEC-PM298-D4).
         **kwargs: Additional metadata fields (e.g., domain, tags)
 
     Returns:
@@ -2044,75 +2049,59 @@ def store_best_practice(
             - memory_id: UUID string if stored, None if duplicate
             - status: "stored" or "duplicate"
             - embedding_status: "complete", "pending", or "failed"
-            - group_id: Always "shared"
+            - group_id: The explicitly provided project identifier
             - collection: Always "conventions"
 
     Raises:
-        ValueError: If content validation fails
+        ValueError: If group_id is missing/empty, or if content validation fails
         QdrantUnavailable: If Qdrant is unreachable (caller should queue)
 
     Example:
         >>> result = store_best_practice(
         ...     content="Always use type hints in Python 3.10+ for better IDE support",
         ...     session_id="sess-123",
+        ...     group_id="my-project",
         ...     source_hook="PostToolUse",
         ...     domain="python"
         ... )
         >>> result["status"]
         'stored'
-        >>> result["group_id"]
-        'shared'
         >>> result["collection"]
         'conventions'
-
-    Note:
-        Unlike code-patterns, best practices don't require 'cwd' parameter
-        since they're intentionally shared across all projects.
-
-    2026 Best Practice Rationale:
-        Per Qdrant Multitenancy Guide (https://qdrant.tech/articles/multitenancy/),
-        Qdrant is designed to excel in single collection with vast number of
-        tenants. However, when data is not homogenous (different semantics,
-        different retrieval patterns), separate collections are appropriate.
-
-        - CORRECT: code-patterns (project-specific) vs conventions (shared)
-          = different semantics → separate collections
-        - WRONG: Multiple collections per project (homogenous data)
-          = resource waste
-
-        Why group_id="shared" instead of group_id=None?
-        1. Explicit intent: "shared" clearly signals cross-project semantics
-        2. Query consistency: Payload always has group_id field (no None handling)
-        3. Future extensibility: Can add group_id="org-level" for hierarchies
-        4. Index compatibility: Works with is_tenant=True index (Story 4.2)
     """
+    # PLAN-028 P1 (DEC-PM298-D4 / W-09): project scope is required-explicit.
+    # Fail loud rather than guess — see the function docstring for rationale.
+    if not group_id or not group_id.strip():
+        raise ValueError(
+            "store_best_practice requires an explicit project scope (group_id); "
+            "refusing to guess. An implicit working-directory fallback risks "
+            "cross-project contamination of the 'conventions' collection."
+        )
+
     try:
         storage = MemoryStorage(config=config)
 
-        # Best practices use shared group_id marker (FR16)
-        # TECH DEBT: cwd parameter required by Story 4.2 breaking change
-        # Using sentinel path "/__best_practices__" as workaround
-        # Proper fix (making cwd optional) deferred to avoid mid-sprint API changes
-        # See TECH-DEBT-001 for future refactor
+        # cwd is unused for scoping here: group_id is supplied explicitly, so
+        # store_memory() never invokes detect_project(). An empty string simply
+        # satisfies store_memory()'s non-None cwd requirement.
         result = storage.store_memory(
             content=content,
-            cwd="/__best_practices__",  # Sentinel path for best practices (no real filesystem path)
-            group_id="shared",  # CRITICAL: Special marker for cross-project access
-            collection="conventions",  # CRITICAL: Separate from code-patterns
+            cwd="",
+            group_id=group_id,
+            collection="conventions",
             memory_type=MemoryType.GUIDELINE,  # Differentiates from code-patterns
             session_id=session_id,
             source_hook=source_hook,
             **kwargs,
         )
 
-        # Enhance result with explicit markers
-        result["group_id"] = "shared"
         result["collection"] = "conventions"
 
         logger.info(
             "best_practice_stored",
             extra={
                 "memory_id": result.get("memory_id"),
+                "group_id": result.get("group_id"),
                 "session_id": session_id,
                 "source_hook": source_hook,
                 "embedding_status": result.get("embedding_status"),

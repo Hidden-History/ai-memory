@@ -73,12 +73,26 @@ WebSearch: "[topic] official documentation 2026"
 ## Phase 4: Store to Database
 
 ```python
+import os
+import sys
+sys.path.insert(0, os.path.join(os.path.expanduser("~/.ai-memory"), "src"))
 from memory.storage import store_best_practice
+
+# Project scope is required-explicit (PLAN-028 P1, DEC-PM298-D4). Resolve it
+# deterministically from AI_MEMORY_PROJECT_ID — never from os.getcwd(), which is
+# unreliable for this forked skill subprocess. Fail loud if it is not set.
+project_id = os.environ.get("AI_MEMORY_PROJECT_ID")
+if not project_id:
+    raise RuntimeError(
+        "AI_MEMORY_PROJECT_ID is not set — cannot store a best practice without "
+        "an explicit project scope. Set AI_MEMORY_PROJECT_ID and retry."
+    )
 
 result = store_best_practice(
     content="Concise best practice description",
     session_id="current-session-id",
     source_hook="manual",
+    group_id=project_id,
     domain="topic-domain",
     tags=["topic", "keywords"],
     source="https://source-url.com",

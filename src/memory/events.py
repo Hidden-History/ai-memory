@@ -114,7 +114,9 @@ class RetrievalEvent:
             raise ValueError("query is required")
         if not self.collection:
             raise ValueError("collection is required")
-        # Note: group_id can be empty for shared collections like "conventions"
+        # Note: group_id can be empty when no project context is available
+        # (all collections, including "conventions", are project-scoped per
+        # PLAN-028 P1 W-01 — there is no longer a cross-project "shared" tier)
 
     def to_filter_dict(self) -> dict:
         """Convert to filter dictionary for search operations."""
