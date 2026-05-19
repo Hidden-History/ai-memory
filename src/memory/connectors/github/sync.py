@@ -185,8 +185,15 @@ class GitHubSyncEngine:
             "CLAUDE_SESSION_ID",
             f"github-event-sync-{datetime.now(timezone.utc).date().isoformat()}",
         )
-        if not self.config.github_sync_enabled:
-            raise ValueError("GitHub sync not enabled (GITHUB_SYNC_ENABLED=false)")
+        if not self.config.github_sync_usable:
+            # PLAN-028 P1 RC-B: gate on the derived github_sync_usable flag so a
+            # misconfigured-but-enabled sync skips cleanly instead of running with
+            # invalid credentials. github_sync_usable is False when sync is
+            # disabled OR when token/repo are missing or malformed.
+            raise ValueError(
+                "GitHub sync not usable: either GITHUB_SYNC_ENABLED=false or the "
+                "GitHub token/repo configuration is incomplete or invalid"
+            )
 
         self.repo = repo or self.config.github_repo
         if not self.repo:

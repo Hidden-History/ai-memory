@@ -370,8 +370,11 @@ class MemoryConfig(BaseSettings):
         description=(
             "Derived flag (set by validate_github_config): True when "
             "github_sync_enabled=true AND token + repo are both valid. "
-            "GitHub sync entrypoints check this instead of raising at "
-            "MemoryConfig() construction time (PLAN-028 P1 RC-B fix)."
+            "Consumed by the GitHub sync entrypoints — GitHubSyncEngine.__init__ "
+            "in connectors/github/sync.py and _build_github_enrichment() in "
+            "injection.py — which gate on this instead of github_sync_enabled "
+            "so a misconfigured-but-enabled sync skips cleanly rather than "
+            "raising at MemoryConfig() construction time (PLAN-028 P1 RC-B fix)."
         ),
     )
 

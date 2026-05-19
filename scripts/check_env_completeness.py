@@ -29,13 +29,15 @@ try:
     from memory.config import MemoryConfig
 except ImportError as exc:
     print(f"FAIL: cannot import MemoryConfig — {exc}", file=sys.stderr)
-    print(f"      Run from repo root: PYTHONPATH=src python3 scripts/check_env_completeness.py", file=sys.stderr)
+    print(
+        "      Run from repo root: PYTHONPATH=src python3 scripts/check_env_completeness.py",
+        file=sys.stderr,
+    )
     sys.exit(2)
 
 try:
-    from pydantic.fields import FieldInfo
-    from pydantic_settings import BaseSettings
     from pydantic.aliases import AliasChoices, AliasPath
+    from pydantic.fields import FieldInfo
 except ImportError as exc:
     print(f"FAIL: pydantic/pydantic_settings import error — {exc}", file=sys.stderr)
     sys.exit(2)
@@ -124,7 +126,9 @@ def main() -> int:
             continue
 
         if not env_names.intersection(documented_keys):
-            missing.append(f"  {canonical}  (also checked aliases: {sorted(env_names - {canonical})})")
+            missing.append(
+                f"  {canonical}  (also checked aliases: {sorted(env_names - {canonical})})"
+            )
 
     if missing:
         print("FAIL: MemoryConfig fields not documented in docker/.env.example:")
@@ -134,7 +138,9 @@ def main() -> int:
         print("Add these keys (active or commented) to docker/.env.example to fix.")
         return 1
 
-    print(f"OK: all {len(MemoryConfig.model_fields) - len(EXCLUDED_FIELDS)} checked MemoryConfig fields are documented in docker/.env.example")
+    print(
+        f"OK: all {len(MemoryConfig.model_fields) - len(EXCLUDED_FIELDS)} checked MemoryConfig fields are documented in docker/.env.example"
+    )
     return 0
 
 

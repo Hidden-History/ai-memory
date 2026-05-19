@@ -425,6 +425,11 @@ class TestMemoryConfigGithubDecoupling:
                 f"(RC-B fix missing): {e}"
             )
 
+        # FIX-9: assert what the test name claims — the derived flag is False.
+        assert (
+            mock_self.github_sync_usable is False
+        ), "github_sync_usable must be False when the token is empty"
+
     def test_validator_sets_usable_false_on_no_slash_repo(self):
         """validate_github_config sets github_sync_usable=False when repo lacks owner/."""
         from pydantic import SecretStr
@@ -445,6 +450,11 @@ class TestMemoryConfigGithubDecoupling:
                 f"(RC-B fix missing): {e}"
             )
 
+        # FIX-9: assert what the test name claims — the derived flag is False.
+        assert (
+            mock_self.github_sync_usable is False
+        ), "github_sync_usable must be False when the repo lacks owner/ format"
+
     def test_validator_sets_usable_false_on_empty_repo(self):
         """validate_github_config does not raise when repo is empty."""
         from pydantic import SecretStr
@@ -463,6 +473,58 @@ class TestMemoryConfigGithubDecoupling:
                 f"validate_github_config must not raise for empty repo "
                 f"(RC-B fix missing): {e}"
             )
+
+        # FIX-9: assert what the test name claims — the derived flag is False.
+        assert (
+            mock_self.github_sync_usable is False
+        ), "github_sync_usable must be False when the repo is empty"
+
+    def test_validator_emits_warning_when_creds_incomplete(self, caplog):
+        """FIX-8: validate_github_config logs the github_sync_not_usable warning.
+
+        RC-B downgrades the former hard ValueError to a warning; this asserts the
+        warning is actually emitted (and not silently swallowed) when sync is
+        enabled but the credentials are incomplete.
+        """
+        import logging
+
+        from pydantic import SecretStr
+
+        from memory.config import MemoryConfig
+
+        mock_self = MagicMock()
+        mock_self.github_sync_enabled = True
+        mock_self.github_token = SecretStr("")  # missing token
+        mock_self.github_repo = ""  # missing repo
+
+        with caplog.at_level(logging.WARNING, logger="memory.config"):
+            MemoryConfig.validate_github_config(mock_self)
+
+        assert any(
+            "github_sync_not_usable" in rec.getMessage() for rec in caplog.records
+        ), "validate_github_config must emit the github_sync_not_usable warning"
+        assert mock_self.github_sync_usable is False
+
+    def test_validator_no_warning_when_creds_complete(self, caplog):
+        """FIX-8 (complement): no github_sync_not_usable warning when creds are valid."""
+        import logging
+
+        from pydantic import SecretStr
+
+        from memory.config import MemoryConfig
+
+        mock_self = MagicMock()
+        mock_self.github_sync_enabled = True
+        mock_self.github_token = SecretStr("ghp_validtoken")
+        mock_self.github_repo = "owner/repo"
+
+        with caplog.at_level(logging.WARNING, logger="memory.config"):
+            MemoryConfig.validate_github_config(mock_self)
+
+        assert not any(
+            "github_sync_not_usable" in rec.getMessage() for rec in caplog.records
+        ), "no warning expected when GitHub credentials are complete"
+        assert mock_self.github_sync_usable is True
 
     def test_memory_config_has_github_sync_usable_field(self):
         """MemoryConfig must have a github_sync_usable field (RC-B derived flag)."""

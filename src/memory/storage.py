@@ -2010,6 +2010,12 @@ class MemoryStorage:
         return _get_last_updated(self.qdrant_client, collection)
 
 
+# Sentinel passed as `cwd` when group_id is supplied explicitly and store_memory()
+# therefore never calls detect_project(). A descriptive string (rather than "")
+# keeps logs self-explanatory instead of showing a blank {"cwd": ""}.
+_CWD_UNUSED_GROUP_ID_EXPLICIT = "<cwd-unused: group_id supplied explicitly>"
+
+
 def store_best_practice(
     content: str,
     session_id: str,
@@ -2082,11 +2088,12 @@ def store_best_practice(
         storage = MemoryStorage(config=config)
 
         # cwd is unused for scoping here: group_id is supplied explicitly, so
-        # store_memory() never invokes detect_project(). An empty string simply
-        # satisfies store_memory()'s non-None cwd requirement.
+        # store_memory() never invokes detect_project(). The named sentinel
+        # satisfies store_memory()'s non-None cwd requirement and keeps logs
+        # self-explanatory (no blank {"cwd": ""}).
         result = storage.store_memory(
             content=content,
-            cwd="",
+            cwd=_CWD_UNUSED_GROUP_ID_EXPLICIT,
             group_id=group_id,
             collection="conventions",
             memory_type=MemoryType.GUIDELINE,  # Differentiates from code-patterns

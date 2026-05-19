@@ -105,7 +105,9 @@ class RouteTarget(NamedTuple):
         collection: Collection name to search
         shared: Deprecated — always False after PLAN-028 P1 (W-01). All
                 collections including conventions are now project-scoped.
-                Retained for backward compatibility with hook consumers.
+                Still actively read by the `context_injection_tier2.py` hook
+                (`gid = None if route.shared else project_name`); must NOT be
+                removed until that hook stops referencing it.
     """
 
     collection: str
@@ -218,7 +220,7 @@ def _build_github_enrichment(
     if not last_session_date:
         return []
 
-    if not config.github_sync_enabled:
+    if not config.github_sync_usable:
         return []
 
     recent_github = search_client.search(

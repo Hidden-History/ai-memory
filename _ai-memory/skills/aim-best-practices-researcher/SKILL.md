@@ -17,9 +17,20 @@ import os
 import sys
 sys.path.insert(0, os.path.join(os.path.expanduser("~/.ai-memory"), "src"))
 from memory.search import search_memories
+
+# The 'conventions' collection is project-scoped (PLAN-028 P1, DEC-PM298-D4).
+# Resolve the project from AI_MEMORY_PROJECT_ID — never from os.getcwd(), which
+# is unreliable for this forked skill subprocess. Fail loud if it is not set.
+project_id = os.environ.get("AI_MEMORY_PROJECT_ID")
+if not project_id:
+    raise RuntimeError(
+        "AI_MEMORY_PROJECT_ID is not set — cannot search the project-scoped "
+        "'conventions' collection. Set AI_MEMORY_PROJECT_ID and retry."
+    )
 results = search_memories(
     query="your topic",
     collection="conventions",
+    group_id=project_id,
     memory_type=["guideline", "rule"],
     limit=5
 )
