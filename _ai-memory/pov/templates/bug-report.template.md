@@ -49,6 +49,8 @@ description: "Standard bug report format for tracking issues found during task e
 ### Bug ID Convention
 Assign sequential IDs: BUG-001, BUG-002, etc. Check `{oversight_path}/bugs/` for the highest existing ID before assigning.
 
+**Filename**: save the record as `BUG-NNN.md` or, optionally, `BUG-NNN-<short-slug>.md` (a few kebab-case words). The slug is optional — both forms are valid. The `**Status**` header inside the file is authoritative for tracking, never the filename.
+
 ### Status Workflow
 ```
 New → In Progress → Fixed → Verified → Closed
