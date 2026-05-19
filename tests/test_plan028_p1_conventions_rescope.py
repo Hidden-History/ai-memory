@@ -11,7 +11,7 @@ Coverage:
              github_sync_usable is False; no ValueError raised
 
 Note: search_both_collections project-scoping is covered in
-tests/test_search.py::TestMemorySearch::test_search_both_collections_filters_implementations_only
+tests/test_search.py::TestMemorySearchDualCollection::test_search_both_collections_filters_implementations_only
 
 PLAN-028 P1 (W-01): FR16 amended — conventions is project-scoped.
 """
@@ -26,13 +26,8 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-def _mock_storage(memory_id="mem-001", group_id="my-project"):
-    """Return a patched MemoryStorage whose store_memory returns a stored result.
-
-    Note: group_id is intentionally absent from the return value — store_memory()
-    does not include group_id in its result dict; store_best_practice() adds it
-    itself (M-2 fix: result["group_id"] = group_id).
-    """
+def _mock_storage(memory_id="mem-001"):
+    """Return a patched MemoryStorage whose store_memory returns a stored result."""
     mock_storage = MagicMock()
     mock_storage.store_memory.return_value = {
         "status": "stored",
@@ -80,7 +75,7 @@ class TestStoreBestPracticeProjectScoped:
     def test_store_best_practice_does_not_hardcode_shared_group_id(self):
         """store_best_practice forwards the caller's group_id, never 'shared'."""
         with patch("memory.storage.MemoryStorage") as mock_storage_cls:
-            mock_storage_cls.return_value = _mock_storage(group_id="my-project")
+            mock_storage_cls.return_value = _mock_storage()
 
             from memory.storage import store_best_practice
 
@@ -102,7 +97,7 @@ class TestStoreBestPracticeProjectScoped:
     def test_store_best_practice_explicit_group_id_forwarded(self):
         """An explicit group_id is forwarded to store_memory unchanged."""
         with patch("memory.storage.MemoryStorage") as mock_storage_cls:
-            mock_storage_cls.return_value = _mock_storage(group_id="explicit-project")
+            mock_storage_cls.return_value = _mock_storage()
 
             from memory.storage import store_best_practice
 
@@ -118,7 +113,7 @@ class TestStoreBestPracticeProjectScoped:
     def test_store_best_practice_result_does_not_override_group_id(self):
         """The 'shared' override of result['group_id'] is removed in P1."""
         with patch("memory.storage.MemoryStorage") as mock_storage_cls:
-            mock_storage_cls.return_value = _mock_storage(group_id="real-project")
+            mock_storage_cls.return_value = _mock_storage()
 
             from memory.storage import store_best_practice
 
@@ -136,7 +131,7 @@ class TestStoreBestPracticeProjectScoped:
     def test_store_best_practice_collection_always_conventions(self):
         """collection field is always 'conventions' regardless of group_id."""
         with patch("memory.storage.MemoryStorage") as mock_storage_cls:
-            mock_storage_cls.return_value = _mock_storage(group_id="any-project")
+            mock_storage_cls.return_value = _mock_storage()
 
             from memory.storage import store_best_practice
 
