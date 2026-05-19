@@ -9,6 +9,9 @@ regenerates both INDEX files and then reports (--write).
 
 The **Status** header in each record file is authoritative.
 Status is NEVER inferred from filename or INDEX section placement.
+
+Contract source of truth: _ai-memory/pov/templates/bug-report.template.md
+and tech-debt-report.template.md (slug-optional filenames; see SKILL.md §Contract).
 """
 
 from __future__ import annotations
@@ -25,12 +28,21 @@ from pathlib import Path
 # Pattern constants
 # ---------------------------------------------------------------------------
 
-BUG_RECORD_RE = re.compile(r"^BUG-(\d+)-[a-z0-9-]+\.md$", re.IGNORECASE)
-TD_RECORD_RE = re.compile(r"^TECH-DEBT-(\d+)-[a-z0-9-]+\.md$", re.IGNORECASE)
+# A.1 — slug is optional: BUG-001.md and BUG-001-slug.md both match.
+BUG_RECORD_RE = re.compile(r"^BUG-(\d+)(?:-[a-z0-9-]+)?\.md$", re.IGNORECASE)
+TD_RECORD_RE = re.compile(r"^TECH-DEBT-(\d+)(?:-[a-z0-9-]+)?\.md$", re.IGNORECASE)
 
-# Closed-class keyword sets — confirmed against live oversight tree (PM #297)
+# Closed-class keyword sets — grounded on template contract (A.2).
+#
+# Bug canonical (from bug-report.template.md status workflow):
+#   Fixed, Verified, Closed
+# Tolerated legacy / extended forms confirmed in the live oversight tree:
+#   RESOLVED, NOT A BUG, NOT-A-BUG, DUPLICATE, RECLASSIFIED,
+#   FIX APPLIED, FIX-APPLIED
 BUGS_CLOSED_TOKENS: list[str] = [
     "FIXED",
+    "VERIFIED",
+    "CLOSED",
     "RESOLVED",
     "NOT A BUG",
     "NOT-A-BUG",
@@ -39,7 +51,17 @@ BUGS_CLOSED_TOKENS: list[str] = [
     "FIX APPLIED",
     "FIX-APPLIED",
 ]
-TD_CLOSED_TOKENS: list[str] = ["IMPLEMENTED", "RESOLVED", "FIXED"]
+
+# TD canonical: RESOLVED, CLOSED, WONT FIX, WON'T FIX
+# Tolerated legacy: IMPLEMENTED, FIXED
+TD_CLOSED_TOKENS: list[str] = [
+    "RESOLVED",
+    "CLOSED",
+    "WONT FIX",
+    "WON'T FIX",
+    "IMPLEMENTED",
+    "FIXED",
+]
 
 # Severity display order for INDEX grouping
 _SEV_PRIORITY: dict[str, int] = {
@@ -190,9 +212,9 @@ def classify_status(raw: str, kind: str) -> bool:
     at the leading position to match.
 
     Closed-class tokens differ by record type:
-    - bugs: FIXED, RESOLVED, NOT A BUG, NOT-A-BUG, DUPLICATE, RECLASSIFIED,
-            FIX APPLIED, FIX-APPLIED
-    - td:   IMPLEMENTED, RESOLVED, FIXED
+    - bugs: FIXED, VERIFIED, CLOSED, RESOLVED, NOT A BUG, NOT-A-BUG,
+            DUPLICATE, RECLASSIFIED, FIX APPLIED, FIX-APPLIED
+    - td:   RESOLVED, CLOSED, WONT FIX, WON'T FIX, IMPLEMENTED, FIXED
     """
     normalized = normalize_status(raw)
     tokens = BUGS_CLOSED_TOKENS if kind == "bug" else TD_CLOSED_TOKENS
@@ -241,11 +263,20 @@ def extract_severity(text: str) -> str:
 def _de_slugify(filename: str) -> str:
     """Convert a slug filename to a readable title (last-resort fallback).
 
-    Example: ``BUG-047-installer-fails-with-spaces-in-path.md``
-             → ``Installer Fails With Spaces In Path``
+    Returns the slug portion of the filename as a title-cased phrase, or an
+    empty string when the filename has no slug (e.g. ``BUG-001.md``).  An
+    empty return signals that ``extract_title`` should not echo the bare ID.
+
+    Examples:
+        ``BUG-047-installer-fails-with-spaces-in-path.md``
+                 → ``Installer Fails With Spaces In Path``
+        ``BUG-001.md``  → ``""``  (no slug to de-slugify)
     """
     stem = Path(filename).stem
-    cleaned = re.sub(r"^(?:BUG|TECH-DEBT)-\d+-", "", stem, flags=re.IGNORECASE)
+    # Strip the ID prefix including its trailing hyphen if present; the
+    # (?:-|$) alternate matches end-of-string for slug-less stems so the
+    # entire stem is consumed and cleaned becomes "".
+    cleaned = re.sub(r"^(?:BUG|TECH-DEBT)-\d+(?:-|$)", "", stem, flags=re.IGNORECASE)
     return cleaned.replace("-", " ").title()
 
 
@@ -259,6 +290,8 @@ def extract_title(text: str, filename: str) -> str:
        Headings that resolve to noise tokens (``Bug Report``,
        ``Root Cause Analysis``, ``Investigation Report``) are skipped.
     3. De-slugified filename (``BUG-047-installer-fails-…`` → readable words).
+       Returns empty string for slug-less files (``BUG-001.md``) to avoid
+       echoing the bare ID as a title.
     """
     # 1. Explicit **Title**: field
     m = _TITLE_FIELD_RE.search(text)
@@ -275,7 +308,7 @@ def extract_title(text: str, filename: str) -> str:
         if stripped and not _GENERIC_HEADING_RE.match(stripped):
             return stripped
 
-    # 3. De-slugify filename as last resort
+    # 3. De-slugify filename as last resort (returns "" for slug-less filenames)
     return _de_slugify(filename)
 
 
@@ -288,8 +321,8 @@ def find_records(
     dirpath: Path,
     pattern_re: re.Pattern,
     kind: str,
-) -> tuple[list[str], list[tuple[str, str]]]:
-    """Enumerate primary record files and companion files in *dirpath*.
+) -> tuple[list[str], list[tuple[str, str]], set[str]]:
+    """Enumerate primary record files, companion files, and skipped files in *dirpath*.
 
     Steps:
     1. Collect all filenames matching *pattern_re*; ignore everything else
@@ -297,12 +330,27 @@ def find_records(
     2. Group matching filenames by numeric ID.
     3. Within each group the alphabetically-first filename is the primary
        record; every additional filename in the group is a companion.
+    4. Collect filenames that start with the record prefix (``BUG-`` or
+       ``TECH-DEBT-``) but do not match the full *pattern_re* — these are
+       malformed record-shaped files (wrong extension, uppercase slug,
+       underscore slug, etc.) that would otherwise be silently ignored.
+
+    If *dirpath* does not exist, returns three empty collections (graceful
+    degradation — the caller reports the absent directory).
 
     Returns:
         records    — sorted list of primary filenames
         companions — list of ``(filename, exclusion_reason)`` for companions
+        skipped    — set of record-shaped filenames that failed the full regex
     """
+    _PREFIX = "BUG-" if kind == "bug" else "TECH-DEBT-"
+
     by_id: dict[str, list[str]] = defaultdict(list)
+    skipped: set[str] = set()
+
+    if not dirpath.is_dir():
+        return [], [], skipped
+
     try:
         entries = sorted(os.listdir(dirpath))
     except OSError as exc:
@@ -312,6 +360,10 @@ def find_records(
         m = pattern_re.match(name)
         if m:
             by_id[m.group(1)].append(name)
+        elif name.upper().startswith(_PREFIX):
+            # Starts with the record prefix but fails the full pattern —
+            # likely a malformed filename (wrong extension, uppercase slug, etc.)
+            skipped.add(name)
 
     records: list[str] = []
     companions: list[tuple[str, str]] = []
@@ -344,7 +396,7 @@ def find_records(
             )
             companions.append((companion_name, reason))
 
-    return records, companions
+    return records, companions, skipped
 
 
 def parse_record_file(path: Path, kind: str) -> Record:
@@ -459,6 +511,7 @@ def compute_staleness(
     companions: list[tuple[str, str]],
     bugs_index: Path,
     td_index: Path,
+    all_skipped: set[str] | None = None,
 ) -> dict:
     """Compare file-scan results against the existing INDEX files.
 
@@ -470,6 +523,8 @@ def compute_staleness(
     - ``missing_bug``     — bug filenames not referenced in bugs INDEX
     - ``missing_td``      — TD filenames not referenced in TD INDEX
     - ``no_status``       — filenames with no parseable Status header
+    - ``skipped``         — record-shaped filenames that failed the full regex
+    - ``missing_indexes`` — INDEX paths absent when their record dirs have files
     """
     bugs_open_idx, bugs_closed_idx = parse_index_ids(bugs_index, "BUG")
     td_open_idx, td_closed_idx = parse_index_ids(td_index, "TECH-DEBT")
@@ -527,6 +582,14 @@ def compute_staleness(
     )
     no_status = [r.filename for r in bugs_records + td_records if not r.raw_status]
 
+    # Missing INDEX files — surfaced when records exist but no INDEX is present.
+    # Counted in --check failure; --write creates them so they are not errors there.
+    missing_indexes: list[str] = []
+    if bugs_records and not bugs_index.exists():
+        missing_indexes.append("bugs/INDEX.md")
+    if td_records and not td_index.exists():
+        missing_indexes.append("tech-debt/INDEX.md")
+
     return {
         "companions": companions,
         "divergences": divergences,
@@ -535,6 +598,8 @@ def compute_staleness(
         "missing_bug": missing_bug,
         "missing_td": missing_td,
         "no_status": no_status,
+        "skipped": sorted(all_skipped) if all_skipped else [],
+        "missing_indexes": missing_indexes,
     }
 
 
@@ -614,7 +679,7 @@ def render_bugs_index(
         "|----------|-------|",
         f"| **BUG records (files, excl. companion)** | {n_total} |",
         f"| **Open / actionable** | {n_open} |",
-        f"| **Closed** (FIXED / RESOLVED / NOT-A-BUG / DUPLICATE / RECLASSIFIED / FIX-APPLIED) | {n_closed} |",
+        f"| **Closed** (FIXED / VERIFIED / CLOSED / RESOLVED / NOT-A-BUG / DUPLICATE / RECLASSIFIED / FIX-APPLIED) | {n_closed} |",
         "",
         f"Open breakdown: {sev_summary}.",
         "",
@@ -715,8 +780,8 @@ def render_td_index(
         "| Category | Count |",
         "|----------|-------|",
         f"| **Standalone TD files** | {n_total} |",
-        f"| **Open** (OPEN / NEW / PLANNING / PLANNED / DEFERRED) | {n_open} |",
-        f"| **Closed** (IMPLEMENTED / RESOLVED / FIXED) | {n_closed} |",
+        f"| **Open** (NEW / IN PROGRESS / REOPENED / DEFERRED) | {n_open} |",
+        f"| **Closed** (RESOLVED / CLOSED / WONT FIX / WON'T FIX / IMPLEMENTED / FIXED) | {n_closed} |",
         "",
         f"Open severity: {sev_summary}.",
         "",
@@ -813,7 +878,26 @@ def print_staleness_report(
         print("  (none)")
     print()
 
-    # ── 2. No-Status warnings ─────────────────────────────────────────────
+    # ── 2. Skipped record-shaped files ────────────────────────────────────
+    skipped = staleness.get("skipped", [])
+    print(f"SKIPPED — RECORD-SHAPED FILES FAILING FULL PATTERN: {len(skipped)}")
+    if skipped:
+        print(
+            "  These files start with BUG-/TECH-DEBT- but failed the filename"
+            " pattern"
+        )
+        print(
+            "  (wrong extension, uppercase/underscore slug, etc.)."
+            " They are excluded from scanning."
+        )
+        print("  Each counts as an issue in --check mode.")
+        for fname in sorted(skipped):
+            print(f"  ✗  {fname}")
+    else:
+        print("  (none)")
+    print()
+
+    # ── 3. No-Status warnings ─────────────────────────────────────────────
     no_status = staleness["no_status"]
     print(f"WARNING — NO STATUS HEADER: {len(no_status)}")
     if no_status:
@@ -823,7 +907,7 @@ def print_staleness_report(
         print("  (none)")
     print()
 
-    # ── 3. Divergences — surfaced prominently ────────────────────────────
+    # ── 4. Divergences — surfaced prominently ────────────────────────────
     divs = staleness["divergences"]
     print(f"DIVERGENCES (record Status vs INDEX placement): {len(divs)}")
     if divs:
@@ -838,7 +922,7 @@ def print_staleness_report(
         print("  ✓  No divergences — all INDEX placements match file Status headers.")
     print()
 
-    # ── 4. Orphan INDEX rows ──────────────────────────────────────────────
+    # ── 5. Orphan INDEX rows ──────────────────────────────────────────────
     ob = staleness["orphan_bug_ids"]
     ot = staleness["orphan_td_ids"]
     total_orphans = len(ob) + len(ot)
@@ -851,7 +935,7 @@ def print_staleness_report(
         print("  (none)")
     print()
 
-    # ── 5. Missing from INDEX ─────────────────────────────────────────────
+    # ── 6. Missing from INDEX ─────────────────────────────────────────────
     mb = staleness["missing_bug"]
     mt = staleness["missing_td"]
     total_missing = len(mb) + len(mt)
@@ -870,9 +954,33 @@ def print_staleness_report(
         print("  (none)")
     print()
 
+    # ── 7. Missing INDEX files ────────────────────────────────────────────
+    missing_indexes = staleness.get("missing_indexes", [])
+    print(
+        f"MISSING INDEX FILES (records exist but INDEX.md absent): {len(missing_indexes)}"
+    )
+    if missing_indexes:
+        for idx_path in missing_indexes:
+            print(f"  ✗  {idx_path}")
+        if mode == "write":
+            print("  → INDEX files will be created by this --write run.")
+        else:
+            print("  → Run with --write to create missing INDEX files.")
+    else:
+        print("  (none)")
+    print()
+
     _hr()
-    total_issues = len(divs) + total_orphans + total_missing + len(no_status)
-    if total_issues == 0:
+    total_records = len(bugs_records) + len(td_records)
+    total_issues = (
+        len(divs) + total_orphans + total_missing + len(no_status) + len(skipped)
+    )
+    if mode == "check":
+        total_issues += len(missing_indexes)
+
+    if total_records == 0 and total_issues == 0:
+        print("  RESULT: 0 records scanned — empty/absent tracking tree.")
+    elif total_issues == 0:
         print("  RESULT: INDEX files are fully in sync with file Status headers. ✓")
     else:
         print(f"  RESULT: {total_issues} issue(s) found.")
@@ -958,15 +1066,22 @@ def main() -> None:
     bugs_idx = bugs_dir / "INDEX.md"
     td_idx = td_dir / "INDEX.md"
 
+    # A.4 — degrade gracefully on absent sub-dirs; only the oversight root is a
+    # hard error (handled in resolve_oversight_root above).
     for d, label in ((bugs_dir, "bugs"), (td_dir, "tech-debt")):
         if not d.is_dir():
-            print(f"ERROR: {label} directory not found: {d}", file=sys.stderr)
-            sys.exit(1)
+            print(
+                f"NOTE: {label} directory absent — not scaffolded: {d}",
+                file=sys.stderr,
+            )
 
     # ── Enumerate files ────────────────────────────────────────────────────
-    bug_filenames, bug_companions = find_records(bugs_dir, BUG_RECORD_RE, "bug")
-    td_filenames, td_companions = find_records(td_dir, TD_RECORD_RE, "td")
+    bug_filenames, bug_companions, bug_skipped = find_records(
+        bugs_dir, BUG_RECORD_RE, "bug"
+    )
+    td_filenames, td_companions, td_skipped = find_records(td_dir, TD_RECORD_RE, "td")
     all_companions = bug_companions + td_companions
+    all_skipped = bug_skipped | td_skipped
 
     # ── Parse record files ────────────────────────────────────────────────
     bugs_records = [parse_record_file(bugs_dir / fn, "bug") for fn in bug_filenames]
@@ -974,7 +1089,7 @@ def main() -> None:
 
     # ── Compute staleness ─────────────────────────────────────────────────
     staleness = compute_staleness(
-        bugs_records, td_records, all_companions, bugs_idx, td_idx
+        bugs_records, td_records, all_companions, bugs_idx, td_idx, all_skipped
     )
 
     # ── Write mode: regenerate INDEX files first ──────────────────────────
@@ -992,8 +1107,9 @@ def main() -> None:
     print_staleness_report(staleness, bugs_records, td_records, mode)
 
     # Exit-code contract:
-    # --check : exits 1 if any divergence, orphan, missing, or no-status record
-    #           is found; exits 0 when INDEX files are fully in sync.
+    # --check : exits 1 if any divergence, orphan, missing, skipped, missing
+    #           index, or no-status record is found; exits 0 when INDEX files
+    #           are fully in sync.
     # --write : exits 0 on a successful write (drift found-and-corrected is a
     #           successful outcome; the INDEX is now correct).  Use --check as
     #           the gating command in CI.
@@ -1005,6 +1121,8 @@ def main() -> None:
             + len(staleness["missing_bug"])
             + len(staleness["missing_td"])
             + len(staleness["no_status"])
+            + len(staleness["skipped"])
+            + len(staleness["missing_indexes"])
         )
         if issues:
             sys.exit(1)

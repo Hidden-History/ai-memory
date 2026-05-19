@@ -82,6 +82,50 @@ outside the two INDEX files.
 
 ---
 
+## Contract — Source of Truth
+
+Filename and status-token conventions are grounded on the POV template
+contract, not on any single project's live tree:
+
+- **`_ai-memory/pov/templates/bug-report.template.md`** — specifies the
+  `BUG-NNN` ID convention. **No filename slug is mandated.** Status workflow:
+  `New → In Progress → Fixed → Verified → Closed`, plus `Reopened`.
+- **`_ai-memory/pov/templates/tech-debt-report.template.md`** — same slug-
+  optional convention for `TECH-DEBT-NNN` files.
+
+### Filename convention (slug-optional)
+
+Both `BUG-NNN.md` and `BUG-NNN-<slug>.md` are accepted as valid record
+filenames (and the analogous `TECH-DEBT-NNN.md` / `TECH-DEBT-NNN-<slug>.md`
+forms). The slug portion `[a-z0-9-]+` is case-insensitive and optional.
+
+Files that start with `BUG-` or `TECH-DEBT-` but fail the full pattern
+(uppercase slug, underscore slug, wrong extension, etc.) are reported as
+**skipped** and count toward `--check` failure.
+
+### Closed-class tokens
+
+**Bug records** — canonical tokens (from template status workflow):
+`FIXED`, `VERIFIED`, `CLOSED`
+
+Tolerated legacy / extended forms:
+`RESOLVED`, `NOT A BUG`, `NOT-A-BUG`, `DUPLICATE`, `RECLASSIFIED`,
+`FIX APPLIED`, `FIX-APPLIED`
+
+**Tech-debt records** — canonical tokens:
+`RESOLVED`, `CLOSED`, `WONT FIX`, `WON'T FIX`
+
+Tolerated legacy forms:
+`IMPLEMENTED`, `FIXED`
+
+All matching uses **leading-token** logic: a closed-class token only closes a
+record when it appears at the very start of the normalized status string
+(stripped of emoji and bold markers), followed by a word boundary. This
+prevents false-closed classification when a closed token appears in a trailing
+historical context clause (e.g. `REOPENED (PM #295) — Previously: FIXED`).
+
+---
+
 ## Status Header Parsing
 
 The script handles three formats found in the live oversight tree:
@@ -94,11 +138,6 @@ The script handles three formats found in the live oversight tree:
 
 Both colon formats are matched by a single regex with two optional-colon slots.
 The table-row format is tried as a fallback.
-
-Closed-class tokens (bugs): `FIXED`, `RESOLVED`, `NOT A BUG`, `NOT-A-BUG`,
-`DUPLICATE`, `RECLASSIFIED`, `FIX APPLIED`, `FIX-APPLIED`.
-
-Closed-class tokens (tech-debt): `IMPLEMENTED`, `RESOLVED`, `FIXED`.
 
 `LIKELY FIXED` remains open: `LIKELY` is not a closed-class token, so
 `classify_status` finds no leading closed-class match and treats the record as
@@ -135,7 +174,21 @@ excluded by the filename pattern filter (`BUG-\d+-*.md` /
 
 - The `**Status**` header in each record file is authoritative. Status is
   never inferred from filename or section placement in the INDEX.
-- The TD glob is `TECH-DEBT-\d+-*.md`. Files matching the pattern `TD-*.md`
-  do not exist in the live tree.
+- The TD pattern is `TECH-DEBT-\d+(?:-[a-z0-9-]+)?\.md` (slug optional).
+  Files matching `TD-*.md` are not matched (wrong prefix).
 - No `.claude/skills/` shim is needed. The installer auto-generates POV skill
   shims at install time.
+
+---
+
+## Failure & Degradation Modes
+
+| Condition | Behaviour |
+|-----------|-----------|
+| `oversight/` root missing | Hard error → `sys.exit(1)` |
+| `bugs/` or `tech-debt/` dir absent | Graceful degradation: logged to stderr as `NOTE: … absent — not scaffolded`; scan proceeds with 0 records for that tracker |
+| `INDEX.md` missing when records exist | Surfaced as `MISSING INDEX FILES` section; counted in `--check` failure; `--write` creates it |
+| 0 records scanned (both dirs empty or absent) | Prints `0 records scanned — empty/absent tracking tree`; never prints `✓ in sync` |
+| Record-shaped file fails full filename pattern | Logged in `SKIPPED` report section; counted in `--check` failure |
+| Record file has no `**Status**` header | Logged in `WARNING — NO STATUS HEADER`; counted in `--check` failure |
+| Record file is unreadable (OS error) | Emitted as a `Record` with `numeric_id="???"` and `is_closed=False`; surfaced via no-status warning |

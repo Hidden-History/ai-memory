@@ -223,6 +223,45 @@ class TestStatusClassification:
         """DEFERRED is not in the TD closed-class — item is still tracked."""
         assert classify_status("DEFERRED", "td") is False
 
+    # ── Bugs: VERIFIED and CLOSED are now canonical closed tokens (A.2) ──
+
+    def test_bug_verified_is_closed(self) -> None:
+        """VERIFIED is a canonical closed token for bugs per template contract."""
+        assert classify_status("Verified", "bug") is True
+        assert classify_status("VERIFIED", "bug") is True
+        assert classify_status("Verified (PM #295)", "bug") is True
+
+    def test_bug_closed_is_closed(self) -> None:
+        """CLOSED is a canonical closed token for bugs per template contract."""
+        assert classify_status("Closed", "bug") is True
+        assert classify_status("CLOSED", "bug") is True
+        assert classify_status("CLOSED — archived", "bug") is True
+
+    def test_bug_reopened_is_open(self) -> None:
+        """Reopened is an open-class token per template contract."""
+        assert classify_status("Reopened", "bug") is False
+        assert classify_status("REOPENED", "bug") is False
+
+    # ── TD: CLOSED, WONT FIX, WON'T FIX are now canonical closed tokens (A.2) ──
+
+    def test_td_closed_is_closed(self) -> None:
+        """CLOSED is a canonical closed token for TDs per template contract."""
+        assert classify_status("Closed", "td") is True
+        assert classify_status("CLOSED", "td") is True
+        assert classify_status("CLOSED — migrated to PLAN-028", "td") is True
+
+    def test_td_wont_fix_variants_are_closed(self) -> None:
+        """WONT FIX and WON'T FIX are canonical closed tokens for TDs."""
+        assert classify_status("WONT FIX", "td") is True
+        assert classify_status("WON'T FIX", "td") is True
+        assert classify_status("Won't Fix", "td") is True
+        assert classify_status("Wont Fix — out of scope", "td") is True
+
+    def test_td_reopened_is_open(self) -> None:
+        """Reopened is an open-class token for TDs."""
+        assert classify_status("Reopened", "td") is False
+        assert classify_status("REOPENED", "td") is False
+
     # ── normalize_status strips correctly ────────────────────────────────
 
     def test_variation_selector_stripped_adjacent_to_token(self) -> None:
@@ -319,9 +358,10 @@ class TestCompanionExclusion:
         _write_file(tmp_path, "BUG-003-agent-response-capture-broken.md")
         _write_file(tmp_path, "BUG-004-root-cause-analysis.md")
 
-        records, companions = find_records(tmp_path, BUG_RECORD_RE, "bug")
+        records, companions, skipped = find_records(tmp_path, BUG_RECORD_RE, "bug")
 
         assert len(companions) == 0
+        assert skipped == set()
         assert "BUG-003-agent-response-capture-broken.md" in records
         assert "BUG-004-root-cause-analysis.md" in records
 
@@ -330,10 +370,11 @@ class TestCompanionExclusion:
         _write_file(tmp_path, "BUG-020-duplicate-sessionstart.md")
         _write_file(tmp_path, "BUG-020-investigation-report.md")
 
-        records, companions = find_records(tmp_path, BUG_RECORD_RE, "bug")
+        records, companions, skipped = find_records(tmp_path, BUG_RECORD_RE, "bug")
 
         assert records == ["BUG-020-duplicate-sessionstart.md"]
         assert len(companions) == 1
+        assert skipped == set()
         companion_name, reason = companions[0]
         assert companion_name == "BUG-020-investigation-report.md"
         assert "020" in reason
@@ -344,7 +385,7 @@ class TestCompanionExclusion:
         _write_file(tmp_path, "BUG-020-duplicate-sessionstart.md")
         _write_file(tmp_path, "BUG-020-investigation-report.md")
 
-        _, companions = find_records(tmp_path, BUG_RECORD_RE, "bug")
+        _, companions, _ = find_records(tmp_path, BUG_RECORD_RE, "bug")
 
         _, reason = companions[0]
         assert "BUG-020-duplicate-sessionstart.md" in reason
@@ -356,10 +397,12 @@ class TestCompanionExclusion:
         _write_file(tmp_path, "ROOT_CAUSE_TEMPLATE.md")
         _write_file(tmp_path, "BUG-001-real-record.md")
 
-        records, companions = find_records(tmp_path, BUG_RECORD_RE, "bug")
+        records, companions, skipped = find_records(tmp_path, BUG_RECORD_RE, "bug")
 
         assert records == ["BUG-001-real-record.md"]
         assert companions == []
+        # BUG_TEMPLATE uses underscore → does NOT start with "BUG-" so not skipped
+        assert skipped == set()
 
     def test_td_glob_uses_tech_debt_prefix(self, tmp_path: Path) -> None:
         """TD records use TECH-DEBT-NNN prefix; files with TD-NNN are not matched."""
@@ -367,10 +410,12 @@ class TestCompanionExclusion:
         _write_file(tmp_path, "TD-072-wrong-prefix.md")  # should NOT match
         _write_file(tmp_path, "INDEX.md")
 
-        records, companions = find_records(tmp_path, TD_RECORD_RE, "td")
+        records, companions, skipped = find_records(tmp_path, TD_RECORD_RE, "td")
 
         assert records == ["TECH-DEBT-072-missing-collection-size-metric.md"]
         assert companions == []
+        # TD-072 does not start with TECH-DEBT- → not skipped
+        assert skipped == set()
 
     def test_records_sorted_numerically(self, tmp_path: Path) -> None:
         """Primary records are returned sorted by numeric ID (not lexicographic)."""
@@ -378,7 +423,7 @@ class TestCompanionExclusion:
         _write_file(tmp_path, "BUG-100-late.md")
         _write_file(tmp_path, "BUG-020-middle.md")
 
-        records, _ = find_records(tmp_path, BUG_RECORD_RE, "bug")
+        records, _, _ = find_records(tmp_path, BUG_RECORD_RE, "bug")
 
         assert records == [
             "BUG-009-early.md",
@@ -392,10 +437,11 @@ class TestCompanionExclusion:
         _write_file(tmp_path, "BUG-001-beta.md")
         _write_file(tmp_path, "BUG-001-gamma.md")
 
-        records, companions = find_records(tmp_path, BUG_RECORD_RE, "bug")
+        records, companions, skipped = find_records(tmp_path, BUG_RECORD_RE, "bug")
 
         assert records == ["BUG-001-alpha.md"]
         assert len(companions) == 2
+        assert skipped == set()
         companion_names = [c[0] for c in companions]
         assert "BUG-001-beta.md" in companion_names
         assert "BUG-001-gamma.md" in companion_names
@@ -410,12 +456,13 @@ class TestCompanionExclusion:
         _write_file(tmp_path, "TECH-DEBT-072-missing-metric.md")
         _write_file(tmp_path, "TECH-DEBT-072-investigation-notes.md")
 
-        records, companions = find_records(tmp_path, TD_RECORD_RE, "td")
+        records, companions, skipped = find_records(tmp_path, TD_RECORD_RE, "td")
 
         # "investigation-notes" < "missing-metric" alphabetically → primary
         assert records == ["TECH-DEBT-072-investigation-notes.md"]
         assert len(companions) == 1
         assert companions[0][0] == "TECH-DEBT-072-missing-metric.md"
+        assert skipped == set()
 
     def test_status_bearing_file_promoted_to_primary(self, tmp_path: Path) -> None:
         """When the alphabetically-first file has no **Status** header but a
@@ -432,11 +479,54 @@ class TestCompanionExclusion:
             "# BUG-020\n\n**Status**: OPEN\n",
         )
 
-        records, companions = find_records(tmp_path, BUG_RECORD_RE, "bug")
+        records, companions, skipped = find_records(tmp_path, BUG_RECORD_RE, "bug")
 
         assert records == ["BUG-020-investigation-report.md"]
         assert len(companions) == 1
         assert companions[0][0] == "BUG-020-duplicate-sessionstart.md"
+        assert skipped == set()
+
+    def test_slug_less_bug_file_matches(self, tmp_path: Path) -> None:
+        """BUG-001.md (no slug) must match BUG_RECORD_RE and be enumerated as a record."""
+        _write_file(tmp_path, "BUG-001.md", "# BUG-001: Some Bug\n\n**Status**: OPEN\n")
+        _write_file(tmp_path, "BUG-002-with-slug.md", "**Status**: FIXED\n")
+
+        records, companions, skipped = find_records(tmp_path, BUG_RECORD_RE, "bug")
+
+        assert "BUG-001.md" in records
+        assert "BUG-002-with-slug.md" in records
+        assert companions == []
+        assert skipped == set()
+
+    def test_slug_less_td_file_matches(self, tmp_path: Path) -> None:
+        """TECH-DEBT-010.md (no slug) must match TD_RECORD_RE."""
+        _write_file(tmp_path, "TECH-DEBT-010.md", "**Status**: RESOLVED\n")
+
+        records, companions, skipped = find_records(tmp_path, TD_RECORD_RE, "td")
+
+        assert "TECH-DEBT-010.md" in records
+        assert companions == []
+        assert skipped == set()
+
+    def test_skipped_uppercase_slug_detected(self, tmp_path: Path) -> None:
+        """BUG-005-BAD_SLUG.md starts with BUG- but fails the pattern → skipped."""
+        _write_file(tmp_path, "BUG-005-BAD_SLUG.md")
+        _write_file(tmp_path, "BUG-006-good-slug.md")
+
+        records, _companions, skipped = find_records(tmp_path, BUG_RECORD_RE, "bug")
+
+        assert "BUG-006-good-slug.md" in records
+        assert "BUG-005-BAD_SLUG.md" in skipped
+
+    def test_skipped_wrong_extension_detected(self, tmp_path: Path) -> None:
+        """BUG-007-some-bug.txt starts with BUG- but has wrong extension → skipped."""
+        _write_file(tmp_path, "BUG-007-some-bug.txt")
+        _write_file(tmp_path, "BUG-008-real.md")
+
+        records, _companions, skipped = find_records(tmp_path, BUG_RECORD_RE, "bug")
+
+        assert "BUG-008-real.md" in records
+        assert "BUG-007-some-bug.txt" in skipped
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +597,28 @@ class TestTitleExtraction:
             text, "TECH-DEBT-152-architecture-doc-keyword-trigger-mismatch.md"
         )
         assert result == "Architecture Doc Keyword Trigger Mismatch"
+
+    def test_slug_less_bug_file_desluggifies_to_empty(self) -> None:
+        """BUG-001.md with a generic heading and no **Title** field returns empty title.
+
+        A slug-less file has nothing to de-slugify; extract_title must return "" rather
+        than echoing "BUG-001" as a title.
+        """
+        text = "# Bug Report\n\n**Status**: OPEN\n"
+        result = extract_title(text, "BUG-001.md")
+        assert result == "", f"Expected empty title for slug-less file, got {result!r}"
+
+    def test_slug_less_bug_file_with_good_heading(self) -> None:
+        """BUG-001.md with a descriptive heading extracts from the heading normally."""
+        text = "# BUG-001: Some Useful Title\n\n**Status**: OPEN\n"
+        result = extract_title(text, "BUG-001.md")
+        assert result == "Some Useful Title"
+
+    def test_slug_less_td_file_desluggifies_to_empty(self) -> None:
+        """TECH-DEBT-010.md with a generic heading returns empty title."""
+        text = "# Technical Debt Item\n\n**Status**: RESOLVED\n"
+        result = extract_title(text, "TECH-DEBT-010.md")
+        assert result == ""
 
 
 # ---------------------------------------------------------------------------
