@@ -2103,6 +2103,7 @@ def store_best_practice(
         )
 
         result["collection"] = "conventions"
+        result["group_id"] = group_id
 
         logger.info(
             "best_practice_stored",

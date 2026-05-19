@@ -5,11 +5,13 @@ Coverage:
         group_id and fail loud (ValueError) when it is absent or empty
         (DEC-PM298-D4 — no cwd/os.getcwd()/detect_project fallback)
 - P1-1: route_collections — conventions is project-scoped (shared=False)
-- P1-1: search_both_collections applies group_id to conventions
 - P1-3 RC-A: sys.path bootstrap present in aim-best-practices-researcher/SKILL.md;
              the skill passes an explicit group_id from AI_MEMORY_PROJECT_ID
 - P1-3 RC-B: MemoryConfig() constructs when GITHUB_SYNC_ENABLED=true with missing creds;
              github_sync_usable is False; no ValueError raised
+
+Note: search_both_collections project-scoping is covered in
+tests/test_search.py::TestMemorySearch::test_search_both_collections_filters_implementations_only
 
 PLAN-028 P1 (W-01): FR16 amended — conventions is project-scoped.
 """
@@ -25,12 +27,16 @@ import pytest
 
 
 def _mock_storage(memory_id="mem-001", group_id="my-project"):
-    """Return a patched MemoryStorage whose store_memory returns a stored result."""
+    """Return a patched MemoryStorage whose store_memory returns a stored result.
+
+    Note: group_id is intentionally absent from the return value — store_memory()
+    does not include group_id in its result dict; store_best_practice() adds it
+    itself (M-2 fix: result["group_id"] = group_id).
+    """
     mock_storage = MagicMock()
     mock_storage.store_memory.return_value = {
         "status": "stored",
         "memory_id": memory_id,
-        "group_id": group_id,
         "embedding_status": "complete",
     }
     return mock_storage
