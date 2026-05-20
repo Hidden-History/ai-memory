@@ -345,6 +345,7 @@ def test_t8_orphan_tempfile_flagged_by_verify(tmp_path):
     env_pairs = dict.fromkeys(PP_2_KEYS, "")
     env_pairs["GITHUB_SYNC_ENABLED"] = "false"
     _write_env(env_file, env_pairs)
+    env_file.chmod(0o640)
     _make_minimal_compose(docker_dir)
 
     # Simulate orphan tempfile left from interrupted migration
@@ -434,6 +435,7 @@ def test_t10_rollback_verify_fails_then_fresh_gen_passes(tmp_path):
     env_pairs = dict.fromkeys(PP_2_KEYS, "")
     env_pairs["GITHUB_SYNC_ENABLED"] = "false"
     _write_env(env_file, env_pairs)
+    env_file.chmod(0o640)
 
     result = _run_verify(tmp_path)
     # .env.secrets absent but .env has blanks → I1 pass (no non-empty secrets in .env);
