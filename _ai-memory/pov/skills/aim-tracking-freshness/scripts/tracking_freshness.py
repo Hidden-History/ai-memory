@@ -19,6 +19,8 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
+import subprocess
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -122,6 +124,19 @@ _BOLD_RE = re.compile(r"\*+")
 # INDEX section markers for divergence detection
 _OPEN_SECTION_RE = re.compile(r"^##\s+Open", re.MULTILINE | re.IGNORECASE)
 _CLOSED_SECTION_RE = re.compile(r"^##\s+Closed", re.MULTILINE | re.IGNORECASE)
+
+# Evidence token patterns for --verify-code-state (F-1)
+_SHA_EVIDENCE_RE = re.compile(r"\b([0-9a-f]{7,40})\b")
+_PR_REF_EVIDENCE_RE = re.compile(r"#(\d{1,4})\b")
+_FILE_PATH_EVIDENCE_RE = re.compile(
+    r"[a-zA-Z0-9_][a-zA-Z0-9_.-]*/[a-zA-Z0-9/_.-]+\.[a-zA-Z0-9]{1,5}"
+)
+
+# Decision-log DEC ID patterns for F-2
+_DEC_RANGE_RE = re.compile(r"DEC-PM(\d+)-D(\d+)\.\.D(\d+)")
+_DEC_INDIVIDUAL_RE = re.compile(r"DEC-PM(\d+)-D(\d+)")
+_DEC_BODY_HEADING_RE = re.compile(r"^### (DEC-PM\d+-D\d+)", re.MULTILINE)
+_DECISION_LOG_HR_RE = re.compile(r"^---$", re.MULTILINE)
 
 
 # ---------------------------------------------------------------------------
@@ -995,6 +1010,580 @@ def print_staleness_report(
 
 
 # ---------------------------------------------------------------------------
+# F-1: Phantom-open candidate detection (--verify-code-state)
+# ---------------------------------------------------------------------------
+
+
+def resolve_source_repo(args: argparse.Namespace, oversight_root: Path) -> Path | None:
+    """Resolve source git repo path from --source-repo, env var, or default heuristic.
+
+    Resolution order: ``--source-repo`` CLI flag → ``AI_MEMORY_SOURCE_REPO`` env var
+    → ``../ai-memory`` relative to the oversight root (workspace-layout heuristic).
+    Returns ``None`` when the resolved path does not exist.
+    """
+    if getattr(args, "source_repo", None):
+        p = Path(args.source_repo).expanduser().resolve()
+    elif "AI_MEMORY_SOURCE_REPO" in os.environ:
+        p = Path(os.environ["AI_MEMORY_SOURCE_REPO"]).expanduser().resolve()
+    else:
+        p = (oversight_root.parent / "ai-memory").resolve()
+    return p if p.is_dir() else None
+
+
+def _git_available() -> bool:
+    return shutil.which("git") is not None
+
+
+def _run_git(cmd: list, cwd: Path, timeout: float = 5.0) -> tuple[bool, str]:
+    """Run a git sub-command; return (success, stdout).
+
+    Returns (False, "") on timeout or OS error — callers treat this as "no evidence".
+    """
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return result.returncode == 0, result.stdout
+    except subprocess.TimeoutExpired:
+        return False, ""
+    except OSError:
+        return False, ""
+
+
+def extract_evidence_tokens(text: str, numeric_id: str, kind: str) -> dict:
+    """Extract evidence tokens (SHAs, PR refs, file paths) from a record file body.
+
+    Returns a dict with keys: record_id, shas, pr_refs, file_paths.
+    """
+    id_prefix = "BUG" if kind == "bug" else "TECH-DEBT"
+    record_id = f"{id_prefix}-{numeric_id}"
+
+    shas: set = set(_SHA_EVIDENCE_RE.findall(text))
+
+    pr_refs: set = set()
+    for line in text.splitlines():
+        if line.lstrip().startswith("#"):
+            continue
+        for m in _PR_REF_EVIDENCE_RE.finditer(line):
+            num = int(m.group(1))
+            if 1 <= num <= 9999:
+                pr_refs.add(m.group(1))
+
+    file_paths: set = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("-", "*", "+")):
+            for m in _FILE_PATH_EVIDENCE_RE.finditer(stripped):
+                file_paths.add(m.group(0))
+
+    return {
+        "record_id": record_id,
+        "shas": shas,
+        "pr_refs": pr_refs,
+        "file_paths": file_paths,
+    }
+
+
+def _query_merged_shas(
+    record_id: str,
+    source_repo: Path,
+    timeout: float = 5.0,
+) -> tuple[list, list, dict]:
+    """Query git for commits mentioning record_id.
+
+    Returns (merged_shas, all_shas, touched_files_by_sha).
+    merged_shas: abbreviated SHAs reachable from main.
+    all_shas: abbreviated SHAs from --all search.
+    touched_files_by_sha: {sha: [file, ...]}.
+    """
+    ok, out = _run_git(
+        ["git", "log", "--all", "--oneline", f"--grep={record_id}"],
+        source_repo,
+        timeout=timeout,
+    )
+    all_shas: list = []
+    if ok and out.strip():
+        for line in out.strip().splitlines():
+            parts = line.split(None, 1)
+            if parts:
+                all_shas.append(parts[0])
+
+    if not all_shas:
+        return [], [], {}
+
+    ok2, out2 = _run_git(
+        ["git", "log", "--oneline", f"--grep={record_id}", "main"],
+        source_repo,
+        timeout=timeout,
+    )
+    merged_shas: list = []
+    if ok2 and out2.strip():
+        for line in out2.strip().splitlines():
+            parts = line.split(None, 1)
+            if parts:
+                merged_shas.append(parts[0])
+
+    touched_files_by_sha: dict = {}
+    for sha in merged_shas:
+        # --root makes diff-tree emit touched files for a root commit too;
+        # otherwise root commits return empty output and path-overlap scoring
+        # silently collapses to MEDIUM.
+        ok3, out3 = _run_git(
+            ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha],
+            source_repo,
+            timeout=timeout,
+        )
+        if ok3:
+            touched_files_by_sha[sha] = [f for f in out3.strip().splitlines() if f]
+
+    return merged_shas, all_shas, touched_files_by_sha
+
+
+def _has_revert_on_main(
+    record_id: str, source_repo: Path, timeout: float = 5.0
+) -> bool:
+    """Return True if a revert commit for record_id is reachable from main."""
+    ok, out = _run_git(
+        ["git", "log", "--oneline", f"--grep=Revert.*{record_id}", "main"],
+        source_repo,
+        timeout=timeout,
+    )
+    return ok and bool(out.strip())
+
+
+def _bug_mtime_predates_fix(
+    record_path: Path, record_id: str, source_repo: Path, timeout: float = 5.0
+) -> bool:
+    """Return True if the record file mtime predates the latest fix commit date."""
+    try:
+        rec_mtime = record_path.stat().st_mtime
+    except OSError:
+        return False
+
+    ok, out = _run_git(
+        ["git", "log", "--format=%ct", f"--grep={record_id}", "main"],
+        source_repo,
+        timeout=timeout,
+    )
+    if not ok or not out.strip():
+        return False
+
+    for line in out.strip().splitlines():
+        try:
+            commit_ts = float(line.strip())
+            if rec_mtime < commit_ts:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def score_phantom_confidence(
+    merged_shas: list,
+    all_shas: list,
+    touched_files_by_sha: dict,
+    evidence_tokens: dict,
+    record_path: Path,
+    source_repo: Path,
+) -> str | None:
+    """Return confidence level (HIGH/MEDIUM/LOW) or None when record should not be flagged.
+
+    HIGH: ≥1 commit on main, file-path overlap with bug body, record mtime predates fix.
+    MEDIUM: ≥1 commit on main, no file-path overlap (commit message is the only link).
+    LOW: evidence exists (tokens in file or commits in --all) but none merged to main;
+         also LOW when a revert commit is reachable from main alongside the fix commit.
+    None: no git evidence and no inline evidence tokens — skip this record.
+    """
+    record_id = evidence_tokens["record_id"]
+
+    if not merged_shas:
+        has_any_evidence = bool(
+            all_shas or evidence_tokens["shas"] or evidence_tokens["pr_refs"]
+        )
+        return "LOW" if has_any_evidence else None
+
+    if _has_revert_on_main(record_id, source_repo):
+        return "LOW"
+
+    all_touched: set = set()
+    for files in touched_files_by_sha.values():
+        all_touched.update(files)
+
+    evidence_paths = evidence_tokens["file_paths"]
+    has_path_overlap = False
+    if evidence_paths and all_touched:
+        for ep in evidence_paths:
+            ep_base = ep.split("/")[-1]
+            for tf in all_touched:
+                tf_base = tf.split("/")[-1]
+                if ep == tf or ep_base == tf_base:
+                    has_path_overlap = True
+                    break
+            if has_path_overlap:
+                break
+
+    mtime_predates = _bug_mtime_predates_fix(record_path, record_id, source_repo)
+
+    if has_path_overlap and mtime_predates:
+        return "HIGH"
+    return "MEDIUM"
+
+
+def _phantom_table_rows(candidates: list) -> list:
+    """Render markdown table rows for a list of phantom-open candidate dicts."""
+    rows = [
+        "| Record | File Status | Fix commit(s) on main | Files touched | Record mtime |",
+        "|--------|-------------|------------------------|---------------|--------------|",
+    ]
+    for c in candidates:
+        record = c["record"]
+        commits = ", ".join(c["merged_shas"][:3])
+        if len(c["merged_shas"]) > 3:
+            commits += f" (+{len(c['merged_shas']) - 3} more)"
+        all_touched = c["all_touched"]
+        files_preview = list(all_touched)[:4]
+        files_str = ", ".join(files_preview)
+        if len(all_touched) > 4:
+            files_str += f" (+{len(all_touched) - 4} more)"
+        try:
+            mtime_str = datetime.fromtimestamp(
+                c["record_path"].stat().st_mtime, tz=timezone.utc
+            ).strftime("%Y-%m-%d")
+        except OSError:
+            mtime_str = "unknown"
+        id_prefix = "BUG" if record.kind == "bug" else "TECH-DEBT"
+        rid = f"{id_prefix}-{record.numeric_id}"
+        status_cell = _table_cell(record.raw_status[:60])
+        rows.append(
+            f"| {rid} | {status_cell} | {commits or '—'} | {files_str or '—'} | {mtime_str} |"
+        )
+    return rows
+
+
+def print_phantom_report_section(
+    high: list,
+    medium: list,
+    low: list,
+) -> None:
+    """Print the PHANTOM-OPEN CANDIDATES section to stdout."""
+    print()
+    _hr()
+    total = len(high) + len(medium) + len(low)
+    print(
+        f"  PHANTOM-OPEN CANDIDATES "
+        f"(file says OPEN, git says FIXED): {total} candidate(s)"
+    )
+    _hr()
+    print()
+
+    if not total:
+        print("  ✓  No phantom-open candidates detected.")
+        print()
+        return
+
+    if high:
+        print(f"HIGH confidence — likely phantom-open ({len(high)})")
+        print()
+        for row in _phantom_table_rows(high):
+            print(row)
+        print()
+
+    if medium:
+        print(
+            f"MEDIUM confidence — commit exists, no file-path overlap ({len(medium)})"
+        )
+        print()
+        for row in _phantom_table_rows(medium):
+            print(row)
+        print()
+
+    if low:
+        print(f"LOW confidence — evidence in file, not yet merged to main ({len(low)})")
+        print()
+        for row in _phantom_table_rows(low):
+            print(row)
+        print()
+
+
+def write_phantom_sidecar(
+    high: list,
+    medium: list,
+    low: list,
+    oversight_root: Path,
+    now_str: str,
+) -> None:
+    """Write oversight/reports/PHANTOM-OPEN-CANDIDATES.md (created if absent)."""
+    reports_dir = oversight_root / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    sidecar = reports_dir / "PHANTOM-OPEN-CANDIDATES.md"
+
+    total = len(high) + len(medium) + len(low)
+    lines = [
+        "# Phantom-Open Candidates",
+        "",
+        f"**Generated**: {now_str}",
+        f"**Total candidates**: {total}",
+        "",
+        "> Records whose file `**Status**` says OPEN but whose git history suggests",
+        "> a fix is already merged to main. Requires human triage to confirm and update Status.",
+        "",
+        "---",
+        "",
+    ]
+    if not total:
+        lines += ["✓ No phantom-open candidates detected.", ""]
+    else:
+        for label, bucket in (
+            (f"## HIGH confidence — likely phantom-open ({len(high)})", high),
+            (
+                f"## MEDIUM confidence — commit exists, no file-path overlap ({len(medium)})",
+                medium,
+            ),
+            (
+                f"## LOW confidence — evidence in file, not yet merged to main ({len(low)})",
+                low,
+            ),
+        ):
+            if bucket:
+                lines += [label, ""]
+                lines += _phantom_table_rows(bucket)
+                lines += [""]
+
+    sidecar.write_text("\n".join(lines), encoding="utf-8")
+    print(f"Wrote sidecar: {sidecar}")
+
+
+def run_verify_code_state(
+    open_records_with_dirs: list,
+    source_repo: Path | None,
+    oversight_root: Path,
+    args: argparse.Namespace,
+) -> None:
+    """Orchestrate the phantom-open sweep: query git, score, print, write sidecar."""
+    if source_repo is None:
+        guessed = (oversight_root.parent / "ai-memory").resolve()
+        print(
+            f"NOTE: --verify-code-state requested but source repo not resolved "
+            f"(checked AI_MEMORY_SOURCE_REPO env var and {guessed}).",
+            file=sys.stderr,
+        )
+        return
+
+    if not _git_available():
+        print(
+            "NOTE: --verify-code-state requested but 'git' binary not found in PATH.",
+            file=sys.stderr,
+        )
+        return
+
+    # Apply --bug-id filter
+    bug_id_filter = getattr(args, "bug_id", None)
+    if bug_id_filter:
+        norm = bug_id_filter.upper()
+        open_records_with_dirs = [
+            (r, d)
+            for r, d in open_records_with_dirs
+            if (f"BUG-{r.numeric_id}" == norm or f"TECH-DEBT-{r.numeric_id}" == norm)
+        ]
+
+    # Apply --last-n-sessions filter (N most recently modified open records)
+    last_n = getattr(args, "last_n_sessions", None)
+    if last_n is not None and last_n > 0:
+
+        def _mtime(item: tuple) -> float:
+            r, d = item
+            try:
+                return (d / r.filename).stat().st_mtime
+            except OSError:
+                return 0.0
+
+        open_records_with_dirs = sorted(
+            open_records_with_dirs, key=_mtime, reverse=True
+        )[:last_n]
+
+    high: list = []
+    medium: list = []
+    low: list = []
+
+    for record, record_dir in open_records_with_dirs:
+        record_path = record_dir / record.filename
+        try:
+            text = record_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        tokens = extract_evidence_tokens(text, record.numeric_id, record.kind)
+        merged_shas, all_shas, touched_files_by_sha = _query_merged_shas(
+            tokens["record_id"], source_repo
+        )
+        confidence = score_phantom_confidence(
+            merged_shas,
+            all_shas,
+            touched_files_by_sha,
+            tokens,
+            record_path,
+            source_repo,
+        )
+        if confidence is None:
+            continue
+
+        all_touched: set = set()
+        for files in touched_files_by_sha.values():
+            all_touched.update(files)
+
+        candidate = {
+            "record": record,
+            "record_path": record_path,
+            "confidence": confidence,
+            "merged_shas": merged_shas,
+            "all_shas": all_shas,
+            "all_touched": all_touched,
+        }
+        if confidence == "HIGH":
+            high.append(candidate)
+        elif confidence == "MEDIUM":
+            medium.append(candidate)
+        else:
+            low.append(candidate)
+
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    print_phantom_report_section(high, medium, low)
+    write_phantom_sidecar(high, medium, low, oversight_root, now_str)
+
+
+# ---------------------------------------------------------------------------
+# F-2: Decision-log body coverage check (folded into --check / --write)
+# ---------------------------------------------------------------------------
+
+
+def _parse_dec_ids_from_text(text: str) -> set:
+    """Extract all DEC-PMnnn-Dn IDs from text, expanding range notation.
+
+    Range ``DEC-PM299-D1..D8`` expands to DEC-PM299-D1 through DEC-PM299-D8.
+    Individual ``DEC-PM299-D1`` references outside a range are also collected.
+    Deduplication is applied.
+    """
+    found: set = set()
+    range_positions: set = set()
+
+    for m in _DEC_RANGE_RE.finditer(text):
+        pm_num = m.group(1)
+        start = int(m.group(2))
+        end = int(m.group(3))
+        for d in range(start, end + 1):
+            found.add(f"DEC-PM{pm_num}-D{d}")
+        range_positions.update(range(m.start(), m.end()))
+
+    for m in _DEC_INDIVIDUAL_RE.finditer(text):
+        if m.start() not in range_positions:
+            found.add(f"DEC-PM{m.group(1)}-D{m.group(2)}")
+
+    return found
+
+
+def parse_decision_log_header_ids(header_text: str) -> set:
+    """Extract DEC-PMnnn-Dn IDs from the decision-log header block."""
+    return _parse_dec_ids_from_text(header_text)
+
+
+def parse_decision_log_body_ids(full_text: str) -> set:
+    """Extract DEC-PMnnn-Dn IDs from decision-log ``### DEC-PMnnn-Dn`` body headings."""
+    found: set = set()
+    for m in _DEC_BODY_HEADING_RE.finditer(full_text):
+        found.add(m.group(1))
+    return found
+
+
+def check_decision_log_coverage(
+    oversight_root: Path,
+) -> tuple[list, list]:
+    """Parse tracking/decision-log.md and return (missing_ids, orphan_ids).
+
+    missing_ids: DEC IDs referenced in the header block with no body ``### heading``.
+    orphan_ids: DEC IDs with a body ``### heading`` but not referenced in the header block.
+    Returns ([], []) with a NOTE to stderr when the file is absent or unreadable.
+    """
+    log_path = oversight_root / "tracking" / "decision-log.md"
+    if not log_path.exists():
+        print(
+            f"NOTE: decision-log.md not found at {log_path} "
+            "— decision-log coverage check skipped.",
+            file=sys.stderr,
+        )
+        return [], []
+
+    try:
+        full_text = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        print(
+            f"NOTE: could not read {log_path}: {exc} "
+            "— decision-log coverage check skipped.",
+            file=sys.stderr,
+        )
+        return [], []
+
+    hr_match = _DECISION_LOG_HR_RE.search(full_text)
+    if hr_match:
+        header_text = full_text[: hr_match.start()]
+    else:
+        print(
+            "NOTE: decision-log.md has no '---' separator — "
+            "treating entire file as header block.",
+            file=sys.stderr,
+        )
+        header_text = full_text
+
+    header_ids = parse_decision_log_header_ids(header_text)
+    body_ids = parse_decision_log_body_ids(full_text)
+
+    missing = sorted(header_ids - body_ids)
+    orphan = sorted(body_ids - header_ids)
+    return missing, orphan
+
+
+def print_decision_log_report(missing: list, orphan: list) -> None:
+    """Print the DECISION-LOG COVERAGE section to stdout."""
+    print()
+    _hr()
+    print("  DECISION-LOG COVERAGE (header block refs vs body ### headings)")
+    _hr()
+    print()
+
+    print(f"DRIFT-DEC-MISSING (header ref, no body entry): {len(missing)}")
+    if missing:
+        for dec_id in missing:
+            print(
+                f"  ✗  {dec_id}"
+                "  (referenced in header summary, no ### body heading found)"
+            )
+    else:
+        print("  (none)")
+    print()
+
+    print(f"DRIFT-DEC-ORPHAN (body heading, no header ref): {len(orphan)}")
+    if orphan:
+        # INFORMATION SOURCE (U+2139) is the documented informational marker
+        # for DRIFT-DEC-ORPHAN entries; the deliberate visual similarity to
+        # ASCII `i` is part of the skill's stable text contract.
+        for dec_id in orphan:
+            print(
+                f"  ℹ  {dec_id}"  # noqa: RUF001
+                "  (### body heading exists, not referenced in current header summary)"
+            )
+    else:
+        print("  (none)")
+    print()
+
+    if not missing:
+        print("  ✓  Decision-log body coverage is complete.")
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Oversight root resolution
 # ---------------------------------------------------------------------------
 
@@ -1055,6 +1644,41 @@ def main() -> None:
             "Path to the oversight/ directory "
             "(default: ./oversight relative to CWD, "
             "overridden by AI_MEMORY_OVERSIGHT_ROOT env var)."
+        ),
+    )
+    parser.add_argument(
+        "--verify-code-state",
+        action="store_true",
+        help=(
+            "Cross-check open records against source git history to detect "
+            "phantom-open candidates (file Status OPEN, fix commits merged to main). "
+            "Advisory only — does not change --check exit code."
+        ),
+    )
+    parser.add_argument(
+        "--source-repo",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Path to the source git repo for --verify-code-state "
+            "(default: AI_MEMORY_SOURCE_REPO env var, then ../ai-memory relative to oversight root)."
+        ),
+    )
+    parser.add_argument(
+        "--last-n-sessions",
+        metavar="N",
+        type=int,
+        default=None,
+        help=(
+            "Limit --verify-code-state sweep to the N most recently modified open records."
+        ),
+    )
+    parser.add_argument(
+        "--bug-id",
+        metavar="RECORD-ID",
+        default=None,
+        help=(
+            "Limit --verify-code-state to a single record (e.g. BUG-273 or TECH-DEBT-547)."
         ),
     )
     args = parser.parse_args()
@@ -1122,10 +1746,23 @@ def main() -> None:
     # ── Print report (both modes) ─────────────────────────────────────────
     print_staleness_report(staleness, bugs_records, td_records, mode)
 
+    # ── F-1: Phantom-open candidate detection (advisory, no exit-code change) ─
+    if args.verify_code_state:
+        source_repo = resolve_source_repo(args, oversight_root)
+        open_records_with_dirs = [
+            (r, bugs_dir) for r in bugs_records if not r.is_closed
+        ] + [(r, td_dir) for r in td_records if not r.is_closed]
+        run_verify_code_state(open_records_with_dirs, source_repo, oversight_root, args)
+
+    # ── F-2: Decision-log body coverage check (DRIFT-DEC-MISSING → exit 1) ─
+    missing_decs, orphan_decs = check_decision_log_coverage(oversight_root)
+    print_decision_log_report(missing_decs, orphan_decs)
+
     # Exit-code contract:
     # --check : exits 1 if any divergence, orphan, missing, skipped, missing
-    #           index, or no-status record is found; exits 0 when INDEX files
-    #           are fully in sync.
+    #           index, no-status record, or DRIFT-DEC-MISSING is found; exits 0
+    #           when INDEX files are fully in sync and decision-log coverage is clean.
+    #           Phantom-open candidates (--verify-code-state) are advisory only.
     # --write : exits 0 on a successful write (drift found-and-corrected is a
     #           successful outcome; the INDEX is now correct).  Use --check as
     #           the gating command in CI.
@@ -1139,6 +1776,7 @@ def main() -> None:
             + len(staleness["no_status"])
             + len(staleness["skipped"])
             + len(staleness["missing_indexes"])
+            + len(missing_decs)
         )
         if issues:
             sys.exit(1)
