@@ -151,19 +151,23 @@ def run_checks(install_dir: str, strict: bool) -> int:
     else:
         _ok("I1: docker/.env.secrets exists")
 
-    # I2: file permissions (.env = 644, .env.secrets = 600)
+    # I2: file permissions (.env = 640, .env.secrets = 600)
     # On WSL, chmod 600 may silently no-op (filesystem limitation); warn only on WSL.
     # On real Linux/macOS, a mode mismatch is a security invariant violation → _fail.
+    # .env is owner-read-write + group-read (640) per TD-551 canonical matrix in
+    # apply_docker_dir_permissions; the previous 0o644 expectation here was a
+    # pre-TD-551 leftover that spuriously passed only because the chmod helper
+    # never reached .env on fresh installs (cycle-2 M-1 fix surfaced the truth).
     env_mode = _file_mode(env_file)
-    if env_mode != 0o644:
+    if env_mode != 0o640:
         if _is_wsl():
             _warn(
-                f"I2: docker/.env mode {oct(env_mode)} (expected 0o644 — WSL may not enforce)"
+                f"I2: docker/.env mode {oct(env_mode)} (expected 0o640 — WSL may not enforce)"
             )
         else:
-            _fail(failures, f"I2: docker/.env mode {oct(env_mode)} (expected 0o644)")
+            _fail(failures, f"I2: docker/.env mode {oct(env_mode)} (expected 0o640)")
     else:
-        _ok("I2a: docker/.env mode 644")
+        _ok("I2a: docker/.env mode 640")
 
     if secrets_file.exists():
         sec_mode = _file_mode(secrets_file)
