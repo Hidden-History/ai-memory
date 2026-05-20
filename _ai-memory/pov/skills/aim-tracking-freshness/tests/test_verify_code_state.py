@@ -508,3 +508,38 @@ class TestEvidenceTimeoutBucket:
         sidecar_text = sidecar.read_text(encoding="utf-8")
         assert "EVIDENCE-TIMEOUT" in sidecar_text
         assert "BUG-298" in sidecar_text
+
+
+# ---------------------------------------------------------------------------
+# F-5: Version-string token class (spec §4.1 Step A row 3)
+# ---------------------------------------------------------------------------
+
+
+class TestExtractEvidenceTokensVersions:
+    def test_version_strings_extracted_per_spec(self) -> None:
+        """``v\\d+\\.\\d+\\.\\d+`` tokens captured alongside SHAs/PRs/file-paths."""
+        text = (
+            "# BUG-999: Some bug\n\n"
+            "**Status**: OPEN\n\n"
+            "Affected versions: v2.4.0, v2.4.1\n"
+            "Fix target: v3.0.0\n"
+            "Note: V2 should NOT match (uppercase, not lowercase v).\n"
+            "Note: v2.4 should NOT match (only two components).\n"
+        )
+        tokens = tf.extract_evidence_tokens(text, "999", "bug")
+        assert tokens["versions"] == {
+            "v2.4.0",
+            "v2.4.1",
+            "v3.0.0",
+        }, f"Unexpected versions set: {tokens['versions']}"
+
+    def test_version_tokens_dict_key_present_when_none_match(self) -> None:
+        """``versions`` key is always present in the result dict (empty set when none)."""
+        text = (
+            "# BUG-001: No versions cited here\n\n"
+            "**Status**: OPEN\n\n"
+            "## Summary\n\nNothing to see.\n"
+        )
+        tokens = tf.extract_evidence_tokens(text, "001", "bug")
+        assert "versions" in tokens
+        assert tokens["versions"] == set()

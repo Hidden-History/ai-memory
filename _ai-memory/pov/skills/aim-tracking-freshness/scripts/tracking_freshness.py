@@ -131,6 +131,10 @@ _PR_REF_EVIDENCE_RE = re.compile(r"#(\d{1,4})\b")
 _FILE_PATH_EVIDENCE_RE = re.compile(
     r"[a-zA-Z0-9_][a-zA-Z0-9_.-]*/[a-zA-Z0-9/_.-]+\.[a-zA-Z0-9]{1,5}"
 )
+# Version-string token class per spec §4.1 Step A row 3 — lowercase ``v``
+# followed by N.N.N (e.g. ``v2.4.0``).  Captured for token completeness;
+# Step C confidence scoring does not consume version tokens today.
+_VERSION_EVIDENCE_RE = re.compile(r"\bv\d+\.\d+\.\d+\b")
 
 # Decision-log DEC ID patterns for F-2
 _DEC_RANGE_RE = re.compile(r"DEC-PM(\d+)-D(\d+)\.\.D(\d+)")
@@ -1110,9 +1114,19 @@ def resolve_main_branch(
 
 
 def extract_evidence_tokens(text: str, numeric_id: str, kind: str) -> dict:
-    """Extract evidence tokens (SHAs, PR refs, file paths) from a record file body.
+    """Extract evidence tokens (SHAs, PR refs, version strings, file paths) from a record body.
 
-    Returns a dict with keys: record_id, shas, pr_refs, file_paths.
+    Per spec §4.1 Step A, four token classes are captured:
+
+    1. Commit SHAs (``\\b[0-9a-f]{7,40}\\b``)
+    2. PR refs (``#\\d{1,4}`` on non-heading lines)
+    3. Version strings (``v\\d+\\.\\d+\\.\\d+``)
+    4. File paths cited on bulleted lines
+
+    Returns a dict with keys: ``record_id``, ``shas``, ``pr_refs``,
+    ``versions``, ``file_paths``.  Step C confidence scoring currently
+    consumes SHAs/PR refs/file paths; versions are stored for token
+    completeness and future-use without behavioural impact.
     """
     id_prefix = "BUG" if kind == "bug" else "TECH-DEBT"
     record_id = f"{id_prefix}-{numeric_id}"
@@ -1128,6 +1142,8 @@ def extract_evidence_tokens(text: str, numeric_id: str, kind: str) -> dict:
             if 1 <= num <= 9999:
                 pr_refs.add(m.group(1))
 
+    versions: set = set(_VERSION_EVIDENCE_RE.findall(text))
+
     file_paths: set = set()
     for line in text.splitlines():
         stripped = line.strip()
@@ -1139,6 +1155,7 @@ def extract_evidence_tokens(text: str, numeric_id: str, kind: str) -> dict:
         "record_id": record_id,
         "shas": shas,
         "pr_refs": pr_refs,
+        "versions": versions,
         "file_paths": file_paths,
     }
 
