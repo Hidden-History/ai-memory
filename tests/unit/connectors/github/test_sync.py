@@ -45,10 +45,16 @@ def test_sync_result_defaults():
 
 
 def test_engine_requires_enabled():
-    """Engine raises ValueError when sync not enabled."""
+    """Engine raises ValueError when sync is not usable.
+
+    PLAN-028 P1 FIX-2: __init__ gates on the derived github_sync_usable flag
+    (False when sync is disabled OR credentials are incomplete) rather than
+    github_sync_enabled.
+    """
     config = MagicMock()
     config.github_sync_enabled = False
-    with pytest.raises(ValueError, match="not enabled"):
+    config.github_sync_usable = False
+    with pytest.raises(ValueError, match="not usable"):
         GitHubSyncEngine(config)
 
 

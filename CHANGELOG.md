@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `_ai-memory/pov/templates/tech-debt-report.template.md` — new template for technical-debt records, matching the existing bug-report template style. Previously the tech-debt tracker had no template; the skill now has an explicit source-of-truth for the `TECH-DEBT-NNN` filename convention and status-token contract. (PLAN-028 P0-4c)
 - `_ai-memory/pov/templates/bug-report.template.md` filename-convention clause — documents the slug-optional `BUG-NNN.md` / `BUG-NNN-<slug>.md` convention accepted by `aim-tracking-freshness`. (PLAN-028 P0-4c)
 - Session-start (`[ST]`) and quick-status (`[SU]`) workflows now read the compact `bugs/INDEX.md` and `tech-debt/INDEX.md` Quick Stats table for bug and TD totals, instead of scanning individual record files. Keeps per-session startup context cost bounded as the trackers grow; a missing INDEX degrades gracefully without surfacing raw record file content. (PLAN-028 P0-4c)
+- `github_sync_usable` derived config flag — set by `validate_github_config()`, True only when `github_sync_enabled` is true *and* the GitHub token and repo are both present and valid. GitHub sync entrypoints now gate on this flag so a misconfigured-but-enabled sync skips cleanly instead of raising at `MemoryConfig()` construction time. (PLAN-028 P1, TECH-DEBT-166 RC-B)
+
+### Changed
+
+- The `conventions` collection (best practices) is now project-scoped: every store and every retrieve carries an explicit project `group_id`. The former cross-project "shared" tier was removed — `conventions` behaves like all other collections. (PLAN-028 P1 / W-01; FR16 amended)
+- `store_best_practice()` and `retrieve_best_practices()` now require an explicit non-empty `group_id`; they fail loudly with a `ValueError` rather than guessing from the working directory, eliminating cross-project contamination of `conventions`. (PLAN-028 P1, DEC-PM298-D4)
+- Conventions retrieval in the `new_file_trigger`, `best_practices_retrieval`, and Tier-2 context-injection hooks now passes the detected project as `group_id` instead of `None`, ending cross-project leakage of best-practice results. (PLAN-028 P1)
+- GitHub sync entrypoints (`GitHubSyncEngine.__init__` and `_build_github_enrichment()`) now check `github_sync_usable` instead of `github_sync_enabled`. (PLAN-028 P1, TECH-DEBT-166 RC-B)
+- `aim-best-practices-researcher` skill — Phase 1 database lookup now resolves the project from `AI_MEMORY_PROJECT_ID` and passes it as `group_id` when searching the project-scoped `conventions` collection; the `RESEARCH-METHODOLOGY.md` Phase 1 `sys.path` bootstrap now points at `~/.ai-memory/src` instead of the broken `Path.cwd() / "src"`. (PLAN-028 P1, TECH-DEBT-166 RC-A)
+- `RouteTarget.shared` is now always `False` — all Tier-2 routed collections, including `conventions`, are project-scoped. The field is retained only because the `context_injection_tier2.py` hook still reads it. (PLAN-028 P1 / W-01)
 
 ## [2.4.2] - 2026-05-17
 

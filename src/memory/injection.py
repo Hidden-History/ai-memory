@@ -103,7 +103,11 @@ class RouteTarget(NamedTuple):
 
     Attributes:
         collection: Collection name to search
-        shared: True = no group_id filter (conventions), False = project-scoped
+        shared: Deprecated — always False after PLAN-028 P1 (W-01). All
+                collections including conventions are now project-scoped.
+                Still actively read by the `context_injection_tier2.py` hook
+                (`gid = None if route.shared else project_name`); must NOT be
+                removed until that hook stops referencing it.
     """
 
     collection: str
@@ -216,7 +220,7 @@ def _build_github_enrichment(
     if not last_session_date:
         return []
 
-    if not config.github_sync_enabled:
+    if not config.github_sync_usable:
         return []
 
     recent_github = search_client.search(
@@ -658,8 +662,8 @@ def route_collections(
         prompt: User's message text
 
     Returns:
-        List of RouteTarget tuples with collection and shared flag.
-        shared=True means no group_id filter (conventions).
+        List of RouteTarget tuples with collection. All collections including
+        conventions are project-scoped (PLAN-028 P1 W-01).
     """
     routes = []
 
@@ -669,11 +673,11 @@ def route_collections(
     bp_topic = detect_best_practices_keywords(prompt)
 
     if decision_topic:
-        routes.append(RouteTarget(COLLECTION_DISCUSSIONS, shared=False))
+        routes.append(RouteTarget(COLLECTION_DISCUSSIONS))
     if session_topic:
-        routes.append(RouteTarget(COLLECTION_DISCUSSIONS, shared=False))
+        routes.append(RouteTarget(COLLECTION_DISCUSSIONS))
     if bp_topic:
-        routes.append(RouteTarget(COLLECTION_CONVENTIONS, shared=True))
+        routes.append(RouteTarget(COLLECTION_CONVENTIONS))  # project-scoped per W-01
 
     if routes:
         # Deduplicate by collection name (e.g., both decision + session → discussions)
@@ -687,7 +691,7 @@ def route_collections(
 
     # 2. Check for file paths → code-patterns
     if _FILE_PATH_RE.search(prompt):
-        routes.append(RouteTarget(COLLECTION_CODE_PATTERNS, shared=False))
+        routes.append(RouteTarget(COLLECTION_CODE_PATTERNS))
         return routes
 
     # 3. Use existing intent detection
@@ -696,13 +700,13 @@ def route_collections(
     if intent == IntentType.UNKNOWN:
         # 4. Unknown → cascade: discussions first, then code-patterns, then conventions
         return [
-            RouteTarget(COLLECTION_DISCUSSIONS, shared=False),
-            RouteTarget(COLLECTION_CODE_PATTERNS, shared=False),
-            RouteTarget(COLLECTION_CONVENTIONS, shared=True),
+            RouteTarget(COLLECTION_DISCUSSIONS),
+            RouteTarget(COLLECTION_CODE_PATTERNS),
+            RouteTarget(COLLECTION_CONVENTIONS),  # project-scoped per W-01
         ]
 
     target = get_target_collection(intent)
-    return [RouteTarget(target, shared=(target == COLLECTION_CONVENTIONS))]
+    return [RouteTarget(target)]
 
 
 def compute_adaptive_budget(

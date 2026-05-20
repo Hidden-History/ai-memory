@@ -207,8 +207,8 @@ class TestRetrievalEvent:
             )
 
     def test_retrieval_event_allows_empty_group_id(self):
-        """Test that empty group_id is allowed (for shared collections)."""
-        # Should not raise - empty group_id is valid for shared collections
+        """Test that empty group_id is allowed in RetrievalEvent (e.g. unfiltered queries)."""
+        # Should not raise - empty group_id is valid (no filter applied)
         event = RetrievalEvent(
             query="test",
             collection="conventions",

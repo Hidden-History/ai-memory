@@ -45,12 +45,16 @@ class TestRouteCollections:
         assert routes[0].shared is False
 
     def test_best_practices_keywords_route_to_conventions(self):
-        """Best practices keywords should route to conventions collection."""
+        """Best practices keywords route to conventions, project-scoped.
+
+        PLAN-028 P1 (W-01): conventions is no longer a cross-project shared
+        collection — RouteTarget.shared is always False.
+        """
         prompt = "what are the best practices for error handling?"
         routes = route_collections(prompt)
         assert len(routes) == 1
         assert routes[0].collection == COLLECTION_CONVENTIONS
-        assert routes[0].shared is True
+        assert routes[0].shared is False
 
     def test_file_paths_route_to_code_patterns(self):
         """File paths in prompt should route to code-patterns collection."""

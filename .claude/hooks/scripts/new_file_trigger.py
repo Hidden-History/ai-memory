@@ -196,7 +196,7 @@ def main() -> int:
                 results = search.search(
                     query=query,
                     collection=COLLECTION_CONVENTIONS,
-                    group_id=None,  # Conventions are shared
+                    group_id=project_name,  # PLAN-028 P1: conventions are project-scoped
                     limit=config.get("max_results", 2),
                     score_threshold=mem_config.similarity_threshold,
                     memory_type=config.get("type_filter", ["naming", "structure"]),

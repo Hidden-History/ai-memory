@@ -228,7 +228,11 @@ class TestMemorySearchDualCollection:
     def test_search_both_collections_filters_implementations_only(
         self, mock_config, mock_qdrant_client, mock_embedding_client
     ):
-        """Test implementations filtered by group_id, best_practices not."""
+        """Both code-patterns and conventions are filtered by group_id.
+
+        PLAN-028 P1 (W-01): conventions is now project-scoped — search_both_collections
+        applies the project group_id filter to conventions, identical to code-patterns.
+        """
         search = MemorySearch()
 
         # Track query_points calls
@@ -248,10 +252,10 @@ class TestMemorySearchDualCollection:
         assert impl_call["collection_name"] == "code-patterns"
         assert impl_call["query_filter"] is not None
 
-        # Second call should be best_practices without group_id
+        # Second call is conventions, also filtered by group_id (project-scoped per W-01)
         bp_call = search_calls[1]
         assert bp_call["collection_name"] == "conventions"
-        assert bp_call["query_filter"] is None
+        assert bp_call["query_filter"] is not None
 
 
 class TestMemorySearchTieredFormatting:
@@ -701,6 +705,7 @@ class TestSearchParams:
 
         retrieve_best_practices(
             query="python naming conventions",
+            group_id="test-project",  # required-explicit per DEC-PM298-D4
             fast_mode=True,
         )
 
@@ -715,6 +720,7 @@ class TestSearchParams:
 
         retrieve_best_practices(
             query="python naming conventions",
+            group_id="test-project",  # required-explicit per DEC-PM298-D4
             # fast_mode not specified
         )
 

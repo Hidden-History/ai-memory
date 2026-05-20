@@ -519,7 +519,7 @@ def main() -> int:
             results = search.search(
                 query=query,
                 collection=COLLECTION_CONVENTIONS,
-                group_id=None,  # Conventions are shared across projects
+                group_id=project_name,  # PLAN-028 P1: conventions are project-scoped
                 limit=3,  # Up to 3 relevant practices (requirement)
                 score_threshold=threshold,
             )

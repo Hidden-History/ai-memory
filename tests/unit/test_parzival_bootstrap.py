@@ -167,6 +167,8 @@ class TestParzivalBootstrap:
         config = MagicMock(spec=MemoryConfig)
         config.parzival_enabled = True
         config.github_sync_enabled = True
+        # PLAN-028 P1 FIX-2: _build_github_enrichment gates on github_sync_usable
+        config.github_sync_usable = True
         # BUG-297: ceiling check runs on the handoff content; mock needs the field
         config.handoff_ceiling_tokens = 8000
 
@@ -190,6 +192,7 @@ class TestGitHubEnrichment:
 
         config = MagicMock(spec=MemoryConfig)
         config.github_sync_enabled = True
+        config.github_sync_usable = True
 
         result = _build_github_enrichment(
             mock_search, config, "test-project", "2026-02-12T00:00:00Z"
@@ -199,10 +202,11 @@ class TestGitHubEnrichment:
         assert result[0]["content"] == "PR new"
 
     def test_github_enrichment_skips_when_disabled(self):
-        """Returns empty when github_sync_enabled=False."""
+        """Returns empty when github sync is not usable (PLAN-028 P1 FIX-2)."""
         mock_search = MagicMock()
         config = MagicMock(spec=MemoryConfig)
         config.github_sync_enabled = False
+        config.github_sync_usable = False
 
         result = _build_github_enrichment(
             mock_search, config, "test-project", "2026-02-10T00:00:00Z"
@@ -233,6 +237,7 @@ class TestGitHubEnrichment:
 
         config = MagicMock(spec=MemoryConfig)
         config.github_sync_enabled = True
+        config.github_sync_usable = True
 
         result = _build_github_enrichment(
             mock_search, config, "test-project", "2026-02-01T00:00:00Z"
@@ -250,6 +255,7 @@ class TestGitHubEnrichment:
 
         config = MagicMock(spec=MemoryConfig)
         config.github_sync_enabled = True
+        config.github_sync_usable = True
 
         result = _build_github_enrichment(
             mock_search, config, "test-project", "2026-02-10T00:00:00Z"
@@ -264,6 +270,7 @@ class TestGitHubEnrichment:
 
         config = MagicMock(spec=MemoryConfig)
         config.github_sync_enabled = True
+        config.github_sync_usable = True
 
         _build_github_enrichment(
             mock_search, config, "test-project", "2026-02-10T00:00:00Z"

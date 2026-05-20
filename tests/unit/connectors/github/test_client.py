@@ -808,22 +808,31 @@ class TestGitHubConfig:
         assert config.github_code_blob_include_max_size == 512000
 
     def test_github_config_required_when_enabled(self):
-        """Token and repo required when sync enabled."""
+        """Incomplete creds no longer raise; github_sync_usable is False.
+
+        PLAN-028 P1 RC-B: validate_github_config was downgraded from a fatal
+        ValueError to a warning + derived github_sync_usable flag so an
+        optional, misconfigured GitHub sync cannot block every MemoryConfig()
+        consumer (storage, search, embeddings).
+        """
         from src.memory.config import MemoryConfig
 
-        with pytest.raises(ValueError):
-            MemoryConfig(github_sync_enabled=True)
+        config = MemoryConfig(github_sync_enabled=True)
+        assert config.github_sync_usable is False
 
     def test_github_repo_format_validation(self):
-        """Repo must be in owner/repo format."""
+        """Malformed repo no longer raises; github_sync_usable is False.
+
+        PLAN-028 P1 RC-B: see test_github_config_required_when_enabled.
+        """
         from src.memory.config import MemoryConfig
 
-        with pytest.raises(ValueError):
-            MemoryConfig(
-                github_sync_enabled=True,
-                github_token="ghp_test",
-                github_repo="invalid-format",
-            )
+        config = MemoryConfig(
+            github_sync_enabled=True,
+            github_token="ghp_test",
+            github_repo="invalid-format",
+        )
+        assert config.github_sync_usable is False
 
     def test_github_config_valid_when_enabled(self):
         """Valid config with all required fields."""

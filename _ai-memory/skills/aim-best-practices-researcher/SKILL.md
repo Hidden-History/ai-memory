@@ -13,20 +13,48 @@ Research specialist for current (2024-2026) best practices. Checks local databas
 
 ```python
 # Phase 1: Check database
+import os
+import sys
+sys.path.insert(0, os.path.join(os.path.expanduser("~/.ai-memory"), "src"))
 from memory.search import search_memories
+
+# The 'conventions' collection is project-scoped (PLAN-028 P1, DEC-PM298-D4).
+# Resolve the project from AI_MEMORY_PROJECT_ID — never from os.getcwd(), which
+# is unreliable for this forked skill subprocess. Fail loud if it is not set.
+project_id = os.environ.get("AI_MEMORY_PROJECT_ID")
+if not project_id:
+    raise RuntimeError(
+        "AI_MEMORY_PROJECT_ID is not set — cannot search the project-scoped "
+        "'conventions' collection. Set AI_MEMORY_PROJECT_ID and retry."
+    )
 results = search_memories(
     query="your topic",
     collection="conventions",
+    group_id=project_id,
     memory_type=["guideline", "rule"],
     limit=5
 )
 
 # Phase 4: Store findings
+import os
+import sys
+sys.path.insert(0, os.path.join(os.path.expanduser("~/.ai-memory"), "src"))
 from memory.storage import store_best_practice
+
+# Project scope is required-explicit (PLAN-028 P1, DEC-PM298-D4). Resolve it
+# deterministically from AI_MEMORY_PROJECT_ID — never from os.getcwd(), which is
+# unreliable for this forked skill subprocess. Fail loud if it is not set.
+project_id = os.environ.get("AI_MEMORY_PROJECT_ID")
+if not project_id:
+    raise RuntimeError(
+        "AI_MEMORY_PROJECT_ID is not set — cannot store a best practice without "
+        "an explicit project scope. Set AI_MEMORY_PROJECT_ID and retry."
+    )
 result = store_best_practice(
     content="Best practice description",
     session_id="current-session",
     source_hook="manual",
+    group_id=project_id,
     domain="python",
     tags=["topic"],
     source="https://source-url.com",
@@ -74,16 +102,29 @@ Without this step, research is lost and BUG-048 occurs.
 
 ```python
 # MANDATORY - Execute this code block
-from memory.storage import store_best_practice
 import os
+import sys
+sys.path.insert(0, os.path.join(os.path.expanduser("~/.ai-memory"), "src"))
+from memory.storage import store_best_practice
 
 # Get session_id from environment or use placeholder
 session_id = os.environ.get("CLAUDE_SESSION_ID", "manual-research")
+
+# Project scope is required-explicit (PLAN-028 P1, DEC-PM298-D4). Resolve it
+# deterministically from AI_MEMORY_PROJECT_ID — never from os.getcwd(), which is
+# unreliable for this forked skill subprocess. Fail loud if it is not set.
+project_id = os.environ.get("AI_MEMORY_PROJECT_ID")
+if not project_id:
+    raise RuntimeError(
+        "AI_MEMORY_PROJECT_ID is not set — cannot store a best practice without "
+        "an explicit project scope. Set AI_MEMORY_PROJECT_ID and retry."
+    )
 
 result = store_best_practice(
     content="YOUR_FINDING_CONTENT_HERE",  # Replace with actual finding
     session_id=session_id,
     source_hook="manual",
+    group_id=project_id,  # Explicit project scope (project-scoped per W-01)
     domain="YOUR_DOMAIN",  # e.g., "python", "testing", "architecture"
     tags=["YOUR", "TAGS"],  # Replace with relevant tags
     source="SOURCE_URL",  # URL where you found this

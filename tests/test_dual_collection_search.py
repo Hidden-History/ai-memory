@@ -106,8 +106,12 @@ def test_implementations_filtered_by_group_id():
         assert query_filter.must[0].match.value == "my-project"
 
 
-def test_best_practices_no_group_id_filter():
-    """AC 3.2.2: Best practices collection has no group_id filter (shared)."""
+def test_conventions_project_scoped_group_id_filter():
+    """AC 3.2.2 (amended): conventions collection uses project group_id filter (PLAN-028 P1).
+
+    PLAN-028 P1 (W-01): conventions is no longer "shared" — group_id filter
+    is applied to conventions the same as other collections.
+    """
     with (
         patch("memory.search.get_qdrant_client") as mock_qdrant,
         patch("memory.search.EmbeddingClient") as mock_embedding,
@@ -132,19 +136,22 @@ def test_best_practices_no_group_id_filter():
         mock_response.points = []
         mock_client.query_points.return_value = mock_response
 
-        # Execute search with group_id=None
+        # Execute search with explicit project group_id
         search = MemorySearch()
         search.search(
             query="test query",
             collection="conventions",
-            group_id=None,  # No filter - shared across projects
+            group_id="my-project",  # Project-scoped per W-01
         )
 
-        # Verify NO group_id filter was applied
+        # Verify group_id filter IS applied (project-scoped)
         call_args = mock_client.query_points.call_args
         query_filter = call_args.kwargs["query_filter"]
 
-        assert query_filter is None  # No filter at all
+        assert query_filter is not None
+        assert len(query_filter.must) == 1
+        assert query_filter.must[0].key == "group_id"
+        assert query_filter.must[0].match.value == "my-project"
 
 
 def test_combined_results_sorted_by_score():

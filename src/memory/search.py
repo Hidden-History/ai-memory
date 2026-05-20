@@ -1231,11 +1231,11 @@ class MemorySearch:
         limit: int = 5,
         fast_mode: bool = False,
     ) -> dict:
-        """Search code-patterns (filtered) and conventions (shared).
+        """Search code-patterns and conventions, both filtered by project.
 
-        Performs parallel search on both collections with different filtering:
+        Performs parallel search on both collections with project filtering:
         - code-patterns: Filtered by group_id (project-specific)
-        - conventions: No group_id filter (shared across all projects)
+        - conventions: Filtered by group_id (project-scoped per FR16 W-01)
 
         Implements AC 4.2.2: Supports automatic project detection via cwd parameter.
 
@@ -1296,11 +1296,11 @@ class MemorySearch:
             fast_mode=fast_mode,
         )
 
-        # Search conventions without group_id filter (shared)
+        # Search conventions with project group_id filter (project-scoped per W-01)
         conventions = self.search(
             query=query,
             collection=COLLECTION_CONVENTIONS,
-            group_id=None,  # Shared across all projects
+            group_id=effective_group_id,  # Project-scoped, same as code-patterns
             limit=limit,
             fast_mode=fast_mode,
         )
@@ -1702,19 +1702,23 @@ def retrieve_best_practices(
     limit: int = 3,
     fast_mode: bool = False,
     config: MemoryConfig | None = None,
+    group_id: str | None = None,
 ) -> list[dict]:
-    """Retrieve best practices regardless of current project.
+    """Retrieve best practices for an explicitly-provided project (project-scoped).
 
-    Implements AC 4.3.2 (Best Practices Retrieval) and FR16 (Cross-Project Sharing).
+    Implements AC 4.3.2 (Best Practices Retrieval) and FR16 (Project-Scoped per W-01).
 
-    Best practices are shared across all projects (FR16), so no group_id
-    filter is applied. This enables universal pattern discovery.
+    Best practices are project-scoped in the 'conventions' collection (FR16 amended
+    under PLAN-028 W-01). The group_id filter is applied the same way as for the
+    other collections.
 
-    Unlike code-patterns (Story 4.2), best practices:
-    - NO group_id filter applied (searches all best practices)
-    - Collection is always "conventions" (not "code-patterns")
-    - NO cwd parameter (best practices are intentionally global)
-    - Smaller default limit (3 vs 5) for context efficiency
+    Project scope is REQUIRED-EXPLICIT (DEC-PM298-D4 / W-09): the caller MUST pass
+    a non-empty group_id. There is no working-directory fallback — detect_project()
+    never fails (it returns a directory basename, or "unknown-project" on error),
+    so any implicit cwd/os.getcwd() fallback would silently re-create the
+    cross-project contamination PLAN-028 P1 exists to eliminate; an unfiltered
+    search would leak every project's best practices. When group_id is absent or
+    empty this function fails loudly with a ValueError.
 
     Args:
         query: Semantic search query for best practices
@@ -1724,6 +1728,8 @@ def retrieve_best_practices(
                   Note: Best practices are typically user-facing, so
                   accuracy is preferred over speed (default=False).
         config: Optional MemoryConfig instance. Uses get_config() if not provided.
+        group_id: REQUIRED explicit project identifier. Must be a non-empty string;
+                  there is no auto-detection fallback (DEC-PM298-D4).
 
     Returns:
         list[dict]: Best practice memories with content and metadata, sorted by
@@ -1731,53 +1737,46 @@ def retrieve_best_practices(
                     - id: Memory UUID
                     - score: Similarity score (0-1)
                     - content: Best practice text
-                    - group_id: Always "shared"
-                    - type: Always "pattern"
+                    - group_id: The project identifier the result is scoped to
+                    - type: Always "guideline"
                     - collection: Always "conventions"
                     - Other payload fields (session_id, source_hook, timestamp, etc.)
 
     Raises:
+        ValueError: If group_id is missing or empty
         EmbeddingError: If embedding service is unavailable
         QdrantUnavailable: If Qdrant search fails
 
     Example:
         >>> results = retrieve_best_practices(
         ...     query="Python type hints best practice",
-        ...     limit=3
+        ...     limit=3,
+        ...     group_id="my-project",
         ... )
         >>> len(results) <= 3
         True
-        >>> results[0]["group_id"]
-        'shared'
         >>> results[0]["collection"]
         'conventions'
-
-    Note:
-        No 'cwd' parameter - best practices are intentionally global.
-        Search uses only semantic similarity, not project filtering.
-
-    Performance Considerations (2026):
-        Per Qdrant Multitenancy Guide (https://qdrant.tech/articles/multitenancy/):
-        - Unfiltered queries (no group_id filter) scan all vectors in collection
-        - For conventions collection with ~100-1000 entries, overhead is minimal (<50ms)
-        - Much faster than maintaining separate collections per project
-        - Use smaller default limit=3 vs code-patterns limit=5 to reduce context load
-
-    2026 Best Practice Rationale:
-        Per Qdrant Filtering Guide (https://qdrant.tech/articles/vector-search-filtering/):
-        - Filter construction: group_id=None MUST NOT apply filter (searches all)
-        - If no conditions, query_filter=None (not empty Filter object)
-        - This pattern enables cross-project sharing while maintaining type safety
     """
+    # PLAN-028 P1 (DEC-PM298-D4 / W-09): project scope is required-explicit.
+    # Fail loud rather than guess — see the function docstring for rationale.
+    if not group_id or not group_id.strip():
+        raise ValueError(
+            "retrieve_best_practices requires an explicit project scope (group_id); "
+            "refusing to guess. An implicit working-directory fallback risks "
+            "cross-project contamination, and an unfiltered search would leak "
+            "every project's best practices from the 'conventions' collection."
+        )
+
     try:
         search = MemorySearch(config=config)
 
-        # No group_id filter - accessible from all projects (FR16)
-        # CRITICAL: group_id=None means search ALL best practices, not just one project
+        # FR16 (Project-Scoped per W-01): apply the project group_id filter to
+        # conventions, identical to code-patterns and the other collections.
         results = search.search(
             query=query,
-            collection=COLLECTION_CONVENTIONS,  # CRITICAL: Separate collection for shared content
-            group_id=None,  # CRITICAL: No project filter for shared collection
+            collection=COLLECTION_CONVENTIONS,
+            group_id=group_id,  # Project-scoped per W-01 (required-explicit)
             limit=limit,
             fast_mode=fast_mode,
         )

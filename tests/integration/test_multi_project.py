@@ -13,7 +13,7 @@ Test Categories:
     2. Project switching tests - Verify zero-config context switching
     3. Concurrent project tests - Verify 2-3 projects work simultaneously
     4. Performance tests - Verify NFR-SC1 and NFR-SC2 requirements
-    5. Best practices sharing tests - Verify FR16 cross-project accessibility
+    5. Best practices sharing tests - Verify FR16 project-scoped accessibility (PLAN-028 P1)
     6. Collection isolation tests - Verify implementations vs best_practices separation
     7. Hook integration tests - Verify real hook behavior with subprocess execution
 
@@ -632,53 +632,57 @@ def test_concurrent_projects_performance(
 
 
 # =============================================================================
-# AC 4.4.4: Best Practices Sharing Test
+# AC 4.4.4: Best Practices Project-Scoped Test (PLAN-028 P1)
 # =============================================================================
 
 
 @pytest.mark.integration
 @pytest.mark.requires_qdrant
-def test_best_practices_shared_across_projects(
+def test_best_practices_project_scoped(
     qdrant_client: QdrantClient, tmp_path: Path
 ) -> None:
     """
-    Test best practices are shared across all projects (FR16).
+    Test best practices are project-scoped after PLAN-028 P1 (FR16 amended per W-01).
 
-    Validates Story 4.3 cross-project sharing functionality.
+    Validates Story 4.3 project-scoped storage and retrieval.
 
-    Given: a best practice is stored from project "project-a"
-    When: I retrieve best practices from project "project-b"
-    Then: the best practice IS returned (cross-project sharing verified) (FR16)
+    Given: a best practice is stored with group_id="mp-proj-a"
+    When: I retrieve best practices with group_id="mp-proj-a"
+    Then: the best practice IS returned with the correct project group_id
+    And: group_id is NOT "shared" (old sentinel removed)
     """
     logger.info(
         "test_started",
         extra={
-            "test_name": "test_best_practices_shared_across_projects",
-            "sharing_type": "cross_project",
+            "test_name": "test_best_practices_project_scoped",
+            "scoping": "project_scoped",
             "collection": "conventions",
         },
     )
 
-    # Create search instance
-    MemorySearch()
-
-    # Store best practice (simulating project-a context)
+    # Store best practice under "mp-proj-a"
     bp_result = store_best_practice(
         content="Best practice: Always use pytest tmp_path for test isolation in 2026",
         session_id="sharing-test-session",
         source_hook="PostToolUse",
+        group_id="mp-proj-a",
     )
 
     assert bp_result["status"] in [
         "stored",
         "duplicate",
     ], f"Best practice storage failed: {bp_result}"
+    assert (
+        bp_result["group_id"] != "shared"
+    ), "group_id must not be 'shared' (PLAN-028 P1)"
 
-    # Wait for embedding to complete (TD-363: replaced time.sleep(30) with polling)
+    # Wait for indexing
     def best_practice_indexed() -> bool:
-        """Check if best practice is indexed."""
+        """Check if best practice is indexed for mp-proj-a."""
         results = retrieve_best_practices(
-            query="pytest test isolation best practice", limit=5
+            query="pytest test isolation best practice",
+            limit=5,
+            group_id="mp-proj-a",
         )
         return any("tmp_path" in r.get("content", "").lower() for r in results)
 
@@ -688,29 +692,32 @@ def test_best_practices_shared_across_projects(
         message="Best practice not indexed",
     )
 
-    # Retrieve from project-b context (different project)
-    results_b = retrieve_best_practices(query="pytest test isolation best practice")
+    # Retrieve with the correct project filter
+    results_a = retrieve_best_practices(
+        query="pytest test isolation best practice",
+        group_id="mp-proj-a",
+    )
 
-    # Best practice should be accessible from different project
-    assert len(results_b) > 0, "Best practices should be accessible from any project"
-
-    found_best_practice = any("tmp_path" in r["content"].lower() for r in results_b)
+    assert (
+        len(results_a) > 0
+    ), "Best practices should be retrievable for the storing project"
+    found_best_practice = any("tmp_path" in r["content"].lower() for r in results_a)
     assert (
         found_best_practice
-    ), "Shared best practice should be found from different project"
+    ), "Stored best practice should be found for the same project"
 
-    # All results should have group_id="shared"
-    for result in results_b:
+    # group_id in results must be the real project ID, not "shared"
+    for result in results_a:
         assert (
-            result["group_id"] == "shared"
-        ), f"Best practice has wrong group_id: {result['group_id']}"
+            result["group_id"] != "shared"
+        ), f"Best practice has old 'shared' group_id: {result['group_id']} (PLAN-028 P1 regression)"
 
     logger.info(
         "test_completed",
         extra={
-            "test_name": "test_best_practices_shared_across_projects",
-            "results_count": len(results_b),
-            "cross_project_sharing_verified": True,
+            "test_name": "test_best_practices_project_scoped",
+            "results_count": len(results_a),
+            "project_scoped_verified": True,
         },
     )
 
@@ -778,8 +785,11 @@ def test_implementations_not_in_best_practices_collection(
         message="Implementation not indexed",
     )
 
-    # Search best practices collection
-    bp_results = retrieve_best_practices(query="OAuth2 FastAPI implementation")
+    # Search best practices collection (scoped to the same project)
+    bp_results = retrieve_best_practices(
+        query="OAuth2 FastAPI implementation",
+        group_id="impl-project",
+    )
 
     # Implementation should NOT appear in best practices
     impl_leaked = any(
