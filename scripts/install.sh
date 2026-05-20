@@ -322,30 +322,35 @@ configure_project_name() {
 }
 
 # Discover Jira projects via API and let user select by number (add-project mode helper)
-# Reads JIRA_INSTANCE_URL, JIRA_EMAIL, JIRA_API_TOKEN from env or .env file
-# Sets globals: PROJECT_JIRA_ENABLED, PROJECT_JIRA_PROJECTS
-# Returns 0 on success (projects selected), 1 on cancel/failure/no credentials
+# Reads JIRA_INSTANCE_URL, JIRA_EMAIL, JIRA_API_TOKEN from environment, then from
+# docker/.env.secrets (canonical post-BUG-277), then from docker/.env. Sets globals:
+# PROJECT_JIRA_ENABLED, PROJECT_JIRA_PROJECTS. Returns 0 on success, 1 otherwise.
 discover_jira_projects() {
     local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
     local jira_url jira_email jira_token
 
-    # Load Jira credentials from environment, falling back to .env file
+    # Load Jira credentials from environment, then from split env files via
+    # _read_env_key (secrets-first fallthrough). Matches runtime precedence:
+    # MemoryConfig tuple env_file + docker-compose --env-file both apply
+    # last-file-wins, so .env.secrets is authoritative when both files have
+    # the key. BUG-309 fix.
     jira_url="${JIRA_INSTANCE_URL:-}"
     jira_email="${JIRA_EMAIL:-}"
     jira_token="${JIRA_API_TOKEN:-}"
 
-    if [[ -f "$env_file" ]]; then
+    if [[ -f "$env_file" || -f "$secrets_file" ]]; then
         local _val
         if [[ -z "$jira_url" ]]; then
-            _val=$(grep '^JIRA_INSTANCE_URL=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            _val=$(_read_env_key "JIRA_INSTANCE_URL" "$secrets_file" "$env_file")
             [[ -n "$_val" ]] && jira_url="$_val"
         fi
         if [[ -z "$jira_email" ]]; then
-            _val=$(grep '^JIRA_EMAIL=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            _val=$(_read_env_key "JIRA_EMAIL" "$secrets_file" "$env_file")
             [[ -n "$_val" ]] && jira_email="$_val"
         fi
         if [[ -z "$jira_token" ]]; then
-            _val=$(grep '^JIRA_API_TOKEN=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            _val=$(_read_env_key "JIRA_API_TOKEN" "$secrets_file" "$env_file")
             [[ -n "$_val" ]] && jira_token="$_val"
         fi
     fi
@@ -476,19 +481,23 @@ print(','.join(keys))
 # Side-effects: may set GITHUB_TOKEN and GITHUB_SYNC_ENABLED from .env if unset
 configure_project_sources() {
     local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
     local use_detected github_owner github_name branch_input jira_choice jira_keys test_code
 
-    # Load GITHUB_TOKEN and GITHUB_SYNC_ENABLED from existing .env if not already set
-    if [[ -f "$env_file" ]]; then
+    # Load GITHUB_TOKEN and GITHUB_SYNC_ENABLED from split env files via
+    # _read_env_key (secrets-first fallthrough). GITHUB_TOKEN is secret-class
+    # and lives in .env.secrets post-BUG-277; GITHUB_SYNC_ENABLED is routed
+    # through the helper for behavioral consistency. BUG-309 fix.
+    if [[ -f "$env_file" || -f "$secrets_file" ]]; then
         local _val
         if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-            _val=$(grep '^GITHUB_TOKEN=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            _val=$(_read_env_key "GITHUB_TOKEN" "$secrets_file" "$env_file")
             if [[ -n "$_val" ]]; then
                 GITHUB_TOKEN="$_val"
             fi
         fi
         if [[ -z "${GITHUB_SYNC_ENABLED:-}" ]]; then
-            _val=$(grep '^GITHUB_SYNC_ENABLED=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            _val=$(_read_env_key "GITHUB_SYNC_ENABLED" "$secrets_file" "$env_file")
             if [[ -n "$_val" ]]; then
                 GITHUB_SYNC_ENABLED="$_val"
             fi

@@ -270,3 +270,170 @@ def test_run_initial_github_sync_dual_source(dual_source_dir):
     assert (
         "secrets_github_token" in result.stdout
     ), f"GITHUB_TOKEN not resolved from .env.secrets; got: {result.stdout!r}"
+
+
+# ---------------------------------------------------------------------------
+# BUG-309 regression tests — install.sh detection-layer symmetry
+# ---------------------------------------------------------------------------
+# Pre-BUG-309 fix, install.sh's discover_jira_projects and configure_project_sources
+# grepped docker/.env only for credential detection — missing values that legitimately
+# live in docker/.env.secrets post-BUG-277 split. The fix substitutes _read_env_key
+# (secrets-first fallthrough) for the open-coded grep blocks at both sites.
+#
+# These tests cover three angles:
+#   1. Helper-level: _read_env_key returns the secrets value when both files have
+#      the key (precedence ordering — secrets-first).
+#   2. Helper-level: _read_env_key returns the secrets value when .env has the key
+#      blanked (BUG-309's exact post-BUG-286 state).
+#   3. Structural: install.sh's detection blocks reference _read_env_key (catches
+#      regression if the substitution is ever reverted).
+# ---------------------------------------------------------------------------
+
+HELPERS_SCRIPT = (
+    Path(__file__).parent.parent.parent / "scripts" / "_env_split_helpers.sh"
+)
+
+
+@pytest.fixture()
+def bug309_split_env_dir(tmp_path):
+    """Create a docker/ subdir matching the BUG-309 post-BUG-286 state.
+
+    docker/.env has the secret-class keys BLANKED (KEY= empty values) — the
+    BUG-286 defense-in-depth pattern leaves the line behind with an empty value.
+    docker/.env.secrets carries the canonical values.
+
+    The brief's R1.5 test request: assert detection reads .env.secrets values
+    rather than misinterpreting the blank .env entries as missing credentials.
+    """
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text(
+        "UID=1000\n"
+        "GID=1000\n"
+        "JIRA_INSTANCE_URL=\n"
+        "JIRA_EMAIL=\n"
+        "JIRA_API_TOKEN=\n"
+        "GITHUB_TOKEN=\n"
+        "GITHUB_SYNC_ENABLED=\n"
+        "GITHUB_REPO=owner/repo\n"
+    )
+    (docker_dir / ".env.secrets").write_text(
+        'JIRA_INSTANCE_URL="https://example.atlassian.net"\n'
+        'JIRA_EMAIL="ops@example.com"\n'
+        'JIRA_API_TOKEN="secrets_jira_token"\n'
+        'GITHUB_TOKEN="secrets_github_token"\n'
+        'GITHUB_SYNC_ENABLED="true"\n'
+    )
+    return docker_dir
+
+
+def _invoke_read_env_key(key: str, secrets_file: Path, env_file: Path) -> str:
+    """Source _env_split_helpers.sh and invoke _read_env_key; return stdout."""
+    cmd = (
+        f"source {str(HELPERS_SCRIPT)!r} && "
+        f"_read_env_key {key!r} {str(secrets_file)!r} {str(env_file)!r}"
+    )
+    result = subprocess.run(
+        ["bash", "-c", cmd],
+        capture_output=True,
+        text=True,
+        env=_minimal_env(),
+    )
+    assert result.returncode == 0, (
+        f"_read_env_key {key!r} returned exit {result.returncode}; "
+        f"stderr: {result.stderr}"
+    )
+    return result.stdout
+
+
+def test_helper_read_env_key_returns_secrets_first(tmp_path):
+    """_read_env_key returns the .env.secrets value when both files have the key.
+
+    Verifies precedence: secrets-first fallthrough. Matches MemoryConfig tuple
+    env_file last-file-wins (.env, .env.secrets) and docker-compose --env-file
+    last-file-wins, so detection-time UX is aligned with runtime precedence.
+    """
+    env_file = tmp_path / ".env"
+    secrets_file = tmp_path / ".env.secrets"
+    env_file.write_text('JIRA_API_TOKEN="env_token_value"\n')
+    secrets_file.write_text('JIRA_API_TOKEN="secrets_token_value"\n')
+
+    out = _invoke_read_env_key("JIRA_API_TOKEN", secrets_file, env_file)
+    assert (
+        out == "secrets_token_value"
+    ), f"Expected secrets_token_value (secrets-first precedence); got {out!r}"
+
+
+def test_jira_detection_reads_from_secrets_when_env_blank(bug309_split_env_dir):
+    """discover_jira_projects detection: JIRA_API_TOKEN resolves from .env.secrets.
+
+    BUG-309 reproducer state: docker/.env has JIRA_API_TOKEN= (blanked by
+    BUG-286 defense-in-depth), docker/.env.secrets has the real token.
+    Pre-fix: install.sh grepped .env only and saw empty value → emitted the
+    'Jira credentials not configured -- run fresh install' warning.
+    Post-fix: detection uses _read_env_key which falls through to .env.secrets.
+    """
+    env_file = bug309_split_env_dir / ".env"
+    secrets_file = bug309_split_env_dir / ".env.secrets"
+
+    assert _invoke_read_env_key("JIRA_INSTANCE_URL", secrets_file, env_file) == (
+        "https://example.atlassian.net"
+    )
+    assert _invoke_read_env_key("JIRA_EMAIL", secrets_file, env_file) == (
+        "ops@example.com"
+    )
+    assert _invoke_read_env_key("JIRA_API_TOKEN", secrets_file, env_file) == (
+        "secrets_jira_token"
+    )
+
+
+def test_github_detection_reads_from_secrets_when_env_blank(bug309_split_env_dir):
+    """configure_project_sources detection: GITHUB_TOKEN resolves from .env.secrets.
+
+    BUG-309 reproducer state: docker/.env has GITHUB_TOKEN= (blanked), real
+    token in .env.secrets. Pre-fix install.sh grepped .env only → emitted
+    'No GITHUB_TOKEN found' warning + skipped per-project token verification.
+    Post-fix uses _read_env_key with secrets-first fallthrough.
+    """
+    env_file = bug309_split_env_dir / ".env"
+    secrets_file = bug309_split_env_dir / ".env.secrets"
+
+    assert _invoke_read_env_key("GITHUB_TOKEN", secrets_file, env_file) == (
+        "secrets_github_token"
+    )
+    assert _invoke_read_env_key("GITHUB_SYNC_ENABLED", secrets_file, env_file) == (
+        "true"
+    )
+
+
+def test_install_sh_detection_sites_reference_read_env_key():
+    """Structural regression: install.sh detection blocks invoke _read_env_key.
+
+    Catches future regression if the open-coded grep '^KEY=' "$env_file" pattern
+    is ever reintroduced. We assert:
+      1. The defective shape is absent for the BUG-309 keys.
+      2. _read_env_key is invoked for each of the 5 keys covered by R1.2 + R1.3.
+    """
+    install_sh = INSTALL_SCRIPT.read_text()
+
+    # Defective shape MUST NOT appear for BUG-309 keys
+    defective_keys = (
+        "JIRA_INSTANCE_URL",
+        "JIRA_EMAIL",
+        "JIRA_API_TOKEN",
+        "GITHUB_TOKEN",
+        "GITHUB_SYNC_ENABLED",
+    )
+    for key in defective_keys:
+        defective = f"grep '^{key}=' \"$env_file\""
+        assert defective not in install_sh, (
+            f"Regression: defective shape {defective!r} present in install.sh "
+            f"(BUG-309 substitution reverted)"
+        )
+
+    # _read_env_key MUST be invoked for each BUG-309 key
+    for key in defective_keys:
+        helper_call = f'_read_env_key "{key}"'
+        assert (
+            helper_call in install_sh
+        ), f"Regression: install.sh missing _read_env_key invocation for {key!r}"
