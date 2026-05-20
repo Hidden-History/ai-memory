@@ -996,7 +996,7 @@ class TestSecurityScannerInitLog:
 
         from memory.security_scanner import SecurityScanner
 
-        with caplog.at_level(logging.INFO, logger="memory.security_scanner"):
+        with caplog.at_level(logging.INFO, logger="ai_memory.security_scanner"):
             SecurityScanner(enable_ner=False)
 
         matches = [
@@ -1024,7 +1024,7 @@ class TestSecurityScannerInitLog:
             scanner_mod, "_load_spacy_model", lambda: object()  # truthy stub
         )
 
-        with caplog.at_level(logging.INFO, logger="memory.security_scanner"):
+        with caplog.at_level(logging.INFO, logger="ai_memory.security_scanner"):
             SecurityScanner(enable_ner=True)
 
         matches = [
@@ -1052,7 +1052,7 @@ class TestSecurityScannerInitLog:
         monkeypatch.setattr(scanner_mod, "_spacy_available", None, raising=False)
         monkeypatch.setattr(scanner_mod, "_load_spacy_model", lambda: None)
 
-        with caplog.at_level(logging.INFO, logger="memory.security_scanner"):
+        with caplog.at_level(logging.INFO, logger="ai_memory.security_scanner"):
             scanner = SecurityScanner(enable_ner=True)
 
         matches = [
