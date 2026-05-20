@@ -1566,9 +1566,6 @@ def print_decision_log_report(missing: list, orphan: list) -> None:
 
     print(f"DRIFT-DEC-ORPHAN (body heading, no header ref): {len(orphan)}")
     if orphan:
-        # INFORMATION SOURCE (U+2139) is the documented informational marker
-        # for DRIFT-DEC-ORPHAN entries; the deliberate visual similarity to
-        # ASCII `i` is part of the skill's stable text contract.
         for dec_id in orphan:
             print(
                 f"  ℹ  {dec_id}"  # noqa: RUF001
