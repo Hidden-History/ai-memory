@@ -1725,9 +1725,6 @@ update_shared_scripts() {
             log_warning "docker/.env.example not found in source — skipping"
         fi
         find "$INSTALL_DIR/docker" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-        # TD-551: tighten per-file modes — cp -r preserves source modes (which
-        # on WSL DrvFs sources arrive at 755). Re-apply the canonical matrix.
-        apply_docker_dir_permissions "$INSTALL_DIR/docker"
 
         # Restore docker/.env if it was backed up (bulk cp may have overwritten with template)
         if [[ -n "$_env_backup" ]]; then
@@ -1758,6 +1755,14 @@ update_shared_scripts() {
                 log_debug "Merged $_new_keys new key(s) from .env.example into docker/.env"
             fi
         fi
+
+        # TD-551: tighten per-file modes after bulk cp + .env backup-restore +
+        # .env.example merge. cp -r preserves source modes (WSL DrvFs commonly
+        # 755) and cp -p restore preserves the backup's mode (potentially 755
+        # from a pre-v2.4.3 install — automatic remediation on upgrade).
+        # Re-apply the canonical matrix AFTER all .env-related operations so
+        # chmod sees the final on-disk state (cycle-2 M-1).
+        apply_docker_dir_permissions "$INSTALL_DIR/docker"
 
         log_debug "Synced Docker files to INSTALL_DIR"
     fi
@@ -2248,10 +2253,6 @@ copy_files() {
         rm -f "$_env_backup"
         log_debug "Restored docker/.env after bulk copy"
     fi
-    # TD-551: tighten per-file modes after bulk cp (which preserves source
-    # modes from the user clone — commonly 755 on WSL DrvFs). Re-apply the
-    # canonical matrix .env=640 / .env.secrets=600 / examples=644 / Dockerfile*=644.
-    apply_docker_dir_permissions "$INSTALL_DIR/docker"
 
     # BUG-282 (sibling of BUG-040): Explicitly copy docker/.env from source if
     # the install doesn't yet have one. The bulk `cp -r .../docker/*` above
@@ -2305,6 +2306,14 @@ copy_files() {
             log_debug "Created docker/.env.secrets (chmod 600)"
         fi
     fi
+
+    # TD-551: tighten per-file modes after bulk cp + dotfile cp + merge + secrets
+    # deploy. cp -r and cp -p preserve source/backup modes (commonly 755 on WSL
+    # DrvFs sources or pre-v2.4.3 install-dir leftovers). Re-apply the canonical
+    # matrix .env=640 / .env.secrets=600 / examples=644 / Dockerfile*=644 AFTER
+    # all .env / .env.secrets / .env.example file operations have settled, so
+    # the chmod sees the final on-disk state (cycle-2 M-1).
+    apply_docker_dir_permissions "$INSTALL_DIR/docker"
 
     # BUG-244: Use shared sync function for all non-Docker file syncing
     sync_installed_files "$SOURCE_DIR" "$INSTALL_DIR"
