@@ -1234,14 +1234,22 @@ def _has_revert_on_main(
     source_repo: Path,
     main_ref: str = "HEAD",
     timeout: float = 5.0,
-) -> bool:
-    """Return True if a revert commit for record_id is reachable from main_ref."""
-    ok, out, _t = _run_git(
+) -> tuple[bool, bool]:
+    """Return ``(has_revert, did_timeout)``.
+
+    ``has_revert`` is True when a revert commit for ``record_id`` is reachable
+    from ``main_ref``.  ``did_timeout`` lets the caller route the record into
+    the ``EVIDENCE-TIMEOUT`` bucket per spec §4.7 row 4 instead of silently
+    treating a timed-out secondary query as "no revert".
+    """
+    ok, out, did_timeout = _run_git(
         ["git", "log", "--oneline", f"--grep=Revert.*{record_id}", main_ref],
         source_repo,
         timeout=timeout,
     )
-    return ok and bool(out.strip())
+    if did_timeout:
+        return False, True
+    return (ok and bool(out.strip())), False
 
 
 def _bug_mtime_predates_fix(
@@ -1250,29 +1258,37 @@ def _bug_mtime_predates_fix(
     source_repo: Path,
     main_ref: str = "HEAD",
     timeout: float = 5.0,
-) -> bool:
-    """Return True if the record file mtime predates the latest fix commit date."""
+) -> tuple[bool, bool]:
+    """Return ``(predates, did_timeout)``.
+
+    ``predates`` is True when the record file mtime predates the latest fix
+    commit date.  ``did_timeout`` lets the caller route the record into the
+    ``EVIDENCE-TIMEOUT`` bucket per spec §4.7 row 4 instead of silently
+    degrading a potential HIGH classification to MEDIUM.
+    """
     try:
         rec_mtime = record_path.stat().st_mtime
     except OSError:
-        return False
+        return False, False
 
-    ok, out, _t = _run_git(
+    ok, out, did_timeout = _run_git(
         ["git", "log", "--format=%ct", f"--grep={record_id}", main_ref],
         source_repo,
         timeout=timeout,
     )
+    if did_timeout:
+        return False, True
     if not ok or not out.strip():
-        return False
+        return False, False
 
     for line in out.strip().splitlines():
         try:
             commit_ts = float(line.strip())
             if rec_mtime < commit_ts:
-                return True
+                return True, False
         except ValueError:
             continue
-    return False
+    return False, False
 
 
 def score_phantom_confidence(
@@ -1283,8 +1299,15 @@ def score_phantom_confidence(
     record_path: Path,
     source_repo: Path,
     main_ref: str = "HEAD",
-) -> str | None:
-    """Return confidence level (HIGH/MEDIUM/LOW) or None when record should not be flagged.
+) -> tuple[str | None, bool]:
+    """Return ``(confidence, did_timeout)``.
+
+    ``confidence`` is one of ``"HIGH"`` / ``"MEDIUM"`` / ``"LOW"`` / ``None``
+    (None when the record should not be flagged).  ``did_timeout`` is True
+    when any secondary git query (``_has_revert_on_main`` or
+    ``_bug_mtime_predates_fix``) hit the per-record timeout; the caller
+    routes such records into the ``EVIDENCE-TIMEOUT`` bucket per spec §4.7
+    row 4 instead of silently emitting a degraded classification.
 
     HIGH: ≥1 commit on main_ref, file-path overlap with bug body, record mtime predates fix.
     MEDIUM: ≥1 commit on main_ref, no file-path overlap (commit message is the only link).
@@ -1301,10 +1324,13 @@ def score_phantom_confidence(
         has_any_evidence = bool(
             all_shas or evidence_tokens["shas"] or evidence_tokens["pr_refs"]
         )
-        return "LOW" if has_any_evidence else None
+        return ("LOW" if has_any_evidence else None), False
 
-    if _has_revert_on_main(record_id, source_repo, main_ref):
-        return "LOW"
+    has_revert, revert_timed_out = _has_revert_on_main(record_id, source_repo, main_ref)
+    if revert_timed_out:
+        return None, True
+    if has_revert:
+        return "LOW", False
 
     all_touched: set = set()
     for files in touched_files_by_sha.values():
@@ -1323,13 +1349,15 @@ def score_phantom_confidence(
             if has_path_overlap:
                 break
 
-    mtime_predates = _bug_mtime_predates_fix(
+    mtime_predates, mtime_timed_out = _bug_mtime_predates_fix(
         record_path, record_id, source_repo, main_ref
     )
+    if mtime_timed_out:
+        return None, True
 
     if has_path_overlap and mtime_predates:
-        return "HIGH"
-    return "MEDIUM"
+        return "HIGH", False
+    return "MEDIUM", False
 
 
 def _phantom_table_rows(candidates: list) -> list:
@@ -1579,7 +1607,7 @@ def run_verify_code_state(
             # no-evidence (which would mask a genuinely-fixed bug as still open).
             timeout_records.append({"record": record, "record_path": record_path})
             continue
-        confidence = score_phantom_confidence(
+        confidence, score_did_timeout = score_phantom_confidence(
             merged_shas,
             all_shas,
             touched_files_by_sha,
@@ -1588,6 +1616,13 @@ def run_verify_code_state(
             source_repo,
             main_ref,
         )
+        if score_did_timeout:
+            # Spec §4.7 row 4 extended to secondary git queries
+            # (_has_revert_on_main, _bug_mtime_predates_fix): any per-record
+            # git timeout routes to the EVIDENCE-TIMEOUT bucket, never a
+            # silently-degraded classification.
+            timeout_records.append({"record": record, "record_path": record_path})
+            continue
         if confidence is None:
             continue
 

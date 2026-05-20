@@ -618,6 +618,86 @@ class TestEvidenceTimeoutBucket:
         assert "BUG-298" in sidecar_text
 
 
+class TestEvidenceTimeoutBucketSecondaryQuery:
+    def test_secondary_git_timeout_routes_to_evidence_timeout_bucket(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """Secondary git query timeout → EVIDENCE-TIMEOUT bucket (spec §4.7 row 4).
+
+        ``_has_revert_on_main`` and ``_bug_mtime_predates_fix`` are secondary
+        per-record queries invoked from ``score_phantom_confidence`` after the
+        primary ``_query_merged_shas`` has already succeeded. A timeout in
+        either secondary call must route the record to EVIDENCE-TIMEOUT —
+        never silently degrade the classification (e.g. revert-timeout looks
+        like "no revert" → HIGH/MEDIUM; mtime-timeout looks like "no predate"
+        → HIGH degrades to MEDIUM).
+
+        Strategy: let the primary query succeed against a real fake-repo so
+        ``merged_shas`` is non-empty and scoring reaches the secondary
+        helpers, then time out only the ``--grep=Revert.*`` invocation.
+        """
+        bug_content = (
+            "# BUG-299: Open bug for secondary-timeout coverage\n\n"
+            "**Status**: OPEN\n"
+            "**Severity**: MEDIUM\n\n"
+            "## Summary\n\nFixture verifies secondary-query timeout routing.\n\n"
+            "## Affected files\n\n"
+            "- scripts/install.sh (handler)\n"
+        )
+        oversight, bugs_dir = _make_oversight_with_open_bug(
+            tmp_path, "299", bug_content
+        )
+        source_repo = _make_fake_repo(
+            tmp_path,
+            "fix(install): repair BUG-299 in install.sh",
+            "scripts/install.sh",
+        )
+
+        real_run_git = tf._run_git
+
+        def fake_run_git(cmd, cwd, timeout=5.0):
+            # Time out only on the revert-grep secondary query so the primary
+            # _query_merged_shas succeeds and scoring reaches the secondary path.
+            for arg in cmd:
+                if "--grep=Revert" in str(arg):
+                    return False, "", True
+            return real_run_git(cmd, cwd, timeout=timeout)
+
+        monkeypatch.setattr(tf, "_run_git", fake_run_git)
+
+        record = tf.parse_record_file(bugs_dir / "BUG-299-test-bug.md", "bug")
+        open_records_with_dirs = [(record, bugs_dir)]
+
+        args = argparse.Namespace(
+            check=True,
+            write=False,
+            oversight_root=str(oversight),
+            verify_code_state=True,
+            source_repo=str(source_repo),
+            last_n_sessions=None,
+            bug_id=None,
+        )
+
+        tf.run_verify_code_state(open_records_with_dirs, source_repo, oversight, args)
+
+        captured = capsys.readouterr()
+        assert "EVIDENCE-TIMEOUT" in captured.out, (
+            f"Secondary-query timeout must route to EVIDENCE-TIMEOUT bucket.\n"
+            f"stdout: {captured.out}\nstderr: {captured.err}"
+        )
+        assert "BUG-299" in captured.out
+        # Must NOT silently degrade to a classified bucket.
+        assert "HIGH confidence" not in captured.out
+        assert "MEDIUM confidence" not in captured.out
+        assert "LOW confidence" not in captured.out
+
+        sidecar = oversight / "reports" / "PHANTOM-OPEN-CANDIDATES.md"
+        assert sidecar.exists()
+        sidecar_text = sidecar.read_text(encoding="utf-8")
+        assert "EVIDENCE-TIMEOUT" in sidecar_text
+        assert "BUG-299" in sidecar_text
+
+
 # ---------------------------------------------------------------------------
 # F-5: Version-string token class (spec §4.1 Step A row 3)
 # ---------------------------------------------------------------------------
