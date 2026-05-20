@@ -1034,10 +1034,14 @@ def _git_available() -> bool:
     return shutil.which("git") is not None
 
 
-def _run_git(cmd: list, cwd: Path, timeout: float = 5.0) -> tuple[bool, str]:
-    """Run a git sub-command; return (success, stdout).
+def _run_git(cmd: list, cwd: Path, timeout: float = 5.0) -> tuple[bool, str, bool]:
+    """Run a git sub-command; return (success, stdout, did_timeout).
 
-    Returns (False, "") on timeout or OS error — callers treat this as "no evidence".
+    ``did_timeout`` distinguishes a hit timeout (per spec §4.7 row 4) from a
+    plain non-zero exit / no-match; callers route the former into the
+    ``EVIDENCE-TIMEOUT`` bucket instead of silently treating it as
+    "no evidence".  ``OSError`` (git unexpectedly absent, etc.) is still folded
+    into the no-evidence path with ``did_timeout=False``.
     """
     try:
         result = subprocess.run(
@@ -1047,11 +1051,62 @@ def _run_git(cmd: list, cwd: Path, timeout: float = 5.0) -> tuple[bool, str]:
             text=True,
             timeout=timeout,
         )
-        return result.returncode == 0, result.stdout
+        return result.returncode == 0, result.stdout, False
     except subprocess.TimeoutExpired:
-        return False, ""
+        return False, "", True
     except OSError:
-        return False, ""
+        return False, "", False
+
+
+def resolve_main_branch(
+    source_repo: Path, timeout: float = 5.0
+) -> tuple[str, list[str]]:
+    """Resolve the default-branch reference for reachability checks.
+
+    Spec §4.7 row 3: ``--verify-code-state`` must work on repos whose default
+    branch is not literally ``main`` (``master``, ``trunk``, ``develop``, …)
+    and on repos in detached-HEAD state.  Resolution strategy:
+
+    1. ``git symbolic-ref --short refs/remotes/origin/HEAD`` → strip the
+       leading ``origin/`` and return that branch name.
+    2. On failure, fall back to the literal ``HEAD`` ref-spec and emit a
+       NOTE making the assumption explicit; when ``git symbolic-ref HEAD``
+       also fails (truly detached HEAD, spec §4.7 row 3) a second NOTE is
+       appended that names the detached state directly (F-4).
+
+    Returns ``(branch_ref, notes)``; ``notes`` is a list (possibly empty) of
+    full ``NOTE: …`` lines that the caller prints once to stderr.
+    """
+    notes: list[str] = []
+    ok, out, _t = _run_git(
+        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        source_repo,
+        timeout=timeout,
+    )
+    if ok and out.strip():
+        branch = out.strip()
+        if branch.startswith("origin/"):
+            branch = branch[len("origin/") :]
+        return branch, notes
+
+    notes.append(
+        "NOTE: --verify-code-state: default branch not resolvable via "
+        "origin/HEAD; using current HEAD as reachable-reference "
+        "(assumption: HEAD ≈ release branch)"
+    )
+
+    ok2, _out2, _t2 = _run_git(
+        ["git", "symbolic-ref", "HEAD"],
+        source_repo,
+        timeout=timeout,
+    )
+    if not ok2:
+        notes.append(
+            "NOTE: --verify-code-state: source repo in detached HEAD state; "
+            "phantom-open reachability is being checked against HEAD only"
+        )
+
+    return "HEAD", notes
 
 
 def extract_evidence_tokens(text: str, numeric_id: str, kind: str) -> dict:
@@ -1091,20 +1146,30 @@ def extract_evidence_tokens(text: str, numeric_id: str, kind: str) -> dict:
 def _query_merged_shas(
     record_id: str,
     source_repo: Path,
+    main_ref: str = "HEAD",
     timeout: float = 5.0,
-) -> tuple[list, list, dict]:
+) -> tuple[list, list, dict, bool]:
     """Query git for commits mentioning record_id.
 
-    Returns (merged_shas, all_shas, touched_files_by_sha).
-    merged_shas: abbreviated SHAs reachable from main.
-    all_shas: abbreviated SHAs from --all search.
-    touched_files_by_sha: {sha: [file, ...]}.
+    Returns ``(merged_shas, all_shas, touched_files_by_sha, did_timeout)``.
+
+    - ``merged_shas`` — abbreviated SHAs reachable from ``main_ref``.
+    - ``all_shas`` — abbreviated SHAs from the ``--all`` search.
+    - ``touched_files_by_sha`` — ``{sha: [file, ...]}``.
+    - ``did_timeout`` — True when any of the per-record git queries hit the
+      5-second timeout; the caller routes the record into the
+      ``EVIDENCE-TIMEOUT`` bucket (spec §4.7 row 4) rather than scoring it.
+
+    ``main_ref`` is the resolved default-branch reference (from
+    :func:`resolve_main_branch`) — never a hardcoded literal.
     """
-    ok, out = _run_git(
+    ok, out, t1 = _run_git(
         ["git", "log", "--all", "--oneline", f"--grep={record_id}"],
         source_repo,
         timeout=timeout,
     )
+    if t1:
+        return [], [], {}, True
     all_shas: list = []
     if ok and out.strip():
         for line in out.strip().splitlines():
@@ -1113,13 +1178,15 @@ def _query_merged_shas(
                 all_shas.append(parts[0])
 
     if not all_shas:
-        return [], [], {}
+        return [], [], {}, False
 
-    ok2, out2 = _run_git(
-        ["git", "log", "--oneline", f"--grep={record_id}", "main"],
+    ok2, out2, t2 = _run_git(
+        ["git", "log", "--oneline", f"--grep={record_id}", main_ref],
         source_repo,
         timeout=timeout,
     )
+    if t2:
+        return [], [], {}, True
     merged_shas: list = []
     if ok2 and out2.strip():
         for line in out2.strip().splitlines():
@@ -1132,23 +1199,28 @@ def _query_merged_shas(
         # --root makes diff-tree emit touched files for a root commit too;
         # otherwise root commits return empty output and path-overlap scoring
         # silently collapses to MEDIUM.
-        ok3, out3 = _run_git(
+        ok3, out3, t3 = _run_git(
             ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha],
             source_repo,
             timeout=timeout,
         )
+        if t3:
+            return [], [], {}, True
         if ok3:
             touched_files_by_sha[sha] = [f for f in out3.strip().splitlines() if f]
 
-    return merged_shas, all_shas, touched_files_by_sha
+    return merged_shas, all_shas, touched_files_by_sha, False
 
 
 def _has_revert_on_main(
-    record_id: str, source_repo: Path, timeout: float = 5.0
+    record_id: str,
+    source_repo: Path,
+    main_ref: str = "HEAD",
+    timeout: float = 5.0,
 ) -> bool:
-    """Return True if a revert commit for record_id is reachable from main."""
-    ok, out = _run_git(
-        ["git", "log", "--oneline", f"--grep=Revert.*{record_id}", "main"],
+    """Return True if a revert commit for record_id is reachable from main_ref."""
+    ok, out, _t = _run_git(
+        ["git", "log", "--oneline", f"--grep=Revert.*{record_id}", main_ref],
         source_repo,
         timeout=timeout,
     )
@@ -1156,7 +1228,11 @@ def _has_revert_on_main(
 
 
 def _bug_mtime_predates_fix(
-    record_path: Path, record_id: str, source_repo: Path, timeout: float = 5.0
+    record_path: Path,
+    record_id: str,
+    source_repo: Path,
+    main_ref: str = "HEAD",
+    timeout: float = 5.0,
 ) -> bool:
     """Return True if the record file mtime predates the latest fix commit date."""
     try:
@@ -1164,8 +1240,8 @@ def _bug_mtime_predates_fix(
     except OSError:
         return False
 
-    ok, out = _run_git(
-        ["git", "log", "--format=%ct", f"--grep={record_id}", "main"],
+    ok, out, _t = _run_git(
+        ["git", "log", "--format=%ct", f"--grep={record_id}", main_ref],
         source_repo,
         timeout=timeout,
     )
@@ -1189,14 +1265,18 @@ def score_phantom_confidence(
     evidence_tokens: dict,
     record_path: Path,
     source_repo: Path,
+    main_ref: str = "HEAD",
 ) -> str | None:
     """Return confidence level (HIGH/MEDIUM/LOW) or None when record should not be flagged.
 
-    HIGH: ≥1 commit on main, file-path overlap with bug body, record mtime predates fix.
-    MEDIUM: ≥1 commit on main, no file-path overlap (commit message is the only link).
-    LOW: evidence exists (tokens in file or commits in --all) but none merged to main;
-         also LOW when a revert commit is reachable from main alongside the fix commit.
+    HIGH: ≥1 commit on main_ref, file-path overlap with bug body, record mtime predates fix.
+    MEDIUM: ≥1 commit on main_ref, no file-path overlap (commit message is the only link).
+    LOW: evidence exists (tokens in file or commits in --all) but none merged to main_ref;
+         also LOW when a revert commit is reachable from main_ref alongside the fix commit.
     None: no git evidence and no inline evidence tokens — skip this record.
+
+    ``main_ref`` is the resolved default-branch reference (from
+    :func:`resolve_main_branch`); see spec §4.7 row 3 for the rationale.
     """
     record_id = evidence_tokens["record_id"]
 
@@ -1206,7 +1286,7 @@ def score_phantom_confidence(
         )
         return "LOW" if has_any_evidence else None
 
-    if _has_revert_on_main(record_id, source_repo):
+    if _has_revert_on_main(record_id, source_repo, main_ref):
         return "LOW"
 
     all_touched: set = set()
@@ -1226,7 +1306,9 @@ def score_phantom_confidence(
             if has_path_overlap:
                 break
 
-    mtime_predates = _bug_mtime_predates_fix(record_path, record_id, source_repo)
+    mtime_predates = _bug_mtime_predates_fix(
+        record_path, record_id, source_repo, main_ref
+    )
 
     if has_path_overlap and mtime_predates:
         return "HIGH"
@@ -1264,12 +1346,34 @@ def _phantom_table_rows(candidates: list) -> list:
     return rows
 
 
+def _timeout_table_rows(timeout_records: list) -> list:
+    """Render markdown table rows for the EVIDENCE-TIMEOUT bucket."""
+    rows = [
+        "| Record | File Status |",
+        "|--------|-------------|",
+    ]
+    for c in timeout_records:
+        record = c["record"]
+        id_prefix = "BUG" if record.kind == "bug" else "TECH-DEBT"
+        rid = f"{id_prefix}-{record.numeric_id}"
+        status_cell = _table_cell(record.raw_status[:60]) if record.raw_status else "—"
+        rows.append(f"| {rid} | {status_cell} |")
+    return rows
+
+
 def print_phantom_report_section(
     high: list,
     medium: list,
     low: list,
+    timeout_records: list | None = None,
 ) -> None:
-    """Print the PHANTOM-OPEN CANDIDATES section to stdout."""
+    """Print the PHANTOM-OPEN CANDIDATES section to stdout.
+
+    The EVIDENCE-TIMEOUT bucket (spec §4.7 row 4) is printed informationally
+    alongside HIGH/MEDIUM/LOW; it does NOT contribute to ``--check`` exit code
+    (timeouts are operational, not contract violations).
+    """
+    timeout_records = timeout_records or []
     print()
     _hr()
     total = len(high) + len(medium) + len(low)
@@ -1280,7 +1384,7 @@ def print_phantom_report_section(
     _hr()
     print()
 
-    if not total:
+    if not total and not timeout_records:
         print("  ✓  No phantom-open candidates detected.")
         print()
         return
@@ -1308,15 +1412,31 @@ def print_phantom_report_section(
             print(row)
         print()
 
+    if timeout_records:
+        print(
+            "EVIDENCE-TIMEOUT — git query timed out, classification skipped "
+            f"({len(timeout_records)})"
+        )
+        print()
+        for row in _timeout_table_rows(timeout_records):
+            print(row)
+        print()
+
 
 def write_phantom_sidecar(
     high: list,
     medium: list,
     low: list,
+    timeout_records: list | None,
     oversight_root: Path,
     now_str: str,
 ) -> None:
-    """Write oversight/reports/PHANTOM-OPEN-CANDIDATES.md (created if absent)."""
+    """Write oversight/reports/PHANTOM-OPEN-CANDIDATES.md (created if absent).
+
+    Includes the EVIDENCE-TIMEOUT bucket (spec §4.7 row 4) as a sibling section
+    when records timed out during the per-record git queries.
+    """
+    timeout_records = timeout_records or []
     reports_dir = oversight_root / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     sidecar = reports_dir / "PHANTOM-OPEN-CANDIDATES.md"
@@ -1327,6 +1447,7 @@ def write_phantom_sidecar(
         "",
         f"**Generated**: {now_str}",
         f"**Total candidates**: {total}",
+        f"**Records skipped (git timeout)**: {len(timeout_records)}",
         "",
         "> Records whose file `**Status**` says OPEN but whose git history suggests",
         "> a fix is already merged to main. Requires human triage to confirm and update Status.",
@@ -1334,7 +1455,7 @@ def write_phantom_sidecar(
         "---",
         "",
     ]
-    if not total:
+    if not total and not timeout_records:
         lines += ["✓ No phantom-open candidates detected.", ""]
     else:
         for label, bucket in (
@@ -1352,6 +1473,15 @@ def write_phantom_sidecar(
                 lines += [label, ""]
                 lines += _phantom_table_rows(bucket)
                 lines += [""]
+
+        if timeout_records:
+            lines += [
+                "## EVIDENCE-TIMEOUT — git query timed out, classification skipped "
+                f"({len(timeout_records)})",
+                "",
+            ]
+            lines += _timeout_table_rows(timeout_records)
+            lines += [""]
 
     sidecar.write_text("\n".join(lines), encoding="utf-8")
     print(f"Wrote sidecar: {sidecar}")
@@ -1405,9 +1535,16 @@ def run_verify_code_state(
             open_records_with_dirs, key=_mtime, reverse=True
         )[:last_n]
 
+    # Resolve the default-branch reference once per sweep (spec §4.7 row 3);
+    # emit any NOTE lines (non-standard default branch, detached HEAD) once.
+    main_ref, branch_notes = resolve_main_branch(source_repo)
+    for note in branch_notes:
+        print(note, file=sys.stderr)
+
     high: list = []
     medium: list = []
     low: list = []
+    timeout_records: list = []
 
     for record, record_dir in open_records_with_dirs:
         record_path = record_dir / record.filename
@@ -1417,9 +1554,14 @@ def run_verify_code_state(
             continue
 
         tokens = extract_evidence_tokens(text, record.numeric_id, record.kind)
-        merged_shas, all_shas, touched_files_by_sha = _query_merged_shas(
-            tokens["record_id"], source_repo
+        merged_shas, all_shas, touched_files_by_sha, did_timeout = _query_merged_shas(
+            tokens["record_id"], source_repo, main_ref
         )
+        if did_timeout:
+            # Spec §4.7 row 4 — surface explicitly; do NOT silently classify as
+            # no-evidence (which would mask a genuinely-fixed bug as still open).
+            timeout_records.append({"record": record, "record_path": record_path})
+            continue
         confidence = score_phantom_confidence(
             merged_shas,
             all_shas,
@@ -1427,6 +1569,7 @@ def run_verify_code_state(
             tokens,
             record_path,
             source_repo,
+            main_ref,
         )
         if confidence is None:
             continue
@@ -1451,8 +1594,8 @@ def run_verify_code_state(
             low.append(candidate)
 
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    print_phantom_report_section(high, medium, low)
-    write_phantom_sidecar(high, medium, low, oversight_root, now_str)
+    print_phantom_report_section(high, medium, low, timeout_records)
+    write_phantom_sidecar(high, medium, low, timeout_records, oversight_root, now_str)
 
 
 # ---------------------------------------------------------------------------

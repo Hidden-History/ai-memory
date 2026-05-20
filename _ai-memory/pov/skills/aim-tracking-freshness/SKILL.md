@@ -238,20 +238,30 @@ python tracking_freshness.py --check \
 
 For each open BUG/TD record:
 
-1. **Extract evidence tokens** from the record body: commit SHAs
-   (`\b[0-9a-f]{7,40}\b`), PR refs (`#\d{1,4}` on non-heading lines), and file
-   paths cited on bulleted lines.
-2. **Query git history**: `git log --all --grep=<RECORD-ID>` and
-   `git log main --grep=<RECORD-ID>`; `git diff-tree --no-commit-id --name-only -r --root <SHA>`
-   for each main-reachable SHA.
-3. **Score confidence**:
-   - **HIGH** — at least one commit reachable from `main`, file-path overlap
-     with the record body, AND the record file mtime predates the latest fix
-     commit timestamp.
-   - **MEDIUM** — commit reachable from `main`, no file-path overlap.
+1. **Extract evidence tokens** from the record body (spec §4.1 Step A):
+   commit SHAs (`\b[0-9a-f]{7,40}\b`), PR refs (`#\d{1,4}` on non-heading
+   lines), version strings (`v\d+\.\d+\.\d+`), and file paths cited on
+   bulleted lines.  Version tokens are captured for completeness; the current
+   Step C scoring does not consume them.
+2. **Resolve default branch** (spec §4.7 row 3): the script reads
+   `git symbolic-ref --short refs/remotes/origin/HEAD` to learn the source
+   repo's default-branch name (so `master` / `trunk` / `develop` repos
+   classify the same as `main` repos).  When that fails (no origin remote,
+   bare repo, detached HEAD, …) the script falls back to the literal `HEAD`
+   ref-spec and emits a `NOTE: --verify-code-state: default branch not
+   resolvable …` to stderr; a truly detached HEAD emits a second
+   detached-state NOTE.
+3. **Query git history**: `git log --all --grep=<RECORD-ID>` and
+   `git log <branch-ref> --grep=<RECORD-ID>`; `git diff-tree --no-commit-id
+   --name-only -r --root <SHA>` for each branch-ref-reachable SHA.
+4. **Score confidence**:
+   - **HIGH** — at least one commit reachable from `<branch-ref>`, file-path
+     overlap with the record body, AND the record file mtime predates the
+     latest fix commit timestamp.
+   - **MEDIUM** — commit reachable from `<branch-ref>`, no file-path overlap.
    - **LOW** — only inline evidence (PR ref / SHA in body) without a
-     main-reachable commit; OR a matching `Revert "…<RECORD-ID>…"` commit is
-     also reachable from `main` (downgrade rule).
+     branch-ref-reachable commit; OR a matching `Revert "…<RECORD-ID>…"`
+     commit is also reachable from `<branch-ref>` (downgrade rule).
 
 Records with no git evidence and no inline evidence tokens are skipped (no
 phantom-open finding emitted).
@@ -259,7 +269,8 @@ phantom-open finding emitted).
 ### Output
 
 - **Stdout section**: `PHANTOM-OPEN CANDIDATES (file says OPEN, git says FIXED)`
-  with one markdown table per confidence bucket (HIGH / MEDIUM / LOW).
+  with one markdown table per confidence bucket (HIGH / MEDIUM / LOW) and
+  an `EVIDENCE-TIMEOUT` table when per-record git queries timed out.
 - **Sidecar file**: `oversight/reports/PHANTOM-OPEN-CANDIDATES.md`. The
   `oversight/reports/` directory is created with `mkdir -p` if absent. The
   sidecar is overwritten on every run (no append, no rotation).
@@ -271,7 +282,10 @@ phantom-open finding emitted).
 |-----------|-----------|
 | `--source-repo` not provided, env var unset, and `../ai-memory` not a directory | Section skipped; `NOTE: --verify-code-state requested but source repo not resolved …` to stderr; exit code unchanged |
 | `git` binary missing from `PATH` | Section skipped; `NOTE: --verify-code-state requested but 'git' binary not found in PATH.` to stderr; exit code unchanged |
-| Per-record `git log` exceeds the 5 s timeout | The query for that record returns `(False, "")`; the record is treated as having no git evidence and is skipped |
+| Source repo default branch is not `main` (e.g. `master`, `trunk`) | `git symbolic-ref refs/remotes/origin/HEAD` resolves the real default-branch name; reachability checks use that branch.  No NOTE emitted (the resolved name is the silent happy path). |
+| `origin/HEAD` unresolvable (bare repo, missing origin, …) | Fall back to literal `HEAD`; emit `NOTE: --verify-code-state: default branch not resolvable …` once per sweep to stderr; exit code unchanged |
+| Detached HEAD in source repo | Fall back to literal `HEAD` plus a second `NOTE: --verify-code-state: source repo in detached HEAD state …` to stderr; reachability is checked against HEAD only |
+| Per-record `git log` exceeds the 5 s timeout | Record is routed into the `EVIDENCE-TIMEOUT` bucket (spec §4.7 row 4); reported as an informational table in stdout + sidecar; does NOT contribute to `--check` exit code |
 | `--write --verify-code-state` | Phantom-open sweep runs and the sidecar is written; the sweep does NOT contribute to the `--write` exit-code contract (existing behaviour preserved) |
 
 The check is intentionally a *signal*, not a *gate*: false positives are

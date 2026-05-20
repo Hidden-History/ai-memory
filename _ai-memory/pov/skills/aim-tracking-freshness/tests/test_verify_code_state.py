@@ -10,6 +10,7 @@ Fixtures use realistically-shaped bug file content per
 
 from __future__ import annotations
 
+import argparse
 import os
 import subprocess
 import sys
@@ -18,6 +19,10 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).parent.parent / "scripts" / "tracking_freshness.py"
 
+# Import the module in-process for unit-level tests (token extraction, timeout
+# orchestrator) that cannot be exercised efficiently via subprocess.
+sys.path.insert(0, str(SCRIPT.parent))
+import tracking_freshness as tf  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
@@ -430,3 +435,76 @@ class TestVerifyCodeStateDoesNotModifyFiles:
             assert (
                 path.stat().st_mtime == mtime_before
             ), f"Existing file was unexpectedly modified: {path}"
+
+
+# ---------------------------------------------------------------------------
+# F-2: EVIDENCE-TIMEOUT bucket (spec §4.7 row 4)
+# ---------------------------------------------------------------------------
+
+
+class TestEvidenceTimeoutBucket:
+    def test_git_timeout_produces_evidence_timeout_bucket(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """Per-record git timeout → EVIDENCE-TIMEOUT bucket, NOT silent LOW/no-result.
+
+        Monkeypatches ``tracking_freshness._run_git`` to simulate every git
+        invocation hitting ``subprocess.TimeoutExpired``.  Verifies that the
+        record is routed to the EVIDENCE-TIMEOUT bucket and that no confidence
+        classification (HIGH/MEDIUM/LOW) is emitted for it.
+        """
+        bug_content = (
+            "# BUG-298: Some open bug for timeout-bucket coverage\n\n"
+            "**Status**: OPEN\n"
+            "**Severity**: MEDIUM\n\n"
+            "## Summary\n\nFixture verifies EVIDENCE-TIMEOUT bucket routing.\n\n"
+            "## Affected files\n\n"
+            "- scripts/install.sh (handler)\n"
+        )
+        oversight, bugs_dir = _make_oversight_with_open_bug(
+            tmp_path, "298", bug_content
+        )
+        # Real repo so resolve_source_repo() succeeds; queries inside it will be
+        # short-circuited by the monkeypatched _run_git.
+        source_repo = _make_fake_repo(
+            tmp_path,
+            "chore: unrelated initial setup",
+            "README.md",
+        )
+
+        # Simulate timeout on every git invocation (success=False, stdout="",
+        # did_timeout=True).
+        monkeypatch.setattr(tf, "_run_git", lambda *a, **kw: (False, "", True))
+
+        record = tf.parse_record_file(bugs_dir / "BUG-298-test-bug.md", "bug")
+        open_records_with_dirs = [(record, bugs_dir)]
+
+        args = argparse.Namespace(
+            check=True,
+            write=False,
+            oversight_root=str(oversight),
+            verify_code_state=True,
+            source_repo=str(source_repo),
+            last_n_sessions=None,
+            bug_id=None,
+        )
+
+        tf.run_verify_code_state(open_records_with_dirs, source_repo, oversight, args)
+
+        captured = capsys.readouterr()
+        assert "EVIDENCE-TIMEOUT" in captured.out, (
+            f"Expected EVIDENCE-TIMEOUT section.\n"
+            f"stdout: {captured.out}\nstderr: {captured.err}"
+        )
+        assert "BUG-298" in captured.out
+        # Classification must be skipped, not silently fall through to LOW.
+        assert "HIGH confidence" not in captured.out
+        assert "MEDIUM confidence" not in captured.out
+        assert "LOW confidence" not in captured.out
+
+        # Sidecar must surface the bucket too.
+        sidecar = oversight / "reports" / "PHANTOM-OPEN-CANDIDATES.md"
+        assert sidecar.exists()
+        sidecar_text = sidecar.read_text(encoding="utf-8")
+        assert "EVIDENCE-TIMEOUT" in sidecar_text
+        assert "BUG-298" in sidecar_text
