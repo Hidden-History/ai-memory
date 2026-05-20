@@ -270,3 +270,312 @@ def test_run_initial_github_sync_dual_source(dual_source_dir):
     assert (
         "secrets_github_token" in result.stdout
     ), f"GITHUB_TOKEN not resolved from .env.secrets; got: {result.stdout!r}"
+
+
+# ---------------------------------------------------------------------------
+# BUG-309 regression tests — install.sh detection-layer symmetry
+# ---------------------------------------------------------------------------
+# Pre-BUG-309 fix, install.sh's discover_jira_projects and configure_project_sources
+# grepped docker/.env only for credential detection — missing values that legitimately
+# live in docker/.env.secrets post-BUG-277 split. The fix substitutes _read_env_key
+# (secrets-first fallthrough) for the open-coded grep blocks at both sites.
+#
+# These tests cover three angles:
+#   1. Helper-level: _read_env_key returns the secrets value when both files have
+#      the key (precedence ordering — secrets-first).
+#   2. Helper-level: _read_env_key returns the secrets value when .env has the key
+#      blanked (BUG-309's exact post-BUG-286 state).
+#   3. Structural: install.sh's detection blocks reference _read_env_key (catches
+#      regression if the substitution is ever reverted).
+# ---------------------------------------------------------------------------
+
+HELPERS_SCRIPT = (
+    Path(__file__).parent.parent.parent / "scripts" / "_env_split_helpers.sh"
+)
+
+
+@pytest.fixture()
+def bug309_split_env_dir(tmp_path):
+    """Create a docker/ subdir matching the BUG-309 post-BUG-286 state.
+
+    docker/.env has the secret-class keys BLANKED (KEY= empty values) — the
+    BUG-286 defense-in-depth pattern leaves the line behind with an empty value.
+    docker/.env.secrets carries the canonical values.
+
+    The brief's R1.5 test request: assert detection reads .env.secrets values
+    rather than misinterpreting the blank .env entries as missing credentials.
+    """
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text(
+        "UID=1000\n"
+        "GID=1000\n"
+        "JIRA_INSTANCE_URL=\n"
+        "JIRA_EMAIL=\n"
+        "JIRA_API_TOKEN=\n"
+        "GITHUB_TOKEN=\n"
+        "GITHUB_SYNC_ENABLED=\n"
+        "GITHUB_REPO=owner/repo\n"
+    )
+    (docker_dir / ".env.secrets").write_text(
+        'JIRA_INSTANCE_URL="https://example.atlassian.net"\n'
+        'JIRA_EMAIL="ops@example.com"\n'
+        'JIRA_API_TOKEN="secrets_jira_token"\n'
+        'GITHUB_TOKEN="secrets_github_token"\n'
+        'GITHUB_SYNC_ENABLED="true"\n'
+    )
+    return docker_dir
+
+
+def _invoke_read_env_key(key: str, secrets_file: Path, env_file: Path) -> str:
+    """Source _env_split_helpers.sh and invoke _read_env_key; return stdout."""
+    cmd = (
+        f"source {str(HELPERS_SCRIPT)!r} && "
+        f"_read_env_key {key!r} {str(secrets_file)!r} {str(env_file)!r}"
+    )
+    result = subprocess.run(
+        ["bash", "-c", cmd],
+        capture_output=True,
+        text=True,
+        env=_minimal_env(),
+    )
+    assert result.returncode == 0, (
+        f"_read_env_key {key!r} returned exit {result.returncode}; "
+        f"stderr: {result.stderr}"
+    )
+    return result.stdout
+
+
+def test_helper_read_env_key_returns_secrets_first(tmp_path):
+    """_read_env_key returns the .env.secrets value when both files have the key.
+
+    Verifies precedence: secrets-first fallthrough. Matches MemoryConfig tuple
+    env_file last-file-wins (.env, .env.secrets) and docker-compose --env-file
+    last-file-wins, so detection-time UX is aligned with runtime precedence.
+    """
+    env_file = tmp_path / ".env"
+    secrets_file = tmp_path / ".env.secrets"
+    env_file.write_text('JIRA_API_TOKEN="env_token_value"\n')
+    secrets_file.write_text('JIRA_API_TOKEN="secrets_token_value"\n')
+
+    out = _invoke_read_env_key("JIRA_API_TOKEN", secrets_file, env_file)
+    assert (
+        out == "secrets_token_value"
+    ), f"Expected secrets_token_value (secrets-first precedence); got {out!r}"
+
+
+def test_jira_detection_reads_from_secrets_when_env_blank(bug309_split_env_dir):
+    """discover_jira_projects detection: JIRA_API_TOKEN resolves from .env.secrets.
+
+    BUG-309 reproducer state: docker/.env has JIRA_API_TOKEN= (blanked by
+    BUG-286 defense-in-depth), docker/.env.secrets has the real token.
+    Pre-fix: install.sh grepped .env only and saw empty value → emitted the
+    'Jira credentials not configured -- run fresh install' warning.
+    Post-fix: detection uses _read_env_key which falls through to .env.secrets.
+    """
+    env_file = bug309_split_env_dir / ".env"
+    secrets_file = bug309_split_env_dir / ".env.secrets"
+
+    assert _invoke_read_env_key("JIRA_INSTANCE_URL", secrets_file, env_file) == (
+        "https://example.atlassian.net"
+    )
+    assert _invoke_read_env_key("JIRA_EMAIL", secrets_file, env_file) == (
+        "ops@example.com"
+    )
+    assert _invoke_read_env_key("JIRA_API_TOKEN", secrets_file, env_file) == (
+        "secrets_jira_token"
+    )
+
+
+def test_github_detection_reads_from_secrets_when_env_blank(bug309_split_env_dir):
+    """configure_project_sources detection: GITHUB_TOKEN resolves from .env.secrets.
+
+    BUG-309 reproducer state: docker/.env has GITHUB_TOKEN= (blanked), real
+    token in .env.secrets. Pre-fix install.sh grepped .env only → emitted
+    'No GITHUB_TOKEN found' warning + skipped per-project token verification.
+    Post-fix uses _read_env_key with secrets-first fallthrough.
+    """
+    env_file = bug309_split_env_dir / ".env"
+    secrets_file = bug309_split_env_dir / ".env.secrets"
+
+    assert _invoke_read_env_key("GITHUB_TOKEN", secrets_file, env_file) == (
+        "secrets_github_token"
+    )
+    assert _invoke_read_env_key("GITHUB_SYNC_ENABLED", secrets_file, env_file) == (
+        "true"
+    )
+
+
+def test_install_sh_detection_sites_reference_read_env_key():
+    """Structural regression: install.sh detection blocks invoke _read_env_key.
+
+    Catches future regression if the open-coded grep '^KEY=' "$env_file" pattern
+    is ever reintroduced. We assert:
+      1. The defective shape is absent for the BUG-309 keys.
+      2. _read_env_key is invoked for each of the 5 keys covered by R1.2 + R1.3.
+    """
+    install_sh = INSTALL_SCRIPT.read_text()
+
+    # Defective shape MUST NOT appear for BUG-309 keys
+    defective_keys = (
+        "JIRA_INSTANCE_URL",
+        "JIRA_EMAIL",
+        "JIRA_API_TOKEN",
+        "GITHUB_TOKEN",
+        "GITHUB_SYNC_ENABLED",
+    )
+    for key in defective_keys:
+        defective = f"grep '^{key}=' \"$env_file\""
+        assert defective not in install_sh, (
+            f"Regression: defective shape {defective!r} present in install.sh "
+            f"(BUG-309 substitution reverted)"
+        )
+
+    # _read_env_key MUST be invoked for each BUG-309 key
+    for key in defective_keys:
+        helper_call = f'_read_env_key "{key}"'
+        assert (
+            helper_call in install_sh
+        ), f"Regression: install.sh missing _read_env_key invocation for {key!r}"
+
+
+# ---------------------------------------------------------------------------
+# TD-551 regression tests — install-dir .env secret-class line removal + chmod
+# ---------------------------------------------------------------------------
+# Pre-TD-551, .env retained secret-class key lines (blanked by BUG-286 to KEY=)
+# alongside the canonical values in .env.secrets — leaking the configured-key
+# inventory to anyone with read access to .env (chmod 644 / 755 on WSL).
+# Fix: purge_migrated_secret_keys_from_env removes the lines entirely;
+# apply_docker_dir_permissions tightens per-file modes.
+# ---------------------------------------------------------------------------
+
+
+def _is_wsl() -> bool:
+    """Detect WSL host — chmod may silently no-op on DrvFs/WSL; gate assertions."""
+    try:
+        return any(
+            marker in Path("/proc/sys/kernel/osrelease").read_text().lower()
+            for marker in ("microsoft", "wsl")
+        )
+    except OSError:
+        return False
+
+
+def test_purge_removes_secret_keys_from_env_when_secrets_present(tmp_path):
+    """purge_migrated_secret_keys_from_env deletes secret-class lines from .env.
+
+    TD-551 reproducer: docker/.env retains blank `GITHUB_TOKEN=` and
+    `JIRA_API_TOKEN=` lines (BUG-286 defense-in-depth blanked the values but
+    kept the line) while docker/.env.secrets has the canonical values.
+
+    Post-fix expectations after invoking the purge helper:
+      - Both secret-class lines removed from .env entirely (not just blanked).
+      - Non-secret keys (UID, GID, GITHUB_REPO) preserved.
+      - Comments preserved.
+      - .env.secrets unchanged.
+    """
+    env_file = tmp_path / ".env"
+    secrets_file = tmp_path / ".env.secrets"
+    env_file.write_text(
+        "# Non-secret config — preserve this comment\n"
+        "UID=1000\n"
+        "GID=1000\n"
+        "GITHUB_TOKEN=\n"
+        "JIRA_API_TOKEN=\n"
+        "GITHUB_REPO=owner/repo\n"
+        "# Tail comment\n"
+    )
+    secrets_file.write_text(
+        'GITHUB_TOKEN="real_github_token"\n' 'JIRA_API_TOKEN="real_jira_token"\n'
+    )
+
+    cmd = (
+        f"source {str(HELPERS_SCRIPT)!r} && "
+        f"purge_migrated_secret_keys_from_env {str(env_file)!r} {str(secrets_file)!r}"
+    )
+    result = subprocess.run(
+        ["bash", "-c", cmd],
+        capture_output=True,
+        text=True,
+        env=_minimal_env(),
+    )
+    assert (
+        result.returncode == 0
+    ), f"purge helper exit {result.returncode}; stderr: {result.stderr}"
+
+    post_env = env_file.read_text()
+    assert (
+        "GITHUB_TOKEN" not in post_env
+    ), f".env still contains GITHUB_TOKEN line after purge:\n{post_env}"
+    assert (
+        "JIRA_API_TOKEN" not in post_env
+    ), f".env still contains JIRA_API_TOKEN line after purge:\n{post_env}"
+    assert "UID=1000" in post_env, "Non-secret UID line was removed"
+    assert (
+        "GITHUB_REPO=owner/repo" in post_env
+    ), "Non-secret GITHUB_REPO line was removed"
+    assert (
+        "# Non-secret config — preserve this comment" in post_env
+    ), "Header comment removed"
+    assert "# Tail comment" in post_env, "Tail comment removed"
+
+    post_secrets = secrets_file.read_text()
+    assert "real_github_token" in post_secrets, ".env.secrets was modified by purge"
+    assert "real_jira_token" in post_secrets, ".env.secrets was modified by purge"
+
+
+def test_apply_docker_dir_permissions_per_file(tmp_path):
+    """apply_docker_dir_permissions enforces the canonical per-file mode matrix.
+
+    TD-551 R2.2: replace the WSL DrvFs `cp -r`-inherited 755 modes with:
+      .env.secrets → 600, .env → 640, .env.example + .env.secrets.example → 644,
+      Dockerfile* → 644.
+
+    On WSL the chmod may silently no-op (filesystem limitation); we mirror
+    verify_env_split.py's I2 WSL-degrade pattern: assert exact modes only on
+    non-WSL hosts; on WSL, accept any mode but assert the helper exited 0.
+    """
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text("UID=1000\n")
+    (docker_dir / ".env.secrets").write_text('GITHUB_TOKEN="x"\n')
+    (docker_dir / ".env.example").write_text("UID=\n")
+    (docker_dir / ".env.secrets.example").write_text("GITHUB_TOKEN=\n")
+    (docker_dir / "Dockerfile").write_text("FROM scratch\n")
+    (docker_dir / "Dockerfile.qdrant").write_text("FROM scratch\n")
+
+    # Force-start at deliberate-wrong perms (matching the TD-551 evidence state)
+    for p in docker_dir.iterdir():
+        p.chmod(0o755)
+
+    cmd = (
+        f"source {str(HELPERS_SCRIPT)!r} && "
+        f"apply_docker_dir_permissions {str(docker_dir)!r}"
+    )
+    result = subprocess.run(
+        ["bash", "-c", cmd],
+        capture_output=True,
+        text=True,
+        env=_minimal_env(),
+    )
+    assert (
+        result.returncode == 0
+    ), f"apply_docker_dir_permissions exit {result.returncode}; stderr: {result.stderr}"
+
+    if _is_wsl():
+        pytest.skip(
+            "WSL DrvFs chmod is unreliable; helper exit-status verified, "
+            "mode assertions skipped"
+        )
+
+    expected = {
+        ".env": 0o640,
+        ".env.secrets": 0o600,
+        ".env.example": 0o644,
+        ".env.secrets.example": 0o644,
+        "Dockerfile": 0o644,
+        "Dockerfile.qdrant": 0o644,
+    }
+    for name, mode in expected.items():
+        actual = (docker_dir / name).stat().st_mode & 0o777
+        assert actual == mode, f"{name}: expected mode {oct(mode)}, got {oct(actual)}"

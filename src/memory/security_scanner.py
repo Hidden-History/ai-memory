@@ -579,6 +579,27 @@ class SecurityScanner:
         """
         self.enable_ner = enable_ner
 
+        # TD-552: emit an explicit INFO log at init time recording which
+        # detection layers are active. Pre-fix, L3 silently degraded to L1+L2
+        # when the spaCy model failed to load (the WARNING fired only on first
+        # scan, easily lost in routine output). Eager probe here resolves
+        # state once at init so operators can confirm L3 coverage from the
+        # startup log alone. The lazy _load_spacy_model fallback remains for
+        # belt-and-suspenders.
+        if enable_ner:
+            if _load_spacy_model() is not None:
+                logger.info("security_scanner_initialized layers=L1+L2+L3")
+            else:
+                logger.info(
+                    "security_scanner_initialized layers=L1+L2 "
+                    "reason=spacy_model_missing"
+                )
+        else:
+            logger.info(
+                "security_scanner_initialized layers=L1+L2 "
+                "reason=ner_disabled_by_config"
+            )
+
     def _apply_masks_and_determine_action(
         self, content: str, findings: list[ScanFinding]
     ) -> tuple[str, ScanAction]:

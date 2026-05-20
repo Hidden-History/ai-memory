@@ -207,3 +207,96 @@ migrate_secrets_to_split_file() {
     done
     _h_log_success "Migration complete (${#ALL_SECRET_KEYS[@]} keys checked across PP-1/PP-2/PP-3 — all secret-class keys enforced)"
 }
+
+# _remove_key_line_from_env — delete any line matching ^KEY= from env_file.
+# Distinct from _blank_key_in_env (which keeps the KEY= shell with an empty
+# value). Idempotent: no-op if the key is absent. Preserves comments,
+# non-secret keys, and ordering.
+# TD-551 fix: full line removal ensures the secret-class key name is not
+# discoverable in docker/.env (chmod 644 / 640) once the canonical value has
+# been moved to docker/.env.secrets (chmod 600).
+_remove_key_line_from_env() {
+    local key="$1"
+    local env_file="$2"
+    if [[ ! -f "$env_file" ]]; then
+        return 0
+    fi
+    if grep -qE "^${key}=" "$env_file" 2>/dev/null; then
+        sed -i.bak "/^${key}=/d" "$env_file" && rm -f "${env_file}.bak"
+    fi
+}
+
+# purge_migrated_secret_keys_from_env — TD-551 R2.1 line-removal pass.
+# For each key in ALL_SECRET_KEYS: if the canonical value lives in
+# secrets_file, remove the corresponding KEY= line from env_file. Idempotent:
+# no-op when env_file is already clean or secrets_file lacks the key.
+# Invoked from install.sh after migrate_secrets_to_split_file (or after
+# fresh-install write paths) so .env never retains a secret-class key line
+# alongside docker/.env.secrets — even with a blank value, the line name
+# itself was discoverable, which TD-551 closes.
+purge_migrated_secret_keys_from_env() {
+    local env_file="$1"
+    local secrets_file="$2"
+
+    if [[ ! -f "$env_file" || ! -f "$secrets_file" ]]; then
+        return 0
+    fi
+
+    local removed_count=0
+    local key
+    for key in "${ALL_SECRET_KEYS[@]}"; do
+        # Only purge from env_file if secrets_file actually has the canonical
+        # value — otherwise we'd risk dropping a key whose value lives nowhere.
+        if grep -qE "^${key}=.+" "$secrets_file" 2>/dev/null; then
+            if grep -qE "^${key}=" "$env_file" 2>/dev/null; then
+                _remove_key_line_from_env "$key" "$env_file"
+                removed_count=$((removed_count + 1))
+            fi
+        fi
+    done
+    if (( removed_count > 0 )); then
+        _h_log_success "Purged ${removed_count} secret-class key line(s) from $(basename "$env_file") (canonical values in $(basename "$secrets_file"))"
+    fi
+}
+
+# apply_docker_dir_permissions — TD-551 R2.2 per-file chmod tightening.
+# Applies the canonical mode matrix to each artifact in docker_dir, replacing
+# whatever modes the source clone's cp -r preserved (commonly 755 on WSL
+# DrvFs sources). WSL-safe: chmod failures degrade to _h_log_warn rather
+# than aborting; verify_env_split.py's I2 already accommodates this.
+#
+#   docker/.env.secrets         → 600 (re-enforce; ensure_secrets_file_exists also sets this)
+#   docker/.env                 → 640
+#   docker/.env.example         → 644
+#   docker/.env.secrets.example → 644
+#   docker/Dockerfile*          → 644
+apply_docker_dir_permissions() {
+    local docker_dir="$1"
+    if [[ ! -d "$docker_dir" ]]; then
+        return 0
+    fi
+
+    if [[ -f "$docker_dir/.env.secrets" ]]; then
+        chmod 600 "$docker_dir/.env.secrets" 2>/dev/null \
+            || _h_log_warn "chmod 600 on $(basename "$docker_dir")/.env.secrets failed"
+    fi
+    if [[ -f "$docker_dir/.env" ]]; then
+        chmod 640 "$docker_dir/.env" 2>/dev/null \
+            || _h_log_warn "chmod 640 on $(basename "$docker_dir")/.env failed"
+    fi
+    if [[ -f "$docker_dir/.env.example" ]]; then
+        chmod 644 "$docker_dir/.env.example" 2>/dev/null \
+            || _h_log_warn "chmod 644 on $(basename "$docker_dir")/.env.example failed"
+    fi
+    if [[ -f "$docker_dir/.env.secrets.example" ]]; then
+        chmod 644 "$docker_dir/.env.secrets.example" 2>/dev/null \
+            || _h_log_warn "chmod 644 on $(basename "$docker_dir")/.env.secrets.example failed"
+    fi
+    # Dockerfile.* glob — quietly skip when no variants present.
+    local dockerfile
+    for dockerfile in "$docker_dir"/Dockerfile*; do
+        [[ -f "$dockerfile" ]] || continue
+        chmod 644 "$dockerfile" 2>/dev/null \
+            || _h_log_warn "chmod 644 on $(basename "$dockerfile") failed"
+    done
+}

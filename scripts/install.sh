@@ -322,30 +322,35 @@ configure_project_name() {
 }
 
 # Discover Jira projects via API and let user select by number (add-project mode helper)
-# Reads JIRA_INSTANCE_URL, JIRA_EMAIL, JIRA_API_TOKEN from env or .env file
-# Sets globals: PROJECT_JIRA_ENABLED, PROJECT_JIRA_PROJECTS
-# Returns 0 on success (projects selected), 1 on cancel/failure/no credentials
+# Reads JIRA_INSTANCE_URL, JIRA_EMAIL, JIRA_API_TOKEN from environment, then from
+# docker/.env.secrets (canonical post-BUG-277), then from docker/.env. Sets globals:
+# PROJECT_JIRA_ENABLED, PROJECT_JIRA_PROJECTS. Returns 0 on success, 1 otherwise.
 discover_jira_projects() {
     local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
     local jira_url jira_email jira_token
 
-    # Load Jira credentials from environment, falling back to .env file
+    # Load Jira credentials from environment, then from split env files via
+    # _read_env_key (secrets-first fallthrough). Matches runtime precedence:
+    # MemoryConfig tuple env_file + docker-compose --env-file both apply
+    # last-file-wins, so .env.secrets is authoritative when both files have
+    # the key. BUG-309 fix.
     jira_url="${JIRA_INSTANCE_URL:-}"
     jira_email="${JIRA_EMAIL:-}"
     jira_token="${JIRA_API_TOKEN:-}"
 
-    if [[ -f "$env_file" ]]; then
+    if [[ -f "$env_file" || -f "$secrets_file" ]]; then
         local _val
         if [[ -z "$jira_url" ]]; then
-            _val=$(grep '^JIRA_INSTANCE_URL=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            _val=$(_read_env_key "JIRA_INSTANCE_URL" "$secrets_file" "$env_file")
             [[ -n "$_val" ]] && jira_url="$_val"
         fi
         if [[ -z "$jira_email" ]]; then
-            _val=$(grep '^JIRA_EMAIL=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            _val=$(_read_env_key "JIRA_EMAIL" "$secrets_file" "$env_file")
             [[ -n "$_val" ]] && jira_email="$_val"
         fi
         if [[ -z "$jira_token" ]]; then
-            _val=$(grep '^JIRA_API_TOKEN=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            _val=$(_read_env_key "JIRA_API_TOKEN" "$secrets_file" "$env_file")
             [[ -n "$_val" ]] && jira_token="$_val"
         fi
     fi
@@ -476,19 +481,23 @@ print(','.join(keys))
 # Side-effects: may set GITHUB_TOKEN and GITHUB_SYNC_ENABLED from .env if unset
 configure_project_sources() {
     local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
     local use_detected github_owner github_name branch_input jira_choice jira_keys test_code
 
-    # Load GITHUB_TOKEN and GITHUB_SYNC_ENABLED from existing .env if not already set
-    if [[ -f "$env_file" ]]; then
+    # Load GITHUB_TOKEN and GITHUB_SYNC_ENABLED from split env files via
+    # _read_env_key (secrets-first fallthrough). GITHUB_TOKEN is secret-class
+    # and lives in .env.secrets post-BUG-277; GITHUB_SYNC_ENABLED is routed
+    # through the helper for behavioral consistency. BUG-309 fix.
+    if [[ -f "$env_file" || -f "$secrets_file" ]]; then
         local _val
         if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-            _val=$(grep '^GITHUB_TOKEN=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            _val=$(_read_env_key "GITHUB_TOKEN" "$secrets_file" "$env_file")
             if [[ -n "$_val" ]]; then
                 GITHUB_TOKEN="$_val"
             fi
         fi
         if [[ -z "${GITHUB_SYNC_ENABLED:-}" ]]; then
-            _val=$(grep '^GITHUB_SYNC_ENABLED=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+            _val=$(_read_env_key "GITHUB_SYNC_ENABLED" "$secrets_file" "$env_file")
             if [[ -n "$_val" ]]; then
                 GITHUB_SYNC_ENABLED="$_val"
             fi
@@ -1747,6 +1756,14 @@ update_shared_scripts() {
             fi
         fi
 
+        # TD-551: tighten per-file modes after bulk cp + .env backup-restore +
+        # .env.example merge. cp -r preserves source modes (WSL DrvFs commonly
+        # 755) and cp -p restore preserves the backup's mode (potentially 755
+        # from a pre-v2.4.3 install — automatic remediation on upgrade).
+        # Re-apply the canonical matrix AFTER all .env-related operations so
+        # chmod sees the final on-disk state (cycle-2 M-1).
+        apply_docker_dir_permissions "$INSTALL_DIR/docker"
+
         log_debug "Synced Docker files to INSTALL_DIR"
     fi
 
@@ -2290,6 +2307,14 @@ copy_files() {
         fi
     fi
 
+    # TD-551: tighten per-file modes after bulk cp + dotfile cp + merge + secrets
+    # deploy. cp -r and cp -p preserve source/backup modes (commonly 755 on WSL
+    # DrvFs sources or pre-v2.4.3 install-dir leftovers). Re-apply the canonical
+    # matrix .env=640 / .env.secrets=600 / examples=644 / Dockerfile*=644 AFTER
+    # all .env / .env.secrets / .env.example file operations have settled, so
+    # the chmod sees the final on-disk state (cycle-2 M-1).
+    apply_docker_dir_permissions "$INSTALL_DIR/docker"
+
     # BUG-244: Use shared sync function for all non-Docker file syncing
     sync_installed_files "$SOURCE_DIR" "$INSTALL_DIR"
 
@@ -2455,6 +2480,14 @@ migrate_existing_env_secrets() {
         log_error "Secrets migration failed — halting install. Re-run after investigating."
         exit 1
     }
+
+    # TD-551: line-removal pass — migrate_secrets_to_split_file leaves blank
+    # KEY= lines via _blank_key_in_env (BUG-286 defense-in-depth). Once
+    # .env.secrets carries the canonical value, the residual line names in
+    # docker/.env (chmod 644/640) leak the configured-key inventory to any
+    # reader. purge_migrated_secret_keys_from_env removes the line entirely
+    # for keys whose canonical value lives in .env.secrets. Idempotent.
+    purge_migrated_secret_keys_from_env "$env_file" "$secrets_file"
 }
 
 # Environment configuration (AC 7.1.6)

@@ -971,3 +971,102 @@ class TestSessionModeAwareness:
             assert 3 in r.layers_executed
             # NER should have detected names
             assert any(f.finding_type.value == "pii_name" for f in r.findings)
+
+
+# ============================================================================
+# TD-552: SecurityScanner explicit init log
+# ============================================================================
+# Pre-fix, the spaCy load failure WARNING fired only on first scan via the
+# lazy _load_spacy_model path — silent degradation that operators could miss
+# entirely. SecurityScanner.__init__ now eagerly probes model availability
+# when enable_ner=True and emits an explicit INFO log recording active layer
+# state. Three shapes:
+#   layers=L1+L2+L3                          (NER enabled, model loaded)
+#   layers=L1+L2 reason=spacy_model_missing  (NER enabled, model unavailable)
+#   layers=L1+L2 reason=ner_disabled_by_config (NER disabled — default)
+# ============================================================================
+
+
+class TestSecurityScannerInitLog:
+    """TD-552: explicit INFO log at scanner-init time recording layer state."""
+
+    def test_init_log_when_ner_disabled_by_config(self, caplog):
+        """enable_ner=False (default) emits layers=L1+L2 reason=ner_disabled_by_config."""
+        import logging
+
+        from memory.security_scanner import SecurityScanner
+
+        with caplog.at_level(logging.INFO, logger="ai_memory.security_scanner"):
+            SecurityScanner(enable_ner=False)
+
+        matches = [
+            r
+            for r in caplog.records
+            if "security_scanner_initialized" in r.getMessage()
+        ]
+        assert len(matches) >= 1, "No security_scanner_initialized INFO log emitted"
+        msg = matches[-1].getMessage()
+        assert "layers=L1+L2" in msg
+        assert "reason=ner_disabled_by_config" in msg
+        assert "L3" not in msg
+
+    def test_init_log_when_model_present(self, caplog, monkeypatch):
+        """enable_ner=True + model loadable emits layers=L1+L2+L3."""
+        import logging
+
+        from memory import security_scanner as scanner_mod
+        from memory.security_scanner import SecurityScanner
+
+        # Reset module-level cache so the probe re-runs against our stub.
+        monkeypatch.setattr(scanner_mod, "_spacy_nlp", None, raising=False)
+        monkeypatch.setattr(scanner_mod, "_spacy_available", None, raising=False)
+        monkeypatch.setattr(
+            scanner_mod, "_load_spacy_model", lambda: object()  # truthy stub
+        )
+
+        with caplog.at_level(logging.INFO, logger="ai_memory.security_scanner"):
+            SecurityScanner(enable_ner=True)
+
+        matches = [
+            r
+            for r in caplog.records
+            if "security_scanner_initialized" in r.getMessage()
+        ]
+        assert len(matches) >= 1, "No security_scanner_initialized INFO log emitted"
+        msg = matches[-1].getMessage()
+        assert "layers=L1+L2+L3" in msg
+
+    def test_init_log_when_model_missing(self, caplog, monkeypatch):
+        """enable_ner=True + model unavailable emits layers=L1+L2 reason=spacy_model_missing.
+
+        Also asserts that a subsequent .scan() call succeeds without exception
+        (graceful degradation, not a hard failure).
+        """
+        import logging
+
+        from memory import security_scanner as scanner_mod
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        # Stub _load_spacy_model to return None (simulating missing/unloadable model)
+        monkeypatch.setattr(scanner_mod, "_spacy_nlp", None, raising=False)
+        monkeypatch.setattr(scanner_mod, "_spacy_available", None, raising=False)
+        monkeypatch.setattr(scanner_mod, "_load_spacy_model", lambda: None)
+
+        with caplog.at_level(logging.INFO, logger="ai_memory.security_scanner"):
+            scanner = SecurityScanner(enable_ner=True)
+
+        matches = [
+            r
+            for r in caplog.records
+            if "security_scanner_initialized" in r.getMessage()
+        ]
+        assert len(matches) >= 1, "No security_scanner_initialized INFO log emitted"
+        msg = matches[-1].getMessage()
+        assert "layers=L1+L2" in msg
+        assert "reason=spacy_model_missing" in msg
+        assert "L3" not in msg
+
+        # Subsequent .scan() must succeed (graceful degradation) — TD-552
+        # requires the missing-model path not raise.
+        result = scanner.scan("Plain text without PII.")
+        assert result.action in (ScanAction.PASSED, ScanAction.MASKED)

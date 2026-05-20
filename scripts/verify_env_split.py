@@ -151,19 +151,23 @@ def run_checks(install_dir: str, strict: bool) -> int:
     else:
         _ok("I1: docker/.env.secrets exists")
 
-    # I2: file permissions (.env = 644, .env.secrets = 600)
+    # I2: file permissions (.env = 640, .env.secrets = 600)
     # On WSL, chmod 600 may silently no-op (filesystem limitation); warn only on WSL.
     # On real Linux/macOS, a mode mismatch is a security invariant violation → _fail.
+    # .env is owner-read-write + group-read (640) per TD-551 canonical matrix in
+    # apply_docker_dir_permissions; the previous 0o644 expectation here was a
+    # pre-TD-551 leftover that spuriously passed only because the chmod helper
+    # never reached .env on fresh installs (cycle-2 M-1 fix surfaced the truth).
     env_mode = _file_mode(env_file)
-    if env_mode != 0o644:
+    if env_mode != 0o640:
         if _is_wsl():
             _warn(
-                f"I2: docker/.env mode {oct(env_mode)} (expected 0o644 — WSL may not enforce)"
+                f"I2: docker/.env mode {oct(env_mode)} (expected 0o640 — WSL may not enforce)"
             )
         else:
-            _fail(failures, f"I2: docker/.env mode {oct(env_mode)} (expected 0o644)")
+            _fail(failures, f"I2: docker/.env mode {oct(env_mode)} (expected 0o640)")
     else:
-        _ok("I2a: docker/.env mode 644")
+        _ok("I2a: docker/.env mode 640")
 
     if secrets_file.exists():
         sec_mode = _file_mode(secrets_file)
@@ -310,6 +314,22 @@ def run_checks(install_dir: str, strict: bool) -> int:
             )
         else:
             _ok("STRICT: PP-3 keys absent from docker/.env")
+
+        # I9 (strict-only): secret-class KEY NAMES absent from docker/.env.
+        # Distinct from I4 (value-based): I9 fires even when KEY= has an empty
+        # value, because the key NAME itself reveals the configured-key inventory
+        # to any reader of docker/.env (chmod 644/640). Closes TD-551 line-removal
+        # contract end-to-end. Strict-only to avoid breaking existing operators
+        # in default mode; promotion to default-strict can ride a later PR.
+        # Key NAMES only — membership against ALL_SECRET_KEYS; no values logged.
+        leaked_names = tuple(sorted(k for k in ALL_SECRET_KEYS if k in env_vals))
+        if leaked_names:
+            _fail(
+                failures,
+                f"STRICT (I9): secret-class key NAMES present in docker/.env: {leaked_names}",
+            )
+        else:
+            _ok("STRICT (I9): secret-class key names absent from docker/.env")
 
     if failures:
         print(f"\n[FAIL] {len(failures)} invariant(s) failed:", file=sys.stderr)
