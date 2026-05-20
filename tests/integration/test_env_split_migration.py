@@ -169,7 +169,7 @@ def _make_install_dir(
     docker_dir.mkdir(parents=True)
     env_file = docker_dir / ".env"
     _write_env(env_file, env_pairs)
-    env_file.chmod(0o644)
+    env_file.chmod(0o640)
     if secrets_pairs is not None:
         sec = docker_dir / ".env.secrets"
         _write_env(sec, secrets_pairs)
@@ -467,7 +467,7 @@ def test_t11_compose_yaml_has_secrets_required_false(tmp_path):
     secrets_file = docker_dir / ".env.secrets"
     _write_env(secrets_file, {k: f"v_{k}" for k in PP_2_KEYS})
     secrets_file.chmod(0o600)
-    env_file.chmod(0o644)
+    env_file.chmod(0o640)
 
     compose_text = (docker_dir / "docker-compose.yml").read_text()
     assert ".env.secrets" in compose_text
@@ -490,7 +490,7 @@ def test_t12_secrets_absent_compose_required_false(tmp_path):
     env_pairs["GITHUB_SYNC_ENABLED"] = "false"
     env_file = docker_dir / ".env"
     _write_env(env_file, env_pairs)
-    env_file.chmod(0o644)
+    env_file.chmod(0o640)
     # No .env.secrets — simulates fresh deploy where secrets not yet configured
 
     result = _run_verify(tmp_path)
@@ -611,7 +611,7 @@ def test_verify_i8_compose_missing_secrets_entry(tmp_path):
     _write_env(
         env_file, {"GITHUB_SYNC_ENABLED": "false", **dict.fromkeys(PP_2_KEYS, "")}
     )
-    env_file.chmod(0o644)
+    env_file.chmod(0o640)
     sec = docker_dir / ".env.secrets"
     _write_env(sec, secrets_pairs)
     sec.chmod(0o600)
@@ -795,7 +795,7 @@ def test_verify_i8_inverted_layout_fails(tmp_path):
     _write_env(
         env_file, {"GITHUB_SYNC_ENABLED": "false", **dict.fromkeys(PP_2_KEYS, "")}
     )
-    env_file.chmod(0o644)
+    env_file.chmod(0o640)
     sec = docker_dir / ".env.secrets"
     _write_env(sec, secrets_pairs)
     sec.chmod(0o600)
