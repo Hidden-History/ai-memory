@@ -10,12 +10,12 @@ Each test reloads memory.config after setting AI_MEMORY_INSTALL_DIR so the class
 _docker_env / _docker_secrets paths are re-evaluated with the temp install dir.
 """
 
+import logging
 import os
 import sys
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -145,15 +145,17 @@ def test_memoryconfig_reads_secrets_from_split_env(clean_install_env):
 
 
 # ---------------------------------------------------------------------------
-# Test 2: Pattern A negative — secrets missing → ValidationError still fires
+# Test 2: Pattern A — secrets missing → warn + github_sync_usable=False (PLAN-028 P1 RC-B)
 # ---------------------------------------------------------------------------
 
 
-def test_memoryconfig_validation_fires_when_secrets_missing(clean_install_env):
-    """ValidationError raised when GITHUB_SYNC_ENABLED=true but .env.secrets absent.
+def test_memoryconfig_warns_when_secrets_missing(clean_install_env, caplog):
+    """github_sync_usable is False and a warning is logged when GITHUB_SYNC_ENABLED=true
+    but GITHUB_TOKEN is absent; MemoryConfig() must not raise.
 
-    Documents pre-fix behavior and ensures the cross-field validator still fires
-    when secrets are genuinely missing (not just when consumer side is broken).
+    PLAN-028 P1 RC-B: validate_github_config was downgraded from a fatal
+    ValueError to a warning + derived flag. This regression test pins the
+    new contract for the integration / split-env-file path.
     """
     tmp = clean_install_env
     _write_env(
@@ -164,8 +166,14 @@ def test_memoryconfig_validation_fires_when_secrets_missing(clean_install_env):
 
     MemoryConfig, reset_config = _reload_memory_config()
     try:
-        with pytest.raises(ValidationError, match="GITHUB_TOKEN required"):
-            MemoryConfig()
+        with caplog.at_level(logging.WARNING, logger="memory.config"):
+            config = MemoryConfig()
+        assert config.github_sync_usable is False
+        warn_records = [
+            r for r in caplog.records if "github_sync_not_usable" in r.getMessage()
+        ]
+        assert warn_records, "expected github_sync_not_usable warning"
+        assert "GITHUB_TOKEN" in warn_records[0].missing
     finally:
         reset_config()
 
