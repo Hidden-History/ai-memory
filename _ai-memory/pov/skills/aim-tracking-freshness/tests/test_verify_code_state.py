@@ -438,6 +438,114 @@ class TestVerifyCodeStateDoesNotModifyFiles:
 
 
 # ---------------------------------------------------------------------------
+# F-3: Root-commit regression test (spec §4.7 / cycle-1 inherited fix)
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_repo_root_only(
+    tmp_path: Path, commit_msg: str, touched_file: str
+) -> Path:
+    """Create a git repo where the FIX commit IS the root commit (no parent).
+
+    Mirrors :func:`_make_fake_repo` but skips the initial chore commit so the
+    fix commit has no parent.  ``git diff-tree`` against a root commit returns
+    no files unless ``--root`` is passed — the regression this fixture locks.
+    """
+    repo = tmp_path / "root-only-repo"
+    repo.mkdir()
+    _git_init_main(repo)
+    for cmd in [
+        ["git", "config", "user.email", "test@example.com"],
+        ["git", "config", "user.name", "Test"],
+    ]:
+        subprocess.run(cmd, cwd=str(repo), capture_output=True, check=True)
+
+    file_path = repo / touched_file
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text("content", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=str(repo), capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", commit_msg],
+        cwd=str(repo),
+        capture_output=True,
+        check=True,
+    )
+    return repo
+
+
+class TestVerifyCodeStateRootCommit:
+    def test_verify_code_state_root_commit_high_confidence(
+        self, tmp_path: Path
+    ) -> None:
+        """Fix commit IS the root commit (no parent) → HIGH confidence still detected.
+
+        Locks the cycle-1 ``--root`` defensive fix on ``git diff-tree``: without
+        it, root commits emit no touched files and path-overlap scoring
+        silently collapses HIGH → MEDIUM.  Removing ``--root`` from
+        :func:`tracking_freshness._query_merged_shas` causes this test to fail.
+        """
+        bug_content = (
+            "# BUG-273: Install fails — readonly UID/GID sourced into env\n\n"
+            "**Status**: OPEN\n"
+            "**Severity**: HIGH\n\n"
+            "## Summary\n\n"
+            "The install script sources .env which includes readonly UID/GID pairs "
+            "from the host system, causing install to fail on certain Linux configurations.\n\n"
+            "## Affected files\n\n"
+            "- scripts/install.sh (main installer — filters env before export)\n\n"
+            "## Reproduction\n\n"
+            "Run `./scripts/install.sh /path/to/project` on a system where UID/GID\n"
+            "are set to readonly. The installer crashes at the env-source step.\n"
+        )
+        oversight, bugs_dir = _make_oversight_with_open_bug(
+            tmp_path, "273", bug_content
+        )
+        source_repo = _make_fake_repo_root_only(
+            tmp_path,
+            "fix(install): filter readonly UID/GID from .env source (BUG-273)",
+            "scripts/install.sh",
+        )
+
+        # Guard the fixture's contract: the fix commit MUST be a root commit
+        # (no parent).  If a future fixture refactor reintroduces a chore
+        # commit, the --root flag would not be exercised and the regression
+        # test would silently lose teeth.
+        roots = (
+            subprocess.run(
+                ["git", "rev-list", "--max-parents=0", "HEAD"],
+                cwd=str(source_repo),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            .stdout.strip()
+            .splitlines()
+        )
+        head_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(source_repo),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        assert roots == [
+            head_sha
+        ], "fixture must have HEAD == sole root commit so --root path is exercised"
+
+        # Set bug file mtime to 1 day ago so it predates the commit (HIGH gate).
+        bug_path = bugs_dir / "BUG-273-test-bug.md"
+        past = time.time() - 86400
+        os.utime(bug_path, (past, past))
+
+        result = _run_verify(oversight, source_repo)
+        assert "HIGH confidence" in result.stdout, (
+            f"Expected HIGH confidence section (root-commit --root path).\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        assert "BUG-273" in result.stdout
+
+
+# ---------------------------------------------------------------------------
 # F-2: EVIDENCE-TIMEOUT bucket (spec §4.7 row 4)
 # ---------------------------------------------------------------------------
 
