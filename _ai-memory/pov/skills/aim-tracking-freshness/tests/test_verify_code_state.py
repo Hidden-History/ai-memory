@@ -699,6 +699,86 @@ class TestEvidenceTimeoutBucketSecondaryQuery:
 
 
 # ---------------------------------------------------------------------------
+# F-4: Detached-HEAD NOTE distinct from default-branch-fallback NOTE
+# ---------------------------------------------------------------------------
+
+
+class TestDetachedHeadNote:
+    def test_detached_head_emits_distinct_note(self, tmp_path: Path, capsys) -> None:
+        """Detached HEAD source repo emits a NOTE distinct from the F-1 fallback NOTE.
+
+        ``resolve_main_branch`` emits two NOTE lines when both
+        ``git symbolic-ref --short refs/remotes/origin/HEAD`` AND
+        ``git symbolic-ref HEAD`` fail: the default-branch-fallback NOTE
+        (shared with F-1) plus a second NOTE that names the detached state
+        directly.  A refactor that drops the second ``notes.append(...)``
+        would not be caught by ``TestEvidenceTimeoutBucket`` (which
+        exercises the code path via monkeypatch but does not assert on
+        stderr content).
+        """
+        bug_content = (
+            "# BUG-300: Open bug for detached-HEAD NOTE coverage\n\n"
+            "**Status**: OPEN\n"
+            "**Severity**: MEDIUM\n\n"
+            "## Summary\n\nFixture verifies F-4 detached-HEAD NOTE emission.\n\n"
+            "## Affected files\n\n"
+            "- scripts/install.sh (handler)\n"
+        )
+        oversight, bugs_dir = _make_oversight_with_open_bug(
+            tmp_path, "300", bug_content
+        )
+        source_repo = _make_fake_repo(
+            tmp_path,
+            "fix(install): repair BUG-300 in install.sh",
+            "scripts/install.sh",
+        )
+
+        # Detach HEAD so git symbolic-ref HEAD also fails — the second
+        # resolve_main_branch probe returns ok=False and the detached-HEAD
+        # NOTE branch is reached.
+        subprocess.run(
+            ["git", "checkout", "--detach", "HEAD"],
+            cwd=str(source_repo),
+            capture_output=True,
+            check=True,
+        )
+
+        record = tf.parse_record_file(bugs_dir / "BUG-300-test-bug.md", "bug")
+        open_records_with_dirs = [(record, bugs_dir)]
+
+        args = argparse.Namespace(
+            check=True,
+            write=False,
+            oversight_root=str(oversight),
+            verify_code_state=True,
+            source_repo=str(source_repo),
+            last_n_sessions=None,
+            bug_id=None,
+        )
+
+        tf.run_verify_code_state(open_records_with_dirs, source_repo, oversight, args)
+
+        captured = capsys.readouterr()
+        fallback_note_text = "default branch not resolvable"
+        detached_note_text = "source repo in detached HEAD state"
+
+        assert fallback_note_text in captured.err, (
+            f"Expected default-branch-fallback NOTE on stderr.\n"
+            f"stderr: {captured.err}"
+        )
+        assert detached_note_text in captured.err, (
+            f"Expected detached-HEAD NOTE on stderr (F-4).\n" f"stderr: {captured.err}"
+        )
+        # Distinctness contract: each NOTE substring appears exactly once,
+        # and the two substrings are different lines (not a single combined
+        # NOTE that satisfies both substring checks).
+        assert captured.err.count(fallback_note_text) == 1
+        assert captured.err.count(detached_note_text) == 1
+        assert fallback_note_text not in detached_note_text
+        assert detached_note_text not in fallback_note_text
+
+
+# ---------------------------------------------------------------------------
 # F-5: Version-string token class (spec §4.1 Step A row 3)
 # ---------------------------------------------------------------------------
 
