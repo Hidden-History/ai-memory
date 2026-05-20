@@ -311,6 +311,22 @@ def run_checks(install_dir: str, strict: bool) -> int:
         else:
             _ok("STRICT: PP-3 keys absent from docker/.env")
 
+        # I9 (strict-only): secret-class KEY NAMES absent from docker/.env.
+        # Distinct from I4 (value-based): I9 fires even when KEY= has an empty
+        # value, because the key NAME itself reveals the configured-key inventory
+        # to any reader of docker/.env (chmod 644/640). Closes TD-551 line-removal
+        # contract end-to-end. Strict-only to avoid breaking existing operators
+        # in default mode; promotion to default-strict can ride a later PR.
+        # Key NAMES only — membership against ALL_SECRET_KEYS; no values logged.
+        leaked_names = tuple(sorted(k for k in ALL_SECRET_KEYS if k in env_vals))
+        if leaked_names:
+            _fail(
+                failures,
+                f"STRICT (I9): secret-class key NAMES present in docker/.env: {leaked_names}",
+            )
+        else:
+            _ok("STRICT (I9): secret-class key names absent from docker/.env")
+
     if failures:
         print(f"\n[FAIL] {len(failures)} invariant(s) failed:", file=sys.stderr)
         # Failures list contains diagnostic key NAMES only — see taint-breaking

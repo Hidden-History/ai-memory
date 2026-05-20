@@ -437,3 +437,145 @@ def test_install_sh_detection_sites_reference_read_env_key():
         assert (
             helper_call in install_sh
         ), f"Regression: install.sh missing _read_env_key invocation for {key!r}"
+
+
+# ---------------------------------------------------------------------------
+# TD-551 regression tests — install-dir .env secret-class line removal + chmod
+# ---------------------------------------------------------------------------
+# Pre-TD-551, .env retained secret-class key lines (blanked by BUG-286 to KEY=)
+# alongside the canonical values in .env.secrets — leaking the configured-key
+# inventory to anyone with read access to .env (chmod 644 / 755 on WSL).
+# Fix: purge_migrated_secret_keys_from_env removes the lines entirely;
+# apply_docker_dir_permissions tightens per-file modes.
+# ---------------------------------------------------------------------------
+
+
+def _is_wsl() -> bool:
+    """Detect WSL host — chmod may silently no-op on DrvFs/WSL; gate assertions."""
+    try:
+        return any(
+            marker in Path("/proc/sys/kernel/osrelease").read_text().lower()
+            for marker in ("microsoft", "wsl")
+        )
+    except OSError:
+        return False
+
+
+def test_purge_removes_secret_keys_from_env_when_secrets_present(tmp_path):
+    """purge_migrated_secret_keys_from_env deletes secret-class lines from .env.
+
+    TD-551 reproducer: docker/.env retains blank `GITHUB_TOKEN=` and
+    `JIRA_API_TOKEN=` lines (BUG-286 defense-in-depth blanked the values but
+    kept the line) while docker/.env.secrets has the canonical values.
+
+    Post-fix expectations after invoking the purge helper:
+      - Both secret-class lines removed from .env entirely (not just blanked).
+      - Non-secret keys (UID, GID, GITHUB_REPO) preserved.
+      - Comments preserved.
+      - .env.secrets unchanged.
+    """
+    env_file = tmp_path / ".env"
+    secrets_file = tmp_path / ".env.secrets"
+    env_file.write_text(
+        "# Non-secret config — preserve this comment\n"
+        "UID=1000\n"
+        "GID=1000\n"
+        "GITHUB_TOKEN=\n"
+        "JIRA_API_TOKEN=\n"
+        "GITHUB_REPO=owner/repo\n"
+        "# Tail comment\n"
+    )
+    secrets_file.write_text(
+        'GITHUB_TOKEN="real_github_token"\n' 'JIRA_API_TOKEN="real_jira_token"\n'
+    )
+
+    cmd = (
+        f"source {str(HELPERS_SCRIPT)!r} && "
+        f"purge_migrated_secret_keys_from_env {str(env_file)!r} {str(secrets_file)!r}"
+    )
+    result = subprocess.run(
+        ["bash", "-c", cmd],
+        capture_output=True,
+        text=True,
+        env=_minimal_env(),
+    )
+    assert (
+        result.returncode == 0
+    ), f"purge helper exit {result.returncode}; stderr: {result.stderr}"
+
+    post_env = env_file.read_text()
+    assert (
+        "GITHUB_TOKEN" not in post_env
+    ), f".env still contains GITHUB_TOKEN line after purge:\n{post_env}"
+    assert (
+        "JIRA_API_TOKEN" not in post_env
+    ), f".env still contains JIRA_API_TOKEN line after purge:\n{post_env}"
+    assert "UID=1000" in post_env, "Non-secret UID line was removed"
+    assert (
+        "GITHUB_REPO=owner/repo" in post_env
+    ), "Non-secret GITHUB_REPO line was removed"
+    assert (
+        "# Non-secret config — preserve this comment" in post_env
+    ), "Header comment removed"
+    assert "# Tail comment" in post_env, "Tail comment removed"
+
+    post_secrets = secrets_file.read_text()
+    assert "real_github_token" in post_secrets, ".env.secrets was modified by purge"
+    assert "real_jira_token" in post_secrets, ".env.secrets was modified by purge"
+
+
+def test_apply_docker_dir_permissions_per_file(tmp_path):
+    """apply_docker_dir_permissions enforces the canonical per-file mode matrix.
+
+    TD-551 R2.2: replace the WSL DrvFs `cp -r`-inherited 755 modes with:
+      .env.secrets → 600, .env → 640, .env.example + .env.secrets.example → 644,
+      Dockerfile* → 644.
+
+    On WSL the chmod may silently no-op (filesystem limitation); we mirror
+    verify_env_split.py's I2 WSL-degrade pattern: assert exact modes only on
+    non-WSL hosts; on WSL, accept any mode but assert the helper exited 0.
+    """
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text("UID=1000\n")
+    (docker_dir / ".env.secrets").write_text('GITHUB_TOKEN="x"\n')
+    (docker_dir / ".env.example").write_text("UID=\n")
+    (docker_dir / ".env.secrets.example").write_text("GITHUB_TOKEN=\n")
+    (docker_dir / "Dockerfile").write_text("FROM scratch\n")
+    (docker_dir / "Dockerfile.qdrant").write_text("FROM scratch\n")
+
+    # Force-start at deliberate-wrong perms (matching the TD-551 evidence state)
+    for p in docker_dir.iterdir():
+        p.chmod(0o755)
+
+    cmd = (
+        f"source {str(HELPERS_SCRIPT)!r} && "
+        f"apply_docker_dir_permissions {str(docker_dir)!r}"
+    )
+    result = subprocess.run(
+        ["bash", "-c", cmd],
+        capture_output=True,
+        text=True,
+        env=_minimal_env(),
+    )
+    assert (
+        result.returncode == 0
+    ), f"apply_docker_dir_permissions exit {result.returncode}; stderr: {result.stderr}"
+
+    if _is_wsl():
+        pytest.skip(
+            "WSL DrvFs chmod is unreliable; helper exit-status verified, "
+            "mode assertions skipped"
+        )
+
+    expected = {
+        ".env": 0o640,
+        ".env.secrets": 0o600,
+        ".env.example": 0o644,
+        ".env.secrets.example": 0o644,
+        "Dockerfile": 0o644,
+        "Dockerfile.qdrant": 0o644,
+    }
+    for name, mode in expected.items():
+        actual = (docker_dir / name).stat().st_mode & 0o777
+        assert actual == mode, f"{name}: expected mode {oct(mode)}, got {oct(actual)}"

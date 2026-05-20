@@ -1725,6 +1725,9 @@ update_shared_scripts() {
             log_warning "docker/.env.example not found in source — skipping"
         fi
         find "$INSTALL_DIR/docker" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+        # TD-551: tighten per-file modes — cp -r preserves source modes (which
+        # on WSL DrvFs sources arrive at 755). Re-apply the canonical matrix.
+        apply_docker_dir_permissions "$INSTALL_DIR/docker"
 
         # Restore docker/.env if it was backed up (bulk cp may have overwritten with template)
         if [[ -n "$_env_backup" ]]; then
@@ -2245,6 +2248,10 @@ copy_files() {
         rm -f "$_env_backup"
         log_debug "Restored docker/.env after bulk copy"
     fi
+    # TD-551: tighten per-file modes after bulk cp (which preserves source
+    # modes from the user clone — commonly 755 on WSL DrvFs). Re-apply the
+    # canonical matrix .env=640 / .env.secrets=600 / examples=644 / Dockerfile*=644.
+    apply_docker_dir_permissions "$INSTALL_DIR/docker"
 
     # BUG-282 (sibling of BUG-040): Explicitly copy docker/.env from source if
     # the install doesn't yet have one. The bulk `cp -r .../docker/*` above
@@ -2464,6 +2471,14 @@ migrate_existing_env_secrets() {
         log_error "Secrets migration failed — halting install. Re-run after investigating."
         exit 1
     }
+
+    # TD-551: line-removal pass — migrate_secrets_to_split_file leaves blank
+    # KEY= lines via _blank_key_in_env (BUG-286 defense-in-depth). Once
+    # .env.secrets carries the canonical value, the residual line names in
+    # docker/.env (chmod 644/640) leak the configured-key inventory to any
+    # reader. purge_migrated_secret_keys_from_env removes the line entirely
+    # for keys whose canonical value lives in .env.secrets. Idempotent.
+    purge_migrated_secret_keys_from_env "$env_file" "$secrets_file"
 }
 
 # Environment configuration (AC 7.1.6)
