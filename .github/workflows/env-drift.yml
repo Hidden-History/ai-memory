@@ -8,11 +8,11 @@ name: Env Drift Gate
 # a deployment-time surprise.
 #
 # Two checks:
-#   1. dotenv-linter check — validates .env file syntax/formatting for both
-#      docker/.env.example and docker/.env.secrets.example separately.
-#      (Note: `check` not `compare` — the two files are intentionally different
-#      key sets: .env.example has all keys; .env.secrets.example has only
-#      sensitive keys. `compare` would fail on that intended asymmetry.)
+#   1. dotenv-linter lint — validates .env file syntax/formatting for both
+#      docker/.env.example and docker/.env.secrets.example separately. Each
+#      file is linted independently; `compare` is intentionally not used
+#      because the two files have different key sets (.env.example has all
+#      keys; .env.secrets.example has only sensitive keys).
 #   2. Pydantic completeness check — scripts/check_env_completeness.py introspects
 #      MemoryConfig.model_fields and asserts every field is documented in
 #      docker/.env.example (active or commented-out line).
@@ -54,10 +54,10 @@ jobs:
           fi
 
       - name: Check docker/.env.example syntax
-        run: dotenv-linter check docker/.env.example
+        run: dotenv-linter lint docker/.env.example
 
       - name: Check docker/.env.secrets.example syntax
-        run: dotenv-linter check docker/.env.secrets.example
+        run: dotenv-linter lint docker/.env.secrets.example
 
       - name: Check Pydantic schema vs .env.example parity
         env:
