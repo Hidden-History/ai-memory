@@ -1279,7 +1279,7 @@ def main() -> int:
                 f"⚠️  AI Memory: Skipping pre-compact save ({_proj_e})",
                 file=sys.stderr,
             )
-            return 0  # Allow compaction to proceed
+            return 0  # Hooks always exit 0 per §1.2 Principle 4; W-09 violation signalled via logger.error + stderr warning above
 
         # Extract project name once for validation checks
         project = summary_data.get("group_id", "unknown")

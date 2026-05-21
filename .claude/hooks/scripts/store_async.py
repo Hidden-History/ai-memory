@@ -185,8 +185,9 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
 
         # Group ID: PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution
         # with fail-loud fallback. detect_project() now raises ValueError on
-        # detection failure; capture hooks log and exit non-zero (capture is
-        # background, Claude session unaffected).
+        # detection failure. W-09 violations signalled via
+        # logger.error("project_resolution_failed") only; process exits 0 per
+        # §1.2 Principle 4 (hooks never block Claude).
         group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
         if not group_id.strip():
             try:
@@ -196,7 +197,7 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
                     "project_resolution_failed",
                     extra={"hook": "store_async", "error": str(_proj_e), "cwd": cwd},
                 )
-                return 2
+                return
 
         # SPEC-021: 2_log span
         if emit_trace_event:

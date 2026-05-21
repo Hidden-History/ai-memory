@@ -168,7 +168,9 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
 
         # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with
         # fail-loud fallback. detect_project() now raises ValueError on
-        # detection failure; capture hooks log and exit cleanly.
+        # detection failure. W-09 violations signalled via
+        # logger.error("project_resolution_failed") only; process exits 0 per
+        # §1.2 Principle 4 (hooks never block Claude).
         group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
         if not group_id.strip():
             try:
@@ -182,7 +184,7 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
                         "cwd": cwd,
                     },
                 )
-                return False
+                return
 
         # Compute content hash
         content_hash = compute_content_hash(response_text)

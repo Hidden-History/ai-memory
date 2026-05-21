@@ -208,8 +208,9 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
 
         # Group ID — PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution
         # with fail-loud fallback. detect_project() now raises ValueError on
-        # detection failure; capture hooks log and skip storage (background,
-        # Claude session unaffected).
+        # detection failure. W-09 violations signalled via
+        # logger.error("project_resolution_failed") only; process exits 0 per
+        # §1.2 Principle 4 (hooks never block Claude).
         cwd = error_context.get("cwd", "")
         group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
         if not group_id.strip():

@@ -332,7 +332,7 @@ def main() -> int:
                 "running this command.",
                 file=sys.stderr,
             )
-            return 1
+            return 2  # W-09 violation — exit 2 per β-pattern (DEC-PM302-D2 Q-3)
 
     # Get session ID from environment (set by Claude Code)
     session_id = os.environ.get("CLAUDE_SESSION_ID")

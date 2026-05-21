@@ -681,8 +681,14 @@ def main() -> int:
     except ImportError:
         logger.warning("metrics_push_module_unavailable")
 
-    # Detect project for metrics
-    project = detect_project_func(os.getcwd()) if detect_project_func else "unknown"
+    # Detect project for metrics (W-09: graceful fallback; metric label only)
+    if detect_project_func:
+        try:
+            project = detect_project_func(os.getcwd())
+        except ValueError:
+            project = os.environ.get("AI_MEMORY_PROJECT_ID") or "unknown"
+    else:
+        project = "unknown"
 
     # HIGH-2 FIX: Use proper with statement to ensure __exit__() on all paths
     cm = (
