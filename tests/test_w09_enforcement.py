@@ -147,6 +147,47 @@ class TestStorageRequiredExplicit:
                 session_id="sync-1",
             )
 
+    def test_store_github_blob_chunks_rejects_missing_group_id_kwarg(
+        self, storage
+    ) -> None:
+        """Missing required keyword-only group_id raises TypeError at call site."""
+        from memory.models import MemoryType
+
+        with pytest.raises(TypeError, match="group_id"):
+            storage.store_github_code_blob_chunks_batch(
+                chunk_items=[{"content": "x"}],
+                cwd="/tmp",
+                collection="github",
+                memory_type=MemoryType.GITHUB_CODE_BLOB,
+                source_hook="github_code_sync",
+                session_id="sync-1",
+            )
+
+    def test_store_github_blob_chunks_rejects_per_item_empty_group_id(
+        self, storage
+    ) -> None:
+        """Per-item group_id override must be non-empty (parity with batch)."""
+        from memory.models import MemoryType
+
+        with pytest.raises(ValueError, match=r"per-item.*group_id"):
+            storage.store_github_code_blob_chunks_batch(
+                chunk_items=[
+                    {
+                        "content": "x" * 50,
+                        "group_id": "",
+                        "file_path": "a.py",
+                        "blob_hash": "h1",
+                        "chunk_index": 0,
+                    }
+                ],
+                cwd="/tmp",
+                collection="github",
+                group_id="batch-default",
+                memory_type=MemoryType.GITHUB_CODE_BLOB,
+                source_hook="github_code_sync",
+                session_id="sync-1",
+            )
+
     def test_store_agent_memory_rejects_missing_group_id(self, storage) -> None:
         with pytest.raises(TypeError, match="group_id"):
             storage.store_agent_memory(content="x" * 50, memory_type="agent_memory")
