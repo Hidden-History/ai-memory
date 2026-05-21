@@ -18,19 +18,26 @@ def test_search_memory():
 
         # Test 1: Simple query
         print("\n[1.1] Testing simple query: 'error handling'")
-        results = search_memories(query="error handling", limit=3)
+        results = search_memories(
+            query="error handling", group_id="test-project", limit=3
+        )
         print(f"  ✓ Search completed: {len(results)} results")
 
         # Test 2: Collection filter
         print("\n[1.2] Testing collection filter: 'conventions'")
         results = search_memories(
-            query="best practice", collection="conventions", limit=3
+            query="best practice",
+            collection="conventions",
+            group_id="test-project",
+            limit=3,
         )
         print(f"  ✓ Search completed: {len(results)} results from conventions")
 
         # Test 3: Type filter
         print("\n[1.3] Testing type filter: 'guideline'")
-        results = search_memories(query="python", memory_type="guideline", limit=3)
+        results = search_memories(
+            query="python", memory_type="guideline", group_id="test-project", limit=3
+        )
         print(f"  ✓ Search completed: {len(results)} guideline results")
 
         # Test 4: Check result format

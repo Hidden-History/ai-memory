@@ -128,8 +128,8 @@ class TestMainAgentPath:
         assert call_kwargs["content"] == "Test note"
 
     def test_agent_insight_calls_store_agent_memory(self, monkeypatch):
-        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
         """AC-9: --type agent_insight routes to store_agent_memory()."""
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
         mock_storage = MagicMock()
         mock_storage.store_agent_memory.return_value = {
             "status": "stored",
@@ -159,10 +159,7 @@ class TestMainAgentPath:
     def test_invalid_type_returns_error(self, monkeypatch):
         """AC-11: Invalid --type value returns exit code 1."""
         monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
-        with (
-            patch.object(self.mod.sys, "argv", ["script", "--type", "bogus", "text"]),
-            patch.object(self.mod, "detect_project", return_value="test-project"),
-        ):
+        with patch.object(self.mod.sys, "argv", ["script", "--type", "bogus", "text"]):
             result = self.mod.main()
 
         assert result == 1
@@ -189,7 +186,6 @@ class TestMainAgentPath:
         monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
         with (
             patch.object(self.mod.sys, "argv", ["script", "regular save"]),
-            patch.object(self.mod, "detect_project", return_value="test-project"),
             patch.object(
                 self.mod, "store_manual_summary", return_value=True
             ) as mock_store,

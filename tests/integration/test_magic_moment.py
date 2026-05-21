@@ -128,6 +128,7 @@ class TestMagicMoment:
                 memory_type=MemoryType.IMPLEMENTATION,
                 source_hook="seed_script",  # Using allowed value for test
                 session_id=f"test-session-{uuid.uuid4().hex[:8]}",
+                group_id=unique_project,  # W-09: explicit project scope
             )
 
             storage_time = time.perf_counter() - start_time
