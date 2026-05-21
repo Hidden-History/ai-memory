@@ -492,6 +492,7 @@ async def test_different_content_stored_separately(mock_storage):
 async def test_duplicate_in_pending_queue_detected(mock_storage):
     """Test duplicate detected in pending queue (fast path)."""
     with (
+        patch.dict("os.environ", {"AI_MEMORY_PROJECT_ID": "test-project"}),
         patch("src.memory.agent_sdk_wrapper.ClaudeSDKClient"),
         patch("src.memory.agent_sdk_wrapper.is_duplicate") as mock_dedup,
     ):

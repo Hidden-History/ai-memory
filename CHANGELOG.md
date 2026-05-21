@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `aim-best-practices-researcher` skill — Phase 1 database lookup now resolves the project from `AI_MEMORY_PROJECT_ID` and passes it as `group_id` when searching the project-scoped `conventions` collection; the `RESEARCH-METHODOLOGY.md` Phase 1 `sys.path` bootstrap now points at `~/.ai-memory/src` instead of the broken `Path.cwd() / "src"`. (PLAN-028 P1, TECH-DEBT-166 RC-A)
 - `RouteTarget.shared` is now always `False` — all Tier-2 routed collections, including `conventions`, are project-scoped. The field is retained only because the `context_injection_tier2.py` hook still reads it. (PLAN-028 P1 / W-01)
 
+### Fixed
+
+- test: fix `test_duplicate_in_pending_queue_detected` env-var fixture under W-09 — adds `AI_MEMORY_PROJECT_ID` env setup so `_get_group_id()` returns early without invoking `detect_project()`, restoring the dedup fast-path assertion. (PLAN-028 P1B)
+
 ## [2.4.3] - 2026-05-20
 
 Installer-hygiene release. Three coupled gaps from the v2.4.0 BUG-277 split-env-file architecture and one pre-existing security-scanner provisioning gap.
