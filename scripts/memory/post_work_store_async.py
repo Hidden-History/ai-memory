@@ -147,7 +147,19 @@ async def store_memory_async(payload: dict[str, Any]) -> None:
             group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
             if not group_id.strip():
                 cwd_for_detect = metadata.get("cwd") or os.getcwd()
-                group_id = _detect_project(cwd_for_detect)
+                try:
+                    group_id = _detect_project(cwd_for_detect)
+                except ValueError as _proj_e:
+                    logger.error(
+                        "project_resolution_failed",
+                        extra={
+                            "tool": "post_work_store_async",
+                            "error": str(_proj_e),
+                            "cwd": cwd_for_detect,
+                        },
+                    )
+                    # Return without storing; caller's main_async returns 1 (capture failure)
+                    raise  # re-raise so main_async catches it via the except Exception block
         session_id = metadata.get("session_id", "workflow")
         source_hook = metadata.get(
             "source_hook", "manual"

@@ -353,6 +353,8 @@ def run_freshness_scan(
     Args:
         config: Optional MemoryConfig. Uses get_config() if not provided.
         group_id: Optional project filter. If None, scans all projects.
+            ⚠️ ADMIN FUNCTION: queries ALL projects when group_id is None.
+            This bypasses tenant isolation for admin/monitoring purposes only.
         cwd: Working directory for resolving relative paths (e.g.,
             audit_dir). If None, uses os.getcwd().
 
