@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - test: fix `test_duplicate_in_pending_queue_detected` env-var fixture under W-09 — adds `AI_MEMORY_PROJECT_ID` env setup so `_get_group_id()` returns early without invoking `detect_project()`, restoring the dedup fast-path assertion. (PLAN-028 P1B)
+- test: fix missing `group_id` in remaining integration tests — adds explicit `group_id=` kwarg to all `store_memory`, `store_agent_memory`, `store_memories_batch`, and `search` call sites across `test_e2e_cross_phase.py`, `test_embedding_routing.py`, `test_seeding.py`, and `test_search.py`; adds `group_id` positional arg to `create_point_from_template` calls in `TestCreatePointFromTemplate`; adds `--group-id` CLI arg to `TestMainCLI` test argv so `seed_best_practices.main()` can pass the W-09 required-project-scope gate. (PLAN-028 P1B)
 
 ## [2.4.3] - 2026-05-20
 

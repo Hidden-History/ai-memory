@@ -132,7 +132,7 @@ class TestCreatePointFromTemplate:
 
         embedding = [0.1] * 768
 
-        point = create_point_from_template(template, embedding)
+        point = create_point_from_template(template, embedding, "test-seeding")
 
         assert isinstance(point, PointStruct)
         assert isinstance(point.id, str)  # UUID string
@@ -143,7 +143,7 @@ class TestCreatePointFromTemplate:
         assert point.payload["domain"] == "python"
         assert point.payload["type"] == "guideline"  # default (V2.0 spec)
         assert point.payload["importance"] == "medium"  # default
-        assert point.payload["group_id"] == "shared"
+        assert point.payload["group_id"] == "test-seeding"
         assert point.payload["source_hook"] == "seed_script"
         assert point.payload["embedding_status"] == "complete"
         assert point.payload["embedding_model"] == "jina-embeddings-v2-base-en"
@@ -162,7 +162,7 @@ class TestCreatePointFromTemplate:
 
         embedding = [0.2] * 768
 
-        point = create_point_from_template(template, embedding)
+        point = create_point_from_template(template, embedding, "test-seeding")
 
         assert point.payload["type"] == "rule"
         assert point.payload["importance"] == "high"
@@ -175,8 +175,8 @@ class TestCreatePointFromTemplate:
 
         embedding = [0.1] * 768
 
-        point1 = create_point_from_template(template, embedding)
-        point2 = create_point_from_template(template, embedding)
+        point1 = create_point_from_template(template, embedding, "test-seeding")
+        point2 = create_point_from_template(template, embedding, "test-seeding")
 
         assert point1.id != point2.id
 
@@ -229,7 +229,9 @@ class TestSeedTemplates:
         config = self.create_mock_config()
         templates = self.create_test_templates(count=5)
 
-        count = seed_templates(templates, config, dry_run=False)
+        count = seed_templates(
+            templates, config, dry_run=False, group_id="test-seeding"
+        )
 
         assert count == 5
         assert mock_client.upsert.called
@@ -264,7 +266,9 @@ class TestSeedTemplates:
         config = self.create_mock_config()
         templates = self.create_test_templates(count=250)  # 3 batches (100, 100, 50)
 
-        count = seed_templates(templates, config, dry_run=False)
+        count = seed_templates(
+            templates, config, dry_run=False, group_id="test-seeding"
+        )
 
         assert count == 250
         assert mock_client.upsert.call_count == 3  # 3 batches
@@ -290,7 +294,7 @@ class TestSeedTemplates:
         config = self.create_mock_config()
         templates = self.create_test_templates(count=5)
 
-        count = seed_templates(templates, config, dry_run=True)
+        count = seed_templates(templates, config, dry_run=True, group_id="test-seeding")
 
         assert count == 0  # Dry run returns 0
         assert not mock_client.upsert.called  # Never called in dry-run
@@ -305,7 +309,7 @@ class TestSeedTemplates:
         templates = self.create_test_templates(count=5)
 
         with pytest.raises(ConnectionError) as exc_info:
-            seed_templates(templates, config, dry_run=False)
+            seed_templates(templates, config, dry_run=False, group_id="test-seeding")
 
         assert "Cannot connect to Qdrant" in str(exc_info.value)
 
@@ -330,7 +334,7 @@ class TestSeedTemplates:
         templates = self.create_test_templates(count=5)
 
         with pytest.raises(ConnectionError) as exc_info:
-            seed_templates(templates, config, dry_run=False)
+            seed_templates(templates, config, dry_run=False, group_id="test-seeding")
 
         assert "conventions" in str(exc_info.value)
         assert "not found" in str(exc_info.value).lower()
@@ -366,7 +370,9 @@ class TestSeedTemplates:
         config = self.create_mock_config()
         templates = self.create_test_templates(count=5)
 
-        count = seed_templates(templates, config, dry_run=False)
+        count = seed_templates(
+            templates, config, dry_run=False, group_id="test-seeding"
+        )
 
         # Should only seed the 3 that got embeddings
         assert count == 3
@@ -404,7 +410,9 @@ class TestSeedTemplates:
         templates = self.create_test_templates(count=150)  # 2 batches
 
         # Should continue after first batch failure
-        count = seed_templates(templates, config, dry_run=False)
+        count = seed_templates(
+            templates, config, dry_run=False, group_id="test-seeding"
+        )
 
         # Only second batch succeeded (50 templates)
         assert count == 50
@@ -414,7 +422,9 @@ class TestSeedTemplates:
         config = self.create_mock_config()
         templates = []
 
-        count = seed_templates(templates, config, dry_run=False)
+        count = seed_templates(
+            templates, config, dry_run=False, group_id="test-seeding"
+        )
 
         assert count == 0
 
@@ -454,7 +464,13 @@ class TestSeedTemplates:
         config = self.create_mock_config()
         templates = self.create_test_templates(count=5)
 
-        count = seed_templates(templates, config, dry_run=False, skip_duplicates=True)
+        count = seed_templates(
+            templates,
+            config,
+            dry_run=False,
+            group_id="test-seeding",
+            skip_duplicates=True,
+        )
 
         # 1 template skipped (first_hash matches template 0) → 4 inserted
         assert count == 4
@@ -483,7 +499,9 @@ class TestSeedTemplates:
         templates = self.create_test_templates(count=250)
 
         # Use batch_size=50, should result in 5 batches
-        count = seed_templates(templates, config, dry_run=False, batch_size=50)
+        count = seed_templates(
+            templates, config, dry_run=False, group_id="test-seeding", batch_size=50
+        )
 
         assert count == 250
         assert mock_client.upsert.call_count == 5  # 5 batches of 50
@@ -571,6 +589,8 @@ class TestMainCLI:
                 "--templates-dir",
                 str(templates_dir),
                 "--dry-run",
+                "--group-id",
+                "test-seeding",
             ],
         ):
             exit_code = main()
@@ -586,7 +606,14 @@ class TestMainCLI:
         missing_dir = tmp_path / "nonexistent"
 
         with patch(
-            "sys.argv", ["seed_best_practices.py", "--templates-dir", str(missing_dir)]
+            "sys.argv",
+            [
+                "seed_best_practices.py",
+                "--templates-dir",
+                str(missing_dir),
+                "--group-id",
+                "test-seeding",
+            ],
         ):
             exit_code = main()
 
@@ -603,7 +630,13 @@ class TestMainCLI:
 
         with patch(
             "sys.argv",
-            ["seed_best_practices.py", "--templates-dir", str(templates_dir)],
+            [
+                "seed_best_practices.py",
+                "--templates-dir",
+                str(templates_dir),
+                "--group-id",
+                "test-seeding",
+            ],
         ):
             exit_code = main()
 
