@@ -53,7 +53,8 @@ def _empty_search_instance():
 class TestNewFileTriggerConventionsScoping:
     """new_file_trigger.py must pass group_id=project_name (FIX-1 regression)."""
 
-    def test_new_file_conventions_search_uses_project_group_id(self):
+    def test_new_file_conventions_search_uses_project_group_id(self, monkeypatch):
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", _PROJECT)
         stdin = io.StringIO(
             json.dumps(
                 {
@@ -120,7 +121,8 @@ class TestBestPracticesRetrievalConventionsScoping:
         if path.exists():
             path.unlink()
 
-    def test_best_practices_conventions_search_uses_project_group_id(self):
+    def test_best_practices_conventions_search_uses_project_group_id(self, monkeypatch):
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", _PROJECT)
         stdin = io.StringIO(
             json.dumps(
                 {
@@ -171,7 +173,8 @@ class TestBestPracticesRetrievalConventionsScoping:
 class TestTier2ConventionsScoping:
     """Tier-2 hook must scope a conventions route to the detected project."""
 
-    def test_tier2_conventions_route_uses_project_group_id(self):
+    def test_tier2_conventions_route_uses_project_group_id(self, monkeypatch):
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", _PROJECT)
         stdin = io.StringIO(
             json.dumps(
                 {

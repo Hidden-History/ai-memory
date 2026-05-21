@@ -216,8 +216,10 @@ def _file_paths_match(path_a: str, path_b: str) -> bool:
     # "/project/src/foo.py") using segment-aware comparison
     parts_a = Path(path_a).parts
     parts_b = Path(path_b).parts
-    shorter, longer = (parts_a, parts_b) if len(parts_a) <= len(parts_b) else (parts_b, parts_a)
-    if len(shorter) > 0 and longer[-len(shorter):] == shorter:
+    shorter, longer = (
+        (parts_a, parts_b) if len(parts_a) <= len(parts_b) else (parts_b, parts_a)
+    )
+    if len(shorter) > 0 and longer[-len(shorter) :] == shorter:
         return True
 
     # Basename fallback — only if basenames match (segment-aware)
@@ -484,8 +486,23 @@ def main() -> int:
         config = get_config()
         client = get_qdrant_client(config)
 
-        # Detect project for metrics (required per §7.3 multi-tenancy)
-        project_name = detect_project(cwd)
+        # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with
+        # graceful exit on failure. Retrieval hooks must not crash Claude UI;
+        # if project cannot be resolved, skip the retrieval silently.
+        project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+        if not project_name.strip():
+            try:
+                project_name = detect_project(cwd)
+            except ValueError as _proj_e:
+                logger.warning(
+                    "project_resolution_failed_skipping_retrieval",
+                    extra={
+                        "hook": "best_practices_retrieval",
+                        "error": str(_proj_e),
+                        "cwd": cwd,
+                    },
+                )
+                return 0  # Graceful exit — no injection, no crash
 
         # SPEC-021: Propagate trace context so MemorySearch trace events
         # link to this hook's Langfuse trace

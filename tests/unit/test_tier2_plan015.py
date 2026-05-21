@@ -403,6 +403,7 @@ class TestSearchExcludeExpiredFreshness:
             search,
             query="test query",
             collection=COLLECTION_CODE_PATTERNS,
+            group_id="test-project",
             exclude_expired_freshness=True,
         )
 

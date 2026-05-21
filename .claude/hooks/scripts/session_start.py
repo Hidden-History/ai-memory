@@ -437,7 +437,22 @@ def main():
             cwd = hook_input.get("cwd", os.getcwd())
             session_id = hook_input.get("session_id", "unknown")
             trigger = hook_input.get("source", "unknown")  # resume, compact, clear
-            project_name = detect_project(cwd)  # FR13 - automatic project detection
+            # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with
+            # graceful exit on failure. SessionStart must never crash Claude UI.
+            project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+            if not project_name.strip():
+                try:
+                    project_name = detect_project(cwd)
+                except ValueError as _proj_e:
+                    logger.warning(
+                        "project_resolution_failed_skipping_injection",
+                        extra={
+                            "hook": "session_start",
+                            "error": str(_proj_e),
+                            "cwd": cwd,
+                        },
+                    )
+                    return 0  # Graceful exit — no injection, no crash
 
             # BUG-020: Deduplication lock to prevent double execution
             import tempfile

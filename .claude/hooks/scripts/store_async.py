@@ -183,8 +183,20 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
         # IMPORTANT: Hash the actual code, not formatted version
         content_hash = compute_content_hash(code_content)
 
-        # Group ID: Project name from cwd (FR13)
-        group_id = detect_project(cwd)
+        # Group ID: PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution
+        # with fail-loud fallback. detect_project() now raises ValueError on
+        # detection failure; capture hooks log and exit non-zero (capture is
+        # background, Claude session unaffected).
+        group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+        if not group_id.strip():
+            try:
+                group_id = detect_project(cwd)
+            except ValueError as _proj_e:
+                logger.error(
+                    "project_resolution_failed",
+                    extra={"hook": "store_async", "error": str(_proj_e), "cwd": cwd},
+                )
+                return 2
 
         # SPEC-021: 2_log span
         if emit_trace_event:

@@ -156,33 +156,38 @@ class TestGetProjectHash:
 class TestDetectProject:
     """Test project detection from working directory."""
 
-    def test_normal_project(self, tmp_path):
-        """Normal project directories should use directory name."""
+    def test_normal_project_raises_without_env_or_git(self, tmp_path):
+        """PLAN-028 P1B / W-09 (DEC-PM302-D2 Q-5): basename fallback removed.
+
+        Previously this test asserted the directory basename was returned;
+        post-W-09 the call must raise ValueError because the cwd has no
+        AI_MEMORY_PROJECT_ID, no git remote, and is not an edge-case sentinel.
+        """
         project_dir = tmp_path / "my-app"
         project_dir.mkdir()
-        result = detect_project(str(project_dir))
-        assert result == "my-app"
+        with pytest.raises(ValueError, match="project detection failed"):
+            detect_project(str(project_dir))
 
-    def test_nested_project(self, tmp_path):
-        """Nested projects should use leaf directory name."""
+    def test_nested_project_raises_without_env_or_git(self, tmp_path):
+        """Nested non-git directory raises post-W-09 (Q-5 strict-remove)."""
         nested = tmp_path / "home" / "user" / "work" / "webapp"
         nested.mkdir(parents=True)
-        result = detect_project(str(nested))
-        assert result == "webapp"
+        with pytest.raises(ValueError, match="project detection failed"):
+            detect_project(str(nested))
 
-    def test_space_in_name(self, tmp_path):
-        """Directory names with spaces should be normalized."""
-        project_dir = tmp_path / "My Project"
+    def test_env_var_directory_with_spaces_normalizes(self, tmp_path, monkeypatch):
+        """AI_MEMORY_PROJECT_ID input gets normalized (spaces → hyphens)."""
+        project_dir = tmp_path / "ignored-by-env-path"
         project_dir.mkdir()
-        result = detect_project(str(project_dir))
-        assert result == "my-project"
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "My Project")
+        assert detect_project(str(project_dir)) == "my-project"
 
-    def test_special_characters(self, tmp_path):
-        """Special characters should be normalized."""
-        project_dir = tmp_path / "project_v2.0"
+    def test_env_var_special_characters_normalize(self, tmp_path, monkeypatch):
+        """AI_MEMORY_PROJECT_ID input gets normalized (dots/underscores)."""
+        project_dir = tmp_path / "ignored-by-env-path"
         project_dir.mkdir()
-        result = detect_project(str(project_dir))
-        assert result == "project-v2-0"
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "project_v2.0")
+        assert detect_project(str(project_dir)) == "project-v2-0"
 
     def test_root_directory(self):
         """Root directory should return root-project."""
@@ -217,11 +222,12 @@ class TestDetectProject:
             finally:
                 test_dir.rmdir()
 
-    def test_default_cwd_when_none(self, monkeypatch, tmp_path):
-        """When cwd=None, should use os.getcwd()."""
+    def test_default_cwd_when_none_with_env(self, monkeypatch, tmp_path):
+        """When cwd=None, falls back to os.getcwd(); env var still wins."""
         project_dir = tmp_path / "current-project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "current-project")
         result = detect_project()
         assert result == "current-project"
 
@@ -233,67 +239,50 @@ class TestDetectProject:
         result = detect_project(str(project_dir))
         assert result == "axonify/thunderball"
 
-    def test_symlink_resolution(self, tmp_path):
-        """Symlinks should be resolved to actual path."""
+    def test_symlink_path_raises_without_env_or_git(self, tmp_path):
+        """Symlink resolution still happens, but final path raises post-W-09."""
         real_dir = tmp_path / "real-project"
         link_dir = tmp_path / "link-project"
         real_dir.mkdir()
         link_dir.symlink_to(real_dir)
 
-        result = detect_project(str(link_dir))
-        # Should resolve to the real directory name
-        assert result == "real-project"
+        with pytest.raises(ValueError, match="project detection failed"):
+            detect_project(str(link_dir))
 
-    def test_deterministic_results(self, tmp_path):
-        """Same input should always produce same output."""
+    def test_deterministic_raise_on_repeated_calls(self, tmp_path):
+        """Repeated calls with same un-resolvable cwd raise consistently."""
         project_dir = tmp_path / "test-project"
         project_dir.mkdir()
-        result1 = detect_project(str(project_dir))
-        result2 = detect_project(str(project_dir))
-        assert result1 == result2
+        with pytest.raises(ValueError):
+            detect_project(str(project_dir))
+        with pytest.raises(ValueError):
+            detect_project(str(project_dir))
 
-    def test_invalid_path_handling(self):
-        """Invalid (non-existent) paths should still extract directory name.
+    def test_invalid_path_raises(self):
+        """Non-existent paths now raise ValueError (no silent basename fallback)."""
+        with pytest.raises(ValueError, match="project detection failed"):
+            detect_project("/nonexistent/path/to/project")
 
-        Per implementation: Don't check path.exists() - Claude Code might pass
-        paths that don't exist on filesystem (virtual paths, remote paths).
-        """
-        result = detect_project("/nonexistent/path/to/project")
-        # Returns normalized directory name, not "unknown-project"
-        assert result == "project"
-
-    def test_relative_path_handling(self, tmp_path, monkeypatch):
-        """Relative paths should be resolved to absolute."""
+    def test_relative_path_raises_without_env(self, tmp_path, monkeypatch):
+        """Relative paths resolve to absolute but still raise post-W-09."""
         project_dir = tmp_path / "my-project"
         project_dir.mkdir()
         monkeypatch.chdir(tmp_path)
 
-        result = detect_project("my-project")
-        assert result == "my-project"
+        with pytest.raises(ValueError, match="project detection failed"):
+            detect_project("my-project")
 
-    def test_path_with_dots(self, tmp_path, monkeypatch):
-        """Paths with .. should be resolved correctly."""
+    def test_path_with_dots_raises_without_env(self, tmp_path, monkeypatch):
+        """Paths with .. resolve correctly but still raise post-W-09."""
         parent = tmp_path / "parent"
         child = parent / "child"
         child.mkdir(parents=True)
 
         monkeypatch.chdir(child)
-        result = detect_project("..")
-        assert result == "parent"
+        with pytest.raises(ValueError, match="project detection failed"):
+            detect_project("..")
 
-    @pytest.mark.parametrize(
-        "path,expected",
-        [
-            ("/home/user/projects/my-app", "my-app"),
-            ("/home/user/work/client/webapp", "webapp"),
-            ("/", "root-project"),
-        ],
-    )
-    def test_edge_case_examples(self, path, expected):
-        """Test documented edge cases."""
-        # Skip if path doesn't exist (except root)
-        if path != "/" and not Path(path).exists():
-            pytest.skip(f"Path {path} does not exist")
-
-        result = detect_project(path)
-        assert result == expected
+    def test_root_dir_still_sentinels(self):
+        """Edge-case sentinels remain (Q-6 deferred as TD)."""
+        # The "root-project" sentinel is preserved for now per Q-6.
+        assert detect_project("/") == "root-project"

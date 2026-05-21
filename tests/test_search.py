@@ -118,7 +118,7 @@ class TestMemorySearchBasic:
         """Test search uses config defaults for limit and threshold."""
         search = MemorySearch()
 
-        search.search(query="test")
+        search.search(query="test", group_id="test-project")
 
         # Verify defaults from config were used
         call_args = mock_qdrant_client.query_points.call_args
@@ -133,7 +133,9 @@ class TestMemorySearchBasic:
         """Test search can override limit and score_threshold."""
         search = MemorySearch()
 
-        search.search(query="test", limit=10, score_threshold=0.85)
+        search.search(
+            query="test", group_id="test-project", limit=10, score_threshold=0.85
+        )
 
         call_args = mock_qdrant_client.query_points.call_args
         assert call_args.kwargs["limit"] == 10
@@ -163,17 +165,20 @@ class TestMemorySearchFiltering:
     def test_search_with_memory_type_filter(
         self, mock_config, mock_qdrant_client, mock_embedding_client
     ):
-        """Test search applies memory_type filter."""
+        """Test search applies memory_type filter alongside group_id (W-09)."""
         search = MemorySearch()
 
-        search.search(query="test", memory_type=["implementation"])
+        search.search(
+            query="test", group_id="test-project", memory_type=["implementation"]
+        )
 
         call_args = mock_qdrant_client.query_points.call_args
         query_filter = call_args.kwargs["query_filter"]
 
         assert query_filter is not None
-        assert len(query_filter.must) == 1
-        assert query_filter.must[0].key == "type"
+        # W-09: group_id filter is unconditional; memory_type adds a second condition.
+        type_filters = [c for c in query_filter.must if c.key == "type"]
+        assert len(type_filters) == 1
 
     def test_search_with_both_filters(
         self, mock_config, mock_qdrant_client, mock_embedding_client
@@ -189,18 +194,24 @@ class TestMemorySearchFiltering:
         # Both filters should be present
         assert len(query_filter.must) == 2
 
-    def test_search_without_filters(
+    def test_search_filter_always_includes_group_id(
         self, mock_config, mock_qdrant_client, mock_embedding_client
     ):
-        """Test search with no filters passes None to Qdrant."""
+        """Test search always passes a group_id filter (W-09 / DEC-PM302-D1).
+
+        Pre-W-09 this test asserted ``query_filter is None`` for the
+        "no filter" path. That path no longer exists — group_id is
+        required-explicit and the filter is unconditional.
+        """
         search = MemorySearch()
 
-        search.search(query="test")
+        search.search(query="test", group_id="test-project")
 
         call_args = mock_qdrant_client.query_points.call_args
         query_filter = call_args.kwargs["query_filter"]
 
-        assert query_filter is None
+        assert query_filter is not None
+        assert any(c.key == "group_id" for c in query_filter.must)
 
 
 class TestMemorySearchDualCollection:
@@ -360,7 +371,7 @@ class TestMemorySearchErrorHandling:
         search = MemorySearch()
 
         with pytest.raises(EmbeddingError, match="Service down"):
-            search.search(query="test")
+            search.search(query="test", group_id="test-project")
 
     def test_search_qdrant_failure_raises_qdrant_unavailable(
         self, mock_config, mock_qdrant_client, mock_embedding_client
@@ -371,7 +382,7 @@ class TestMemorySearchErrorHandling:
         search = MemorySearch()
 
         with pytest.raises(QdrantUnavailable, match="Search failed"):
-            search.search(query="test")
+            search.search(query="test", group_id="test-project")
 
     def test_search_logs_on_success(
         self, mock_config, mock_qdrant_client, mock_embedding_client, caplog
@@ -397,7 +408,7 @@ class TestMemorySearchIntegration:
         """Test search returns all payload fields in results."""
         search = MemorySearch()
 
-        results = search.search(query="test")
+        results = search.search(query="test", group_id="test-project")
 
         # All payload fields should be present
         assert "content" in results[0]
@@ -411,7 +422,7 @@ class TestMemorySearchIntegration:
         """Test search includes id and score from Qdrant result."""
         search = MemorySearch()
 
-        results = search.search(query="test")
+        results = search.search(query="test", group_id="test-project")
 
         assert "id" in results[0]
         assert "score" in results[0]
@@ -457,7 +468,7 @@ class TestCascadingSearch:
         search = MemorySearch()
         results = search.cascading_search(
             query="test query",
-            group_id=None,
+            group_id="test-project",
             primary_collection=COLLECTION_CODE_PATTERNS,
             secondary_collections=[COLLECTION_CONVENTIONS, COLLECTION_DISCUSSIONS],
         )
@@ -472,7 +483,7 @@ class TestCascadingSearch:
         search = MemorySearch()
         results = search.cascading_search(
             query="test query",
-            group_id=None,
+            group_id="test-project",
             primary_collection=COLLECTION_CODE_PATTERNS,
             secondary_collections=[COLLECTION_CONVENTIONS],
             limit=2,
@@ -488,7 +499,7 @@ class TestCascadingSearch:
         search = MemorySearch()
         results = search.cascading_search(
             query="test query",
-            group_id=None,
+            group_id="test-project",
             primary_collection=COLLECTION_CODE_PATTERNS,
             secondary_collections=[COLLECTION_CONVENTIONS],
             memory_type="implementation",
@@ -505,7 +516,9 @@ class TestSearchMemories:
         """search_memories() returns results."""
         from src.memory.search import search_memories
 
-        results = search_memories("how to implement authentication")
+        results = search_memories(
+            "how to implement authentication", group_id="test-project"
+        )
         assert isinstance(results, list)
 
     def test_search_memories_with_memory_type_string(
@@ -516,6 +529,7 @@ class TestSearchMemories:
 
         results = search_memories(
             "test query",
+            group_id="test-project",
             memory_type="implementation",
         )
         assert isinstance(results, list)
@@ -528,6 +542,7 @@ class TestSearchMemories:
 
         results = search_memories(
             "test query",
+            group_id="test-project",
             memory_type=["implementation", "error_pattern"],
         )
         assert isinstance(results, list)
@@ -553,6 +568,7 @@ class TestSearchMemories:
 
         results = search_memories(
             "test query",
+            group_id="test-project",
             collection=COLLECTION_CODE_PATTERNS,
         )
         assert isinstance(results, list)
@@ -565,6 +581,7 @@ class TestSearchMemories:
 
         results = search_memories(
             "how to implement caching",
+            group_id="test-project",
             use_cascading=True,
         )
         assert isinstance(results, list)
@@ -578,7 +595,12 @@ class TestSearchMemories:
         from src.memory.search import MemorySearch, search_memories
 
         with mock.patch.object(MemorySearch, "search", return_value=[]) as mock_search:
-            search_memories(query="test", collection="discussions", source="github")
+            search_memories(
+                query="test",
+                group_id="test-project",
+                collection="discussions",
+                source="github",
+            )
             mock_search.assert_called_once()
             call_kwargs = mock_search.call_args
             assert (
@@ -595,7 +617,9 @@ class TestSearchParams:
     ):
         """Default search uses hnsw_ef=128 for accuracy."""
         search = MemorySearch()
-        search.search(query="test query", collection="code-patterns")
+        search.search(
+            query="test query", collection="code-patterns", group_id="test-project"
+        )
 
         # Verify query_points was called with hnsw_ef=128
         call_kwargs = mock_qdrant_client.query_points.call_args.kwargs
@@ -609,6 +633,7 @@ class TestSearchParams:
         search.search(
             query="test query",
             collection="code-patterns",
+            group_id="test-project",
             fast_mode=True,
         )
 
@@ -674,6 +699,7 @@ class TestSearchParams:
 
         search_memories(
             query="test query",
+            group_id="test-project",
             collection="code-patterns",
             fast_mode=True,
         )
@@ -689,6 +715,7 @@ class TestSearchParams:
 
         search_memories(
             query="how do I implement auth",
+            group_id="test-project",
             use_cascading=True,
             fast_mode=True,
         )
@@ -762,7 +789,9 @@ class TestDecayPath:
         monkeypatch.setattr("src.memory.search.build_decay_formula", tracking_build)
 
         search = MemorySearch()
-        search.search(query="test query", collection="code-patterns")
+        search.search(
+            query="test query", collection="code-patterns", group_id="test-project"
+        )
 
         # build_decay_formula was called
         assert len(build_decay_called) == 1
@@ -781,7 +810,9 @@ class TestMustNotTypesFilter:
     ):
         """must_not_types=["error_pattern"] builds a must_not FieldCondition on 'type'."""
         search = MemorySearch()
-        search.search(query="test", must_not_types=["error_pattern"])
+        search.search(
+            query="test", group_id="test-project", must_not_types=["error_pattern"]
+        )
 
         call_args = mock_qdrant_client.query_points.call_args
         query_filter = call_args.kwargs["query_filter"]
@@ -798,6 +829,7 @@ class TestMustNotTypesFilter:
         search = MemorySearch()
         search.search(
             query="test",
+            group_id="test-project",
             memory_type="implementation",
             must_not_types=["error_pattern", "error_fix"],
         )
@@ -806,10 +838,11 @@ class TestMustNotTypesFilter:
         query_filter = call_args.kwargs["query_filter"]
 
         assert query_filter is not None
-        # must contains the memory_type inclusion filter
+        # must contains the group_id + memory_type filters
         assert query_filter.must is not None
-        assert len(query_filter.must) == 1
-        assert query_filter.must[0].key == "type"
+        # Group_id filter is now unconditional (W-09); plus memory_type → 2 conditions
+        type_must = [c for c in query_filter.must if c.key == "type"]
+        assert len(type_must) == 1
         # must_not contains the exclusion filter with both types
         assert query_filter.must_not is not None
         assert len(query_filter.must_not) == 1

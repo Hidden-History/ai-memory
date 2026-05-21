@@ -99,19 +99,35 @@ def store_chat_memory(
             )
             # Continue with invalid agent for graceful degradation
 
-        # Detect project from cwd if provided
-        group_id = "unknown-project"
-        if cwd:
+        # PLAN-028 P1B / W-09 (DEC-PM302-D1 / DEC-PM302-D2 Q-3 β) — env-first
+        # resolution with friendly error + sys.exit(2) on failure (β treatment
+        # for user-facing CLI: no raw ValueError traceback).
+        group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+        if not group_id.strip():
+            cwd_for_detect = cwd or os.getcwd()
             try:
-                group_id = detect_project(cwd)
+                group_id = detect_project(cwd_for_detect)
                 logger.debug(
-                    "project_detected", extra={"cwd": cwd, "group_id": group_id}
+                    "project_detected",
+                    extra={"cwd": cwd_for_detect, "group_id": group_id},
                 )
-            except Exception as e:
-                logger.warning(
-                    "project_detection_failed",
-                    extra={"cwd": cwd, "error": str(e), "fallback": "unknown-project"},
+            except ValueError as _proj_e:
+                logger.error(
+                    "project_resolution_failed",
+                    extra={
+                        "tool": "store-chat-memory",
+                        "error": str(_proj_e),
+                        "cwd": cwd_for_detect,
+                    },
                 )
+                print(
+                    "ERROR: AI_MEMORY_PROJECT_ID is not set and project could "
+                    f"not be auto-detected ({_proj_e}).\n"
+                    "Set AI_MEMORY_PROJECT_ID before running, e.g.:\n"
+                    "  export AI_MEMORY_PROJECT_ID=my-project",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
 
         # Generate embedding with graceful degradation
         embedding_status = EmbeddingStatus.PENDING.value

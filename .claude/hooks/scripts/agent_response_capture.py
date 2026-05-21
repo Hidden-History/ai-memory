@@ -356,7 +356,12 @@ def main() -> int:
         # TECH-DEBT-142: Push hook duration to Pushgateway
         if push_hook_metrics_async:
             duration_seconds = time.perf_counter() - start_time
-            project = detect_project(os.getcwd()) if detect_project else "unknown"
+            # PLAN-028 P1B / W-09: detect_project may raise ValueError; metric
+            # label only — fall back to "unknown" rather than crash the hook.
+            try:
+                project = detect_project(os.getcwd()) if detect_project else "unknown"
+            except ValueError:
+                project = os.environ.get("AI_MEMORY_PROJECT_ID") or "unknown"
             push_hook_metrics_async(
                 hook_name="Stop",
                 duration_seconds=duration_seconds,
@@ -376,7 +381,12 @@ def main() -> int:
         # TECH-DEBT-142: Push hook duration to Pushgateway (error case)
         if push_hook_metrics_async:
             duration_seconds = time.perf_counter() - start_time
-            project = detect_project(os.getcwd()) if detect_project else "unknown"
+            # PLAN-028 P1B / W-09: detect_project may raise ValueError; metric
+            # label only — fall back to "unknown" rather than crash the hook.
+            try:
+                project = detect_project(os.getcwd()) if detect_project else "unknown"
+            except ValueError:
+                project = os.environ.get("AI_MEMORY_PROJECT_ID") or "unknown"
             push_hook_metrics_async(
                 hook_name="Stop",
                 duration_seconds=duration_seconds,

@@ -136,7 +136,18 @@ async def store_memory_async(payload: dict[str, Any]) -> None:
 
         # Get required fields from metadata
         memory_type_str = metadata.get("type")
+        # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution. The
+        # underlying store_memory now requires non-empty group_id; if metadata
+        # didn't supply one, fall back to env var or detect_project (which
+        # raises ValueError on detection failure — propagated to caller).
         group_id = metadata.get("group_id")
+        if not group_id or (isinstance(group_id, str) and not group_id.strip()):
+            from memory.project import detect_project as _detect_project
+
+            group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+            if not group_id.strip():
+                cwd_for_detect = metadata.get("cwd") or os.getcwd()
+                group_id = _detect_project(cwd_for_detect)
         session_id = metadata.get("session_id", "workflow")
         source_hook = metadata.get(
             "source_hook", "manual"

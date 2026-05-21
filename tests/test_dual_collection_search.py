@@ -245,9 +245,9 @@ def test_dual_collection_search_logic_runs():
             query="test query", collection="code-patterns", group_id="test-project"
         )
 
-        # Best practices search
+        # Best practices search (W-09: must use explicit group_id)
         bp_results = search.search(
-            query="test query", collection="conventions", group_id=None
+            query="test query", collection="conventions", group_id="test-project"
         )
 
         # Both searches returned results with expected structure

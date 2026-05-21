@@ -202,7 +202,7 @@ def test_store_memories_batch(mock_config, mock_qdrant_client, mock_embedding_cl
     ]
 
     storage = MemoryStorage()
-    results = storage.store_memories_batch(memories)
+    results = storage.store_memories_batch(memories, group_id="test-project")
 
     assert len(results) == 2
     assert all(r["status"] == "stored" for r in results)
@@ -251,7 +251,9 @@ def test_store_memories_batch_mixed_content_types(
     ]
 
     storage = MemoryStorage()
-    results = storage.store_memories_batch(memories, collection="code-patterns")
+    results = storage.store_memories_batch(
+        memories, group_id="test-project", collection="code-patterns"
+    )
 
     assert len(results) == 2
     assert all(r["status"] == "stored" for r in results)
@@ -276,7 +278,7 @@ def test_store_memories_batch_embedding_failure(
     ]
 
     storage = MemoryStorage()
-    results = storage.store_memories_batch(memories)
+    results = storage.store_memories_batch(memories, group_id="test-project")
 
     assert len(results) == 1
     assert results[0]["embedding_status"] == "pending"
@@ -427,7 +429,9 @@ def test_store_memories_batch_passes_source_type(
         },
     ]
 
-    storage.store_memories_batch(memories, source_type="github_pr")
+    storage.store_memories_batch(
+        memories, group_id="test-project", source_type="github_pr"
+    )
 
     # Verify scanner.scan() was called with the forwarded source_type
     mock_scanner.scan.assert_called_once_with(

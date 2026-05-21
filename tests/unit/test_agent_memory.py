@@ -121,19 +121,38 @@ class TestStoreAgentMemory:
                 content="test content for agent",
                 memory_type="invalid_type",
                 cwd="/tmp/test",
+                group_id="test-project",
             )
 
-    def test_no_group_or_cwd_raises_value_error(self):
-        """Neither group_id nor cwd raises ValueError."""
+    def test_missing_group_id_raises_type_error(self):
+        """PLAN-028 P1B / W-09: group_id is keyword-only required.
+
+        Previously this asserted "Either group_id or cwd"; under W-09
+        group_id is required-explicit (DEC-PM302-D1).
+        """
         from memory.storage import MemoryStorage
 
         storage = MagicMock(spec=MemoryStorage)
         storage.store_agent_memory = MemoryStorage.store_agent_memory.__get__(storage)
 
-        with pytest.raises(ValueError, match="Either group_id or cwd"):
+        with pytest.raises(TypeError, match="group_id"):
             storage.store_agent_memory(
                 content="test content for agent",
                 memory_type="agent_memory",
+            )
+
+    def test_empty_group_id_raises_value_error(self):
+        """W-09: empty group_id raises ValueError."""
+        from memory.storage import MemoryStorage
+
+        storage = MagicMock(spec=MemoryStorage)
+        storage.store_agent_memory = MemoryStorage.store_agent_memory.__get__(storage)
+
+        with pytest.raises(ValueError, match="explicit project scope"):
+            storage.store_agent_memory(
+                content="test content for agent",
+                memory_type="agent_memory",
+                group_id="",
             )
 
     def test_valid_types_accepted(self):
@@ -166,6 +185,7 @@ class TestStoreAgentMemory:
                 memory_type=mtype,
                 agent_id="parzival",
                 cwd="/tmp/test-project",
+                group_id="test-project",
             )
             assert result["status"] == "stored"
 
@@ -189,6 +209,7 @@ class TestStoreAgentMemory:
             memory_type="agent_handoff",
             agent_id="parzival",
             cwd="/tmp/test",
+            group_id="test-project",
         )
 
         storage.store_memory.assert_called_once()
@@ -219,6 +240,7 @@ class TestStoreAgentMemory:
             memory_type="agent_insight",
             agent_id="parzival",
             cwd="/tmp/test",
+            group_id="test-project",
         )
 
         call_kwargs = storage.store_memory.call_args
@@ -243,6 +265,7 @@ class TestStoreAgentMemory:
             content="Test content for session id check",
             memory_type="agent_memory",
             cwd="/tmp/test",
+            group_id="test-project",
         )
 
         call_kwargs = storage.store_memory.call_args
@@ -267,6 +290,7 @@ class TestStoreAgentMemory:
             memory_type="agent_memory",
             session_id="custom-session",
             cwd="/tmp/test",
+            group_id="test-project",
         )
 
         call_kwargs = storage.store_memory.call_args
@@ -290,6 +314,7 @@ class TestStoreAgentMemory:
             content="Test with metadata for extra fields",
             memory_type="agent_task",
             cwd="/tmp/test",
+            group_id="test-project",
             metadata={"task_id": "TASK-001", "priority": "high"},
         )
 

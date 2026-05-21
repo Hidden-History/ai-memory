@@ -53,6 +53,25 @@ if "AI_MEMORY_INSTALL_DIR" not in os.environ or os.environ.get(
 
 
 # =============================================================================
+# PLAN-028 P1B / W-09 — Standard project_id fixture
+# =============================================================================
+# Per DEC-PM302-D2 Q-2 (global conftest fixture pattern): all tests that exercise
+# project-scoped storage/search APIs use this single source of truth so the
+# canonical test project literal can change in one place if needed.
+
+
+@pytest.fixture
+def test_project_id() -> str:
+    """Standard non-empty project_id for tests requiring explicit project scope.
+
+    PLAN-028 P1B (DEC-PM302-D1 / W-09): all store/search public APIs now require
+    a non-empty ``group_id``. Tests that don't otherwise care about the project
+    label use this fixture to supply one.
+    """
+    return "test-project"
+
+
+# =============================================================================
 # Pytest CLI Options (BP-031: GitHub Actions CI for Docker-Dependent Tests)
 # =============================================================================
 

@@ -294,8 +294,15 @@ def _classify_with_llm(
     # Defensive: Initialize project_name with safe default before any operations
     project_name = "unknown"
 
-    # BP-045: Detect project for multi-tenancy metric labels
-    project_name = detect_project(os.getcwd()) if detect_project else "unknown"
+    # BP-045: Detect project for multi-tenancy metric labels.
+    # PLAN-028 P1B / W-09 (DEC-PM302-D1): detect_project may raise ValueError;
+    # this is observability only — fall back to env var or "unknown" rather
+    # than crash classification.
+    if detect_project:
+        try:
+            project_name = detect_project(os.getcwd())
+        except ValueError:
+            project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or "unknown"
 
     # Get cached provider chain (builds if needed)
     providers = _get_provider_chain()

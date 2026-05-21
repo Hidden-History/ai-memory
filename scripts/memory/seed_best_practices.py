@@ -20,6 +20,7 @@ Sources:
 
 import argparse
 import logging
+import os
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -125,7 +126,7 @@ def generate_embedding(
 
 
 def create_point_from_template(
-    template: BestPracticeTemplate, embedding: list[float]
+    template: BestPracticeTemplate, embedding: list[float], group_id: str
 ) -> PointStruct:
     """Create Qdrant point from validated template with optional timestamp fields.
 
@@ -159,7 +160,10 @@ def create_point_from_template(
         "importance": template.importance,
         "tags": template.tags,
         "source_hook": "seed_script",
-        "group_id": "shared",  # conventions are shared across projects
+        # PLAN-028 P1B / W-09: conventions are project-scoped (per W-01, P1
+        # already removed the cross-project "shared" tier). Use the explicit
+        # --group-id / AI_MEMORY_PROJECT_ID supplied by main().
+        "group_id": group_id,
         "embedding_status": "complete",
         "embedding_model": "jina-embeddings-v2-base-en",
         # Timestamp fields (TECH-DEBT-028)
@@ -241,6 +245,8 @@ def get_existing_hashes(
 def seed_templates(
     templates: list[BestPracticeTemplate],
     config,
+    *,
+    group_id: str,
     dry_run: bool = False,
     batch_size: int = 100,
     skip_duplicates: bool = True,
@@ -342,7 +348,7 @@ def seed_templates(
                 continue
 
             # Create point
-            point = create_point_from_template(template, embedding)
+            point = create_point_from_template(template, embedding, group_id)
             batch_points.append(point)
 
         # Upsert batch to Qdrant
@@ -461,7 +467,30 @@ Examples:
         help="Skip deduplication check (insert even if content already exists)",
     )
 
+    parser.add_argument(
+        "--group-id",
+        default=None,
+        help=(
+            "Project group ID under which to seed conventions (REQUIRED — "
+            "defaults to $AI_MEMORY_PROJECT_ID; explicit per PLAN-028 P1B / "
+            "W-09)"
+        ),
+    )
+
     args = parser.parse_args()
+
+    # PLAN-028 P1B / W-09 (DEC-PM302-D2 Q-1 ENFORCE) — explicit project scope
+    # required. Resolve env-first if --group-id not passed.
+    seed_group_id = args.group_id or os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+    if not seed_group_id.strip():
+        print(
+            "ERROR: --group-id is required (PLAN-028 P1B / W-09). Pass "
+            "--group-id explicitly or set AI_MEMORY_PROJECT_ID.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    # Make resolved value available to template-build path below.
+    args.group_id = seed_group_id
 
     # Configure logging level
     if args.verbose:
@@ -551,6 +580,7 @@ Examples:
         count = seed_templates(
             all_templates,
             config,
+            group_id=args.group_id,
             dry_run=args.dry_run,
             batch_size=args.batch_size,
             skip_duplicates=not args.no_dedup,

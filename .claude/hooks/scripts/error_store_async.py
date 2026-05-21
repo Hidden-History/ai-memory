@@ -206,9 +206,25 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
         # Format content for embedding
         content = format_error_content(error_context)
 
-        # Group ID from cwd (moved up for trace spans)
+        # Group ID — PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution
+        # with fail-loud fallback. detect_project() now raises ValueError on
+        # detection failure; capture hooks log and skip storage (background,
+        # Claude session unaffected).
         cwd = error_context.get("cwd", "")
-        group_id = detect_project(cwd)
+        group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+        if not group_id.strip():
+            try:
+                group_id = detect_project(cwd)
+            except ValueError as _proj_e:
+                logger.error(
+                    "project_resolution_failed",
+                    extra={
+                        "hook": "error_store_async",
+                        "error": str(_proj_e),
+                        "cwd": cwd,
+                    },
+                )
+                return
 
         # SPEC-021: 2_log span — content captured for processing
         if emit_trace_event:

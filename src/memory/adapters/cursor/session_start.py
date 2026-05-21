@@ -85,7 +85,23 @@ def main() -> int:
             _output_json(EMPTY_OUTPUT)
             return 0
 
-        project_name = detect_project(event["cwd"])
+        # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with
+        # graceful exit on failure. Adapter must not crash the host CLI.
+        project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+        if not project_name.strip():
+            try:
+                project_name = detect_project(event["cwd"])
+            except ValueError as _proj_e:
+                logger.warning(
+                    "project_resolution_failed_skipping_injection",
+                    extra={
+                        "adapter": "cursor.session_start",
+                        "error": str(_proj_e),
+                        "cwd": event.get("cwd", ""),
+                    },
+                )
+                _output_json(EMPTY_OUTPUT)
+                return 0
         search_client = MemorySearch(config)
 
         from memory.injection import (

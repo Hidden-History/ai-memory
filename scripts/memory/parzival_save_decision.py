@@ -33,7 +33,9 @@ import time
 # colon-prefix shape.
 _DEC_PREFIX_RE = re.compile(r"^DEC-[A-Z0-9_-]+:\s*", re.IGNORECASE)
 
-INSTALL_DIR = os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.config import get_config
@@ -103,6 +105,22 @@ def main() -> int:
         "rationale_text": args.rationale,
     }
 
+    # PLAN-028 P1B / W-09 (DEC-PM302-D1): store_agent_memory requires explicit
+    # group_id. Resolve env-first; on detection failure print friendly error.
+    from memory.project import detect_project as _detect_project
+
+    group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+    if not group_id.strip():
+        try:
+            group_id = _detect_project(os.getcwd())
+        except ValueError as _proj_e:
+            print(f"Warning: Failed to resolve project scope: {_proj_e}")
+            print("Set AI_MEMORY_PROJECT_ID and rerun. Closeout continues.")
+            push_skill_metrics_async(
+                "parzival-save-decision", "error", time.perf_counter() - start_time
+            )
+            return 0
+
     storage = MemoryStorage(config)
     try:
         result = storage.store_agent_memory(
@@ -111,6 +129,7 @@ def main() -> int:
             agent_id="parzival",
             session_id=session_id,
             cwd=os.getcwd(),
+            group_id=group_id,
             metadata=metadata,
         )
     except Exception as exc:
@@ -130,9 +149,7 @@ def main() -> int:
             f"(id: {result.get('memory_id', 'unknown')[:8]}...)"
         )
     elif status == "duplicate":
-        print(
-            f"Decision {args.dec_id} already exists in Qdrant (duplicate detected)."
-        )
+        print(f"Decision {args.dec_id} already exists in Qdrant (duplicate detected).")
     else:
         print(f"Decision {args.dec_id} storage result: {status}")
 
