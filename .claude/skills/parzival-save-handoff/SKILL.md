@@ -27,6 +27,7 @@ _install_dir = os.path.expanduser("~/.ai-memory")
 sys.path.insert(0, os.path.join(_install_dir, "src"))
 
 from memory.config import get_config
+from memory.project import detect_project
 from memory.storage import MemoryStorage
 from memory.metrics_push import push_skill_metrics_async
 
@@ -58,6 +59,18 @@ def main():
         print("Error: No content provided. Pass text or --file <path>.")
         sys.exit(1)
 
+    # PLAN-028 P1B / W-09 (DEC-PM302-D1): store_agent_memory requires explicit
+    # group_id. Resolve env-first; on detection failure print friendly error.
+    group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+    if not group_id.strip():
+        try:
+            group_id = detect_project(os.getcwd())
+        except ValueError as _proj_e:
+            print(f"Warning: Failed to resolve project scope: {_proj_e}")
+            print("Closeout continues — file write is the primary record.")
+            push_skill_metrics_async("parzival-save-handoff", "error", time.perf_counter() - start_time)
+            return
+
     storage = MemoryStorage(config)
     try:
         result = storage.store_agent_memory(
@@ -65,6 +78,7 @@ def main():
             memory_type="agent_handoff",
             agent_id="parzival",
             cwd=os.getcwd(),
+            group_id=group_id,
         )
     except Exception as e:
         print(f"Warning: Failed to save handoff to Qdrant: {e}")

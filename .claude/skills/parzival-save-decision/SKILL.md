@@ -36,6 +36,7 @@ _install_dir = os.path.expanduser("~/.ai-memory")
 sys.path.insert(0, os.path.join(_install_dir, "src"))
 
 from memory.config import get_config
+from memory.project import detect_project
 from memory.storage import MemoryStorage
 from memory.metrics_push import push_skill_metrics_async
 
@@ -77,6 +78,18 @@ def main():
         "rationale_text": args.rationale,
     }
 
+    # PLAN-028 P1B / W-09 (DEC-PM302-D1): store_agent_memory requires explicit
+    # group_id. Resolve env-first; on detection failure print friendly error.
+    group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+    if not group_id.strip():
+        try:
+            group_id = detect_project(os.getcwd())
+        except ValueError as _proj_e:
+            print(f"Warning: Failed to resolve project scope: {_proj_e}")
+            print("Set AI_MEMORY_PROJECT_ID and rerun. Closeout continues.")
+            push_skill_metrics_async("parzival-save-decision", "error", time.perf_counter() - start_time)
+            return
+
     storage = MemoryStorage(config)
     try:
         result = storage.store_agent_memory(
@@ -85,6 +98,7 @@ def main():
             agent_id="parzival",
             session_id=session_id,
             cwd=os.getcwd(),
+            group_id=group_id,
             metadata=metadata,
         )
     except Exception as e:
