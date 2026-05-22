@@ -12,6 +12,7 @@ Performance budget: <3 s per test.
 import os
 import stat
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -26,6 +27,7 @@ JIRA_EMAIL=
 JIRA_API_TOKEN=
 JIRA_PROJECTS=
 LANGFUSE_ENABLED=false
+COMPOSE_PROFILES=
 """
 
 # Minimal docker/.env.secrets content mirroring .env.secrets.example Section 1.
@@ -113,6 +115,14 @@ persist_user_choices_to_env() {
     fi
     if [[ "${JIRA_SYNC_ENABLED:-}" == "true" && -n "${JIRA_API_TOKEN:-}" ]]; then
         set_env_value "JIRA_API_TOKEN" "$(_sed_escape "$JIRA_API_TOKEN")" "$secrets_file"
+    fi
+
+    # BUG-311: Persist COMPOSE_PROFILES when INSTALL_MONITORING is explicitly set.
+    if [[ -n "${INSTALL_MONITORING:-}" ]]; then
+        local _compose_profiles=""
+        [[ "${INSTALL_MONITORING}" == "true" ]] && _compose_profiles="monitoring"
+        [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]] && _compose_profiles="${_compose_profiles:+${_compose_profiles},}github"
+        set_env_value "COMPOSE_PROFILES" "$_compose_profiles"
     fi
 
     chmod 600 "$secrets_file" 2>/dev/null || true
@@ -504,3 +514,112 @@ def test_persist_with_empty_vars_preserves_template_defaults(install_dir):
     assert (
         _read_env(install_dir, "docker/.env.secrets") == template_secrets
     ), "docker/.env.secrets modified when no user vars provided"
+
+
+# ---------------------------------------------------------------------------
+# BUG-311 regression — COMPOSE_PROFILES persistence
+# ---------------------------------------------------------------------------
+
+
+def test_compose_profiles_monitoring_selected(install_dir):
+    """INSTALL_MONITORING=true writes COMPOSE_PROFILES=monitoring to docker/.env (BUG-311)."""
+    result = _run(
+        "",
+        install_dir,
+        "INSTALL_MONITORING=true GITHUB_SYNC_ENABLED=false",
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    content = _read_env(install_dir)
+    lines = [
+        line for line in content.splitlines() if line.startswith("COMPOSE_PROFILES=")
+    ]
+    assert len(lines) == 1, f"Expected exactly one COMPOSE_PROFILES line: {lines!r}"
+    assert (
+        lines[0] == "COMPOSE_PROFILES=monitoring"
+    ), f"Expected COMPOSE_PROFILES=monitoring, got: {lines[0]!r}"
+
+
+def test_compose_profiles_monitoring_and_github_selected(install_dir):
+    """Both monitoring and github selected → COMPOSE_PROFILES includes both (BUG-311)."""
+    result = _run(
+        "",
+        install_dir,
+        "INSTALL_MONITORING=true GITHUB_SYNC_ENABLED=true",
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    content = _read_env(install_dir)
+    lines = [
+        line for line in content.splitlines() if line.startswith("COMPOSE_PROFILES=")
+    ]
+    assert len(lines) == 1, f"Expected exactly one COMPOSE_PROFILES line: {lines!r}"
+    value = lines[0].split("=", 1)[1]
+    profiles = set(value.split(","))
+    assert (
+        "monitoring" in profiles
+    ), f"Expected monitoring in COMPOSE_PROFILES, got: {value!r}"
+    assert "github" in profiles, f"Expected github in COMPOSE_PROFILES, got: {value!r}"
+
+
+def test_compose_profiles_neither_selected_is_empty(install_dir):
+    """Neither monitoring nor github selected → COMPOSE_PROFILES is empty (BUG-311)."""
+    result = _run(
+        "",
+        install_dir,
+        "INSTALL_MONITORING=false GITHUB_SYNC_ENABLED=false",
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    content = _read_env(install_dir)
+    lines = [
+        line for line in content.splitlines() if line.startswith("COMPOSE_PROFILES=")
+    ]
+    assert len(lines) == 1, f"Expected exactly one COMPOSE_PROFILES line: {lines!r}"
+    assert (
+        lines[0] == "COMPOSE_PROFILES="
+    ), f"Expected empty COMPOSE_PROFILES, got: {lines[0]!r}"
+
+
+def test_compose_profiles_changed_selection_updates_value(install_dir):
+    """Re-running with a changed selection updates COMPOSE_PROFILES; no duplicate lines (BUG-311)."""
+    # First run: monitoring selected
+    r1 = _run("", install_dir, "INSTALL_MONITORING=true GITHUB_SYNC_ENABLED=false")
+    assert r1.returncode == 0, r1.stderr.decode()
+    content = _read_env(install_dir)
+    assert "COMPOSE_PROFILES=monitoring" in content
+
+    # Second run: neither selected (user re-ran installer and de-selected monitoring)
+    r2 = _run("", install_dir, "INSTALL_MONITORING=false GITHUB_SYNC_ENABLED=false")
+    assert r2.returncode == 0, r2.stderr.decode()
+    content = _read_env(install_dir)
+    lines = [
+        line for line in content.splitlines() if line.startswith("COMPOSE_PROFILES=")
+    ]
+    assert (
+        len(lines) == 1
+    ), f"COMPOSE_PROFILES should appear exactly once after changed selection: {lines!r}"
+    assert (
+        lines[0] == "COMPOSE_PROFILES="
+    ), f"Expected empty after de-selecting monitoring, got: {lines[0]!r}"
+
+
+# ---------------------------------------------------------------------------
+# TD-573 regression — classifier-worker must not be profile-gated
+# ---------------------------------------------------------------------------
+
+
+def test_classifier_worker_has_no_profiles_key():
+    """docker-compose.yml classifier-worker must not have a profiles: key (TD-573).
+
+    classifier-worker runs the final CLASSIFY step of the core memory pipeline and
+    must start alongside qdrant + embedding regardless of which optional profiles
+    are activated. Its only hard dependency is qdrant (service_healthy).
+    """
+    import yaml
+
+    compose_path = Path(__file__).parent.parent.parent / "docker" / "docker-compose.yml"
+    with compose_path.open() as f:
+        compose = yaml.safe_load(f)
+    service = compose.get("services", {}).get("classifier-worker", {})
+    assert "profiles" not in service, (
+        "classifier-worker must not be gated behind any compose profile — "
+        "it must run by default with qdrant + embedding (TD-573)"
+    )

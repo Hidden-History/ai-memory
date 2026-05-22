@@ -2449,8 +2449,26 @@ persist_user_choices_to_env() {
     # BUG-286: Defensive blank — ensure JIRA_API_TOKEN has no non-empty value in .env.
     _blank_key_in_env "JIRA_API_TOKEN" "$env_file"
 
+    # BUG-311: Persist COMPOSE_PROFILES so any docker compose invocation from docker/
+    # activates the correct profiles regardless of entry point (plain docker compose up,
+    # host reboot, IDE Docker action). Derived from the same selection vars that build
+    # profile_flags in start_services — single source of truth, no duplicated logic.
+    # Guard: only write when INSTALL_MONITORING is explicitly set (configure_options ran).
+    # Matches the skip-empty discipline used for the other flags above; preserves template
+    # defaults in contexts where configure_options was not called (add-project helpers).
+    if [[ -n "${INSTALL_MONITORING:-}" ]]; then
+        local _compose_profiles=""
+        if [[ "${INSTALL_MONITORING}" == "true" ]]; then
+            _compose_profiles="monitoring"
+        fi
+        if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]]; then
+            _compose_profiles="${_compose_profiles:+${_compose_profiles},}github"
+        fi
+        set_env_value "COMPOSE_PROFILES" "$_compose_profiles"
+    fi
+
     chmod 600 "$secrets_file" 2>/dev/null || true
-    log_debug "BUG-274: persisted user choices to docker/.env and docker/.env.secrets"
+    log_debug "BUG-274/BUG-311: persisted user choices to docker/.env and docker/.env.secrets"
 }
 
 # migrate_existing_env_secrets — R3: v2.3.x in-place upgrade migration.

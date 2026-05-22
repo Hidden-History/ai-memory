@@ -369,7 +369,6 @@ services:
     labels:
       <<: *ai-memory-labels
       ai-memory.service: "classifier-worker"
-    profiles: ["monitoring"]  # Only runs with monitoring profile
     <<: *python-service-defaults
     environment:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
