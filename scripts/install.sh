@@ -2449,10 +2449,11 @@ persist_user_choices_to_env() {
     # BUG-286: Defensive blank — ensure JIRA_API_TOKEN has no non-empty value in .env.
     _blank_key_in_env "JIRA_API_TOKEN" "$env_file"
 
-    # BUG-311: Persist COMPOSE_PROFILES so any docker compose invocation from docker/
-    # activates the correct profiles regardless of entry point (plain docker compose up,
-    # host reboot, IDE Docker action). Derived from the same selection vars that build
-    # profile_flags in start_services — single source of truth, no duplicated logic.
+    # BUG-311 / TD-574: Persist COMPOSE_PROFILES and MONITORING_ENABLED so any docker
+    # compose invocation from docker/ activates the correct profiles and services
+    # regardless of entry point (plain docker compose up, host reboot, IDE Docker action).
+    # Both values are derived from the same INSTALL_MONITORING / GITHUB_SYNC_ENABLED
+    # selection vars that build profile_flags in start_services — single source of truth.
     # Guard: only write when INSTALL_MONITORING is explicitly set (configure_options ran).
     # Matches the skip-empty discipline used for the other flags above; preserves template
     # defaults in contexts where configure_options was not called (add-project helpers).
@@ -2465,6 +2466,7 @@ persist_user_choices_to_env() {
             _compose_profiles="${_compose_profiles:+${_compose_profiles},}github"
         fi
         set_env_value "COMPOSE_PROFILES" "$_compose_profiles"
+        set_env_value "MONITORING_ENABLED" "$INSTALL_MONITORING"
     fi
 
     chmod 600 "$secrets_file" 2>/dev/null || true

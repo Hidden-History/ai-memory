@@ -27,6 +27,7 @@ JIRA_EMAIL=
 JIRA_API_TOKEN=
 JIRA_PROJECTS=
 LANGFUSE_ENABLED=false
+MONITORING_ENABLED=false
 COMPOSE_PROFILES=
 """
 
@@ -43,6 +44,23 @@ JIRA_EMAIL=
 JIRA_API_TOKEN=
 JIRA_PROJECTS=
 LANGFUSE_ENABLED=false
+MONITORING_ENABLED=false
+"""
+
+# Same as ENV_TEMPLATE but without MONITORING_ENABLED — simulates a docker/.env written
+# before TD-574 persisted that key.  Used to exercise the set_env_value append branch
+# for MONITORING_ENABLED (grep -q finds nothing → echo >> file).
+ENV_TEMPLATE_NO_MONITORING_ENABLED = """\
+GITHUB_SYNC_ENABLED=false
+GITHUB_TOKEN=
+GITHUB_REPO=
+JIRA_SYNC_ENABLED=false
+JIRA_INSTANCE_URL=
+JIRA_EMAIL=
+JIRA_API_TOKEN=
+JIRA_PROJECTS=
+LANGFUSE_ENABLED=false
+COMPOSE_PROFILES=
 """
 
 # Minimal docker/.env.secrets content mirroring .env.secrets.example Section 1.
@@ -132,12 +150,14 @@ persist_user_choices_to_env() {
         set_env_value "JIRA_API_TOKEN" "$(_sed_escape "$JIRA_API_TOKEN")" "$secrets_file"
     fi
 
-    # BUG-311: Persist COMPOSE_PROFILES when INSTALL_MONITORING is explicitly set.
+    # BUG-311 / TD-574: Persist COMPOSE_PROFILES and MONITORING_ENABLED when
+    # INSTALL_MONITORING is explicitly set.
     if [[ -n "${INSTALL_MONITORING:-}" ]]; then
         local _compose_profiles=""
         [[ "${INSTALL_MONITORING}" == "true" ]] && _compose_profiles="monitoring"
         [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]] && _compose_profiles="${_compose_profiles:+${_compose_profiles},}github"
         set_env_value "COMPOSE_PROFILES" "$_compose_profiles"
+        set_env_value "MONITORING_ENABLED" "$INSTALL_MONITORING"
     fi
 
     chmod 600 "$secrets_file" 2>/dev/null || true
@@ -655,6 +675,113 @@ def test_compose_profiles_appended_when_key_absent(install_dir_no_compose_profil
     assert (
         lines[0] == "COMPOSE_PROFILES=monitoring"
     ), f"Expected COMPOSE_PROFILES=monitoring after append, got: {lines[0]!r}"
+
+
+# ---------------------------------------------------------------------------
+# TD-574 regression — MONITORING_ENABLED persistence
+# ---------------------------------------------------------------------------
+
+
+def test_monitoring_enabled_true_written_to_env(install_dir):
+    """INSTALL_MONITORING=true writes MONITORING_ENABLED=true to docker/.env (TD-574).
+
+    Exercises the set_env_value replace branch: ENV_TEMPLATE already contains
+    MONITORING_ENABLED=false, so the existing key is updated in-place.
+    """
+    result = _run(
+        "",
+        install_dir,
+        "INSTALL_MONITORING=true GITHUB_SYNC_ENABLED=false",
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    content = _read_env(install_dir)
+    lines = [
+        line for line in content.splitlines() if line.startswith("MONITORING_ENABLED=")
+    ]
+    assert len(lines) == 1, f"Expected exactly one MONITORING_ENABLED line: {lines!r}"
+    assert (
+        lines[0] == "MONITORING_ENABLED=true"
+    ), f"Expected MONITORING_ENABLED=true, got: {lines[0]!r}"
+
+
+def test_monitoring_enabled_false_written_to_env(install_dir):
+    """INSTALL_MONITORING=false writes MONITORING_ENABLED=false to docker/.env (TD-574)."""
+    result = _run(
+        "",
+        install_dir,
+        "INSTALL_MONITORING=false GITHUB_SYNC_ENABLED=false",
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    content = _read_env(install_dir)
+    lines = [
+        line for line in content.splitlines() if line.startswith("MONITORING_ENABLED=")
+    ]
+    assert len(lines) == 1, f"Expected exactly one MONITORING_ENABLED line: {lines!r}"
+    assert (
+        lines[0] == "MONITORING_ENABLED=false"
+    ), f"Expected MONITORING_ENABLED=false, got: {lines[0]!r}"
+
+
+def test_monitoring_enabled_changed_selection_idempotent(install_dir):
+    """Re-running with a changed selection updates MONITORING_ENABLED; no duplicate lines (TD-574)."""
+    # First run: monitoring selected
+    r1 = _run("", install_dir, "INSTALL_MONITORING=true GITHUB_SYNC_ENABLED=false")
+    assert r1.returncode == 0, r1.stderr.decode()
+    content = _read_env(install_dir)
+    assert "MONITORING_ENABLED=true" in content
+
+    # Second run: de-selected (user re-ran installer and unchecked monitoring)
+    r2 = _run("", install_dir, "INSTALL_MONITORING=false GITHUB_SYNC_ENABLED=false")
+    assert r2.returncode == 0, r2.stderr.decode()
+    content = _read_env(install_dir)
+    lines = [
+        line for line in content.splitlines() if line.startswith("MONITORING_ENABLED=")
+    ]
+    assert (
+        len(lines) == 1
+    ), f"MONITORING_ENABLED should appear exactly once after changed selection: {lines!r}"
+    assert (
+        lines[0] == "MONITORING_ENABLED=false"
+    ), f"Expected MONITORING_ENABLED=false after de-selecting, got: {lines[0]!r}"
+
+
+@pytest.fixture()
+def install_dir_no_monitoring_enabled(tmp_path):
+    """INSTALL_DIR with docker/.env that lacks a MONITORING_ENABLED key (append-branch fixture).
+
+    Simulates a docker/.env written before TD-574 persisted that key, so the
+    set_env_value echo-append branch is exercised (grep -q finds nothing → echo >> file).
+    """
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text(ENV_TEMPLATE_NO_MONITORING_ENABLED)
+    (docker_dir / ".env.secrets").write_text(SECRETS_TEMPLATE)
+    os.chmod(str(docker_dir / ".env.secrets"), 0o600)
+    return str(tmp_path)
+
+
+def test_monitoring_enabled_appended_when_key_absent(install_dir_no_monitoring_enabled):
+    """MONITORING_ENABLED is appended when the key is absent from docker/.env (append branch).
+
+    Regression: a docker/.env lacking MONITORING_ENABLED exercises the set_env_value
+    echo-append branch. Verifies the key lands exactly once with the correct value.
+    """
+    result = _run(
+        "",
+        install_dir_no_monitoring_enabled,
+        "INSTALL_MONITORING=true GITHUB_SYNC_ENABLED=false",
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    content = _read_env(install_dir_no_monitoring_enabled)
+    lines = [
+        line for line in content.splitlines() if line.startswith("MONITORING_ENABLED=")
+    ]
+    assert (
+        len(lines) == 1
+    ), f"Expected exactly one MONITORING_ENABLED line after append: {lines!r}"
+    assert (
+        lines[0] == "MONITORING_ENABLED=true"
+    ), f"Expected MONITORING_ENABLED=true after append, got: {lines[0]!r}"
 
 
 def test_classifier_worker_has_no_profiles_key():
