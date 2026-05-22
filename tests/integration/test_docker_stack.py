@@ -14,6 +14,7 @@ Best Practices (2025/2026):
 """
 
 import os
+import shutil
 import subprocess
 import time
 from collections.abc import Generator
@@ -111,6 +112,16 @@ def docker_stack(docker_compose_path: str) -> Generator[None, None, None]:
     """
     cwd = os.path.dirname(docker_compose_path)
 
+    # Provision docker/.env from .env.example when absent.  classifier-worker is a
+    # default-scope service whose x-python-service-defaults anchor marks docker/.env
+    # required:true (BP-152 fail-fast design).  A bare `docker compose up -d` therefore
+    # requires the file to exist, which it does not in a clean CI checkout.
+    env_file = os.path.join(cwd, ".env")
+    env_example = os.path.join(cwd, ".env.example")
+    created_env_file = not os.path.exists(env_file)
+    if created_env_file:
+        shutil.copy2(env_example, env_file)
+
     # Check if services were already running before we start
     services_were_running = check_services_running(docker_compose_path)
 
@@ -144,6 +155,11 @@ def docker_stack(docker_compose_path: str) -> Generator[None, None, None]:
             check=True,
             cwd=cwd,
         )
+
+    # Remove docker/.env only if the fixture created it (a real install may have its
+    # own .env with live credentials — leave it untouched).
+    if created_env_file:
+        os.remove(env_file)
 
 
 @pytest.mark.integration
