@@ -250,3 +250,4 @@ class TestMainDryRun:
             patch("ingest_markdown.ProseChunker", return_value=mock_chunker_instance),
         ):
             main()  # must not raise KeyError
+        assert "dry_run_notice" in caplog.messages

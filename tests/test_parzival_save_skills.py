@@ -1,4 +1,4 @@
-"""Regression tests: parzival-save-* skills pass explicit group_id (F-6 fix).
+"""Regression tests: parzival-save-* skills pass explicit group_id (PLAN-028 P1B / W-09).
 
 PLAN-028 P1B / W-09 (DEC-PM302-D1): ``store_agent_memory`` requires ``group_id``
 as a required keyword-only argument. Before this fix each skill called
