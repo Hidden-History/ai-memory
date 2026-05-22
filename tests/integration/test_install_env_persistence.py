@@ -613,6 +613,40 @@ def test_compose_profiles_neither_selected_is_empty(install_dir):
     ), f"Expected empty COMPOSE_PROFILES, got: {lines[0]!r}"
 
 
+def test_compose_profiles_github_only_selected(install_dir):
+    """INSTALL_MONITORING=false GITHUB_SYNC_ENABLED=true → COMPOSE_PROFILES=github (BUG-311).
+
+    Exercises the fourth monitoring x github combination: github-only selection.
+    Verifies COMPOSE_PROFILES contains exactly 'github' with no 'monitoring' component,
+    and that MONITORING_ENABLED=false is written alongside it.
+    """
+    result = _run(
+        "",
+        install_dir,
+        "INSTALL_MONITORING=false GITHUB_SYNC_ENABLED=true",
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    content = _read_env(install_dir)
+    profile_lines = [
+        line for line in content.splitlines() if line.startswith("COMPOSE_PROFILES=")
+    ]
+    assert (
+        len(profile_lines) == 1
+    ), f"Expected exactly one COMPOSE_PROFILES line: {profile_lines!r}"
+    assert (
+        profile_lines[0] == "COMPOSE_PROFILES=github"
+    ), f"Expected COMPOSE_PROFILES=github, got: {profile_lines[0]!r}"
+    monitoring_lines = [
+        line for line in content.splitlines() if line.startswith("MONITORING_ENABLED=")
+    ]
+    assert (
+        len(monitoring_lines) == 1
+    ), f"Expected exactly one MONITORING_ENABLED line: {monitoring_lines!r}"
+    assert (
+        monitoring_lines[0] == "MONITORING_ENABLED=false"
+    ), f"Expected MONITORING_ENABLED=false, got: {monitoring_lines[0]!r}"
+
+
 def test_compose_profiles_changed_selection_updates_value(install_dir):
     """Re-running with a changed selection updates COMPOSE_PROFILES; no duplicate lines (BUG-311)."""
     # First run: monitoring selected
