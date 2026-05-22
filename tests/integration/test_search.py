@@ -144,7 +144,7 @@ class TestSearchIntegration:
         bp_results = search.search(
             query="implementation",
             collection="conventions",
-            # No group_id filter — returns all vectors regardless of project
+            group_id=self.test_group_id,  # W-09: explicit project scope
         )
 
         # Both should be valid lists
@@ -300,7 +300,7 @@ class TestSearchGracefulDegradation:
 
         # Should raise EmbeddingError (caller handles graceful degradation)
         with pytest.raises(EmbeddingError):
-            search.search(query="test")
+            search.search(query="test", group_id="test-search-degradation")
 
     def test_search_with_qdrant_down(self, monkeypatch):
         """Test search fails gracefully when Qdrant unavailable (AC 1.6.4)."""
@@ -330,4 +330,4 @@ class TestSearchGracefulDegradation:
 
         # Should raise QdrantUnavailable (caller handles graceful degradation)
         with pytest.raises(QdrantUnavailable, match="Search failed"):
-            search.search(query="test")
+            search.search(query="test", group_id="test-search-degradation")

@@ -187,9 +187,26 @@ def main() -> int:
         print(f"   Valid types: {', '.join(sorted(ALL_VALID_TYPES))}", file=sys.stderr)
         return 1
 
-    # Get current project (or use override)
+    # Get current project (or use override).
+    # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with β-style
+    # friendly error on failure (per DEC-PM302-D2 Q-3).
     cwd = os.getcwd()
-    project_name = args.group_id if args.group_id else detect_project(cwd)
+    if args.group_id:
+        project_name = args.group_id
+    else:
+        project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+        if not project_name.strip():
+            try:
+                project_name = detect_project(cwd)
+            except ValueError as _proj_e:
+                print(
+                    "ERROR: AI_MEMORY_PROJECT_ID is not set and project could "
+                    f"not be auto-detected ({_proj_e}).\n"
+                    "Pass --group-id or set AI_MEMORY_PROJECT_ID, e.g.:\n"
+                    "  export AI_MEMORY_PROJECT_ID=my-project",
+                    file=sys.stderr,
+                )
+                return 2
 
     # Determine target collections
     if args.intent:

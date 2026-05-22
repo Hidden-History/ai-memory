@@ -94,8 +94,12 @@ class TestMainAgentPath:
         monkeypatch.setenv("AI_MEMORY_INSTALL_DIR", repo_root)
         self.mod = _load_script()
 
-    def test_agent_memory_calls_store_agent_memory(self):
+    def test_agent_memory_calls_store_agent_memory(self, monkeypatch):
         """AC-8: --type agent_memory routes to store_agent_memory()."""
+        # PLAN-028 P1B / W-09: env-first resolution; set the env var
+        # explicitly so the new resolution chain picks it up.
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
+
         mock_storage = MagicMock()
         mock_storage.store_agent_memory.return_value = {
             "status": "stored",
@@ -111,7 +115,6 @@ class TestMainAgentPath:
             ),
             patch("memory.config.get_config", return_value=mock_config),
             patch("memory.storage.MemoryStorage", return_value=mock_storage),
-            patch.object(self.mod, "detect_project", return_value="test-project"),
             patch.object(self.mod, "log_manual_save"),
         ):
             result = self.mod.main()
@@ -124,8 +127,9 @@ class TestMainAgentPath:
         assert call_kwargs["group_id"] == "test-project"
         assert call_kwargs["content"] == "Test note"
 
-    def test_agent_insight_calls_store_agent_memory(self):
+    def test_agent_insight_calls_store_agent_memory(self, monkeypatch):
         """AC-9: --type agent_insight routes to store_agent_memory()."""
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
         mock_storage = MagicMock()
         mock_storage.store_agent_memory.return_value = {
             "status": "stored",
@@ -152,18 +156,17 @@ class TestMainAgentPath:
         call_kwargs = mock_storage.store_agent_memory.call_args[1]
         assert call_kwargs["memory_type"] == "agent_insight"
 
-    def test_invalid_type_returns_error(self):
+    def test_invalid_type_returns_error(self, monkeypatch):
         """AC-11: Invalid --type value returns exit code 1."""
-        with (
-            patch.object(self.mod.sys, "argv", ["script", "--type", "bogus", "text"]),
-            patch.object(self.mod, "detect_project", return_value="test-project"),
-        ):
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
+        with patch.object(self.mod.sys, "argv", ["script", "--type", "bogus", "text"]):
             result = self.mod.main()
 
         assert result == 1
 
-    def test_parzival_disabled_returns_error(self):
+    def test_parzival_disabled_returns_error(self, monkeypatch):
         """Agent types require parzival_enabled=true."""
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
         mock_config = MagicMock()
         mock_config.parzival_enabled = False
 
@@ -178,11 +181,11 @@ class TestMainAgentPath:
 
         assert result == 1
 
-    def test_no_type_uses_default_path(self):
+    def test_no_type_uses_default_path(self, monkeypatch):
         """No --type flag uses the existing store_manual_summary path."""
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
         with (
             patch.object(self.mod.sys, "argv", ["script", "regular save"]),
-            patch.object(self.mod, "detect_project", return_value="test-project"),
             patch.object(
                 self.mod, "store_manual_summary", return_value=True
             ) as mock_store,
@@ -193,8 +196,9 @@ class TestMainAgentPath:
         assert result == 0
         mock_store.assert_called_once()
 
-    def test_unhandled_status_returns_error(self):
+    def test_unhandled_status_returns_error(self, monkeypatch):
         """Unrecognized result status returns exit code 1."""
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
         mock_storage = MagicMock()
         mock_storage.store_agent_memory.return_value = {
             "status": "error",
@@ -216,8 +220,9 @@ class TestMainAgentPath:
 
         assert result == 1
 
-    def test_default_content_when_no_description(self):
+    def test_default_content_when_no_description(self, monkeypatch):
         """Empty description uses 'Manual save' default."""
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
         mock_storage = MagicMock()
         mock_storage.store_agent_memory.return_value = {
             "status": "stored",

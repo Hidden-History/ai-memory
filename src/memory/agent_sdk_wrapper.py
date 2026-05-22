@@ -225,12 +225,20 @@ class AgentSDKWrapper:
     def _get_group_id(self) -> str:
         """Get project group_id from working directory.
 
-        Uses detect_project() to normalize cwd into a project identifier
-        suitable for Qdrant group_id filtering.
+        PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with
+        fail-loud fallback. Uses AI_MEMORY_PROJECT_ID env var if set;
+        otherwise calls detect_project() which may raise ValueError.
 
         Returns:
             Normalized project name (e.g., "ai-memory-module")
+
+        Raises:
+            ValueError: If neither AI_MEMORY_PROJECT_ID nor any detect_project
+                path (git remote, edge-case sentinel) can resolve a scope.
         """
+        env_project = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+        if env_project.strip():
+            return env_project
         return detect_project(self.cwd)
 
     async def _start_batch_flusher(self):

@@ -164,6 +164,7 @@ class TestStorageRouting:
                     source_hook="manual",
                     session_id="test-session",
                     collection="code-patterns",
+                    group_id="test-embedding-routing",  # W-09: explicit project scope
                 )
 
                 # Verify embed was called with model="code"
@@ -192,6 +193,7 @@ class TestStorageRouting:
                     source_hook="manual",
                     session_id="test-session",
                     collection="discussions",
+                    group_id="test-embedding-routing",  # W-09: explicit project scope
                 )
 
                 # Verify embed was called with model="en"
@@ -221,6 +223,7 @@ class TestStorageRouting:
                     session_id="github-session",
                     collection="discussions",
                     content_type="github_code_blob",
+                    group_id="test-embedding-routing",  # W-09: explicit project scope
                 )
 
                 # Verify embed was called with model="code"
@@ -255,7 +258,11 @@ class TestStorageRouting:
             mock_embed.return_value = [[0.1] * 768, [0.2] * 768]
 
             with patch.object(storage.qdrant_client, "upsert"):
-                storage.store_memories_batch(memories, collection="code-patterns")
+                storage.store_memories_batch(
+                    memories,
+                    collection="code-patterns",
+                    group_id="test-embedding-routing",  # W-09: explicit project scope
+                )
 
                 # Verify embed was called with model="code" for code-patterns
                 mock_embed.assert_called()

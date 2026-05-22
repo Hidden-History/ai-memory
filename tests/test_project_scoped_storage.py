@@ -43,14 +43,15 @@ class TestProjectScopedStorage:
         # Use unique content to avoid deduplication
         content = unique_content("Project A implementation pattern")
 
-        # EXPECTED: This should work with cwd parameter
+        # EXPECTED: This should work with explicit group_id (PLAN-028 P1B)
         result = storage.store_memory(
             content=content,
-            cwd=str(project_dir),  # BREAKING CHANGE: cwd is now required
+            cwd=str(project_dir),
             memory_type=MemoryType.IMPLEMENTATION,
             source_hook="PostToolUse",
             session_id="test-session",
             collection="code-patterns",
+            group_id="project-alpha",
         )
 
         # Verify storage succeeded
@@ -74,13 +75,14 @@ class TestProjectScopedStorage:
                 memory_type=MemoryType.IMPLEMENTATION,
                 source_hook="PostToolUse",
                 session_id="test-session",
+                group_id="any-project",
             )
 
     @pytest.mark.integration
-    def test_store_memory_auto_detects_group_id(self, qdrant_client, tmp_path):
-        """Test group_id is auto-detected from cwd even if not provided.
+    def test_store_memory_with_explicit_group_id(self, qdrant_client, tmp_path):
+        """Test group_id is honored when passed explicitly.
 
-        AC 4.2.1: group_id is automatically set from detect_project(cwd).
+        PLAN-028 P1B / W-09: group_id is required-explicit, no auto-detection.
         """
         # Create project A
         project_a = tmp_path / "project-alpha"
@@ -90,19 +92,19 @@ class TestProjectScopedStorage:
         storage = MemoryStorage()
 
         # Use unique content
-        content = unique_content("Auto-detected project")
+        content = unique_content("Explicit project scope")
 
-        # Don't pass group_id explicitly - should be auto-detected
+        # Pass group_id explicitly per PLAN-028 P1B
         result = storage.store_memory(
             content=content,
             cwd=str(project_a),
             memory_type=MemoryType.IMPLEMENTATION,
             source_hook="PostToolUse",
             session_id="test-session",
+            group_id="project-alpha",
         )
 
         assert result["status"] == "stored"
-        # group_id should be "project-alpha" (auto-detected)
 
 
 class TestProjectScopedRetrieval:
@@ -123,7 +125,7 @@ class TestProjectScopedRetrieval:
         # Use unique content
         content = unique_content("Search test content")
 
-        # Store memory with cwd
+        # Store memory with explicit project scope (PLAN-028 P1B)
         storage = MemoryStorage()
         storage.store_memory(
             content=content,
@@ -131,14 +133,15 @@ class TestProjectScopedRetrieval:
             memory_type=MemoryType.IMPLEMENTATION,
             source_hook="PostToolUse",
             session_id="test-session",
+            group_id="search-project",
         )
 
-        # Search with cwd parameter
+        # Search with explicit group_id
         search = MemorySearch()
         results = search.search(
             query="Search test",
             collection="code-patterns",
-            cwd=str(project_dir),  # NEW: cwd for auto-detection
+            group_id="search-project",
             limit=5,
         )
 
@@ -168,13 +171,14 @@ class TestProjectScopedRetrieval:
             memory_type=MemoryType.IMPLEMENTATION,
             source_hook="PostToolUse",
             session_id="test-session",
+            group_id="filter-project",
         )
 
         search = MemorySearch()
         # This should work with type-safe filter construction
         results = search.search(
             query="Type-safe",
-            cwd=str(project_dir),
+            group_id="filter-project",
             collection="code-patterns",
         )
 
@@ -236,6 +240,7 @@ class TestPayloadIndexCreation:
                     memory_type=MemoryType.IMPLEMENTATION,
                     source_hook="PostToolUse",
                     session_id="perf-session",
+                    group_id=proj.name,
                 )
 
         # Measure filtered search performance
@@ -243,7 +248,7 @@ class TestPayloadIndexCreation:
         start = time.time()
         results = search.search(
             query="Performance test",
-            cwd=str(projects[0]),  # Filter to single project
+            group_id=projects[0].name,
             limit=5,
         )
         elapsed_ms = (time.time() - start) * 1000
@@ -285,6 +290,7 @@ class TestMultiProjectIsolation:
             memory_type=MemoryType.IMPLEMENTATION,
             source_hook="PostToolUse",
             session_id="a-session",
+            group_id="project-a",
         )
 
         # Store memory in project B with unique content
@@ -294,6 +300,7 @@ class TestMultiProjectIsolation:
             memory_type=MemoryType.IMPLEMENTATION,
             source_hook="PostToolUse",
             session_id="b-session",
+            group_id="project-b",
         )
 
         search = MemorySearch()
@@ -302,14 +309,14 @@ class TestMultiProjectIsolation:
         results_a = search.search(
             query=f"implementation pattern {unique_id}",
             collection="code-patterns",
-            cwd=str(project_a),
+            group_id="project-a",
         )
 
         # Search from project B
         results_b = search.search(
             query=f"implementation pattern {unique_id}",
             collection="code-patterns",
-            cwd=str(project_b),
+            group_id="project-b",
         )
 
         # Verify isolation: Project A results should NOT contain Project B content
@@ -348,6 +355,7 @@ class TestMultiProjectIsolation:
                     memory_type=MemoryType.IMPLEMENTATION,
                     source_hook="PostToolUse",
                     session_id=f"{name}-session",
+                    group_id=proj.name,
                 )
 
         search = MemorySearch()
@@ -356,7 +364,7 @@ class TestMultiProjectIsolation:
         for name, proj in projects.items():
             results = search.search(
                 query=f"Memory from {unique_id}",
-                cwd=str(proj),
+                group_id=proj.name,
                 collection="code-patterns",
                 limit=10,
             )
@@ -370,86 +378,44 @@ class TestMultiProjectIsolation:
 
     @pytest.mark.integration
     @pytest.mark.slow
-    def test_search_without_cwd_returns_all_projects(self, qdrant_client, tmp_path):
-        """Test search without cwd/group_id returns memories from all projects.
+    def test_search_without_group_id_rejected(self, qdrant_client):
+        """Search must reject calls without explicit group_id (PLAN-028 P1B / W-09).
 
-        AC 4.2.4: When no group_id filter is applied, all memories are searchable.
+        Per DEC-PM302-D1: there is no "search without filter" graceful
+        degradation. Cross-project queries are forbidden — the only way to
+        list across projects is via the admin functions in ``stats.py``.
         """
-        unique_id = uuid.uuid4().hex[:8]
-
-        # Create two projects
-        project_a = tmp_path / "global-a"
-        project_a.mkdir()
-        (project_a / ".git").mkdir()
-
-        project_b = tmp_path / "global-b"
-        project_b.mkdir()
-        (project_b / ".git").mkdir()
-
-        storage = MemoryStorage()
-
-        # Store in both projects with unique content
-        storage.store_memory(
-            content=f"Global search test A - {unique_id}",
-            cwd=str(project_a),
-            memory_type=MemoryType.IMPLEMENTATION,
-            source_hook="PostToolUse",
-            session_id="global-session",
-        )
-
-        storage.store_memory(
-            content=f"Global search test B - {unique_id}",
-            cwd=str(project_b),
-            memory_type=MemoryType.IMPLEMENTATION,
-            source_hook="PostToolUse",
-            session_id="global-session",
-        )
-
         search = MemorySearch()
 
-        # Search without cwd (no group_id filter)
-        results = search.search(
-            query=f"Global search test {unique_id}",
-            collection="code-patterns",
-            cwd=None,  # No project filter
-            limit=10,
-        )
-
-        # Should return memories from BOTH projects
-        contents = [r["content"] for r in results]
-        assert any("test A" in c for c in contents)
-        assert any("test B" in c for c in contents)
+        with pytest.raises(ValueError, match="explicit project scope"):
+            search.search(query="anything", collection="code-patterns", group_id="")
 
 
 class TestErrorHandling:
     """Test error handling for project-scoped storage."""
 
     @pytest.mark.integration
-    def test_project_detection_failure_uses_fallback(self, qdrant_client, tmp_path):
-        """Test fallback to 'unknown-project' when detection fails.
+    def test_project_detection_failure_raises_value_error(
+        self, qdrant_client, tmp_path, monkeypatch
+    ):
+        """detect_project failure now raises ValueError (PLAN-028 P1B / W-09).
 
-        Per Dev Notes: If detect_project() fails, use fallback with warning.
+        Per DEC-PM302-D1 + DEC-PM302-D2 Q-5: ``detect_project()`` no longer
+        silently returns "unknown-project" on resolution failure. With no
+        AI_MEMORY_PROJECT_ID env var set and a plain non-git tmp dir, the
+        call must raise — there is no silent fallback that could re-create
+        cross-project contamination.
         """
-        # Use invalid path that will fail detection
-        invalid_path = tmp_path / "nonexistent-path"
+        monkeypatch.delenv("AI_MEMORY_PROJECT_ID", raising=False)
 
-        storage = MemoryStorage()
+        # Use a plain non-git tmp dir that won't match an edge-case sentinel.
+        invalid_path = tmp_path / "plain-non-git-dir"
+        invalid_path.mkdir()
 
-        # Use unique content
-        content = unique_content("Fallback test")
+        from memory.project import detect_project
 
-        # Should NOT raise - should use fallback
-        result = storage.store_memory(
-            content=content,
-            cwd=str(invalid_path),  # Invalid path
-            memory_type=MemoryType.IMPLEMENTATION,
-            source_hook="PostToolUse",
-            session_id="fallback-session",
-        )
-
-        # Should store successfully with fallback group_id
-        assert result["status"] == "stored"
-        # group_id should be "unknown-project" (fallback)
+        with pytest.raises(ValueError, match="project detection failed"):
+            detect_project(str(invalid_path))
 
     def test_none_cwd_raises_clear_error(self, qdrant_client):
         """Test None cwd raises clear ValueError.
@@ -466,6 +432,7 @@ class TestErrorHandling:
                 memory_type=MemoryType.IMPLEMENTATION,
                 source_hook="PostToolUse",
                 session_id="error-session",
+                group_id="error-test",
             )
 
 

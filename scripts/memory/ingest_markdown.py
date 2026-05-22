@@ -14,6 +14,7 @@ Reference: TECH-DEBT-054, Chunking-Strategy-V1.md
 
 import argparse
 import logging
+import os
 import re
 import sys
 from pathlib import Path
@@ -262,7 +263,12 @@ def main():
     parser.add_argument("--dir", type=Path, help="Directory containing markdown files")
     parser.add_argument("--file", type=Path, help="Single markdown file to ingest")
     parser.add_argument(
-        "--group-id", default="shared", help="Project group ID (default: shared)"
+        "--group-id",
+        default=None,
+        help=(
+            "Project group ID (REQUIRED — defaults to $AI_MEMORY_PROJECT_ID; "
+            "explicit per PLAN-028 P1B / W-09)"
+        ),
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="Preview without storing"
@@ -289,6 +295,19 @@ def main():
             "missing_input", extra={"error": "Either --dir or --file is required"}
         )
         sys.exit(1)
+
+    # PLAN-028 P1B / W-09 (DEC-PM302-D2 Q-1 ENFORCE) — explicit project scope
+    # required for ingest. Resolve env-first if --group-id not passed; fail
+    # loud with friendly error rather than defaulting to "shared".
+    if not args.group_id:
+        args.group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+        if not args.group_id.strip():
+            print(
+                "ERROR: --group-id is required (PLAN-028 P1B / W-09). Pass "
+                "--group-id explicitly or set AI_MEMORY_PROJECT_ID.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
     # Initialize components
     config = get_config()
@@ -346,7 +365,7 @@ def main():
     if args.dry_run:
         logger.info(
             "dry_run_notice",
-            extra={"message": "No data was stored. Remove --dry-run to store."},
+            extra={"notice": "No data was stored. Remove --dry-run to store."},
         )
 
 

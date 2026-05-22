@@ -317,9 +317,22 @@ def main() -> int:
         print(str(e), file=sys.stderr)
         return 1
 
-    # Get current working directory
+    # Get current working directory.
+    # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with fail-loud
+    # fallback. detect_project() now raises ValueError on detection failure.
     cwd = os.getcwd()
-    project_name = detect_project(cwd)
+    project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+    if not project_name.strip():
+        try:
+            project_name = detect_project(cwd)
+        except ValueError as _proj_e:
+            print(
+                "ERROR: AI_MEMORY_PROJECT_ID is not set and project could not "
+                f"be auto-detected ({_proj_e}). Set AI_MEMORY_PROJECT_ID before "
+                "running this command.",
+                file=sys.stderr,
+            )
+            return 2  # W-09 violation — exit 2 per β-pattern (DEC-PM302-D2 Q-3)
 
     # Get session ID from environment (set by Claude Code)
     session_id = os.environ.get("CLAUDE_SESSION_ID")

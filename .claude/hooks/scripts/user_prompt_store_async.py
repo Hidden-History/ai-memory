@@ -148,10 +148,16 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
             try:
                 from memory.metrics_push import push_capture_metrics_async
 
+                # Metric label only — detect_project may raise per W-09; fall
+                # back to "unknown" for observability without crashing capture.
+                try:
+                    _metric_proj = detect_project(os.getcwd()) or "unknown"
+                except ValueError:
+                    _metric_proj = "unknown"
                 push_capture_metrics_async(
                     hook_type="UserPromptSubmit",
                     status="quality_gate_skip",
-                    project=detect_project(os.getcwd()) or "unknown",
+                    project=_metric_proj,
                     collection="skipped",
                     count=1,
                 )
@@ -159,8 +165,25 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
                 pass
             return True
 
-        # Detect project name
-        group_id = detect_project(cwd)
+        # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with
+        # fail-loud fallback. detect_project() now raises ValueError on
+        # detection failure. W-09 violations signalled via
+        # logger.error("project_resolution_failed") only; process exits 0 per
+        # §1.2 Principle 4 (hooks never block Claude).
+        group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+        if not group_id.strip():
+            try:
+                group_id = detect_project(cwd)
+            except ValueError as _proj_e:
+                logger.error(
+                    "project_resolution_failed",
+                    extra={
+                        "hook": "user_prompt_store_async",
+                        "error": str(_proj_e),
+                        "cwd": cwd,
+                    },
+                )
+                return
 
         # SPEC-021: Read trace_id from capture hook env propagation
         trace_id = os.environ.get("LANGFUSE_TRACE_ID")
@@ -923,8 +946,10 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
         ApiException,
         QdrantUnavailable,
     ) as e:
-        # BUG-036: Include project name for multi-project visibility
-        project_name = detect_project(os.getcwd())
+        # BUG-036: Include project name for multi-project visibility. Reuse the
+        # group_id resolved above (W-09 / DEC-PM302-D1 fail-loud) — by the time
+        # we reach this except clause, group_id is guaranteed to be set.
+        project_name = group_id
         log_to_activity(
             f"📥 UserPrompt queued: Qdrant unavailable [{project_name}]", INSTALL_DIR
         )
@@ -939,7 +964,7 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
         # Queue for retry
         queue_data = {
             "content": hook_input["prompt"],
-            "group_id": detect_project(os.getcwd()),
+            "group_id": project_name,
             "memory_type": TYPE_USER_MESSAGE,
             "source_hook": "UserPromptSubmit",
             "session_id": hook_input["session_id"],
@@ -958,10 +983,15 @@ def store_user_message(hook_input: dict[str, Any]) -> bool:
         return False
 
     except Exception as e:
-        # BUG-036: Include project name for multi-project visibility
-        project_name = (
-            detect_project(os.getcwd()) if "group_id" not in dir() else group_id
-        )
+        # BUG-036: Include project name for multi-project visibility. Best-effort
+        # label only — detect_project may raise per W-09 / DEC-PM302-D1.
+        if "group_id" in dir():
+            project_name = group_id
+        else:
+            try:
+                project_name = detect_project(os.getcwd())
+            except ValueError:
+                project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or "unknown"
         log_to_activity(
             f"❌ UserPrompt failed: {type(e).__name__} [{project_name}]", INSTALL_DIR
         )

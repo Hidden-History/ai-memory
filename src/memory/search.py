@@ -196,9 +196,9 @@ class MemorySearch:
     def search(
         self,
         query: str,
+        *,
+        group_id: str,
         collection: str = COLLECTION_CODE_PATTERNS,
-        cwd: str | None = None,
-        group_id: str | None = None,
         limit: int | None = None,
         score_threshold: float | None = None,
         memory_type: str | list[str] | None = None,
@@ -218,16 +218,21 @@ class MemorySearch:
         Generates query embedding, builds filter conditions, and searches Qdrant
         collection for matching memories. Returns results sorted by similarity score.
 
-        Implements AC 4.2.2: Supports automatic project detection via cwd parameter.
+        Implements AC 4.2.2 and PLAN-028 P1B / W-09 (required-explicit project
+        scope per DEC-PM302-D1 / DEC-PM302-D2).
 
-        Memory System v2.0: Supports new collections (code-patterns, conventions, discussions)
-        with type-level filtering for precision.
+        Project scope is REQUIRED-EXPLICIT (DEC-PM302-D1 / W-09): the caller MUST
+        pass a non-empty ``group_id``. There is no cwd-based auto-detection and
+        no "graceful degradation: search without filter" branch — an unfiltered
+        search leaks every project's memories.
+
+        Memory System v2.0: Supports new collections (code-patterns, conventions,
+        discussions) with type-level filtering for precision.
 
         Args:
             query: Search query text (will be embedded for semantic search)
+            group_id: REQUIRED explicit project identifier (keyword-only).
             collection: Collection name (code-patterns, conventions, discussions) - default: code-patterns
-            cwd: Optional path for automatic project detection (auto-sets group_id)
-            group_id: Optional filter by project group_id (None = search all, overrides cwd)
             limit: Maximum results to return (defaults to config.max_retrievals)
             score_threshold: Minimum similarity score (defaults to config.similarity_threshold)
             memory_type: Optional memory type(s) to filter by - accepts string or list
@@ -242,6 +247,7 @@ class MemorySearch:
             Sorted by similarity score (highest first).
 
         Raises:
+            ValueError: If group_id is missing or empty.
             EmbeddingError: If embedding service is unavailable
             QdrantUnavailable: If Qdrant search fails (caller handles graceful degradation)
 
@@ -249,12 +255,19 @@ class MemorySearch:
             >>> search = MemorySearch()
             >>> results = search.search(
             ...     query="database connection pooling",
-            ...     cwd="/path/to/project",  # Auto-detect project
+            ...     group_id="my-project",
             ...     memory_type=["implementation", "error_pattern"]
             ... )
             >>> results[0].keys()
             dict_keys(['id', 'score', 'content', 'group_id', 'type', ...])
         """
+        # PLAN-028 P1B (DEC-PM302-D1 / W-09): project scope is required-explicit.
+        if not group_id or not group_id.strip():
+            raise ValueError(
+                "MemorySearch.search requires an explicit project scope "
+                "(group_id); refusing to run an unfiltered cross-project query."
+            )
+
         # Normalize memory_type to list for internal use
         # CR-2 FIX: Add type validation with warning if wrong type passed
         memory_types = None
@@ -274,28 +287,6 @@ class MemorySearch:
                     },
                 )
                 memory_types = None  # Skip type filtering if invalid
-
-        # Auto-detect group_id from cwd if not explicitly provided (AC 4.2.2)
-        if cwd is not None and group_id is None:
-            try:
-                from .project import detect_project
-
-                group_id = detect_project(cwd)
-                logger.debug(
-                    "search_project_detected",
-                    extra={"cwd": cwd, "group_id": group_id},
-                )
-            except Exception as e:
-                # Graceful degradation: search without filter
-                logger.warning(
-                    "search_project_detection_failed",
-                    extra={
-                        "cwd": cwd,
-                        "error": str(e),
-                        "fallback": "no_filter",
-                    },
-                )
-                group_id = None
         # Use config defaults if not provided
         limit = limit if limit is not None else self.config.max_retrievals
         score_threshold = (
@@ -317,23 +308,16 @@ class MemorySearch:
         )
         query_embedding = self.embedding_client.embed([query], model=model)[0]
 
-        # Build filter conditions using 2025 best practice: model-based Filter API
-        filter_conditions = []
-        # CRITICAL: Use explicit None check (not truthy) per AC 4.3.2
-        # Prevents incorrect behavior with empty string group_id=""
-        if group_id is not None:
-            filter_conditions.append(
-                FieldCondition(key="group_id", match=MatchValue(value=group_id))
-            )
-            logger.debug(
-                "group_id_filter_applied",
-                extra={"group_id": group_id, "collection": collection},
-            )
-        else:
-            logger.debug(
-                "no_group_id_filter",
-                extra={"collection": collection, "reason": "group_id is None"},
-            )
+        # Build filter conditions using 2025 best practice: model-based Filter API.
+        # PLAN-028 P1B (DEC-PM302-D1 / W-09): group_id was validated non-empty
+        # at function entry; this filter is unconditional.
+        filter_conditions = [
+            FieldCondition(key="group_id", match=MatchValue(value=group_id))
+        ]
+        logger.debug(
+            "group_id_filter_applied",
+            extra={"group_id": group_id, "collection": collection},
+        )
         if memory_types:
             filter_conditions.append(
                 FieldCondition(key="type", match=MatchAny(any=memory_types))
@@ -1043,7 +1027,8 @@ class MemorySearch:
     def get_recent(
         self,
         collection: str,
-        group_id: str | None = None,
+        *,
+        group_id: str,
         memory_type: str | list[str] | None = None,
         agent_id: str | None = None,
         source: str | None = None,
@@ -1056,9 +1041,13 @@ class MemorySearch:
         a pure chronological retrieval for use cases where recency matters more
         than semantic similarity.
 
+        Implements PLAN-028 P1B / W-09 (required-explicit project scope per
+        DEC-PM302-D1 / DEC-PM302-D2). The caller MUST pass a non-empty
+        ``group_id``; there is no cross-project recency listing.
+
         Args:
             collection: Qdrant collection name to search.
-            group_id: Optional project/group filter. Uses explicit None check.
+            group_id: REQUIRED explicit project identifier (keyword-only).
             memory_type: Optional type filter. String or list of strings.
             agent_id: Optional agent-scoped filter (e.g., "parzival").
             source: Optional namespace filter (e.g., "github").
@@ -1070,8 +1059,16 @@ class MemorySearch:
             Score is always 1.0 for deterministic (non-vector) results.
 
         Raises:
+            ValueError: If group_id is missing or empty.
             QdrantUnavailable: If Qdrant is unreachable or the scroll fails.
         """
+        # PLAN-028 P1B (DEC-PM302-D1 / W-09): project scope is required-explicit.
+        if not group_id or not group_id.strip():
+            raise ValueError(
+                "MemorySearch.get_recent requires an explicit project scope "
+                "(group_id); refusing to list cross-project recent memories."
+            )
+
         logger.debug(
             "get_recent_query",
             extra={
@@ -1091,13 +1088,12 @@ class MemorySearch:
         else:
             memory_types = None
 
-        # Build filter conditions using 2025 best practice: model-based Filter API
-        filter_conditions = []
-        # CRITICAL: Use explicit None check (not truthy) per AC 4.3.2
-        if group_id is not None:
-            filter_conditions.append(
-                FieldCondition(key="group_id", match=MatchValue(value=group_id))
-            )
+        # Build filter conditions using 2025 best practice: model-based Filter API.
+        # PLAN-028 P1B (DEC-PM302-D1 / W-09): group_id was validated non-empty
+        # at function entry; this filter is unconditional.
+        filter_conditions = [
+            FieldCondition(key="group_id", match=MatchValue(value=group_id))
+        ]
         if memory_types:
             filter_conditions.append(
                 FieldCondition(key="type", match=MatchAny(any=memory_types))
@@ -1226,8 +1222,8 @@ class MemorySearch:
     def search_both_collections(
         self,
         query: str,
-        group_id: str | None = None,
-        cwd: str | None = None,
+        *,
+        group_id: str,
         limit: int = 5,
         fast_mode: bool = False,
     ) -> dict:
@@ -1237,12 +1233,14 @@ class MemorySearch:
         - code-patterns: Filtered by group_id (project-specific)
         - conventions: Filtered by group_id (project-scoped per FR16 W-01)
 
-        Implements AC 4.2.2: Supports automatic project detection via cwd parameter.
+        Implements PLAN-028 P1B / W-09 (required-explicit project scope per
+        DEC-PM302-D1 / DEC-PM302-D2). The caller MUST pass a non-empty
+        ``group_id``; there is no cwd-based auto-detection and no
+        graceful-degradation cross-project fallback.
 
         Args:
             query: Search query text
-            group_id: Optional explicit project identifier (takes precedence over cwd)
-            cwd: Optional working directory for auto project detection
+            group_id: REQUIRED explicit project identifier (keyword-only).
             limit: Maximum results per collection (default 5)
             fast_mode: If True, use hnsw_ef_fast for faster search (triggers).
                       If False (default), use hnsw_ef_accurate for accuracy.
@@ -1251,15 +1249,14 @@ class MemorySearch:
             Dict with "code-patterns" and "conventions" keys, each containing
             list of search results.
 
-        Note:
-            Either group_id or cwd should be provided for code-patterns filtering.
-            If neither provided, code-patterns search uses no project filter.
+        Raises:
+            ValueError: If group_id is missing or empty.
 
         Example:
             >>> search = MemorySearch()
             >>> results = search.search_both_collections(
             ...     query="error handling patterns",
-            ...     cwd="/path/to/my-project",  # Auto-detects group_id
+            ...     group_id="my-project",
             ...     limit=3
             ... )
             >>> len(results["code-patterns"])
@@ -1267,23 +1264,13 @@ class MemorySearch:
             >>> len(results["conventions"])
             3
         """
-        # Resolve group_id from cwd if not explicitly provided (AC 4.2.2)
-        effective_group_id = group_id
-        if not effective_group_id and cwd:
-            try:
-                from .project import detect_project
-
-                effective_group_id = detect_project(cwd)
-                logger.debug(
-                    "dual_search_project_detected",
-                    extra={"cwd": cwd, "group_id": effective_group_id},
-                )
-            except Exception as e:
-                logger.warning(
-                    "dual_search_project_detection_failed",
-                    extra={"cwd": cwd, "error": str(e), "fallback": "no_filter"},
-                )
-                effective_group_id = None
+        # PLAN-028 P1B (DEC-PM302-D1 / W-09): project scope is required-explicit.
+        if not group_id or not group_id.strip():
+            raise ValueError(
+                "MemorySearch.search_both_collections requires an explicit "
+                "project scope (group_id); refusing to run unfiltered "
+                "cross-project queries."
+            )
 
         _trace_start = datetime.now(tz=timezone.utc)
 
@@ -1291,7 +1278,7 @@ class MemorySearch:
         code_patterns = self.search(
             query=query,
             collection=COLLECTION_CODE_PATTERNS,
-            group_id=effective_group_id,  # May be None if no project context
+            group_id=group_id,
             limit=limit,
             fast_mode=fast_mode,
         )
@@ -1300,7 +1287,7 @@ class MemorySearch:
         conventions = self.search(
             query=query,
             collection=COLLECTION_CONVENTIONS,
-            group_id=effective_group_id,  # Project-scoped, same as code-patterns
+            group_id=group_id,
             limit=limit,
             fast_mode=fast_mode,
         )
@@ -1335,7 +1322,7 @@ class MemorySearch:
                             else "No results from dual search"
                         ),
                         "metadata": {
-                            "group_id": effective_group_id,
+                            "group_id": group_id,
                             "code_patterns_count": len(code_patterns),
                             "conventions_count": len(conventions),
                             "total_results": len(code_patterns) + len(conventions),
@@ -1346,7 +1333,7 @@ class MemorySearch:
                         },
                     },
                     session_id=os.environ.get("CLAUDE_SESSION_ID"),
-                    project_id=effective_group_id,
+                    project_id=group_id,
                     start_time=_trace_start,
                     end_time=_trace_end,
                     tags=["search", "retrieval"],
@@ -1363,7 +1350,8 @@ class MemorySearch:
     def cascading_search(
         self,
         query: str,
-        group_id: str | None,
+        *,
+        group_id: str,
         primary_collection: str,
         secondary_collections: list[str],
         limit: int = 5,
@@ -1381,9 +1369,13 @@ class MemorySearch:
 
         This approach is more efficient than searching all collections upfront.
 
+        Implements PLAN-028 P1B / W-09 (required-explicit project scope per
+        DEC-PM302-D1 / DEC-PM302-D2): the caller MUST pass a non-empty
+        ``group_id``; there is no cross-project cascading search.
+
         Args:
             query: Search query text
-            group_id: Project isolation filter (None = search all)
+            group_id: REQUIRED explicit project identifier (keyword-only).
             primary_collection: Collection to search first (based on intent)
             secondary_collections: Collections to search if primary insufficient
             limit: Maximum results to return (default: 5)
@@ -1400,6 +1392,9 @@ class MemorySearch:
             List of search results with collection attribution. Each result dict
             contains: id, score, collection, content, and other payload fields.
 
+        Raises:
+            ValueError: If group_id is missing or empty.
+
         Example:
             >>> search = MemorySearch()
             >>> results = search.cascading_search(
@@ -1412,6 +1407,14 @@ class MemorySearch:
             >>> results[0]["collection"]
             'code-patterns'
         """
+        # PLAN-028 P1B (DEC-PM302-D1 / W-09): project scope is required-explicit.
+        if not group_id or not group_id.strip():
+            raise ValueError(
+                "MemorySearch.cascading_search requires an explicit project "
+                "scope (group_id); refusing to run an unfiltered cross-project "
+                "cascading query."
+            )
+
         _trace_start = datetime.now(tz=timezone.utc)
 
         # Step 1: Search primary collection
@@ -1712,13 +1715,15 @@ def retrieve_best_practices(
     under PLAN-028 W-01). The group_id filter is applied the same way as for the
     other collections.
 
-    Project scope is REQUIRED-EXPLICIT (DEC-PM298-D4 / W-09): the caller MUST pass
-    a non-empty group_id. There is no working-directory fallback — detect_project()
-    never fails (it returns a directory basename, or "unknown-project" on error),
-    so any implicit cwd/os.getcwd() fallback would silently re-create the
-    cross-project contamination PLAN-028 P1 exists to eliminate; an unfiltered
-    search would leak every project's best practices. When group_id is absent or
-    empty this function fails loudly with a ValueError.
+    Project scope is REQUIRED-EXPLICIT (DEC-PM298-D4 / DEC-PM302-D1 / W-09):
+    the caller MUST pass a non-empty group_id. There is no working-directory
+    fallback — any implicit cwd/os.getcwd() fallback would silently re-create
+    the cross-project contamination PLAN-028 P1 / P1B exist to eliminate; an
+    unfiltered search would leak every project's best practices. Per PLAN-028
+    P1B (DEC-PM302-D1), detect_project() now itself raises ValueError on
+    detection failure, making implicit fallbacks impossible at the call-site
+    level too. When group_id is absent or empty this function fails loudly
+    with a ValueError.
 
     Args:
         query: Semantic search query for best practices
@@ -1831,8 +1836,9 @@ def retrieve_best_practices(
 
 def search_memories(
     query: str,
+    *,
+    group_id: str,
     collection: str | None = None,
-    group_id: str | None = None,
     limit: int = 5,
     memory_type: str | list[str] | None = None,
     use_cascading: bool = False,
@@ -1843,7 +1849,7 @@ def search_memories(
 ) -> list[dict]:
     """Search memories with optional intent-based cascading.
 
-    Convenience function for searching memories with backward compatibility.
+    Convenience function for searching memories with collection routing.
     When use_cascading=True and collection=None, uses intent detection to
     route to the appropriate primary collection and cascades if needed.
 
@@ -1851,11 +1857,15 @@ def search_memories(
     on detected user intent (HOW → code-patterns, WHAT → conventions,
     WHY → discussions).
 
+    Implements PLAN-028 P1B / W-09 (required-explicit project scope per
+    DEC-PM302-D1 / DEC-PM302-D2): the caller MUST pass a non-empty
+    ``group_id``.
+
     Args:
         query: Search query text
+        group_id: REQUIRED explicit project identifier (keyword-only).
         collection: Collection to search. If None with use_cascading=True,
                    auto-detects based on intent.
-        group_id: Optional project isolation filter
         limit: Maximum results to return (default: 5)
         memory_type: Optional memory type(s) to filter by - accepts string or list
         use_cascading: If True and collection=None, use cascading search
@@ -1872,14 +1882,15 @@ def search_memories(
         Sorted by similarity score (highest first).
 
     Raises:
+        ValueError: If group_id is missing or empty.
         EmbeddingError: If embedding service is unavailable
         QdrantUnavailable: If Qdrant search fails
 
-    Example (backward compatible - explicit collection):
+    Example:
         >>> results = search_memories(
         ...     query="how do I implement auth",
+        ...     group_id="my-project",
         ...     collection="code-patterns",
-        ...     group_id="my-project"
         ... )
         >>> len(results)
         5
@@ -1894,10 +1905,16 @@ def search_memories(
         'code-patterns'
 
     Note:
-        - Backward compatible: Existing callers passing collection work unchanged
         - Collection attribution: All results include 'collection' field
         - Efficient: Only expands to secondary collections if primary insufficient
     """
+    # PLAN-028 P1B (DEC-PM302-D1 / W-09): project scope is required-explicit.
+    if not group_id or not group_id.strip():
+        raise ValueError(
+            "search_memories requires an explicit project scope (group_id); "
+            "refusing to run an unfiltered cross-project query."
+        )
+
     search = MemorySearch(config=config)
     start_time = time.perf_counter()
 

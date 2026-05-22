@@ -41,6 +41,7 @@ class TestStorageIntegration:
             source_hook="manual",
             session_id="test-session",
             cwd="/tmp",
+            group_id="test-security-scan",  # W-09: explicit project scope
         )
 
         assert result["status"] == "blocked"
@@ -62,6 +63,7 @@ class TestStorageIntegration:
             source_hook="manual",
             session_id="test-session",
             cwd="/tmp",
+            group_id="test-security-scan",  # W-09: explicit project scope
         )
 
         assert result["status"] == "stored"
@@ -95,6 +97,7 @@ class TestStorageIntegration:
             source_hook="manual",
             session_id="test-session",
             cwd="/tmp",
+            group_id="test-security-scan",  # W-09: explicit project scope
         )
 
         assert result["status"] == "stored"
@@ -147,7 +150,10 @@ class TestBatchStorageIntegration:
             },
         ]
 
-        results = storage.store_memories_batch(memories, cwd="/tmp")
+        results = storage.store_memories_batch(
+            memories,
+            group_id="test-security-scan",  # W-09: explicit project scope
+        )
 
         # Should have 3 results: 2 stored, 1 blocked
         assert len(results) == 3
@@ -188,7 +194,10 @@ class TestBatchStorageIntegration:
             },
         ]
 
-        results = storage.store_memories_batch(memories, cwd="/tmp")
+        results = storage.store_memories_batch(
+            memories,
+            group_id="test-security-scan",  # W-09: explicit project scope
+        )
 
         assert len(results) == 2
         assert all(r["status"] == "stored" for r in results)
@@ -349,6 +358,7 @@ class TestEdgeCases:
             source_hook="manual",
             session_id="test-session",
             cwd="/tmp",
+            group_id="test-security-scan",  # W-09: explicit project scope
         )
 
         assert result["status"] == "stored"
@@ -372,6 +382,7 @@ class TestEdgeCases:
             source_hook="manual",
             session_id="test-session",
             cwd="/tmp",
+            group_id="test-security-scan",  # W-09: explicit project scope
         )
 
         # Should still store successfully

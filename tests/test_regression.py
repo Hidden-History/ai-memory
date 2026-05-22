@@ -148,6 +148,7 @@ def test_retrieval_quality_regression(langfuse):
                 query=query,
                 collection=collection,
                 type_filter=type_filter,
+                group_id="retrieval-regression-test",
                 limit=5,
             )
         except Exception as exc:

@@ -87,13 +87,18 @@ def test_e2e_session_round_trip(qdrant_inmemory, mock_embedding, monkeypatch):
         cwd="/tmp/test-project",
         source_hook="manual",
         session_id="test-session-1",
+        group_id="test-e2e-cross-phase",  # W-09: explicit project scope
     )
     assert result["status"] == "stored"
 
     # 2. Search with in-memory client
     search = MemorySearch(config)
     search.client = qdrant_inmemory
-    results = search.search("authentication", collection="code-patterns")
+    results = search.search(
+        "authentication",
+        collection="code-patterns",
+        group_id="test-e2e-cross-phase",  # W-09: explicit project scope
+    )
 
     # 3. Verify results returned
     assert len(results) >= 1
@@ -127,6 +132,7 @@ def test_e2e_freshness_data_stored(qdrant_inmemory, mock_embedding):
         source_hook="manual",
         session_id="test-session-1",
         file_path="src/auth.py",
+        group_id="test-e2e-cross-phase",  # W-09: explicit project scope
     )
     assert result1["status"] == "stored"
 
@@ -138,6 +144,7 @@ def test_e2e_freshness_data_stored(qdrant_inmemory, mock_embedding):
         cwd="/tmp/test-project",
         source_hook="manual",
         session_id="test-session-1",
+        group_id="test-e2e-cross-phase",  # W-09: explicit project scope
     )
     assert result2["status"] == "stored"
 
@@ -179,6 +186,7 @@ def test_e2e_security_storage_search(qdrant_inmemory, mock_embedding, monkeypatc
         cwd="/tmp/test-project",
         source_hook="manual",
         session_id="test-session-1",
+        group_id="test-e2e-cross-phase",  # W-09: explicit project scope
     )
     assert result["status"] == "stored"
 
@@ -194,7 +202,11 @@ def test_e2e_security_storage_search(qdrant_inmemory, mock_embedding, monkeypatc
     # 3. Search and verify retrievable
     search = MemorySearch(config)
     search.client = qdrant_inmemory
-    results = search.search("database connection", collection="code-patterns")
+    results = search.search(
+        "database connection",
+        collection="code-patterns",
+        group_id="test-e2e-cross-phase",  # W-09: explicit project scope
+    )
     assert len(results) >= 1
 
 
@@ -227,6 +239,7 @@ def test_e2e_parzival_handoff_round_trip(qdrant_inmemory, mock_embedding, monkey
         memory_type="agent_handoff",
         agent_id="parzival",
         cwd="/tmp/test-project",
+        group_id="test-e2e-cross-phase",  # W-09: explicit project scope
     )
     assert result["status"] == "stored"
 
@@ -236,6 +249,7 @@ def test_e2e_parzival_handoff_round_trip(qdrant_inmemory, mock_embedding, monkey
     results = search.search(
         query="latest session handoff",
         collection="discussions",
+        group_id="test-e2e-cross-phase",  # W-09: explicit project scope
     )
 
     # 3. Verify handoff found with correct content

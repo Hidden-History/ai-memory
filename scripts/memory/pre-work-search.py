@@ -101,10 +101,23 @@ def search_memories(query: str, cwd: str = None, limit: int = 5) -> dict[str, An
         config = get_config()
         search = MemorySearch(config=config)
 
+        # PLAN-028 P1B / W-09 (DEC-PM302-D1): search_both_collections now
+        # requires explicit non-empty group_id. Resolve env-first; on detection
+        # failure return empty (graceful degradation — this is a pre-work hook,
+        # must not break Claude UI).
+        from memory.project import detect_project as _detect_project
+
+        group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+        if not group_id.strip():
+            try:
+                group_id = _detect_project(cwd or os.getcwd())
+            except ValueError:
+                return {"memories": [], "count": 0}
+
         # Search both collections (code-patterns + conventions)
         # Returns: {"code-patterns": [...], "conventions": [...]}
         results = search.search_both_collections(
-            query=query, cwd=cwd, limit=limit  # Auto-detects group_id if provided
+            query=query, group_id=group_id, limit=limit
         )
 
         # Flatten results from both collections

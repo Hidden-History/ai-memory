@@ -293,8 +293,13 @@ def build_session_summary(
     trigger = hook_input["trigger"]
     custom_instructions = hook_input.get("custom_instructions", "")
 
-    # Extract project name from cwd path
-    project_name = detect_project(cwd)
+    # Extract project name. PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first
+    # resolution with fail-loud fallback. detect_project() now raises ValueError
+    # on detection failure; pre_compact_save must propagate so main() can
+    # gracefully skip storage (compaction itself still proceeds).
+    project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
+    if not project_name.strip():
+        project_name = detect_project(cwd)
 
     # Build rich summary content optimized for post-compact context injection
     summary_parts = [
@@ -1256,8 +1261,25 @@ def main() -> int:
         # Analyze transcript
         transcript_analysis = analyze_transcript(transcript_entries)
 
-        # Build session summary
-        summary_data = build_session_summary(hook_input, transcript_analysis)
+        # Build session summary. PLAN-028 P1B / W-09: project resolution may
+        # raise ValueError if no AI_MEMORY_PROJECT_ID and no git remote — log
+        # and skip storage rather than crash the compaction hook.
+        try:
+            summary_data = build_session_summary(hook_input, transcript_analysis)
+        except ValueError as _proj_e:
+            logger.error(
+                "project_resolution_failed",
+                extra={
+                    "hook": "pre_compact_save",
+                    "error": str(_proj_e),
+                    "cwd": hook_input.get("cwd", ""),
+                },
+            )
+            print(
+                f"⚠️  AI Memory: Skipping pre-compact save ({_proj_e})",
+                file=sys.stderr,
+            )
+            return 0  # Hooks always exit 0 per §1.2 Principle 4; W-09 violation signalled via logger.error + stderr warning above
 
         # Extract project name once for validation checks
         project = summary_data.get("group_id", "unknown")

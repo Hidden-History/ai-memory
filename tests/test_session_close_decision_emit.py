@@ -96,6 +96,7 @@ def test_T1_decision_type_accepted_by_allowlist(storage_with_inmemory):
         memory_type="decision",
         agent_id="parzival",
         cwd="/tmp/test-decision",
+        group_id="test-decision",
         metadata={
             "dec_id": "DEC-PM285-D2",
             "pm_number": 285,

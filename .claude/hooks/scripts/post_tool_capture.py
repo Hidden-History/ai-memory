@@ -515,8 +515,14 @@ def main() -> int:
     except ImportError:
         logger.warning("metrics_push_module_unavailable")
 
-    # Detect project for metrics
-    project = detect_project_func(os.getcwd()) if detect_project_func else "unknown"
+    # Detect project for metrics (W-09: graceful fallback; metric label only)
+    if detect_project_func:
+        try:
+            project = detect_project_func(os.getcwd())
+        except ValueError:
+            project = os.environ.get("AI_MEMORY_PROJECT_ID") or "unknown"
+    else:
+        project = "unknown"
 
     # HIGH-1 FIX: Use proper with statement to ensure __exit__() on all paths
     cm = (
@@ -550,7 +556,9 @@ def main() -> int:
                     try:
                         _fsize = Path(file_path).stat().st_size
                         if _fsize <= _MAX_EDIT_READ:
-                            content = Path(file_path).read_text(encoding="utf-8", errors="replace")
+                            content = Path(file_path).read_text(
+                                encoding="utf-8", errors="replace"
+                            )
                         else:
                             content = tool_input.get("new_string", "")
                     except OSError:

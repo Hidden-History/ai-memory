@@ -645,6 +645,7 @@ class TestSearchIntegration:
         results = search.search(
             query="test query",
             collection=search_collection,
+            group_id="test-project",
             limit=10,
         )
 

@@ -196,7 +196,7 @@ def _detect_project_from_git_remote(cwd_path: Path) -> str | None:
         return None
 
     try:
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(strict=False)
         config.read(str(git_config_path))
         remote_url = config.get('remote "origin"', "url", fallback=None)
         if not remote_url:
@@ -230,34 +230,40 @@ def _detect_project_from_git_remote(cwd_path: Path) -> str | None:
 
 
 def detect_project(cwd: str | None = None) -> str:
-    """Detect project identifier from environment variable or working directory.
+    """Detect project identifier from environment variable or git remote.
 
-    Detection priority:
+    Detection priority (PLAN-028 P1B / W-09, DEC-PM302-D1 + DEC-PM302-D2 Q-5):
     1. AI_MEMORY_PROJECT_ID environment variable (highest priority)
-    2. Git remote org/repo slug (auto-detected from .git/config)
-    3. Directory-based detection (fallback)
+    2. Edge-case sentinels for anomalous cwds (root/home/temp)
+    3. Git remote org/repo slug (auto-detected from .git/config)
+    4. **Fail-loud**: raises ValueError if none of the above resolve.
 
-    Implements project detection strategy with special handling for edge cases:
-    - Uses AI_MEMORY_PROJECT_ID env var if set (prevents pollution)
-    - Detects org/repo from git remote origin URL when available
-    - Falls back to directory name as project identifier
-    - Handles root, home, and temp directories specially
-    - Normalizes name for consistent group_id
-    - Falls back to "unknown-project" on errors
+    The directory-basename fallback was removed (Q-5 strict-remove per W-09): a
+    silent guess based on the parent directory name is the cross-project
+    contamination vector PLAN-028 P1B exists to close. Callers MUST either set
+    AI_MEMORY_PROJECT_ID explicitly or run inside a directory whose git
+    remote can be resolved.
+
+    The edge-case sentinels at root/home/temp paths remain for now and are
+    tracked for follow-up cleanup (see ``oversight/tech-debt/`` for the
+    "special-case sentinels" TD).
 
     Args:
         cwd: Working directory path. If None, uses os.getcwd()
 
     Returns:
-        Normalized project name suitable for group_id filtering
+        Normalized project identifier suitable for group_id filtering.
+
+    Raises:
+        ValueError: If no AI_MEMORY_PROJECT_ID env var is set, the cwd is not
+            an edge-case sentinel, and no git remote can be detected. Callers
+            should pre-set AI_MEMORY_PROJECT_ID for non-git contexts.
 
     Example:
         >>> os.environ['AI_MEMORY_PROJECT_ID'] = 'my-project'
         >>> detect_project("/any/directory")
         'my-project'
         >>> del os.environ['AI_MEMORY_PROJECT_ID']
-        >>> detect_project("/home/user/projects/my-app")
-        'my-app'
         >>> detect_project("/")
         'root-project'
     """
@@ -345,30 +351,33 @@ def detect_project(cwd: str | None = None) -> str:
             )
             return git_project
 
-        # 2b. Normal case: Extract directory name (fallback)
-        dir_name = cwd_path.name
-
-        if not dir_name:
-            # This shouldn't happen with resolve(), but handle defensively
-            logger.warning(
-                "empty_directory_name",
-                extra={"cwd": cwd, "fallback": "unnamed-project"},
-            )
-            return "unnamed-project"
-
-        # Normalize the directory name
-        project_name = normalize_project_name(dir_name)
-
-        logger.debug(
-            "project_detected", extra={"cwd": abs_path, "project": project_name}
+        # 2b. No basename fallback — fail loud per W-09 / DEC-PM302-D2 Q-5.
+        # The directory-basename fallback was removed: it silently produced a
+        # guessed group_id (e.g. "ai-memory-w09" for a worktree, "tmp-build-foo"
+        # for a build dir), which is precisely the cross-project contamination
+        # vector PLAN-028 P1B exists to close.
+        logger.error(
+            "project_detection_failed",
+            extra={
+                "cwd": abs_path,
+                "reason": (
+                    "no AI_MEMORY_PROJECT_ID env var, no git remote, "
+                    "and cwd is not an edge-case sentinel"
+                ),
+            },
+        )
+        raise ValueError(
+            f"project detection failed for cwd={abs_path!r}: "
+            "set AI_MEMORY_PROJECT_ID, run from a directory with a git remote, "
+            "or pass an explicit group_id"
         )
 
-        return project_name
-
-    except (OSError, ValueError) as e:
-        # Path resolution failed - log warning and return fallback
-        logger.warning(
+    except OSError as e:
+        # Path resolution itself failed - fail loud per W-09.
+        logger.error(
             "path_resolution_failed",
-            extra={"cwd": cwd, "error": str(e), "fallback": "unknown-project"},
+            extra={"cwd": cwd, "error": str(e)},
         )
-        return "unknown-project"
+        raise ValueError(
+            f"project detection failed: path resolution error for cwd={cwd!r}: {e}"
+        ) from e

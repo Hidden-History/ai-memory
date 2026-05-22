@@ -160,35 +160,42 @@ class MemoryStorage:
         memory_type: MemoryType,
         source_hook: str,
         session_id: str,
+        *,
+        group_id: str,
         collection: str = "code-patterns",
-        group_id: str | None = None,
         source_type: str | None = None,
         **extra_fields,
     ) -> dict:
-        """Store a memory with automatic project detection and validation.
+        """Store a memory with explicit project scope and validation.
 
-        Implements AC 1.5.1 (Storage Module Implementation) and AC 4.2.1 (Project-Scoped Storage).
+        Implements AC 1.5.1 (Storage Module Implementation), AC 4.2.1 (Project-Scoped
+        Storage), and PLAN-028 P1B / W-09 (required-explicit project scope per
+        DEC-PM302-D1 / DEC-PM302-D2).
 
-        BREAKING CHANGE (Story 4.2): cwd is now required for automatic project detection.
-        group_id is now optional and auto-detected from cwd via detect_project().
+        Project scope is REQUIRED-EXPLICIT (DEC-PM298-D4 / DEC-PM302-D1 / W-09): the
+        caller MUST pass a non-empty ``group_id``. There is no working-directory
+        fallback — silent project inference is the cross-project contamination
+        vector PLAN-028 P1B exists to close.
 
         Process:
-        1. Validate cwd parameter
-        2. Auto-detect group_id from cwd using detect_project() (Story 4.1)
+        1. Validate cwd parameter (non-None)
+        2. Validate group_id parameter (non-empty after strip)
         3. Build payload with content_hash
         4. Validate payload
         5. Check for duplicates
-        6. Generate embedding (graceful degradation on failure)
+        6. Generate embedding (graceful degradation on embedding failure only)
         7. Store in Qdrant
 
         Args:
             content: Memory content (10-100,000 chars)
-            cwd: Current working directory for project detection (REQUIRED)
+            cwd: Current working directory (REQUIRED — used for logging/audit;
+                project_id is NOT inferred from cwd)
             memory_type: Type of memory (MemoryType enum)
             source_hook: Hook that captured this (PostToolUse, Stop, SessionStart)
             session_id: Claude session identifier
+            group_id: REQUIRED explicit project identifier (keyword-only). Must be a
+                non-empty string; there is no auto-detection fallback.
             collection: Qdrant collection name (default: "code-patterns")
-            group_id: Optional explicit project identifier (overrides auto-detection)
             **extra_fields: Additional payload fields (domain, importance, tags, etc.)
 
         Returns:
@@ -203,17 +210,19 @@ class MemoryStorage:
                 - reason (str): Human-readable explanation (present on "blocked" status)
 
         Raises:
-            ValueError: If cwd is None or payload validation fails
+            ValueError: If cwd is None, group_id is missing/empty, or payload
+                validation fails.
             QdrantUnavailable: If Qdrant storage backend fails
 
         Example:
             >>> storage = MemoryStorage()
             >>> result = storage.store_memory(
             ...     content="Implementation code here",
-            ...     cwd="/path/to/project",  # REQUIRED for project detection
+            ...     cwd="/path/to/project",
             ...     memory_type=MemoryType.IMPLEMENTATION,
             ...     source_hook="PostToolUse",
-            ...     session_id="sess-456"
+            ...     session_id="sess-456",
+            ...     group_id="my-project",
             ... )
             >>> result["status"]
             'stored'
@@ -224,27 +233,14 @@ class MemoryStorage:
         if cwd is None:
             raise ValueError("cwd parameter is required for project-scoped storage")
 
-        # Auto-detect group_id from cwd if not explicitly provided (AC 4.2.1)
-        if group_id is None:
-            try:
-                from .project import detect_project
-
-                group_id = detect_project(cwd)
-                logger.debug(
-                    "project_detected",
-                    extra={"cwd": cwd, "group_id": group_id},
-                )
-            except Exception as e:
-                # Graceful degradation: Use fallback with warning
-                logger.warning(
-                    "project_detection_failed",
-                    extra={
-                        "cwd": cwd,
-                        "error": str(e),
-                        "fallback": "unknown-project",
-                    },
-                )
-                group_id = "unknown-project"
+        # PLAN-028 P1B (DEC-PM302-D1 / W-09): project scope is required-explicit.
+        # Fail loud rather than guess — see the function docstring for rationale.
+        if not group_id or not group_id.strip():
+            raise ValueError(
+                "store_memory requires an explicit project scope (group_id); "
+                "refusing to guess. An implicit working-directory fallback risks "
+                "cross-project contamination."
+            )
 
         # TECH-DEBT-012 Round 3: Handle created_at timestamp
         created_at = extra_fields.pop("created_at", None)
@@ -739,16 +735,27 @@ class MemoryStorage:
     def store_memories_batch(
         self,
         memories: list[dict],
-        cwd: str | None = None,
+        *,
+        group_id: str,
         collection: str = "code-patterns",
         source_type: str | None = None,
     ) -> list[dict]:
         """Store multiple memories in batch for efficiency.
 
-        Implements AC 1.5.2 (Batch Storage Support) and AC 4.2.1 (Project-Scoped Storage).
+        Implements AC 1.5.2 (Batch Storage Support), AC 4.2.1 (Project-Scoped
+        Storage), and PLAN-028 P1B / W-09 (required-explicit project scope per
+        DEC-PM302-D1 / DEC-PM302-D2).
+
+        Project scope is REQUIRED-EXPLICIT (DEC-PM298-D4 / DEC-PM302-D1 / W-09):
+        the caller MUST pass a non-empty ``group_id``. There is no
+        working-directory fallback. Per-item ``group_id`` keys are honored if
+        present (and validated non-empty); the batch-level ``group_id`` is the
+        default for items that omit it.
 
         Batch operations:
-        - Auto-detect group_id from cwd if not provided in individual memories
+        - Validate caller-supplied default group_id (non-empty)
+        - Apply default group_id to memories missing it; validate each item's
+          group_id is non-empty after the merge
         - Validate all payloads upfront
         - Generate embeddings in single batch request (2025/2026 best practice)
         - Store all memories in single Qdrant upsert
@@ -760,12 +767,12 @@ class MemoryStorage:
         Args:
             memories: List of memory dictionaries, each with keys:
                 - content: str
-                - group_id: str (optional if cwd provided)
+                - group_id: str (optional — defaults to batch-level group_id)
                 - type: str (MemoryType value)
                 - source_hook: str
                 - session_id: str
-            cwd: Optional working directory for auto project detection.
-                 Used when individual memory lacks group_id.
+            group_id: REQUIRED explicit project identifier (keyword-only).
+                Applied to any memory dict lacking its own group_id.
             collection: Qdrant collection name (default: "code-patterns")
             source_type: Origin of content. Defaults to "user_session" (highest scrutiny).
                          Use "github_*" for GitHub-sourced content (relaxed mode skips L2).
@@ -777,12 +784,9 @@ class MemoryStorage:
                 - embedding_status: "complete" or "pending"
 
         Raises:
-            ValueError: If any payload validation fails
+            ValueError: If group_id is missing/empty, any per-item group_id is
+                empty, or any payload validation fails.
             QdrantUnavailable: If Qdrant is unreachable
-
-        Note:
-            If a memory has explicit group_id, it takes precedence over cwd.
-            If neither group_id nor cwd provided, falls back to "unknown-project".
 
         Example:
             >>> storage = MemoryStorage()
@@ -792,7 +796,7 @@ class MemoryStorage:
             ...     {"content": "Code 2", "type": "implementation",
             ...      "source_hook": "PostToolUse", "session_id": "sess"},
             ... ]
-            >>> results = storage.store_memories_batch(memories, cwd="/path/to/project")
+            >>> results = storage.store_memories_batch(memories, group_id="my-project")
             >>> len(results)
             2
         """
@@ -801,34 +805,33 @@ class MemoryStorage:
         if not memories:
             return []
 
+        # PLAN-028 P1B (DEC-PM302-D1 / W-09): project scope is required-explicit.
+        if not group_id or not group_id.strip():
+            raise ValueError(
+                "store_memories_batch requires an explicit project scope "
+                "(group_id); refusing to guess. An implicit working-directory "
+                "fallback risks cross-project contamination."
+            )
+
         # Shallow copy to avoid mutating caller's dicts (F-15)
         memories = [dict(m) for m in memories]
 
         points = []
         results = []
 
-        # Auto-detect project from cwd if provided (AC 4.2.1)
-        default_group_id = None
-        if cwd:
-            try:
-                from .project import detect_project
-
-                default_group_id = detect_project(cwd)
-                logger.debug(
-                    "batch_project_detected",
-                    extra={"cwd": cwd, "group_id": default_group_id},
-                )
-            except Exception as e:
-                logger.warning(
-                    "batch_project_detection_failed",
-                    extra={"cwd": cwd, "error": str(e), "fallback": "unknown-project"},
-                )
-                default_group_id = "unknown-project"
-
-        # Apply default group_id to memories missing it
+        # Apply default group_id to memories missing it; validate every item's
+        # final group_id is non-empty (per-item override is allowed but must be
+        # a valid project id, never "" or None).
         for memory in memories:
             if "group_id" not in memory or memory.get("group_id") is None:
-                memory["group_id"] = default_group_id or "unknown-project"
+                memory["group_id"] = group_id
+            item_gid = memory.get("group_id")
+            if not isinstance(item_gid, str) or not item_gid.strip():
+                raise ValueError(
+                    "store_memories_batch: per-item group_id must be a non-empty "
+                    "string; refusing to guess project scope. Offending memory: "
+                    f"content_hash={memory.get('content_hash', '<unhashed>')}"
+                )
 
         # Validate all first (fail fast)
         for memory in memories:
@@ -1330,13 +1333,13 @@ class MemoryStorage:
                         "output": f"stored {len(points)} points"[:TRACE_CONTENT_MAX],
                         "metadata": {
                             "collection": str(collection),
-                            "group_id": str(default_group_id or "unknown"),
+                            "group_id": str(group_id),
                             "status": "stored",
                             "point_count": str(len(points)),
                         },
                     },
                     session_id=os.environ.get("CLAUDE_SESSION_ID"),
-                    project_id=default_group_id or "unknown",
+                    project_id=group_id,
                     tags=["store", "memory"],
                     start_time=_batch_store_start,
                     end_time=_batch_store_end,
@@ -1389,10 +1392,12 @@ class MemoryStorage:
         Args:
             chunk_items: One dict per chunk; must include ``content`` and GitHub
                 payload fields (``file_path``, ``blob_hash``, ``chunk_index``, etc.).
-            cwd: Working directory for project detection when ``group_id`` omitted
-                on an item (items still default to ``group_id`` argument).
+            cwd: Working directory (REQUIRED — used for logging/audit; project
+                scope is NOT inferred from cwd).
             collection: Qdrant collection (typically ``github``).
-            group_id: Repository / project id for all points unless overridden per item.
+            group_id: REQUIRED non-empty repository / project id (keyword-only).
+                Applied to all points unless overridden per item; per-item values
+                must also be non-empty.
             memory_type: ``MemoryType.GITHUB_CODE_BLOB``.
             source_hook: e.g. ``github_code_sync``.
             session_id: Sync batch / session id.
@@ -1400,6 +1405,10 @@ class MemoryStorage:
 
         Returns:
             One result dict per input chunk (``memory_id``, ``status``, ``embedding_status``).
+
+        Raises:
+            ValueError: If ``cwd`` is None or ``group_id`` is missing/empty
+                (PLAN-028 P1B / W-09 — DEC-PM302-D1).
         """
         _blob_store_start = datetime.now(timezone.utc)
 
@@ -1409,18 +1418,15 @@ class MemoryStorage:
         if cwd is None:
             raise ValueError("cwd parameter is required for project-scoped storage")
 
-        default_group_id = group_id
-        if default_group_id is None:
-            try:
-                from .project import detect_project
+        # PLAN-028 P1B (DEC-PM302-D1 / W-09): project scope is required-explicit.
+        if not group_id or not group_id.strip():
+            raise ValueError(
+                "store_github_code_blob_chunks_batch requires an explicit project "
+                "scope (group_id); refusing to guess. An implicit "
+                "working-directory fallback risks cross-project contamination."
+            )
 
-                default_group_id = detect_project(cwd)
-            except Exception as e:
-                logger.warning(
-                    "github_batch_project_detection_failed",
-                    extra={"cwd": cwd, "error": str(e)},
-                )
-                default_group_id = "unknown-project"
+        default_group_id = group_id
 
         memory_type_enum = (
             memory_type
@@ -1499,6 +1505,17 @@ class MemoryStorage:
                     row = dict(raw)
                     if row.get("group_id") is None:
                         row["group_id"] = default_group_id
+                    # PLAN-028 P1B (DEC-PM302-D1 / W-09): per-item group_id must
+                    # be non-empty; never silently coerce to a sentinel.
+                    item_gid = row.get("group_id")
+                    if not isinstance(item_gid, str) or not item_gid.strip():
+                        raise ValueError(
+                            "store_github_code_blob_chunks_batch: per-item "
+                            "group_id must be a non-empty string; refusing to "
+                            "guess project scope. Offending chunk: "
+                            f"file_path={row.get('file_path', '<unknown>')} "
+                            f"blob_hash={row.get('blob_hash', '<unknown>')}"
+                        )
                     row["type"] = memory_type_enum.value
                     row["source_hook"] = source_hook
                     row["session_id"] = session_id
@@ -1761,8 +1778,9 @@ class MemoryStorage:
         self,
         content: str,
         memory_type: str,
+        *,
+        group_id: str,
         agent_id: str = "parzival",
-        group_id: str | None = None,
         session_id: str | None = None,
         cwd: str | None = None,
         metadata: dict | None = None,
@@ -1770,8 +1788,12 @@ class MemoryStorage:
         """Store an agent memory to the discussions collection.
 
         Convenience method that wraps store_memory() with agent-specific
-        defaults. Validates memory_type against allowed agent types,
-        sets agent_id payload field, and routes to discussions collection.
+        defaults. Validates memory_type against allowed agent types, sets
+        agent_id payload field, and routes to discussions collection.
+
+        Implements PLAN-028 P1B / W-09 (required-explicit project scope per
+        DEC-PM302-D1): the caller MUST pass a non-empty ``group_id``. There
+        is no cwd-based auto-detection.
 
         Passes through the full security scanning pipeline (AD-4).
         Chunks if content > 3K tokens (per Chunking-Strategy-V2).
@@ -1780,10 +1802,11 @@ class MemoryStorage:
             content: Memory content text.
             memory_type: One of: agent_handoff, agent_memory, agent_task,
                 agent_insight, decision.
+            group_id: REQUIRED explicit project identifier (keyword-only).
             agent_id: Agent identifier (default "parzival").
-            group_id: Project identifier. Auto-detected from cwd if None.
             session_id: Optional session identifier. Defaults to f"agent_{agent_id}".
-            cwd: Working directory for project detection.
+            cwd: Working directory (optional — used for logging/audit; project
+                scope is NOT inferred from cwd).
             metadata: Additional payload fields to include.
 
         Returns:
@@ -1791,7 +1814,7 @@ class MemoryStorage:
 
         Raises:
             ValueError: If memory_type is not a valid agent type.
-            ValueError: If neither group_id nor cwd is provided.
+            ValueError: If group_id is missing or empty.
         """
         # TD-519 / D-2-A: "decision" added as first-class allowed type so the
         # /parzival-save-decision skill can emit DEC entries to Qdrant for L2
@@ -1811,8 +1834,12 @@ class MemoryStorage:
                 f"Must be one of: {sorted(VALID_AGENT_TYPES)}"
             )
 
-        if group_id is None and cwd is None:
-            raise ValueError("Either group_id or cwd must be provided")
+        # PLAN-028 P1B (DEC-PM302-D1 / W-09): project scope is required-explicit.
+        if not group_id or not group_id.strip():
+            raise ValueError(
+                "store_agent_memory requires an explicit project scope "
+                "(group_id); refusing to guess."
+            )
 
         extra_fields = {
             "agent_id": agent_id,
@@ -2032,12 +2059,14 @@ def store_best_practice(
     project group_id, identical to how code-patterns and other collections work.
     The former cross-project "shared" tier was removed in PLAN-028 P1 (W-01).
 
-    Project scope is REQUIRED-EXPLICIT (DEC-PM298-D4 / W-09): the caller MUST pass
-    a non-empty group_id. There is no working-directory fallback — detect_project()
-    never fails (it returns a directory basename, or "unknown-project" on error),
-    so any implicit cwd/os.getcwd() fallback would silently re-create the
-    cross-project contamination PLAN-028 P1 exists to eliminate. When group_id is
-    absent or empty this function fails loudly with a ValueError.
+    Project scope is REQUIRED-EXPLICIT (DEC-PM298-D4 / DEC-PM302-D1 / W-09): the
+    caller MUST pass a non-empty group_id. There is no working-directory
+    fallback — any implicit cwd/os.getcwd() fallback would silently re-create
+    the cross-project contamination PLAN-028 P1 / P1B exist to eliminate. Per
+    PLAN-028 P1B (DEC-PM302-D1), detect_project() now itself raises ValueError
+    on detection failure (rather than returning a "unknown-project" sentinel),
+    making implicit fallbacks impossible at the call-site level too. When
+    group_id is absent or empty this function fails loudly with a ValueError.
 
     Args:
         content: Best practice text content (10-100,000 chars)
