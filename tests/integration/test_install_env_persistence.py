@@ -30,6 +30,21 @@ LANGFUSE_ENABLED=false
 COMPOSE_PROFILES=
 """
 
+# Same as ENV_TEMPLATE but without COMPOSE_PROFILES — simulates a fresh docker/.env
+# copied from a pre-fix .env.example (no COMPOSE_PROFILES key at all).
+# Used to exercise the append branch of set_env_value in persist_user_choices_to_env.
+ENV_TEMPLATE_NO_COMPOSE_PROFILES = """\
+GITHUB_SYNC_ENABLED=false
+GITHUB_TOKEN=
+GITHUB_REPO=
+JIRA_SYNC_ENABLED=false
+JIRA_INSTANCE_URL=
+JIRA_EMAIL=
+JIRA_API_TOKEN=
+JIRA_PROJECTS=
+LANGFUSE_ENABLED=false
+"""
+
 # Minimal docker/.env.secrets content mirroring .env.secrets.example Section 1.
 SECRETS_TEMPLATE = """\
 GITHUB_TOKEN=
@@ -604,6 +619,42 @@ def test_compose_profiles_changed_selection_updates_value(install_dir):
 # ---------------------------------------------------------------------------
 # TD-573 regression — classifier-worker must not be profile-gated
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def install_dir_no_compose_profiles(tmp_path):
+    """INSTALL_DIR with docker/.env that lacks a COMPOSE_PROFILES key (append-branch fixture)."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text(ENV_TEMPLATE_NO_COMPOSE_PROFILES)
+    (docker_dir / ".env.secrets").write_text(SECRETS_TEMPLATE)
+    os.chmod(str(docker_dir / ".env.secrets"), 0o600)
+    return str(tmp_path)
+
+
+def test_compose_profiles_appended_when_key_absent(install_dir_no_compose_profiles):
+    """COMPOSE_PROFILES is appended when the key is absent from docker/.env (append branch).
+
+    Regression: a fresh docker/.env lacking the COMPOSE_PROFILES key exercises the
+    set_env_value echo-append branch (grep -q finds nothing → echo >> file).
+    Verifies the key lands exactly once with the correct value after append.
+    """
+    result = _run(
+        "",
+        install_dir_no_compose_profiles,
+        "INSTALL_MONITORING=true GITHUB_SYNC_ENABLED=false",
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    content = _read_env(install_dir_no_compose_profiles)
+    lines = [
+        line for line in content.splitlines() if line.startswith("COMPOSE_PROFILES=")
+    ]
+    assert (
+        len(lines) == 1
+    ), f"Expected exactly one COMPOSE_PROFILES line after append: {lines!r}"
+    assert (
+        lines[0] == "COMPOSE_PROFILES=monitoring"
+    ), f"Expected COMPOSE_PROFILES=monitoring after append, got: {lines[0]!r}"
 
 
 def test_classifier_worker_has_no_profiles_key():

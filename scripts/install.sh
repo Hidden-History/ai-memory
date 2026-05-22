@@ -3055,6 +3055,17 @@ start_services() {
         exit 1
     }
 
+    # ── Classifier-worker: build + start on every install path ──
+    # classifier-worker drives the core CLASSIFY pipeline step (no profile gate).
+    # It must start after setup_collections (collections must exist before queue
+    # items are processed) and after qdrant is confirmed healthy (depends_on: qdrant).
+    # --no-recreate is safe when Phase 3 also runs: profile-scoped up leaves an
+    # already-running container untouched. (TD-573 / BUG-311)
+    log_info "Starting classifier-worker (core CLASSIFY service)..."
+    _compose build --no-cache classifier-worker
+    _compose up -d --no-recreate classifier-worker
+    _log_docker_state "after classifier-worker startup"
+
     # ── Phase 3: Start profile services ──
     if [[ -n "$profile_flags" ]]; then
         log_info "Phase 2/2: Starting profile services ($profile_flags)..."
