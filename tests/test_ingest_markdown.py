@@ -1,5 +1,6 @@
 """Tests for markdown ingestion script (TECH-DEBT-054)."""
 
+import logging
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
@@ -203,7 +204,7 @@ Content"""
 class TestMainDryRun:
     """Tests for main() --dry-run entry point."""
 
-    def test_dry_run_notice_does_not_crash(self, tmp_path, monkeypatch):
+    def test_dry_run_notice_does_not_crash(self, tmp_path, monkeypatch, caplog):
         """--dry-run must not raise: 'notice' extra key avoids LogRecord collision.
 
         Python's logging.makeRecord explicitly forbids 'message' as an extra
@@ -211,6 +212,12 @@ class TestMainDryRun:
         The dry_run_notice log event previously used extra={"message": ...},
         causing every --dry-run invocation to crash. The fix renames the key
         to 'notice'. This test confirms the code path completes without error.
+
+        caplog.set_level forces INFO on the ai_memory.ingest logger so that
+        makeRecord is actually called and extra keys are validated. Without
+        this, pytest's pre-existing root handler makes basicConfig a no-op,
+        leaving the logger at WARNING and short-circuiting info() calls
+        before makeRecord runs — making the test vacuous.
         """
         md_file = tmp_path / "test.md"
         md_file.write_text("# Test\n\nContent.")
@@ -232,6 +239,10 @@ class TestMainDryRun:
         mock_chunk.content = "chunk content"
         mock_chunker_instance = MagicMock()
         mock_chunker_instance.chunk.return_value = [mock_chunk]
+
+        # Force INFO so the dry_run_notice log call reaches makeRecord and
+        # extra keys are validated — the actual regression guard.
+        caplog.set_level(logging.INFO, logger="ai_memory.ingest")
 
         with (
             patch("ingest_markdown.get_config", return_value=MagicMock()),
