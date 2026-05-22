@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -10,7 +10,7 @@ import pytest
 scripts_path = Path(__file__).parent.parent / "scripts" / "memory"
 sys.path.insert(0, str(scripts_path))
 
-from ingest_markdown import extract_title, ingest_file, parse_frontmatter
+from ingest_markdown import extract_title, ingest_file, main, parse_frontmatter
 
 
 class TestParseFrontmatter:
@@ -198,3 +198,44 @@ Content"""
 
         assert "python" in tags
         assert "testing" in tags
+
+
+class TestMainDryRun:
+    """Tests for main() --dry-run entry point."""
+
+    def test_dry_run_notice_does_not_crash(self, tmp_path, monkeypatch):
+        """--dry-run must not raise: 'notice' extra key avoids LogRecord collision.
+
+        Python's logging.makeRecord explicitly forbids 'message' as an extra
+        key — it raises KeyError("Attempt to overwrite 'message' in LogRecord").
+        The dry_run_notice log event previously used extra={"message": ...},
+        causing every --dry-run invocation to crash. The fix renames the key
+        to 'notice'. This test confirms the code path completes without error.
+        """
+        md_file = tmp_path / "test.md"
+        md_file.write_text("# Test\n\nContent.")
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "ingest_markdown",
+                "--file",
+                str(md_file),
+                "--group-id",
+                "test-project",
+                "--dry-run",
+            ],
+        )
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "chunk content"
+        mock_chunker_instance = MagicMock()
+        mock_chunker_instance.chunk.return_value = [mock_chunk]
+
+        with (
+            patch("ingest_markdown.get_config", return_value=MagicMock()),
+            patch("ingest_markdown.MemoryStorage", return_value=MagicMock()),
+            patch("ingest_markdown.ProseChunker", return_value=mock_chunker_instance),
+        ):
+            main()  # must not raise KeyError

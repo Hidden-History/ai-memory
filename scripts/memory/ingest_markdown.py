@@ -365,7 +365,7 @@ def main():
     if args.dry_run:
         logger.info(
             "dry_run_notice",
-            extra={"message": "No data was stored. Remove --dry-run to store."},
+            extra={"notice": "No data was stored. Remove --dry-run to store."},
         )
 
 

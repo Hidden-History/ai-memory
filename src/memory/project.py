@@ -196,7 +196,7 @@ def _detect_project_from_git_remote(cwd_path: Path) -> str | None:
         return None
 
     try:
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(strict=False)
         config.read(str(git_config_path))
         remote_url = config.get('remote "origin"', "url", fallback=None)
         if not remote_url:

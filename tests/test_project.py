@@ -286,3 +286,32 @@ class TestDetectProject:
         """Edge-case sentinels remain (Q-6 deferred as TD)."""
         # The "root-project" sentinel is preserved for now per Q-6.
         assert detect_project("/") == "root-project"
+
+    def test_git_config_duplicate_keys_resolves_project(self, tmp_path):
+        """Duplicate option keys in .git/config must not prevent git-remote resolution.
+
+        git permits duplicate option keys per-section (e.g. the GitHub Pull
+        Requests VS Code extension writes duplicate github-pr-owner-number
+        entries under [branch "…"] sections). strict ConfigParser (the default)
+        raises DuplicateOptionError on these files, which caused W-09 to fall
+        through to a ValueError instead of returning the org/repo slug.
+        strict=False tolerates duplicates — last value wins — and leaves the
+        remote.origin.url entry unaffected.
+        """
+        git_dir = tmp_path / ".git"
+        git_dir.mkdir()
+        git_config = git_dir / "config"
+        git_config.write_text(
+            "[core]\n"
+            "    repositoryformatversion = 0\n"
+            '[remote "origin"]\n'
+            "    url = https://github.com/hidden-history/ai-memory.git\n"
+            "    fetch = +refs/heads/*:refs/remotes/origin/*\n"
+            '[branch "main"]\n'
+            "    github-pr-owner-number = 1\n"
+            "    github-pr-owner-number = 2\n"  # duplicate — VS Code GitHub PR extension
+        )
+
+        # Must resolve via git-remote tier; duplicate key must not cause ValueError
+        result = detect_project(str(tmp_path))
+        assert result == "hidden-history/ai-memory"
