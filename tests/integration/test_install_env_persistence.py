@@ -224,7 +224,10 @@ derive_and_persist_compose_profiles() {
         GITHUB_SYNC_ENABLED=$(_read_env_key "GITHUB_SYNC_ENABLED" "$secrets_file" "$env_file")
     fi
 
+    # Skip on first-time add-project with no prior monitoring choice (edge case;
+    # shared infra would not exist in that state but defensive guard preserved)
     if [[ -z "${INSTALL_MONITORING:-}" ]]; then
+        log_debug "BP-160: skipping COMPOSE_PROFILES derive (no prior or current monitoring choice)"
         return 0
     fi
 
@@ -237,6 +240,8 @@ derive_and_persist_compose_profiles() {
     fi
     set_env_value "COMPOSE_PROFILES" "$_compose_profiles"
     set_env_value "MONITORING_ENABLED" "$INSTALL_MONITORING"
+
+    log_debug "BP-160 / BUG-311: COMPOSE_PROFILES=${_compose_profiles} persisted (mode=${INSTALL_MODE})"
 }
 """
 
