@@ -35,6 +35,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - test: fix missing `group_id` in remaining integration tests — adds explicit `group_id=` kwarg to all `store_memory`, `store_agent_memory`, `store_memories_batch`, and `search` call sites across `test_e2e_cross_phase.py`, `test_embedding_routing.py`, `test_seeding.py`, and `test_search.py`; adds `group_id` positional arg to `create_point_from_template` calls in `TestCreatePointFromTemplate`; adds `--group-id` CLI arg to `TestMainCLI` test argv so `seed_best_practices.main()` can pass the W-09 required-project-scope gate. (PLAN-028 P1B)
 - The `Env Drift Gate` CI workflow now installs the full project dependencies (`-r requirements.txt`) before running the Pydantic completeness check, so `MemoryConfig` imports cleanly and `httpx` and other transitive dependencies are available. (BUG-312)
 - `tests/integration/test_docker_stack.py` `docker_stack` fixture now provisions `docker/.env` from `docker/.env.example` when the file is absent, and removes it on teardown only if the fixture created it. The `classifier-worker` service (now always part of the default Compose scope after the TD-573 profile removal) marks `docker/.env` required, so a bare `docker compose up -d` in a clean CI checkout failed with a missing env-file error before this change. (BUG-311 follow-up)
+- `scripts/install.sh` `persist_user_choices_to_env` now derives `INSTALL_MONITORING` and `GITHUB_SYNC_ENABLED` from existing `docker/.env` / `docker/.env.secrets` via `_read_env_key` (secrets-first fallthrough) when the shell-scope variables are unset. The BUG-311 / TD-574 write block was previously gated on `INSTALL_MONITORING` being set in shell scope, which is only true on the `full` install path where `configure_options` runs. On the `add-project` (update-in-place) install path `configure_options` is skipped, so the entire `COMPOSE_PROFILES` + `MONITORING_ENABLED` write block was silently skipped, leaving `COMPOSE_PROFILES=` blank and reproducing the original BUG-311 silent-skip pathology on the dominant operator scenario (any operator re-running the installer over an existing install). The add-project fallthrough preserves full-path behavior bit-for-bit (the `-z` guards short-circuit when `configure_options` has already set the shell vars) and preserves the outer-guard skip on a truly first-time add-project where no prior values exist (`_read_env_key` returns empty, outer `[[ -n ... ]]` skips). Three new regression tests in `tests/integration/test_install_env_persistence.py` cover the add-project path: derive both flags, derive monitoring-only, and the empty-derivation skip case. (BUG-311, TD-574)
+
+### Upgrade Instructions
+
+**From v2.4.3 → next:**
+
+Installer-hygiene release for Docker Compose profile persistence. No data
+migration. Your memories, credentials, and Parzival sanctum are untouched.
+
+1. Pull the latest:
+   ```bash
+   cd /path/to/ai-memory
+   git fetch origin && git checkout main && git pull
+   ```
+
+2. Re-run the installer against your project directory (volume-preserving —
+   does **not** require `stack.sh nuke`):
+   ```bash
+   ./scripts/install.sh /path/to/your-project
+   ```
+   The installer persists your monitoring and GitHub-sync choices to
+   `docker/.env` (`COMPOSE_PROFILES` + `MONITORING_ENABLED`) and rebuilds
+   `classifier-worker`, which is now a default-scope service.
+
+3. Verify the new keys persisted:
+   ```bash
+   grep -E "^(COMPOSE_PROFILES|MONITORING_ENABLED)=" ~/.ai-memory/docker/.env
+   ```
+   Both lines should be present with values matching your install choices.
+
+After this release, a bare `cd ~/.ai-memory/docker && docker compose up -d`
+(no `--profile` flag) brings up `classifier-worker` automatically — previously
+it was skipped on any installation that did not activate the `monitoring`
+profile, silently leaving every captured memory unclassified.
+
+### Operator Remediation
+
+Operators whose existing `~/.ai-memory/docker/.env` carries `COMPOSE_PROFILES=`
+blank (visible via the grep in step 3) and have monitoring or GitHub sync
+running should re-run step 2. The add-project install path now derives
+`COMPOSE_PROFILES` from the persisted `MONITORING_ENABLED` and
+`GITHUB_SYNC_ENABLED` values, so the re-run produces the correct
+`COMPOSE_PROFILES=monitoring,github` (or `=monitoring` / `=github`, matching
+your actual install) and the silent profile-skip on bare `docker compose up -d`
+invocations is eliminated.
+
+Operators upgrading from a release earlier than v2.4.3 should also follow the
+v2.4.3 Operator Remediation section above (Jira project flags + secret-key
+purge).
 
 ## [2.4.3] - 2026-05-20
 
