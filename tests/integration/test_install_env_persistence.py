@@ -63,6 +63,50 @@ LANGFUSE_ENABLED=false
 COMPOSE_PROFILES=
 """
 
+# BUG-311 add-project fallthrough fixtures — no COMPOSE_PROFILES key (pre-fix residual),
+# MONITORING_ENABLED and GITHUB_SYNC_ENABLED set in .env (not shell vars).
+# Simulates an existing docker/.env from a prior full install where monitoring + github were
+# both selected, now re-run via the add-project path (configure_options not called).
+ENV_TEMPLATE_ADD_PROJECT_BOTH = """\
+GITHUB_SYNC_ENABLED=true
+GITHUB_TOKEN=
+GITHUB_REPO=
+JIRA_SYNC_ENABLED=false
+JIRA_INSTANCE_URL=
+JIRA_EMAIL=
+JIRA_API_TOKEN=
+JIRA_PROJECTS=
+LANGFUSE_ENABLED=false
+MONITORING_ENABLED=true
+"""
+
+# Same as above but github=false — only monitoring was selected in the prior install.
+ENV_TEMPLATE_ADD_PROJECT_MONITORING_ONLY = """\
+GITHUB_SYNC_ENABLED=false
+GITHUB_TOKEN=
+GITHUB_REPO=
+JIRA_SYNC_ENABLED=false
+JIRA_INSTANCE_URL=
+JIRA_EMAIL=
+JIRA_API_TOKEN=
+JIRA_PROJECTS=
+LANGFUSE_ENABLED=false
+MONITORING_ENABLED=true
+"""
+
+# Edge case: neither MONITORING_ENABLED nor GITHUB_SYNC_ENABLED present in .env at all —
+# _read_env_key returns empty for both, outer guard skips COMPOSE_PROFILES write.
+ENV_TEMPLATE_ADD_PROJECT_EMPTY = """\
+GITHUB_TOKEN=
+GITHUB_REPO=
+JIRA_SYNC_ENABLED=false
+JIRA_INSTANCE_URL=
+JIRA_EMAIL=
+JIRA_API_TOKEN=
+JIRA_PROJECTS=
+LANGFUSE_ENABLED=false
+"""
+
 # Minimal docker/.env.secrets content mirroring .env.secrets.example Section 1.
 SECRETS_TEMPLATE = """\
 GITHUB_TOKEN=
@@ -76,6 +120,18 @@ _BASH_HELPERS = """\
 log_debug()   { :; }
 log_warning() { :; }
 log_info()    { :; }
+
+_read_env_key() {
+    local key="$1"
+    local secrets_file="$2"
+    local env_file="$3"
+    local val
+    val=$(grep "^${key}=" "$secrets_file" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+    if [[ -z "$val" ]]; then
+        val=$(grep "^${key}=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
+    fi
+    printf '%s' "$val"
+}
 
 format_jira_projects_json() {
     local input="${1:-}"
@@ -150,8 +206,16 @@ persist_user_choices_to_env() {
         set_env_value "JIRA_API_TOKEN" "$(_sed_escape "$JIRA_API_TOKEN")" "$secrets_file"
     fi
 
+    # BUG-311 / TD-574 add-project fallthrough: derive from .env when shell vars unset.
+    if [[ -z "${INSTALL_MONITORING:-}" ]]; then
+        INSTALL_MONITORING=$(_read_env_key "MONITORING_ENABLED" "$secrets_file" "$env_file")
+    fi
+    if [[ -z "${GITHUB_SYNC_ENABLED:-}" ]]; then
+        GITHUB_SYNC_ENABLED=$(_read_env_key "GITHUB_SYNC_ENABLED" "$secrets_file" "$env_file")
+    fi
+
     # BUG-311 / TD-574: Persist COMPOSE_PROFILES and MONITORING_ENABLED when
-    # INSTALL_MONITORING is explicitly set.
+    # INSTALL_MONITORING is set in shell scope OR derivable from .env (add-project path above).
     if [[ -n "${INSTALL_MONITORING:-}" ]]; then
         local _compose_profiles=""
         [[ "${INSTALL_MONITORING}" == "true" ]] && _compose_profiles="monitoring"
@@ -835,3 +899,108 @@ def test_classifier_worker_has_no_profiles_key():
         "classifier-worker must not be gated behind any compose profile — "
         "it must run by default with qdrant + embedding (TD-573)"
     )
+
+
+# ---------------------------------------------------------------------------
+# BUG-311 add-project fallthrough — COMPOSE_PROFILES derived from existing .env
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def install_dir_add_project_both(tmp_path):
+    """INSTALL_DIR with docker/.env seeded for add-project fallthrough: monitoring=true,
+    github=true in .env, no COMPOSE_PROFILES key. Shell vars INSTALL_MONITORING and
+    GITHUB_SYNC_ENABLED must NOT be set by the caller (add-project path simulation)."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text(ENV_TEMPLATE_ADD_PROJECT_BOTH)
+    (docker_dir / ".env.secrets").write_text(SECRETS_TEMPLATE)
+    os.chmod(str(docker_dir / ".env.secrets"), 0o600)
+    return str(tmp_path)
+
+
+@pytest.fixture()
+def install_dir_add_project_monitoring_only(tmp_path):
+    """INSTALL_DIR seeded for add-project fallthrough: monitoring=true, github=false in .env."""
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text(ENV_TEMPLATE_ADD_PROJECT_MONITORING_ONLY)
+    (docker_dir / ".env.secrets").write_text(SECRETS_TEMPLATE)
+    os.chmod(str(docker_dir / ".env.secrets"), 0o600)
+    return str(tmp_path)
+
+
+@pytest.fixture()
+def install_dir_add_project_no_monitoring(tmp_path):
+    """INSTALL_DIR seeded for add-project fallthrough edge case: no MONITORING_ENABLED or
+    GITHUB_SYNC_ENABLED keys in .env — _read_env_key returns empty, outer guard skips write.
+    """
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text(ENV_TEMPLATE_ADD_PROJECT_EMPTY)
+    (docker_dir / ".env.secrets").write_text(SECRETS_TEMPLATE)
+    os.chmod(str(docker_dir / ".env.secrets"), 0o600)
+    return str(tmp_path)
+
+
+def test_add_project_fallthrough_derives_compose_profiles_from_existing_env(
+    install_dir_add_project_both,
+):
+    """add-project path derives INSTALL_MONITORING + GITHUB_SYNC_ENABLED from .env,
+    writes COMPOSE_PROFILES=monitoring,github and MONITORING_ENABLED=true (BUG-311)."""
+    # INSTALL_MONITORING and GITHUB_SYNC_ENABLED NOT set in shell scope — simulates
+    # the add-project path where configure_options is not called.
+    result = _run("", install_dir_add_project_both, env_vars="")
+    assert result.returncode == 0, result.stderr.decode()
+    content = _read_env(install_dir_add_project_both)
+    lines = [
+        line for line in content.splitlines() if line.startswith("COMPOSE_PROFILES=")
+    ]
+    assert len(lines) == 1, f"Expected exactly one COMPOSE_PROFILES line: {lines!r}"
+    value = lines[0].split("=", 1)[1]
+    profiles = set(value.split(","))
+    assert (
+        "monitoring" in profiles
+    ), f"Expected monitoring in COMPOSE_PROFILES, got: {value!r}"
+    assert "github" in profiles, f"Expected github in COMPOSE_PROFILES, got: {value!r}"
+    monitoring_lines = [
+        line for line in content.splitlines() if line.startswith("MONITORING_ENABLED=")
+    ]
+    assert (
+        len(monitoring_lines) == 1
+    ), f"Expected exactly one MONITORING_ENABLED line: {monitoring_lines!r}"
+    assert (
+        monitoring_lines[0] == "MONITORING_ENABLED=true"
+    ), f"Expected MONITORING_ENABLED=true, got: {monitoring_lines[0]!r}"
+
+
+def test_add_project_fallthrough_with_monitoring_only(
+    install_dir_add_project_monitoring_only,
+):
+    """add-project path with monitoring=true, github=false in .env → COMPOSE_PROFILES=monitoring (BUG-311)."""
+    result = _run("", install_dir_add_project_monitoring_only, env_vars="")
+    assert result.returncode == 0, result.stderr.decode()
+    content = _read_env(install_dir_add_project_monitoring_only)
+    lines = [
+        line for line in content.splitlines() if line.startswith("COMPOSE_PROFILES=")
+    ]
+    assert len(lines) == 1, f"Expected exactly one COMPOSE_PROFILES line: {lines!r}"
+    assert (
+        lines[0] == "COMPOSE_PROFILES=monitoring"
+    ), f"Expected COMPOSE_PROFILES=monitoring, got: {lines[0]!r}"
+
+
+def test_add_project_fallthrough_no_existing_values_skips_write(
+    install_dir_add_project_no_monitoring,
+):
+    """add-project path with no MONITORING_ENABLED in .env — fallthrough finds nothing,
+    outer guard skips COMPOSE_PROFILES write (BUG-311 edge case, no regression)."""
+    result = _run("", install_dir_add_project_no_monitoring, env_vars="")
+    assert result.returncode == 0, result.stderr.decode()
+    content = _read_env(install_dir_add_project_no_monitoring)
+    lines = [
+        line for line in content.splitlines() if line.startswith("COMPOSE_PROFILES=")
+    ]
+    assert (
+        len(lines) == 0
+    ), f"COMPOSE_PROFILES should not be written when .env has no prior value: {lines!r}"

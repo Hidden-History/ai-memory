@@ -2449,14 +2449,26 @@ persist_user_choices_to_env() {
     # BUG-286: Defensive blank — ensure JIRA_API_TOKEN has no non-empty value in .env.
     _blank_key_in_env "JIRA_API_TOKEN" "$env_file"
 
+    # BUG-311 / TD-574 add-project fallthrough: on the add-project path,
+    # configure_options is NOT called and INSTALL_MONITORING / GITHUB_SYNC_ENABLED
+    # are unset in shell scope. Derive from the persisted .env values (secrets-first
+    # fallthrough, BUG-309 precedent) so the COMPOSE_PROFILES write reflects the
+    # operator's actual install — not the blank template default.
+    if [[ -z "${INSTALL_MONITORING:-}" ]]; then
+        INSTALL_MONITORING=$(_read_env_key "MONITORING_ENABLED" "$secrets_file" "$env_file")
+    fi
+    if [[ -z "${GITHUB_SYNC_ENABLED:-}" ]]; then
+        GITHUB_SYNC_ENABLED=$(_read_env_key "GITHUB_SYNC_ENABLED" "$secrets_file" "$env_file")
+    fi
+
     # BUG-311 / TD-574: Persist COMPOSE_PROFILES and MONITORING_ENABLED so any docker
     # compose invocation from docker/ activates the correct profiles and services
     # regardless of entry point (plain docker compose up, host reboot, IDE Docker action).
     # Both values are derived from the same INSTALL_MONITORING / GITHUB_SYNC_ENABLED
     # selection vars that build profile_flags in start_services — single source of truth.
-    # Guard: only write when INSTALL_MONITORING is explicitly set (configure_options ran).
-    # Matches the skip-empty discipline used for the other flags above; preserves template
-    # defaults in contexts where configure_options was not called (add-project helpers).
+    # Guard: write when INSTALL_MONITORING is set in shell scope OR derivable from .env
+    # via the add-project fallthrough above (returns empty for a first-time add-project
+    # with no prior monitoring choice, so the skip still applies in that edge case).
     if [[ -n "${INSTALL_MONITORING:-}" ]]; then
         local _compose_profiles=""
         if [[ "${INSTALL_MONITORING}" == "true" ]]; then
