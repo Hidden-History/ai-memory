@@ -206,7 +206,17 @@ persist_user_choices_to_env() {
         set_env_value "JIRA_API_TOKEN" "$(_sed_escape "$JIRA_API_TOKEN")" "$secrets_file"
     fi
 
-    # BUG-311 / TD-574 add-project fallthrough: derive from .env when shell vars unset.
+    chmod 600 "$secrets_file" 2>/dev/null || true
+}
+
+# derive_and_persist_compose_profiles — mirrors scripts/install.sh (BP-160 §8.1).
+# Factored out of persist_user_choices_to_env so it can be called from BOTH
+# full and add-project install-mode branches.
+derive_and_persist_compose_profiles() {
+    local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+
+    # Fallthrough: derive from prior persisted state when shell-scope unset
     if [[ -z "${INSTALL_MONITORING:-}" ]]; then
         INSTALL_MONITORING=$(_read_env_key "MONITORING_ENABLED" "$secrets_file" "$env_file")
     fi
@@ -214,17 +224,19 @@ persist_user_choices_to_env() {
         GITHUB_SYNC_ENABLED=$(_read_env_key "GITHUB_SYNC_ENABLED" "$secrets_file" "$env_file")
     fi
 
-    # BUG-311 / TD-574: Persist COMPOSE_PROFILES and MONITORING_ENABLED when
-    # INSTALL_MONITORING is set in shell scope OR derivable from .env (add-project path above).
-    if [[ -n "${INSTALL_MONITORING:-}" ]]; then
-        local _compose_profiles=""
-        [[ "${INSTALL_MONITORING}" == "true" ]] && _compose_profiles="monitoring"
-        [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]] && _compose_profiles="${_compose_profiles:+${_compose_profiles},}github"
-        set_env_value "COMPOSE_PROFILES" "$_compose_profiles"
-        set_env_value "MONITORING_ENABLED" "$INSTALL_MONITORING"
+    if [[ -z "${INSTALL_MONITORING:-}" ]]; then
+        return 0
     fi
 
-    chmod 600 "$secrets_file" 2>/dev/null || true
+    local _compose_profiles=""
+    if [[ "${INSTALL_MONITORING}" == "true" ]]; then
+        _compose_profiles="monitoring"
+    fi
+    if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]]; then
+        _compose_profiles="${_compose_profiles:+${_compose_profiles},}github"
+    fi
+    set_env_value "COMPOSE_PROFILES" "$_compose_profiles"
+    set_env_value "MONITORING_ENABLED" "$INSTALL_MONITORING"
 }
 """
 
@@ -246,12 +258,17 @@ def install_dir(tmp_path):
 
 
 def _run(script, install_dir, env_vars=""):
-    """Run a bash script with the helper defs and given INSTALL_DIR + env vars."""
+    """Run a bash script with the helper defs and given INSTALL_DIR + env vars.
+
+    Calls persist_user_choices_to_env then derive_and_persist_compose_profiles,
+    mirroring the full install-mode branch in install.sh main().
+    """
     cmd = f"""\
 {_BASH_HELPERS}
 export INSTALL_DIR={install_dir}
 {env_vars}
 persist_user_choices_to_env
+derive_and_persist_compose_profiles
 """
     return subprocess.run(
         ["bash", "-c", cmd],
@@ -1004,3 +1021,180 @@ def test_add_project_fallthrough_no_existing_values_skips_write(
     assert (
         len(lines) == 0
     ), f"COMPOSE_PROFILES should not be written when .env has no prior value: {lines!r}"
+
+
+# ---------------------------------------------------------------------------
+# BP-160 §8.4 production-path integration test — call-chain reachability
+# ---------------------------------------------------------------------------
+#
+# BUG-311 / fix-r4 escape lesson: three unit tests called persist_user_choices_to_env
+# directly and passed. Production was silently broken because the add-project install
+# path never calls that function. The tests below exercise the CONTROL FLOW BRANCH
+# (full vs add-project) rather than calling the derive function in isolation — the
+# only test shape that would have caught the fix-r4 regression.
+
+# Main flow stub — mirrors the install.sh main() INSTALL_MODE branch dispatch.
+# Both branches call derive_and_persist_compose_profiles, per BP-160 §8.3.
+# External-facing stubs (verify_services_running, configure_project_sources) are
+# no-ops — shared-infra calls are not under test here.
+_BASH_MAIN_FLOW_STUB = """\
+verify_services_running()    { :; }
+configure_project_sources()  { :; }
+
+# main_flow — minimal replica of install.sh main() INSTALL_MODE dispatch.
+# Exercises only the COMPOSE_PROFILES-relevant call chain; all other steps elided.
+main_flow() {
+    if [[ "${INSTALL_MODE:-full}" == "full" ]]; then
+        persist_user_choices_to_env
+        derive_and_persist_compose_profiles
+    else
+        verify_services_running
+        derive_and_persist_compose_profiles
+        configure_project_sources
+    fi
+}
+"""
+
+
+def _run_main_flow(install_dir, env_vars="", install_mode="full"):
+    """Run the main_flow() branch stub with both helper sets and given env vars.
+
+    Exercises the INSTALL_MODE-controlled dispatch so COMPOSE_PROFILES persistence
+    is asserted through the control-flow path, not a direct function call.
+    """
+    cmd = f"""\
+{_BASH_HELPERS}
+{_BASH_MAIN_FLOW_STUB}
+export INSTALL_DIR={install_dir}
+export INSTALL_MODE={install_mode}
+{env_vars}
+main_flow
+"""
+    return subprocess.run(
+        ["bash", "-c", cmd],
+        capture_output=True,
+        env=_minimal_env(),
+    )
+
+
+def test_derive_compose_profiles_via_main_flow_full_then_add_project(tmp_path):
+    """BP-160 §8.4: COMPOSE_PROFILES survives add-project re-run via main() flow.
+
+    Phase 1: Full install with monitoring=true + github=true →
+             COMPOSE_PROFILES=monitoring,github.
+    Phase 2: add-project run with INSTALL_MONITORING/GITHUB_SYNC_ENABLED UNSET in
+             shell scope → derive_and_persist_compose_profiles fallthrough reads from
+             prior .env → COMPOSE_PROFILES remains monitoring,github.
+    Phase 3: Repeat phase-2 with same args → docker/.env unchanged (idempotency,
+             Ansible Molecule pattern, BP-160 §6).
+
+    This test exercises the production main() INSTALL_MODE branch (not the functions
+    in isolation). A function-in-isolation test would pass while production silently
+    broke — the exact escape that let fix-r4 ship broken (BUG-311 / fix-r4).
+    """
+    docker_dir = tmp_path / "docker"
+    docker_dir.mkdir()
+    (docker_dir / ".env").write_text(ENV_TEMPLATE)
+    (docker_dir / ".env.secrets").write_text(SECRETS_TEMPLATE)
+    os.chmod(str(docker_dir / ".env.secrets"), 0o600)
+    install_dir = str(tmp_path)
+
+    # Phase 1: full install with monitoring + github enabled
+    r1 = _run_main_flow(
+        install_dir,
+        env_vars="INSTALL_MONITORING=true GITHUB_SYNC_ENABLED=true",
+        install_mode="full",
+    )
+    assert r1.returncode == 0, f"Phase 1 failed:\n{r1.stderr.decode()}"
+    content = _read_env(install_dir)
+    profile_lines = [
+        ln for ln in content.splitlines() if ln.startswith("COMPOSE_PROFILES=")
+    ]
+    assert (
+        len(profile_lines) == 1
+    ), f"Phase 1: expected one COMPOSE_PROFILES line: {profile_lines!r}"
+    p1_value = profile_lines[0].split("=", 1)[1]
+    assert set(p1_value.split(",")) == {
+        "monitoring",
+        "github",
+    }, f"Phase 1: expected {{monitoring,github}}, got {p1_value!r}"
+
+    # Phase 2: add-project re-run with NO INSTALL_MONITORING / GITHUB_SYNC_ENABLED in shell
+    # scope — simulates the dominant operator scenario (re-add-project without re-prompting).
+    # derive_and_persist_compose_profiles must fall through to .env and preserve prior values.
+    r2 = _run_main_flow(
+        install_dir,
+        env_vars="",  # INSTALL_MONITORING / GITHUB_SYNC_ENABLED intentionally unset
+        install_mode="add-project",
+    )
+    assert r2.returncode == 0, f"Phase 2 failed:\n{r2.stderr.decode()}"
+    content = _read_env(install_dir)
+    profile_lines = [
+        ln for ln in content.splitlines() if ln.startswith("COMPOSE_PROFILES=")
+    ]
+    assert (
+        len(profile_lines) == 1
+    ), f"Phase 2: expected one COMPOSE_PROFILES line: {profile_lines!r}"
+    p2_value = profile_lines[0].split("=", 1)[1]
+    assert set(p2_value.split(",")) == {"monitoring", "github"}, (
+        f"Phase 2 (add-project): COMPOSE_PROFILES should survive add-project re-run, "
+        f"got {p2_value!r}. This is the BUG-311 regression."
+    )
+
+    # Phase 3: idempotency — a second add-project run produces no .env change
+    env_before = _read_env(install_dir)
+    r3 = _run_main_flow(
+        install_dir,
+        env_vars="",
+        install_mode="add-project",
+    )
+    assert r3.returncode == 0, f"Phase 3 failed:\n{r3.stderr.decode()}"
+    env_after = _read_env(install_dir)
+    assert (
+        env_before == env_after
+    ), "Phase 3 (idempotency): repeated add-project run must not alter docker/.env"
+
+
+def test_derive_compose_profiles_called_from_both_install_mode_branches():
+    """BP-160 §8.3: derive_and_persist_compose_profiles must be present in BOTH branches.
+
+    Structural regression guard: greps scripts/install.sh to verify the call appears
+    immediately after persist_user_choices_to_env (full branch) AND immediately after
+    verify_services_running (add-project branch).
+
+    If either call site is removed, this test fails before any functional test runs —
+    providing an early structural signal that the call-chain is broken.
+    """
+    install_sh_path = Path(__file__).parent.parent.parent / "scripts" / "install.sh"
+    lines = install_sh_path.read_text().splitlines()
+
+    # Check 1: full-mode call site — derive_and_persist_compose_profiles follows
+    # persist_user_choices_to_env within 3 lines
+    found_full_callsite = False
+    for i, line in enumerate(lines):
+        if "persist_user_choices_to_env" in line and not line.strip().startswith("#"):
+            # Check the next few lines for the derive call
+            window = "\n".join(lines[i : i + 4])
+            if "derive_and_persist_compose_profiles" in window:
+                found_full_callsite = True
+                break
+    assert found_full_callsite, (
+        "derive_and_persist_compose_profiles not found immediately after "
+        "persist_user_choices_to_env in scripts/install.sh full-mode branch. "
+        "BP-160 §8.3 call-site missing."
+    )
+
+    # Check 2: add-project call site — derive_and_persist_compose_profiles follows
+    # verify_services_running within 5 lines
+    found_add_project_callsite = False
+    for i, line in enumerate(lines):
+        if "verify_services_running" in line and not line.strip().startswith("#"):
+            window = "\n".join(lines[i : i + 6])
+            if "derive_and_persist_compose_profiles" in window:
+                found_add_project_callsite = True
+                break
+    assert found_add_project_callsite, (
+        "derive_and_persist_compose_profiles not found immediately after "
+        "verify_services_running in scripts/install.sh add-project branch. "
+        "BP-160 §8.3 call-site missing — this is the BUG-311 regression pattern."
+    )

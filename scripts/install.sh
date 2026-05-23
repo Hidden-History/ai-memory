@@ -1314,6 +1314,7 @@ main() {
         copy_files
         import_user_env
         persist_user_choices_to_env
+        derive_and_persist_compose_profiles    # BP-160 §8.3 — Tier-1 re-derivation
         step "Python Environment"
         install_python_dependencies
         step "Environment Configuration"
@@ -1365,6 +1366,9 @@ main() {
         update_shared_scripts
         # Verify services are running in add-project mode
         verify_services_running
+        # BP-160 §8.3: Tier-1 reconciliation — re-derive installer-managed
+        # shared state every run regardless of install mode.
+        derive_and_persist_compose_profiles
         # Prompt for project-specific GitHub repo and Jira config
         configure_project_sources
     fi
@@ -2449,11 +2453,27 @@ persist_user_choices_to_env() {
     # BUG-286: Defensive blank — ensure JIRA_API_TOKEN has no non-empty value in .env.
     _blank_key_in_env "JIRA_API_TOKEN" "$env_file"
 
-    # BUG-311 / TD-574 add-project fallthrough: on the add-project path,
-    # configure_options is NOT called and INSTALL_MONITORING / GITHUB_SYNC_ENABLED
-    # are unset in shell scope. Derive from the persisted .env values (secrets-first
-    # fallthrough, BUG-309 precedent) so the COMPOSE_PROFILES write reflects the
-    # operator's actual install — not the blank template default.
+    chmod 600 "$secrets_file" 2>/dev/null || true
+    log_debug "BUG-274/BUG-311: persisted user choices to docker/.env and docker/.env.secrets"
+}
+
+# derive_and_persist_compose_profiles — Tier-1 installer-managed derived state.
+# BP-160 §7: declarative re-derivation on every install run (Ansible/Puppet/K8s
+# operator pattern). Must be called from BOTH install-mode branches.
+#
+# Derives COMPOSE_PROFILES + MONITORING_ENABLED from current shell-scope
+# INSTALL_MONITORING / GITHUB_SYNC_ENABLED. If shell-scope is unset (add-project
+# mode skips configure_options), falls through to reading prior persisted state
+# via _read_env_key (secrets-first per BUG-309 precedent).
+#
+# Idempotent: safe to re-run with same inputs. Pure derive-and-write — no
+# Tier-2 credentials touched. Single source of truth aligned with start_services
+# profile_flags computation.
+derive_and_persist_compose_profiles() {
+    local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+
+    # Fallthrough: derive from prior persisted state when shell-scope unset
     if [[ -z "${INSTALL_MONITORING:-}" ]]; then
         INSTALL_MONITORING=$(_read_env_key "MONITORING_ENABLED" "$secrets_file" "$env_file")
     fi
@@ -2461,28 +2481,24 @@ persist_user_choices_to_env() {
         GITHUB_SYNC_ENABLED=$(_read_env_key "GITHUB_SYNC_ENABLED" "$secrets_file" "$env_file")
     fi
 
-    # BUG-311 / TD-574: Persist COMPOSE_PROFILES and MONITORING_ENABLED so any docker
-    # compose invocation from docker/ activates the correct profiles and services
-    # regardless of entry point (plain docker compose up, host reboot, IDE Docker action).
-    # Both values are derived from the same INSTALL_MONITORING / GITHUB_SYNC_ENABLED
-    # selection vars that build profile_flags in start_services — single source of truth.
-    # Guard: write when INSTALL_MONITORING is set in shell scope OR derivable from .env
-    # via the add-project fallthrough above (returns empty for a first-time add-project
-    # with no prior monitoring choice, so the skip still applies in that edge case).
-    if [[ -n "${INSTALL_MONITORING:-}" ]]; then
-        local _compose_profiles=""
-        if [[ "${INSTALL_MONITORING}" == "true" ]]; then
-            _compose_profiles="monitoring"
-        fi
-        if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]]; then
-            _compose_profiles="${_compose_profiles:+${_compose_profiles},}github"
-        fi
-        set_env_value "COMPOSE_PROFILES" "$_compose_profiles"
-        set_env_value "MONITORING_ENABLED" "$INSTALL_MONITORING"
+    # Skip on first-time add-project with no prior monitoring choice (edge case;
+    # shared infra would not exist in that state but defensive guard preserved)
+    if [[ -z "${INSTALL_MONITORING:-}" ]]; then
+        log_debug "BP-160: skipping COMPOSE_PROFILES derive (no prior or current monitoring choice)"
+        return 0
     fi
 
-    chmod 600 "$secrets_file" 2>/dev/null || true
-    log_debug "BUG-274/BUG-311: persisted user choices to docker/.env and docker/.env.secrets"
+    local _compose_profiles=""
+    if [[ "${INSTALL_MONITORING}" == "true" ]]; then
+        _compose_profiles="monitoring"
+    fi
+    if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]]; then
+        _compose_profiles="${_compose_profiles:+${_compose_profiles},}github"
+    fi
+    set_env_value "COMPOSE_PROFILES" "$_compose_profiles"
+    set_env_value "MONITORING_ENABLED" "$INSTALL_MONITORING"
+
+    log_debug "BP-160 / BUG-311: COMPOSE_PROFILES=${_compose_profiles} persisted (mode=${INSTALL_MODE})"
 }
 
 # migrate_existing_env_secrets — R3: v2.3.x in-place upgrade migration.
