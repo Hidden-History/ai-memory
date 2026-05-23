@@ -1314,6 +1314,7 @@ main() {
         copy_files
         import_user_env
         persist_user_choices_to_env
+        derive_and_persist_compose_profiles    # BP-160 §8.3 — Tier-1 re-derivation
         step "Python Environment"
         install_python_dependencies
         step "Environment Configuration"
@@ -1365,6 +1366,9 @@ main() {
         update_shared_scripts
         # Verify services are running in add-project mode
         verify_services_running
+        # BP-160 §8.3: Tier-1 reconciliation — re-derive installer-managed
+        # shared state every run regardless of install mode.
+        derive_and_persist_compose_profiles
         # Prompt for project-specific GitHub repo and Jira config
         configure_project_sources
     fi
@@ -2450,7 +2454,51 @@ persist_user_choices_to_env() {
     _blank_key_in_env "JIRA_API_TOKEN" "$env_file"
 
     chmod 600 "$secrets_file" 2>/dev/null || true
-    log_debug "BUG-274: persisted user choices to docker/.env and docker/.env.secrets"
+    log_debug "BUG-274/BUG-311: persisted user choices to docker/.env and docker/.env.secrets"
+}
+
+# derive_and_persist_compose_profiles — Tier-1 installer-managed derived state.
+# BP-160 §7: declarative re-derivation on every install run (Ansible/Puppet/K8s
+# operator pattern). Must be called from BOTH install-mode branches.
+#
+# Derives COMPOSE_PROFILES + MONITORING_ENABLED from current shell-scope
+# INSTALL_MONITORING / GITHUB_SYNC_ENABLED. If shell-scope is unset (add-project
+# mode skips configure_options), falls through to reading prior persisted state
+# via _read_env_key (secrets-first per BUG-309 precedent).
+#
+# Idempotent: safe to re-run with same inputs. Pure derive-and-write — no
+# Tier-2 credentials touched. Single source of truth aligned with start_services
+# profile_flags computation.
+derive_and_persist_compose_profiles() {
+    local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+
+    # Fallthrough: derive from prior persisted state when shell-scope unset
+    if [[ -z "${INSTALL_MONITORING:-}" ]]; then
+        INSTALL_MONITORING=$(_read_env_key "MONITORING_ENABLED" "$secrets_file" "$env_file")
+    fi
+    if [[ -z "${GITHUB_SYNC_ENABLED:-}" ]]; then
+        GITHUB_SYNC_ENABLED=$(_read_env_key "GITHUB_SYNC_ENABLED" "$secrets_file" "$env_file")
+    fi
+
+    # Skip on first-time add-project with no prior monitoring choice (edge case;
+    # shared infra would not exist in that state but defensive guard preserved)
+    if [[ -z "${INSTALL_MONITORING:-}" ]]; then
+        log_debug "BP-160: skipping COMPOSE_PROFILES derive (no prior or current monitoring choice)"
+        return 0
+    fi
+
+    local _compose_profiles=""
+    if [[ "${INSTALL_MONITORING}" == "true" ]]; then
+        _compose_profiles="monitoring"
+    fi
+    if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]]; then
+        _compose_profiles="${_compose_profiles:+${_compose_profiles},}github"
+    fi
+    set_env_value "COMPOSE_PROFILES" "$_compose_profiles"
+    set_env_value "MONITORING_ENABLED" "$INSTALL_MONITORING"
+
+    log_debug "BP-160 / BUG-311: COMPOSE_PROFILES=${_compose_profiles} persisted (mode=${INSTALL_MODE})"
 }
 
 # migrate_existing_env_secrets — R3: v2.3.x in-place upgrade migration.
@@ -3036,6 +3084,17 @@ start_services() {
         log_error "Collection setup failed — cannot proceed without collections"
         exit 1
     }
+
+    # ── Classifier-worker: build + start on every install path ──
+    # classifier-worker drives the core CLASSIFY pipeline step (no profile gate).
+    # It must start after setup_collections (collections must exist before queue
+    # items are processed) and after qdrant is confirmed healthy (depends_on: qdrant).
+    # --no-recreate is safe when Phase 3 also runs: profile-scoped up leaves an
+    # already-running container untouched. (TD-573 / BUG-311)
+    log_info "Starting classifier-worker (core CLASSIFY service)..."
+    _compose build --no-cache classifier-worker
+    _compose up -d --no-recreate classifier-worker
+    _log_docker_state "after classifier-worker startup"
 
     # ── Phase 3: Start profile services ──
     if [[ -n "$profile_flags" ]]; then

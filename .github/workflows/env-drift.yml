@@ -45,8 +45,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --quiet pydantic pydantic-settings dotenv-linter 2>/dev/null || \
-            pip install --quiet pydantic pydantic-settings
+          pip install --quiet -r requirements.txt
+          pip install --quiet dotenv-linter 2>/dev/null || true
           # dotenv-linter is a Rust binary; try cargo install if pip package absent
           if ! command -v dotenv-linter >/dev/null 2>&1; then
             echo "dotenv-linter pip package not found; installing via cargo..."

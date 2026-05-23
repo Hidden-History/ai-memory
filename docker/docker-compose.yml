@@ -369,7 +369,6 @@ services:
     labels:
       <<: *ai-memory-labels
       ai-memory.service: "classifier-worker"
-    profiles: ["monitoring"]  # Only runs with monitoring profile
     <<: *python-service-defaults
     environment:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
@@ -383,6 +382,7 @@ services:
       - AI_MEMORY_INSTALL_DIR=/app                    # container path override
       - AI_MEMORY_QUEUE_DIR=/app/queue                # container path override
       - MEMORY_CLASSIFIER_TIMEOUT=120                 # BUG-290: explicit override — cold-start defense-in-depth
+      - PUSHGATEWAY_ENABLED=${MONITORING_ENABLED:-false}
     volumes:
       - ../src:/app/src:ro
       - ../scripts:/app/scripts:ro
