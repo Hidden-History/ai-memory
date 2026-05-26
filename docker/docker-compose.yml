@@ -45,7 +45,11 @@ services:
     # exec'ing the upstream CMD (./entrypoint.sh — signal-handling + OOM recovery wrapper).
     # env_file: delivers the canonical keys; the shim re-exports as QDRANT__SERVICE__*.
     # Replaces the prior ${VAR} compose-interpolation approach (TD-582, PM #309).
+    #
+    # NOTE: Docker Compose clears the image CMD when entrypoint: is overridden.
+    # command: restores ./entrypoint.sh so the shim's exec "$@" has a target to exec.
     entrypoint: ["/bin/sh", "/usr/local/bin/td582-entrypoint.sh"]
+    command: ["./entrypoint.sh"]
     env_file:
       - path: .env
         required: true

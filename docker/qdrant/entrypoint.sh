@@ -9,10 +9,12 @@
 # expected names before exec'ing qdrant. Removes the compose-side ${VAR} interpolation
 # dependency on .env.secrets and makes bare `docker compose up -d` work.
 #
-# Use exec "$@" (not exec /qdrant/qdrant) so the upstream image's CMD
-# (./entrypoint.sh — signal-handling + OOM recovery wrapper) runs as
-# designed. The image has Entrypoint=null + CMD=["./entrypoint.sh"]
-# (verified via docker image inspect qdrant/qdrant:v1.16.3 PM #309).
+# Use exec "$@" to run the command passed from docker-compose `command:`.
+# Docker Compose clears the image CMD when `entrypoint:` is overridden, so
+# docker-compose.yml explicitly sets `command: ["./entrypoint.sh"]` (the
+# qdrant signal-handling + OOM recovery wrapper at /qdrant/entrypoint.sh).
+# The image has Entrypoint=null + CMD=["./entrypoint.sh"] (docker image
+# inspect qdrant/qdrant:v1.16.3 PM #309); compose:command restores that.
 #
 # Reference: TECH-DEBT-582; PM #309 Will-locked Option 1.
 set -eu
