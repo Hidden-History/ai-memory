@@ -21,6 +21,9 @@ logs/
 .env.*.local
 docker/.env
 docker/.env.secrets
+# Test fixture env files are tracked (non-secret, labeled as fixtures)
+!tests/fixtures/**/.env
+!tests/fixtures/**/.env.secrets
 
 # Node modules (if applicable)
 node_modules/

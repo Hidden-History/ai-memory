@@ -38,19 +38,24 @@ services:
       - "127.0.0.1:${QDRANT_GRPC_PORT:-26351}:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
-    # Qdrant uses its own config key naming (QDRANT__SERVICE__*) — the env_file: pattern
-    # is not applicable here because Qdrant reads QDRANT__SERVICE__API_KEY, not QDRANT_API_KEY.
-    # QDRANT_API_KEY and QDRANT_READ_ONLY_API_KEY interpolation are both known BUG-184-class
-    # limitations; both require the unset-ritual workaround until Qdrant's config schema
-    # permits a direct remap.
+      - ./qdrant/entrypoint.sh:/usr/local/bin/td582-entrypoint.sh:ro
+    # TD-582: Qdrant reads QDRANT__SERVICE__* config keys; .env.secrets stores secrets under
+    # canonical short names (QDRANT_API_KEY, QDRANT_READ_ONLY_API_KEY). An entrypoint shim
+    # (docker/qdrant/entrypoint.sh) translates canonical names to Qdrant's namespace before
+    # exec'ing the upstream CMD (./entrypoint.sh — signal-handling + OOM recovery wrapper).
+    # env_file: delivers the canonical keys; the shim re-exports as QDRANT__SERVICE__*.
+    # Replaces the prior ${VAR} compose-interpolation approach (TD-582, PM #309).
+    entrypoint: ["/bin/sh", "/usr/local/bin/td582-entrypoint.sh"]
+    env_file:
+      - path: .env
+        required: true
+      - path: .env.secrets
+        required: false
     environment:
       - QDRANT__LOG_LEVEL=${QDRANT_LOG_LEVEL:-INFO}
-      # API Key Authentication (BP-040) - Requires TLS for production
-      # For localhost-only development, API key provides basic access control
-      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY}
-      # BUG-287: Wire read-only API key to Qdrant container so TD-333
-      # `get_qdrant_client(read_only=True)` callers work end-to-end.
-      - QDRANT__SERVICE__READ_ONLY_API_KEY=${QDRANT_READ_ONLY_API_KEY}
+      # API Key Authentication (BP-040) - Requires TLS for production.
+      # BUG-287: QDRANT__SERVICE__API_KEY / QDRANT__SERVICE__READ_ONLY_API_KEY are derived
+      # by the entrypoint shim from QDRANT_API_KEY / QDRANT_READ_ONLY_API_KEY (env_file:).
     restart: unless-stopped
     # TD-341: HTTP readiness check via /readyz (BP-145). Auth-whitelisted since Qdrant v1.5.0.
     healthcheck:
@@ -148,10 +153,13 @@ services:
       - ./prometheus/web.yml:/etc/prometheus/web.yml.template:ro
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml.template:ro
       - ./prometheus/gen-prometheus-config.py:/scripts/gen-prometheus-config.py:ro
-    # One-shot init container: only needs 2 keys; explicit block is cleaner than the full anchor.
-    environment:
-      - PROMETHEUS_ADMIN_PASSWORD=${PROMETHEUS_ADMIN_PASSWORD}
-      - QDRANT_API_KEY=${QDRANT_API_KEY}
+    # One-shot init container: 2 secret-class keys (PROMETHEUS_ADMIN_PASSWORD, QDRANT_API_KEY)
+    # delivered via env_file:; no interpolation dependency on --env-file CLI flags (TD-582).
+    env_file:
+      - path: .env
+        required: true
+      - path: .env.secrets
+        required: false
     command: ["sh", "-c", "pip install --no-cache-dir bcrypt==4.2.1 && python3 /scripts/gen-prometheus-config.py"]
     restart: "no"
     # Security hardening
@@ -174,8 +182,11 @@ services:
     volumes:
       - prometheus_runtime:/etc/prometheus/runtime:ro
       - prometheus_data:/prometheus
-    environment:
-      - PROMETHEUS_BASIC_AUTH_HEADER=${PROMETHEUS_BASIC_AUTH_HEADER}
+    env_file:
+      - path: .env
+        required: true
+      - path: .env.secrets
+        required: false
     command:
       - "--config.file=/etc/prometheus/runtime/prometheus.yml"
       - "--web.config.file=/etc/prometheus/runtime/web.yml"
@@ -249,15 +260,17 @@ services:
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     # Grafana uses its own GF_* config key namespace and does not share MemoryConfig schema.
-    # The explicit environment: block is correct here — env_file: anchor is for Python services.
+    # Secret-class vars (GF_SECURITY_ADMIN_PASSWORD, GF_SECURITY_SECRET_KEY,
+    # PROMETHEUS_ADMIN_PASSWORD) are delivered via env_file: (TD-582).
+    env_file:
+      - path: .env
+        required: true
+      - path: .env.secrets
+        required: false
     environment:
       # Admin Credentials (BP-040) - Only applies on FIRST LAUNCH
       # To change existing password: docker exec -it ai-memory-grafana grafana-cli admin reset-admin-password <new_password>
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      # TD-370: no default — installer generates a random password; see scripts/install.sh
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
-      # Prometheus datasource auth (BP-040) - used by provisioning file env substitution
-      - PROMETHEUS_ADMIN_PASSWORD=${PROMETHEUS_ADMIN_PASSWORD}
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
       - GF_SERVER_ROOT_URL=http://localhost:23000
@@ -270,7 +283,6 @@ services:
       - GF_SECURITY_COOKIE_SAMESITE=lax
       - GF_SECURITY_COOKIE_SECURE=false
       # Security hardening (2026 best practices)
-      - GF_SECURITY_SECRET_KEY=${GRAFANA_SECRET_KEY}
       - GF_SECURITY_CSRF_ALWAYS_CHECK=true
       - GF_SNAPSHOTS_EXTERNAL_ENABLED=false
     # Security hardening (2026 best practices)
