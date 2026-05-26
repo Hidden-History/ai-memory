@@ -1,22 +1,17 @@
-"""Structural integration test for TD-582 bare-up secret resolution.
+"""Rendered-config integration test for TD-582 bare-up secret resolution.
 
-Verifies that the compose configuration topology correctly routes all 6
-secret-class env vars through env_file: directives rather than compose-side
-${VAR} interpolation, so that bare `docker compose up -d` resolves secrets
-without requiring --env-file flags.
-
-Two test classes:
-- TestComposeSourceTopology: parses docker-compose.yml YAML source directly to
-  assert env_file: directives are present on the 4 affected services. Source
-  assertions are needed because `docker compose config` expands env_file: entries
-  into the environment: block in rendered output (they don't appear as env_file:
-  in the rendered YAML).
-- TestComposeRenderedBarUp: stages a tmp project dir (mirrors
-  ~/.ai-memory/docker/ at runtime) and runs `docker compose config` with NO
-  --env-file flags. Verifies that secret-class values are non-empty and that the
-  qdrant shim entrypoint + volume mount are correctly wired.
+Stages a tmp project dir (mirrors ~/.ai-memory/docker/ at runtime) and runs
+`docker compose config` with NO --env-file flags — exercising the bare-up
+production path. Verifies that secret-class values are non-empty in the
+rendered config, that no compose-time interpolation warnings remain for the
+6 secret-class keys, and that the qdrant shim entrypoint + volume mount are
+correctly wired.
 
 No containers are started.
+
+Companion source-topology test (pure YAML parse, no docker daemon needed)
+lives in tests/test_compose_bare_up_topology.py — runs in the fast unit CI
+job without --run-integration.
 
 Background: TD-582 (BUG-279 sibling, PM #308 bare-up verification gap).
 Architecture: Option 4 env_file: for prometheus-init, prometheus, grafana;
@@ -54,9 +49,6 @@ SECRET_CLASS_KEYS = [
     "QDRANT_READ_ONLY_API_KEY",
 ]
 
-# Services that must declare env_file: with .env.secrets after TD-582.
-ENV_FILE_SERVICES = ["prometheus-init", "prometheus", "grafana", "qdrant"]
-
 # Services under the monitoring profile (absent from `compose config` without
 # --profile monitoring).
 MONITORING_PROFILE_SERVICES = ["prometheus-init", "prometheus", "grafana"]
@@ -64,14 +56,6 @@ MONITORING_PROFILE_SERVICES = ["prometheus-init", "prometheus", "grafana"]
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _env_file_paths(service_block: dict) -> list[str]:
-    """Extract path strings from a service's env_file: list (handles dict or str entries)."""
-    entries = service_block.get("env_file") or []
-    return [
-        entry["path"] if isinstance(entry, dict) else str(entry) for entry in entries
-    ]
 
 
 def _env_list_to_dict(env_block) -> dict[str, str]:
@@ -92,21 +76,21 @@ def _env_list_to_dict(env_block) -> dict[str, str]:
 
 def _render_compose_config(
     project_dir: Path, profiles: list[str] | None = None
-) -> dict:
+) -> tuple[dict, str]:
     """Run `docker compose config` with no --env-file flags (bare-up simulation).
 
     Docker Compose auto-loads an adjacent .env; .env.secrets is loaded via
     service-level env_file: directives — the TD-582 mechanism under test.
-
-    Warnings about unset variables in CMD-SHELL healthcheck strings are
-    pre-existing and do not cause test failure. Only genuine errors cause failure.
 
     Args:
         project_dir: Directory containing docker-compose.yml + adjacent env files.
         profiles: Optional list of Docker Compose profiles to activate.
 
     Returns:
-        Parsed YAML dict of the rendered compose configuration.
+        (parsed_config_dict, stderr_str) — stderr is preserved so callers can
+        assert on compose-time interpolation warnings (e.g. "variable is not
+        set" lines for secret-class keys, which would indicate a bare-up
+        delivery defect).
     """
     compose_file = project_dir / "docker-compose.yml"
     cmd = [
@@ -136,87 +120,11 @@ def _render_compose_config(
                 f"stdout:\n{result.stdout[:2000]}"
             )
     assert result.stdout.strip(), "docker compose config produced no output"
-    return yaml.safe_load(result.stdout)
+    return yaml.safe_load(result.stdout), result.stderr
 
 
 # ---------------------------------------------------------------------------
-# Part A: Source topology assertions (parse docker-compose.yml directly)
-# ---------------------------------------------------------------------------
-
-
-class TestComposeSourceTopology:
-    """Verify the env_file: topology in the compose source file.
-
-    `docker compose config` expands env_file: entries into the environment:
-    block in rendered output; the env_file: key is not preserved. Source-file
-    assertions are the authoritative check for the TD-582 topology change.
-    """
-
-    @pytest.fixture(scope="class")
-    def source_config(self):
-        """Parsed docker/docker-compose.yml source (not rendered output)."""
-        with open(DOCKER_COMPOSE_PATH) as fh:
-            return yaml.safe_load(fh)
-
-    @pytest.mark.parametrize("service", ENV_FILE_SERVICES)
-    def test_service_has_env_file_with_dot_env_secrets(self, source_config, service):
-        """Each TD-582 service must declare env_file: with a .env.secrets path."""
-        paths = _env_file_paths(source_config["services"][service])
-        assert any(
-            ".env.secrets" in p for p in paths
-        ), f"{service}: env_file: must include .env.secrets; got paths: {paths}"
-
-    @pytest.mark.parametrize("service", ENV_FILE_SERVICES)
-    def test_service_has_env_file_with_dot_env(self, source_config, service):
-        """Each TD-582 service must also declare env_file: with a .env path."""
-        paths = _env_file_paths(source_config["services"][service])
-        assert any(
-            p.endswith(".env") and ".secrets" not in p for p in paths
-        ), f"{service}: env_file: must include .env (required); got paths: {paths}"
-
-    @pytest.mark.parametrize("key", SECRET_CLASS_KEYS)
-    def test_no_secret_class_key_in_source_environment_blocks(self, source_config, key):
-        """No service environment: block should set a secret-class key via
-        ${VAR} interpolation after TD-582.
-
-        This is the direct structural proof that the 6 secret-class env vars
-        are no longer resolved via compose interpolation.
-        """
-        pattern = re.compile(r"\$\{" + re.escape(key) + r"[}:]")
-        for service_name, service_block in source_config.get("services", {}).items():
-            env_block = service_block.get("environment") or []
-            if isinstance(env_block, list):
-                env_items = env_block
-            else:
-                env_items = [f"{k}={v}" for k, v in env_block.items()]
-            for item in env_items:
-                assert not pattern.search(str(item)), (
-                    f"Service '{service_name}': secret-class key '{key}' still "
-                    f"appears as ${{VAR}} interpolation in environment: block: {item!r}"
-                )
-
-    def test_qdrant_entrypoint_set_in_source(self, source_config):
-        """qdrant service must declare entrypoint: referencing the td582 shim."""
-        entrypoint = source_config["services"]["qdrant"].get("entrypoint", [])
-        if isinstance(entrypoint, list):
-            entrypoint_str = " ".join(str(p) for p in entrypoint)
-        else:
-            entrypoint_str = str(entrypoint)
-        assert (
-            "td582-entrypoint.sh" in entrypoint_str
-        ), f"qdrant entrypoint must reference td582 shim; got: {entrypoint}"
-
-    def test_qdrant_shim_volume_in_source(self, source_config):
-        """qdrant service must include the shim bind-mount in volumes:."""
-        volumes = source_config["services"]["qdrant"].get("volumes") or []
-        volume_strs = [str(v) for v in volumes]
-        assert any(
-            "td582-entrypoint.sh" in v for v in volume_strs
-        ), f"qdrant volumes must include td582-entrypoint.sh mount; got: {volume_strs}"
-
-
-# ---------------------------------------------------------------------------
-# Part B: Rendered bare-up config assertions
+# Rendered bare-up config assertions
 # ---------------------------------------------------------------------------
 
 
@@ -241,9 +149,24 @@ class TestComposeRenderedBarUp:
         return tmp_dir
 
     @pytest.fixture(scope="class")
-    def compose_config(self, staged_project):
-        """Rendered compose config dict (all profiles; no --env-file flags)."""
+    def _compose_render(self, staged_project):
+        """Single per-class invocation of `docker compose config`.
+
+        Returns (config_dict, stderr_str). Both surfaces are needed: stdout for
+        rendered-config structural assertions, stderr for compose-time
+        interpolation-warning assertions.
+        """
         return _render_compose_config(staged_project, profiles=["monitoring"])
+
+    @pytest.fixture(scope="class")
+    def compose_config(self, _compose_render):
+        """Rendered compose config dict (all profiles; no --env-file flags)."""
+        return _compose_render[0]
+
+    @pytest.fixture(scope="class")
+    def compose_stderr(self, _compose_render):
+        """Captured stderr from the per-class `docker compose config` run."""
+        return _compose_render[1]
 
     def test_no_secret_class_interpolation_in_rendered_config(self, compose_config):
         """No ${SECRET_CLASS_VAR} interpolation strings for the 6 TD-582 keys
@@ -261,6 +184,38 @@ class TestComposeRenderedBarUp:
             f"Remaining ${{VAR}} interpolation sites for secret-class keys in "
             f"rendered config: {matches}. "
             f"All 6 keys must be delivered via env_file:, not compose interpolation."
+        )
+
+    def test_no_unset_variable_warnings_for_secret_class_keys(self, compose_stderr):
+        """`docker compose config` stderr must contain zero "variable is not
+        set" warnings naming any of the 6 secret-class keys under bare-up.
+
+        Compose emits this warning class whenever a compose-time interpolation
+        site (either ${VAR} or unbraced $VAR) cannot be resolved from its
+        interpolation source (shell env + auto-loaded adjacent .env). Because
+        .env.secrets is NOT in that source under bare-up — it is delivered to
+        container env via service-level env_file: at container start — any
+        such warning naming a secret-class key indicates a compose-time
+        interpolation site that should be using env_file: delivery instead.
+
+        Catches both braced ${VAR} (TD-582 original surface) and unbraced $VAR
+        (the prometheus healthcheck CMD-SHELL escape defect found in cycle-1
+        review, where compose consumed the $VAR at config-time before the
+        container shell could interpolate it from env_file:-populated env)
+        regressions through one gate.
+        """
+        offenders = [
+            ln
+            for ln in compose_stderr.splitlines()
+            if "variable is not set" in ln and any(k in ln for k in SECRET_CLASS_KEYS)
+        ]
+        assert not offenders, (
+            "docker compose config emitted 'variable is not set' warnings for "
+            "secret-class key(s) under bare-up. Each warning indicates a "
+            "compose-time interpolation site that resolves to an empty string "
+            "(since .env.secrets is not in the interpolation source) instead "
+            "of being delivered to the container via env_file:.\n"
+            "Offending warnings:\n  " + "\n  ".join(offenders)
         )
 
     @pytest.mark.parametrize(
