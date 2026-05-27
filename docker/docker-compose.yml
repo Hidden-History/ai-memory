@@ -28,7 +28,10 @@ x-python-service-defaults: &python-service-defaults
 
 services:
   qdrant:
-    image: qdrant/qdrant:v1.16.3
+    build:
+      context: ./qdrant
+      dockerfile: Dockerfile
+    image: ai-memory-qdrant:v1.16.3
     container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-qdrant
     labels:
       <<: *ai-memory-labels
@@ -38,13 +41,18 @@ services:
       - "127.0.0.1:${QDRANT_GRPC_PORT:-26351}:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
-      - ./qdrant/entrypoint.sh:/usr/local/bin/td582-entrypoint.sh:ro
     # TD-582: Qdrant reads QDRANT__SERVICE__* config keys; .env.secrets stores secrets under
     # canonical short names (QDRANT_API_KEY, QDRANT_READ_ONLY_API_KEY). An entrypoint shim
     # (docker/qdrant/entrypoint.sh) translates canonical names to Qdrant's namespace before
     # exec'ing the upstream CMD (./entrypoint.sh — signal-handling + OOM recovery wrapper).
     # env_file: delivers the canonical keys; the shim re-exports as QDRANT__SERVICE__*.
-    # Replaces the prior ${VAR} compose-interpolation approach (TD-582, PM #309).
+    #
+    # The shim is baked into the image at build time via docker/qdrant/Dockerfile
+    # (COPY into /usr/local/bin/td582-entrypoint.sh). The prior delivery used a host
+    # bind-mount, which on Docker Desktop / WSL2 became fragile across host reboots —
+    # the single-file mount source could be cached under the docker-desktop-bind-mounts
+    # tmpfs and fail to remount, causing the container to exit 127. Image-bake closes
+    # that regression (TD-582, PM #309).
     #
     # NOTE: Docker Compose clears the image CMD when entrypoint: is overridden.
     # command: restores ./entrypoint.sh so the shim's exec "$@" has a target to exec.
@@ -251,7 +259,10 @@ services:
       start_period: 10s
 
   grafana:
-    image: grafana/grafana:12.0.0
+    build:
+      context: ./grafana
+      dockerfile: Dockerfile
+    image: ai-memory-grafana:12.0.0
     container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-grafana
     labels:
       <<: *ai-memory-labels
@@ -263,7 +274,6 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
-      - ./grafana/entrypoint.sh:/usr/local/bin/td582-entrypoint.sh:ro
     # Grafana uses its own GF_* config key namespace and does not share MemoryConfig schema.
     # TD-582: Grafana reads GF_SECURITY_* config keys via its env-override convention;
     # .env.secrets stores secrets under canonical short names (GRAFANA_ADMIN_PASSWORD,
@@ -273,6 +283,12 @@ services:
     # PROMETHEUS_ADMIN_PASSWORD is delivered directly via env_file: (Grafana datasource
     # provisioning reads it under the canonical name at runtime). Mirror of the qdrant
     # shim approach.
+    #
+    # The shim is baked into the image at build time via docker/grafana/Dockerfile
+    # (COPY into /usr/local/bin/td582-entrypoint.sh, with a USER root → USER 472 flip
+    # so the runtime identity is unchanged). The prior delivery used a host bind-mount,
+    # which on Docker Desktop / WSL2 became fragile across host reboots — symmetric to
+    # the qdrant regression closed in this fix (TD-582, PM #309).
     #
     # NOTE: Docker Compose clears the image ENTRYPOINT when entrypoint: is overridden.
     # The upstream image has Entrypoint=["/run.sh"] + Cmd=null, so command: restores

@@ -136,13 +136,52 @@ class TestComposeSourceTopology:
             "td582-entrypoint.sh" in entrypoint_str
         ), f"qdrant entrypoint must reference td582 shim; got: {entrypoint}"
 
-    def test_qdrant_shim_volume_in_source(self, source_config):
-        """qdrant service must include the shim bind-mount in volumes:."""
-        volumes = source_config["services"]["qdrant"].get("volumes") or []
+    def test_qdrant_shim_baked_via_dockerfile(self, source_config):
+        """qdrant service must bake the shim via Dockerfile, NOT a bind-mount.
+
+        Replaces the prior test_qdrant_shim_volume_in_source assertion. On
+        Docker Desktop / WSL2 the single-file bind-mount delivery became
+        fragile across host reboots (tmpfs cache corruption -> runc 'not a
+        directory' mount errors). The fix bakes the shim into a local image
+        via docker/qdrant/Dockerfile; this test pins that delivery shape.
+        """
+        qdrant = source_config["services"]["qdrant"]
+
+        # (a) build: block points at the local Dockerfile
+        build = qdrant.get("build")
+        assert isinstance(
+            build, dict
+        ), f"qdrant must declare a build: block; got: {build!r}"
+        assert (
+            build.get("context") == "./qdrant"
+        ), f"qdrant build.context must be './qdrant'; got: {build.get('context')!r}"
+        assert build.get("dockerfile") == "Dockerfile", (
+            f"qdrant build.dockerfile must be 'Dockerfile'; got: "
+            f"{build.get('dockerfile')!r}"
+        )
+
+        # (b) Dockerfile exists and COPYs the shim to the expected target path
+        dockerfile_path = DOCKER_DIR / "qdrant" / "Dockerfile"
+        assert (
+            dockerfile_path.exists()
+        ), f"docker/qdrant/Dockerfile must exist; not found at {dockerfile_path}"
+        dockerfile_text = dockerfile_path.read_text(encoding="utf-8")
+        assert re.search(
+            r"COPY\s+(?:--chmod=\d+\s+)?entrypoint\.sh\s+"
+            r"/usr/local/bin/td582-entrypoint\.sh",
+            dockerfile_text,
+        ), (
+            "qdrant Dockerfile must COPY entrypoint.sh to "
+            "/usr/local/bin/td582-entrypoint.sh"
+        )
+
+        # (c) the regression class: no shim bind-mount in volumes:
+        volumes = qdrant.get("volumes") or []
         volume_strs = [str(v) for v in volumes]
-        assert any(
-            "td582-entrypoint.sh" in v for v in volume_strs
-        ), f"qdrant volumes must include td582-entrypoint.sh mount; got: {volume_strs}"
+        assert not any("td582-entrypoint.sh" in v for v in volume_strs), (
+            "qdrant volumes must NOT bind-mount the shim (image-bake delivery "
+            f"only); got: {volume_strs}"
+        )
 
     def test_grafana_entrypoint_set_in_source(self, source_config):
         """grafana service must declare the TD-582 shim entrypoint + restored command.
@@ -162,19 +201,47 @@ class TestComposeSourceTopology:
             "/run.sh"
         ], f"grafana command must restore upstream /run.sh; got: {grafana.get('command')}"
 
-    def test_grafana_shim_volume_in_source(self, source_config):
-        """grafana service must include the shim bind-mount in volumes:.
+    def test_grafana_shim_baked_via_dockerfile(self, source_config):
+        """grafana service must bake the shim via Dockerfile, NOT a bind-mount.
 
-        Mirror of test_qdrant_shim_volume_in_source.
+        Mirror of test_qdrant_shim_baked_via_dockerfile.
         """
-        volumes = source_config["services"]["grafana"].get("volumes") or []
-        volume_strs = [str(v) for v in volumes]
-        assert any(
-            "./grafana/entrypoint.sh:/usr/local/bin/td582-entrypoint.sh:ro" in v
-            for v in volume_strs
+        grafana = source_config["services"]["grafana"]
+
+        # (a) build: block points at the local Dockerfile
+        build = grafana.get("build")
+        assert isinstance(
+            build, dict
+        ), f"grafana must declare a build: block; got: {build!r}"
+        assert (
+            build.get("context") == "./grafana"
+        ), f"grafana build.context must be './grafana'; got: {build.get('context')!r}"
+        assert build.get("dockerfile") == "Dockerfile", (
+            f"grafana build.dockerfile must be 'Dockerfile'; got: "
+            f"{build.get('dockerfile')!r}"
+        )
+
+        # (b) Dockerfile exists and COPYs the shim to the expected target path
+        dockerfile_path = DOCKER_DIR / "grafana" / "Dockerfile"
+        assert (
+            dockerfile_path.exists()
+        ), f"docker/grafana/Dockerfile must exist; not found at {dockerfile_path}"
+        dockerfile_text = dockerfile_path.read_text(encoding="utf-8")
+        assert re.search(
+            r"COPY\s+(?:--chmod=\d+\s+)?entrypoint\.sh\s+"
+            r"/usr/local/bin/td582-entrypoint\.sh",
+            dockerfile_text,
         ), (
-            "grafana volumes must include the td582 shim bind-mount; "
-            f"got: {volume_strs}"
+            "grafana Dockerfile must COPY entrypoint.sh to "
+            "/usr/local/bin/td582-entrypoint.sh"
+        )
+
+        # (c) the regression class: no shim bind-mount in volumes:
+        volumes = grafana.get("volumes") or []
+        volume_strs = [str(v) for v in volumes]
+        assert not any("td582-entrypoint.sh" in v for v in volume_strs), (
+            "grafana volumes must NOT bind-mount the shim (image-bake "
+            f"delivery only); got: {volume_strs}"
         )
 
 
@@ -261,28 +328,31 @@ def _env_block_keys(service_block: dict) -> set[str]:
     return keys
 
 
-def _shim_exports(volumes: list, docker_dir: Path) -> set[str]:
+def _shim_exports(service_block: dict, docker_dir: Path) -> set[str]:
     """Return the set of variable names a TD-582 entrypoint shim re-exports.
 
-    Looks for a `td582-entrypoint.sh` bind-mount; if present, reads the source
-    file (LHS of the bind-mount, resolved relative to docker_dir) and parses
+    Post-fix-r3 the shim is baked into the service image at build time (no
+    longer host-bind-mounted), so discovery now follows the build: context:
+    if `<docker_dir>/<build.context>/entrypoint.sh` exists, parse it for
     `export NAME=$OTHER` lines. The LHS names are added to the effective
-    container env when the shim runs.
+    container env when the image-baked shim runs as entrypoint.
+
+    For services without a build: block (or without an adjacent entrypoint.sh)
+    this returns the empty set — matching the prior helper's pre-shim behavior.
     """
     exports: set[str] = set()
-    for vol in volumes or []:
-        vol_str = str(vol)
-        if "td582-entrypoint.sh" not in vol_str:
-            continue
-        # Bind-mount form is "<host_path>:<container_path>[:mode]"; host_path
-        # is the LHS. Resolve relative to docker_dir.
-        host_path_rel = vol_str.split(":", 1)[0]
-        shim_path = (docker_dir / host_path_rel).resolve()
-        if not shim_path.exists():
-            continue
-        shim_text = shim_path.read_text(encoding="utf-8")
-        for match in SHIM_EXPORT_RE.finditer(shim_text):
-            exports.add(match.group(1))
+    build = service_block.get("build")
+    if not isinstance(build, dict):
+        return exports
+    context = build.get("context")
+    if not context:
+        return exports
+    shim_path = (docker_dir / context / "entrypoint.sh").resolve()
+    if not shim_path.exists():
+        return exports
+    shim_text = shim_path.read_text(encoding="utf-8")
+    for match in SHIM_EXPORT_RE.finditer(shim_text):
+        exports.add(match.group(1))
     return exports
 
 
@@ -306,8 +376,9 @@ def _effective_env(service_block: dict) -> set[str]:
             keys |= _parse_env_keys(contract)
     # (b) environment: block
     keys |= _env_block_keys(service_block)
-    # (c) shim re-exports
-    keys |= _shim_exports(service_block.get("volumes") or [], DOCKER_DIR)
+    # (c) shim re-exports — discovered via build: context (post-fix-r3 the
+    #     shim is image-baked, no longer bind-mounted)
+    keys |= _shim_exports(service_block, DOCKER_DIR)
     return keys
 
 

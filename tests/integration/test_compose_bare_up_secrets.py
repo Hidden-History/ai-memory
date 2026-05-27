@@ -260,18 +260,44 @@ class TestComposeRenderedBarUp:
             "td582-entrypoint.sh" in entrypoint_str
         ), f"qdrant entrypoint must reference td582 shim; got: {entrypoint}"
 
-    def test_qdrant_shim_volume_in_rendered_config(self, compose_config):
-        """qdrant service must include the shim bind-mount in rendered volumes."""
-        volumes = compose_config["services"]["qdrant"].get("volumes") or []
+    def test_qdrant_shim_baked_via_build_in_rendered_config(self, compose_config):
+        """qdrant service must bake the shim via a build: block in rendered config.
+
+        Replaces the prior test_qdrant_shim_volume_in_rendered_config assertion.
+        Post-fix-r3 the shim is image-baked (docker/qdrant/Dockerfile) rather
+        than host-bind-mounted; the rendered config must reflect that and must
+        NOT carry the prior bind-mount (the WSL2 reboot-fragility class).
+        """
+        qdrant = compose_config["services"]["qdrant"]
+
+        # (a) build: block present + points at a local Dockerfile context
+        build = qdrant.get("build")
+        assert isinstance(
+            build, dict
+        ), f"qdrant rendered config must declare build: block; got: {build!r}"
+        # `docker compose config` resolves relative context: to absolute paths,
+        # so assert the context ends with /qdrant (the local subdir).
+        context = str(build.get("context") or "")
+        assert context.endswith("/qdrant") or context.endswith("\\qdrant"), (
+            f"qdrant rendered build.context must resolve into the qdrant/ "
+            f"subdir; got: {context!r}"
+        )
+        assert build.get("dockerfile") == "Dockerfile", (
+            f"qdrant rendered build.dockerfile must be 'Dockerfile'; got: "
+            f"{build.get('dockerfile')!r}"
+        )
+
+        # (b) regression class: NO shim bind-mount in rendered volumes
+        volumes = qdrant.get("volumes") or []
         volume_strs = []
         for v in volumes:
             if isinstance(v, dict):
                 volume_strs.append(f"{v.get('source', '')}:{v.get('target', '')}")
             else:
                 volume_strs.append(str(v))
-        assert any("td582-entrypoint.sh" in v for v in volume_strs), (
-            f"qdrant rendered volumes must include td582-entrypoint.sh mount; "
-            f"got: {volume_strs}"
+        assert not any("td582-entrypoint.sh" in v for v in volume_strs), (
+            "qdrant rendered volumes must NOT bind-mount the shim (image-bake "
+            f"delivery only); got: {volume_strs}"
         )
 
     def test_qdrant_log_level_non_secret_still_in_environment(self, compose_config):

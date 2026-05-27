@@ -3003,11 +3003,15 @@ start_services() {
     # BUG-279: _compose wrapper passes both --env-file flags
     _compose $profile_flags pull
 
-    # ── Phase 2: Start CORE services first (no --build, no profiles) ──
-    # Qdrant uses a pre-built image (no build context). Embedding has a build
-    # context but we build it separately to avoid memory pressure from building
-    # multiple images simultaneously on low-RAM systems.
+    # ── Phase 2: Start CORE services first (no profiles) ──
+    # Qdrant now uses a local build context (docker/qdrant/Dockerfile) to bake
+    # the TD-582 entrypoint shim into the image. Embedding has its own build
+    # context. We build them separately to avoid memory pressure from building
+    # multiple images simultaneously on low-RAM systems, and to keep the build
+    # explicit so subsequent updates always pick up Dockerfile / shim changes
+    # (matching the build-then-up pattern used for sibling build: services).
     log_info "Phase 1/2: Starting core services (qdrant + embedding)..."
+    _compose build --no-cache qdrant
     _compose up -d qdrant
     _compose build --no-cache embedding
     # BUG-289: --no-recreate prevents Compose from restarting an already-running
