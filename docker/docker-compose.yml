@@ -263,9 +263,22 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
+      - ./grafana/entrypoint.sh:/usr/local/bin/td582-entrypoint.sh:ro
     # Grafana uses its own GF_* config key namespace and does not share MemoryConfig schema.
-    # Secret-class vars (GF_SECURITY_ADMIN_PASSWORD, GF_SECURITY_SECRET_KEY,
-    # PROMETHEUS_ADMIN_PASSWORD) are delivered via env_file: (TD-582).
+    # TD-582: Grafana reads GF_SECURITY_* config keys via its env-override convention;
+    # .env.secrets stores secrets under canonical short names (GRAFANA_ADMIN_PASSWORD,
+    # GRAFANA_SECRET_KEY). The entrypoint shim (docker/grafana/entrypoint.sh) translates
+    # the canonical names into Grafana's namespace before exec'ing the upstream entrypoint.
+    # env_file: delivers the canonical keys; the shim re-exports them as GF_SECURITY_*.
+    # PROMETHEUS_ADMIN_PASSWORD is delivered directly via env_file: (Grafana datasource
+    # provisioning reads it under the canonical name at runtime). Mirror of the qdrant
+    # shim approach.
+    #
+    # NOTE: Docker Compose clears the image ENTRYPOINT when entrypoint: is overridden.
+    # The upstream image has Entrypoint=["/run.sh"] + Cmd=null, so command: restores
+    # /run.sh as the target the shim's exec "$@" passes control to.
+    entrypoint: ["/bin/sh", "/usr/local/bin/td582-entrypoint.sh"]
+    command: ["/run.sh"]
     env_file:
       - path: .env
         required: true
