@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.4] - 2026-05-27
+
 ### Added
 
 - `aim-tracking-freshness --verify-code-state` flag — cross-checks every open BUG/TD record against the source git history to detect phantom-open candidates whose fix commits are already reachable from `main`. Confidence is scored HIGH / MEDIUM / LOW per the skill auditor's algorithm: HIGH when a main-reachable fix commit overlaps a file path cited in the record body and the record mtime predates the fix timestamp; MEDIUM when a main-reachable commit exists without file-path overlap; LOW when only inline evidence (PR ref / SHA in the body) exists without a main-reachable commit, or when a matching `Revert "…<RECORD-ID>…"` commit on `main` downgrades a fix. Source repo resolved via `--source-repo`, `AI_MEMORY_SOURCE_REPO` env var, or `../ai-memory` relative to the oversight root. Reports a `PHANTOM-OPEN CANDIDATES` section on stdout plus a `oversight/reports/PHANTOM-OPEN-CANDIDATES.md` sidecar (created and overwritten each run). Advisory only — does not affect the `--check` exit-code contract. Graceful skip with a `NOTE` to stderr when the source repo or `git` binary is unavailable. Supports `--last-n-sessions N` and `--bug-id RECORD-ID` for scoped sweeps. (TECH-DEBT-547)
@@ -40,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade Instructions
 
-**From v2.4.3 → next:**
+**From v2.4.3 → v2.4.4:**
 
 Installer-hygiene release for Docker Compose profile persistence. No data
 migration. Your memories, credentials, and Parzival sanctum are untouched.
@@ -85,6 +87,31 @@ invocations is eliminated.
 Operators upgrading from a release earlier than v2.4.3 should also follow the
 v2.4.3 Operator Remediation section above (Jira project flags + secret-key
 purge).
+
+### TD-582 — Image-bake delivery (qdrant + grafana shims)
+
+The `qdrant` and `grafana` services now use locally-built images
+(`ai-memory-qdrant:v1.16.3` + `ai-memory-grafana:12.0.0`) extending their
+upstream images with a small `Dockerfile` that bakes the TD-582 entrypoint
+shim into the image filesystem. The installer rebuilds these two images
+automatically on update — **no operator action required**.
+
+This replaces an earlier short-lived host bind-mount delivery and closes a
+host-reboot regression on Docker Desktop / WSL2 where single-file bind-mount
+source paths cached under `docker-desktop-bind-mounts/` could go stale across
+reboots, manifesting as `qdrant` exiting 127 with a runc "not a directory"
+mount error against `/usr/local/bin/td582-entrypoint.sh`.
+
+If you previously experienced any of these symptoms, they are resolved by
+v2.4.4:
+
+- `prometheus-init` exiting 1 on bare `docker compose up -d` (no `--env-file`)
+- `qdrant` returning 401 on `/collections` despite a healthy `/readyz`
+- `qdrant` or `grafana` Exited 127 after a host reboot or Docker daemon restart
+
+Pre-existing wrappers (`scripts/stack.sh`, etc.) continue to work without
+changes. No data migration. Your memories, credentials, Parzival sanctum,
+and DocIntel data are untouched.
 
 ## [2.4.3] - 2026-05-20
 
