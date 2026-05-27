@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.4] - 2026-05-27
+
 ### Added
 
 - `aim-tracking-freshness --verify-code-state` flag — cross-checks every open BUG/TD record against the source git history to detect phantom-open candidates whose fix commits are already reachable from `main`. Confidence is scored HIGH / MEDIUM / LOW per the skill auditor's algorithm: HIGH when a main-reachable fix commit overlaps a file path cited in the record body and the record mtime predates the fix timestamp; MEDIUM when a main-reachable commit exists without file-path overlap; LOW when only inline evidence (PR ref / SHA in the body) exists without a main-reachable commit, or when a matching `Revert "…<RECORD-ID>…"` commit on `main` downgrades a fix. Source repo resolved via `--source-repo`, `AI_MEMORY_SOURCE_REPO` env var, or `../ai-memory` relative to the oversight root. Reports a `PHANTOM-OPEN CANDIDATES` section on stdout plus a `oversight/reports/PHANTOM-OPEN-CANDIDATES.md` sidecar (created and overwritten each run). Advisory only — does not affect the `--check` exit-code contract. Graceful skip with a `NOTE` to stderr when the source repo or `git` binary is unavailable. Supports `--last-n-sessions N` and `--bug-id RECORD-ID` for scoped sweeps. (TECH-DEBT-547)
@@ -36,10 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `Env Drift Gate` CI workflow now installs the full project dependencies (`-r requirements.txt`) before running the Pydantic completeness check, so `MemoryConfig` imports cleanly and `httpx` and other transitive dependencies are available. (BUG-312)
 - `tests/integration/test_docker_stack.py` `docker_stack` fixture now provisions `docker/.env` from `docker/.env.example` when the file is absent, and removes it on teardown only if the fixture created it. The `classifier-worker` service (now always part of the default Compose scope after the TD-573 profile removal) marks `docker/.env` required, so a bare `docker compose up -d` in a clean CI checkout failed with a missing env-file error before this change. (BUG-311 follow-up)
 - `scripts/install.sh` now extracts `COMPOSE_PROFILES` + `MONITORING_ENABLED` derivation into a new dedicated function `derive_and_persist_compose_profiles()` called from BOTH `INSTALL_MODE=full` AND `INSTALL_MODE=add-project` branches. The function derives values from shell-scope `INSTALL_MONITORING` / `GITHUB_SYNC_ENABLED` when set (the `full` install path), otherwise falls through to reading prior persisted state from `docker/.env` / `docker/.env.secrets` via `_read_env_key` (secrets-first; BUG-309 precedent). Idempotent and safe to re-run; preserves a clean skip on a first-time `add-project` install with no prior monitoring choice. Previously the derivation lived inside `persist_user_choices_to_env`, which is only called on the `full` install path; the `add-project` (update-in-place) path — the dominant operator scenario for any operator re-running the installer to add a project to an existing install — silently skipped the derivation entirely, leaving `COMPOSE_PROFILES=` blank in `docker/.env` and causing bare `docker compose up -d` invocations to silently drop all profile-gated services (monitoring stack, GitHub sync). The new function follows the 2024-2026 cross-paradigm consensus from Helm, Ansible, Puppet, Terraform, Kubernetes operators, Docker Compose, and Homebrew documented in BP-160 §7: installer-owned (Tier-1) derived state must be re-evaluated on every install run, both modes, via a dedicated subroutine called from both branches. Production-path integration test exercises the full `main()` flow on both `INSTALL_MODE` values plus a run-twice idempotency assertion; complementary structural-grep test asserts both call sites remain present in `install.sh`. Test-helper mirror of the new function matches production line-for-line. (BUG-311, TD-574)
+- **Docker Compose bare-up resolves all secret-class values without `--env-file` flags** (TD-582). Refactored `prometheus-init`, `prometheus`, `grafana`, and `qdrant` services to consume secrets via the existing split `.env` + `.env.secrets` files using the compose `env_file:` directive. Operators running `docker compose up -d` directly — without `scripts/stack.sh` — no longer need to pass `--env-file .env --env-file .env.secrets`; the wrapper continues to work unchanged. The `qdrant` and `grafana` services each extend their upstream images via a small `Dockerfile` (`docker/qdrant/Dockerfile`, `docker/grafana/Dockerfile`) that bakes a shim translating canonical secret env names (`QDRANT_API_KEY` / `QDRANT_READ_ONLY_API_KEY` → `QDRANT__SERVICE__*`; `GRAFANA_ADMIN_PASSWORD` / `GRAFANA_SECRET_KEY` → `GF_SECURITY_*`) into each tool's native config namespace before exec'ing the upstream entrypoint. The image-bake delivery replaces an earlier host bind-mount approach and closes a host-reboot regression on Docker Desktop / WSL2 where the single-file bind-mount source could be cached under the docker-desktop-bind-mounts tmpfs and fail to remount, manifesting as `qdrant` exiting 127 with a runc "not a directory" mount error against `/usr/local/bin/td582-entrypoint.sh` (`grafana` is symmetrically affected once `monitoring` profile is active). If you were previously seeing `prometheus-init` exit 1, `qdrant` returning 401 on `/collections` despite a healthy `/readyz`, or `qdrant`/`grafana` exit-127 on container restart following a host reboot, this resolves both. Resolves the latent gap predicted by BUG-279 (PM #274) and confirmed during bare-up verification. (TD-582)
 
 ### Upgrade Instructions
 
-**From v2.4.3 → next:**
+**From v2.4.3 → v2.4.4:**
 
 Installer-hygiene release for Docker Compose profile persistence. No data
 migration. Your memories, credentials, and Parzival sanctum are untouched.
@@ -84,6 +87,31 @@ invocations is eliminated.
 Operators upgrading from a release earlier than v2.4.3 should also follow the
 v2.4.3 Operator Remediation section above (Jira project flags + secret-key
 purge).
+
+### TD-582 — Image-bake delivery (qdrant + grafana shims)
+
+The `qdrant` and `grafana` services now use locally-built images
+(`ai-memory-qdrant:v1.16.3` + `ai-memory-grafana:12.0.0`) extending their
+upstream images with a small `Dockerfile` that bakes the TD-582 entrypoint
+shim into the image filesystem. The installer rebuilds these two images
+automatically on update — **no operator action required**.
+
+This replaces an earlier short-lived host bind-mount delivery and closes a
+host-reboot regression on Docker Desktop / WSL2 where single-file bind-mount
+source paths cached under `docker-desktop-bind-mounts/` could go stale across
+reboots, manifesting as `qdrant` exiting 127 with a runc "not a directory"
+mount error against `/usr/local/bin/td582-entrypoint.sh`.
+
+If you previously experienced any of these symptoms, they are resolved by
+v2.4.4:
+
+- `prometheus-init` exiting 1 on bare `docker compose up -d` (no `--env-file`)
+- `qdrant` returning 401 on `/collections` despite a healthy `/readyz`
+- `qdrant` or `grafana` Exited 127 after a host reboot or Docker daemon restart
+
+Pre-existing wrappers (`scripts/stack.sh`, etc.) continue to work without
+changes. No data migration. Your memories, credentials, Parzival sanctum,
+and DocIntel data are untouched.
 
 ## [2.4.3] - 2026-05-20
 
