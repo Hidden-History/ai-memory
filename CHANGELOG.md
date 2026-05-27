@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/generate-manifest.sh` — generates `_ai-memory/MANIFEST.sha256`, a JSON map of path → SHA256 for every source-of-truth file under `_ai-memory/`. Excludes `sanctum/`, `__pycache__/`, `*.pyc`, `.sync-stamp`, and the workspace-only allowlist (`pov/knowledge/parzival-master-plan.md`). Output is sorted for stable diffs. (BP-161 / TD-522)
+- `scripts/sync-workspace.sh` — resync workspace `_ai-memory/` from source using the manifest as the contract. Uses `rsync --checksum` for WSL2 9P-mount reliability (mtime unreliable on `/mnt/e`). `--check-only` mode exits 0 when in-sync, 1 on drift, 2 on prereq failure. Writes `.sync-stamp` with source HEAD on completion. Sanctum scaffold uses `rsync --ignore-existing` (never overwrites existing workspace-only content). (BP-161 / TD-522)
+- `scripts/install.sh` now calls `generate-manifest.sh` + `sync_workspace_if_present()` from both `INSTALL_MODE=full` and `INSTALL_MODE=add-project` branches, immediately after `derive_and_persist_compose_profiles`. Workspace sync is non-blocking: a sync failure logs a warning and lets the install continue. (BP-161 / TD-522)
+- `warn_if_workspace_stale()` in `aim-parzival-bootstrap/sanctum_tier_b.py` — at session-start bootstrap, reads `.sync-stamp` and compares against source HEAD. Logs `workspace_sync_stamp_missing` or `workspace_sync_stale` structured warnings on drift; always returns without raising. Called from `aim-parzival-bootstrap/SKILL.md` inside the existing sanctum block with graceful-degradation `try/except`. (BP-161 / TD-522)
+
 ## [2.4.4] - 2026-05-27
 
 ### Added

@@ -1315,6 +1315,8 @@ main() {
         import_user_env
         persist_user_choices_to_env
         derive_and_persist_compose_profiles    # BP-160 §8.3 — Tier-1 re-derivation
+        "$SCRIPT_DIR/generate-manifest.sh" || log_warning "BP-161: manifest regeneration FAILED — workspace sync may be stale"
+        sync_workspace_if_present
         step "Python Environment"
         install_python_dependencies
         step "Environment Configuration"
@@ -1369,6 +1371,8 @@ main() {
         # BP-160 §8.3: Tier-1 reconciliation — re-derive installer-managed
         # shared state every run regardless of install mode.
         derive_and_persist_compose_profiles
+        "$SCRIPT_DIR/generate-manifest.sh" || log_warning "BP-161: manifest regeneration FAILED — workspace sync may be stale"
+        sync_workspace_if_present
         # Prompt for project-specific GitHub repo and Jira config
         configure_project_sources
     fi
@@ -2499,6 +2503,24 @@ derive_and_persist_compose_profiles() {
     set_env_value "MONITORING_ENABLED" "$INSTALL_MONITORING"
 
     log_debug "BP-160 / BUG-311: COMPOSE_PROFILES=${_compose_profiles} persisted (mode=${INSTALL_MODE})"
+}
+
+# sync_workspace_if_present — BP-161 / TD-522: workspace-source-of-truth resync.
+# Idempotent workspace resync. No-op if WORKSPACE_DIR env not set AND
+# default location not present. Never blocks install on sync failure.
+# Must be called from BOTH install-mode branches (BP-160 E1 pattern precedent).
+sync_workspace_if_present() {
+    local default_workspace="/mnt/e/projects/dev-ai-memory/_ai-memory"
+    local target="${WORKSPACE_DIR:-$default_workspace}"
+    if [[ ! -d "$target" ]]; then
+        log_debug "BP-161 / TD-522: workspace dir not present, skipping sync ($target)"
+        return 0
+    fi
+    log_info "BP-161 / TD-522: syncing workspace $target from source"
+    if ! WORKSPACE_DIR="$target" "$SCRIPT_DIR/sync-workspace.sh"; then
+        log_warning "BP-161 / TD-522: workspace sync FAILED — install continues (workspace will be stale)"
+        return 0
+    fi
 }
 
 # migrate_existing_env_secrets — R3: v2.3.x in-place upgrade migration.

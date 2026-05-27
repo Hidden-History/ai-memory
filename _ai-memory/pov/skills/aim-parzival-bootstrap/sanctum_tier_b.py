@@ -26,3 +26,47 @@ def load_sanctum_tier_b(sanctum_path: Path) -> str:
             # and let the bootstrap continue with Qdrant retrieval.
             pass
     return "\n".join(output_parts)
+
+
+def warn_if_workspace_stale(workspace: Path, source_repo: Path) -> None:
+    """Warn at session start if workspace is behind source HEAD.
+
+    BP-161 / TD-522: detects workspace-source-of-truth drift. Reads
+    {workspace}/.sync-stamp (written by scripts/sync-workspace.sh) and
+    compares against the current HEAD of {source_repo}/.git/refs/heads/main.
+
+    Graceful: returns without raising on any missing file or unreadable path.
+    Drift surfaces only as a structured logger.warning record — NEVER blocks
+    session start.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    stamp = workspace / ".sync-stamp"
+    if not stamp.exists():
+        logger.warning(
+            "workspace_sync_stamp_missing", extra={"workspace": str(workspace)}
+        )
+        return
+
+    head_file = source_repo / ".git" / "refs" / "heads" / "main"
+    if not head_file.exists():
+        # Cannot determine source HEAD (worktree HEAD-detached or unusual layout); skip.
+        return
+
+    try:
+        current_head = head_file.read_text().strip()
+        stamped = stamp.read_text().strip()
+    except OSError:
+        return
+
+    if stamped != current_head:
+        logger.warning(
+            "workspace_sync_stale",
+            extra={
+                "workspace": str(workspace),
+                "stamped_head": stamped[:12],
+                "source_head": current_head[:12],
+            },
+        )

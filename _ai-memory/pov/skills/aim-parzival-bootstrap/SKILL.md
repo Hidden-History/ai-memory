@@ -196,6 +196,14 @@ try:
                 print(tier_b_output)
         except Exception:
             pass
+        try:
+            workspace_root = Path(os.getcwd())
+            source_repo_candidate = workspace_root.parent / "ai-memory"
+            if source_repo_candidate.exists() and (source_repo_candidate / ".git").exists():
+                from sanctum_tier_b import warn_if_workspace_stale
+                warn_if_workspace_stale(workspace_root / "_ai-memory", source_repo_candidate)
+        except Exception:
+            pass  # Best-effort; never blocks bootstrap
 
     # Build output
     print("## Cross-Session Memory (Parzival Bootstrap)\n")
