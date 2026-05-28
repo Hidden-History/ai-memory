@@ -34,22 +34,30 @@ def test_prometheus_init_runs_to_completion_with_named_volume(tmp_path):
     vol_name = f"test-prom-runtime-{uuid.uuid4().hex[:8]}"
     env_file = tmp_path / ".env"
     env_file.write_text(
-        "PROMETHEUS_ADMIN_PASSWORD=test-pw-bp162\n"
-        "QDRANT_API_KEY=test-key-bp162\n"
+        "PROMETHEUS_ADMIN_PASSWORD=test-pw-bp162\n" "QDRANT_API_KEY=test-key-bp162\n"
     )
-    subprocess.run(["docker", "volume", "create", vol_name], check=True, capture_output=True)
+    subprocess.run(
+        ["docker", "volume", "create", vol_name], check=True, capture_output=True
+    )
     try:
         result = subprocess.run(
             [
-                "docker", "run", "--rm",
-                "--env-file", str(env_file),
-                "-v", f"{vol_name}:/etc/prometheus/runtime",
+                "docker",
+                "run",
+                "--rm",
+                "--env-file",
+                str(env_file),
+                "-v",
+                f"{vol_name}:/etc/prometheus/runtime",
                 "ai-memory-prometheus-init:3.12-alpine",
-                "sh", "-c",
+                "sh",
+                "-c",
                 "pip install --no-cache-dir --quiet bcrypt==4.2.1 && "
                 "python3 /scripts/gen-prometheus-config.py",
             ],
-            capture_output=True, text=True, timeout=180,
+            capture_output=True,
+            text=True,
+            timeout=180,
         )
         assert result.returncode == 0, (
             f"prometheus-init must exit 0 (BP-162 regression guard).\n"

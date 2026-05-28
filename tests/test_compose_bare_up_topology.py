@@ -623,13 +623,22 @@ class TestTd583DirModes:
         """Parent dirs created via COPY --chmod=644 must have execute bit."""
         result = subprocess.run(
             [
-                "docker", "run", "--rm", "--entrypoint", "stat",
+                "docker",
+                "run",
+                "--rm",
+                "--entrypoint",
+                "stat",
                 "ai-memory-prometheus-init:3.12-alpine",
-                "-c", "%a %n",
-                "/etc/prometheus", "/scripts",
-                "/etc/prometheus/web.yml.template", "/scripts/gen-prometheus-config.py",
+                "-c",
+                "%a %n",
+                "/etc/prometheus",
+                "/scripts",
+                "/etc/prometheus/web.yml.template",
+                "/scripts/gen-prometheus-config.py",
             ],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         out = result.stdout
         assert "755 /etc/prometheus" in out, f"BP-162 regression: {out}"
@@ -642,20 +651,28 @@ class TestTd583DirModes:
         """Defensive: parent dir of retention.xml must remain traversable."""
         result = subprocess.run(
             [
-                "docker", "run", "--rm", "--entrypoint", "stat",
+                "docker",
+                "run",
+                "--rm",
+                "--entrypoint",
+                "stat",
                 "ai-memory-langfuse-clickhouse:24",
-                "-c", "%a %n",
+                "-c",
+                "%a %n",
                 "/etc/clickhouse-server/config.d",
                 "/etc/clickhouse-server/config.d/retention.xml",
             ],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         out = result.stdout
         # Accept any mode >= 755 (clickhouse base provides 0777).
-        config_d_line = [
-            ln for ln in out.splitlines()
+        config_d_line = next(
+            ln
+            for ln in out.splitlines()
             if ln.endswith("/etc/clickhouse-server/config.d")
-        ][0]
+        )
         config_d_mode = int(config_d_line.split()[0])
         assert config_d_mode >= 755, f"BP-162 regression: {out}"
         assert "644 /etc/clickhouse-server/config.d/retention.xml" in out
