@@ -362,7 +362,7 @@ services:
       # Mount src/ for memory.models import (DRY - single source of truth for types)
       - ../src:/app/src:ro
     <<: *python-service-defaults
-    restart: unless-stopped  # Explicit override (field does not inherit from x-python-service-defaults anchor)
+    restart: unless-stopped  # Explicit value matches x-python-service-defaults anchor; preserved for clarity.
     environment:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
       - QDRANT_HOST=qdrant                             # container-internal hostname
