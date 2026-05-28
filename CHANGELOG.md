@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **BP-162 / TD-583 regression** — `docker/prometheus/Dockerfile`: parent directory
+  `/etc/prometheus/` inherited mode 0644 from `COPY --chmod=644` (BuildKit defect
+  moby/buildkit#5943), breaking `os.makedirs()` stat checks at prometheus-init
+  startup with the named volume mounted at `/etc/prometheus/runtime`. Pattern A
+  fix applied: explicit `RUN mkdir -p && chmod 755` BEFORE `COPY --chmod=644`,
+  plus build-time `stat` guardrails and a runtime integration test that
+  exercises the actual init flow with the production volume layout. Same
+  pattern applied defensively to `docker/langfuse/Dockerfile`. See
+  `oversight/knowledge/best-practices/BP-162-docker-buildkit-copy-chmod-parent-dir-pattern-2026.md`.
 - **TD-583** — Image-bake the remaining 4 WSL2 single-file bind-mount fragility sites into their service images. `docker/prometheus/Dockerfile` extends `python:3.12-alpine` and bakes the 3 prometheus-init config templates (`web.yml`, `prometheus.yml`, `gen-prometheus-config.py`) into the image; `docker/langfuse/Dockerfile` extends `clickhouse/clickhouse-server:24` and bakes `clickhouse-config.xml` into `/etc/clickhouse-server/config.d/retention.xml`. Both compose files updated to use `build:` + local `image:` tag; single-file bind-mounts removed. Closes the SG-1 fragility class structurally for all 6 affected services (qdrant + grafana from TD-582, prometheus-init + langfuse-clickhouse from TD-583). (TECH-DEBT-583)
 - **TD-584** — Change `streamlit` service `restart: on-failure:3` to `restart: unless-stopped` in `docker/docker-compose.yml`. The `on-failure` policy does not restart containers that exit cleanly (exit 0); Docker daemon restart left streamlit alone needing manual `docker compose up -d streamlit` while all other services auto-recovered. Aligns with codebase convention; inline comment updated to reflect corrected explicit value. (TECH-DEBT-584)
 - **TD-585** — Harden `scripts/install.sh` verification gates: (1) qdrant port-check in `verify_services_running` (add-project mode) replaced with `docker inspect` healthcheck-status poll with 45 s timeout — tolerates qdrant startup latency without false-fail immediate probe; (2) `pip install -e` failure in both `install_python_dependencies` (full mode) and `update_shared_scripts` (add-project mode) promoted from WARNING to STOP-GATE — exits 1 with explicit error and retry instructions; (3) early `.env` existence assert added post-`persist_user_choices_to_env` to catch the F-4 edge case where `.env.secrets` exists but `.env` was not created. (TECH-DEBT-585)

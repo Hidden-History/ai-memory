@@ -27,6 +27,7 @@ Architecture: Option 4 env_file: for prometheus-init, prometheus, grafana;
 """
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -597,3 +598,64 @@ class TestStackShImageBakeRebuild:
             f"Image-bake service '{service}' must be referenced in stack.sh "
             f"rebuild list (TD-587); missing from script."
         )
+
+
+# ---------------------------------------------------------------------------
+# BP-162 Layer 2 — built-image parent-dir mode assertions
+# ---------------------------------------------------------------------------
+
+
+class TestTd583DirModes:
+    """BP-162: parent dirs of TD-583 COPY --chmod=644 files must be traversable (mode 755).
+
+    Layer 2 of the three-layer test pattern from BP-162 §7.1 — static
+    per-image assertions that the built images have correct directory modes.
+    Requires Docker daemon; marked integration so they're excluded from the
+    fast unit CI job.
+
+    These catch the BuildKit moby/buildkit#5943 propagation defect class:
+    COPY --chmod=644 to a new parent dir propagates 644 to the parent, making
+    it non-traversable (drw-r--r--) without the BP-162 Pattern A pre-mkdir fix.
+    """
+
+    @pytest.mark.integration
+    def test_prometheus_init_image_dir_modes(self):
+        """Parent dirs created via COPY --chmod=644 must have execute bit."""
+        result = subprocess.run(
+            [
+                "docker", "run", "--rm", "--entrypoint", "stat",
+                "ai-memory-prometheus-init:3.12-alpine",
+                "-c", "%a %n",
+                "/etc/prometheus", "/scripts",
+                "/etc/prometheus/web.yml.template", "/scripts/gen-prometheus-config.py",
+            ],
+            capture_output=True, text=True, check=True,
+        )
+        out = result.stdout
+        assert "755 /etc/prometheus" in out, f"BP-162 regression: {out}"
+        assert "755 /scripts" in out, f"BP-162 regression: {out}"
+        assert "644 /etc/prometheus/web.yml.template" in out
+        assert "755 /scripts/gen-prometheus-config.py" in out
+
+    @pytest.mark.integration
+    def test_langfuse_clickhouse_image_dir_modes(self):
+        """Defensive: parent dir of retention.xml must remain traversable."""
+        result = subprocess.run(
+            [
+                "docker", "run", "--rm", "--entrypoint", "stat",
+                "ai-memory-langfuse-clickhouse:24",
+                "-c", "%a %n",
+                "/etc/clickhouse-server/config.d",
+                "/etc/clickhouse-server/config.d/retention.xml",
+            ],
+            capture_output=True, text=True, check=True,
+        )
+        out = result.stdout
+        # Accept any mode >= 755 (clickhouse base provides 0777).
+        config_d_line = [
+            ln for ln in out.splitlines()
+            if ln.endswith("/etc/clickhouse-server/config.d")
+        ][0]
+        config_d_mode = int(config_d_line.split()[0])
+        assert config_d_mode >= 755, f"BP-162 regression: {out}"
+        assert "644 /etc/clickhouse-server/config.d/retention.xml" in out
