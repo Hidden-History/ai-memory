@@ -322,6 +322,8 @@ cmd_stop() {
     # regardless of which profiles were active at start time.
     # Profiles: monitoring (grafana, prometheus, etc.), github (github-sync),
     # testing (monitoring-api in test mode).
+    # Default-scope services (qdrant, embedding, classifier-worker) are always
+    # included — no profile flag required to stop them.
     step "Step 2/2 — Stopping core services"
     _compose \
         -f "${COMPOSE_CORE}" \

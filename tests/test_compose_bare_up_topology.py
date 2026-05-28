@@ -14,14 +14,16 @@ Companion rendered-config test (needs `docker compose config` CLI) lives in
 tests/integration/test_compose_bare_up_secrets.py.
 
 Relocated from tests/integration/ to mirror the
-tests/test_compose_qdrant_wiring.py precedent (BUG-287 fix-r2 H-1): placing a
+tests/test_compose_qdrant_wiring.py precedent (BUG-287 H-1): placing a
 pure YAML-parse test under integration/ caused it to be auto-marked integration
 and excluded from the fast unit CI job, defeating the cheap-regression-guard
 purpose.
 
 Background: TD-582 (BUG-279 sibling, PM #308 bare-up verification gap).
 Architecture: Option 4 env_file: for prometheus-init, prometheus, grafana;
-              Option 1 entrypoint shim for qdrant (canonical name translation).
+              Option 1 entrypoint shims for qdrant + grafana (canonical name
+              translation); TD-583 image-bake for prometheus-init +
+              langfuse-clickhouse config delivery.
 """
 
 import re
