@@ -154,7 +154,10 @@ services:
   # prom/prometheus is BusyBox-based (no package manager, no Python)
   # Best practice: Docker init container pattern for config generation
   prometheus-init:
-    image: python:3.12-alpine
+    build:
+      context: ./prometheus
+      dockerfile: Dockerfile
+    image: ai-memory-prometheus-init:3.12-alpine
     container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-prometheus-init
     labels:
       <<: *ai-memory-labels
@@ -162,9 +165,6 @@ services:
     profiles: ["monitoring"]
     volumes:
       - prometheus_runtime:/etc/prometheus/runtime
-      - ./prometheus/web.yml:/etc/prometheus/web.yml.template:ro
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml.template:ro
-      - ./prometheus/gen-prometheus-config.py:/scripts/gen-prometheus-config.py:ro
     # One-shot init container: 2 secret-class keys (PROMETHEUS_ADMIN_PASSWORD, QDRANT_API_KEY)
     # delivered via env_file:; no interpolation dependency on --env-file CLI flags (TD-582).
     env_file:
