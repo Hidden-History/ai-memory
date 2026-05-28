@@ -543,3 +543,45 @@ class TestEffectiveContainerEnvCoverage:
             f"re-exports. Effective env names (sample): "
             f"{sorted(effective)[:15]}{'...' if len(effective) > 15 else ''}"
         )
+
+
+# ---------------------------------------------------------------------------
+# TD-587 — stack.sh cmd_start image-bake rebuild assertions
+# ---------------------------------------------------------------------------
+
+
+STACK_SH_PATH = REPO_ROOT / "scripts" / "stack.sh"
+
+
+class TestStackShImageBakeRebuild:
+    """Verify stack.sh cmd_start contains an explicit compose build call for
+    all image-bake services.
+
+    TD-587: compose up -d does NOT rebuild on source change to Dockerfile or
+    COPY'd files when a cached image already exists. The fix adds an explicit
+    `compose build --no-cache` before `up -d` so operator edits take effect.
+    Regression guard: if the build call is removed or a service is dropped
+    from the list, these tests catch it before CI.
+    """
+
+    @pytest.fixture(scope="class")
+    def stack_sh_text(self):
+        return STACK_SH_PATH.read_text(encoding="utf-8")
+
+    def test_stack_sh_has_compose_build_no_cache(self, stack_sh_text):
+        """stack.sh must contain a `compose build --no-cache` invocation."""
+        assert re.search(
+            r"build\s+--no-cache",
+            stack_sh_text,
+        ), "stack.sh must contain 'build --no-cache' for image-bake services (TD-587)"
+
+    @pytest.mark.parametrize(
+        "service",
+        ["qdrant", "grafana", "prometheus-init", "langfuse-clickhouse"],
+    )
+    def test_image_bake_service_in_rebuild_list(self, stack_sh_text, service):
+        """Each image-bake service must appear near a compose build call in stack.sh."""
+        assert service in stack_sh_text, (
+            f"Image-bake service '{service}' must be referenced in stack.sh "
+            f"rebuild list (TD-587); missing from script."
+        )

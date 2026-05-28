@@ -226,6 +226,21 @@ cmd_start() {
         log_info "GITHUB_SYNC:        enabled (token ${_token_status:-NOT SET})"
     fi
 
+    # ── Step 1a: Rebuild image-bake services (core) ──────────────────────────
+    # TD-582/TD-583: services using the build:+image: hybrid pattern cache the
+    # built image layer. `compose up` reuses the cached image even when source
+    # files (Dockerfile, COPY'd entrypoint/config) change — silent staleness.
+    # Explicit `build --no-cache` before `up` guarantees edits take effect.
+    # Mirrors the install.sh pattern. Add new image-bake services to this array.
+    local -a IMAGE_BAKE_SERVICES=(qdrant grafana prometheus-init)
+    step "Step 1a/2 — Rebuilding image-bake services (${IMAGE_BAKE_SERVICES[*]})"
+    if ! _compose \
+            -f "${COMPOSE_CORE}" \
+            build --no-cache "${IMAGE_BAKE_SERVICES[@]}"; then
+        log_warning "Image-bake rebuild failed — continuing with cached images. Inspect:"
+        log_warning "  docker compose -f ${COMPOSE_CORE} build ${IMAGE_BAKE_SERVICES[*]}"
+    fi
+
     # ── Step 1: Core stack ────────────────────────────────────────────────────
     # Creates the ai-memory_default network that langfuse will join.
     local _profiles_short="${_profiles_display//--profile /}"
@@ -251,6 +266,15 @@ cmd_start() {
         else
             step "Step 2/2 — Langfuse services (LLM observability)"
             log_info "This may take up to 2 minutes (ClickHouse + PostgreSQL startup)..."
+
+            # TD-583: langfuse-clickhouse uses image-bake delivery; rebuild before up.
+            local -a IMAGE_BAKE_SERVICES_LANGFUSE=(langfuse-clickhouse)
+            if ! _compose \
+                    -f "${COMPOSE_CORE}" \
+                    -f "${COMPOSE_LANGFUSE}" \
+                    build --no-cache "${IMAGE_BAKE_SERVICES_LANGFUSE[@]}"; then
+                log_warning "Langfuse image-bake rebuild failed — continuing with cached images."
+            fi
 
             # NOTE: Both compose files are passed intentionally. Docker Compose merges
             # them under one project name ("ai-memory" from docker-compose.yml name: field).
