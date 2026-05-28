@@ -265,21 +265,21 @@ class TestComposeSourceTopology:
 
         # (a) build: block points at the local Dockerfile
         build = svc.get("build")
-        assert isinstance(build, dict), (
-            f"prometheus-init must declare a build: block; got: {build!r}"
-        )
-        assert build.get("context") == "./prometheus", (
-            f"prometheus-init build.context must be './prometheus'; got: {build.get('context')!r}"
-        )
-        assert build.get("dockerfile") == "Dockerfile", (
-            f"prometheus-init build.dockerfile must be 'Dockerfile'; got: {build.get('dockerfile')!r}"
-        )
+        assert isinstance(
+            build, dict
+        ), f"prometheus-init must declare a build: block; got: {build!r}"
+        assert (
+            build.get("context") == "./prometheus"
+        ), f"prometheus-init build.context must be './prometheus'; got: {build.get('context')!r}"
+        assert (
+            build.get("dockerfile") == "Dockerfile"
+        ), f"prometheus-init build.dockerfile must be 'Dockerfile'; got: {build.get('dockerfile')!r}"
 
         # (b) Dockerfile exists and COPYs all 3 config files to expected target paths
         dockerfile_path = DOCKER_DIR / "prometheus" / "Dockerfile"
-        assert dockerfile_path.exists(), (
-            f"docker/prometheus/Dockerfile must exist; not found at {dockerfile_path}"
-        )
+        assert (
+            dockerfile_path.exists()
+        ), f"docker/prometheus/Dockerfile must exist; not found at {dockerfile_path}"
         dockerfile_text = dockerfile_path.read_text(encoding="utf-8")
         for src, dst in [
             ("web.yml", "/etc/prometheus/web.yml.template"),
@@ -316,21 +316,21 @@ class TestComposeSourceTopology:
 
         # (a) build: block points at the local Dockerfile
         build = svc.get("build")
-        assert isinstance(build, dict), (
-            f"langfuse-clickhouse must declare a build: block; got: {build!r}"
-        )
-        assert build.get("context") == "./langfuse", (
-            f"langfuse-clickhouse build.context must be './langfuse'; got: {build.get('context')!r}"
-        )
-        assert build.get("dockerfile") == "Dockerfile", (
-            f"langfuse-clickhouse build.dockerfile must be 'Dockerfile'; got: {build.get('dockerfile')!r}"
-        )
+        assert isinstance(
+            build, dict
+        ), f"langfuse-clickhouse must declare a build: block; got: {build!r}"
+        assert (
+            build.get("context") == "./langfuse"
+        ), f"langfuse-clickhouse build.context must be './langfuse'; got: {build.get('context')!r}"
+        assert (
+            build.get("dockerfile") == "Dockerfile"
+        ), f"langfuse-clickhouse build.dockerfile must be 'Dockerfile'; got: {build.get('dockerfile')!r}"
 
         # (b) Dockerfile exists and COPYs retention.xml to expected target path
         dockerfile_path = DOCKER_DIR / "langfuse" / "Dockerfile"
-        assert dockerfile_path.exists(), (
-            f"docker/langfuse/Dockerfile must exist; not found at {dockerfile_path}"
-        )
+        assert (
+            dockerfile_path.exists()
+        ), f"docker/langfuse/Dockerfile must exist; not found at {dockerfile_path}"
         dockerfile_text = dockerfile_path.read_text(encoding="utf-8")
         assert re.search(
             r"COPY\s+(?:--\S+\s+)?clickhouse-config\.xml\s+"
@@ -357,14 +357,26 @@ class TestComposeSourceTopology:
         """
         # Pairs of (compose_service_name, config, fragment_that_must_not_appear)
         checks = [
-            ("prometheus-init (web.yml)", source_config["services"]["prometheus-init"],
-             "web.yml.template"),
-            ("prometheus-init (prometheus.yml)", source_config["services"]["prometheus-init"],
-             "prometheus.yml.template"),
-            ("prometheus-init (gen-prometheus-config.py)", source_config["services"]["prometheus-init"],
-             "gen-prometheus-config.py"),
-            ("langfuse-clickhouse", langfuse_config["services"]["langfuse-clickhouse"],
-             "clickhouse-config.xml"),
+            (
+                "prometheus-init (web.yml)",
+                source_config["services"]["prometheus-init"],
+                "web.yml.template",
+            ),
+            (
+                "prometheus-init (prometheus.yml)",
+                source_config["services"]["prometheus-init"],
+                "prometheus.yml.template",
+            ),
+            (
+                "prometheus-init (gen-prometheus-config.py)",
+                source_config["services"]["prometheus-init"],
+                "gen-prometheus-config.py",
+            ),
+            (
+                "langfuse-clickhouse",
+                langfuse_config["services"]["langfuse-clickhouse"],
+                "clickhouse-config.xml",
+            ),
         ]
         for label, svc, fragment in checks:
             volumes = svc.get("volumes") or []
